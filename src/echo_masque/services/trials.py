@@ -137,7 +137,12 @@ class TrialService:
         try:
             self.repository.clear_trial_events(run_id)
             self.repository.set_run_status(run_id, TrialStatus.RUNNING)
-            target = self._target(target_record.target_kind, target_record.name, target_record.config_json, credential)
+            target = self._target(
+                target_record.target_kind,
+                target_record.name,
+                target_record.config_json,
+                credential,
+            )
             adaptive = None
             if tester_mode == "adaptive":
                 if adaptive_config is None:
