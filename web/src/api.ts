@@ -5,6 +5,7 @@ export type TestKind =
   | "long_conversation_drift";
 
 export type ObservationMode = "watch" | "fast";
+export type TesterMode = "benchmark" | "adaptive";
 export type ProviderId = "deepseek" | "openai" | "openrouter" | "custom";
 export type ReportFormat = "markdown" | "json";
 
@@ -59,6 +60,16 @@ export interface PromptCharacterCreate
   api_key: string;
 }
 
+export interface AdaptiveTesterConfig {
+  provider: ProviderId;
+  base_url: string;
+  model: string;
+  system_prompt: string;
+  temperature: number;
+  max_turns: number;
+  api_key: string;
+}
+
 export interface CredentialStatus {
   required: boolean;
   configured: boolean;
@@ -97,6 +108,7 @@ export interface TrialEvent {
     | "session_started"
     | "scenario_started"
     | "tester_message"
+    | "tester_thinking"
     | "subject_typing"
     | "subject_response"
     | "judge_result"
@@ -204,10 +216,22 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ api_key: apiKey })
     }),
-  startTrial: (characterCardId: string, suite: TestKind[], mode: ObservationMode) =>
+  startTrial: (
+    characterCardId: string,
+    suite: TestKind[],
+    mode: ObservationMode,
+    testerMode: TesterMode,
+    adaptiveTester?: AdaptiveTesterConfig
+  ) =>
     request<TrialRun>("/api/trials", {
       method: "POST",
-      body: JSON.stringify({ character_card_id: characterCardId, suite, mode })
+      body: JSON.stringify({
+        character_card_id: characterCardId,
+        suite,
+        mode,
+        tester_mode: testerMode,
+        adaptive_tester: testerMode === "adaptive" ? adaptiveTester : undefined
+      })
     }),
   getTrial: (id: string) => request<TrialRun>(`/api/trials/${id}`),
   getTrialEvents: (id: string, after = 0) =>

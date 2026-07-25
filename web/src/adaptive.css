@@ -1,0 +1,106 @@
+.tester-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.tester-mode-switch button {
+  border: 1px solid rgba(101, 78, 105, .15);
+  border-radius: 10px;
+  background: rgba(255,255,255,.55);
+  padding: 9px;
+  color: #76657a;
+  font-weight: 800;
+  text-align: left;
+}
+.tester-mode-switch small {
+  display: block;
+  margin-top: 3px;
+  color: #9a899d;
+  font-size: .59rem;
+  line-height: 1.3;
+}
+.tester-mode-switch button.selected {
+  color: white;
+  background: #65516f;
+}
+.tester-mode-switch button.selected small { color: #eadfec; }
+
+.adaptive-summary {
+  margin-top: 9px;
+  padding: 11px;
+  border: 1px dashed rgba(101, 78, 105, .24);
+  border-radius: 10px;
+  background: rgba(240, 232, 245, .7);
+}
+.adaptive-summary.missing { background: rgba(250, 231, 233, .72); }
+.adaptive-summary span,
+.adaptive-summary strong,
+.adaptive-summary small { display: block; }
+.adaptive-summary span {
+  color: #8d7892;
+  font-size: .62rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.adaptive-summary strong { margin: 4px 0; color: #5d4a63; }
+.adaptive-summary small { color: #8c7b90; line-height: 1.4; }
+
+.tester-thinking-bubble {
+  min-width: 150px;
+  background: #e9e0ee;
+  border: 1px dashed rgba(99, 74, 104, .22);
+}
+.tester-thinking-bubble p {
+  display: flex;
+  gap: 4px;
+  padding: 5px 3px;
+}
+.tester-thinking-bubble i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #826d89;
+  animation: typing 1s infinite;
+}
+.tester-thinking-bubble i:nth-child(2) { animation-delay: .16s; }
+.tester-thinking-bubble i:nth-child(3) { animation-delay: .32s; }
+
+.adaptive-tester-sheet { width: min(780px, 100%); }
+.adaptive-tester-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+}
+.adaptive-tester-form label {
+  color: #6c5c70;
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .05em;
+}
+.adaptive-tester-form input,
+.adaptive-tester-form select,
+.adaptive-tester-form textarea {
+  width: 100%;
+  margin-top: 6px;
+  padding: 11px 12px;
+  border: 1px solid rgba(101, 76, 104, .2);
+  border-radius: 10px;
+  background: rgba(255,255,255,.68);
+  color: #433747;
+  resize: vertical;
+}
+.adaptive-security-note {
+  margin: 0;
+  padding: 11px 13px;
+  border-radius: 9px;
+  background: #fff3cf;
+  color: #74616e;
+  font-size: .72rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .adaptive-tester-form { grid-template-columns: 1fr; }
+  .adaptive-tester-form .wide,
+  .adaptive-tester-form .form-actions { grid-column: auto; }
+}

@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { AdaptiveTesterModal } from "./AdaptiveTesterModal";
+import {
+  adaptiveTesterReady,
+  defaultAdaptiveTesterConfig
+} from "./adaptiveTester";
 import {
   api,
+  type AdaptiveTesterConfig,
   type CharacterCard,
   type ComparisonResult,
   type CredentialStatus,
   type ObservationMode,
   type ReportFormat,
   type TargetView,
+  type TesterMode,
   type TestKind,
   type TrialEvent,
   type TrialRun
@@ -16,6 +23,7 @@ import { CredentialModal } from "./CredentialModal";
 import { latestScenarioName, payloadNumber, payloadText, visibleEvents } from "./live";
 import { ReportModal } from "./ReportModal";
 import { firstBreakpoint, integrityLabel } from "./summary";
+import "./adaptive.css";
 
 interface Props {
   card: CharacterCard;
@@ -56,9 +64,14 @@ export function TestRoom({ card, target, onBack }: Props) {
     card.preferred_suites.length > 0 ? card.preferred_suites : suites.map((item) => item.id)
   );
   const [mode, setMode] = useState<ObservationMode>("watch");
+  const [testerMode, setTesterMode] = useState<TesterMode>("benchmark");
+  const [adaptiveTester, setAdaptiveTester] = useState<AdaptiveTesterConfig>(
+    defaultAdaptiveTesterConfig
+  );
+  const [showAdaptiveTester, setShowAdaptiveTester] = useState(false);
   const [events, setEvents] = useState<TrialEvent[]>([]);
   const [run, setRun] = useState<TrialRun | null>(null);
-  const [previousRun, setPreviousRun] = useState<TrialRun | null>(null);
+  const [lastBenchmarkRun, setLastBenchmarkRun] = useState<TrialRun | null>(null);
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
   const [credential, setCredential] = useState<CredentialStatus | null>(null);
   const [showCredential, setShowCredential] = useState(false);
@@ -74,6 +87,7 @@ export function TestRoom({ card, target, onBack }: Props) {
   const scenarioName = latestScenarioName(events);
   const eventCount = evidenceCount(events);
   const credentialReady = credential?.configured ?? target.target_kind !== "prompt_model";
+  const adaptiveReady = adaptiveTesterReady(adaptiveTester);
   const provider = configText(target, "provider", "OpenAI-compatible");
   const model = configText(target, "model", "Unspecified model");
   const baseUrl = configText(target, "base_url", "No endpoint filed");
@@ -100,23 +114,42 @@ export function TestRoom({ card, target, onBack }: Props) {
   }
 
   async function start() {
-    if (!credentialReady) { setShowCredential(true); return; }
+    if (!credentialReady) {
+      setShowCredential(true);
+      return;
+    }
+    if (testerMode === "adaptive" && !adaptiveReady) {
+      setShowAdaptiveTester(true);
+      return;
+    }
+
     setBusy(true);
     setError(null);
     setComparison(null);
     setEvents([]);
-    const baseline = run?.status === "completed" ? run : previousRun;
-    if (run?.status === "completed") setPreviousRun(run);
+    const baseline = testerMode === "benchmark" ? lastBenchmarkRun : null;
     try {
-      const created = await api.startTrial(card.id, selected, mode);
+      const created = await api.startTrial(
+        card.id,
+        selected,
+        mode,
+        testerMode,
+        testerMode === "adaptive" ? adaptiveTester : undefined
+      );
+      if (testerMode === "adaptive") {
+        setAdaptiveTester((current) => ({ ...current, api_key: "" }));
+      }
       setRun(created);
       const completed = await api.observeTrial(created.id, mode, setEvents, setRun);
       setRun(completed);
       if (completed.status === "failed") {
         setError(completed.error ?? "The provider-backed session failed.");
       }
-      if (baseline && baseline.id !== completed.id && completed.status === "completed") {
-        setComparison(await api.compareRuns(baseline.id, completed.id));
+      if (testerMode === "benchmark" && completed.status === "completed") {
+        if (baseline && baseline.id !== completed.id) {
+          setComparison(await api.compareRuns(baseline.id, completed.id));
+        }
+        setLastBenchmarkRun(completed);
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The room lost its signal.");
@@ -127,8 +160,9 @@ export function TestRoom({ card, target, onBack }: Props) {
 
   async function stop() {
     if (!run || !["pending", "running"].includes(run.status)) return;
-    try { setRun(await api.cancelTrial(run.id)); }
-    catch (reason) {
+    try {
+      setRun(await api.cancelTrial(run.id));
+    } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not stop the session.");
     }
   }
@@ -148,19 +182,67 @@ export function TestRoom({ card, target, onBack }: Props) {
           <aside className="room-sidebar paper-sheet">
             <div className={`mini-card portrait-${card.portrait_variant}`}>
               <img src="/assets/character-silhouette.svg" alt="" />
-              <div><span>{card.subject_type}</span><strong>{card.display_name}</strong><small>{card.subtitle}</small></div>
+              <div>
+                <span>{card.subject_type}</span>
+                <strong>{card.display_name}</strong>
+                <small>{card.subtitle}</small>
+              </div>
             </div>
 
             {target.target_kind === "prompt_model" && (
               <div className={credentialReady ? "connection-card ready" : "connection-card missing"}>
-                <div className="connection-title"><span>AI connection</span><strong>{credentialLabel(credential)}</strong></div>
+                <div className="connection-title">
+                  <span>AI connection</span><strong>{credentialLabel(credential)}</strong>
+                </div>
                 <dl>
                   <div><dt>Provider</dt><dd>{provider}</dd></div>
                   <div><dt>Model</dt><dd>{model}</dd></div>
                   <div><dt>Base URL</dt><dd title={baseUrl}>{baseUrl}</dd></div>
                 </dl>
-                <button className="paper-button full" onClick={() => setShowCredential(true)} disabled={busy}>
+                <button
+                  className="paper-button full"
+                  onClick={() => setShowCredential(true)}
+                  disabled={busy}
+                >
                   {credentialReady ? "Replace API key" : "Configure API key"}
+                </button>
+              </div>
+            )}
+
+            <p className="section-label">Tester style</p>
+            <div className="tester-mode-switch">
+              <button
+                className={testerMode === "benchmark" ? "selected" : ""}
+                onClick={() => setTesterMode("benchmark")}
+                disabled={busy}
+              >
+                Benchmark
+                <small>fixed and reproducible</small>
+              </button>
+              <button
+                className={testerMode === "adaptive" ? "selected" : ""}
+                onClick={() => setTesterMode("adaptive")}
+                disabled={busy}
+              >
+                Adaptive
+                <small>AI follows the reply</small>
+              </button>
+            </div>
+            {testerMode === "adaptive" && (
+              <div className={adaptiveReady ? "adaptive-summary" : "adaptive-summary missing"}>
+                <span>Pressure agent</span>
+                <strong>{adaptiveReady ? `${adaptiveTester.provider} · ${adaptiveTester.model}` : "Configuration required"}</strong>
+                <small>
+                  {adaptiveReady
+                    ? `Up to ${adaptiveTester.max_turns} turns per room; key loaded for one run.`
+                    : "Provide a separate provider, model, prompt, and one-run API key."}
+                </small>
+                <button
+                  className="paper-button full"
+                  onClick={() => setShowAdaptiveTester(true)}
+                  disabled={busy}
+                >
+                  {adaptiveReady ? "Edit Adaptive Tester" : "Configure Adaptive Tester"}
                 </button>
               </div>
             )}
@@ -168,7 +250,12 @@ export function TestRoom({ card, target, onBack }: Props) {
             <p className="section-label">Choose rooms</p>
             <div className="room-list">
               {suites.map((suite) => (
-                <button key={suite.id} className={selected.includes(suite.id) ? "room-choice selected" : "room-choice"} onClick={() => toggleSuite(suite.id)} disabled={busy}>
+                <button
+                  key={suite.id}
+                  className={selected.includes(suite.id) ? "room-choice selected" : "room-choice"}
+                  onClick={() => toggleSuite(suite.id)}
+                  disabled={busy}
+                >
                   <span>{suite.room}</span><small>{suite.title}</small>
                 </button>
               ))}
@@ -176,33 +263,62 @@ export function TestRoom({ card, target, onBack }: Props) {
 
             <p className="section-label">Observation speed</p>
             <div className="mode-switch">
-              <button className={mode === "watch" ? "selected" : ""} onClick={() => setMode("watch")} disabled={busy}>
+              <button
+                className={mode === "watch" ? "selected" : ""}
+                onClick={() => setMode("watch")}
+                disabled={busy}
+              >
                 Watch<small>1.2 s snapshots</small>
               </button>
-              <button className={mode === "fast" ? "selected" : ""} onClick={() => setMode("fast")} disabled={busy}>
+              <button
+                className={mode === "fast" ? "selected" : ""}
+                onClick={() => setMode("fast")}
+                disabled={busy}
+              >
                 Fast<small>450 ms snapshots</small>
               </button>
             </div>
 
-            <button className="ink-button full" onClick={() => void start()} disabled={busy || selected.length === 0}>
-              {busy ? "Observing…" : credentialReady ? "Begin session" : "Configure AI key"}
+            <button
+              className="ink-button full"
+              onClick={() => void start()}
+              disabled={busy || selected.length === 0}
+            >
+              {busy
+                ? "Observing…"
+                : !credentialReady
+                  ? "Configure Subject key"
+                  : testerMode === "adaptive" && !adaptiveReady
+                    ? "Configure Adaptive Tester"
+                    : "Begin session"}
             </button>
-            {busy && <button className="paper-button full" onClick={() => void stop()}>Stop session</button>}
+            {busy && (
+              <button className="paper-button full" onClick={() => void stop()}>
+                Stop session
+              </button>
+            )}
             {error && <p className="error-note">{error}</p>}
           </aside>
 
           <section className="chat-sheet paper-sheet">
             <div className="chat-heading">
               <div><p className="tape-label">Live Room</p><h2>{scenarioName}</h2></div>
-              <span className="round-counter">{events.filter((item) => item.event_type === "subject_response").length} replies</span>
+              <span className="round-counter">
+                {events.filter((item) => item.event_type === "subject_response").length} replies
+              </span>
             </div>
             <div className="chatroom" ref={transcriptRef} aria-live="polite">
               {displayEvents.length === 0 ? (
                 <div className="room-empty">
                   <img src="/assets/masque-mark.svg" alt="" />
-                  <h3>The room is quiet.</h3><p>Choose a room and begin the observation session.</p>
+                  <h3>The room is quiet.</h3>
+                  <p>Choose a room and begin the observation session.</p>
                 </div>
-              ) : displayEvents.map((event) => <LiveEvent key={event.sequence} event={event} card={card} />)}
+              ) : (
+                displayEvents.map((event) => (
+                  <LiveEvent key={event.sequence} event={event} card={card} />
+                ))
+              )}
             </div>
           </section>
 
@@ -213,18 +329,33 @@ export function TestRoom({ card, target, onBack }: Props) {
               <small>{run?.result ? integrityLabel(score) : "Still observing"}</small>
             </div>
             <dl className="signal-list">
+              <div><dt>Tester</dt><dd>{testerMode}</dd></div>
               <div><dt>Current room</dt><dd>{scenarioName}</dd></div>
               <div><dt>Evidence found</dt><dd>{eventCount}</dd></div>
-              <div><dt>First fracture</dt><dd>{breakpoint ? `${breakpoint.scenario.name} · turn ${breakpoint.breakpoint}` : "None yet"}</dd></div>
+              <div>
+                <dt>First fracture</dt>
+                <dd>
+                  {breakpoint
+                    ? `${breakpoint.scenario.name} · turn ${breakpoint.breakpoint}`
+                    : "None yet"}
+                </dd>
+              </div>
               <div><dt>Session state</dt><dd>{run?.status ?? "unobserved"}</dd></div>
             </dl>
             {comparison && (
               <div className={comparison.gate_passed ? "comparison pass" : "comparison fail"}>
-                <span>Compared with last run</span><strong>{comparison.gate_passed ? "No regression" : "Regression"}</strong>
-                <small>{comparison.score_delta >= 0 ? "+" : ""}{comparison.score_delta.toFixed(1)} score</small>
+                <span>Compared with last benchmark</span>
+                <strong>{comparison.gate_passed ? "No regression" : "Regression"}</strong>
+                <small>
+                  {comparison.score_delta >= 0 ? "+" : ""}
+                  {comparison.score_delta.toFixed(1)} score
+                </small>
               </div>
             )}
-            <div className="card-profile-note"><span>Persona note</span><p>{card.persona_summary || "No persona note filed."}</p></div>
+            <div className="card-profile-note">
+              <span>Persona note</span>
+              <p>{card.persona_summary || "No persona note filed."}</p>
+            </div>
             {run?.status === "completed" && (
               <div className="report-links">
                 <button onClick={() => setReportFormat("markdown")}>Lab note</button>
@@ -235,35 +366,125 @@ export function TestRoom({ card, target, onBack }: Props) {
         </section>
       </main>
 
-      {showCredential && <CredentialModal card={card} target={target} onClose={() => setShowCredential(false)} onConfigured={setCredential} />}
-      {reportFormat && run && <ReportModal runId={run.id} format={reportFormat} onClose={() => setReportFormat(null)} />}
+      {showCredential && (
+        <CredentialModal
+          card={card}
+          target={target}
+          onClose={() => setShowCredential(false)}
+          onConfigured={setCredential}
+        />
+      )}
+      {showAdaptiveTester && (
+        <AdaptiveTesterModal
+          initial={adaptiveTester}
+          onClose={() => setShowAdaptiveTester(false)}
+          onSave={(config) => {
+            setAdaptiveTester(config);
+            setShowAdaptiveTester(false);
+          }}
+        />
+      )}
+      {reportFormat && run && (
+        <ReportModal
+          runId={run.id}
+          format={reportFormat}
+          onClose={() => setReportFormat(null)}
+        />
+      )}
     </>
   );
 }
 
 function LiveEvent({ event, card }: { event: TrialEvent; card: CharacterCard }) {
   if (event.event_type === "scenario_started") {
-    return <div className="system-note"><span>Room opened</span><strong>{payloadText(event, "name")}</strong><small>{payloadText(event, "expected_behavior")}</small></div>;
+    return (
+      <div className="system-note">
+        <span>Room opened</span>
+        <strong>{payloadText(event, "name")}</strong>
+        <small>{payloadText(event, "expected_behavior")}</small>
+      </div>
+    );
+  }
+  if (event.event_type === "tester_thinking") {
+    return (
+      <div className="chat-line tester-line">
+        <div className="chat-avatar tester-avatar">T</div>
+        <div className="bubble tester-thinking-bubble">
+          <span>Adaptive Tester planning</span>
+          <p><i /><i /><i /></p>
+        </div>
+      </div>
+    );
   }
   if (event.event_type === "tester_message") {
-    return <div className="chat-line tester-line"><div className="chat-avatar tester-avatar">T</div><div className="bubble tester-bubble"><span>Tester · turn {event.turn_index}</span><p>{payloadText(event, "message")}</p></div></div>;
+    const source = payloadText(event, "source");
+    return (
+      <div className="chat-line tester-line">
+        <div className="chat-avatar tester-avatar">T</div>
+        <div className="bubble tester-bubble">
+          <span>
+            {source === "adaptive" ? "Adaptive Tester" : "Benchmark Tester"}
+            {` · turn ${event.turn_index}`}
+          </span>
+          <p>{payloadText(event, "message")}</p>
+        </div>
+      </div>
+    );
   }
   if (event.event_type === "subject_typing") {
-    return <div className="chat-line subject-line"><div className="bubble subject-bubble typing-bubble"><span>{card.display_name}</span><p><i /><i /><i /></p></div><div className={`chat-avatar subject-avatar portrait-${card.portrait_variant}`}><img src="/assets/character-silhouette.svg" alt="" /></div></div>;
+    return (
+      <div className="chat-line subject-line">
+        <div className="bubble subject-bubble typing-bubble">
+          <span>{card.display_name}</span><p><i /><i /><i /></p>
+        </div>
+        <div className={`chat-avatar subject-avatar portrait-${card.portrait_variant}`}>
+          <img src="/assets/character-silhouette.svg" alt="" />
+        </div>
+      </div>
+    );
   }
   if (event.event_type === "subject_response") {
     const latency = payloadNumber(event, "latency_ms");
-    return <div className="chat-line subject-line"><div className="bubble subject-bubble"><span>{card.display_name}{latency !== null ? ` · ${latency} ms` : ""}</span><p>{payloadText(event, "message")}</p></div><div className={`chat-avatar subject-avatar portrait-${card.portrait_variant}`}><img src="/assets/character-silhouette.svg" alt="" /></div></div>;
+    return (
+      <div className="chat-line subject-line">
+        <div className="bubble subject-bubble">
+          <span>{card.display_name}{latency !== null ? ` · ${latency} ms` : ""}</span>
+          <p>{payloadText(event, "message")}</p>
+        </div>
+        <div className={`chat-avatar subject-avatar portrait-${card.portrait_variant}`}>
+          <img src="/assets/character-silhouette.svg" alt="" />
+        </div>
+      </div>
+    );
   }
   if (event.event_type === "judge_result") {
     const passed = event.payload.passed === true;
-    return <div className={passed ? "judge-note pass" : "judge-note fail"}><span>Judge memo</span><strong>{passed ? "Role held" : "Drift observed"}</strong><p>{payloadText(event, "summary")}</p><small>Score {payloadNumber(event, "score") ?? 0}</small></div>;
+    return (
+      <div className={passed ? "judge-note pass" : "judge-note fail"}>
+        <span>Judge memo</span><strong>{passed ? "Role held" : "Drift observed"}</strong>
+        <p>{payloadText(event, "summary")}</p>
+        <small>Score {payloadNumber(event, "score") ?? 0}</small>
+      </div>
+    );
   }
   if (event.event_type === "breakpoint_detected") {
-    return <div className="fracture-banner"><img src="/assets/fracture-stamp.svg" alt="" /><div><span>Breakpoint detected</span><strong>Turn {event.turn_index}</strong><small>{payloadText(event, "severity")} severity</small></div></div>;
+    return (
+      <div className="fracture-banner">
+        <img src="/assets/fracture-stamp.svg" alt="" />
+        <div>
+          <span>Breakpoint detected</span><strong>Turn {event.turn_index}</strong>
+          <small>{payloadText(event, "severity")} severity</small>
+        </div>
+      </div>
+    );
   }
   if (event.event_type === "session_completed") {
-    return <div className="system-note completed"><span>Observation complete</span><strong>Average score {payloadNumber(event, "average_score") ?? 0}</strong></div>;
+    return (
+      <div className="system-note completed">
+        <span>Observation complete</span>
+        <strong>Average score {payloadNumber(event, "average_score") ?? 0}</strong>
+      </div>
+    );
   }
   if (event.event_type === "session_failed") {
     return <div className="system-note failed">{payloadText(event, "message")}</div>;

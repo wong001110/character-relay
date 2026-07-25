@@ -2,14 +2,25 @@ import type { TrialEvent } from "./api";
 
 export function visibleEvents(events: TrialEvent[]): TrialEvent[] {
   return events.filter((event) => {
-    if (event.event_type !== "subject_typing") return true;
-    return !events.some(
-      (candidate) =>
-        candidate.sequence > event.sequence &&
-        candidate.event_type === "subject_response" &&
-        candidate.scenario_id === event.scenario_id &&
-        candidate.turn_index === event.turn_index
-    );
+    if (event.event_type === "subject_typing") {
+      return !events.some(
+        (candidate) =>
+          candidate.sequence > event.sequence &&
+          candidate.event_type === "subject_response" &&
+          candidate.scenario_id === event.scenario_id &&
+          candidate.turn_index === event.turn_index
+      );
+    }
+    if (event.event_type === "tester_thinking") {
+      return !events.some(
+        (candidate) =>
+          candidate.sequence > event.sequence &&
+          candidate.event_type === "tester_message" &&
+          candidate.scenario_id === event.scenario_id &&
+          candidate.turn_index === event.turn_index
+      );
+    }
+    return true;
   });
 }
 

@@ -6,13 +6,14 @@ import { latestScenarioName, visibleEvents } from "./live";
 function event(
   sequence: number,
   eventType: TrialEvent["event_type"],
-  payload: Record<string, unknown> = {}
+  payload: Record<string, unknown> = {},
+  turnIndex = 1
 ): TrialEvent {
   return {
     sequence,
     event_type: eventType,
     scenario_id: "memory-room",
-    turn_index: 1,
+    turn_index: turnIndex,
     payload,
     created_at: "2026-07-25T00:00:00Z"
   };
@@ -26,6 +27,16 @@ describe("live observation helpers", () => {
     ];
     expect(visibleEvents(events).map((item) => item.event_type)).toEqual([
       "subject_response"
+    ]);
+  });
+
+  it("removes tester thinking after the adaptive message arrives", () => {
+    const events = [
+      event(1, "tester_thinking", {}, 2),
+      event(2, "tester_message", { message: "Try again." }, 2)
+    ];
+    expect(visibleEvents(events).map((item) => item.event_type)).toEqual([
+      "tester_message"
     ]);
   });
 
