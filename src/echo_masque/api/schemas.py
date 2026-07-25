@@ -3,16 +3,25 @@
 import json
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from echo_masque.domain import TestKind, TrialStatus, TrialSuiteResult
 from echo_masque.persistence.models import TargetRecord, TrialRunRecord, TurnRecord
+from echo_masque.security import redact
+from echo_masque.targets import HttpTargetConfig
+from echo_masque.transcripts import TranscriptFormat
 
 
 class TargetCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    target_kind: str = Field(pattern="^(stable|fragile)$")
+    target_kind: str = Field(pattern="^(stable|fragile|http)$")
     config: dict[str, object] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_config(self) -> "TargetCreate":
+        if self.target_kind == "http":
+            HttpTargetConfig.model_validate(self.config)
+        return self
 
 
 class TargetView(BaseModel):
@@ -29,7 +38,7 @@ class TargetView(BaseModel):
             id=record.id,
             name=record.name,
             target_kind=record.target_kind,
-            config=json.loads(record.config_json),
+            config=_safe_config(record.config_json),
             created_at=record.created_at,
         )
 
@@ -85,3 +94,17 @@ class ReplayTurn(BaseModel):
             latency_ms=record.latency_ms,
             trace=json.loads(record.trace_json),
         )
+
+
+class TranscriptAnalyzeRequest(BaseModel):
+    format: TranscriptFormat
+    content: str = Field(min_length=1)
+    subject_name: str = Field(default="Imported subject", min_length=1, max_length=120)
+    suite: list[TestKind] = Field(default_factory=lambda: list(TestKind))
+
+
+def _safe_config(raw: str) -> dict[str, object]:
+    value = redact(json.loads(raw))
+    if not isinstance(value, dict):
+        return {}
+    return value

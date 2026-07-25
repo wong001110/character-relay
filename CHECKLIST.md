@@ -42,9 +42,9 @@
 - [ ] Manual: visual hierarchy and responsive behavior
 
 ## Phase 6 — External targets
-- [ ] Custom HTTP target
-- [ ] Transcript import
-- [ ] Contract validation and redaction
+- [x] Custom HTTP target
+- [x] Transcript import
+- [x] Contract validation and redaction
 - [ ] Manual: validate against a separately hosted chatbot
 
 ## Phase 7 — Comparison and release

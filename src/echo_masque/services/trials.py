@@ -6,7 +6,7 @@ from echo_masque.domain import TestKind, TrialStatus
 from echo_masque.persistence import Repository
 from echo_masque.providers import ProviderError
 from echo_masque.suites import scenarios_for
-from echo_masque.targets import fragile_target, stable_target
+from echo_masque.targets import HttpTarget, HttpTargetConfig, fragile_target, stable_target
 from echo_masque.trials import TrialRunner
 
 
@@ -27,9 +27,7 @@ class TrialService:
 
     async def execute(self, run_id: str) -> None:
         run = self.repository.get_run(run_id)
-        if run is None:
-            return
-        if run.status == TrialStatus.CANCELLED.value:
+        if run is None or run.status == TrialStatus.CANCELLED.value:
             return
         target_record = self.repository.get_target(run.target_id)
         if target_record is None:
@@ -43,12 +41,15 @@ class TrialService:
                 target = stable_target()
             elif target_record.target_kind == "fragile":
                 target = fragile_target()
+            elif target_record.target_kind == "http":
+                target = HttpTarget(
+                    name=target_record.name,
+                    config=HttpTargetConfig.model_validate(json.loads(target_record.config_json)),
+                )
             else:
                 raise ValueError(f"Unsupported persisted target kind: {target_record.target_kind}")
             kinds = [TestKind(item) for item in json.loads(run.suite_json)]
-            scenarios = tuple(
-                scenario for kind in kinds for scenario in scenarios_for(kind)
-            )
+            scenarios = tuple(scenario for kind in kinds for scenario in scenarios_for(kind))
             result = await self.runner.run_suite(target, scenarios)
             latest = self.repository.get_run(run_id)
             if latest and latest.status != TrialStatus.CANCELLED.value:

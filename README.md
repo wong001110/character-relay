@@ -55,7 +55,7 @@ Open `http://127.0.0.1:8000/docs` or call `GET /health`.
 - [x] Phase 3 — Prompt-model target
 - [x] Phase 4 — Persistence and HTTP API
 - [x] Phase 5 — Observation interface
-- [ ] Phase 6 — External target adapters
+- [x] Phase 6 — External target adapters
 - [ ] Phase 7 — Comparison and hardening
 
 See `CHECKLIST.md` for automated and manual acceptance items.
