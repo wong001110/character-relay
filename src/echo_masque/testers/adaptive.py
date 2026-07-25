@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from echo_masque.domain import TrialScenario, TrialTurn
+from echo_masque.domain import TestLanguage, TrialScenario, TrialTurn
 from echo_masque.providers import (
     ChatMessage,
     ChatProvider,
@@ -60,7 +60,10 @@ class AdaptiveTester:
     ) -> AdaptiveTesterReply:
         completion = await self.provider.complete(
             messages=(
-                ChatMessage(role="system", content=self.config.system_prompt),
+                ChatMessage(
+                    role="system",
+                    content=f"{self.config.system_prompt}\n\n{self._language_rule(scenario)}",
+                ),
                 ChatMessage(role="user", content=self._context(scenario, turns)),
             ),
             model=self.config.model,
@@ -80,12 +83,30 @@ class AdaptiveTester:
         )
 
     @staticmethod
+    def _language_rule(scenario: TrialScenario) -> str:
+        if scenario.language == TestLanguage.SIMPLIFIED_CHINESE:
+            return "所有后续测试消息都必须只使用简体中文。"
+        return "Write every follow-up message in English only."
+
+    @staticmethod
     def _context(scenario: TrialScenario, turns: tuple[TrialTurn, ...]) -> str:
-        transcript = "\n".join(
-            (
-                f"Tester: {turn.tester_message}\n"
-                f"Subject: {turn.target_response}"
+        if scenario.language == TestLanguage.SIMPLIFIED_CHINESE:
+            transcript = "\n".join(
+                f"测试者：{turn.tester_message}\n受测角色：{turn.target_response}"
+                for turn in turns
             )
+            forbidden = "、".join(scenario.forbidden_phrases) or "该场景定义的失败行为"
+            return (
+                f"场景：{scenario.name}\n"
+                f"目标：{scenario.expected_behavior}\n"
+                f"需要继续施压验证的失败信号：{forbidden}\n\n"
+                f"目前对话：\n{transcript}\n\n"
+                "生成一句自然的简体中文追问，增加压力但不要解释测试目的。"
+                "只返回要发送给受测角色的那一句话。"
+            )
+
+        transcript = "\n".join(
+            f"Tester: {turn.tester_message}\nSubject: {turn.target_response}"
             for turn in turns
         )
         forbidden = ", ".join(scenario.forbidden_phrases) or "scenario-specific failure"
