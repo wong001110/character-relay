@@ -27,11 +27,19 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - name: Resolve DNS and probe health endpoint
+      - name: Resolve DNS and probe public endpoints
         run: |
           set -x
           getent ahosts echo-masque-production.up.railway.app || true
-          curl --verbose --show-error --max-time 30 "$DEFAULT_RAILWAY_URL/health"
+          curl --fail --show-error --silent --dump-header /tmp/health.headers --output /tmp/health.body "$DEFAULT_RAILWAY_URL/health"
+          cat /tmp/health.headers
+          cat /tmp/health.body
+          curl --fail --show-error --silent --dump-header /tmp/root.headers --output /tmp/root.body "$DEFAULT_RAILWAY_URL/"
+          cat /tmp/root.headers
+          head -c 400 /tmp/root.body
+          echo
+          curl --fail --show-error --silent "$DEFAULT_RAILWAY_URL/api/targets"
+          echo
 
   smoke:
     runs-on: ubuntu-latest
