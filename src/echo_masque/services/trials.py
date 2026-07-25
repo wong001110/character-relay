@@ -1,7 +1,6 @@
 """Application service for persisted trial execution."""
 
 import asyncio
-import json
 import os
 from collections.abc import Callable
 from typing import Literal
@@ -9,8 +8,12 @@ from typing import Literal
 from pydantic import SecretStr
 
 from echo_masque.credentials import CredentialStore
-from echo_masque.domain import TestKind, TrialStatus
-from echo_masque.persistence import Repository
+from echo_masque.domain import TestKind, TestLanguage, TrialStatus
+from echo_masque.persistence import (
+    Repository,
+    decode_trial_request,
+    encode_trial_request,
+)
 from echo_masque.providers import (
     ChatProvider,
     OpenAICompatibleProvider,
@@ -62,6 +65,7 @@ class TrialService:
         mode: Literal["watch", "fast"] = "fast",
         tester_mode: Literal["benchmark", "adaptive"] = "benchmark",
         adaptive_tester: AdaptiveTesterConfig | None = None,
+        test_language: TestLanguage = TestLanguage.ENGLISH,
     ) -> str:
         card_id = character_card_id
         if card_id is not None:
@@ -92,9 +96,13 @@ class TrialService:
                     "This prompt-model Character Card needs an API key before testing."
                 )
 
+        persisted_suite = encode_trial_request(
+            [item.value for item in suite],
+            test_language,
+        )
         run = self.repository.create_run(
             target_id=target_id,
-            suite=[item.value for item in suite],
+            suite=persisted_suite,
             character_card_id=card_id,
         )
         self._modes[run.id] = mode
@@ -155,11 +163,12 @@ class TrialService:
                     ),
                 )
 
-            kinds = [TestKind(item) for item in json.loads(run.suite_json)]
+            suite_values, test_language = decode_trial_request(run.suite_json)
+            kinds = [TestKind(item) for item in suite_values]
             scenarios = tuple(
                 scenario
                 for kind in kinds
-                for scenario in scenarios_for(kind)
+                for scenario in scenarios_for(kind, language=test_language)
             )
             pacing = WATCH_PACING if mode == "watch" else FAST_PACING
             result = await self.runner.run_suite(
