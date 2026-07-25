@@ -158,6 +158,6 @@
 - [x] MVP polish GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
 - [x] Phase 9 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
 - [x] Phase 10 GitHub-hosted Ruff, mypy, pytest, Vitest, web build, and Docker smoke passed
-- [ ] Phase 11 GitHub-hosted Ruff, mypy, pytest, Vitest, web build, Docker smoke, and Railway live smoke passed
+- [x] Phase 11 GitHub-hosted Ruff, mypy, pytest, Vitest, web build, Docker smoke, and Railway live smoke passed
 
-The Phase 11 hosted-CI item is checked only after the multilingual pull request jobs and live Railway smoke complete.
+Hosted CI passed on Phase 11 pull request #19 for Python 3.12, Python 3.13, the web client, the production Docker image, and the public Railway smoke test.
