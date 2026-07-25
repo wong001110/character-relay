@@ -35,10 +35,10 @@
 - [x] Restart-safe completed results
 
 ## Phase 5 — Observation interface
-- [ ] React and TypeScript client
-- [ ] Demo target selection and trial execution
-- [ ] Breakpoint and evidence display
-- [ ] Session replay
+- [x] React and TypeScript client
+- [x] Demo target selection and trial execution
+- [x] Breakpoint and evidence display
+- [x] Session replay
 - [ ] Manual: visual hierarchy and responsive behavior
 
 ## Phase 6 — External targets

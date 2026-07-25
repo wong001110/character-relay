@@ -3,7 +3,7 @@
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class TargetType(StrEnum):
@@ -129,10 +129,12 @@ class TrialSuiteResult(BaseModel):
     target: TargetSummary
     results: tuple[TrialResult, ...]
 
+    @computed_field
     @property
     def passed(self) -> bool:
         return all(item.verdict.passed for item in self.results)
 
+    @computed_field
     @property
     def average_score(self) -> float:
         if not self.results:
