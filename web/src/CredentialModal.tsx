@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 
 import { api, type CharacterCard, type CredentialStatus, type TargetView } from "./api";
+import { useI18n } from "./i18n";
 
 interface Props {
   card: CharacterCard;
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function CredentialModal({ card, target, onClose, onConfigured }: Props) {
+  const { t } = useI18n();
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const provider = String(target.config.provider ?? "OpenAI-compatible");
@@ -25,9 +27,7 @@ export function CredentialModal({ card, target, onClose, onConfigured }: Props) 
       onConfigured(status);
       onClose();
     } catch (reason) {
-      setMessage(
-        reason instanceof Error ? reason.message : "The provider key could not be stored."
-      );
+      setMessage(reason instanceof Error ? reason.message : t("credential.error"));
     } finally {
       setSaving(false);
     }
@@ -42,34 +42,33 @@ export function CredentialModal({ card, target, onClose, onConfigured }: Props) 
         aria-labelledby="credential-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button className="close-button" onClick={onClose} aria-label="Close">
+        <button className="close-button" onClick={onClose} aria-label={t("creator.cancel")}>
           ×
         </button>
-        <p className="tape-label">AI Connection</p>
-        <h2 id="credential-title">Configure {card.display_name}</h2>
+        <p className="tape-label">{t("credential.label")}</p>
+        <h2 id="credential-title">{t("credential.configure", { name: card.display_name })}</h2>
         <div className="connection-summary">
-          <div><span>Provider</span><strong>{provider}</strong></div>
-          <div><span>Model</span><strong>{model}</strong></div>
+          <div><span>{t("credential.provider")}</span><strong>{provider}</strong></div>
+          <div><span>{t("credential.model")}</span><strong>{model}</strong></div>
         </div>
         <form onSubmit={submit}>
           <label>
-            API key
+            {t("credential.apiKey")}
             <input
               name="api_key"
               type="password"
               required
               autoComplete="off"
-              placeholder="Stored only in this backend process"
+              placeholder={t("credential.placeholder")}
             />
           </label>
-          <p className="secret-note">
-            The raw key is not written to SQLite, Character Cards, trial events,
-            Lab Notes, JSON reports, or logs. Restarting the server clears it.
-          </p>
+          <p className="secret-note">{t("credential.security")}</p>
           <div className="form-actions">
-            <button type="button" className="paper-button" onClick={onClose}>Cancel</button>
+            <button type="button" className="paper-button" onClick={onClose}>
+              {t("creator.cancel")}
+            </button>
             <button className="ink-button" disabled={saving}>
-              {saving ? "Connecting…" : "Save for this session"}
+              {saving ? t("credential.connecting") : t("credential.save")}
             </button>
           </div>
           {message && <p className="error-note">{message}</p>}
