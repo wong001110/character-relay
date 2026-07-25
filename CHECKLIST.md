@@ -112,16 +112,41 @@
 - [x] Railway healthcheck uses `/health`
 - [x] SQLite production path remains `/data/echo_masque.db`
 - [x] Remote deterministic smoke-test script
-- [x] Manual GitHub Actions Railway Smoke workflow
+- [x] Automatic GitHub Actions Railway Smoke workflow
 - [x] CI builds and starts the production Docker image
 - [x] CI mounts a persistent Docker volume and runs a real Demo Trial
 - [x] Railway deployment and persistence guide
-- [ ] Manual: create Railway service from the GitHub repository
+- [x] Public Railway domain created
+- [x] GitHub-hosted Railway Smoke passes against the live deployment
 - [ ] Manual: attach Railway Volume at `/data`
 - [ ] Manual: keep one replica and select Singapore region when available
-- [ ] Manual: generate public domain and set `RAILWAY_PUBLIC_URL`
-- [ ] Manual: run GitHub Railway Smoke workflow
 - [ ] Manual: confirm SQLite data survives a Railway redeploy
+
+## Phase 11 — English and Simplified Chinese interface and testing
+- [x] Lightweight typed i18n provider without an additional runtime package
+- [x] English interface remains the default
+- [x] Simplified Chinese interface option
+- [x] Interface language persists in browser storage and updates document language
+- [x] Language switchers on Character Shelf and Test Room
+- [x] Character Shelf, Creator, Test Room, Credential, Adaptive Tester, and Report Modal copy translated
+- [x] Interface language remains separate from Test Language
+- [x] Fixed English and Simplified Chinese Benchmark scenario catalogs
+- [x] Language-specific required and forbidden Judge signals
+- [x] Bilingual Stable and Fragile deterministic Demo targets
+- [x] Adaptive Tester follows the selected test language
+- [x] Trial Run persists `test_language` with old-run English fallback
+- [x] English and Chinese runs use separate regression baselines
+- [x] Cross-language comparison is rejected
+- [x] English and Chinese transcript-analysis rules
+- [x] English and Chinese Markdown trial reports
+- [x] User-authored card data, prompts, and model responses are not automatically translated
+- [x] Multilingual architecture and extension guide
+- [x] Frontend and backend multilingual tests added
+- [ ] Manual: verify fresh browser starts in English
+- [ ] Manual: verify Simplified Chinese UI persists after refresh
+- [ ] Manual: verify English and Chinese Test Language runs in the browser
+- [ ] Manual: verify real provider follows Chinese Benchmark and Adaptive pressure
+- [ ] Manual: verify mobile language controls remain readable
 
 ## Automated acceptance
 - [x] Credential-free deterministic demo works
@@ -133,5 +158,6 @@
 - [x] MVP polish GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
 - [x] Phase 9 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
 - [x] Phase 10 GitHub-hosted Ruff, mypy, pytest, Vitest, web build, and Docker smoke passed
+- [ ] Phase 11 GitHub-hosted Ruff, mypy, pytest, Vitest, web build, Docker smoke, and Railway live smoke passed
 
-Hosted CI passed on Phase 10 pull request #16 for Python 3.12, Python 3.13, the web client, and the production Docker image with a persistent volume.
+The Phase 11 hosted-CI item is checked only after the multilingual pull request jobs and live Railway smoke complete.
