@@ -35,7 +35,17 @@ jobs:
         with:
           name: ruff-${{ matrix.python-version }}
           path: ruff-report.json
-      - run: python -m mypy src
+      - name: Mypy
+        run: python -m mypy src
+      - name: Capture mypy diagnostics
+        if: failure()
+        run: python -m mypy src > mypy-report.txt 2>&1 || true
+      - name: Upload mypy diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mypy-${{ matrix.python-version }}
+          path: mypy-report.txt
       - run: python -m pytest
 
   web:
