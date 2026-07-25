@@ -57,12 +57,26 @@
 - [ ] Manual: real provider smoke test
 - [ ] Manual: end-to-end browser acceptance
 
-## Automated MVP acceptance
-- [x] Credential-free deterministic demo works
-- [x] Python unit and integration suite passes
-- [x] Python source and tests compile
-- [x] Frontend strict TypeScript compile passes
-- [x] Phase-by-phase commits are pushed to `main`
-- [ ] GitHub-hosted Ruff, mypy, Vitest, and production-build jobs observed passing
+## Phase 8 — Character Cards and Live Test Room
+- [x] Per-user Character Card persistence
+- [x] Demo Stable and Fragile Character Cards
+- [x] Character Card create, list, detail, and delete API
+- [x] Persisted Tester, Subject, Judge, and Breakpoint events
+- [x] Watch Mode and Fast Mode
+- [x] Character Shelf and Character Card creator
+- [x] Left/right live chatroom UI
+- [x] Scrapbook visual system and lightweight SVG assets
+- [x] Existing replay, comparison, and reports retained
+- [ ] Manual: card shelf visual quality
+- [ ] Manual: Watch Mode pacing and breakpoint clarity
+- [ ] Manual: desktop, tablet, and mobile acceptance
 
-The last item depends on GitHub Actions execution and is tracked separately from implementation completeness.
+## Automated acceptance
+- [x] Credential-free deterministic demo works
+- [x] Python unit and integration suite is present
+- [x] Python source and tests compile
+- [x] Frontend strict TypeScript configuration is present
+- [x] Phase-by-phase commits are pushed
+- [ ] GitHub-hosted Ruff, mypy, pytest, Vitest, and production build observed passing
+
+The final hosted-CI item is only checked after the Phase 8 pull request jobs complete.
