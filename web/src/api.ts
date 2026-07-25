@@ -36,6 +36,22 @@ export interface TrialResult {
   breakpoint: number | null;
 }
 
+export interface ComparisonResult {
+  baseline_score: number;
+  candidate_score: number;
+  score_delta: number;
+  baseline_average_latency_ms: number;
+  candidate_average_latency_ms: number;
+  latency_change_percent: number;
+  baseline_total_tokens: number;
+  candidate_total_tokens: number;
+  token_delta: number;
+  new_failures: string[];
+  resolved_failures: string[];
+  gate_passed: boolean;
+  gate_violations: string[];
+}
+
 export interface TrialRun {
   id: string;
   target_id: string;
@@ -64,6 +80,16 @@ export const api = {
       body: JSON.stringify({ target_id: targetId, suite })
     }),
   getTrial: (id: string) => request<TrialRun>(`/api/trials/${id}`),
+  compareRuns: (baselineRunId: string, candidateRunId: string) =>
+    request<ComparisonResult>("/api/comparisons", {
+      method: "POST",
+      body: JSON.stringify({
+        baseline_run_id: baselineRunId,
+        candidate_run_id: candidateRunId
+      })
+    }),
+  reportUrl: (id: string, format: "markdown" | "json") =>
+    `/api/reports/trials/${id}?format=${format}`,
   waitForTrial: async (id: string): Promise<TrialRun> => {
     for (let attempt = 0; attempt < 40; attempt += 1) {
       const run = await request<TrialRun>(`/api/trials/${id}`);

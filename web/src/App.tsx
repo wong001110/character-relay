@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { api, type TargetView, type TestKind, type TrialRun } from "./api";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import {
+  api,
+  type ComparisonResult,
+  type TargetView,
+  type TestKind,
+  type TrialRun
+} from "./api";
 import { firstBreakpoint, integrityLabel } from "./summary";
 import "./styles.css";
 
@@ -18,6 +24,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeScenario, setActiveScenario] = useState<string | null>(null);
+  const [comparison, setComparison] = useState<ComparisonResult | null>(null);
 
   useEffect(() => {
     api.listTargets().then(setTargets).catch((reason: Error) => setError(reason.message));
@@ -31,12 +38,17 @@ export default function App() {
   async function start() {
     setBusy(true);
     setError(null);
+    setComparison(null);
+    const baseline = run?.status === "completed" ? run : null;
     setRun(null);
     try {
       const created = await api.startTrial(targetId, selected);
       const completed = await api.waitForTrial(created.id);
       setRun(completed);
       setActiveScenario(completed.result?.results[0]?.scenario.id ?? null);
+      if (baseline && baseline.id !== completed.id) {
+        setComparison(await api.compareRuns(baseline.id, completed.id));
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unknown trial error");
     } finally {
@@ -65,7 +77,7 @@ export default function App() {
       <section className="control-panel paper-panel">
         <div>
           <label htmlFor="target">Subject</label>
-          <select id="target" value={targetId} onChange={(event: { currentTarget: { value: string } }) => setTargetId(event.currentTarget.value)}>
+          <select id="target" value={targetId} onChange={(event: ChangeEvent<HTMLSelectElement>) => setTargetId(event.currentTarget.value)}>
             {targets.map((target) => <option key={target.id} value={target.id}>{target.name}</option>)}
           </select>
         </div>
@@ -100,6 +112,20 @@ export default function App() {
               </button>
             ))}
           </div>
+          {comparison && (
+            <div className={comparison.gate_passed ? "comparison pass" : "comparison fail"}>
+              <p className="eyebrow">Compared with previous run</p>
+              <strong>{comparison.gate_passed ? "No regression" : "Regression detected"}</strong>
+              <span>{comparison.score_delta >= 0 ? "+" : ""}{comparison.score_delta.toFixed(1)} score</span>
+              {comparison.gate_violations.map((item) => <small key={item}>{item}</small>)}
+            </div>
+          )}
+          {run?.status === "completed" && (
+            <div className="report-links">
+              <a href={api.reportUrl(run.id, "markdown")}>Markdown report</a>
+              <a href={api.reportUrl(run.id, "json")}>JSON report</a>
+            </div>
+          )}
         </aside>
 
         <article className="paper-panel transcript-panel">

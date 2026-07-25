@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Playfair+Display:wght@600;700&display=swap');
-
 :root { font-family: "DM Sans", system-ui, sans-serif; color: #ece5df; background: #151219; font-synthesis: none; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(circle at 30% 0%, #38283f 0, transparent 38%), linear-gradient(150deg, #151219 0%, #1b1520 48%, #101014 100%); }
@@ -47,3 +45,12 @@ select { width: 100%; color: #f1e9e4; background: #1b171e; border: 1px solid #5d
 .empty-state { min-height: 420px; display: grid; place-content: center; justify-items: center; color: #9a8d97; }.empty-mask { width: 80px; height: 64px; border: 1px solid #6d586b; border-radius: 50% 50% 42% 42%; margin-bottom: 20px; opacity: .55; }
 @media (max-width: 980px) { .control-panel { grid-template-columns: 1fr; }.suite-grid { grid-template-columns: repeat(2,1fr); }.observation-grid { grid-template-columns: 1fr; }.results-rail { min-height: unset; }.masthead { grid-template-columns: 58px 1fr; }.status-seal { display: none; }.brand-mark { width: 54px; } }
 @media (max-width: 560px) { .app-shell { width: min(100% - 22px, 1440px); padding-top: 20px; }.suite-grid { grid-template-columns: 1fr; }.paper-panel { border-radius: 13px; }.tester, .subject { max-width: 96%; } }
+.comparison { margin-top: 18px; border-radius: 10px; padding: 13px; display: grid; gap: 6px; }
+.comparison.pass { background: #203a31; border: 1px solid #47735f; }
+.comparison.fail { background: #40242b; border: 1px solid #80505a; }
+.comparison strong { font-family: "Playfair Display", Georgia, serif; font-size: 1.05rem; }
+.comparison span { color: #d7c8d1; }
+.comparison small { color: #c9b5bd; line-height: 1.4; }
+.report-links { display: flex; gap: 8px; margin-top: 14px; }
+.report-links a { flex: 1; text-align: center; color: #e5d4de; background: #211b24; border: 1px solid #594758; border-radius: 8px; padding: 9px; font-size: .75rem; text-decoration: none; }
+.report-links a:hover { background: #382b39; }

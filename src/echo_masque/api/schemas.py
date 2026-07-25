@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime
+from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -107,4 +108,12 @@ def _safe_config(raw: str) -> dict[str, object]:
     value = redact(json.loads(raw))
     if not isinstance(value, dict):
         return {}
-    return value
+    return cast(dict[str, object], value)
+
+
+class ComparisonRequest(BaseModel):
+    baseline_run_id: str
+    candidate_run_id: str
+    max_score_drop: float = Field(default=5.0, ge=0)
+    max_latency_increase_percent: float = Field(default=50.0, ge=0)
+    allow_new_failures: bool = False

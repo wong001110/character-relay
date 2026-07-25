@@ -48,8 +48,21 @@
 - [ ] Manual: validate against a separately hosted chatbot
 
 ## Phase 7 — Comparison and release
-- [ ] Run comparison and regression gates
-- [ ] Markdown and JSON reports
-- [ ] Security review and release workflow
+- [x] Run comparison and regression gates
+- [x] Markdown and JSON reports
+- [x] Recursive secret redaction
+- [x] Security and privacy review document
+- [x] Container and tagged release workflow
+- [x] Fixed direct frontend dependency versions
 - [ ] Manual: real provider smoke test
 - [ ] Manual: end-to-end browser acceptance
+
+## Automated MVP acceptance
+- [x] Credential-free deterministic demo works
+- [x] Python unit and integration suite passes
+- [x] Python source and tests compile
+- [x] Frontend strict TypeScript compile passes
+- [x] Phase-by-phase commits are pushed to `main`
+- [ ] GitHub-hosted Ruff, mypy, Vitest, and production-build jobs observed passing
+
+The last item depends on GitHub Actions execution and is tracked separately from implementation completeness.

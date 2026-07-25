@@ -7,7 +7,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from echo_masque.api.routes import health_router, targets_router, transcripts_router, trials_router
+from echo_masque.api.routes import (
+    comparisons_router,
+    health_router,
+    reports_router,
+    targets_router,
+    transcripts_router,
+    trials_router,
+)
 from echo_masque.config import Settings, get_settings
 from echo_masque.persistence import Database, Repository
 from echo_masque.services import TrialService
@@ -43,6 +50,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(targets_router)
     app.include_router(trials_router)
     app.include_router(transcripts_router)
+    app.include_router(comparisons_router)
+    app.include_router(reports_router)
 
     web_dist = Path("web/dist")
     if web_dist.exists():

@@ -20,13 +20,18 @@ class TrialRunner:
         turns: list[TrialTurn] = []
         for index, message in enumerate(scenario.messages, start=1):
             response = await target.send(message)
+            trace = dict(response.trace)
+            trace["usage"] = {
+                "input_tokens": response.input_tokens,
+                "output_tokens": response.output_tokens,
+            }
             turns.append(
                 TrialTurn(
                     index=index,
                     tester_message=message,
                     target_response=response.text,
                     latency_ms=response.latency_ms,
-                    trace=response.trace,
+                    trace=trace,
                 )
             )
 

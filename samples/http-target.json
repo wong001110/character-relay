@@ -1,0 +1,16 @@
+{
+  "name": "Example private chatbot",
+  "target_kind": "http",
+  "config": {
+    "message_url": "https://chatbot.example.test/chat",
+    "reset_url": "https://chatbot.example.test/reset",
+    "message_field": "message",
+    "session_field": "session_id",
+    "response_text_path": "response",
+    "trace_path": "trace",
+    "auth_header": "Authorization",
+    "auth_scheme": "Bearer",
+    "auth_env": "ECHO_MASQUE_EXTERNAL_API_KEY",
+    "timeout_seconds": 30
+  }
+}

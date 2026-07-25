@@ -4,9 +4,11 @@ import argparse
 import asyncio
 import json
 from collections.abc import Sequence
+from pathlib import Path
 
+from echo_masque.comparison import RegressionPolicy, compare_results
 from echo_masque.config import get_settings
-from echo_masque.domain import TestKind
+from echo_masque.domain import TestKind, TrialSuiteResult
 from echo_masque.suites import scenarios_for
 from echo_masque.targets import fragile_target, stable_target
 from echo_masque.trials import TrialRunner
@@ -29,6 +31,15 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("all", *(item.value for item in TestKind)),
         default="all",
     )
+
+    compare = subparsers.add_parser(
+        "compare-results", help="Compare two saved TrialSuiteResult JSON files."
+    )
+    compare.add_argument("baseline", type=Path)
+    compare.add_argument("candidate", type=Path)
+    compare.add_argument("--max-score-drop", type=float, default=5.0)
+    compare.add_argument("--max-latency-increase-percent", type=float, default=50.0)
+    compare.add_argument("--allow-new-failures", action="store_true")
     return parser
 
 
@@ -64,6 +75,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "run-demo":
         return asyncio.run(_run_demo(args.target, args.suite))
+    if args.command == "compare-results":
+        baseline = TrialSuiteResult.model_validate_json(args.baseline.read_text())
+        candidate = TrialSuiteResult.model_validate_json(args.candidate.read_text())
+        comparison = compare_results(
+            baseline,
+            candidate,
+            RegressionPolicy(
+                max_score_drop=args.max_score_drop,
+                max_latency_increase_percent=args.max_latency_increase_percent,
+                allow_new_failures=args.allow_new_failures,
+            ),
+        )
+        print(comparison.model_dump_json(indent=2))
+        return 0 if comparison.gate_passed else 3
     raise AssertionError(f"Unhandled command: {args.command}")
 
 

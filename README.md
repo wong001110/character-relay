@@ -56,10 +56,48 @@ Open `http://127.0.0.1:8000/docs` or call `GET /health`.
 - [x] Phase 4 — Persistence and HTTP API
 - [x] Phase 5 — Observation interface
 - [x] Phase 6 — External target adapters
-- [ ] Phase 7 — Comparison and hardening
+- [x] Phase 7 — Comparison and hardening
 
-See `CHECKLIST.md` for automated and manual acceptance items.
+See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for the remaining human checks.
+
+## MVP capabilities
+
+- Run four behavior suites against Stable and Fragile built-in subjects.
+- Test prompt-and-model targets through an OpenAI-compatible provider.
+- Test complete external chatbots through the Custom HTTP Target contract.
+- Import JSON, CSV, or Markdown transcripts for offline inspection.
+- Persist sessions, evidence, breakpoints, Trace, and replay in SQLite.
+- Compare two completed runs and enforce regression thresholds.
+- Export redacted Markdown and JSON reports.
+- Use the React observation interface or the documented FastAPI endpoints.
+
+## Web interface
+
+```bash
+# terminal 1
+python -m uvicorn echo_masque.main:app --reload
+
+# terminal 2
+cd web
+npm install
+npm run dev
+```
+
+After `npm run build`, FastAPI serves `web/dist` from the root path.
+
+## Container
+
+```bash
+docker compose up --build
+```
+
+The SQLite database is stored in the named `echo-masque-data` volume.
 
 ## MVP exclusions
 
 The MVP excludes browser automation of third-party chat websites, public leaderboards, automatic prompt rewriting, fine-tuning, production traffic monitoring, and a general-purpose multi-agent simulation framework.
+
+
+## Status
+
+The automated MVP implementation is complete. Human visual, real-provider, external-host, and end-to-end release checks remain explicitly tracked and do not hide behind automated pass claims.

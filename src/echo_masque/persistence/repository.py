@@ -13,6 +13,7 @@ from echo_masque.persistence.models import (
     TrialRunRecord,
     TurnRecord,
 )
+from echo_masque.security import redact
 
 
 class Repository:
@@ -36,12 +37,14 @@ class Repository:
                     )
             session.commit()
 
-    def create_target(self, *, name: str, target_kind: str, config: dict[str, object]) -> TargetRecord:
+    def create_target(
+        self, *, name: str, target_kind: str, config: dict[str, object]
+    ) -> TargetRecord:
         record = TargetRecord(
             id=str(uuid4()),
             name=name,
             target_kind=target_kind,
-            config_json=json.dumps(config),
+            config_json=json.dumps(redact(config)),
         )
         with self.database.session() as session:
             session.add(record)
@@ -136,6 +139,12 @@ class Repository:
             run.status = TrialStatus.COMPLETED.value
             run.error = None
             session.commit()
+
+    def result_for(self, run_id: str) -> TrialSuiteResult | None:
+        run = self.get_run(run_id)
+        if run is None or run.result_json is None:
+            return None
+        return TrialSuiteResult.model_validate_json(run.result_json)
 
     def replay(self, run_id: str) -> list[TurnRecord]:
         with self.database.session() as session:

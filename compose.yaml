@@ -1,0 +1,13 @@
+services:
+  echo-masque:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - echo-masque-data:/data
+    environment:
+      ECHO_MASQUE_ENVIRONMENT: production
+      ECHO_MASQUE_DEBUG: "false"
+
+volumes:
+  echo-masque-data:
