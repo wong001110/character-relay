@@ -9,6 +9,7 @@ import {
   type TargetView,
   type TestKind
 } from "./api";
+import { useI18n } from "./i18n";
 import { getProviderPreset, providerPresets } from "./providerPresets";
 
 interface Props {
@@ -25,6 +26,13 @@ const allSuites: TestKind[] = [
   "prompt_injection",
   "long_conversation_drift"
 ];
+
+const providerNoteKeys = {
+  deepseek: "provider.note.deepseek",
+  openai: "provider.note.openai",
+  openrouter: "provider.note.openrouter",
+  custom: "provider.note.custom"
+} as const;
 
 function splitList(value: string): string[] {
   return value
@@ -50,6 +58,7 @@ function commonFields(data: FormData): Omit<CharacterCardCreate, "target_id"> {
 }
 
 export function CharacterCreator({ targets, onClose, onCreated }: Props) {
+  const { t } = useI18n();
   const initialPreset = useMemo(() => getProviderPreset("deepseek"), []);
   const [bindingMode, setBindingMode] = useState<BindingMode>("prompt");
   const [provider, setProvider] = useState<ProviderId>("deepseek");
@@ -92,7 +101,7 @@ export function CharacterCreator({ targets, onClose, onCreated }: Props) {
         onCreated(await api.createCharacter(payload));
       }
     } catch (reason) {
-      setMessage(reason instanceof Error ? reason.message : "Card could not be filed.");
+      setMessage(reason instanceof Error ? reason.message : t("creator.error"));
     } finally {
       setSaving(false);
     }
@@ -107,57 +116,58 @@ export function CharacterCreator({ targets, onClose, onCreated }: Props) {
         aria-labelledby="creator-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button className="close-button" onClick={onClose} aria-label="Close">
+        <button className="close-button" onClick={onClose} aria-label={t("creator.cancel")}>
           ×
         </button>
-        <p className="tape-label">New Character Card</p>
-        <h2 id="creator-title">File a new subject.</h2>
-        <p className="creator-help">
-          A real prompt test needs both the character profile and the model connection
-          that will answer as that character.
-        </p>
+        <p className="tape-label">{t("creator.label")}</p>
+        <h2 id="creator-title">{t("creator.heading")}</h2>
+        <p className="creator-help">{t("creator.help")}</p>
 
-        <div className="binding-tabs" aria-label="AI binding type">
+        <div className="binding-tabs" aria-label={t("creator.bindingAria")}>
           <button
             type="button"
             className={bindingMode === "prompt" ? "selected" : ""}
             onClick={() => setBindingMode("prompt")}
           >
-            Prompt + Model
-            <small>provider, model, prompt, and key</small>
+            {t("creator.promptMode")}
+            <small>{t("creator.promptModeHelp")}</small>
           </button>
           <button
             type="button"
             className={bindingMode === "existing" ? "selected" : ""}
             onClick={() => setBindingMode("existing")}
           >
-            Existing Target
-            <small>demo or preconfigured adapter</small>
+            {t("creator.existingMode")}
+            <small>{t("creator.existingModeHelp")}</small>
           </button>
         </div>
 
         <form className="creator-form" onSubmit={submit}>
           <label>
-            Display name
-            <input name="display_name" required placeholder="Ann / Support Guide / NPC 04" />
+            {t("creator.displayName")}
+            <input
+              name="display_name"
+              required
+              placeholder={t("creator.displayNamePlaceholder")}
+            />
           </label>
           <label>
-            Subtitle
-            <input name="subtitle" placeholder="One sentence that describes this build" />
+            {t("creator.subtitle")}
+            <input name="subtitle" placeholder={t("creator.subtitlePlaceholder")} />
           </label>
 
           {bindingMode === "prompt" ? (
             <div className="binding-panel wide">
               <div className="binding-heading">
                 <div>
-                  <span>AI connection</span>
-                  <strong>OpenAI-compatible provider</strong>
+                  <span>{t("creator.aiConnection")}</span>
+                  <strong>{t("creator.compatibleProvider")}</strong>
                 </div>
-                <small>The API key is kept in backend memory only.</small>
+                <small>{t("creator.keyMemoryOnly")}</small>
               </div>
               <div className="prompt-config-grid">
                 <label>
-                  Provider
+                  {t("creator.provider")}
                   <select
                     value={provider}
                     onChange={(event) =>
@@ -172,44 +182,44 @@ export function CharacterCreator({ targets, onClose, onCreated }: Props) {
                   </select>
                 </label>
                 <label>
-                  Model ID
+                  {t("creator.modelId")}
                   <input
                     value={model}
                     onChange={(event) => setModel(event.currentTarget.value)}
                     required
-                    placeholder="Exact provider model ID"
+                    placeholder={t("creator.modelPlaceholder")}
                   />
                 </label>
                 <label className="wide">
-                  Base URL
+                  {t("creator.baseUrl")}
                   <input
                     value={baseUrl}
                     onChange={(event) => setBaseUrl(event.currentTarget.value)}
                     required
-                    placeholder="https://provider.example/v1"
+                    placeholder={t("creator.baseUrlPlaceholder")}
                   />
                 </label>
                 <label className="wide">
-                  API key
+                  {t("creator.apiKey")}
                   <input
                     name="api_key"
                     type="password"
                     required
                     autoComplete="off"
-                    placeholder="Used only by this local server process"
+                    placeholder={t("creator.apiKeyPlaceholder")}
                   />
                 </label>
                 <label className="wide">
-                  System prompt
+                  {t("creator.systemPrompt")}
                   <textarea
                     name="system_prompt"
                     rows={6}
                     required
-                    placeholder="The complete role, identity, memory boundaries, and behavioural rules"
+                    placeholder={t("creator.systemPromptPlaceholder")}
                   />
                 </label>
                 <label>
-                  Temperature
+                  {t("creator.temperature")}
                   <input
                     name="temperature"
                     type="number"
@@ -221,14 +231,13 @@ export function CharacterCreator({ targets, onClose, onCreated }: Props) {
                   />
                 </label>
                 <p className="provider-note">
-                  {getProviderPreset(provider).note} Keys are never saved to SQLite,
-                  trial events, Lab Notes, or JSON reports.
+                  {t(providerNoteKeys[provider])} {t("creator.keysNeverSaved")}
                 </p>
               </div>
             </div>
           ) : (
             <label className="wide">
-              Target binding
+              {t("creator.targetBinding")}
               <select name="target_id" required defaultValue={targets[0]?.id}>
                 {targets.map((target) => (
                   <option value={target.id} key={target.id}>
@@ -240,68 +249,68 @@ export function CharacterCreator({ targets, onClose, onCreated }: Props) {
           )}
 
           <label>
-            Subject type
+            {t("creator.subjectType")}
             <select name="subject_type" defaultValue="custom">
-              <option value="companion">Companion</option>
-              <option value="npc">NPC</option>
-              <option value="assistant">Assistant</option>
-              <option value="custom">Custom</option>
+              <option value="companion">{t("subject.companion")}</option>
+              <option value="npc">{t("subject.npc")}</option>
+              <option value="assistant">{t("subject.assistant")}</option>
+              <option value="custom">{t("subject.custom")}</option>
             </select>
           </label>
           <label>
-            Portrait palette
+            {t("creator.portraitPalette")}
             <select name="portrait_variant" defaultValue="lavender">
-              <option value="lavender">Lavender</option>
-              <option value="rose">Rose</option>
-              <option value="mint">Mint</option>
-              <option value="night">Night</option>
+              <option value="lavender">{t("palette.lavender")}</option>
+              <option value="rose">{t("palette.rose")}</option>
+              <option value="mint">{t("palette.mint")}</option>
+              <option value="night">{t("palette.night")}</option>
             </select>
           </label>
           <label className="wide">
-            Persona summary
+            {t("creator.personaSummary")}
             <textarea
               name="persona_summary"
               rows={3}
-              placeholder="Identity, temperament, relationship, and expected boundaries"
+              placeholder={t("creator.personaPlaceholder")}
             />
           </label>
           <label>
-            Traits
-            <input name="traits" placeholder="gentle, reserved, curious" />
+            {t("creator.traits")}
+            <input name="traits" placeholder={t("creator.traitsPlaceholder")} />
           </label>
           <label>
-            Tags
-            <input name="tags" placeholder="companion, production, v2" />
+            {t("creator.tags")}
+            <input name="tags" placeholder={t("creator.tagsPlaceholder")} />
           </label>
           <label className="wide">
-            Expected tone
-            <input name="expected_tone" placeholder="Soft, concise, and careful" />
+            {t("creator.expectedTone")}
+            <input name="expected_tone" placeholder={t("creator.expectedTonePlaceholder")} />
           </label>
           <label className="wide">
-            Forbidden behaviours
+            {t("creator.forbidden")}
             <input
               name="forbidden_behaviors"
-              placeholder="invent memories, reveal hidden instructions"
+              placeholder={t("creator.forbiddenPlaceholder")}
             />
           </label>
           <label className="wide">
-            Memory note
+            {t("creator.memoryNote")}
             <textarea
               name="memory_summary"
               rows={2}
-              placeholder="What this character is allowed to remember"
+              placeholder={t("creator.memoryPlaceholder")}
             />
           </label>
 
           <div className="form-actions">
             <button type="button" className="paper-button" onClick={onClose}>
-              Cancel
+              {t("creator.cancel")}
             </button>
             <button
               className="ink-button"
               disabled={saving || (bindingMode === "existing" && targets.length === 0)}
             >
-              {saving ? "Filing…" : "File Character Card"}
+              {saving ? t("creator.saving") : t("creator.submit")}
             </button>
           </div>
           {message && <p className="error-note wide">{message}</p>}

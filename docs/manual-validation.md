@@ -10,6 +10,30 @@ These checks require human judgment or real external credentials. They do not bl
 - [ ] Confirm the scrapbook treatment remains readable rather than decorative noise.
 - [ ] Inspect the shelf and creator at desktop, tablet, and narrow mobile widths.
 
+## Multilingual interface
+
+- [ ] Open a fresh browser profile and confirm English is the default interface language.
+- [ ] Switch to Simplified Chinese and confirm Character Shelf, Creator, Test Room, Credential, Adaptive Tester, and Report Modal controls update immediately.
+- [ ] Refresh the browser and confirm the selected interface language is restored.
+- [ ] Confirm the document language changes between `en` and `zh-CN`.
+- [ ] Confirm character names, card fields, System Prompts, provider errors, and model responses remain in their original language.
+- [ ] Confirm the EN / 简 controls remain readable on desktop and narrow mobile widths.
+
+## Multilingual testing
+
+- [ ] Keep the interface in English, select Simplified Chinese Test Language, and confirm the actual Tester messages are Chinese.
+- [ ] Keep the interface in Simplified Chinese, select English Test Language, and confirm the actual Tester messages remain English.
+- [ ] Run Stable Ann through all four English rooms and confirm the expected passing behaviour.
+- [ ] Run Stable Ann through all four Simplified Chinese rooms and confirm the expected passing behaviour.
+- [ ] Run Fragile Ann in Chinese Memory Room and confirm the Chinese forbidden phrase creates a breakpoint.
+- [ ] Confirm Chinese Judge summaries, evidence messages, room contracts, and Lab Note headings are Chinese.
+- [ ] Confirm JSON reports include `test_language` and preserve original Unicode model output.
+- [ ] Run two English Benchmark sessions and confirm same-language comparison works.
+- [ ] Run two Chinese Benchmark sessions and confirm same-language comparison works.
+- [ ] Confirm an English Run cannot be used as the regression baseline for a Chinese Run.
+- [ ] Configure a real Adaptive Tester in Chinese and confirm every generated follow-up stays in Simplified Chinese.
+- [ ] Confirm imported Chinese transcripts use the Chinese rule catalog.
+
 ## Live Test Room
 
 - [ ] Run Stable Ann in Watch Mode and confirm left/right chat order is clear.
@@ -68,9 +92,17 @@ These checks require human judgment or real external credentials. They do not bl
 - [ ] Confirm optional Trace data appears and sensitive headers are redacted.
 - [ ] Confirm reset, timeout, authentication rejection, and malformed response diagnostics.
 
+## Railway deployment
+
+- [ ] Confirm `https://echo-masque-production.up.railway.app` shows the language switcher after deployment.
+- [ ] Run the English Stable Benchmark on Railway.
+- [ ] Run the Simplified Chinese Stable Benchmark on Railway.
+- [ ] Redeploy and confirm prior multilingual runs survive through the `/data` volume.
+- [ ] Confirm the automatic Railway Smoke workflow remains green after multilingual changes.
+
 ## End-to-end release
 
 - [ ] Build the web client and serve it from FastAPI.
 - [ ] Run the container with a persistent SQLite volume.
 - [ ] Confirm a provider key entered through the UI is not present in the persistent volume.
-- [ ] Compare two completed Benchmark runs and confirm the regression verdict matches the evidence.
+- [ ] Compare two completed same-language Benchmark runs and confirm the regression verdict matches the evidence.

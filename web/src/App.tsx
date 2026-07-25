@@ -3,11 +3,13 @@ import { useEffect, useState } from "react";
 import { api, type CharacterCard, type TargetView } from "./api";
 import { CharacterCreator } from "./CharacterCreator";
 import { CharacterShelf } from "./CharacterShelf";
+import { useI18n } from "./i18n";
 import { TestRoom } from "./TestRoom";
 import "./styles.css";
 import "./polish.css";
 
 export default function App() {
+  const { t } = useI18n();
   const [cards, setCards] = useState<CharacterCard[]>([]);
   const [targets, setTargets] = useState<TargetView[]>([]);
   const [activeCard, setActiveCard] = useState<CharacterCard | null>(null);
@@ -24,7 +26,7 @@ export default function App() {
       setTargets(nextTargets);
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to open the card shelf.");
+      setError(reason instanceof Error ? reason.message : t("app.openShelfError"));
     }
   }
 
@@ -36,10 +38,10 @@ export default function App() {
       return (
         <main className="room-page">
           <section className="paper-sheet missing-binding">
-            <h1>Target binding unavailable.</h1>
-            <p>The Character Card points to a target that could not be loaded.</p>
+            <h1>{t("app.bindingMissingTitle")}</h1>
+            <p>{t("app.bindingMissingBody")}</p>
             <button className="paper-button" onClick={() => setActiveCard(null)}>
-              Return to Character Shelf
+              {t("app.returnShelf")}
             </button>
           </section>
         </main>

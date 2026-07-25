@@ -4,6 +4,7 @@ export type TestKind =
   | "prompt_injection"
   | "long_conversation_drift";
 
+export type TestLanguage = "en" | "zh-CN";
 export type ObservationMode = "watch" | "fast";
 export type TesterMode = "benchmark" | "adaptive";
 export type ProviderId = "deepseek" | "openai" | "openrouter" | "custom";
@@ -85,7 +86,13 @@ export interface Evidence {
 }
 
 export interface TrialResult {
-  scenario: { id: string; name: string; kind: TestKind; expected_behavior: string };
+  scenario: {
+    id: string;
+    name: string;
+    kind: TestKind;
+    language: TestLanguage;
+    expected_behavior: string;
+  };
   turns: Array<{
     index: number;
     tester_message: string;
@@ -143,6 +150,8 @@ export interface TrialRun {
   id: string;
   target_id: string;
   status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  suite: TestKind[];
+  test_language: TestLanguage;
   result: { average_score: number; results: TrialResult[] } | null;
   error: string | null;
 }
@@ -221,6 +230,7 @@ export const api = {
     suite: TestKind[],
     mode: ObservationMode,
     testerMode: TesterMode,
+    testLanguage: TestLanguage,
     adaptiveTester?: AdaptiveTesterConfig
   ) =>
     request<TrialRun>("/api/trials", {
@@ -230,6 +240,7 @@ export const api = {
         suite,
         mode,
         tester_mode: testerMode,
+        test_language: testLanguage,
         adaptive_tester: testerMode === "adaptive" ? adaptiveTester : undefined
       })
     }),

@@ -67,6 +67,7 @@ class TrialRunner:
                 "scenario_id": scenario.id,
                 "name": scenario.name,
                 "kind": scenario.kind.value,
+                "language": scenario.language.value,
                 "expected_behavior": scenario.expected_behavior,
                 "tester_mode": "adaptive" if adaptive_tester else "benchmark",
             },
@@ -84,6 +85,7 @@ class TrialRunner:
                 **context,
                 "message": message,
                 "source": source,
+                "language": scenario.language.value,
             }
             if tester_trace:
                 tester_payload["trace"] = tester_trace
@@ -136,6 +138,7 @@ class TrialRunner:
                     "source": "adaptive",
                     "provider": adaptive_tester.config.provider,
                     "model": adaptive_tester.config.model,
+                    "language": scenario.language.value,
                 },
             )
             await self._pause(pacing.adaptive_thinking_seconds)
@@ -168,6 +171,7 @@ class TrialRunner:
                 "score": verdict.score,
                 "summary": verdict.summary,
                 "severity": verdict.severity.value,
+                "language": scenario.language.value,
                 "evidence": [
                     item.model_dump(mode="json") for item in verdict.evidence
                 ],
@@ -184,6 +188,7 @@ class TrialRunner:
                     "turn_index": breakpoint,
                     "evidence_count": len(verdict.evidence),
                     "severity": verdict.severity.value,
+                    "language": scenario.language.value,
                 },
             )
             await self._pause(pacing.after_breakpoint_seconds)
@@ -196,6 +201,7 @@ class TrialRunner:
                 "passed": verdict.passed,
                 "score": verdict.score,
                 "breakpoint": breakpoint,
+                "language": scenario.language.value,
             },
         )
         await self._pause(pacing.scenario_gap_seconds)
@@ -218,6 +224,7 @@ class TrialRunner:
         pacing: TrialPacing = FAST_PACING,
         adaptive_tester: AdaptiveTester | None = None,
     ) -> TrialSuiteResult:
+        language = scenarios[0].language.value if scenarios else "en"
         await self._emit(
             observer,
             "session_started",
@@ -225,6 +232,7 @@ class TrialRunner:
                 "target": target.summary.model_dump(mode="json"),
                 "scenario_count": len(scenarios),
                 "tester_mode": "adaptive" if adaptive_tester else "benchmark",
+                "language": language,
             },
         )
         results = [
@@ -241,7 +249,11 @@ class TrialRunner:
         await self._emit(
             observer,
             "session_completed",
-            {"average_score": result.average_score, "scenario_count": len(results)},
+            {
+                "average_score": result.average_score,
+                "scenario_count": len(results),
+                "language": language,
+            },
         )
         return result
 

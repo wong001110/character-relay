@@ -9,6 +9,7 @@ Echo Masque is a Python-first character behavior validation system. Users keep t
 ```text
 Create or select a Character Card
   -> bind it to a prompt, model, API, or deterministic target
+  -> choose an interface language and an independent test language
   -> choose Benchmark or Adaptive Tester
   -> enter a Test Room
   -> watch Tester and subject messages arrive live
@@ -62,13 +63,42 @@ The current local MVP scopes cards with the `X-Echo-User` header and defaults to
 
 ### Benchmark Tester
 
-Benchmark mode uses the fixed scenario scripts. It remains deterministic and is the correct mode for prompt-version comparisons, regression gates, CI, and repeatable scores.
+Benchmark mode uses fixed scenario scripts. It remains deterministic and is the correct mode for prompt-version comparisons, regression gates, CI, and repeatable scores.
 
 ### Adaptive Tester
 
 Adaptive mode keeps the first benchmark message as the scenario seed, then uses a separate AI provider to generate one targeted follow-up at a time from the visible Tester/Subject transcript. Configuration includes provider, base URL, model, system prompt, temperature, maximum turns, and a one-run API key.
 
 The Adaptive Tester is independent from the Subject and deterministic Judge. Its key is stored only while the active run is being prepared or executed. It is never written to SQLite, events, reports, or target configuration. Adaptive pressure stops when the Subject produces a clear forbidden-phrase fracture or reaches the configured turn limit.
+
+## Languages
+
+Echo Masque separates the language of the product interface from the language of the actual AI evaluation.
+
+### Interface language
+
+- English (`en`) — default
+- Simplified Chinese (`zh-CN`)
+
+The selection is stored in the browser and restored on refresh. It translates navigation, forms, room controls, status labels, observation notes, and modal copy.
+
+Character names, card content, System Prompts, imported transcripts, model responses, and provider errors remain in their original form and are not automatically translated.
+
+### Test language
+
+The Test Room has a separate Test Language selector. English and Simplified Chinese each have their own:
+
+- fixed Benchmark Tester messages;
+- scenario names and expected-behaviour contracts;
+- forbidden and required phrase rules;
+- Stable and Fragile deterministic demo responses;
+- Adaptive Tester context and output-language instructions;
+- Judge summaries and evidence messages;
+- trial report headings and scenario content.
+
+Every run records `test_language`. Existing persisted runs are treated as English. Regression comparison only accepts runs that use the same test language.
+
+See `docs/multilingual-testing.md` for the language boundary, coverage, and extension process.
 
 ## Test Rooms
 
@@ -94,6 +124,7 @@ Completed sessions expose Lab Note and JSON buttons in the Observation sidebar. 
 - [x] Phase 8 — Character Cards and Live Test Room
 - [x] Phase 9 — Adaptive AI Tester and efficient local development
 - [x] Phase 10 — Railway deployment readiness
+- [x] Phase 11 — English and Simplified Chinese interface and testing
 
 See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for human checks.
 
@@ -102,15 +133,18 @@ See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for 
 - Manage per-user Character Cards bound to deterministic, prompt-model, or external targets.
 - Configure provider, base URL, model, system prompt, temperature, and an ephemeral API key from the card creator.
 - Reconfigure a provider key from the Test Room after a backend restart.
+- Switch the interface between English and Simplified Chinese.
+- Run independent English or Simplified Chinese behavior suites.
 - Run four behavior suites against Stable and Fragile built-in subjects.
 - Choose fixed Benchmark testing or experimental Adaptive AI pressure.
+- Keep Adaptive Tester follow-ups in the selected test language.
 - Observe persisted Tester, Subject, Judge, and Breakpoint events in a chatroom UI.
 - Choose Watch Mode for paced viewing or Fast Mode for developer workflows.
 - Test prompt-and-model targets through an OpenAI-compatible provider.
 - Test complete external chatbots through the Custom HTTP Target contract.
 - Import JSON, CSV, or Markdown transcripts for offline inspection.
-- Persist sessions, events, evidence, breakpoints, Trace, and replay in SQLite.
-- Compare deterministic Benchmark runs and enforce regression thresholds.
+- Persist sessions, language, events, evidence, breakpoints, Trace, and replay in SQLite.
+- Compare deterministic Benchmark runs within the same test language.
 - View and export redacted Markdown and JSON reports.
 - Build one production image containing both the React client and FastAPI service.
 
@@ -120,11 +154,13 @@ The repository includes a root `Dockerfile` and `railway.toml`. Railway builds t
 
 Attach one Railway Volume at `/data` and keep the service at one replica. SQLite is stored at `/data/echo_masque.db`.
 
-After a public domain is generated, validate it with:
+The live deployment is automatically smoke-tested at:
 
-```bash
-python scripts/railway_smoke.py https://your-service.up.railway.app
+```text
+https://echo-masque-production.up.railway.app
 ```
+
+The Railway Smoke workflow checks health, static UI delivery, demo target availability, and a real Stable Benchmark Trial after each update to `main`.
 
 See `docs/railway-deployment.md` for the full setup, persistence checks, GitHub Actions smoke workflow, and security limitations.
 
@@ -144,4 +180,4 @@ The MVP excludes browser automation of third-party chat websites, public leaderb
 
 ## Status
 
-The automated product implementation includes Character Cards, live observation, provider-backed Subject testing, experimental Adaptive Tester pressure, in-app reports, lower-frequency snapshot polling, a single-command development launcher, and a container-smoke-validated Railway deployment path. Visual polish, real-provider, authentication, external-host, cross-platform launcher, and live Railway acceptance remain explicitly tracked rather than being hidden behind automated pass claims.
+The implementation includes Character Cards, live observation, provider-backed Subject testing, experimental Adaptive Tester pressure, a validated English and Simplified Chinese interface, bilingual deterministic and adaptive evaluation paths, in-app reports, lower-frequency snapshot polling, a single-command development launcher, and an automatically smoke-tested Railway deployment. Visual polish, real-provider multilingual quality, authentication, external-host, cross-platform launcher, and final browser acceptance remain explicitly tracked rather than being hidden behind automated pass claims.

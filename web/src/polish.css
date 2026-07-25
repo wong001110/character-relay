@@ -1,4 +1,4 @@
-/* MVP provider configuration and archive modal polish. */
+/* MVP provider configuration, multilingual controls, and archive modal polish. */
 .creator-sheet { width: min(980px, 100%); }
 .binding-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 22px 0 18px; padding: 5px; border: 1px solid rgba(101, 76, 104, .16); border-radius: 14px; background: rgba(247, 239, 247, .7); }
 .binding-tabs button { border: 0; border-radius: 10px; padding: 12px 14px; text-align: left; color: #705e75; background: transparent; font-weight: 850; }
@@ -44,6 +44,20 @@
 .report-content.markdown { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
 .report-loading { flex: 1; display: grid; place-items: center; color: #8a788e; }
 .missing-binding { width: min(640px, 100%); margin: 12vh auto 0; padding: 35px; text-align: center; }
+.header-actions, .room-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.language-switcher { display: flex; align-items: center; gap: 8px; color: #7d6b82; font-size: .68rem; font-weight: 800; }
+.language-switcher > span { text-transform: uppercase; letter-spacing: .07em; }
+.language-switcher > div { display: flex; padding: 3px; border: 1px solid rgba(101, 78, 105, .16); border-radius: 999px; background: rgba(255,255,255,.58); }
+.language-switcher button { min-width: 34px; padding: 6px 8px; border: 0; border-radius: 999px; color: #76657a; background: transparent; font-weight: 850; }
+.language-switcher button.selected { color: white; background: #6b5875; box-shadow: 0 4px 10px rgba(75, 57, 82, .16); }
+.section-help { margin: -4px 0 9px; color: #958699; font-size: .67rem; line-height: 1.45; }
+.test-language-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.test-language-switch button { border: 1px solid rgba(101, 78, 105, .15); border-radius: 10px; padding: 8px; color: #76657a; background: rgba(255,255,255,.55); font-weight: 850; }
+.test-language-switch button small { display: block; margin-top: 2px; color: #9a899d; font-size: .6rem; font-weight: 650; }
+.test-language-switch button.selected { color: white; background: linear-gradient(135deg, #6b5875, #9f728a); }
+.test-language-switch button.selected small { color: #eee5f0; }
+html[lang="zh-CN"] body { font-family: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", Inter, system-ui, sans-serif; }
+html[lang="zh-CN"] h1, html[lang="zh-CN"] h2, html[lang="zh-CN"] h3 { letter-spacing: .01em; }
 @media (max-width: 760px) {
   .binding-tabs, .prompt-config-grid, .connection-summary { grid-template-columns: 1fr; }
   .binding-heading, .report-heading { align-items: stretch; flex-direction: column; }
@@ -52,4 +66,7 @@
   .report-heading { padding-right: 30px; }
   .modal-toolbar { width: 100%; }
   .modal-toolbar button { flex: 1; }
+  .header-actions, .room-header-actions { width: 100%; align-items: stretch; flex-wrap: wrap; }
+  .language-switcher { justify-content: space-between; }
+  .header-actions .ink-button { flex: 1; }
 }

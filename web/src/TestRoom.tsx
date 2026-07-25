@@ -16,13 +16,16 @@ import {
   type TargetView,
   type TesterMode,
   type TestKind,
+  type TestLanguage,
   type TrialEvent,
   type TrialRun
 } from "./api";
 import { CredentialModal } from "./CredentialModal";
+import { useI18n } from "./i18n";
+import { LanguageSwitcher } from "./LanguageSwitcher";
 import { latestScenarioName, payloadNumber, payloadText, visibleEvents } from "./live";
 import { ReportModal } from "./ReportModal";
-import { firstBreakpoint, integrityLabel } from "./summary";
+import { firstBreakpoint, integrityBand } from "./summary";
 import "./adaptive.css";
 
 interface Props {
@@ -31,12 +34,62 @@ interface Props {
   onBack: () => void;
 }
 
-const suites: Array<{ id: TestKind; title: string; room: string }> = [
-  { id: "identity_integrity", title: "Identity", room: "Mirror Room" },
-  { id: "false_memory", title: "False memory", room: "Memory Room" },
-  { id: "prompt_injection", title: "Intrusion", room: "Script Room" },
-  { id: "long_conversation_drift", title: "Long drift", room: "Echo Hall" }
-];
+const suites = [
+  {
+    id: "identity_integrity",
+    titleKey: "suite.identity",
+    roomKey: "suite.mirrorRoom"
+  },
+  {
+    id: "false_memory",
+    titleKey: "suite.falseMemory",
+    roomKey: "suite.memoryRoom"
+  },
+  {
+    id: "prompt_injection",
+    titleKey: "suite.intrusion",
+    roomKey: "suite.scriptRoom"
+  },
+  {
+    id: "long_conversation_drift",
+    titleKey: "suite.longDrift",
+    roomKey: "suite.echoHall"
+  }
+] as const satisfies ReadonlyArray<{
+  id: TestKind;
+  titleKey: string;
+  roomKey: string;
+}>;
+
+const subjectKeys = {
+  companion: "subject.companion",
+  npc: "subject.npc",
+  assistant: "subject.assistant",
+  custom: "subject.custom"
+} as const;
+
+const integrityKeys = {
+  intact: "integrity.intact",
+  strained: "integrity.strained",
+  fractured: "integrity.fractured",
+  collapsed: "integrity.collapsed"
+} as const;
+
+const statusKeys = {
+  pending: "status.pending",
+  running: "status.running",
+  completed: "status.completed",
+  failed: "status.failed",
+  cancelled: "status.cancelled"
+} as const;
+
+const severityKeys = {
+  info: "severity.info",
+  low: "severity.low",
+  medium: "severity.medium",
+  high: "severity.high",
+  critical: "severity.critical"
+} as const;
 
 function evidenceCount(events: TrialEvent[]): number {
   return events.reduce((total, event) => {
@@ -51,18 +104,12 @@ function configText(target: TargetView, key: string, fallback: string): string {
   return typeof value === "string" && value ? value : fallback;
 }
 
-function credentialLabel(status: CredentialStatus | null): string {
-  if (!status) return "Checking key…";
-  if (!status.required) return "No key required";
-  if (!status.configured) return "API key required";
-  if (status.source === "environment") return "Environment key ready";
-  return "Session key ready";
-}
-
 export function TestRoom({ card, target, onBack }: Props) {
+  const { language, t } = useI18n();
   const [selected, setSelected] = useState<TestKind[]>(
     card.preferred_suites.length > 0 ? card.preferred_suites : suites.map((item) => item.id)
   );
+  const [testLanguage, setTestLanguage] = useState<TestLanguage>(language);
   const [mode, setMode] = useState<ObservationMode>("watch");
   const [testerMode, setTesterMode] = useState<TesterMode>("benchmark");
   const [adaptiveTester, setAdaptiveTester] = useState<AdaptiveTesterConfig>(
@@ -71,7 +118,7 @@ export function TestRoom({ card, target, onBack }: Props) {
   const [showAdaptiveTester, setShowAdaptiveTester] = useState(false);
   const [events, setEvents] = useState<TrialEvent[]>([]);
   const [run, setRun] = useState<TrialRun | null>(null);
-  const [lastBenchmarkRun, setLastBenchmarkRun] = useState<TrialRun | null>(null);
+  const [benchmarkRuns, setBenchmarkRuns] = useState<Partial<Record<TestLanguage, TrialRun>>>({});
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
   const [credential, setCredential] = useState<CredentialStatus | null>(null);
   const [showCredential, setShowCredential] = useState(false);
@@ -84,13 +131,25 @@ export function TestRoom({ card, target, onBack }: Props) {
   const results = run?.result?.results ?? [];
   const breakpoint = firstBreakpoint(results);
   const score = run?.result?.average_score ?? 0;
-  const scenarioName = latestScenarioName(events);
+  const rawScenarioName = latestScenarioName(events);
+  const scenarioName = events.some((item) => item.event_type === "scenario_started")
+    ? rawScenarioName
+    : t("room.waitingRoom");
   const eventCount = evidenceCount(events);
   const credentialReady = credential?.configured ?? target.target_kind !== "prompt_model";
   const adaptiveReady = adaptiveTesterReady(adaptiveTester);
-  const provider = configText(target, "provider", "OpenAI-compatible");
-  const model = configText(target, "model", "Unspecified model");
-  const baseUrl = configText(target, "base_url", "No endpoint filed");
+  const provider = configText(target, "provider", t("room.compatibleProvider"));
+  const model = configText(target, "model", t("room.unspecifiedModel"));
+  const baseUrl = configText(target, "base_url", t("room.noEndpoint"));
+  const credentialCopy = !credential
+    ? t("credential.checking")
+    : !credential.required
+      ? t("credential.notRequired")
+      : !credential.configured
+        ? t("credential.required")
+        : credential.source === "environment"
+          ? t("credential.environmentReady")
+          : t("credential.sessionReady");
 
   useEffect(() => {
     let active = true;
@@ -127,13 +186,14 @@ export function TestRoom({ card, target, onBack }: Props) {
     setError(null);
     setComparison(null);
     setEvents([]);
-    const baseline = testerMode === "benchmark" ? lastBenchmarkRun : null;
+    const baseline = testerMode === "benchmark" ? benchmarkRuns[testLanguage] ?? null : null;
     try {
       const created = await api.startTrial(
         card.id,
         selected,
         mode,
         testerMode,
+        testLanguage,
         testerMode === "adaptive" ? adaptiveTester : undefined
       );
       if (testerMode === "adaptive") {
@@ -143,16 +203,19 @@ export function TestRoom({ card, target, onBack }: Props) {
       const completed = await api.observeTrial(created.id, mode, setEvents, setRun);
       setRun(completed);
       if (completed.status === "failed") {
-        setError(completed.error ?? "The provider-backed session failed.");
+        setError(completed.error ?? t("room.providerFailed"));
       }
       if (testerMode === "benchmark" && completed.status === "completed") {
         if (baseline && baseline.id !== completed.id) {
           setComparison(await api.compareRuns(baseline.id, completed.id));
         }
-        setLastBenchmarkRun(completed);
+        setBenchmarkRuns((current) => ({
+          ...current,
+          [completed.test_language]: completed
+        }));
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The room lost its signal.");
+      setError(reason instanceof Error ? reason.message : t("room.signalLost"));
     } finally {
       setBusy(false);
     }
@@ -163,7 +226,7 @@ export function TestRoom({ card, target, onBack }: Props) {
     try {
       setRun(await api.cancelTrial(run.id));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not stop the session.");
+      setError(reason instanceof Error ? reason.message : t("room.stopFailed"));
     }
   }
 
@@ -171,10 +234,13 @@ export function TestRoom({ card, target, onBack }: Props) {
     <>
       <main className="room-page">
         <header className="room-header">
-          <button className="back-button" onClick={onBack}>← Character Shelf</button>
-          <div><p className="kicker">Live character observation</p><h1>Test Room</h1></div>
-          <div className={`live-light ${busy ? "active" : ""}`}>
-            <span />{busy ? "Session live" : "Room ready"}
+          <button className="back-button" onClick={onBack}>{t("room.back")}</button>
+          <div><p className="kicker">{t("room.kicker")}</p><h1>{t("room.title")}</h1></div>
+          <div className="room-header-actions">
+            <LanguageSwitcher />
+            <div className={`live-light ${busy ? "active" : ""}`}>
+              <span />{busy ? t("room.sessionLive") : t("room.ready")}
+            </div>
           </div>
         </header>
 
@@ -183,7 +249,7 @@ export function TestRoom({ card, target, onBack }: Props) {
             <div className={`mini-card portrait-${card.portrait_variant}`}>
               <img src="/assets/character-silhouette.svg" alt="" />
               <div>
-                <span>{card.subject_type}</span>
+                <span>{t(subjectKeys[card.subject_type])}</span>
                 <strong>{card.display_name}</strong>
                 <small>{card.subtitle}</small>
               </div>
@@ -192,62 +258,87 @@ export function TestRoom({ card, target, onBack }: Props) {
             {target.target_kind === "prompt_model" && (
               <div className={credentialReady ? "connection-card ready" : "connection-card missing"}>
                 <div className="connection-title">
-                  <span>AI connection</span><strong>{credentialLabel(credential)}</strong>
+                  <span>{t("room.aiConnection")}</span><strong>{credentialCopy}</strong>
                 </div>
                 <dl>
-                  <div><dt>Provider</dt><dd>{provider}</dd></div>
-                  <div><dt>Model</dt><dd>{model}</dd></div>
-                  <div><dt>Base URL</dt><dd title={baseUrl}>{baseUrl}</dd></div>
+                  <div><dt>{t("room.provider")}</dt><dd>{provider}</dd></div>
+                  <div><dt>{t("room.model")}</dt><dd>{model}</dd></div>
+                  <div><dt>{t("room.baseUrl")}</dt><dd title={baseUrl}>{baseUrl}</dd></div>
                 </dl>
                 <button
                   className="paper-button full"
                   onClick={() => setShowCredential(true)}
                   disabled={busy}
                 >
-                  {credentialReady ? "Replace API key" : "Configure API key"}
+                  {credentialReady ? t("room.replaceKey") : t("room.configureKey")}
                 </button>
               </div>
             )}
 
-            <p className="section-label">Tester style</p>
+            <p className="section-label">{t("room.testerStyle")}</p>
             <div className="tester-mode-switch">
               <button
                 className={testerMode === "benchmark" ? "selected" : ""}
                 onClick={() => setTesterMode("benchmark")}
                 disabled={busy}
               >
-                Benchmark
-                <small>fixed and reproducible</small>
+                {t("room.benchmark")}
+                <small>{t("room.benchmarkHelp")}</small>
               </button>
               <button
                 className={testerMode === "adaptive" ? "selected" : ""}
                 onClick={() => setTesterMode("adaptive")}
                 disabled={busy}
               >
-                Adaptive
-                <small>AI follows the reply</small>
+                {t("room.adaptive")}
+                <small>{t("room.adaptiveHelp")}</small>
               </button>
             </div>
             {testerMode === "adaptive" && (
               <div className={adaptiveReady ? "adaptive-summary" : "adaptive-summary missing"}>
-                <span>Pressure agent</span>
-                <strong>{adaptiveReady ? `${adaptiveTester.provider} · ${adaptiveTester.model}` : "Configuration required"}</strong>
+                <span>{t("room.pressureAgent")}</span>
+                <strong>
+                  {adaptiveReady
+                    ? `${adaptiveTester.provider} · ${adaptiveTester.model}`
+                    : t("room.configurationRequired")}
+                </strong>
                 <small>
                   {adaptiveReady
-                    ? `Up to ${adaptiveTester.max_turns} turns per room; key loaded for one run.`
-                    : "Provide a separate provider, model, prompt, and one-run API key."}
+                    ? t("room.adaptiveReady", { count: adaptiveTester.max_turns })
+                    : t("room.adaptiveMissing")}
                 </small>
                 <button
                   className="paper-button full"
                   onClick={() => setShowAdaptiveTester(true)}
                   disabled={busy}
                 >
-                  {adaptiveReady ? "Edit Adaptive Tester" : "Configure Adaptive Tester"}
+                  {adaptiveReady ? t("room.editAdaptive") : t("room.configureAdaptive")}
                 </button>
               </div>
             )}
 
-            <p className="section-label">Choose rooms</p>
+            <p className="section-label">{t("room.testLanguage")}</p>
+            <p className="section-help">{t("room.testLanguageHelp")}</p>
+            <div className="test-language-switch">
+              <button
+                className={testLanguage === "en" ? "selected" : ""}
+                onClick={() => setTestLanguage("en")}
+                disabled={busy}
+              >
+                EN
+                <small>{t("room.testEnglish")}</small>
+              </button>
+              <button
+                className={testLanguage === "zh-CN" ? "selected" : ""}
+                onClick={() => setTestLanguage("zh-CN")}
+                disabled={busy}
+              >
+                简
+                <small>{t("room.testChinese")}</small>
+              </button>
+            </div>
+
+            <p className="section-label">{t("room.chooseRooms")}</p>
             <div className="room-list">
               {suites.map((suite) => (
                 <button
@@ -256,26 +347,26 @@ export function TestRoom({ card, target, onBack }: Props) {
                   onClick={() => toggleSuite(suite.id)}
                   disabled={busy}
                 >
-                  <span>{suite.room}</span><small>{suite.title}</small>
+                  <span>{t(suite.roomKey)}</span><small>{t(suite.titleKey)}</small>
                 </button>
               ))}
             </div>
 
-            <p className="section-label">Observation speed</p>
+            <p className="section-label">{t("room.observationSpeed")}</p>
             <div className="mode-switch">
               <button
                 className={mode === "watch" ? "selected" : ""}
                 onClick={() => setMode("watch")}
                 disabled={busy}
               >
-                Watch<small>1.2 s snapshots</small>
+                {t("room.watch")}<small>{t("room.watchHelp")}</small>
               </button>
               <button
                 className={mode === "fast" ? "selected" : ""}
                 onClick={() => setMode("fast")}
                 disabled={busy}
               >
-                Fast<small>450 ms snapshots</small>
+                {t("room.fast")}<small>{t("room.fastHelp")}</small>
               </button>
             </div>
 
@@ -285,16 +376,16 @@ export function TestRoom({ card, target, onBack }: Props) {
               disabled={busy || selected.length === 0}
             >
               {busy
-                ? "Observing…"
+                ? t("room.observing")
                 : !credentialReady
-                  ? "Configure Subject key"
+                  ? t("room.configureSubject")
                   : testerMode === "adaptive" && !adaptiveReady
-                    ? "Configure Adaptive Tester"
-                    : "Begin session"}
+                    ? t("room.configureAdaptive")
+                    : t("room.begin")}
             </button>
             {busy && (
               <button className="paper-button full" onClick={() => void stop()}>
-                Stop session
+                {t("room.stop")}
               </button>
             )}
             {error && <p className="error-note">{error}</p>}
@@ -302,17 +393,19 @@ export function TestRoom({ card, target, onBack }: Props) {
 
           <section className="chat-sheet paper-sheet">
             <div className="chat-heading">
-              <div><p className="tape-label">Live Room</p><h2>{scenarioName}</h2></div>
+              <div><p className="tape-label">{t("room.liveRoom")}</p><h2>{scenarioName}</h2></div>
               <span className="round-counter">
-                {events.filter((item) => item.event_type === "subject_response").length} replies
+                {t("room.replies", {
+                  count: events.filter((item) => item.event_type === "subject_response").length
+                })}
               </span>
             </div>
             <div className="chatroom" ref={transcriptRef} aria-live="polite">
               {displayEvents.length === 0 ? (
                 <div className="room-empty">
                   <img src="/assets/masque-mark.svg" alt="" />
-                  <h3>The room is quiet.</h3>
-                  <p>Choose a room and begin the observation session.</p>
+                  <h3>{t("room.quiet")}</h3>
+                  <p>{t("room.quietHelp")}</p>
                 </div>
               ) : (
                 displayEvents.map((event) => (
@@ -323,43 +416,53 @@ export function TestRoom({ card, target, onBack }: Props) {
           </section>
 
           <aside className="observation-sidebar paper-sheet">
-            <p className="tape-label rose">Observation Notes</p>
+            <p className="tape-label rose">{t("room.notes")}</p>
             <div className="integrity-card">
-              <span>Masque integrity</span><strong>{run?.result ? Math.round(score) : "—"}</strong>
-              <small>{run?.result ? integrityLabel(score) : "Still observing"}</small>
+              <span>{t("room.integrity")}</span><strong>{run?.result ? Math.round(score) : "—"}</strong>
+              <small>
+                {run?.result ? t(integrityKeys[integrityBand(score)]) : t("room.stillObserving")}
+              </small>
             </div>
             <dl className="signal-list">
-              <div><dt>Tester</dt><dd>{testerMode}</dd></div>
-              <div><dt>Current room</dt><dd>{scenarioName}</dd></div>
-              <div><dt>Evidence found</dt><dd>{eventCount}</dd></div>
               <div>
-                <dt>First fracture</dt>
+                <dt>{t("room.tester")}</dt>
+                <dd>{testerMode === "adaptive" ? t("room.adaptive") : t("room.benchmark")}</dd>
+              </div>
+              <div><dt>{t("room.currentRoom")}</dt><dd>{scenarioName}</dd></div>
+              <div><dt>{t("room.evidence")}</dt><dd>{eventCount}</dd></div>
+              <div>
+                <dt>{t("room.firstFracture")}</dt>
                 <dd>
                   {breakpoint
-                    ? `${breakpoint.scenario.name} · turn ${breakpoint.breakpoint}`
-                    : "None yet"}
+                    ? `${breakpoint.scenario.name} · ${t("event.turn", { turn: breakpoint.breakpoint ?? 0 })}`
+                    : t("room.noneYet")}
                 </dd>
               </div>
-              <div><dt>Session state</dt><dd>{run?.status ?? "unobserved"}</dd></div>
+              <div>
+                <dt>{t("room.sessionState")}</dt>
+                <dd>{run ? t(statusKeys[run.status]) : t("room.unobserved")}</dd>
+              </div>
             </dl>
             {comparison && (
               <div className={comparison.gate_passed ? "comparison pass" : "comparison fail"}>
-                <span>Compared with last benchmark</span>
-                <strong>{comparison.gate_passed ? "No regression" : "Regression"}</strong>
+                <span>{t("room.compared")}</span>
+                <strong>
+                  {comparison.gate_passed ? t("room.noRegression") : t("room.regression")}
+                </strong>
                 <small>
                   {comparison.score_delta >= 0 ? "+" : ""}
-                  {comparison.score_delta.toFixed(1)} score
+                  {comparison.score_delta.toFixed(1)} {t("room.scoreSuffix")}
                 </small>
               </div>
             )}
             <div className="card-profile-note">
-              <span>Persona note</span>
-              <p>{card.persona_summary || "No persona note filed."}</p>
+              <span>{t("room.personaNote")}</span>
+              <p>{card.persona_summary || t("room.noPersona")}</p>
             </div>
             {run?.status === "completed" && (
               <div className="report-links">
-                <button onClick={() => setReportFormat("markdown")}>Lab note</button>
-                <button onClick={() => setReportFormat("json")}>JSON</button>
+                <button onClick={() => setReportFormat("markdown")}>{t("room.labNote")}</button>
+                <button onClick={() => setReportFormat("json")}>{t("room.json")}</button>
               </div>
             )}
           </aside>
@@ -396,10 +499,12 @@ export function TestRoom({ card, target, onBack }: Props) {
 }
 
 function LiveEvent({ event, card }: { event: TrialEvent; card: CharacterCard }) {
+  const { t } = useI18n();
+
   if (event.event_type === "scenario_started") {
     return (
       <div className="system-note">
-        <span>Room opened</span>
+        <span>{t("event.roomOpened")}</span>
         <strong>{payloadText(event, "name")}</strong>
         <small>{payloadText(event, "expected_behavior")}</small>
       </div>
@@ -410,7 +515,7 @@ function LiveEvent({ event, card }: { event: TrialEvent; card: CharacterCard }) 
       <div className="chat-line tester-line">
         <div className="chat-avatar tester-avatar">T</div>
         <div className="bubble tester-thinking-bubble">
-          <span>Adaptive Tester planning</span>
+          <span>{t("event.adaptivePlanning")}</span>
           <p><i /><i /><i /></p>
         </div>
       </div>
@@ -423,8 +528,8 @@ function LiveEvent({ event, card }: { event: TrialEvent; card: CharacterCard }) 
         <div className="chat-avatar tester-avatar">T</div>
         <div className="bubble tester-bubble">
           <span>
-            {source === "adaptive" ? "Adaptive Tester" : "Benchmark Tester"}
-            {` · turn ${event.turn_index}`}
+            {source === "adaptive" ? t("event.adaptiveTester") : t("event.benchmarkTester")}
+            {` · ${t("event.turn", { turn: event.turn_index ?? 0 })}`}
           </span>
           <p>{payloadText(event, "message")}</p>
         </div>
@@ -461,19 +566,25 @@ function LiveEvent({ event, card }: { event: TrialEvent; card: CharacterCard }) 
     const passed = event.payload.passed === true;
     return (
       <div className={passed ? "judge-note pass" : "judge-note fail"}>
-        <span>Judge memo</span><strong>{passed ? "Role held" : "Drift observed"}</strong>
+        <span>{t("event.judgeMemo")}</span>
+        <strong>{passed ? t("event.roleHeld") : t("event.driftObserved")}</strong>
         <p>{payloadText(event, "summary")}</p>
-        <small>Score {payloadNumber(event, "score") ?? 0}</small>
+        <small>{t("event.score", { score: payloadNumber(event, "score") ?? 0 })}</small>
       </div>
     );
   }
   if (event.event_type === "breakpoint_detected") {
+    const rawSeverity = payloadText(event, "severity");
+    const severity = rawSeverity in severityKeys
+      ? t(severityKeys[rawSeverity as keyof typeof severityKeys])
+      : rawSeverity;
     return (
       <div className="fracture-banner">
         <img src="/assets/fracture-stamp.svg" alt="" />
         <div>
-          <span>Breakpoint detected</span><strong>Turn {event.turn_index}</strong>
-          <small>{payloadText(event, "severity")} severity</small>
+          <span>{t("event.breakpoint")}</span>
+          <strong>{t("event.turnNumber", { turn: event.turn_index ?? 0 })}</strong>
+          <small>{t("event.severity", { severity })}</small>
         </div>
       </div>
     );
@@ -481,8 +592,10 @@ function LiveEvent({ event, card }: { event: TrialEvent; card: CharacterCard }) 
   if (event.event_type === "session_completed") {
     return (
       <div className="system-note completed">
-        <span>Observation complete</span>
-        <strong>Average score {payloadNumber(event, "average_score") ?? 0}</strong>
+        <span>{t("event.complete")}</span>
+        <strong>
+          {t("event.averageScore", { score: payloadNumber(event, "average_score") ?? 0 })}
+        </strong>
       </div>
     );
   }

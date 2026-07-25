@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { api, type ReportFormat } from "./api";
+import { useI18n } from "./i18n";
 import { formatReportContent, reportFilename } from "./report";
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function ReportModal({ runId, format, onClose }: Props) {
+  const { t } = useI18n();
   const [rawContent, setRawContent] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -17,7 +19,7 @@ export function ReportModal({ runId, format, onClose }: Props) {
     () => formatReportContent(rawContent, format),
     [rawContent, format]
   );
-  const title = format === "markdown" ? "Lab Note" : "JSON Report";
+  const title = format === "markdown" ? t("report.labNote") : t("report.json");
 
   useEffect(() => {
     let active = true;
@@ -60,20 +62,20 @@ export function ReportModal({ runId, format, onClose }: Props) {
         aria-labelledby="report-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button className="close-button" onClick={onClose} aria-label="Close">×</button>
+        <button className="close-button" onClick={onClose} aria-label={t("creator.cancel")}>×</button>
         <div className="report-heading">
           <div>
             <p className={format === "markdown" ? "tape-label" : "tape-label rose"}>
-              Observation archive
+              {t("report.archive")}
             </p>
             <h2 id="report-title">{title}</h2>
           </div>
           <div className="modal-toolbar">
             <button className="paper-button" onClick={() => void copy()} disabled={!content}>
-              {copied ? "Copied" : "Copy"}
+              {copied ? t("report.copied") : t("report.copy")}
             </button>
             <button className="paper-button" onClick={download} disabled={!content}>
-              Download
+              {t("report.download")}
             </button>
           </div>
         </div>
@@ -82,7 +84,7 @@ export function ReportModal({ runId, format, onClose }: Props) {
         ) : content ? (
           <pre className={`report-content ${format}`}>{content}</pre>
         ) : (
-          <div className="report-loading">Opening the archive…</div>
+          <div className="report-loading">{t("report.opening")}</div>
         )}
       </section>
     </div>

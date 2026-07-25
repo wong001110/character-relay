@@ -6,7 +6,7 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
-from echo_masque.domain import TestKind, TrialStatus, TrialSuiteResult
+from echo_masque.domain import TestKind, TestLanguage, TrialStatus, TrialSuiteResult
 from echo_masque.persistence.models import (
     CharacterCardRecord,
     TargetRecord,
@@ -14,6 +14,7 @@ from echo_masque.persistence.models import (
     TrialRunRecord,
     TurnRecord,
 )
+from echo_masque.persistence.trial_request import decode_trial_request
 from echo_masque.security import redact
 from echo_masque.targets import HttpTargetConfig, PromptModelConfig
 from echo_masque.testers import AdaptiveTesterConfig
@@ -136,6 +137,7 @@ class TrialStart(BaseModel):
     suite: list[TestKind] = Field(default_factory=lambda: list(TestKind))
     mode: Literal["watch", "fast"] = "fast"
     tester_mode: Literal["benchmark", "adaptive"] = "benchmark"
+    test_language: TestLanguage = TestLanguage.ENGLISH
     adaptive_tester: AdaptiveTesterConfig | None = None
 
     @model_validator(mode="after")
@@ -154,6 +156,7 @@ class TrialRunView(BaseModel):
     target_id: str
     status: TrialStatus
     suite: list[TestKind]
+    test_language: TestLanguage
     result: TrialSuiteResult | None
     error: str | None
     created_at: datetime
@@ -161,11 +164,13 @@ class TrialRunView(BaseModel):
 
     @classmethod
     def from_record(cls, record: TrialRunRecord) -> "TrialRunView":
+        suite, test_language = decode_trial_request(record.suite_json)
         return cls(
             id=record.id,
             target_id=record.target_id,
             status=TrialStatus(record.status),
-            suite=[TestKind(item) for item in json.loads(record.suite_json)],
+            suite=[TestKind(item) for item in suite],
+            test_language=test_language,
             result=(
                 TrialSuiteResult.model_validate_json(record.result_json)
                 if record.result_json
@@ -227,6 +232,7 @@ class TranscriptAnalyzeRequest(BaseModel):
     content: str = Field(min_length=1)
     subject_name: str = Field(default="Imported subject", min_length=1, max_length=120)
     suite: list[TestKind] = Field(default_factory=lambda: list(TestKind))
+    test_language: TestLanguage = TestLanguage.ENGLISH
 
 
 def _string_list(raw: str) -> list[str]:
