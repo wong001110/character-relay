@@ -113,6 +113,6 @@
 - [x] Phase-by-phase commits are pushed
 - [x] Phase 8 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
 - [x] MVP polish GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
-- [ ] Phase 9 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
+- [x] Phase 9 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
 
-The Phase 9 hosted-CI item is checked only after the pull request jobs complete.
+Hosted CI passed on Phase 9 pull request #14 for Python 3.12, Python 3.13, and the web client.
