@@ -2,9 +2,25 @@ name: Railway Smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      url:
+        description: Public Echo Masque URL
+        required: false
+        default: https://echo-masque-production.up.railway.app
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: railway-smoke-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
+
+env:
+  DEFAULT_RAILWAY_URL: https://echo-masque-production.up.railway.app
 
 jobs:
   smoke:
@@ -14,15 +30,30 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Validate Railway URL
+      - name: Resolve Railway URL
+        id: target
         env:
-          RAILWAY_PUBLIC_URL: ${{ vars.RAILWAY_PUBLIC_URL }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_URL: ${{ inputs.url }}
         run: |
-          if [ -z "$RAILWAY_PUBLIC_URL" ]; then
-            echo "Set the RAILWAY_PUBLIC_URL repository variable first."
-            exit 1
+          target="$DEFAULT_RAILWAY_URL"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$INPUT_URL" ]; then
+            target="$INPUT_URL"
           fi
-      - name: Run deployed smoke test
+          echo "Testing $target"
+          echo "url=$target" >> "$GITHUB_OUTPUT"
+      - name: Wait for deployment and run smoke test
         env:
-          RAILWAY_PUBLIC_URL: ${{ vars.RAILWAY_PUBLIC_URL }}
-        run: python scripts/railway_smoke.py "$RAILWAY_PUBLIC_URL"
+          RAILWAY_PUBLIC_URL: ${{ steps.target.outputs.url }}
+        run: |
+          for attempt in $(seq 1 20); do
+            echo "Railway smoke attempt $attempt/20"
+            if python scripts/railway_smoke.py "$RAILWAY_PUBLIC_URL"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 20 ]; then
+              sleep 30
+            fi
+          done
+          echo "Railway smoke test did not pass after 20 attempts."
+          exit 1
