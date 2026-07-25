@@ -29,10 +29,10 @@
 - [x] Offline mock provider tests
 
 ## Phase 4 — Persistence and API
-- [ ] SQLite persistence
-- [ ] Target and trial endpoints
-- [ ] Trial status, result, cancellation, and replay
-- [ ] Restart-safe completed results
+- [x] SQLite persistence
+- [x] Target and trial endpoints
+- [x] Trial status, result, cancellation, and replay
+- [x] Restart-safe completed results
 
 ## Phase 5 — Observation interface
 - [ ] React and TypeScript client
