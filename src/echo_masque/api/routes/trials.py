@@ -45,7 +45,7 @@ def start_trial(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Target or Character Card not found.") from exc
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     background_tasks.add_task(service(request).execute, run_id)
     run = repository(request).get_run(run_id)
     assert run is not None
