@@ -3,6 +3,7 @@
 import os
 from collections.abc import Callable, Mapping
 from time import perf_counter
+from typing import cast
 from uuid import uuid4
 
 import httpx
@@ -24,7 +25,7 @@ class HttpTargetConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    message_url: str = Field(min_length=1)
+    message_url: str
     reset_url: str | None = None
     message_field: str = "message"
     session_field: str = "session_id"
@@ -33,23 +34,27 @@ class HttpTargetConfig(BaseModel):
     auth_header: str = "Authorization"
     auth_scheme: str = "Bearer"
     auth_env: str | None = None
-    timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    timeout_seconds: float = Field(default=30, gt=0, le=120)
 
 
 class HttpTarget:
-    """Send trial turns to an external chatbot without inspecting its internals."""
+    """Test a private chatbot without requiring its prompt or model details."""
 
     def __init__(
         self,
         *,
         name: str,
         config: HttpTargetConfig,
-        secret_lookup: SecretLookup | None = None,
+        client: httpx.AsyncClient | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        secret_lookup: SecretLookup | None = None,
     ) -> None:
+        if client is not None and transport is not None:
+            raise ValueError("Provide either client or transport, not both.")
         self.config = config
-        self._secret_lookup = secret_lookup or os.environ.get
-        self._transport = transport
+        self._client = client or httpx.AsyncClient(transport=transport)
+        self._owns_client = client is None
+        self._secret_lookup = secret_lookup or os.getenv
         self._session_id = str(uuid4())
         self._summary = TargetSummary(
             name=name,
@@ -64,16 +69,9 @@ class HttpTarget:
     def summary(self) -> TargetSummary:
         return self._summary
 
-    def _headers(self) -> dict[str, str]:
-        if self.config.auth_env is None:
-            return {"Content-Type": "application/json"}
-        secret = self._secret_lookup(self.config.auth_env)
-        if not secret:
-            raise ProviderAuthenticationError(
-                "The external target credential environment variable is not set."
-            )
-        value = f"{self.config.auth_scheme} {secret}".strip()
-        return {"Content-Type": "application/json", self.config.auth_header: value}
+    async def close(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
 
     async def reset(self) -> None:
         self._session_id = str(uuid4())
@@ -108,7 +106,8 @@ class HttpTarget:
         safe_trace = redact(raw_trace)
         if not isinstance(safe_trace, dict):
             safe_trace = {"value": safe_trace}
-        safe_trace.update(
+        trace = cast(dict[str, object], safe_trace)
+        trace.update(
             {
                 "adapter": "custom-http",
                 "session_id": self._session_id,
@@ -118,7 +117,7 @@ class HttpTarget:
         return TargetResponse(
             text=text,
             latency_ms=round((perf_counter() - started) * 1000),
-            trace=safe_trace,
+            trace=trace,
         )
 
     async def _post(
@@ -128,19 +127,25 @@ class HttpTarget:
         *,
         expect_payload: bool,
     ) -> Mapping[str, object] | None:
+        headers: dict[str, str] = {}
+        if self.config.auth_env:
+            token = self._secret_lookup(self.config.auth_env)
+            if not token:
+                raise ProviderAuthenticationError(
+                    f"Credential environment variable is missing: {self.config.auth_env}"
+                )
+            headers[self.config.auth_header] = f"{self.config.auth_scheme} {token}".strip()
         try:
-            async with httpx.AsyncClient(
+            response = await self._client.post(
+                url,
+                json=payload,
+                headers=headers,
                 timeout=self.config.timeout_seconds,
-                transport=self._transport,
-            ) as client:
-                response = await client.post(url, json=payload, headers=self._headers())
+            )
         except httpx.TimeoutException as exc:
-            raise ProviderTimeoutError("External target timed out.") from exc
-        except httpx.HTTPError as exc:
-            raise ProviderProtocolError("External target could not be reached.") from exc
-
+            raise ProviderTimeoutError("External target request timed out.") from exc
         if response.status_code in {401, 403}:
-            raise ProviderAuthenticationError("External target rejected the credential.")
+            raise ProviderAuthenticationError("External target rejected authentication.")
         if response.is_error:
             raise ProviderProtocolError(
                 f"External target returned HTTP {response.status_code}."
@@ -148,18 +153,18 @@ class HttpTarget:
         if not expect_payload:
             return None
         try:
-            body = response.json()
+            value: object = response.json()
         except ValueError as exc:
             raise ProviderProtocolError("External target returned invalid JSON.") from exc
-        if not isinstance(body, Mapping):
+        if not isinstance(value, Mapping):
             raise ProviderProtocolError("External target response must be a JSON object.")
-        return body
+        return value
 
 
 def _read_path(payload: Mapping[str, object], path: str) -> object:
     current: object = payload
     for segment in path.split("."):
         if not isinstance(current, Mapping) or segment not in current:
-            raise ProviderProtocolError(f"External target response is missing path: {path}.")
+            raise ProviderProtocolError(f"External target response missing path: {path}")
         current = current[segment]
     return current

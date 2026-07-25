@@ -2,19 +2,18 @@
 
 **See what remains when the role is challenged.**
 
-Echo Masque is a Python-first behavior validation system for conversational characters and agents. It runs repeatable adversarial sessions, identifies the first behavioral breakpoint, and records evidence for identity drift, fabricated memory, prompt injection, capability violations, and long-conversation instability.
+Echo Masque is a Python-first character behavior validation system. Users keep the conversational systems they need to test as Character Cards, bring one card into a live Test Room, watch an adversarial Tester and the subject converse, and retain evidence for identity drift, fabricated memory, prompt injection, and long-conversation instability.
 
 ## Product loop
 
 ```text
-Define target
-  -> choose a test suite
-  -> run an adversarial session
-  -> judge each response
-  -> locate the first breakpoint
-  -> inspect evidence and replay
-  -> change the prompt, model, memory, or policy
-  -> rerun and compare
+Create or select a Character Card
+  -> bind it to a prompt, model, API, or deterministic target
+  -> enter a Test Room
+  -> watch Tester and subject messages arrive live
+  -> read Judge notes and the first breakpoint
+  -> inspect replay, reports, and comparisons
+  -> change the character configuration and rerun
 ```
 
 ## Quick start
@@ -30,22 +29,27 @@ python -m uvicorn echo_masque.main:app --reload
 
 Open `http://127.0.0.1:8000/docs` or call `GET /health`.
 
-## Initial target types
+## Character Cards
+
+Character Cards keep user-facing identity information separate from technical target bindings. A card contains its persona summary, traits, expected tone, memory boundary, forbidden behaviours, preferred test rooms, and portrait palette. The target continues to own credentials and execution configuration.
+
+The current local MVP scopes cards with the `X-Echo-User` header and defaults to `local-user`. Production deployments should replace this boundary with authenticated identity and authorization.
+
+## Target types
 
 1. **Deterministic demo** — credential-free Stable and Fragile characters.
 2. **Prompt + model** — Echo Masque calls an OpenAI-compatible model.
 3. **Custom HTTP target** — a complete external chatbot through an adapter contract.
 4. **Transcript import** — inspect an existing conversation without sending new messages.
 
-## Core test suites
+## Test Rooms
 
-- Identity integrity
-- False-memory injection
-- Prompt-injection resistance
-- Long-conversation drift
-- Capability boundaries
-- Knowledge-boundary leakage
-- Tool-behavior reliability
+- Mirror Room — identity integrity
+- Memory Room — false-memory injection
+- Script Room — prompt-injection resistance
+- Echo Hall — long-conversation drift
+
+Watch Mode intentionally paces deterministic conversations so the session can be observed. Fast Mode emits the same persisted event sequence without presentation delays.
 
 ## Delivery phases
 
@@ -57,19 +61,22 @@ Open `http://127.0.0.1:8000/docs` or call `GET /health`.
 - [x] Phase 5 — Observation interface
 - [x] Phase 6 — External target adapters
 - [x] Phase 7 — Comparison and hardening
+- [x] Phase 8 — Character Cards and Live Test Room
 
-See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for the remaining human checks.
+See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for human checks.
 
-## MVP capabilities
+## Current capabilities
 
+- Manage per-user Character Cards bound to existing targets.
 - Run four behavior suites against Stable and Fragile built-in subjects.
+- Observe persisted Tester, Subject, Judge, and Breakpoint events in a chatroom UI.
+- Choose Watch Mode for paced viewing or Fast Mode for developer workflows.
 - Test prompt-and-model targets through an OpenAI-compatible provider.
 - Test complete external chatbots through the Custom HTTP Target contract.
 - Import JSON, CSV, or Markdown transcripts for offline inspection.
-- Persist sessions, evidence, breakpoints, Trace, and replay in SQLite.
+- Persist sessions, events, evidence, breakpoints, Trace, and replay in SQLite.
 - Compare two completed runs and enforce regression thresholds.
 - Export redacted Markdown and JSON reports.
-- Use the React observation interface or the documented FastAPI endpoints.
 
 ## Web interface
 
@@ -97,7 +104,6 @@ The SQLite database is stored in the named `echo-masque-data` volume.
 
 The MVP excludes browser automation of third-party chat websites, public leaderboards, automatic prompt rewriting, fine-tuning, production traffic monitoring, and a general-purpose multi-agent simulation framework.
 
-
 ## Status
 
-The automated MVP implementation is complete. Human visual, real-provider, external-host, and end-to-end release checks remain explicitly tracked and do not hide behind automated pass claims.
+The automated product implementation now includes Character Cards and a live observation room. Visual polish, real-provider, external-host, and end-to-end release checks remain explicitly tracked rather than being hidden behind automated pass claims.

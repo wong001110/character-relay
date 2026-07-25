@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from echo_masque.api.routes import (
+    characters_router,
     comparisons_router,
     health_router,
     reports_router,
@@ -26,6 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     database.initialize()
     repository = Repository(database)
     repository.seed_demo_targets()
+    repository.seed_demo_character_cards()
 
     app = FastAPI(
         title=resolved.app_name,
@@ -47,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.repository = repository
     app.state.trial_service = TrialService(repository)
     app.include_router(health_router)
+    app.include_router(characters_router)
     app.include_router(targets_router)
     app.include_router(trials_router)
     app.include_router(transcripts_router)

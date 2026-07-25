@@ -2,13 +2,21 @@
 
 These checks require human judgment or real external credentials. They do not block automated development completion.
 
-## Observation interface
+## Character Shelf and Card Creator
 
-- [ ] Run Stable Ann with all suites and confirm the interface clearly communicates an intact result.
-- [ ] Run Fragile Ann with all suites and confirm the first breakpoint is visually obvious.
-- [ ] Inspect the interface at desktop, tablet, and narrow mobile widths.
-- [ ] Confirm long-session transcript scrolling remains understandable.
-- [ ] Confirm loading, empty, failed, and completed states are distinguishable.
+- [ ] Confirm Stable Ann and Fragile Ann read as distinct collectible Character Cards.
+- [ ] Create a user-owned card and confirm its target binding and profile notes are correct.
+- [ ] Confirm the scrapbook treatment remains readable rather than decorative noise.
+- [ ] Inspect the shelf at desktop, tablet, and narrow mobile widths.
+
+## Live Test Room
+
+- [ ] Run Stable Ann in Watch Mode and confirm left/right chat order is clear.
+- [ ] Run Fragile Ann in Memory Room and confirm the fracture banner is obvious.
+- [ ] Confirm Tester, Subject, Judge memo, and room-divider events are distinguishable.
+- [ ] Confirm auto-scroll remains comfortable during Echo Hall.
+- [ ] Compare Watch Mode with Fast Mode and confirm both have a useful purpose.
+- [ ] Confirm Stop Session produces a clear cancelled state.
 
 ## Real model provider
 

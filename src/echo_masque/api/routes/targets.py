@@ -1,5 +1,7 @@
 """Target CRUD endpoints."""
 
+from typing import cast
+
 from fastapi import APIRouter, HTTPException, Request, status
 
 from echo_masque.api.schemas import TargetCreate, TargetView
@@ -9,7 +11,7 @@ router = APIRouter(prefix="/api/targets", tags=["targets"])
 
 
 def repository(request: Request) -> Repository:
-    return request.app.state.repository
+    return cast(Repository, request.app.state.repository)
 
 
 @router.get("", response_model=list[TargetView])
