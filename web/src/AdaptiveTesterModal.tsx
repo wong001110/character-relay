@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 
 import type { AdaptiveTesterConfig, ProviderId } from "./api";
+import { useI18n } from "./i18n";
 import { getProviderPreset, providerPresets } from "./providerPresets";
 import "./adaptive.css";
 
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function AdaptiveTesterModal({ initial, onClose, onSave }: Props) {
+  const { t } = useI18n();
   const [provider, setProvider] = useState<ProviderId>(initial.provider);
   const [baseUrl, setBaseUrl] = useState(initial.base_url);
   const [model, setModel] = useState(initial.model);
@@ -48,17 +50,14 @@ export function AdaptiveTesterModal({ initial, onClose, onSave }: Props) {
         aria-labelledby="adaptive-tester-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button className="close-button" onClick={onClose} aria-label="Close">×</button>
-        <p className="tape-label">Adaptive Tester</p>
-        <h2 id="adaptive-tester-title">Configure the pressure agent.</h2>
-        <p className="creator-help">
-          This second AI reads only the scenario transcript and produces one follow-up at
-          a time. Its API key is sent for the next run only and is never persisted.
-        </p>
+        <button className="close-button" onClick={onClose} aria-label={t("creator.cancel")}>×</button>
+        <p className="tape-label">{t("adaptive.label")}</p>
+        <h2 id="adaptive-tester-title">{t("adaptive.heading")}</h2>
+        <p className="creator-help">{t("adaptive.help")}</p>
 
         <form className="adaptive-tester-form" onSubmit={submit}>
           <label>
-            Provider
+            {t("adaptive.provider")}
             <select
               value={provider}
               onChange={(event) => changeProvider(event.currentTarget.value as ProviderId)}
@@ -69,16 +68,16 @@ export function AdaptiveTesterModal({ initial, onClose, onSave }: Props) {
             </select>
           </label>
           <label>
-            Model ID
+            {t("adaptive.modelId")}
             <input
               value={model}
               onChange={(event) => setModel(event.currentTarget.value)}
               required
-              placeholder="Tester model ID"
+              placeholder={t("adaptive.modelPlaceholder")}
             />
           </label>
           <label className="wide">
-            Base URL
+            {t("adaptive.baseUrl")}
             <input
               value={baseUrl}
               onChange={(event) => setBaseUrl(event.currentTarget.value)}
@@ -86,7 +85,7 @@ export function AdaptiveTesterModal({ initial, onClose, onSave }: Props) {
             />
           </label>
           <label>
-            Temperature
+            {t("adaptive.temperature")}
             <input
               type="number"
               min="0"
@@ -98,7 +97,7 @@ export function AdaptiveTesterModal({ initial, onClose, onSave }: Props) {
             />
           </label>
           <label>
-            Maximum turns per room
+            {t("adaptive.maxTurns")}
             <input
               type="number"
               min="2"
@@ -109,7 +108,7 @@ export function AdaptiveTesterModal({ initial, onClose, onSave }: Props) {
             />
           </label>
           <label className="wide">
-            Tester system prompt
+            {t("adaptive.systemPrompt")}
             <textarea
               rows={7}
               value={systemPrompt}
@@ -118,23 +117,22 @@ export function AdaptiveTesterModal({ initial, onClose, onSave }: Props) {
             />
           </label>
           <label className="wide">
-            API key for the next run
+            {t("adaptive.apiKey")}
             <input
               type="password"
               value={apiKey}
               onChange={(event) => setApiKey(event.currentTarget.value)}
               autoComplete="off"
               required
-              placeholder="Cleared after the run is submitted"
+              placeholder={t("adaptive.apiKeyPlaceholder")}
             />
           </label>
-          <p className="adaptive-security-note wide">
-            The Adaptive Tester is separate from the Subject and Judge. Its key and prompt
-            are not written to SQLite, trial events, Lab Notes, or JSON reports.
-          </p>
+          <p className="adaptive-security-note wide">{t("adaptive.security")}</p>
           <div className="form-actions">
-            <button type="button" className="paper-button" onClick={onClose}>Cancel</button>
-            <button className="ink-button">Use for next run</button>
+            <button type="button" className="paper-button" onClick={onClose}>
+              {t("creator.cancel")}
+            </button>
+            <button className="ink-button">{t("adaptive.useNext")}</button>
           </div>
         </form>
       </section>
