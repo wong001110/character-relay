@@ -77,6 +77,6 @@
 - [x] Python source and tests compile
 - [x] Frontend strict TypeScript configuration is present
 - [x] Phase-by-phase commits are pushed
-- [ ] GitHub-hosted Ruff, mypy, pytest, Vitest, and production build observed passing
+- [x] GitHub-hosted Ruff, mypy, pytest, Vitest, and production build observed passing
 
-The final hosted-CI item is only checked after the Phase 8 pull request jobs complete.
+Hosted CI passed on Phase 8 pull request #10 for Python 3.12, Python 3.13, and the web client.
