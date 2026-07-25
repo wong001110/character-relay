@@ -2,7 +2,15 @@
 
 from typing import Annotated, cast
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 
 from echo_masque.api.schemas import ReplayTurn, TrialEventView, TrialRunView, TrialStart
 from echo_masque.persistence import Repository
@@ -24,6 +32,7 @@ def start_trial(
     payload: TrialStart,
     request: Request,
     background_tasks: BackgroundTasks,
+    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
 ) -> TrialRunView:
     try:
         run_id = service(request).start(
@@ -31,9 +40,16 @@ def start_trial(
             character_card_id=payload.character_card_id,
             suite=payload.suite,
             mode=payload.mode,
+            owner_id=owner_id,
         )
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Target or Character Card not found.") from exc
+        raise HTTPException(
+            status_code=404,
+            detail="Target or Character Card not found.",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     background_tasks.add_task(service(request).execute, run_id)
     run = repository(request).get_run(run_id)
     assert run is not None

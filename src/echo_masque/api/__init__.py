@@ -17,6 +17,7 @@ from echo_masque.api.routes import (
     trials_router,
 )
 from echo_masque.config import Settings, get_settings
+from echo_masque.credentials import CredentialStore
 from echo_masque.persistence import Database, Repository
 from echo_masque.services import TrialService
 
@@ -28,6 +29,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     repository = Repository(database)
     repository.seed_demo_targets()
     repository.seed_demo_character_cards()
+    credential_store = CredentialStore()
 
     app = FastAPI(
         title=resolved.app_name,
@@ -47,7 +49,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = resolved
     app.state.database = database
     app.state.repository = repository
-    app.state.trial_service = TrialService(repository)
+    app.state.credential_store = credential_store
+    app.state.trial_service = TrialService(repository, credential_store)
     app.include_router(health_router)
     app.include_router(characters_router)
     app.include_router(targets_router)
