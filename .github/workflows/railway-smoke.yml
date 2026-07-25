@@ -33,12 +33,13 @@ jobs:
       - name: Resolve Railway URL
         id: target
         env:
+          EVENT_NAME: ${{ github.event_name }}
           INPUT_URL: ${{ inputs.url }}
-          VARIABLE_URL: ${{ vars.RAILWAY_PUBLIC_URL }}
         run: |
-          target="$INPUT_URL"
-          if [ -z "$target" ]; then target="$VARIABLE_URL"; fi
-          if [ -z "$target" ]; then target="$DEFAULT_RAILWAY_URL"; fi
+          target="$DEFAULT_RAILWAY_URL"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$INPUT_URL" ]; then
+            target="$INPUT_URL"
+          fi
           echo "Testing $target"
           echo "url=$target" >> "$GITHUB_OUTPUT"
       - name: Wait for deployment and run smoke test
