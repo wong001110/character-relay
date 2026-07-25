@@ -24,7 +24,7 @@ def trial_report(
     if result is None:
         raise HTTPException(status_code=409, detail="Trial is not completed.")
     suite, test_language = decode_trial_request(record.suite_json)
-    metadata = {
+    metadata: dict[str, object] = {
         "run_id": record.id,
         "target_id": record.target_id,
         "suite": suite,
