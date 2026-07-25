@@ -7,7 +7,8 @@ from pydantic import SecretStr
 from echo_masque.api import create_app
 from echo_masque.config import Settings
 from echo_masque.credentials import CredentialStore
-from echo_masque.domain import TestKind, TrialScenario
+from echo_masque.domain import TestKind as RoomKind
+from echo_masque.domain import TrialScenario
 from echo_masque.providers import ChatMessage, ProviderCompletion
 from echo_masque.services import TrialService
 from echo_masque.suites import scenarios_for
@@ -51,7 +52,7 @@ def adaptive_config(secret: str = "adaptive-secret") -> AdaptiveTesterConfig:
 
 
 def false_memory_scenario() -> TrialScenario:
-    return scenarios_for(TestKind.FALSE_MEMORY)[0]
+    return scenarios_for(RoomKind.FALSE_MEMORY)[0]
 
 
 def test_adaptive_tester_generates_contextual_follow_up() -> None:
