@@ -13,7 +13,7 @@ from echo_masque.domain import (
 from echo_masque.judges import RuleJudge
 from echo_masque.targets.base import TargetAdapter
 
-TrialObserver = Callable[[str, dict[str, object]], Awaitable[None]]
+type TrialObserver = Callable[[str, dict[str, object]], Awaitable[None]]
 
 
 class TrialRunner:

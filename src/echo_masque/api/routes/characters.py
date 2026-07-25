@@ -1,5 +1,7 @@
 """Character Card collection endpoints."""
 
+from typing import Annotated
+
 from fastapi import APIRouter, Header, HTTPException, Request, status
 
 from echo_masque.api.schemas import CharacterCardCreate, CharacterCardView
@@ -15,7 +17,7 @@ def repository(request: Request) -> Repository:
 @router.get("", response_model=list[CharacterCardView])
 def list_characters(
     request: Request,
-    owner_id: str = Header(default="local-user", alias="X-Echo-User"),
+    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
 ) -> list[CharacterCardView]:
     return [
         CharacterCardView.from_record(item)
@@ -27,7 +29,7 @@ def list_characters(
 def create_character(
     payload: CharacterCardCreate,
     request: Request,
-    owner_id: str = Header(default="local-user", alias="X-Echo-User"),
+    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
 ) -> CharacterCardView:
     repo = repository(request)
     if repo.get_target(payload.target_id) is None:
@@ -54,7 +56,7 @@ def create_character(
 def get_character(
     card_id: str,
     request: Request,
-    owner_id: str = Header(default="local-user", alias="X-Echo-User"),
+    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
 ) -> CharacterCardView:
     record = repository(request).get_character_card(card_id, owner_id)
     if record is None:
@@ -66,7 +68,7 @@ def get_character(
 def delete_character(
     card_id: str,
     request: Request,
-    owner_id: str = Header(default="local-user", alias="X-Echo-User"),
+    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
 ) -> None:
     if not repository(request).delete_character_card(card_id, owner_id):
         raise HTTPException(status_code=409, detail="Character Card cannot be deleted.")

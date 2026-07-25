@@ -1,5 +1,7 @@
 """Trial execution, status, live events, cancellation, and replay endpoints."""
 
+from typing import Annotated
+
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 
 from echo_masque.api.schemas import ReplayTurn, TrialEventView, TrialRunView, TrialStart
@@ -50,7 +52,7 @@ def get_trial(run_id: str, request: Request) -> TrialRunView:
 def trial_events(
     run_id: str,
     request: Request,
-    after: int = Query(default=0, ge=0),
+    after: Annotated[int, Query(ge=0)] = 0,
 ) -> list[TrialEventView]:
     if repository(request).get_run(run_id) is None:
         raise HTTPException(status_code=404, detail="Trial not found.")
