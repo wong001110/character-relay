@@ -1,6 +1,6 @@
 """Trial execution, status, live events, cancellation, and replay endpoints."""
 
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 
@@ -12,11 +12,11 @@ router = APIRouter(prefix="/api/trials", tags=["trials"])
 
 
 def repository(request: Request) -> Repository:
-    return request.app.state.repository
+    return cast(Repository, request.app.state.repository)
 
 
 def service(request: Request) -> TrialService:
-    return request.app.state.trial_service
+    return cast(TrialService, request.app.state.trial_service)
 
 
 @router.post("", response_model=TrialRunView, status_code=status.HTTP_202_ACCEPTED)

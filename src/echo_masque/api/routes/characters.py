@@ -1,6 +1,6 @@
 """Character Card collection endpoints."""
 
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
 
@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/characters", tags=["characters"])
 
 
 def repository(request: Request) -> Repository:
-    return request.app.state.repository
+    return cast(Repository, request.app.state.repository)
 
 
 @router.get("", response_model=list[CharacterCardView])

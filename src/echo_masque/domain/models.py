@@ -129,12 +129,12 @@ class TrialSuiteResult(BaseModel):
     target: TargetSummary
     results: tuple[TrialResult, ...]
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def passed(self) -> bool:
         return all(item.verdict.passed for item in self.results)
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def average_score(self) -> float:
         if not self.results:

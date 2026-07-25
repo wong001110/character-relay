@@ -9,6 +9,7 @@ from echo_masque.persistence import Repository
 from echo_masque.providers import ProviderError
 from echo_masque.suites import scenarios_for
 from echo_masque.targets import HttpTarget, HttpTargetConfig, fragile_target, stable_target
+from echo_masque.targets.base import TargetAdapter
 from echo_masque.trials import TrialRunner
 
 
@@ -67,6 +68,7 @@ class TrialService:
         try:
             self.repository.clear_trial_events(run_id)
             self.repository.set_run_status(run_id, TrialStatus.RUNNING)
+            target: TargetAdapter
             if target_record.target_kind == "stable":
                 target = stable_target()
             elif target_record.target_kind == "fragile":
