@@ -17,6 +17,19 @@ Define target
   -> rerun and compare
 ```
 
+## Quick start
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+make check
+make run
+```
+
+Open `http://127.0.0.1:8000/docs` or call `GET /health`. No model credentials are required for the current phase.
+
 ## Initial target types
 
 1. **Prompt + model** — Echo Masque owns the conversation and calls an OpenAI-compatible model.
@@ -112,7 +125,7 @@ The initial MVP intentionally excludes browser automation of third-party chat we
 ## Status
 
 - [x] Phase 0 — Product contract and roadmap
-- [ ] Phase 1 — Python foundation
+- [x] Phase 1 — Python foundation
 - [ ] Phase 2 — Deterministic trial engine
 - [ ] Phase 3 — Prompt-model target
 - [ ] Phase 4 — Persistence and HTTP API
