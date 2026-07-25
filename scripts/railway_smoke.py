@@ -38,7 +38,7 @@ def request_json(
         method=method,
     )
     try:
-        with urlopen(request, timeout=20) as response:  # noqa: S310
+        with urlopen(request, timeout=20) as response:
             return json.loads(response.read().decode())
     except HTTPError as exc:
         body = exc.read().decode(errors="replace")
@@ -53,7 +53,7 @@ def request_text(base_url: str, path: str) -> tuple[str, str]:
         headers={"User-Agent": USER_HEADERS["User-Agent"]},
     )
     try:
-        with urlopen(request, timeout=20) as response:  # noqa: S310
+        with urlopen(request, timeout=20) as response:
             return response.read().decode(errors="replace"), response.headers.get_content_type()
     except HTTPError as exc:
         body = exc.read().decode(errors="replace")
