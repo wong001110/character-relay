@@ -110,7 +110,7 @@ export function TestRoom({ card, target, onBack }: Props) {
     try {
       const created = await api.startTrial(card.id, selected, mode);
       setRun(created);
-      const completed = await api.observeTrial(created.id, setEvents, setRun);
+      const completed = await api.observeTrial(created.id, mode, setEvents, setRun);
       setRun(completed);
       if (completed.status === "failed") {
         setError(completed.error ?? "The provider-backed session failed.");
@@ -177,10 +177,10 @@ export function TestRoom({ card, target, onBack }: Props) {
             <p className="section-label">Observation speed</p>
             <div className="mode-switch">
               <button className={mode === "watch" ? "selected" : ""} onClick={() => setMode("watch")} disabled={busy}>
-                Watch<small>slower guided pacing</small>
+                Watch<small>1.2 s snapshots</small>
               </button>
               <button className={mode === "fast" ? "selected" : ""} onClick={() => setMode("fast")} disabled={busy}>
-                Fast<small>developer run</small>
+                Fast<small>450 ms snapshots</small>
               </button>
             </div>
 

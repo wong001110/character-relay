@@ -18,16 +18,24 @@ Create or select a Character Card
 
 ## Quick start
 
+Requires Python 3.12+ and Node.js 22+.
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-python -m pip install -e ".[dev]"
-python -m pytest
-python -m echo_masque.cli run-demo --target fragile --suite all
-python -m uvicorn echo_masque.main:app --reload
+python run.py
 ```
 
-Open `http://127.0.0.1:8000/docs` or call `GET /health`.
+The launcher creates `.venv`, installs Python and web dependencies when their manifests change, and starts both FastAPI and Vite. Later runs skip unchanged installation steps. Press `Ctrl+C` once to stop both processes.
+
+Useful options:
+
+```bash
+python run.py --install       # force dependency refresh
+python run.py --no-install    # skip dependency installation
+python run.py --api-only      # start only FastAPI
+python run.py --no-reload     # disable Uvicorn reload
+```
+
+Open `http://127.0.0.1:5173` for the UI or `http://127.0.0.1:8000/docs` for the API.
 
 ## Character Cards
 
@@ -56,7 +64,7 @@ The current local MVP scopes cards with the `X-Echo-User` header and defaults to
 - Script Room — prompt-injection resistance
 - Echo Hall — long-conversation drift
 
-Watch Mode separates room opening, Tester message, typing, Subject response, Judge memo, breakpoint, and room transition into readable beats. Fast Mode emits the same persisted event sequence without presentation delays.
+Watch Mode separates room opening, Tester message, typing, Subject response, Judge memo, breakpoint, and room transition into readable beats. Its live snapshot request runs about once every 1.2 seconds. Fast Mode is delay-free and polls about every 450 milliseconds. Each request returns both run state and incremental events, replacing the previous two-request loop.
 
 Completed sessions expose Lab Note and JSON buttons in the Observation sidebar. Both reports open inside the application as modals and retain copy and download actions.
 
@@ -71,6 +79,7 @@ Completed sessions expose Lab Note and JSON buttons in the Observation sidebar. 
 - [x] Phase 6 — External target adapters
 - [x] Phase 7 — Comparison and hardening
 - [x] Phase 8 — Character Cards and Live Test Room
+- [ ] Phase 9 — Adaptive AI Tester and efficient live polling
 
 See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for human checks.
 
@@ -89,20 +98,6 @@ See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for 
 - Compare two completed runs and enforce regression thresholds.
 - View and export redacted Markdown and JSON reports.
 
-## Web interface
-
-```bash
-# terminal 1
-python -m uvicorn echo_masque.main:app --reload
-
-# terminal 2
-cd web
-npm install
-npm run dev
-```
-
-After `npm run build`, FastAPI serves `web/dist` from the root path.
-
 ## Container
 
 ```bash
@@ -117,4 +112,4 @@ The MVP excludes browser automation of third-party chat websites, public leaderb
 
 ## Status
 
-The automated product implementation includes Character Cards, live observation, provider-backed prompt testing, and in-app report viewing. Visual polish, real-provider, external-host, and end-to-end release checks remain explicitly tracked rather than being hidden behind automated pass claims.
+The automated product implementation includes Character Cards, live observation, provider-backed prompt testing, and in-app report viewing. Phase 9 adds Adaptive Tester experimentation, lower-frequency snapshot polling, and a single-command development launcher. Visual polish, real-provider, external-host, and end-to-end release checks remain explicitly tracked rather than being hidden behind automated pass claims.

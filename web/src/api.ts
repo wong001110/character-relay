@@ -135,6 +135,11 @@ export interface TrialRun {
   error: string | null;
 }
 
+export interface TrialSnapshot {
+  run: TrialRun;
+  events: TrialEvent[];
+}
+
 const userHeaders = { "X-Echo-User": "local-user" };
 
 async function errorMessage(response: Response): Promise<string> {
@@ -175,6 +180,10 @@ function mergeEvents(current: TrialEvent[], incoming: TrialEvent[]): TrialEvent[
   );
 }
 
+export function pollIntervalForMode(mode: ObservationMode): number {
+  return mode === "watch" ? 1200 : 450;
+}
+
 export const api = {
   listTargets: () => request<TargetView[]>("/api/targets"),
   listCharacters: () => request<CharacterCard[]>("/api/characters"),
@@ -203,6 +212,8 @@ export const api = {
   getTrial: (id: string) => request<TrialRun>(`/api/trials/${id}`),
   getTrialEvents: (id: string, after = 0) =>
     request<TrialEvent[]>(`/api/trials/${id}/events?after=${after}`),
+  getTrialSnapshot: (id: string, after = 0) =>
+    request<TrialSnapshot>(`/api/trials/${id}/snapshot?after=${after}`),
   cancelTrial: (id: string) =>
     request<TrialRun>(`/api/trials/${id}/cancel`, { method: "POST" }),
   compareRuns: (baselineRunId: string, candidateRunId: string) =>
@@ -219,22 +230,25 @@ export const api = {
     `/api/reports/trials/${id}?format=${format}`,
   observeTrial: async (
     id: string,
+    mode: ObservationMode,
     onEvents: (events: TrialEvent[]) => void,
     onRun: (run: TrialRun) => void
   ): Promise<TrialRun> => {
     let events: TrialEvent[] = [];
     let after = 0;
-    for (let attempt = 0; attempt < 900; attempt += 1) {
-      const incoming = await api.getTrialEvents(id, after);
-      if (incoming.length > 0) {
-        events = mergeEvents(events, incoming);
+    const interval = pollIntervalForMode(mode);
+    const deadline = Date.now() + 30 * 60 * 1000;
+
+    while (Date.now() < deadline) {
+      const snapshot = await api.getTrialSnapshot(id, after);
+      if (snapshot.events.length > 0) {
+        events = mergeEvents(events, snapshot.events);
         after = events[events.length - 1]?.sequence ?? after;
         onEvents(events);
       }
-      const run = await api.getTrial(id);
-      onRun(run);
-      if (!["pending", "running"].includes(run.status)) return run;
-      await new Promise((resolve) => window.setTimeout(resolve, 180));
+      onRun(snapshot.run);
+      if (!["pending", "running"].includes(snapshot.run.status)) return snapshot.run;
+      await new Promise((resolve) => window.setTimeout(resolve, interval));
     }
     throw new Error("The observation session exceeded the live viewing window.");
   }

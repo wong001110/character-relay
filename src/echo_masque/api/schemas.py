@@ -190,6 +190,11 @@ class TrialEventView(BaseModel):
         )
 
 
+class TrialSnapshotView(BaseModel):
+    run: TrialRunView
+    events: list[TrialEventView]
+
+
 class ReplayTurn(BaseModel):
     scenario_id: str
     turn_index: int
