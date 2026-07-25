@@ -46,10 +46,13 @@ class HttpTarget:
         name: str,
         config: HttpTargetConfig,
         client: httpx.AsyncClient | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
         secret_lookup: SecretLookup | None = None,
     ) -> None:
+        if client is not None and transport is not None:
+            raise ValueError("Provide either client or transport, not both.")
         self.config = config
-        self._client = client or httpx.AsyncClient()
+        self._client = client or httpx.AsyncClient(transport=transport)
         self._owns_client = client is None
         self._secret_lookup = secret_lookup or os.getenv
         self._session_id = str(uuid4())
@@ -162,6 +165,6 @@ def _read_path(payload: Mapping[str, object], path: str) -> object:
     current: object = payload
     for segment in path.split("."):
         if not isinstance(current, Mapping) or segment not in current:
-            raise ProviderProtocolError(f"Response path not found: {path}")
+            raise ProviderProtocolError(f"External target response missing path: {path}")
         current = current[segment]
     return current
