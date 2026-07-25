@@ -72,3 +72,42 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build production image
+        run: docker build --tag echo-masque:ci .
+      - name: Start container with persistent volume
+        run: |
+          docker volume create echo-masque-ci-data
+          docker run --detach \
+            --name echo-masque-ci \
+            --publish 8000:8000 \
+            --env PORT=8000 \
+            --volume echo-masque-ci-data:/data \
+            echo-masque:ci
+      - name: Wait for healthcheck
+        run: |
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:8000/health > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs echo-masque-ci
+          exit 1
+      - name: Run container smoke test
+        run: python scripts/railway_smoke.py http://127.0.0.1:8000
+      - name: Show container logs
+        if: always()
+        run: docker logs echo-masque-ci || true
+      - name: Remove container and volume
+        if: always()
+        run: |
+          docker rm --force echo-masque-ci || true
+          docker volume rm echo-masque-ci-data || true

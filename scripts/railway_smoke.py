@@ -1,0 +1,123 @@
+"""Smoke-test a deployed Echo Masque service using only the Python standard library."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import time
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+USER_HEADERS = {
+    "Content-Type": "application/json",
+    "User-Agent": "echo-masque-railway-smoke/1.0",
+    "X-Echo-User": "railway-smoke",
+}
+
+
+def normalized_base_url(value: str) -> str:
+    base_url = value.strip().rstrip("/")
+    if not base_url.startswith(("http://", "https://")):
+        raise ValueError("Base URL must start with http:// or https://")
+    return base_url
+
+
+def request_json(
+    base_url: str,
+    path: str,
+    *,
+    method: str = "GET",
+    payload: dict[str, object] | None = None,
+) -> Any:
+    data = json.dumps(payload).encode() if payload is not None else None
+    request = Request(
+        f"{base_url}{path}",
+        data=data,
+        headers=USER_HEADERS,
+        method=method,
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode())
+    except HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        raise RuntimeError(f"{method} {path} returned HTTP {exc.code}: {body}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"{method} {path} could not connect: {exc.reason}") from exc
+
+
+def request_text(base_url: str, path: str) -> tuple[str, str]:
+    request = Request(
+        f"{base_url}{path}",
+        headers={"User-Agent": USER_HEADERS["User-Agent"]},
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            return response.read().decode(errors="replace"), response.headers.get_content_type()
+    except HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        raise RuntimeError(f"GET {path} returned HTTP {exc.code}: {body}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"GET {path} could not connect: {exc.reason}") from exc
+
+
+def run_smoke(base_url: str) -> None:
+    health = request_json(base_url, "/health")
+    if health.get("name") != "Echo Masque":
+        raise RuntimeError(f"Unexpected health response: {health}")
+
+    _, content_type = request_text(base_url, "/")
+    if content_type != "text/html":
+        raise RuntimeError(f"Root did not serve the web client: {content_type}")
+
+    targets = request_json(base_url, "/api/targets")
+    target_ids = {item.get("id") for item in targets}
+    if "demo-stable" not in target_ids:
+        raise RuntimeError("Stable demo target is missing from the deployment.")
+
+    started = request_json(
+        base_url,
+        "/api/trials",
+        method="POST",
+        payload={
+            "target_id": "demo-stable",
+            "suite": ["identity_integrity"],
+            "mode": "fast",
+            "tester_mode": "benchmark",
+        },
+    )
+    run_id = started.get("id")
+    if not isinstance(run_id, str):
+        raise RuntimeError(f"Trial did not return a run ID: {started}")
+
+    snapshot: dict[str, Any] | None = None
+    for _ in range(60):
+        snapshot = request_json(base_url, f"/api/trials/{run_id}/snapshot")
+        status = snapshot.get("run", {}).get("status")
+        if status not in {"pending", "running"}:
+            break
+        time.sleep(0.5)
+
+    if snapshot is None:
+        raise RuntimeError("No trial snapshot was returned.")
+    run = snapshot.get("run", {})
+    if run.get("status") != "completed":
+        raise RuntimeError(f"Deterministic trial did not complete: {run}")
+    score = run.get("result", {}).get("average_score")
+    if not isinstance(score, (int, float)) or score < 90:
+        raise RuntimeError(f"Stable deterministic score was unexpected: {score}")
+
+    print(f"Railway smoke test passed: {base_url} (score={score})")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("base_url", help="Public Railway URL, for example https://app.up.railway.app")
+    args = parser.parse_args()
+    run_smoke(normalized_base_url(args.base_url))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

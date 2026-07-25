@@ -105,6 +105,24 @@
 - [ ] Manual: verify Adaptive Tester with a real provider
 - [ ] Manual: verify launcher on Windows and macOS/Linux
 
+## Phase 10 — Railway deployment readiness
+- [x] Railway config-as-code selects the root Dockerfile
+- [x] Production container listens on Railway-provided `PORT`
+- [x] React production build is served by FastAPI from one service
+- [x] Railway healthcheck uses `/health`
+- [x] SQLite production path remains `/data/echo_masque.db`
+- [x] Remote deterministic smoke-test script
+- [x] Manual GitHub Actions Railway Smoke workflow
+- [x] CI builds and starts the production Docker image
+- [x] CI mounts a persistent Docker volume and runs a real Demo Trial
+- [x] Railway deployment and persistence guide
+- [ ] Manual: create Railway service from the GitHub repository
+- [ ] Manual: attach Railway Volume at `/data`
+- [ ] Manual: keep one replica and select Singapore region when available
+- [ ] Manual: generate public domain and set `RAILWAY_PUBLIC_URL`
+- [ ] Manual: run GitHub Railway Smoke workflow
+- [ ] Manual: confirm SQLite data survives a Railway redeploy
+
 ## Automated acceptance
 - [x] Credential-free deterministic demo works
 - [x] Python unit and integration suite is present
@@ -114,5 +132,6 @@
 - [x] Phase 8 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
 - [x] MVP polish GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
 - [x] Phase 9 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
+- [x] Phase 10 GitHub-hosted Ruff, mypy, pytest, Vitest, web build, and Docker smoke passed
 
-Hosted CI passed on Phase 9 pull request #14 for Python 3.12, Python 3.13, and the web client.
+Hosted CI passed on Phase 10 pull request #16 for Python 3.12, Python 3.13, the web client, and the production Docker image with a persistent volume.

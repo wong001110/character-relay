@@ -1,0 +1,28 @@
+name: Railway Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate Railway URL
+        env:
+          RAILWAY_PUBLIC_URL: ${{ vars.RAILWAY_PUBLIC_URL }}
+        run: |
+          if [ -z "$RAILWAY_PUBLIC_URL" ]; then
+            echo "Set the RAILWAY_PUBLIC_URL repository variable first."
+            exit 1
+          fi
+      - name: Run deployed smoke test
+        env:
+          RAILWAY_PUBLIC_URL: ${{ vars.RAILWAY_PUBLIC_URL }}
+        run: python scripts/railway_smoke.py "$RAILWAY_PUBLIC_URL"
