@@ -93,4 +93,6 @@
 - [x] Frontend strict TypeScript configuration is present
 - [x] Phase-by-phase commits are pushed
 - [x] Phase 8 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
-- [ ] MVP polish GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
+- [x] MVP polish GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
+
+Hosted CI passed on MVP polish pull request #12 for Python 3.12, Python 3.13, and the web client.
