@@ -17,6 +17,7 @@ def analyze(payload: TranscriptAnalyzeRequest) -> TrialSuiteResult:
             messages,
             subject_name=payload.subject_name,
             suite=tuple(payload.suite),
+            test_language=payload.test_language,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
