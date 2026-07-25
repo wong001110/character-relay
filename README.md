@@ -93,7 +93,7 @@ Completed sessions expose Lab Note and JSON buttons in the Observation sidebar. 
 - [x] Phase 7 — Comparison and hardening
 - [x] Phase 8 — Character Cards and Live Test Room
 - [x] Phase 9 — Adaptive AI Tester and efficient local development
-- [ ] Phase 10 — Railway deployment readiness
+- [x] Phase 10 — Railway deployment readiness
 
 See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for human checks.
 
@@ -144,4 +144,4 @@ The MVP excludes browser automation of third-party chat websites, public leaderb
 
 ## Status
 
-The automated product implementation includes Character Cards, live observation, provider-backed Subject testing, experimental Adaptive Tester pressure, in-app reports, lower-frequency snapshot polling, and a single-command development launcher. Railway deployment configuration is being validated. Visual polish, real-provider, authentication, external-host, cross-platform launcher, and end-to-end release checks remain explicitly tracked rather than being hidden behind automated pass claims.
+The automated product implementation includes Character Cards, live observation, provider-backed Subject testing, experimental Adaptive Tester pressure, in-app reports, lower-frequency snapshot polling, a single-command development launcher, and a container-smoke-validated Railway deployment path. Visual polish, real-provider, authentication, external-host, cross-platform launcher, and live Railway acceptance remain explicitly tracked rather than being hidden behind automated pass claims.
