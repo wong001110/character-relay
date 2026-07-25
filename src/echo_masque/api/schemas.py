@@ -16,6 +16,7 @@ from echo_masque.persistence.models import (
 )
 from echo_masque.security import redact
 from echo_masque.targets import HttpTargetConfig, PromptModelConfig
+from echo_masque.testers import AdaptiveTesterConfig
 from echo_masque.transcripts import TranscriptFormat
 
 
@@ -134,11 +135,17 @@ class TrialStart(BaseModel):
     character_card_id: str | None = None
     suite: list[TestKind] = Field(default_factory=lambda: list(TestKind))
     mode: Literal["watch", "fast"] = "fast"
+    tester_mode: Literal["benchmark", "adaptive"] = "benchmark"
+    adaptive_tester: AdaptiveTesterConfig | None = None
 
     @model_validator(mode="after")
-    def require_target(self) -> "TrialStart":
+    def validate_trial_configuration(self) -> "TrialStart":
         if self.target_id is None and self.character_card_id is None:
             raise ValueError("target_id or character_card_id is required")
+        if self.tester_mode == "adaptive" and self.adaptive_tester is None:
+            raise ValueError("adaptive_tester is required for Adaptive Tester mode")
+        if self.tester_mode == "benchmark" and self.adaptive_tester is not None:
+            raise ValueError("adaptive_tester is only valid in Adaptive Tester mode")
         return self
 
 
@@ -188,6 +195,11 @@ class TrialEventView(BaseModel):
             payload=cast(dict[str, object], redact(json.loads(record.payload_json))),
             created_at=record.created_at,
         )
+
+
+class TrialSnapshotView(BaseModel):
+    run: TrialRunView
+    events: list[TrialEventView]
 
 
 class ReplayTurn(BaseModel):

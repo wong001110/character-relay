@@ -69,9 +69,10 @@ def test_live_trial_events_capture_chatroom_sequence(tmp_path: Path) -> None:
     assert started.status_code == 202
     run_id = started.json()["id"]
 
-    events = client.get(f"/api/trials/{run_id}/events")
-    assert events.status_code == 200
-    event_types = [item["event_type"] for item in events.json()]
+    snapshot = client.get(f"/api/trials/{run_id}/snapshot")
+    assert snapshot.status_code == 200
+    assert snapshot.json()["run"]["status"] == "completed"
+    event_types = [item["event_type"] for item in snapshot.json()["events"]]
     assert event_types == [
         "session_started",
         "scenario_started",
@@ -83,7 +84,13 @@ def test_live_trial_events_capture_chatroom_sequence(tmp_path: Path) -> None:
         "scenario_completed",
         "session_completed",
     ]
-    sequences = [item["sequence"] for item in events.json()]
+    sequences = [item["sequence"] for item in snapshot.json()["events"]]
     assert sequences == sorted(sequences)
-    assert events.json()[2]["payload"]["message"]
-    assert events.json()[4]["payload"]["message"]
+    assert snapshot.json()["events"][2]["payload"]["message"]
+    assert snapshot.json()["events"][4]["payload"]["message"]
+
+    incremental = client.get(
+        f"/api/trials/{run_id}/snapshot",
+        params={"after": sequences[-2]},
+    )
+    assert [item["sequence"] for item in incremental.json()["events"]] == [sequences[-1]]

@@ -9,6 +9,7 @@ Echo Masque is a Python-first character behavior validation system. Users keep t
 ```text
 Create or select a Character Card
   -> bind it to a prompt, model, API, or deterministic target
+  -> choose Benchmark or Adaptive Tester
   -> enter a Test Room
   -> watch Tester and subject messages arrive live
   -> read Judge notes and the first breakpoint
@@ -18,16 +19,24 @@ Create or select a Character Card
 
 ## Quick start
 
+Requires Python 3.12+ and Node.js 22+.
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-python -m pip install -e ".[dev]"
-python -m pytest
-python -m echo_masque.cli run-demo --target fragile --suite all
-python -m uvicorn echo_masque.main:app --reload
+python run.py
 ```
 
-Open `http://127.0.0.1:8000/docs` or call `GET /health`.
+The launcher creates `.venv`, installs Python and web dependencies when their manifests change, and starts both FastAPI and Vite. Later runs skip unchanged installation steps. Press `Ctrl+C` once to stop both processes.
+
+Useful options:
+
+```bash
+python run.py --install       # force dependency refresh
+python run.py --no-install    # skip dependency installation
+python run.py --api-only      # start only FastAPI
+python run.py --no-reload     # disable Uvicorn reload
+```
+
+Open `http://127.0.0.1:5173` for the UI or `http://127.0.0.1:8000/docs` for the API.
 
 ## Character Cards
 
@@ -49,6 +58,18 @@ The current local MVP scopes cards with the `X-Echo-User` header and defaults to
 3. **Custom HTTP target** — a complete external chatbot through an adapter contract.
 4. **Transcript import** — inspect an existing conversation without sending new messages.
 
+## Tester modes
+
+### Benchmark Tester
+
+Benchmark mode uses the fixed scenario scripts. It remains deterministic and is the correct mode for prompt-version comparisons, regression gates, CI, and repeatable scores.
+
+### Adaptive Tester
+
+Adaptive mode keeps the first benchmark message as the scenario seed, then uses a separate AI provider to generate one targeted follow-up at a time from the visible Tester/Subject transcript. Configuration includes provider, base URL, model, system prompt, temperature, maximum turns, and a one-run API key.
+
+The Adaptive Tester is independent from the Subject and deterministic Judge. Its key is stored only while the active run is being prepared or executed. It is never written to SQLite, events, reports, or target configuration. Adaptive pressure stops when the Subject produces a clear forbidden-phrase fracture or reaches the configured turn limit.
+
 ## Test Rooms
 
 - Mirror Room — identity integrity
@@ -56,7 +77,7 @@ The current local MVP scopes cards with the `X-Echo-User` header and defaults to
 - Script Room — prompt-injection resistance
 - Echo Hall — long-conversation drift
 
-Watch Mode separates room opening, Tester message, typing, Subject response, Judge memo, breakpoint, and room transition into readable beats. Fast Mode emits the same persisted event sequence without presentation delays.
+Watch Mode separates room opening, Tester message, typing, Subject response, Judge memo, breakpoint, and room transition into readable beats. Its live snapshot request runs about once every 1.2 seconds. Fast Mode is delay-free and polls about every 450 milliseconds. Each request returns both run state and incremental events, replacing the previous two-request loop.
 
 Completed sessions expose Lab Note and JSON buttons in the Observation sidebar. Both reports open inside the application as modals and retain copy and download actions.
 
@@ -71,6 +92,7 @@ Completed sessions expose Lab Note and JSON buttons in the Observation sidebar. 
 - [x] Phase 6 — External target adapters
 - [x] Phase 7 — Comparison and hardening
 - [x] Phase 8 — Character Cards and Live Test Room
+- [x] Phase 9 — Adaptive AI Tester and efficient local development
 
 See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for human checks.
 
@@ -80,28 +102,15 @@ See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for 
 - Configure provider, base URL, model, system prompt, temperature, and an ephemeral API key from the card creator.
 - Reconfigure a provider key from the Test Room after a backend restart.
 - Run four behavior suites against Stable and Fragile built-in subjects.
+- Choose fixed Benchmark testing or experimental Adaptive AI pressure.
 - Observe persisted Tester, Subject, Judge, and Breakpoint events in a chatroom UI.
 - Choose Watch Mode for paced viewing or Fast Mode for developer workflows.
 - Test prompt-and-model targets through an OpenAI-compatible provider.
 - Test complete external chatbots through the Custom HTTP Target contract.
 - Import JSON, CSV, or Markdown transcripts for offline inspection.
 - Persist sessions, events, evidence, breakpoints, Trace, and replay in SQLite.
-- Compare two completed runs and enforce regression thresholds.
+- Compare deterministic Benchmark runs and enforce regression thresholds.
 - View and export redacted Markdown and JSON reports.
-
-## Web interface
-
-```bash
-# terminal 1
-python -m uvicorn echo_masque.main:app --reload
-
-# terminal 2
-cd web
-npm install
-npm run dev
-```
-
-After `npm run build`, FastAPI serves `web/dist` from the root path.
 
 ## Container
 
@@ -117,4 +126,4 @@ The MVP excludes browser automation of third-party chat websites, public leaderb
 
 ## Status
 
-The automated product implementation includes Character Cards, live observation, provider-backed prompt testing, and in-app report viewing. Visual polish, real-provider, external-host, and end-to-end release checks remain explicitly tracked rather than being hidden behind automated pass claims.
+The automated product implementation includes Character Cards, live observation, provider-backed Subject testing, experimental Adaptive Tester pressure, in-app reports, lower-frequency snapshot polling, and a single-command development launcher. Visual polish, real-provider, external-host, cross-platform launcher, and end-to-end release checks remain explicitly tracked rather than being hidden behind automated pass claims.

@@ -2,17 +2,15 @@
 
 from typing import Annotated, cast
 
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    Header,
-    HTTPException,
-    Query,
-    Request,
-    status,
-)
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query, Request, status
 
-from echo_masque.api.schemas import ReplayTurn, TrialEventView, TrialRunView, TrialStart
+from echo_masque.api.schemas import (
+    ReplayTurn,
+    TrialEventView,
+    TrialRunView,
+    TrialSnapshotView,
+    TrialStart,
+)
 from echo_masque.persistence import Repository
 from echo_masque.services import TrialService
 
@@ -38,18 +36,16 @@ def start_trial(
         run_id = service(request).start(
             target_id=payload.target_id,
             character_card_id=payload.character_card_id,
+            owner_id=owner_id,
             suite=payload.suite,
             mode=payload.mode,
-            owner_id=owner_id,
+            tester_mode=payload.tester_mode,
+            adaptive_tester=payload.adaptive_tester,
         )
     except KeyError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail="Target or Character Card not found.",
-        ) from exc
+        raise HTTPException(status_code=404, detail="Target or Character Card not found.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-
     background_tasks.add_task(service(request).execute, run_id)
     run = repository(request).get_run(run_id)
     assert run is not None
@@ -62,6 +58,25 @@ def get_trial(run_id: str, request: Request) -> TrialRunView:
     if run is None:
         raise HTTPException(status_code=404, detail="Trial not found.")
     return TrialRunView.from_record(run)
+
+
+@router.get("/{run_id}/snapshot", response_model=TrialSnapshotView)
+def trial_snapshot(
+    run_id: str,
+    request: Request,
+    after: Annotated[int, Query(ge=0)] = 0,
+) -> TrialSnapshotView:
+    repo = repository(request)
+    run = repo.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Trial not found.")
+    return TrialSnapshotView(
+        run=TrialRunView.from_record(run),
+        events=[
+            TrialEventView.from_record(item)
+            for item in repo.list_trial_events(run_id, after)
+        ],
+    )
 
 
 @router.get("/{run_id}/events", response_model=list[TrialEventView])
