@@ -15,6 +15,11 @@ def compare_results(
 ) -> ComparisonResult:
     """Compare matching scenarios and evaluate an explicit regression policy."""
 
+    baseline_languages = {item.scenario.language for item in baseline.results}
+    candidate_languages = {item.scenario.language for item in candidate.results}
+    if baseline_languages != candidate_languages:
+        raise ValueError("Runs using different test languages cannot be compared.")
+
     resolved_policy = policy or RegressionPolicy()
     baseline_map = {item.scenario.id: item for item in baseline.results}
     candidate_map = {item.scenario.id: item for item in candidate.results}
