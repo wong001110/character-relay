@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from echo_masque.domain import TestKind, TrialStatus, TrialSuiteResult
 from echo_masque.persistence.models import (
@@ -15,19 +15,21 @@ from echo_masque.persistence.models import (
     TurnRecord,
 )
 from echo_masque.security import redact
-from echo_masque.targets import HttpTargetConfig
+from echo_masque.targets import HttpTargetConfig, PromptModelConfig
 from echo_masque.transcripts import TranscriptFormat
 
 
 class TargetCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    target_kind: str = Field(pattern="^(stable|fragile|http)$")
+    target_kind: str = Field(pattern="^(stable|fragile|http|prompt_model)$")
     config: dict[str, object] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_config(self) -> "TargetCreate":
         if self.target_kind == "http":
             HttpTargetConfig.model_validate(self.config)
+        elif self.target_kind == "prompt_model":
+            PromptModelConfig.model_validate(self.config)
         return self
 
 
@@ -50,8 +52,7 @@ class TargetView(BaseModel):
         )
 
 
-class CharacterCardCreate(BaseModel):
-    target_id: str
+class CharacterCardFields(BaseModel):
     display_name: str = Field(min_length=1, max_length=120)
     subtitle: str = Field(default="", max_length=180)
     subject_type: str = Field(default="custom", pattern="^(companion|npc|assistant|custom)$")
@@ -63,6 +64,29 @@ class CharacterCardCreate(BaseModel):
     memory_summary: str | None = Field(default=None, max_length=2000)
     preferred_suites: list[TestKind] = Field(default_factory=lambda: list(TestKind))
     portrait_variant: str = Field(default="lavender", pattern="^(lavender|rose|mint|night)$")
+
+
+class CharacterCardCreate(CharacterCardFields):
+    target_id: str
+
+
+class PromptCharacterCreate(CharacterCardFields):
+    provider: Literal["deepseek", "openai", "openrouter", "custom"] = "deepseek"
+    base_url: str = Field(min_length=1, max_length=500)
+    model: str = Field(min_length=1, max_length=200)
+    system_prompt: str = Field(min_length=1, max_length=20000)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    api_key: SecretStr
+
+
+class CredentialConfigure(BaseModel):
+    api_key: SecretStr
+
+
+class CredentialStatus(BaseModel):
+    required: bool
+    configured: bool
+    source: Literal["memory", "environment", "not_required", "missing"]
 
 
 class CharacterCardView(BaseModel):
@@ -109,7 +133,7 @@ class TrialStart(BaseModel):
     target_id: str | None = None
     character_card_id: str | None = None
     suite: list[TestKind] = Field(default_factory=lambda: list(TestKind))
-    mode: Literal["watch", "fast"] = "watch"
+    mode: Literal["watch", "fast"] = "fast"
 
     @model_validator(mode="after")
     def require_target(self) -> "TrialStart":

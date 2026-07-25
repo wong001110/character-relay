@@ -12,7 +12,7 @@ Create or select a Character Card
   -> enter a Test Room
   -> watch Tester and subject messages arrive live
   -> read Judge notes and the first breakpoint
-  -> inspect replay, reports, and comparisons
+  -> inspect Lab Note, JSON, replay, and comparisons
   -> change the character configuration and rerun
 ```
 
@@ -31,14 +31,21 @@ Open `http://127.0.0.1:8000/docs` or call `GET /health`.
 
 ## Character Cards
 
-Character Cards keep user-facing identity information separate from technical target bindings. A card contains its persona summary, traits, expected tone, memory boundary, forbidden behaviours, preferred test rooms, and portrait palette. The target continues to own credentials and execution configuration.
+Character Cards keep user-facing identity information separate from technical target bindings. A card contains its persona summary, traits, expected tone, memory boundary, forbidden behaviours, preferred test rooms, and portrait palette.
+
+The card creator supports two binding paths:
+
+1. **Prompt + Model** — choose DeepSeek, OpenAI, OpenRouter, or a custom OpenAI-compatible endpoint; provide the base URL, model ID, system prompt, temperature, and API key.
+2. **Existing Target** — bind the card to a deterministic demo or a target already configured through the API.
+
+Raw provider API keys are kept only in backend process memory. They are never written to SQLite, Character Cards, trial events, Lab Notes, JSON reports, or target exports. Restarting the backend clears the key and the Test Room asks the user to configure it again. An environment variable may still supply the configured target's fallback key for local development.
 
 The current local MVP scopes cards with the `X-Echo-User` header and defaults to `local-user`. Production deployments should replace this boundary with authenticated identity and authorization.
 
 ## Target types
 
 1. **Deterministic demo** — credential-free Stable and Fragile characters.
-2. **Prompt + model** — Echo Masque calls an OpenAI-compatible model.
+2. **Prompt + model** — Echo Masque calls an OpenAI-compatible provider using the model configuration attached to the card.
 3. **Custom HTTP target** — a complete external chatbot through an adapter contract.
 4. **Transcript import** — inspect an existing conversation without sending new messages.
 
@@ -49,7 +56,9 @@ The current local MVP scopes cards with the `X-Echo-User` header and defaults to
 - Script Room — prompt-injection resistance
 - Echo Hall — long-conversation drift
 
-Watch Mode intentionally paces deterministic conversations so the session can be observed. Fast Mode emits the same persisted event sequence without presentation delays.
+Watch Mode separates room opening, Tester message, typing, Subject response, Judge memo, breakpoint, and room transition into readable beats. Fast Mode emits the same persisted event sequence without presentation delays.
+
+Completed sessions expose Lab Note and JSON buttons in the Observation sidebar. Both reports open inside the application as modals and retain copy and download actions.
 
 ## Delivery phases
 
@@ -67,7 +76,9 @@ See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for 
 
 ## Current capabilities
 
-- Manage per-user Character Cards bound to existing targets.
+- Manage per-user Character Cards bound to deterministic, prompt-model, or external targets.
+- Configure provider, base URL, model, system prompt, temperature, and an ephemeral API key from the card creator.
+- Reconfigure a provider key from the Test Room after a backend restart.
 - Run four behavior suites against Stable and Fragile built-in subjects.
 - Observe persisted Tester, Subject, Judge, and Breakpoint events in a chatroom UI.
 - Choose Watch Mode for paced viewing or Fast Mode for developer workflows.
@@ -76,7 +87,7 @@ See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for 
 - Import JSON, CSV, or Markdown transcripts for offline inspection.
 - Persist sessions, events, evidence, breakpoints, Trace, and replay in SQLite.
 - Compare two completed runs and enforce regression thresholds.
-- Export redacted Markdown and JSON reports.
+- View and export redacted Markdown and JSON reports.
 
 ## Web interface
 
@@ -98,7 +109,7 @@ After `npm run build`, FastAPI serves `web/dist` from the root path.
 docker compose up --build
 ```
 
-The SQLite database is stored in the named `echo-masque-data` volume.
+The SQLite database is stored in the named `echo-masque-data` volume. Provider keys entered through the UI are intentionally not stored in that volume.
 
 ## MVP exclusions
 
@@ -106,4 +117,4 @@ The MVP excludes browser automation of third-party chat websites, public leaderb
 
 ## Status
 
-The automated product implementation now includes Character Cards and a live observation room. Visual polish, real-provider, external-host, and end-to-end release checks remain explicitly tracked rather than being hidden behind automated pass claims.
+The automated product implementation includes Character Cards, live observation, provider-backed prompt testing, and in-app report viewing. Visual polish, real-provider, external-host, and end-to-end release checks remain explicitly tracked rather than being hidden behind automated pass claims.

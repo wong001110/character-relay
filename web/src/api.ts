@@ -5,11 +5,15 @@ export type TestKind =
   | "long_conversation_drift";
 
 export type ObservationMode = "watch" | "fast";
+export type ProviderId = "deepseek" | "openai" | "openrouter" | "custom";
+export type ReportFormat = "markdown" | "json";
 
 export interface TargetView {
   id: string;
   name: string;
   target_kind: string;
+  config: Record<string, unknown>;
+  created_at?: string;
 }
 
 export interface CharacterCard {
@@ -43,6 +47,22 @@ export interface CharacterCardCreate {
   memory_summary: string | null;
   preferred_suites: TestKind[];
   portrait_variant: CharacterCard["portrait_variant"];
+}
+
+export interface PromptCharacterCreate
+  extends Omit<CharacterCardCreate, "target_id"> {
+  provider: ProviderId;
+  base_url: string;
+  model: string;
+  system_prompt: string;
+  temperature: number;
+  api_key: string;
+}
+
+export interface CredentialStatus {
+  required: boolean;
+  configured: boolean;
+  source: "memory" | "environment" | "not_required" | "missing";
 }
 
 export interface Evidence {
@@ -117,6 +137,17 @@ export interface TrialRun {
 
 const userHeaders = { "X-Echo-User": "local-user" };
 
+async function errorMessage(response: Response): Promise<string> {
+  const raw = await response.text();
+  try {
+    const parsed = JSON.parse(raw) as { detail?: unknown };
+    if (typeof parsed.detail === "string") return parsed.detail;
+  } catch {
+    // Preserve the raw server response below.
+  }
+  return raw || `Request failed with ${response.status}`;
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
@@ -126,12 +157,15 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {})
     }
   });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || `Request failed with ${response.status}`);
-  }
+  if (!response.ok) throw new Error(await errorMessage(response));
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+async function requestText(url: string): Promise<string> {
+  const response = await fetch(url, { headers: userHeaders });
+  if (!response.ok) throw new Error(await errorMessage(response));
+  return response.text();
 }
 
 function mergeEvents(current: TrialEvent[], incoming: TrialEvent[]): TrialEvent[] {
@@ -148,6 +182,18 @@ export const api = {
     request<CharacterCard>("/api/characters", {
       method: "POST",
       body: JSON.stringify(payload)
+    }),
+  createPromptCharacter: (payload: PromptCharacterCreate) =>
+    request<CharacterCard>("/api/characters/prompt-model", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  getCredentialStatus: (cardId: string) =>
+    request<CredentialStatus>(`/api/characters/${cardId}/credential`),
+  configureCredential: (cardId: string, apiKey: string) =>
+    request<CredentialStatus>(`/api/characters/${cardId}/credential`, {
+      method: "PUT",
+      body: JSON.stringify({ api_key: apiKey })
     }),
   startTrial: (characterCardId: string, suite: TestKind[], mode: ObservationMode) =>
     request<TrialRun>("/api/trials", {
@@ -167,7 +213,9 @@ export const api = {
         candidate_run_id: candidateRunId
       })
     }),
-  reportUrl: (id: string, format: "markdown" | "json") =>
+  getReport: (id: string, format: ReportFormat) =>
+    requestText(`/api/reports/trials/${id}?format=${format}`),
+  reportUrl: (id: string, format: ReportFormat) =>
     `/api/reports/trials/${id}?format=${format}`,
   observeTrial: async (
     id: string,
@@ -176,7 +224,7 @@ export const api = {
   ): Promise<TrialRun> => {
     let events: TrialEvent[] = [];
     let after = 0;
-    for (let attempt = 0; attempt < 480; attempt += 1) {
+    for (let attempt = 0; attempt < 900; attempt += 1) {
       const incoming = await api.getTrialEvents(id, after);
       if (incoming.length > 0) {
         events = mergeEvents(events, incoming);

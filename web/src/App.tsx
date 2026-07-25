@@ -5,6 +5,7 @@ import { CharacterCreator } from "./CharacterCreator";
 import { CharacterShelf } from "./CharacterShelf";
 import { TestRoom } from "./TestRoom";
 import "./styles.css";
+import "./polish.css";
 
 export default function App() {
   const [cards, setCards] = useState<CharacterCard[]>([]);
@@ -21,17 +22,30 @@ export default function App() {
       ]);
       setCards(nextCards);
       setTargets(nextTargets);
+      setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to open the card shelf.");
     }
   }
 
-  useEffect(() => {
-    void load();
-  }, []);
+  useEffect(() => { void load(); }, []);
 
   if (activeCard) {
-    return <TestRoom card={activeCard} onBack={() => setActiveCard(null)} />;
+    const target = targets.find((item) => item.id === activeCard.target_id);
+    if (!target) {
+      return (
+        <main className="room-page">
+          <section className="paper-sheet missing-binding">
+            <h1>Target binding unavailable.</h1>
+            <p>The Character Card points to a target that could not be loaded.</p>
+            <button className="paper-button" onClick={() => setActiveCard(null)}>
+              Return to Character Shelf
+            </button>
+          </section>
+        </main>
+      );
+    }
+    return <TestRoom card={activeCard} target={target} onBack={() => setActiveCard(null)} />;
   }
 
   return (
@@ -46,10 +60,7 @@ export default function App() {
         <CharacterCreator
           targets={targets}
           onClose={() => setShowCreator(false)}
-          onCreated={(card) => {
-            setCards((current) => [...current, card]);
-            setShowCreator(false);
-          }}
+          onCreated={() => { setShowCreator(false); void load(); }}
         />
       )}
     </>

@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from echo_masque.domain import (
     TrialResult,
@@ -16,6 +17,31 @@ from echo_masque.targets.base import TargetAdapter
 type TrialObserver = Callable[[str, dict[str, object]], Awaitable[None]]
 
 
+@dataclass(frozen=True, slots=True)
+class TrialPacing:
+    """Delays between visible trial beats."""
+
+    scenario_open_seconds: float = 0
+    after_tester_seconds: float = 0
+    typing_seconds: float = 0
+    after_subject_seconds: float = 0
+    after_judge_seconds: float = 0
+    after_breakpoint_seconds: float = 0
+    scenario_gap_seconds: float = 0
+
+
+FAST_PACING = TrialPacing()
+WATCH_PACING = TrialPacing(
+    scenario_open_seconds=0.8,
+    after_tester_seconds=0.7,
+    typing_seconds=1.1,
+    after_subject_seconds=0.75,
+    after_judge_seconds=0.9,
+    after_breakpoint_seconds=1.0,
+    scenario_gap_seconds=0.6,
+)
+
+
 class TrialRunner:
     def __init__(self, judge: RuleJudge | None = None) -> None:
         self.judge = judge or RuleJudge()
@@ -26,7 +52,7 @@ class TrialRunner:
         scenario: TrialScenario,
         *,
         observer: TrialObserver | None = None,
-        delay_seconds: float = 0,
+        pacing: TrialPacing = FAST_PACING,
     ) -> TrialResult:
         await target.reset()
         await self._emit(
@@ -39,6 +65,8 @@ class TrialRunner:
                 "expected_behavior": scenario.expected_behavior,
             },
         )
+        await self._pause(pacing.scenario_open_seconds)
+
         turns: list[TrialTurn] = []
         for index, message in enumerate(scenario.messages, start=1):
             context = {"scenario_id": scenario.id, "turn_index": index}
@@ -47,9 +75,10 @@ class TrialRunner:
                 "tester_message",
                 {**context, "message": message},
             )
+            await self._pause(pacing.after_tester_seconds)
             await self._emit(observer, "subject_typing", context)
-            if delay_seconds:
-                await asyncio.sleep(delay_seconds)
+            await self._pause(pacing.typing_seconds)
+
             response = await target.send(message)
             trace = dict(response.trace)
             trace["usage"] = {
@@ -74,8 +103,7 @@ class TrialRunner:
                     "trace": trace,
                 },
             )
-            if delay_seconds:
-                await asyncio.sleep(delay_seconds / 2)
+            await self._pause(pacing.after_subject_seconds)
 
         turn_tuple = tuple(turns)
         verdict = self.judge.judge(scenario, turn_tuple)
@@ -94,6 +122,8 @@ class TrialRunner:
                 ],
             },
         )
+        await self._pause(pacing.after_judge_seconds)
+
         if breakpoint is not None:
             await self._emit(
                 observer,
@@ -105,6 +135,8 @@ class TrialRunner:
                     "severity": verdict.severity.value,
                 },
             )
+            await self._pause(pacing.after_breakpoint_seconds)
+
         await self._emit(
             observer,
             "scenario_completed",
@@ -115,6 +147,8 @@ class TrialRunner:
                 "breakpoint": breakpoint,
             },
         )
+        await self._pause(pacing.scenario_gap_seconds)
+
         return TrialResult(
             target=target.summary,
             scenario=scenario,
@@ -130,7 +164,7 @@ class TrialRunner:
         scenarios: tuple[TrialScenario, ...],
         *,
         observer: TrialObserver | None = None,
-        delay_seconds: float = 0,
+        pacing: TrialPacing = FAST_PACING,
     ) -> TrialSuiteResult:
         await self._emit(
             observer,
@@ -142,7 +176,7 @@ class TrialRunner:
                 target,
                 scenario,
                 observer=observer,
-                delay_seconds=delay_seconds,
+                pacing=pacing,
             )
             for scenario in scenarios
         ]
@@ -153,6 +187,11 @@ class TrialRunner:
             {"average_score": result.average_score, "scenario_count": len(results)},
         )
         return result
+
+    @staticmethod
+    async def _pause(seconds: float) -> None:
+        if seconds > 0:
+            await asyncio.sleep(seconds)
 
     @staticmethod
     async def _emit(

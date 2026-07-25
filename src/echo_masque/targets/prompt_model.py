@@ -16,10 +16,15 @@ class PromptModelConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True)
     name: str = Field(min_length=1, max_length=120)
+    provider: str = Field(default="custom", min_length=1, max_length=80)
     model: str = Field(min_length=1)
     system_prompt: str = Field(min_length=1)
     base_url: str = Field(min_length=1)
-    api_key_env: str = "ECHO_MASQUE_MODEL_API_KEY"
+    api_key_env: str = Field(
+        default="ECHO_MASQUE_MODEL_API_KEY",
+        min_length=1,
+        max_length=160,
+    )
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
 
 
@@ -61,7 +66,7 @@ class PromptModelTarget:
             input_tokens=completion.input_tokens,
             output_tokens=completion.output_tokens,
             trace={
-                "provider": "openai-compatible",
+                "provider": self.config.provider,
                 "model": completion.model,
                 "finish_reason": completion.finish_reason,
                 "history_messages": len(self._history),
