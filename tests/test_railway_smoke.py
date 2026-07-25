@@ -1,5 +1,3 @@
-from collections.abc import Callable
-
 import pytest
 
 from scripts import railway_smoke
@@ -42,10 +40,9 @@ def test_smoke_runs_deterministic_trial(
             }
         raise AssertionError(path)
 
-    fake_text: Callable[[str, str], tuple[str, str]] = lambda _base, _path: (
-        "<html>Echo Masque</html>",
-        "text/html",
-    )
+    def fake_text(_base: str, _path: str) -> tuple[str, str]:
+        return "<html>Echo Masque</html>", "text/html"
+
     monkeypatch.setattr(railway_smoke, "request_json", fake_request_json)
     monkeypatch.setattr(railway_smoke, "request_text", fake_text)
 
