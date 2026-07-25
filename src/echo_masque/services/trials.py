@@ -1,5 +1,6 @@
 """Application service for persisted trial execution."""
 
+import asyncio
 import json
 from typing import Literal
 
@@ -54,7 +55,8 @@ class TrialService:
         async def observe(event_type: str, payload: dict[str, object]) -> None:
             scenario = payload.get("scenario_id")
             turn = payload.get("turn_index")
-            self.repository.append_trial_event(
+            await asyncio.to_thread(
+                self.repository.append_trial_event,
                 run_id,
                 event_type,
                 payload,
