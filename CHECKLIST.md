@@ -86,6 +86,25 @@
 - [ ] Manual: revised Watch Mode pacing acceptance
 - [ ] Manual: Lab Note and JSON modal readability
 
+## Phase 9 — Adaptive Tester and efficient local development
+- [x] Single trial snapshot endpoint returns run state and incremental events
+- [x] Watch Mode snapshot interval is approximately 1.2 seconds
+- [x] Fast Mode snapshot interval is approximately 450 milliseconds
+- [x] Previous two-request polling loop removed from the live observer
+- [x] Benchmark Tester remains fixed and reproducible
+- [x] Experimental Adaptive Tester follows Subject replies
+- [x] Separate Adaptive Tester provider, model, prompt, temperature, turns, and key
+- [x] Adaptive Tester key remains active-run memory only
+- [x] Tester planning and generated messages appear in the live room
+- [x] Clear forbidden-phrase fractures stop further adaptive pressure
+- [x] Existing deterministic Judge remains independent
+- [x] Cross-platform `python run.py` launcher
+- [x] Launcher creates `.venv` and skips unchanged dependency installation
+- [x] Launcher starts and stops FastAPI and Vite together
+- [ ] Manual: verify Watch polling cadence in browser console
+- [ ] Manual: verify Adaptive Tester with a real provider
+- [ ] Manual: verify launcher on Windows and macOS/Linux
+
 ## Automated acceptance
 - [x] Credential-free deterministic demo works
 - [x] Python unit and integration suite is present
@@ -94,5 +113,6 @@
 - [x] Phase-by-phase commits are pushed
 - [x] Phase 8 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
 - [x] MVP polish GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
+- [ ] Phase 9 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
 
-Hosted CI passed on MVP polish pull request #12 for Python 3.12, Python 3.13, and the web client.
+The Phase 9 hosted-CI item is checked only after the pull request jobs complete.

@@ -9,6 +9,7 @@ Echo Masque is a Python-first character behavior validation system. Users keep t
 ```text
 Create or select a Character Card
   -> bind it to a prompt, model, API, or deterministic target
+  -> choose Benchmark or Adaptive Tester
   -> enter a Test Room
   -> watch Tester and subject messages arrive live
   -> read Judge notes and the first breakpoint
@@ -57,6 +58,18 @@ The current local MVP scopes cards with the `X-Echo-User` header and defaults to
 3. **Custom HTTP target** — a complete external chatbot through an adapter contract.
 4. **Transcript import** — inspect an existing conversation without sending new messages.
 
+## Tester modes
+
+### Benchmark Tester
+
+Benchmark mode uses the fixed scenario scripts. It remains deterministic and is the correct mode for prompt-version comparisons, regression gates, CI, and repeatable scores.
+
+### Adaptive Tester
+
+Adaptive mode keeps the first benchmark message as the scenario seed, then uses a separate AI provider to generate one targeted follow-up at a time from the visible Tester/Subject transcript. Configuration includes provider, base URL, model, system prompt, temperature, maximum turns, and a one-run API key.
+
+The Adaptive Tester is independent from the Subject and deterministic Judge. Its key is stored only while the active run is being prepared or executed. It is never written to SQLite, events, reports, or target configuration. Adaptive pressure stops when the Subject produces a clear forbidden-phrase fracture or reaches the configured turn limit.
+
 ## Test Rooms
 
 - Mirror Room — identity integrity
@@ -79,7 +92,7 @@ Completed sessions expose Lab Note and JSON buttons in the Observation sidebar. 
 - [x] Phase 6 — External target adapters
 - [x] Phase 7 — Comparison and hardening
 - [x] Phase 8 — Character Cards and Live Test Room
-- [ ] Phase 9 — Adaptive AI Tester and efficient live polling
+- [ ] Phase 9 — Adaptive AI Tester and efficient local development
 
 See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for human checks.
 
@@ -89,13 +102,14 @@ See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for 
 - Configure provider, base URL, model, system prompt, temperature, and an ephemeral API key from the card creator.
 - Reconfigure a provider key from the Test Room after a backend restart.
 - Run four behavior suites against Stable and Fragile built-in subjects.
+- Choose fixed Benchmark testing or experimental Adaptive AI pressure.
 - Observe persisted Tester, Subject, Judge, and Breakpoint events in a chatroom UI.
 - Choose Watch Mode for paced viewing or Fast Mode for developer workflows.
 - Test prompt-and-model targets through an OpenAI-compatible provider.
 - Test complete external chatbots through the Custom HTTP Target contract.
 - Import JSON, CSV, or Markdown transcripts for offline inspection.
 - Persist sessions, events, evidence, breakpoints, Trace, and replay in SQLite.
-- Compare two completed runs and enforce regression thresholds.
+- Compare deterministic Benchmark runs and enforce regression thresholds.
 - View and export redacted Markdown and JSON reports.
 
 ## Container
@@ -112,4 +126,4 @@ The MVP excludes browser automation of third-party chat websites, public leaderb
 
 ## Status
 
-The automated product implementation includes Character Cards, live observation, provider-backed prompt testing, and in-app report viewing. Phase 9 adds Adaptive Tester experimentation, lower-frequency snapshot polling, and a single-command development launcher. Visual polish, real-provider, external-host, and end-to-end release checks remain explicitly tracked rather than being hidden behind automated pass claims.
+The automated product implementation includes Character Cards, live observation, provider-backed Subject testing, experimental Adaptive Tester pressure, in-app reports, lower-frequency snapshot polling, and a single-command development launcher. Visual polish, real-provider, external-host, cross-platform launcher, and end-to-end release checks remain explicitly tracked rather than being hidden behind automated pass claims.

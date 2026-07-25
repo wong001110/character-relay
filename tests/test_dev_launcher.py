@@ -39,6 +39,7 @@ def test_launcher_commands_include_requested_ports() -> None:
     args = arguments()
     assert backend_command(args)[-4:] == ["127.0.0.1", "--port", "8000", "--reload"]
     assert frontend_command("npm", args)[-4:] == [
+        "--host",
         "127.0.0.1",
         "--port",
         "5173",
