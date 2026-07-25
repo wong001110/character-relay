@@ -71,12 +71,26 @@
 - [ ] Manual: Watch Mode pacing and breakpoint clarity
 - [ ] Manual: desktop, tablet, and mobile acceptance
 
+## MVP polish — provider configuration and reports
+- [x] Slower multi-beat Watch Mode pacing
+- [x] Fast Mode remains delay-free
+- [x] Prompt + Model Character Card creation
+- [x] DeepSeek, OpenAI, OpenRouter, and custom compatible presets
+- [x] Provider, base URL, model, system prompt, temperature, and API key fields
+- [x] API keys remain process-memory only and are not persisted
+- [x] API key reconfiguration after backend restart
+- [x] Prompt-model cards execute through the OpenAI-compatible provider
+- [x] Lab Note and JSON report modals
+- [x] Copy and download actions inside report modals
+- [ ] Manual: real provider smoke test with a user-owned key
+- [ ] Manual: revised Watch Mode pacing acceptance
+- [ ] Manual: Lab Note and JSON modal readability
+
 ## Automated acceptance
 - [x] Credential-free deterministic demo works
 - [x] Python unit and integration suite is present
 - [x] Python source and tests compile
 - [x] Frontend strict TypeScript configuration is present
 - [x] Phase-by-phase commits are pushed
-- [x] GitHub-hosted Ruff, mypy, pytest, Vitest, and production build observed passing
-
-Hosted CI passed on Phase 8 pull request #10 for Python 3.12, Python 3.13, and the web client.
+- [x] Phase 8 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
+- [ ] MVP polish GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
