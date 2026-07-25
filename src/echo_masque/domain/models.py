@@ -28,6 +28,11 @@ class TestKind(StrEnum):
     LONG_CONVERSATION_DRIFT = "long_conversation_drift"
 
 
+class TestLanguage(StrEnum):
+    ENGLISH = "en"
+    SIMPLIFIED_CHINESE = "zh-CN"
+
+
 class MessageRole(StrEnum):
     TESTER = "tester"
     TARGET = "target"
@@ -79,6 +84,7 @@ class TrialScenario(BaseModel):
     id: str
     name: str
     kind: TestKind
+    language: TestLanguage = TestLanguage.ENGLISH
     messages: tuple[str, ...]
     expected_behavior: str
     forbidden_phrases: tuple[str, ...] = ()
