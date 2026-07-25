@@ -23,10 +23,11 @@ class Settings(BaseSettings):
     environment: Literal["development", "test", "production"] = "development"
     debug: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    database_url: str = "sqlite:///./echo_masque.db"
 
 
 @lru_cache
 def get_settings() -> Settings:
-    """Return the process-level settings instance."""
+    """Return process-level settings."""
 
     return Settings()

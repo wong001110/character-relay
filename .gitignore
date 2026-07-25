@@ -18,6 +18,11 @@ venv/
 .env
 .env.*
 !.env.example
+*.db
+
+# Frontend
+node_modules/
+web/dist/
 
 # Editors and operating systems
 .idea/

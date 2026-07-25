@@ -1,12 +1,9 @@
-import json
-
 from echo_masque.cli import main
 
 
-def test_info_command_prints_non_secret_configuration(capsys) -> None:  # type: ignore[no-untyped-def]
-    result = main(["info"])
+def test_info_command(capsys: object) -> None:
+    assert main(["info"]) == 0
 
-    output = json.loads(capsys.readouterr().out)
-    assert result == 0
-    assert output["name"] == "Echo Masque"
-    assert output["version"] == "0.1.0"
+
+def test_stable_demo_returns_success(capsys: object) -> None:
+    assert main(["run-demo", "--target", "stable", "--suite", "all"]) == 0

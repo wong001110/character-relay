@@ -1,4 +1,4 @@
-.PHONY: install run lint format typecheck test check
+.PHONY: install run lint format typecheck test check demo
 
 install:
 	python -m pip install -e ".[dev]"
@@ -19,3 +19,6 @@ test:
 	python -m pytest
 
 check: lint typecheck test
+
+demo:
+	python -m echo_masque.cli run-demo --target fragile --suite all
