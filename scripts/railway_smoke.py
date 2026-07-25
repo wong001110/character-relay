@@ -62,20 +62,11 @@ def request_text(base_url: str, path: str) -> tuple[str, str]:
         raise RuntimeError(f"GET {path} could not connect: {exc.reason}") from exc
 
 
-def run_smoke(base_url: str) -> None:
-    health = request_json(base_url, "/health")
-    if health.get("name") != "Echo Masque":
-        raise RuntimeError(f"Unexpected health response: {health}")
+def contains_cjk(value: str) -> bool:
+    return any("\u4e00" <= character <= "\u9fff" for character in value)
 
-    _, content_type = request_text(base_url, "/")
-    if content_type != "text/html":
-        raise RuntimeError(f"Root did not serve the web client: {content_type}")
 
-    targets = request_json(base_url, "/api/targets")
-    target_ids = {item.get("id") for item in targets}
-    if "demo-stable" not in target_ids:
-        raise RuntimeError("Stable demo target is missing from the deployment.")
-
+def completed_language_trial(base_url: str, test_language: str) -> float:
     started = request_json(
         base_url,
         "/api/trials",
@@ -85,8 +76,11 @@ def run_smoke(base_url: str) -> None:
             "suite": ["identity_integrity"],
             "mode": "fast",
             "tester_mode": "benchmark",
+            "test_language": test_language,
         },
     )
+    if started.get("test_language") != test_language:
+        raise RuntimeError(f"Trial did not preserve test language: {started}")
     run_id = started.get("id")
     if not isinstance(run_id, str):
         raise RuntimeError(f"Trial did not return a run ID: {started}")
@@ -104,11 +98,56 @@ def run_smoke(base_url: str) -> None:
     run = snapshot.get("run", {})
     if run.get("status") != "completed":
         raise RuntimeError(f"Deterministic trial did not complete: {run}")
-    score = run.get("result", {}).get("average_score")
+    if run.get("test_language") != test_language:
+        raise RuntimeError(f"Completed run changed test language: {run}")
+
+    result = run.get("result", {})
+    score = result.get("average_score")
     if not isinstance(score, (int, float)) or score < 90:
         raise RuntimeError(f"Stable deterministic score was unexpected: {score}")
 
-    print(f"Railway smoke test passed: {base_url} (score={score})")
+    results = result.get("results")
+    if not isinstance(results, list) or not results:
+        raise RuntimeError(f"Trial result did not contain a scenario: {result}")
+    scenario = results[0].get("scenario", {})
+    if scenario.get("language") != test_language:
+        raise RuntimeError(f"Scenario language was unexpected: {scenario}")
+
+    messages = [
+        event.get("payload", {}).get("message")
+        for event in snapshot.get("events", [])
+        if event.get("event_type") in {"tester_message", "subject_response"}
+    ]
+    visible_messages = [message for message in messages if isinstance(message, str)]
+    if len(visible_messages) < 2:
+        raise RuntimeError(f"Trial did not expose Tester and Subject messages: {snapshot}")
+    if test_language == "zh-CN" and not all(contains_cjk(item) for item in visible_messages[:2]):
+        raise RuntimeError(f"Chinese trial emitted non-Chinese messages: {visible_messages}")
+    if test_language == "en" and any(contains_cjk(item) for item in visible_messages[:2]):
+        raise RuntimeError(f"English trial emitted Chinese messages: {visible_messages}")
+    return float(score)
+
+
+def run_smoke(base_url: str) -> None:
+    health = request_json(base_url, "/health")
+    if health.get("name") != "Echo Masque":
+        raise RuntimeError(f"Unexpected health response: {health}")
+
+    _, content_type = request_text(base_url, "/")
+    if content_type != "text/html":
+        raise RuntimeError(f"Root did not serve the web client: {content_type}")
+
+    targets = request_json(base_url, "/api/targets")
+    target_ids = {item.get("id") for item in targets}
+    if "demo-stable" not in target_ids:
+        raise RuntimeError("Stable demo target is missing from the deployment.")
+
+    english_score = completed_language_trial(base_url, "en")
+    chinese_score = completed_language_trial(base_url, "zh-CN")
+    print(
+        "Railway multilingual smoke passed: "
+        f"{base_url} (en={english_score}, zh-CN={chinese_score})"
+    )
 
 
 def main() -> int:
