@@ -92,7 +92,7 @@ Completed sessions expose Lab Note and JSON buttons in the Observation sidebar. 
 - [x] Phase 6 — External target adapters
 - [x] Phase 7 — Comparison and hardening
 - [x] Phase 8 — Character Cards and Live Test Room
-- [ ] Phase 9 — Adaptive AI Tester and efficient local development
+- [x] Phase 9 — Adaptive AI Tester and efficient local development
 
 See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for human checks.
 
