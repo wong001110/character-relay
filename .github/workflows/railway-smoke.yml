@@ -19,7 +19,20 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  DEFAULT_RAILWAY_URL: https://echo-masque-production.up.railway.app
+
 jobs:
+  network-diagnostic:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Resolve DNS and probe health endpoint
+        run: |
+          set -x
+          getent ahosts echo-masque-production.up.railway.app || true
+          curl --verbose --show-error --max-time 30 "$DEFAULT_RAILWAY_URL/health"
+
   smoke:
     runs-on: ubuntu-latest
     steps:
@@ -32,11 +45,10 @@ jobs:
         env:
           INPUT_URL: ${{ inputs.url }}
           VARIABLE_URL: ${{ vars.RAILWAY_PUBLIC_URL }}
-          DEFAULT_URL: https://echo-masque-production.up.railway.app
         run: |
           target="$INPUT_URL"
           if [ -z "$target" ]; then target="$VARIABLE_URL"; fi
-          if [ -z "$target" ]; then target="$DEFAULT_URL"; fi
+          if [ -z "$target" ]; then target="$DEFAULT_RAILWAY_URL"; fi
           echo "Testing $target"
           echo "url=$target" >> "$GITHUB_OUTPUT"
       - name: Wait for deployment and run smoke test
