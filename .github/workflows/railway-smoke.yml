@@ -40,6 +40,28 @@ jobs:
           echo
           curl --fail --show-error --silent "$DEFAULT_RAILWAY_URL/api/targets"
           echo
+      - name: Create and inspect a Stable Benchmark Trial
+        run: |
+          started=$(curl --fail --show-error --silent \
+            -H "Content-Type: application/json" \
+            -H "X-Echo-User: railway-diagnostic" \
+            -X POST \
+            -d '{"target_id":"demo-stable","suite":["identity_integrity"],"mode":"fast","tester_mode":"benchmark"}' \
+            "$DEFAULT_RAILWAY_URL/api/trials")
+          echo "$started"
+          run_id=$(echo "$started" | jq -r '.id')
+          test -n "$run_id" && test "$run_id" != "null"
+          for attempt in $(seq 1 10); do
+            snapshot=$(curl --fail --show-error --silent "$DEFAULT_RAILWAY_URL/api/trials/$run_id/snapshot")
+            echo "$snapshot"
+            status=$(echo "$snapshot" | jq -r '.run.status')
+            if [ "$status" != "pending" ] && [ "$status" != "running" ]; then
+              test "$status" = "completed"
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
 
   smoke:
     runs-on: ubuntu-latest
