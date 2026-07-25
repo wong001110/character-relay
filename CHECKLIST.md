@@ -23,10 +23,10 @@
 - [x] Unit and integration tests
 
 ## Phase 3 — Prompt-model target
-- [ ] OpenAI-compatible provider
-- [ ] Safe credential handling
-- [ ] Retry, timeout, usage, and latency metadata
-- [ ] Offline mock provider tests
+- [x] OpenAI-compatible provider
+- [x] Safe credential handling
+- [x] Retry, timeout, usage, and latency metadata
+- [x] Offline mock provider tests
 
 ## Phase 4 — Persistence and API
 - [ ] SQLite persistence

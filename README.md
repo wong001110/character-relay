@@ -52,7 +52,7 @@ Open `http://127.0.0.1:8000/docs` or call `GET /health`.
 - [x] Phase 0 — Product contract and roadmap
 - [x] Phase 1 — Python foundation
 - [x] Phase 2 — Deterministic trial engine
-- [ ] Phase 3 — Prompt-model target
+- [x] Phase 3 — Prompt-model target
 - [ ] Phase 4 — Persistence and HTTP API
 - [ ] Phase 5 — Observation interface
 - [ ] Phase 6 — External target adapters
