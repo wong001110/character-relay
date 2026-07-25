@@ -1,11 +1,10 @@
 """Downloadable trial report endpoints."""
 
-import json
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
-from echo_masque.persistence import Repository
+from echo_masque.persistence import Repository, decode_trial_request
 from echo_masque.reports import export_json_report, export_markdown_report
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -24,10 +23,12 @@ def trial_report(
         raise HTTPException(status_code=404, detail="Trial not found.")
     if result is None:
         raise HTTPException(status_code=409, detail="Trial is not completed.")
+    suite, test_language = decode_trial_request(record.suite_json)
     metadata = {
         "run_id": record.id,
         "target_id": record.target_id,
-        "suite": json.loads(record.suite_json),
+        "suite": suite,
+        "test_language": test_language.value,
         "created_at": record.created_at.isoformat(),
         "updated_at": record.updated_at.isoformat(),
     }
