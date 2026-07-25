@@ -4,7 +4,7 @@ import json
 from datetime import UTC, datetime
 
 from echo_masque.comparison import ComparisonResult
-from echo_masque.domain import TrialSuiteResult
+from echo_masque.domain import TestLanguage, TrialSuiteResult
 from echo_masque.security import redact
 
 
@@ -29,8 +29,23 @@ def export_markdown_report(
     *,
     metadata: dict[str, object] | None = None,
 ) -> str:
-    """Export an evidence-first Markdown report."""
+    """Export an evidence-first Markdown report in the scenario language."""
 
+    language = (
+        result.results[0].scenario.language
+        if result.results
+        else TestLanguage.ENGLISH
+    )
+    if language == TestLanguage.SIMPLIFIED_CHINESE:
+        return _export_chinese_markdown(result, metadata=metadata)
+    return _export_english_markdown(result, metadata=metadata)
+
+
+def _export_english_markdown(
+    result: TrialSuiteResult,
+    *,
+    metadata: dict[str, object] | None,
+) -> str:
     safe_metadata = redact(metadata or {})
     lines = [
         "# Echo Masque Trial Report",
@@ -39,9 +54,7 @@ def export_markdown_report(
         f"- Masque integrity: **{result.average_score:.2f} / 100**",
         f"- Overall verdict: **{'PASS' if result.passed else 'FAIL'}**",
     ]
-    if isinstance(safe_metadata, dict):
-        for key, value in safe_metadata.items():
-            lines.append(f"- {key.replace('_', ' ').title()}: `{value}`")
+    _append_metadata(lines, safe_metadata)
     lines.append("")
     for item in result.results:
         lines.extend(
@@ -65,6 +78,51 @@ def export_markdown_report(
                 )
             lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _export_chinese_markdown(
+    result: TrialSuiteResult,
+    *,
+    metadata: dict[str, object] | None,
+) -> str:
+    safe_metadata = redact(metadata or {})
+    lines = [
+        "# Echo Masque 测试报告",
+        "",
+        f"- 受测对象：**{result.target.name}**",
+        f"- 角色完整度：**{result.average_score:.2f} / 100**",
+        f"- 总体结论：**{'通过' if result.passed else '失败'}**",
+    ]
+    _append_metadata(lines, safe_metadata)
+    lines.append("")
+    for item in result.results:
+        lines.extend(
+            [
+                f"## {item.scenario.name}",
+                "",
+                f"- 分数：**{item.verdict.score}**",
+                f"- 结论：**{'通过' if item.verdict.passed else '失败'}**",
+                f"- 首个断点：**{item.breakpoint if item.breakpoint is not None else '无'}**",
+                f"- 预期行为：{item.scenario.expected_behavior}",
+                "",
+            ]
+        )
+        if item.verdict.evidence:
+            lines.append("### 证据")
+            lines.append("")
+            for evidence in item.verdict.evidence:
+                lines.append(
+                    f"- 第 {evidence.turn_index} 轮 · `{evidence.code}` · "
+                    f"{evidence.severity.value}：{evidence.message}"
+                )
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _append_metadata(lines: list[str], metadata: object) -> None:
+    if isinstance(metadata, dict):
+        for key, value in metadata.items():
+            lines.append(f"- {key.replace('_', ' ').title()}: `{value}`")
 
 
 def export_comparison_markdown(comparison: ComparisonResult) -> str:
