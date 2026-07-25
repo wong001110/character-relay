@@ -124,7 +124,7 @@ Completed sessions expose Lab Note and JSON buttons in the Observation sidebar. 
 - [x] Phase 8 — Character Cards and Live Test Room
 - [x] Phase 9 — Adaptive AI Tester and efficient local development
 - [x] Phase 10 — Railway deployment readiness
-- [ ] Phase 11 — English and Simplified Chinese interface and testing
+- [x] Phase 11 — English and Simplified Chinese interface and testing
 
 See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for human checks.
 
@@ -180,4 +180,4 @@ The MVP excludes browser automation of third-party chat websites, public leaderb
 
 ## Status
 
-The implementation includes Character Cards, live observation, provider-backed Subject testing, experimental Adaptive Tester pressure, bilingual interface scaffolding, bilingual deterministic evaluation, in-app reports, lower-frequency snapshot polling, a single-command development launcher, and an automatically smoke-tested Railway deployment. Visual polish, real-provider multilingual quality, authentication, external-host, cross-platform launcher, and final browser acceptance remain explicitly tracked rather than being hidden behind automated pass claims.
+The implementation includes Character Cards, live observation, provider-backed Subject testing, experimental Adaptive Tester pressure, a validated English and Simplified Chinese interface, bilingual deterministic and adaptive evaluation paths, in-app reports, lower-frequency snapshot polling, a single-command development launcher, and an automatically smoke-tested Railway deployment. Visual polish, real-provider multilingual quality, authentication, external-host, cross-platform launcher, and final browser acceptance remain explicitly tracked rather than being hidden behind automated pass claims.
