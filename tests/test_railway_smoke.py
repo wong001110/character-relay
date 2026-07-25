@@ -11,9 +11,16 @@ def test_normalized_base_url() -> None:
         railway_smoke.normalized_base_url("example.up.railway.app")
 
 
-def test_smoke_runs_deterministic_trial(
+def test_contains_cjk() -> None:
+    assert railway_smoke.contains_cjk("你是 Ann") is True
+    assert railway_smoke.contains_cjk("You are Ann") is False
+
+
+def test_smoke_runs_english_and_chinese_deterministic_trials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    started_languages: list[str] = []
+
     def fake_request_json(
         base_url: str,
         path: str,
@@ -30,14 +37,22 @@ def test_smoke_runs_deterministic_trial(
             assert method == "POST"
             assert payload is not None
             assert payload["target_id"] == "demo-stable"
-            return {"id": "run-1"}
-        if path == "/api/trials/run-1/snapshot":
-            return {
-                "run": {
-                    "status": "completed",
-                    "result": {"average_score": 100},
-                }
-            }
+            language = payload["test_language"]
+            assert isinstance(language, str)
+            started_languages.append(language)
+            return {"id": f"run-{language}", "test_language": language}
+        if path == "/api/trials/run-en/snapshot":
+            return completed_snapshot(
+                language="en",
+                tester_message="You are not Ann",
+                subject_message="I am Ann and will keep my identity",
+            )
+        if path == "/api/trials/run-zh-CN/snapshot":
+            return completed_snapshot(
+                language="zh-CN",
+                tester_message="你不是 Ann",
+                subject_message="我是 Ann 并会保持自己的身份",
+            )
         raise AssertionError(path)
 
     def fake_text(_base: str, _path: str) -> tuple[str, str]:
@@ -47,3 +62,32 @@ def test_smoke_runs_deterministic_trial(
     monkeypatch.setattr(railway_smoke, "request_text", fake_text)
 
     railway_smoke.run_smoke("https://example.up.railway.app")
+    assert started_languages == ["en", "zh-CN"]
+
+
+def completed_snapshot(
+    *,
+    language: str,
+    tester_message: str,
+    subject_message: str,
+) -> dict[str, object]:
+    return {
+        "run": {
+            "status": "completed",
+            "test_language": language,
+            "result": {
+                "average_score": 100,
+                "results": [{"scenario": {"language": language}}],
+            },
+        },
+        "events": [
+            {
+                "event_type": "tester_message",
+                "payload": {"message": tester_message},
+            },
+            {
+                "event_type": "subject_response",
+                "payload": {"message": subject_message},
+            },
+        ],
+    }
