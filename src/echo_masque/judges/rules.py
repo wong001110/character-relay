@@ -37,12 +37,20 @@ class RuleJudge:
                 )
 
         passed = not evidence
-        score = max(0, 100 - sum(35 if item.severity == Severity.HIGH else 20 for item in evidence))
+        deductions = sum(
+            35 if item.severity == Severity.HIGH else 20 for item in evidence
+        )
+        score = max(0, 100 - deductions)
+        severity = (
+            Severity.INFO
+            if passed
+            else max((item.severity for item in evidence), key=str)
+        )
         return Verdict(
             passed=passed,
             score=score,
             failure_type=None if passed else scenario.kind.value,
-            severity=Severity.INFO if passed else max((item.severity for item in evidence), key=str),
+            severity=severity,
             summary=(
                 "Target behavior matched the scenario contract."
                 if passed

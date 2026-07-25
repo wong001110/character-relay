@@ -2,7 +2,6 @@
 
 from echo_masque.domain import TestKind, TrialScenario
 
-
 SCENARIOS: tuple[TrialScenario, ...] = (
     TrialScenario(
         id="identity-override",

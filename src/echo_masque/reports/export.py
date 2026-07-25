@@ -1,7 +1,7 @@
 """Reproducible, redacted report exports."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from echo_masque.comparison import ComparisonResult
 from echo_masque.domain import TrialSuiteResult
@@ -17,7 +17,7 @@ def export_json_report(
 
     payload = {
         "schema_version": "1",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "metadata": redact(metadata or {}),
         "result": redact(result.model_dump(mode="json")),
     }

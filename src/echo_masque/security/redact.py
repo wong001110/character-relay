@@ -1,9 +1,10 @@
 """Redaction helpers for user-supplied configuration and trace data."""
 
 from collections.abc import Mapping, Sequence
-from typing import TypeAlias
 
-JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+type JsonValue = (
+    str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
+)
 
 _SENSITIVE_KEYS = {
     "authorization",
