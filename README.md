@@ -93,6 +93,7 @@ Completed sessions expose Lab Note and JSON buttons in the Observation sidebar. 
 - [x] Phase 7 — Comparison and hardening
 - [x] Phase 8 — Character Cards and Live Test Room
 - [x] Phase 9 — Adaptive AI Tester and efficient local development
+- [ ] Phase 10 — Railway deployment readiness
 
 See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for human checks.
 
@@ -111,6 +112,23 @@ See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for 
 - Persist sessions, events, evidence, breakpoints, Trace, and replay in SQLite.
 - Compare deterministic Benchmark runs and enforce regression thresholds.
 - View and export redacted Markdown and JSON reports.
+- Build one production image containing both the React client and FastAPI service.
+
+## Railway
+
+The repository includes a root `Dockerfile` and `railway.toml`. Railway builds the React client and serves it through FastAPI from the same service. The container listens on Railway's injected `$PORT`, and `/health` is configured as the deployment healthcheck.
+
+Attach one Railway Volume at `/data` and keep the service at one replica. SQLite is stored at `/data/echo_masque.db`.
+
+After a public domain is generated, validate it with:
+
+```bash
+python scripts/railway_smoke.py https://your-service.up.railway.app
+```
+
+See `docs/railway-deployment.md` for the full setup, persistence checks, GitHub Actions smoke workflow, and security limitations.
+
+**Security:** the current MVP has no production authentication. Treat a public Railway URL as a deterministic demo and do not enter valuable provider keys or private character data.
 
 ## Container
 
@@ -126,4 +144,4 @@ The MVP excludes browser automation of third-party chat websites, public leaderb
 
 ## Status
 
-The automated product implementation includes Character Cards, live observation, provider-backed Subject testing, experimental Adaptive Tester pressure, in-app reports, lower-frequency snapshot polling, and a single-command development launcher. Visual polish, real-provider, external-host, cross-platform launcher, and end-to-end release checks remain explicitly tracked rather than being hidden behind automated pass claims.
+The automated product implementation includes Character Cards, live observation, provider-backed Subject testing, experimental Adaptive Tester pressure, in-app reports, lower-frequency snapshot polling, and a single-command development launcher. Railway deployment configuration is being validated. Visual polish, real-provider, authentication, external-host, cross-platform launcher, and end-to-end release checks remain explicitly tracked rather than being hidden behind automated pass claims.
