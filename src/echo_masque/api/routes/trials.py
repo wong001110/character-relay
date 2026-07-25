@@ -39,6 +39,8 @@ def start_trial(
             owner_id=owner_id,
             suite=payload.suite,
             mode=payload.mode,
+            tester_mode=payload.tester_mode,
+            adaptive_tester=payload.adaptive_tester,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Target or Character Card not found.") from exc

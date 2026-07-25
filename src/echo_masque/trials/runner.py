@@ -13,8 +13,10 @@ from echo_masque.domain import (
 )
 from echo_masque.judges import RuleJudge
 from echo_masque.targets.base import TargetAdapter
+from echo_masque.testers import AdaptiveTester
 
 type TrialObserver = Callable[[str, dict[str, object]], Awaitable[None]]
+type PendingTesterMessage = tuple[str, str, dict[str, object]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +27,7 @@ class TrialPacing:
     after_tester_seconds: float = 0
     typing_seconds: float = 0
     after_subject_seconds: float = 0
+    adaptive_thinking_seconds: float = 0
     after_judge_seconds: float = 0
     after_breakpoint_seconds: float = 0
     scenario_gap_seconds: float = 0
@@ -36,6 +39,7 @@ WATCH_PACING = TrialPacing(
     after_tester_seconds=0.7,
     typing_seconds=1.1,
     after_subject_seconds=0.75,
+    adaptive_thinking_seconds=0.8,
     after_judge_seconds=0.9,
     after_breakpoint_seconds=1.0,
     scenario_gap_seconds=0.6,
@@ -53,6 +57,7 @@ class TrialRunner:
         *,
         observer: TrialObserver | None = None,
         pacing: TrialPacing = FAST_PACING,
+        adaptive_tester: AdaptiveTester | None = None,
     ) -> TrialResult:
         await target.reset()
         await self._emit(
@@ -63,18 +68,26 @@ class TrialRunner:
                 "name": scenario.name,
                 "kind": scenario.kind.value,
                 "expected_behavior": scenario.expected_behavior,
+                "tester_mode": "adaptive" if adaptive_tester else "benchmark",
             },
         )
         await self._pause(pacing.scenario_open_seconds)
 
+        queue = self._initial_messages(scenario, adaptive_tester)
         turns: list[TrialTurn] = []
-        for index, message in enumerate(scenario.messages, start=1):
+        index = 0
+        while queue:
+            index += 1
+            message, source, tester_trace = queue.pop(0)
             context = {"scenario_id": scenario.id, "turn_index": index}
-            await self._emit(
-                observer,
-                "tester_message",
-                {**context, "message": message},
-            )
+            tester_payload: dict[str, object] = {
+                **context,
+                "message": message,
+                "source": source,
+            }
+            if tester_trace:
+                tester_payload["trace"] = tester_trace
+            await self._emit(observer, "tester_message", tester_payload)
             await self._pause(pacing.after_tester_seconds)
             await self._emit(observer, "subject_typing", context)
             await self._pause(pacing.typing_seconds)
@@ -104,6 +117,44 @@ class TrialRunner:
                 },
             )
             await self._pause(pacing.after_subject_seconds)
+
+            if adaptive_tester is None:
+                continue
+            if self._clear_forbidden_fracture(scenario, response.text):
+                queue.clear()
+                continue
+            if index >= adaptive_tester.config.max_turns:
+                queue.clear()
+                continue
+
+            next_context = {"scenario_id": scenario.id, "turn_index": index + 1}
+            await self._emit(
+                observer,
+                "tester_thinking",
+                {
+                    **next_context,
+                    "source": "adaptive",
+                    "provider": adaptive_tester.config.provider,
+                    "model": adaptive_tester.config.model,
+                },
+            )
+            await self._pause(pacing.adaptive_thinking_seconds)
+            reply = await adaptive_tester.next_message(scenario, tuple(turns))
+            queue.append(
+                (
+                    reply.message,
+                    "adaptive",
+                    {
+                        "provider": adaptive_tester.config.provider,
+                        "model": reply.model,
+                        "latency_ms": reply.latency_ms,
+                        "usage": {
+                            "input_tokens": reply.input_tokens,
+                            "output_tokens": reply.output_tokens,
+                        },
+                    },
+                )
+            )
 
         turn_tuple = tuple(turns)
         verdict = self.judge.judge(scenario, turn_tuple)
@@ -165,11 +216,16 @@ class TrialRunner:
         *,
         observer: TrialObserver | None = None,
         pacing: TrialPacing = FAST_PACING,
+        adaptive_tester: AdaptiveTester | None = None,
     ) -> TrialSuiteResult:
         await self._emit(
             observer,
             "session_started",
-            {"target": target.summary.model_dump(mode="json"), "scenario_count": len(scenarios)},
+            {
+                "target": target.summary.model_dump(mode="json"),
+                "scenario_count": len(scenarios),
+                "tester_mode": "adaptive" if adaptive_tester else "benchmark",
+            },
         )
         results = [
             await self.run(
@@ -177,6 +233,7 @@ class TrialRunner:
                 scenario,
                 observer=observer,
                 pacing=pacing,
+                adaptive_tester=adaptive_tester,
             )
             for scenario in scenarios
         ]
@@ -187,6 +244,19 @@ class TrialRunner:
             {"average_score": result.average_score, "scenario_count": len(results)},
         )
         return result
+
+    @staticmethod
+    def _initial_messages(
+        scenario: TrialScenario,
+        adaptive_tester: AdaptiveTester | None,
+    ) -> list[PendingTesterMessage]:
+        messages = scenario.messages[:1] if adaptive_tester else scenario.messages
+        return [(message, "benchmark", {}) for message in messages]
+
+    @staticmethod
+    def _clear_forbidden_fracture(scenario: TrialScenario, response: str) -> bool:
+        lowered = response.lower()
+        return any(phrase.lower() in lowered for phrase in scenario.forbidden_phrases)
 
     @staticmethod
     async def _pause(seconds: float) -> None:
