@@ -10,9 +10,12 @@ Railway public domain
      -> /api/* and /health
      -> built React client from web/dist
   -> SQLite at /data/echo_masque.db
+  -> Admin-managed Adaptive Tester and Semantic Judge
+     -> non-secret profiles in SQLite
+     -> credentials from Railway environment variables
 ```
 
-This deployment must stay at one replica because the MVP uses SQLite and process-memory provider credentials.
+Keep one replica. The current implementation uses SQLite plus process-memory Subject credentials and optional Admin credential overrides.
 
 ## 1. Create the service
 
@@ -22,29 +25,29 @@ This deployment must stay at one replica because the MVP uses SQLite and process
 4. Railway should detect the root `Dockerfile` and `railway.toml` automatically.
 5. Do not set a custom start command. The Dockerfile reads Railway's injected `PORT` variable.
 
-The repository configures `/health` as the deployment healthcheck and uses an on-failure restart policy.
+The repository configures `/health` as the deployment health check and uses an on-failure restart policy.
 
 ## 2. Attach persistent storage
 
-Add one Railway Volume to the service:
+Add one Railway Volume:
 
 ```text
 Mount path: /data
 ```
 
-The application database URL already defaults to:
+The production database path is:
 
 ```text
 sqlite:////data/echo_masque.db
 ```
 
-Without the volume, Character Cards, runs, reports, and evidence will be lost on redeploy.
+Without the volume, user Character Cards, Admin non-secret runtime profiles, Trials, reports, and evidence disappear on redeploy.
 
-Keep the service at exactly one replica. Multiple replicas cannot safely share this SQLite and in-memory runtime design.
+Keep exactly one replica. Multiple replicas cannot safely share the current SQLite and process-memory runtime design.
 
 ## 3. Configure variables
 
-The Docker image includes production-safe non-secret defaults:
+The image includes these non-secret defaults:
 
 ```text
 ECHO_MASQUE_ENVIRONMENT=production
@@ -52,67 +55,124 @@ ECHO_MASQUE_DEBUG=false
 ECHO_MASQUE_DATABASE_URL=sqlite:////data/echo_masque.db
 ```
 
-Optional Railway service variables:
+Recommended operational variables:
 
 ```text
 ECHO_MASQUE_LOG_LEVEL=INFO
 ECHO_MASQUE_APP_NAME=Echo Masque
 ```
 
-Do not define `PORT`; Railway supplies it automatically.
+Do not define `PORT`; Railway supplies it.
 
-Provider API keys entered through the UI stay only in the running process and disappear after a restart. Do not put a paid provider key into a public deployment until access control is implemented.
+### Admin access
+
+Production Admin APIs are disabled until this variable exists:
+
+```text
+ECHO_MASQUE_ADMIN_TOKEN=<long-random-admin-token>
+```
+
+The browser sends the value through `X-Echo-Admin`. Admin Settings stores it only in browser `sessionStorage`, so closing the browser session clears it.
+
+Do not reuse a Provider API key as the Admin token.
+
+### Shared Adaptive Tester
+
+Configure the non-secret Provider, Base URL, Model, Prompt, Temperature, and maximum turns through **Admin Settings**. Store the persistent production credential in Railway:
+
+```text
+ECHO_MASQUE_ADAPTIVE_API_KEY=<provider-key-for-adaptive-tester>
+```
+
+### Shared Semantic Judge
+
+Configure the non-secret Provider, Base URL, Model, Prompt, Temperature, rubric version, and default Judge Mode through **Admin Settings**. Store the persistent production credential in Railway:
+
+```text
+ECHO_MASQUE_JUDGE_API_KEY=<provider-key-for-semantic-judge>
+```
+
+The Adaptive and Judge keys may be the same limited test key during MVP evaluation, but separate keys make cost attribution and rotation clearer.
+
+Keys entered directly in Admin Settings are process-memory overrides. They disappear after a Railway restart or redeploy. Railway variables are the persistent source.
+
+Raw Admin runtime keys are never written to SQLite, Character Cards, Trial events, Lab Notes, JSON reports, or application logs.
+
+### Subject model credentials
+
+A Subject key entered while creating or reconnecting a Prompt + Model Character Card stays only in the running process. It disappears after restart unless the target uses its configured environment fallback. Do not place high-value unrestricted keys in the public demo.
 
 ## 4. Networking and region
 
 1. Open the service **Settings** tab.
 2. Under **Networking**, select **Generate Domain**.
-3. When available on the selected Railway plan, choose the Southeast Asia / Singapore region.
+3. Choose Southeast Asia / Singapore when available on the Railway plan.
 4. Leave the service at one replica.
 
-Railway routes the generated domain to the port used by the Docker container.
-
 ## 5. Validate the deployment
-
-From a local checkout:
 
 ```bash
 python scripts/railway_smoke.py https://your-service.up.railway.app
 ```
 
-The smoke test verifies:
+The credential-free smoke test verifies:
 
 - `/health` returns Echo Masque metadata;
 - the React interface is served from `/`;
-- the deterministic Stable target exists;
-- a real Benchmark Trial can start and finish;
-- the Stable trial returns an expected passing score.
+- the internal Stable target exists;
+- English and Simplified Chinese Rules-mode Benchmark Trials complete;
+- test and scenario languages remain correct;
+- Stable scores meet the passing threshold.
 
-## 6. Enable GitHub-hosted smoke tests
+The deployment smoke does not call Adaptive Tester or Semantic Judge and therefore does not spend Provider credits.
 
-After Railway generates the domain:
+## 6. Validate Admin Runtime
 
-1. Open the GitHub repository settings.
-2. Go to **Secrets and variables → Actions → Variables**.
-3. Create a repository variable named `RAILWAY_PUBLIC_URL`.
-4. Set it to the full Railway URL, including `https://`.
-5. Open **Actions → Railway Smoke → Run workflow**.
+After setting `ECHO_MASQUE_ADMIN_TOKEN`:
 
-The workflow uses only the public deterministic demo and does not require a provider key.
+1. Open **Admin Settings**.
+2. Enter the Admin token.
+3. Enable Adaptive Tester and Semantic Judge.
+4. Configure their non-secret Provider profiles.
+5. Confirm their status reports `environment` as the credential source after setting the two Railway keys.
+6. Run one Adaptive + Hybrid Trial.
+7. Redeploy the service.
+8. Confirm Admin profiles persist and both runtimes return to Ready without re-entering API keys.
 
-## 7. Persistence acceptance
+Expected persistence:
 
-Run a deterministic trial, redeploy the same Railway service, and confirm the prior run still appears. If data disappears, verify that the Volume is mounted at exactly `/data` before creating more records.
+```text
+Admin Provider/Model/Prompt settings -> persist in /data SQLite
+Railway Adaptive/Judge keys          -> remain Railway variables
+Process-memory override keys          -> cleared on restart
+Subject card credentials              -> cleared unless environment-backed
+```
 
-Railway Volumes are mounted as root. The production container runs as root so SQLite can write to the mounted path. This is a deployment-specific compromise for the current MVP and should be revisited when the application moves to a managed database.
+## 7. GitHub-hosted smoke tests
+
+The Railway Smoke workflow targets:
+
+```text
+https://echo-masque-production.up.railway.app
+```
+
+It runs for pull requests, updates to `main`, and manual workflow dispatch. The workflow retries while Railway finishes a rollout.
+
+## 8. Persistence acceptance
+
+Create a user-owned Character Card and complete a Rules-mode Trial. Redeploy and confirm the card, Trial, evidence, reports, and Admin non-secret settings survive. If data disappears, confirm the Volume is mounted at exactly `/data`.
+
+Railway Volumes are mounted as root. The production container currently runs as root so SQLite can write to the mounted path. Revisit this when moving to a managed database.
 
 ## Security boundary
 
-The current MVP has no production authentication. A public Railway domain should be treated as a demo environment:
+Admin Runtime configuration is token-protected, but the application still lacks production user authentication and authorization. A public deployment remains a controlled demo environment:
 
-- use Stable and Fragile deterministic cards for public testing;
-- do not enter valuable provider credentials;
-- do not store private character prompts or conversation data;
-- disable or delete the public domain when it is not needed.
+- use a long random Admin token;
+- use limited, revocable Provider test keys;
+- set Provider spending limits where available;
+- do not store private Character Cards or sensitive transcripts;
+- do not invite untrusted external users;
+- disable the public domain when it is not needed.
 
-A later production phase should add authentication, per-user authorization, encrypted secret storage, rate limiting, and a managed database before real external users are invited.
+A production phase should add authenticated users, role-based Admin access, encrypted secret storage, rate limiting, managed persistence, audit logs, and abuse controls.
