@@ -167,7 +167,7 @@ Watch Mode separates room opening, Tester message, typing, Subject response, Jud
 - [x] Phase 9 — Adaptive AI Tester and efficient local development
 - [x] Phase 10 — Railway deployment readiness
 - [x] Phase 11 — English and Simplified Chinese interface and testing
-- [ ] Phase 12 — Admin Runtime, Hybrid Judge, and scalable Character Library
+- [x] Phase 12 — Admin Runtime, Hybrid Judge, and scalable Character Library
 
 See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for human checks.
 
