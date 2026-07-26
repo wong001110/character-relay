@@ -7,7 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from echo_masque.admin_runtime import RuntimeCredentialStore
 from echo_masque.api.routes import (
+    admin_router,
     characters_router,
     comparisons_router,
     health_router,
@@ -19,7 +21,7 @@ from echo_masque.api.routes import (
 from echo_masque.config import Settings, get_settings
 from echo_masque.credentials import CredentialStore
 from echo_masque.persistence import Database, Repository
-from echo_masque.services import TrialService
+from echo_masque.services import RuntimeService, TrialService
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -28,8 +30,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     database.initialize()
     repository = Repository(database)
     repository.seed_demo_targets()
-    repository.seed_demo_character_cards()
+    repository.remove_demo_character_cards()
     credential_store = CredentialStore()
+    runtime_credentials = RuntimeCredentialStore()
+    runtime_service = RuntimeService(repository, resolved, runtime_credentials)
 
     app = FastAPI(
         title=resolved.app_name,
@@ -50,8 +54,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.database = database
     app.state.repository = repository
     app.state.credential_store = credential_store
-    app.state.trial_service = TrialService(repository, credential_store)
+    app.state.runtime_credentials = runtime_credentials
+    app.state.runtime_service = runtime_service
+    app.state.trial_service = TrialService(
+        repository,
+        credential_store,
+        runtime_service,
+    )
     app.include_router(health_router)
+    app.include_router(admin_router)
     app.include_router(characters_router)
     app.include_router(targets_router)
     app.include_router(trials_router)
