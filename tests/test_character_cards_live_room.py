@@ -15,10 +15,7 @@ def test_character_cards_are_owned_and_createable(tmp_path: Path) -> None:
 
     default_cards = client.get("/api/characters")
     assert default_cards.status_code == 200
-    assert {item["id"] for item in default_cards.json()} == {
-        "card-stable-ann",
-        "card-fragile-ann",
-    }
+    assert default_cards.json() == []
 
     other_cards = client.get(
         "/api/characters",
@@ -53,6 +50,7 @@ def test_character_cards_are_owned_and_createable(tmp_path: Path) -> None:
         headers={"X-Echo-User": "another-user"},
     ).json()
     assert [item["display_name"] for item in scoped] == ["Private Ann"]
+    assert client.get("/api/characters").json() == []
 
 
 def test_live_trial_events_capture_chatroom_sequence(tmp_path: Path) -> None:
@@ -61,7 +59,7 @@ def test_live_trial_events_capture_chatroom_sequence(tmp_path: Path) -> None:
     started = client.post(
         "/api/trials",
         json={
-            "character_card_id": "card-fragile-ann",
+            "target_id": "demo-fragile",
             "suite": ["false_memory"],
             "mode": "fast",
         },
