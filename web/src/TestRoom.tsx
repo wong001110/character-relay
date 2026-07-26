@@ -1,18 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { AdaptiveTesterModal } from "./AdaptiveTesterModal";
-import {
-  adaptiveTesterReady,
-  defaultAdaptiveTesterConfig
-} from "./adaptiveTester";
 import {
   api,
-  type AdaptiveTesterConfig,
   type CharacterCard,
   type ComparisonResult,
   type CredentialStatus,
+  type JudgeMode,
   type ObservationMode,
   type ReportFormat,
+  type RuntimeStatus,
   type TargetView,
   type TesterMode,
   type TestKind,
@@ -31,30 +27,16 @@ import "./adaptive.css";
 interface Props {
   card: CharacterCard;
   target: TargetView;
+  runtime: RuntimeStatus | null;
   onBack: () => void;
+  onAdmin: () => void;
 }
 
 const suites = [
-  {
-    id: "identity_integrity",
-    titleKey: "suite.identity",
-    roomKey: "suite.mirrorRoom"
-  },
-  {
-    id: "false_memory",
-    titleKey: "suite.falseMemory",
-    roomKey: "suite.memoryRoom"
-  },
-  {
-    id: "prompt_injection",
-    titleKey: "suite.intrusion",
-    roomKey: "suite.scriptRoom"
-  },
-  {
-    id: "long_conversation_drift",
-    titleKey: "suite.longDrift",
-    roomKey: "suite.echoHall"
-  }
+  { id: "identity_integrity", titleKey: "suite.identity", roomKey: "suite.mirrorRoom" },
+  { id: "false_memory", titleKey: "suite.falseMemory", roomKey: "suite.memoryRoom" },
+  { id: "prompt_injection", titleKey: "suite.intrusion", roomKey: "suite.scriptRoom" },
+  { id: "long_conversation_drift", titleKey: "suite.longDrift", roomKey: "suite.echoHall" }
 ] as const satisfies ReadonlyArray<{
   id: TestKind;
   titleKey: string;
@@ -104,7 +86,7 @@ function configText(target: TargetView, key: string, fallback: string): string {
   return typeof value === "string" && value ? value : fallback;
 }
 
-export function TestRoom({ card, target, onBack }: Props) {
+export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
   const { language, t } = useI18n();
   const [selected, setSelected] = useState<TestKind[]>(
     card.preferred_suites.length > 0 ? card.preferred_suites : suites.map((item) => item.id)
@@ -112,13 +94,10 @@ export function TestRoom({ card, target, onBack }: Props) {
   const [testLanguage, setTestLanguage] = useState<TestLanguage>(language);
   const [mode, setMode] = useState<ObservationMode>("watch");
   const [testerMode, setTesterMode] = useState<TesterMode>("benchmark");
-  const [adaptiveTester, setAdaptiveTester] = useState<AdaptiveTesterConfig>(
-    defaultAdaptiveTesterConfig
-  );
-  const [showAdaptiveTester, setShowAdaptiveTester] = useState(false);
+  const [judgeMode, setJudgeMode] = useState<JudgeMode>(runtime?.default_judge_mode ?? "rules");
   const [events, setEvents] = useState<TrialEvent[]>([]);
   const [run, setRun] = useState<TrialRun | null>(null);
-  const [benchmarkRuns, setBenchmarkRuns] = useState<Partial<Record<TestLanguage, TrialRun>>>({});
+  const [benchmarkRuns, setBenchmarkRuns] = useState<Record<string, TrialRun>>({});
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
   const [credential, setCredential] = useState<CredentialStatus | null>(null);
   const [showCredential, setShowCredential] = useState(false);
@@ -137,7 +116,8 @@ export function TestRoom({ card, target, onBack }: Props) {
     : t("room.waitingRoom");
   const eventCount = evidenceCount(events);
   const credentialReady = credential?.configured ?? target.target_kind !== "prompt_model";
-  const adaptiveReady = adaptiveTesterReady(adaptiveTester);
+  const adaptiveReady = runtime?.adaptive.configured ?? false;
+  const semanticReady = runtime?.judge.configured ?? false;
   const provider = configText(target, "provider", t("room.compatibleProvider"));
   const model = configText(target, "model", t("room.unspecifiedModel"));
   const baseUrl = configText(target, "base_url", t("room.noEndpoint"));
@@ -150,6 +130,15 @@ export function TestRoom({ card, target, onBack }: Props) {
         : credential.source === "environment"
           ? t("credential.environmentReady")
           : t("credential.sessionReady");
+
+  useEffect(() => {
+    if (runtime?.default_judge_mode && !busy) {
+      const requested = runtime.default_judge_mode;
+      setJudgeMode(
+        requested === "rules" || semanticReady ? requested : "rules"
+      );
+    }
+  }, [runtime?.default_judge_mode, semanticReady, busy]);
 
   useEffect(() => {
     let active = true;
@@ -178,7 +167,11 @@ export function TestRoom({ card, target, onBack }: Props) {
       return;
     }
     if (testerMode === "adaptive" && !adaptiveReady) {
-      setShowAdaptiveTester(true);
+      setError(t("room.adminAdaptiveMissing"));
+      return;
+    }
+    if (judgeMode !== "rules" && !semanticReady) {
+      setError(t("room.adminJudgeMissing"));
       return;
     }
 
@@ -186,33 +179,36 @@ export function TestRoom({ card, target, onBack }: Props) {
     setError(null);
     setComparison(null);
     setEvents([]);
-    const baseline = testerMode === "benchmark" ? benchmarkRuns[testLanguage] ?? null : null;
+    const baselineKey = `${testLanguage}:${judgeMode}`;
+    const baseline = testerMode === "benchmark" ? benchmarkRuns[baselineKey] ?? null : null;
     try {
       const created = await api.startTrial(
         card.id,
         selected,
         mode,
         testerMode,
-        testLanguage,
-        testerMode === "adaptive" ? adaptiveTester : undefined
+        judgeMode,
+        testLanguage
       );
-      if (testerMode === "adaptive") {
-        setAdaptiveTester((current) => ({ ...current, api_key: "" }));
-      }
       setRun(created);
       const completed = await api.observeTrial(created.id, mode, setEvents, setRun);
       setRun(completed);
       if (completed.status === "failed") {
         setError(completed.error ?? t("room.providerFailed"));
       }
-      if (testerMode === "benchmark" && completed.status === "completed") {
+      if (
+        testerMode === "benchmark" &&
+        completed.status === "completed" &&
+        !completed.result?.review_required
+      ) {
         if (baseline && baseline.id !== completed.id) {
-          setComparison(await api.compareRuns(baseline.id, completed.id));
+          try {
+            setComparison(await api.compareRuns(baseline.id, completed.id));
+          } catch (reason) {
+            setError(reason instanceof Error ? reason.message : t("room.comparisonUnavailable"));
+          }
         }
-        setBenchmarkRuns((current) => ({
-          ...current,
-          [completed.test_language]: completed
-        }));
+        setBenchmarkRuns((current) => ({ ...current, [baselineKey]: completed }));
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("room.signalLost"));
@@ -238,6 +234,7 @@ export function TestRoom({ card, target, onBack }: Props) {
           <div><p className="kicker">{t("room.kicker")}</p><h1>{t("room.title")}</h1></div>
           <div className="room-header-actions">
             <LanguageSwitcher />
+            <button className="paper-button" onClick={onAdmin}>{t("shelf.admin")}</button>
             <div className={`live-light ${busy ? "active" : ""}`}>
               <span />{busy ? t("room.sessionLive") : t("room.ready")}
             </div>
@@ -282,40 +279,45 @@ export function TestRoom({ card, target, onBack }: Props) {
                 onClick={() => setTesterMode("benchmark")}
                 disabled={busy}
               >
-                {t("room.benchmark")}
-                <small>{t("room.benchmarkHelp")}</small>
+                {t("room.benchmark")}<small>{t("room.benchmarkHelp")}</small>
               </button>
               <button
                 className={testerMode === "adaptive" ? "selected" : ""}
                 onClick={() => setTesterMode("adaptive")}
-                disabled={busy}
+                disabled={busy || !adaptiveReady}
               >
-                {t("room.adaptive")}
-                <small>{t("room.adaptiveHelp")}</small>
+                {t("room.adaptive")}<small>{t("room.adaptiveHelp")}</small>
               </button>
             </div>
-            {testerMode === "adaptive" && (
-              <div className={adaptiveReady ? "adaptive-summary" : "adaptive-summary missing"}>
-                <span>{t("room.pressureAgent")}</span>
-                <strong>
-                  {adaptiveReady
-                    ? `${adaptiveTester.provider} · ${adaptiveTester.model}`
-                    : t("room.configurationRequired")}
-                </strong>
-                <small>
-                  {adaptiveReady
-                    ? t("room.adaptiveReady", { count: adaptiveTester.max_turns })
-                    : t("room.adaptiveMissing")}
-                </small>
+            <RuntimeSummary
+              title={t("room.pressureAgent")}
+              configured={adaptiveReady}
+              provider={runtime?.adaptive.provider ?? "—"}
+              model={runtime?.adaptive.model ?? "—"}
+              onAdmin={onAdmin}
+            />
+
+            <p className="section-label">{t("room.judgeMode")}</p>
+            <div className="judge-mode-switch">
+              {(["rules", "semantic", "hybrid"] as JudgeMode[]).map((item) => (
                 <button
-                  className="paper-button full"
-                  onClick={() => setShowAdaptiveTester(true)}
-                  disabled={busy}
+                  key={item}
+                  className={judgeMode === item ? "selected" : ""}
+                  onClick={() => setJudgeMode(item)}
+                  disabled={busy || (item !== "rules" && !semanticReady)}
                 >
-                  {adaptiveReady ? t("room.editAdaptive") : t("room.configureAdaptive")}
+                  {t(`judge.${item}` as "judge.rules")}
+                  <small>{t(`judge.${item}Help` as "judge.rulesHelp")}</small>
                 </button>
-              </div>
-            )}
+              ))}
+            </div>
+            <RuntimeSummary
+              title={t("room.semanticJudge")}
+              configured={semanticReady}
+              provider={runtime?.judge.provider ?? "—"}
+              model={runtime?.judge.model ?? "—"}
+              onAdmin={onAdmin}
+            />
 
             <p className="section-label">{t("room.testLanguage")}</p>
             <p className="section-help">{t("room.testLanguageHelp")}</p>
@@ -325,16 +327,14 @@ export function TestRoom({ card, target, onBack }: Props) {
                 onClick={() => setTestLanguage("en")}
                 disabled={busy}
               >
-                EN
-                <small>{t("room.testEnglish")}</small>
+                EN<small>{t("room.testEnglish")}</small>
               </button>
               <button
                 className={testLanguage === "zh-CN" ? "selected" : ""}
                 onClick={() => setTestLanguage("zh-CN")}
                 disabled={busy}
               >
-                简
-                <small>{t("room.testChinese")}</small>
+                简<small>{t("room.testChinese")}</small>
               </button>
             </div>
 
@@ -379,9 +379,7 @@ export function TestRoom({ card, target, onBack }: Props) {
                 ? t("room.observing")
                 : !credentialReady
                   ? t("room.configureSubject")
-                  : testerMode === "adaptive" && !adaptiveReady
-                    ? t("room.configureAdaptive")
-                    : t("room.begin")}
+                  : t("room.begin")}
             </button>
             {busy && (
               <button className="paper-button full" onClick={() => void stop()}>
@@ -417,17 +415,19 @@ export function TestRoom({ card, target, onBack }: Props) {
 
           <aside className="observation-sidebar paper-sheet">
             <p className="tape-label rose">{t("room.notes")}</p>
-            <div className="integrity-card">
+            <div className={run?.result?.review_required ? "integrity-card review" : "integrity-card"}>
               <span>{t("room.integrity")}</span><strong>{run?.result ? Math.round(score) : "—"}</strong>
               <small>
-                {run?.result ? t(integrityKeys[integrityBand(score)]) : t("room.stillObserving")}
+                {run?.result?.review_required
+                  ? t("judge.review")
+                  : run?.result
+                    ? t(integrityKeys[integrityBand(score)])
+                    : t("room.stillObserving")}
               </small>
             </div>
             <dl className="signal-list">
-              <div>
-                <dt>{t("room.tester")}</dt>
-                <dd>{testerMode === "adaptive" ? t("room.adaptive") : t("room.benchmark")}</dd>
-              </div>
+              <div><dt>{t("room.tester")}</dt><dd>{testerMode === "adaptive" ? t("room.adaptive") : t("room.benchmark")}</dd></div>
+              <div><dt>{t("room.judgeMode")}</dt><dd>{t(`judge.${judgeMode}` as "judge.rules")}</dd></div>
               <div><dt>{t("room.currentRoom")}</dt><dd>{scenarioName}</dd></div>
               <div><dt>{t("room.evidence")}</dt><dd>{eventCount}</dd></div>
               <div>
@@ -438,21 +438,13 @@ export function TestRoom({ card, target, onBack }: Props) {
                     : t("room.noneYet")}
                 </dd>
               </div>
-              <div>
-                <dt>{t("room.sessionState")}</dt>
-                <dd>{run ? t(statusKeys[run.status]) : t("room.unobserved")}</dd>
-              </div>
+              <div><dt>{t("room.sessionState")}</dt><dd>{run ? t(statusKeys[run.status]) : t("room.unobserved")}</dd></div>
             </dl>
             {comparison && (
               <div className={comparison.gate_passed ? "comparison pass" : "comparison fail"}>
                 <span>{t("room.compared")}</span>
-                <strong>
-                  {comparison.gate_passed ? t("room.noRegression") : t("room.regression")}
-                </strong>
-                <small>
-                  {comparison.score_delta >= 0 ? "+" : ""}
-                  {comparison.score_delta.toFixed(1)} {t("room.scoreSuffix")}
-                </small>
+                <strong>{comparison.gate_passed ? t("room.noRegression") : t("room.regression")}</strong>
+                <small>{comparison.score_delta >= 0 ? "+" : ""}{comparison.score_delta.toFixed(1)} {t("room.scoreSuffix")}</small>
               </div>
             )}
             <div className="card-profile-note">
@@ -477,16 +469,6 @@ export function TestRoom({ card, target, onBack }: Props) {
           onConfigured={setCredential}
         />
       )}
-      {showAdaptiveTester && (
-        <AdaptiveTesterModal
-          initial={adaptiveTester}
-          onClose={() => setShowAdaptiveTester(false)}
-          onSave={(config) => {
-            setAdaptiveTester(config);
-            setShowAdaptiveTester(false);
-          }}
-        />
-      )}
       {reportFormat && run && (
         <ReportModal
           runId={run.id}
@@ -495,6 +477,30 @@ export function TestRoom({ card, target, onBack }: Props) {
         />
       )}
     </>
+  );
+}
+
+function RuntimeSummary({
+  title,
+  configured,
+  provider,
+  model,
+  onAdmin
+}: {
+  title: string;
+  configured: boolean;
+  provider: string;
+  model: string;
+  onAdmin: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className={configured ? "adaptive-summary" : "adaptive-summary missing"}>
+      <span>{title}</span>
+      <strong>{configured ? `${provider} · ${model}` : t("room.configurationRequired")}</strong>
+      <small>{configured ? t("room.adminManaged") : t("room.adminRuntimeMissing")}</small>
+      <button className="paper-button full" onClick={onAdmin}>{t("room.openAdmin")}</button>
+    </div>
   );
 }
 
@@ -515,8 +521,7 @@ function LiveEvent({ event, card }: { event: TrialEvent; card: CharacterCard }) 
       <div className="chat-line tester-line">
         <div className="chat-avatar tester-avatar">T</div>
         <div className="bubble tester-thinking-bubble">
-          <span>{t("event.adaptivePlanning")}</span>
-          <p><i /><i /><i /></p>
+          <span>{t("event.adaptivePlanning")}</span><p><i /><i /><i /></p>
         </div>
       </div>
     );
@@ -562,14 +567,31 @@ function LiveEvent({ event, card }: { event: TrialEvent; card: CharacterCard }) 
       </div>
     );
   }
+  if (event.event_type === "judge_thinking") {
+    return (
+      <div className="judge-note thinking">
+        <span>{t("event.semanticJudging")}</span>
+        <strong>{payloadText(event, "model")}</strong>
+        <p><i /><i /><i /></p>
+      </div>
+    );
+  }
   if (event.event_type === "judge_result") {
     const passed = event.payload.passed === true;
+    const review = event.payload.review_required === true;
     return (
-      <div className={passed ? "judge-note pass" : "judge-note fail"}>
-        <span>{t("event.judgeMemo")}</span>
-        <strong>{passed ? t("event.roleHeld") : t("event.driftObserved")}</strong>
+      <div className={review ? "judge-note review" : passed ? "judge-note pass" : "judge-note fail"}>
+        <span>{t("event.judgeMemo")} · {payloadText(event, "judge_mode")}</span>
+        <strong>
+          {review ? t("judge.review") : passed ? t("event.roleHeld") : t("event.driftObserved")}
+        </strong>
         <p>{payloadText(event, "summary")}</p>
-        <small>{t("event.score", { score: payloadNumber(event, "score") ?? 0 })}</small>
+        <small>
+          {t("event.score", { score: payloadNumber(event, "score") ?? 0 })}
+          {payloadNumber(event, "semantic_score") !== null
+            ? ` · R ${payloadNumber(event, "rule_score")} / S ${payloadNumber(event, "semantic_score")}`
+            : ""}
+        </small>
       </div>
     );
   }
@@ -592,10 +614,8 @@ function LiveEvent({ event, card }: { event: TrialEvent; card: CharacterCard }) 
   if (event.event_type === "session_completed") {
     return (
       <div className="system-note completed">
-        <span>{t("event.complete")}</span>
-        <strong>
-          {t("event.averageScore", { score: payloadNumber(event, "average_score") ?? 0 })}
-        </strong>
+        <span>{event.payload.review_required === true ? t("judge.review") : t("event.complete")}</span>
+        <strong>{t("event.averageScore", { score: payloadNumber(event, "average_score") ?? 0 })}</strong>
       </div>
     );
   }
