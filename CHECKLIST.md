@@ -190,7 +190,7 @@
 - [x] Python 3.13 Ruff, strict mypy, and pytest passed
 - [x] TypeScript, Vitest, and production web build passed
 - [x] Docker image and container smoke passed
-- [ ] Final documentation commit CI and Railway live smoke passed
+- [x] Final documentation commit CI and Railway live smoke passed
 
 ### Manual validation
 - [ ] Configure Admin Runtime once and reuse it across browser sessions
@@ -209,5 +209,6 @@
 - [x] Phase 9 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
 - [x] Phase 10 GitHub-hosted Ruff, mypy, pytest, web build, and Docker smoke passed
 - [x] Phase 11 GitHub-hosted Ruff, mypy, pytest, web build, Docker smoke, and Railway live smoke passed
+- [x] Phase 12 GitHub-hosted Ruff, strict mypy, pytest, TypeScript, Vitest, production build, Docker smoke, and Railway live smoke passed
 
-Phase 12 is complete after the final documentation-triggered CI, merge, and post-deploy Railway smoke pass.
+Phase 12 implementation and automated validation are complete. Remaining checks require real Admin Provider credentials, Railway environment configuration, or human UI judgment.
