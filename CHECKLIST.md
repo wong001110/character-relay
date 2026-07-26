@@ -1,4 +1,4 @@
-# Echo Masque MVP Checklist
+# Echo Masque Delivery Checklist
 
 ## Phase 0 — Product contract
 - [x] Product purpose and terminology documented
@@ -15,7 +15,7 @@
 
 ## Phase 2 — Deterministic trial engine
 - [x] Target protocol and reset lifecycle
-- [x] Stable and Fragile demo targets
+- [x] Stable and Fragile deterministic targets
 - [x] Four deterministic test suites
 - [x] Rule-based evidence and verdicts
 - [x] First breakpoint detection
@@ -36,10 +36,11 @@
 
 ## Phase 5 — Observation interface
 - [x] React and TypeScript client
-- [x] Demo target selection and trial execution
+- [x] Target selection and trial execution
 - [x] Breakpoint and evidence display
 - [x] Session replay
-- [ ] Manual: visual hierarchy and responsive behavior
+- [x] User accepted MVP visual hierarchy
+- [ ] Manual: narrow mobile acceptance
 
 ## Phase 6 — External targets
 - [x] Custom HTTP target
@@ -54,22 +55,18 @@
 - [x] Security and privacy review document
 - [x] Container and tagged release workflow
 - [x] Fixed direct frontend dependency versions
-- [ ] Manual: real provider smoke test
-- [ ] Manual: end-to-end browser acceptance
+- [ ] Manual: broad end-to-end browser acceptance
 
 ## Phase 8 — Character Cards and Live Test Room
 - [x] Per-user Character Card persistence
-- [x] Demo Stable and Fragile Character Cards
 - [x] Character Card create, list, detail, and delete API
 - [x] Persisted Tester, Subject, Judge, and Breakpoint events
 - [x] Watch Mode and Fast Mode
-- [x] Character Shelf and Character Card creator
+- [x] Character Library and Character Card creator
 - [x] Left/right live chatroom UI
 - [x] Scrapbook visual system and lightweight SVG assets
 - [x] Existing replay, comparison, and reports retained
-- [ ] Manual: card shelf visual quality
-- [ ] Manual: Watch Mode pacing and breakpoint clarity
-- [ ] Manual: desktop, tablet, and mobile acceptance
+- [x] Built-in Character Cards retired in Phase 12
 
 ## MVP polish — provider configuration and reports
 - [x] Slower multi-beat Watch Mode pacing
@@ -82,9 +79,7 @@
 - [x] Prompt-model cards execute through the OpenAI-compatible provider
 - [x] Lab Note and JSON report modals
 - [x] Copy and download actions inside report modals
-- [ ] Manual: real provider smoke test with a user-owned key
-- [ ] Manual: revised Watch Mode pacing acceptance
-- [ ] Manual: Lab Note and JSON modal readability
+- [x] User completed a real provider Subject test
 
 ## Phase 9 — Adaptive Tester and efficient local development
 - [x] Single trial snapshot endpoint returns run state and incremental events
@@ -92,7 +87,7 @@
 - [x] Fast Mode snapshot interval is approximately 450 milliseconds
 - [x] Previous two-request polling loop removed from the live observer
 - [x] Benchmark Tester remains fixed and reproducible
-- [x] Experimental Adaptive Tester follows Subject replies
+- [x] Adaptive Tester follows Subject replies
 - [x] Separate Adaptive Tester provider, model, prompt, temperature, turns, and key
 - [x] Adaptive Tester key remains active-run memory only
 - [x] Tester planning and generated messages appear in the live room
@@ -101,9 +96,8 @@
 - [x] Cross-platform `python run.py` launcher
 - [x] Launcher creates `.venv` and skips unchanged dependency installation
 - [x] Launcher starts and stops FastAPI and Vite together
-- [ ] Manual: verify Watch polling cadence in browser console
-- [ ] Manual: verify Adaptive Tester with a real provider
-- [ ] Manual: verify launcher on Windows and macOS/Linux
+- [x] User completed a real Adaptive Tester run
+- [ ] Manual: verify launcher on both Windows and macOS/Linux
 
 ## Phase 10 — Railway deployment readiness
 - [x] Railway config-as-code selects the root Dockerfile
@@ -114,50 +108,106 @@
 - [x] Remote deterministic smoke-test script
 - [x] Automatic GitHub Actions Railway Smoke workflow
 - [x] CI builds and starts the production Docker image
-- [x] CI mounts a persistent Docker volume and runs a real Demo Trial
+- [x] CI mounts a persistent Docker volume and runs a real Trial
 - [x] Railway deployment and persistence guide
 - [x] Public Railway domain created
-- [x] GitHub-hosted Railway Smoke passes against the live deployment
-- [ ] Manual: attach Railway Volume at `/data`
-- [ ] Manual: keep one replica and select Singapore region when available
+- [x] GitHub-hosted bilingual Railway Smoke passes
 - [ ] Manual: confirm SQLite data survives a Railway redeploy
 
-## Phase 11 — English and Simplified Chinese interface and testing
-- [x] Lightweight typed i18n provider without an additional runtime package
+## Phase 11 — English and Simplified Chinese
+- [x] Typed i18n provider without an additional runtime package
 - [x] English interface remains the default
 - [x] Simplified Chinese interface option
-- [x] Interface language persists in browser storage and updates document language
-- [x] Language switchers on Character Shelf and Test Room
-- [x] Character Shelf, Creator, Test Room, Credential, Adaptive Tester, and Report Modal copy translated
+- [x] Interface language persists and updates document language
 - [x] Interface language remains separate from Test Language
-- [x] Fixed English and Simplified Chinese Benchmark scenario catalogs
-- [x] Language-specific required and forbidden Judge signals
-- [x] Bilingual Stable and Fragile deterministic Demo targets
+- [x] English and Simplified Chinese Benchmark catalogs
+- [x] Language-specific Judge signals
+- [x] Bilingual deterministic targets
 - [x] Adaptive Tester follows the selected test language
 - [x] Trial Run persists `test_language` with old-run English fallback
 - [x] English and Chinese runs use separate regression baselines
 - [x] Cross-language comparison is rejected
 - [x] English and Chinese transcript-analysis rules
 - [x] English and Chinese Markdown trial reports
-- [x] User-authored card data, prompts, and model responses are not automatically translated
-- [x] Multilingual architecture and extension guide
-- [x] Frontend and backend multilingual tests added
-- [ ] Manual: verify fresh browser starts in English
-- [ ] Manual: verify Simplified Chinese UI persists after refresh
-- [ ] Manual: verify English and Chinese Test Language runs in the browser
-- [ ] Manual: verify real provider follows Chinese Benchmark and Adaptive pressure
-- [ ] Manual: verify mobile language controls remain readable
+- [x] User-authored data and model responses are not automatically translated
+- [x] Multilingual frontend, backend, Docker, and Railway tests
+- [x] User accepted the multilingual MVP interface
 
-## Automated acceptance
-- [x] Credential-free deterministic demo works
-- [x] Python unit and integration suite is present
-- [x] Python source and tests compile
-- [x] Frontend strict TypeScript configuration is present
-- [x] Phase-by-phase commits are pushed
+## Phase 12 — Admin Runtime, Hybrid Judge, and scalable Character Library
+
+### Admin Runtime
+- [x] Persist non-secret Adaptive Tester and Semantic Judge profiles
+- [x] Add `ECHO_MASQUE_ADMIN_TOKEN`
+- [x] Add `ECHO_MASQUE_ADAPTIVE_API_KEY`
+- [x] Add `ECHO_MASQUE_JUDGE_API_KEY`
+- [x] Protect Admin APIs with `X-Echo-Admin`
+- [x] Add public runtime readiness status
+- [x] Add bilingual Admin Settings UI
+- [x] Store browser Admin token in session storage only
+- [x] Support process-memory key overrides
+- [x] Never persist or expose raw Admin runtime keys
+
+### Adaptive Tester
+- [x] Resolve Adaptive Tester from Admin configuration
+- [x] Remove the per-run Adaptive configuration modal
+- [x] Disable Adaptive mode with a clear status when Admin runtime is unavailable
+- [x] Preserve legacy API payload compatibility for existing integrations
+
+### Hybrid Judge
+- [x] Keep Rules Mode deterministic and credential-free
+- [x] Add strict structured Semantic Judge output
+- [x] Validate Semantic evidence against real Subject turns and exact excerpts
+- [x] Add Rules, Semantic, and Hybrid Judge Modes
+- [x] Store Rule and Semantic verdicts separately
+- [x] Mark Rule/Semantic disagreement as REVIEW
+- [x] Add English and Simplified Chinese Semantic Judge instructions
+- [x] Store Provider, Model, rubric, confidence, dimensions, and usage metadata
+- [x] Include grounded Hybrid Judge detail in Markdown and JSON reports
+- [x] Reject comparisons across different Judge Modes
+- [x] Reject REVIEW runs as regression baselines
+
+### Character Library
+- [x] Stop seeding user-facing built-in Character Cards
+- [x] Remove previously seeded built-in cards without deleting Trial runs
+- [x] Keep deterministic targets internal for CI and Railway smoke
+- [x] Add Character Card update API
+- [x] Edit prompt-model Provider, Model, System Prompt, Base URL, and Temperature
+- [x] Preserve Subject credential association during edits
+- [x] Add Edit action to Character Cards
+- [x] Add search, subject/tag filters, sorting, fixed-width cards, and pagination
+- [x] Add an empty-library state
+
+### Automated validation
+- [x] Fresh database contains no built-in Character Cards
+- [x] Character edits persist and preserve target/key association
+- [x] Admin non-secret settings survive restart
+- [x] Process-memory runtime keys clear on restart
+- [x] Environment runtime keys remain available after restart
+- [x] Adaptive/Semantic modes require configured Admin runtimes
+- [x] Ungrounded Semantic evidence is rejected
+- [x] Hybrid disagreement becomes REVIEW
+- [x] Python 3.12 Ruff, strict mypy, and pytest passed
+- [x] Python 3.13 Ruff, strict mypy, and pytest passed
+- [x] TypeScript, Vitest, and production web build passed
+- [x] Docker image and container smoke passed
+- [ ] Final documentation commit CI and Railway live smoke passed
+
+### Manual validation
+- [ ] Configure Admin Runtime once and reuse it across browser sessions
+- [ ] Confirm Test Room never asks for Adaptive or Judge credentials
+- [ ] Configure real Semantic and Hybrid Judge models
+- [ ] Compare Stable and OOC cards with real Hybrid Judge
+- [ ] Confirm disagreement evidence is useful for manual review
+- [ ] Create enough cards to exercise search, filters, and pagination
+- [ ] Edit a card and confirm the next Trial uses the updated prompt
+- [ ] Configure Railway Admin/Adaptive/Judge environment variables
+- [ ] Redeploy Railway and confirm runtime profiles and environment readiness survive
+
+## Automated acceptance history
 - [x] Phase 8 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
 - [x] MVP polish GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
 - [x] Phase 9 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
-- [x] Phase 10 GitHub-hosted Ruff, mypy, pytest, Vitest, web build, and Docker smoke passed
-- [x] Phase 11 GitHub-hosted Ruff, mypy, pytest, Vitest, web build, Docker smoke, and Railway live smoke passed
+- [x] Phase 10 GitHub-hosted Ruff, mypy, pytest, web build, and Docker smoke passed
+- [x] Phase 11 GitHub-hosted Ruff, mypy, pytest, web build, Docker smoke, and Railway live smoke passed
 
-Hosted CI passed on Phase 11 pull request #19 for Python 3.12, Python 3.13, the web client, the production Docker image, and the public Railway smoke test.
+Phase 12 is complete after the final documentation-triggered CI, merge, and post-deploy Railway smoke pass.
