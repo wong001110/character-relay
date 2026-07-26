@@ -5,13 +5,17 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from echo_masque.domain import (
+    Evidence,
+    JudgeMode,
+    Severity,
     TrialResult,
     TrialScenario,
     TrialStatus,
     TrialSuiteResult,
     TrialTurn,
+    Verdict,
 )
-from echo_masque.judges import RuleJudge
+from echo_masque.judges import RuleJudge, SemanticJudge
 from echo_masque.targets.base import TargetAdapter
 from echo_masque.testers import AdaptiveTester
 
@@ -58,6 +62,9 @@ class TrialRunner:
         observer: TrialObserver | None = None,
         pacing: TrialPacing = FAST_PACING,
         adaptive_tester: AdaptiveTester | None = None,
+        judge_mode: JudgeMode = JudgeMode.RULES,
+        semantic_judge: SemanticJudge | None = None,
+        character_context: str = "No Character Card profile was supplied.",
     ) -> TrialResult:
         await target.reset()
         await self._emit(
@@ -70,6 +77,7 @@ class TrialRunner:
                 "language": scenario.language.value,
                 "expected_behavior": scenario.expected_behavior,
                 "tester_mode": "adaptive" if adaptive_tester else "benchmark",
+                "judge_mode": judge_mode.value,
             },
         )
         await self._pause(pacing.scenario_open_seconds)
@@ -160,7 +168,36 @@ class TrialRunner:
             )
 
         turn_tuple = tuple(turns)
-        verdict = self.judge.judge(scenario, turn_tuple)
+        rule_verdict = self.judge.judge(scenario, turn_tuple)
+        semantic_verdict: Verdict | None = None
+        semantic_metadata = None
+        if judge_mode in {JudgeMode.SEMANTIC, JudgeMode.HYBRID}:
+            if semantic_judge is None:
+                raise ValueError("Semantic Judge is required for this Judge Mode.")
+            await self._emit(
+                observer,
+                "judge_thinking",
+                {
+                    "scenario_id": scenario.id,
+                    "judge_mode": judge_mode.value,
+                    "provider": semantic_judge.config.provider,
+                    "model": semantic_judge.config.model,
+                },
+            )
+            semantic_result = await semantic_judge.judge(
+                scenario,
+                turn_tuple,
+                character_context=character_context,
+            )
+            semantic_verdict = semantic_result.verdict
+            semantic_metadata = semantic_result.metadata
+
+        verdict, review_required = self._resolved_verdict(
+            judge_mode,
+            rule_verdict,
+            semantic_verdict,
+            scenario,
+        )
         breakpoint = min((item.turn_index for item in verdict.evidence), default=None)
         await self._emit(
             observer,
@@ -168,13 +205,19 @@ class TrialRunner:
             {
                 "scenario_id": scenario.id,
                 "passed": verdict.passed,
+                "review_required": review_required,
+                "decision": "review" if review_required else ("pass" if verdict.passed else "fail"),
                 "score": verdict.score,
                 "summary": verdict.summary,
                 "severity": verdict.severity.value,
                 "language": scenario.language.value,
-                "evidence": [
-                    item.model_dump(mode="json") for item in verdict.evidence
-                ],
+                "judge_mode": judge_mode.value,
+                "rule_score": rule_verdict.score,
+                "semantic_score": semantic_verdict.score if semantic_verdict else None,
+                "semantic_metadata": (
+                    semantic_metadata.model_dump(mode="json") if semantic_metadata else None
+                ),
+                "evidence": [item.model_dump(mode="json") for item in verdict.evidence],
             },
         )
         await self._pause(pacing.after_judge_seconds)
@@ -189,6 +232,7 @@ class TrialRunner:
                     "evidence_count": len(verdict.evidence),
                     "severity": verdict.severity.value,
                     "language": scenario.language.value,
+                    "review_required": review_required,
                 },
             )
             await self._pause(pacing.after_breakpoint_seconds)
@@ -199,9 +243,11 @@ class TrialRunner:
             {
                 "scenario_id": scenario.id,
                 "passed": verdict.passed,
+                "review_required": review_required,
                 "score": verdict.score,
                 "breakpoint": breakpoint,
                 "language": scenario.language.value,
+                "judge_mode": judge_mode.value,
             },
         )
         await self._pause(pacing.scenario_gap_seconds)
@@ -213,6 +259,11 @@ class TrialRunner:
             turns=turn_tuple,
             verdict=verdict,
             breakpoint=breakpoint,
+            judge_mode=judge_mode,
+            rule_verdict=rule_verdict,
+            semantic_verdict=semantic_verdict,
+            semantic_metadata=semantic_metadata,
+            review_required=review_required,
         )
 
     async def run_suite(
@@ -223,6 +274,9 @@ class TrialRunner:
         observer: TrialObserver | None = None,
         pacing: TrialPacing = FAST_PACING,
         adaptive_tester: AdaptiveTester | None = None,
+        judge_mode: JudgeMode = JudgeMode.RULES,
+        semantic_judge: SemanticJudge | None = None,
+        character_context: str = "No Character Card profile was supplied.",
     ) -> TrialSuiteResult:
         language = scenarios[0].language.value if scenarios else "en"
         await self._emit(
@@ -232,6 +286,7 @@ class TrialRunner:
                 "target": target.summary.model_dump(mode="json"),
                 "scenario_count": len(scenarios),
                 "tester_mode": "adaptive" if adaptive_tester else "benchmark",
+                "judge_mode": judge_mode.value,
                 "language": language,
             },
         )
@@ -242,6 +297,9 @@ class TrialRunner:
                 observer=observer,
                 pacing=pacing,
                 adaptive_tester=adaptive_tester,
+                judge_mode=judge_mode,
+                semantic_judge=semantic_judge,
+                character_context=character_context,
             )
             for scenario in scenarios
         ]
@@ -252,10 +310,88 @@ class TrialRunner:
             {
                 "average_score": result.average_score,
                 "scenario_count": len(results),
+                "review_required": result.review_required,
+                "judge_mode": judge_mode.value,
                 "language": language,
             },
         )
         return result
+
+    @classmethod
+    def _resolved_verdict(
+        cls,
+        judge_mode: JudgeMode,
+        rule_verdict: Verdict,
+        semantic_verdict: Verdict | None,
+        scenario: TrialScenario,
+    ) -> tuple[Verdict, bool]:
+        if judge_mode == JudgeMode.RULES:
+            return rule_verdict, False
+        if semantic_verdict is None:
+            raise ValueError("Semantic Judge result is unavailable.")
+        if judge_mode == JudgeMode.SEMANTIC:
+            return semantic_verdict, False
+        if rule_verdict.passed != semantic_verdict.passed:
+            chinese = scenario.language.value == "zh-CN"
+            evidence = cls._deduplicate_evidence(
+                (*rule_verdict.evidence, *semantic_verdict.evidence)
+            )
+            return (
+                Verdict(
+                    passed=False,
+                    score=round((rule_verdict.score + semantic_verdict.score) / 2),
+                    failure_type="judge_disagreement",
+                    severity=Severity.MEDIUM,
+                    summary=(
+                        "Rule Judge 与 Semantic Judge 结论不同，需要人工复核。"
+                        if chinese
+                        else "Rule Judge and Semantic Judge disagree; manual review is required."
+                    ),
+                    evidence=evidence,
+                ),
+                True,
+            )
+        evidence = cls._deduplicate_evidence(
+            (*rule_verdict.evidence, *semantic_verdict.evidence)
+        )
+        return (
+            Verdict(
+                passed=rule_verdict.passed,
+                score=round((rule_verdict.score + semantic_verdict.score) / 2),
+                failure_type=(
+                    semantic_verdict.failure_type or rule_verdict.failure_type
+                    if not rule_verdict.passed
+                    else None
+                ),
+                severity=cls._max_severity(rule_verdict.severity, semantic_verdict.severity),
+                summary=semantic_verdict.summary,
+                evidence=evidence,
+            ),
+            False,
+        )
+
+    @staticmethod
+    def _deduplicate_evidence(items: tuple[Evidence, ...]) -> tuple[Evidence, ...]:
+        seen: set[tuple[str, int, str]] = set()
+        result: list[Evidence] = []
+        for item in items:
+            key = (item.code, item.turn_index, item.excerpt)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(item)
+        return tuple(result)
+
+    @staticmethod
+    def _max_severity(left: Severity, right: Severity) -> Severity:
+        order = {
+            Severity.INFO: 0,
+            Severity.LOW: 1,
+            Severity.MEDIUM: 2,
+            Severity.HIGH: 3,
+            Severity.CRITICAL: 4,
+        }
+        return left if order[left] >= order[right] else right
 
     @staticmethod
     def _initial_messages(
