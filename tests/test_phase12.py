@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from echo_masque.admin_runtime import AdminRuntimeConfig, JudgeRuntimeProfile
+from echo_masque.admin_runtime import JudgeRuntimeProfile
 from echo_masque.api import create_app
 from echo_masque.config import Settings
 from echo_masque.domain import JudgeMode, TestKind, TestLanguage, TrialTurn
