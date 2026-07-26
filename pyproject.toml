@@ -50,6 +50,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 "src/echo_masque/targets/deterministic.py" = ["RUF001"]
 "src/echo_masque/testers/adaptive.py" = ["RUF001"]
 "src/echo_masque/transcripts/importer.py" = ["RUF001"]
+"src/echo_masque/trials/runner.py" = ["RUF001"]
 
 [tool.mypy]
 python_version = "3.12"
