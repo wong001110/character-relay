@@ -44,6 +44,16 @@ class CharacterCardRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class AdminRuntimeRecord(Base):
+    __tablename__ = "admin_runtime"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default="default")
+    config_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class TrialRunRecord(Base):
     __tablename__ = "trial_runs"
 
