@@ -1,24 +1,30 @@
 """Application service for persisted trial execution."""
 
 import asyncio
+import json
 import os
 from collections.abc import Callable
 from typing import Literal
 
 from pydantic import SecretStr
 
+from echo_masque.admin_runtime import JudgeRuntimeProfile
+from echo_masque.config import Settings
 from echo_masque.credentials import CredentialStore
-from echo_masque.domain import TestKind, TestLanguage, TrialStatus
+from echo_masque.domain import JudgeMode, TestKind, TestLanguage, TrialStatus
+from echo_masque.judges import SemanticJudge
 from echo_masque.persistence import (
     Repository,
-    decode_trial_request,
+    decode_trial_metadata,
     encode_trial_request,
 )
+from echo_masque.persistence.models import CharacterCardRecord
 from echo_masque.providers import (
     ChatProvider,
     OpenAICompatibleProvider,
     ProviderError,
 )
+from echo_masque.services.runtime import RuntimeService
 from echo_masque.suites import scenarios_for
 from echo_masque.targets import (
     HttpTarget,
@@ -44,15 +50,21 @@ class TrialService:
         self,
         repository: Repository,
         credential_store: CredentialStore | None = None,
+        runtime_service: RuntimeService | None = None,
         provider_factory: ProviderFactory = default_provider_factory,
     ) -> None:
         self.repository = repository
         self.credential_store = credential_store or CredentialStore()
+        self.runtime_service = runtime_service or RuntimeService(
+            repository,
+            Settings(environment="test"),
+        )
         self.provider_factory = provider_factory
         self.runner = TrialRunner()
         self._modes: dict[str, Literal["watch", "fast"]] = {}
-        self._tester_modes: dict[str, Literal["benchmark", "adaptive"]] = {}
         self._adaptive_configs: dict[str, AdaptiveTesterConfig] = {}
+        self._judge_profiles: dict[str, JudgeRuntimeProfile] = {}
+        self._judge_credentials: dict[str, SecretStr] = {}
         self._run_credentials: dict[str, SecretStr] = {}
 
     def start(
@@ -65,6 +77,7 @@ class TrialService:
         mode: Literal["watch", "fast"] = "fast",
         tester_mode: Literal["benchmark", "adaptive"] = "benchmark",
         adaptive_tester: AdaptiveTesterConfig | None = None,
+        judge_mode: JudgeMode = JudgeMode.RULES,
         test_language: TestLanguage = TestLanguage.ENGLISH,
     ) -> str:
         card_id = character_card_id
@@ -79,8 +92,25 @@ class TrialService:
         target_record = self.repository.get_target(target_id)
         if target_record is None:
             raise KeyError(target_id)
-        if tester_mode == "adaptive" and adaptive_tester is None:
-            raise ValueError("Adaptive Tester configuration is required.")
+
+        resolved_adaptive = adaptive_tester
+        if tester_mode == "adaptive" and resolved_adaptive is None:
+            resolved_adaptive = self.runtime_service.adaptive_config()
+        if tester_mode == "adaptive" and resolved_adaptive is None:
+            raise ValueError(
+                "Adaptive Tester is unavailable until Admin configures its runtime and API key."
+            )
+
+        judge_profile: JudgeRuntimeProfile | None = None
+        judge_credential: SecretStr | None = None
+        if judge_mode in {JudgeMode.SEMANTIC, JudgeMode.HYBRID}:
+            runtime_config = self.runtime_service.config()
+            judge_profile = runtime_config.judge
+            judge_credential, _ = self.runtime_service.credential("judge")
+            if not judge_profile.enabled or judge_credential is None:
+                raise ValueError(
+                    "Semantic Judge is unavailable until Admin configures its runtime and API key."
+                )
 
         credential: SecretStr | None = None
         if target_record.target_kind == "prompt_model":
@@ -99,6 +129,8 @@ class TrialService:
         persisted_suite = encode_trial_request(
             [item.value for item in suite],
             test_language,
+            tester_mode=tester_mode,
+            judge_mode=judge_mode,
         )
         run = self.repository.create_run(
             target_id=target_id,
@@ -106,17 +138,20 @@ class TrialService:
             character_card_id=card_id,
         )
         self._modes[run.id] = mode
-        self._tester_modes[run.id] = tester_mode
-        if adaptive_tester is not None:
-            self._adaptive_configs[run.id] = adaptive_tester
+        if resolved_adaptive is not None:
+            self._adaptive_configs[run.id] = resolved_adaptive
+        if judge_profile is not None and judge_credential is not None:
+            self._judge_profiles[run.id] = judge_profile
+            self._judge_credentials[run.id] = judge_credential
         if credential is not None:
             self._run_credentials[run.id] = credential
         return run.id
 
     async def execute(self, run_id: str) -> None:
         mode = self._modes.pop(run_id, "fast")
-        tester_mode = self._tester_modes.pop(run_id, "benchmark")
         adaptive_config = self._adaptive_configs.pop(run_id, None)
+        judge_profile = self._judge_profiles.pop(run_id, None)
+        judge_credential = self._judge_credentials.pop(run_id, None)
         credential = self._run_credentials.pop(run_id, None)
         run = self.repository.get_run(run_id)
         if run is None or run.status == TrialStatus.CANCELLED.value:
@@ -151,8 +186,9 @@ class TrialService:
                 target_record.config_json,
                 credential,
             )
+            metadata = decode_trial_metadata(run.suite_json)
             adaptive = None
-            if tester_mode == "adaptive":
+            if metadata.tester_mode == "adaptive":
                 if adaptive_config is None:
                     raise ValueError("Adaptive Tester configuration is no longer available.")
                 adaptive = AdaptiveTester(
@@ -163,12 +199,20 @@ class TrialService:
                     ),
                 )
 
-            suite_values, test_language = decode_trial_request(run.suite_json)
-            kinds = [TestKind(item) for item in suite_values]
+            semantic_judge = None
+            if metadata.judge_mode in {JudgeMode.SEMANTIC, JudgeMode.HYBRID}:
+                if judge_profile is None or judge_credential is None:
+                    raise ValueError("Semantic Judge configuration is no longer available.")
+                semantic_judge = SemanticJudge(
+                    config=judge_profile,
+                    provider=self.provider_factory(judge_profile.base_url, judge_credential),
+                )
+
+            kinds = [TestKind(item) for item in metadata.suite]
             scenarios = tuple(
                 scenario
                 for kind in kinds
-                for scenario in scenarios_for(kind, language=test_language)
+                for scenario in scenarios_for(kind, language=metadata.test_language)
             )
             pacing = WATCH_PACING if mode == "watch" else FAST_PACING
             result = await self.runner.run_suite(
@@ -177,6 +221,11 @@ class TrialService:
                 observer=observe,
                 pacing=pacing,
                 adaptive_tester=adaptive,
+                judge_mode=metadata.judge_mode,
+                semantic_judge=semantic_judge,
+                character_context=self._character_context(
+                    self.repository.character_for_run(run_id)
+                ),
             )
             latest = self.repository.get_run(run_id)
             if latest and latest.status != TrialStatus.CANCELLED.value:
@@ -217,6 +266,24 @@ class TrialService:
             )
         raise ValueError(f"Unsupported persisted target kind: {target_kind}")
 
+    @staticmethod
+    def _character_context(card: CharacterCardRecord | None) -> str:
+        if card is None:
+            return "No Character Card profile was supplied. Judge only the scenario contract."
+        return "\n".join(
+            (
+                f"Name: {card.display_name}",
+                f"Subject type: {card.subject_type}",
+                f"Subtitle: {card.subtitle}",
+                f"Persona: {card.persona_summary}",
+                f"Traits: {', '.join(json.loads(card.traits_json))}",
+                f"Expected tone: {card.expected_tone or 'Not specified'}",
+                "Forbidden behaviors: "
+                f"{', '.join(json.loads(card.forbidden_behaviors_json))}",
+                f"Memory boundary: {card.memory_summary or 'Not specified'}",
+            )
+        )
+
     def cancel(self, run_id: str) -> bool:
         run = self.repository.get_run(run_id)
         if run is None:
@@ -230,6 +297,7 @@ class TrialService:
 
     def _clear_run_state(self, run_id: str) -> None:
         self._modes.pop(run_id, None)
-        self._tester_modes.pop(run_id, None)
         self._adaptive_configs.pop(run_id, None)
+        self._judge_profiles.pop(run_id, None)
+        self._judge_credentials.pop(run_id, None)
         self._run_credentials.pop(run_id, None)
