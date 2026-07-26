@@ -5,7 +5,7 @@ from __future__ import annotations
 import hmac
 from typing import Annotated, Literal, cast
 
-from fastapi import APIRouter, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 
 from echo_masque.admin_runtime import AdminRuntimeConfig, RuntimeStatus
 from echo_masque.api.schemas import AdminRuntimeView, RuntimeCredentialConfigure
@@ -43,16 +43,16 @@ def require_admin(
         raise HTTPException(status_code=401, detail="Invalid Admin token.")
 
 
+AdminDependency = Annotated[None, Depends(require_admin)]
+
+
 @router.get("/api/runtime/status", response_model=RuntimeStatus)
 def public_runtime_status(request: Request) -> RuntimeStatus:
     return runtime_service(request).status()
 
 
 @router.get("/api/admin/runtime", response_model=AdminRuntimeView)
-def get_admin_runtime(
-    request: Request,
-    _: Annotated[None, require_admin],
-) -> AdminRuntimeView:
+def get_admin_runtime(request: Request, _: AdminDependency) -> AdminRuntimeView:
     service = runtime_service(request)
     return AdminRuntimeView(config=service.config(), status=service.status())
 
@@ -61,7 +61,7 @@ def get_admin_runtime(
 def update_admin_runtime(
     payload: AdminRuntimeConfig,
     request: Request,
-    _: Annotated[None, require_admin],
+    _: AdminDependency,
 ) -> AdminRuntimeView:
     service = runtime_service(request)
     config = service.save(payload)
@@ -76,7 +76,7 @@ def configure_runtime_credential(
     kind: Literal["adaptive", "judge"],
     payload: RuntimeCredentialConfigure,
     request: Request,
-    _: Annotated[None, require_admin],
+    _: AdminDependency,
 ) -> AdminRuntimeView:
     service = runtime_service(request)
     service.set_credential(kind, payload.api_key)
@@ -90,7 +90,7 @@ def configure_runtime_credential(
 def clear_runtime_credential(
     kind: Literal["adaptive", "judge"],
     request: Request,
-    _: Annotated[None, require_admin],
+    _: AdminDependency,
 ) -> AdminRuntimeView:
     service = runtime_service(request)
     service.clear_credential(kind)
