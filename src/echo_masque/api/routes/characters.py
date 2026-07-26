@@ -8,6 +8,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 from echo_masque.api.schemas import (
     CharacterCardCreate,
     CharacterCardFields,
+    CharacterCardUpdate,
     CharacterCardView,
     CredentialConfigure,
     CredentialStatus,
@@ -50,6 +51,33 @@ def _create_card(
         preferred_suites=[item.value for item in payload.preferred_suites],
         portrait_variant=payload.portrait_variant,
     )
+    return CharacterCardView.from_record(record)
+
+
+def _update_card(
+    repo: Repository,
+    *,
+    owner_id: str,
+    card_id: str,
+    payload: CharacterCardFields,
+) -> CharacterCardView:
+    record = repo.update_character_card(
+        card_id,
+        owner_id,
+        display_name=payload.display_name,
+        subtitle=payload.subtitle,
+        subject_type=payload.subject_type,
+        persona_summary=payload.persona_summary,
+        traits=payload.traits,
+        tags=payload.tags,
+        expected_tone=payload.expected_tone,
+        forbidden_behaviors=payload.forbidden_behaviors,
+        memory_summary=payload.memory_summary,
+        preferred_suites=[item.value for item in payload.preferred_suites],
+        portrait_variant=payload.portrait_variant,
+    )
+    if record is None:
+        raise HTTPException(status_code=404, detail="Character Card not found.")
     return CharacterCardView.from_record(record)
 
 
@@ -140,6 +168,47 @@ def create_prompt_character(
     )
     credential_store(request).set(owner_id, card.id, payload.api_key)
     return card
+
+
+@router.put("/{card_id}", response_model=CharacterCardView)
+def update_character(
+    card_id: str,
+    payload: CharacterCardUpdate,
+    request: Request,
+    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
+) -> CharacterCardView:
+    repo = repository(request)
+    card = repo.get_character_card(card_id, owner_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Character Card not found.")
+    target = repo.get_target(card.target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Target binding not found.")
+    if target.target_kind == "prompt_model":
+        current = PromptModelConfig.model_validate_json(target.config_json)
+        config = PromptModelConfig(
+            name=payload.display_name,
+            provider=payload.provider or current.provider,
+            model=payload.model or current.model,
+            system_prompt=payload.system_prompt or current.system_prompt,
+            base_url=payload.base_url or current.base_url,
+            api_key_env=current.api_key_env,
+            temperature=(
+                payload.temperature if payload.temperature is not None else current.temperature
+            ),
+        )
+        if repo.update_target(
+            target.id,
+            name=payload.display_name,
+            config=config.model_dump(mode="json"),
+        ) is None:
+            raise HTTPException(status_code=404, detail="Target binding not found.")
+    return _update_card(
+        repo,
+        owner_id=owner_id,
+        card_id=card_id,
+        payload=payload,
+    )
 
 
 @router.get("/{card_id}/credential", response_model=CredentialStatus)
