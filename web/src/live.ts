@@ -20,6 +20,14 @@ export function visibleEvents(events: TrialEvent[]): TrialEvent[] {
           candidate.turn_index === event.turn_index
       );
     }
+    if (event.event_type === "judge_thinking") {
+      return !events.some(
+        (candidate) =>
+          candidate.sequence > event.sequence &&
+          candidate.event_type === "judge_result" &&
+          candidate.scenario_id === event.scenario_id
+      );
+    }
     return true;
   });
 }

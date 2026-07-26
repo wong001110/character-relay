@@ -4,7 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
-from echo_masque.persistence import Repository, decode_trial_request
+from echo_masque.persistence import Repository, decode_trial_metadata
 from echo_masque.reports import export_json_report, export_markdown_report
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -23,21 +23,23 @@ def trial_report(
         raise HTTPException(status_code=404, detail="Trial not found.")
     if result is None:
         raise HTTPException(status_code=409, detail="Trial is not completed.")
-    suite, test_language = decode_trial_request(record.suite_json)
-    metadata: dict[str, object] = {
+    metadata = decode_trial_metadata(record.suite_json)
+    report_metadata: dict[str, object] = {
         "run_id": record.id,
         "target_id": record.target_id,
-        "suite": suite,
-        "test_language": test_language.value,
+        "suite": metadata.suite,
+        "test_language": metadata.test_language.value,
+        "tester_mode": metadata.tester_mode,
+        "judge_mode": metadata.judge_mode.value,
         "created_at": record.created_at.isoformat(),
         "updated_at": record.updated_at.isoformat(),
     }
     if format == "json":
         return Response(
-            export_json_report(result, metadata=metadata),
+            export_json_report(result, metadata=report_metadata),
             media_type="application/json",
         )
     return Response(
-        export_markdown_report(result, metadata=metadata),
+        export_markdown_report(result, metadata=report_metadata),
         media_type="text/markdown",
     )

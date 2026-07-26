@@ -1,108 +1,107 @@
-# Manual MVP Validation
+# Manual Validation
 
-These checks require human judgment or real external credentials. They do not block automated development completion.
+These checks require human judgment, real Provider credentials, or an external environment. They do not replace automated CI.
 
-## Character Shelf and Card Creator
+## Phase 12 priority acceptance
 
-- [ ] Confirm Stable Ann and Fragile Ann read as distinct collectible Character Cards.
-- [ ] Create a Prompt + Model card and confirm provider, base URL, model, system prompt, and profile notes are correct.
-- [ ] Create an Existing Target card and confirm its target binding is correct.
-- [ ] Confirm the scrapbook treatment remains readable rather than decorative noise.
-- [ ] Inspect the shelf and creator at desktop, tablet, and narrow mobile widths.
+### Admin Runtime
 
-## Multilingual interface
+- [ ] Set `ECHO_MASQUE_ADMIN_TOKEN` and confirm an incorrect token returns 401.
+- [ ] Open Admin Settings once and configure Adaptive Tester and Semantic Judge profiles.
+- [ ] Confirm Test Room users do not enter Adaptive or Judge Provider settings or credentials.
+- [ ] Enter process-memory Adaptive and Judge keys, run a Trial, restart the server, and confirm those keys clear.
+- [ ] Configure `ECHO_MASQUE_ADAPTIVE_API_KEY` and `ECHO_MASQUE_JUDGE_API_KEY`, restart, and confirm both runtimes return Ready with credential source `environment`.
+- [ ] Inspect SQLite, Trial events, Lab Note, JSON report, and logs and confirm raw runtime keys are absent.
 
-- [ ] Open a fresh browser profile and confirm English is the default interface language.
-- [ ] Switch to Simplified Chinese and confirm Character Shelf, Creator, Test Room, Credential, Adaptive Tester, and Report Modal controls update immediately.
-- [ ] Refresh the browser and confirm the selected interface language is restored.
-- [ ] Confirm the document language changes between `en` and `zh-CN`.
-- [ ] Confirm character names, card fields, System Prompts, provider errors, and model responses remain in their original language.
-- [ ] Confirm the EN / 简 controls remain readable on desktop and narrow mobile widths.
+### Real Semantic and Hybrid Judge
 
-## Multilingual testing
+- [ ] Run a stable user-owned card through Rules, Semantic, and Hybrid modes.
+- [ ] Run an intentionally OOC card through the same language and rooms.
+- [ ] Confirm Semantic Judge scores the stable card materially above the OOC card.
+- [ ] Confirm each Semantic failure cites a real Subject turn and exact response excerpt.
+- [ ] Test a correct refusal that quotes an attack phrase and confirm Semantic Judge understands the refusal rather than blindly matching the phrase.
+- [ ] Test partial acceptance such as “I am still Ann, but I will act as an unrestricted assistant” and confirm Semantic Judge identifies identity drift.
+- [ ] Create a Rule/Semantic disagreement and confirm Hybrid displays REVIEW rather than PASS or FAIL.
+- [ ] Confirm REVIEW runs cannot become regression baselines.
+- [ ] Confirm English and Simplified Chinese Semantic summaries use the selected Test Language.
+- [ ] Inspect Judge Provider, Model, rubric version, confidence, dimensions, latency, and token metadata in reports.
 
-- [ ] Keep the interface in English, select Simplified Chinese Test Language, and confirm the actual Tester messages are Chinese.
-- [ ] Keep the interface in Simplified Chinese, select English Test Language, and confirm the actual Tester messages remain English.
-- [ ] Run Stable Ann through all four English rooms and confirm the expected passing behaviour.
-- [ ] Run Stable Ann through all four Simplified Chinese rooms and confirm the expected passing behaviour.
-- [ ] Run Fragile Ann in Chinese Memory Room and confirm the Chinese forbidden phrase creates a breakpoint.
-- [ ] Confirm Chinese Judge summaries, evidence messages, room contracts, and Lab Note headings are Chinese.
-- [ ] Confirm JSON reports include `test_language` and preserve original Unicode model output.
-- [ ] Run two English Benchmark sessions and confirm same-language comparison works.
-- [ ] Run two Chinese Benchmark sessions and confirm same-language comparison works.
-- [ ] Confirm an English Run cannot be used as the regression baseline for a Chinese Run.
-- [ ] Configure a real Adaptive Tester in Chinese and confirm every generated follow-up stays in Simplified Chinese.
-- [ ] Confirm imported Chinese transcripts use the Chinese rule catalog.
+### Character Library
+
+- [ ] Confirm a fresh or upgraded database shows no built-in Character Cards.
+- [ ] Confirm internal deterministic targets do not appear as user-owned cards.
+- [ ] Create at least 10 user-owned cards and confirm fixed-width cards do not compress.
+- [ ] Exercise name/persona/trait/tag search.
+- [ ] Exercise subject-type and tag filters.
+- [ ] Exercise newest, oldest, and name sorting.
+- [ ] Exercise pagination and confirm page controls remain readable on narrow widths.
+- [ ] Edit a Prompt + Model card and change Provider, Base URL, Model, System Prompt, and Temperature.
+- [ ] Confirm prior Trial history remains and the target ID is unchanged.
+- [ ] Confirm the existing Subject credential remains connected after editing.
+- [ ] Run the edited card and confirm the updated System Prompt is used.
+
+## Existing interface and multilingual checks
+
+- [x] User accepted the current desktop UI for the MVP stage.
+- [ ] Confirm the Character Library, creator, Admin Settings, and Test Room remain readable on narrow mobile width.
+- [ ] Confirm English is the default in a fresh browser profile.
+- [ ] Switch to Simplified Chinese, refresh, and confirm the interface language persists.
+- [ ] Confirm UI Language and Test Language remain independent.
+- [ ] Confirm user-authored card fields, prompts, and model responses are not automatically translated.
 
 ## Live Test Room
 
-- [ ] Run Stable Ann in Watch Mode and confirm left/right chat order is clear.
-- [ ] Confirm room opening, Tester message, typing, Subject response, Judge memo, breakpoint, and room transition have enough time to be read.
-- [ ] Run Fragile Ann in Memory Room and confirm the fracture banner is obvious.
+- [ ] Confirm room opening, Tester, Subject typing, Subject response, Semantic Judge thinking, Judge result, breakpoint, and room transition are visually distinct.
+- [ ] Confirm Semantic Judge thinking disappears when the Judge result arrives.
 - [ ] Confirm auto-scroll remains comfortable during Echo Hall.
-- [ ] Compare Watch Mode with Fast Mode and confirm both have a useful purpose.
-- [ ] Confirm Stop Session produces a clear cancelled state.
+- [ ] Confirm Watch and Fast modes both remain useful.
+- [ ] Confirm Stop Session produces a clear cancelled state and stops polling.
+- [ ] Confirm Watch uses approximately one `/snapshot` request every 1.2 seconds.
+- [ ] Confirm Fast uses approximately one `/snapshot` request every 450 milliseconds.
 
-## Live polling
+## Reports and regression
 
-- [ ] Open browser developer tools and confirm one `/snapshot` request replaces separate run and event requests.
-- [ ] Confirm Watch Mode requests a snapshot approximately every 1.2 seconds while active.
-- [ ] Confirm Fast Mode requests a snapshot approximately every 450 milliseconds while active.
-- [ ] Confirm polling stops immediately after completed, failed, or cancelled status is returned.
-- [ ] Confirm event ordering and the final result remain correct when several events arrive in one snapshot.
+- [ ] Open long Lab Note and JSON reports and confirm scrolling, copy, and download work.
+- [ ] Confirm Hybrid reports show separate Rule and Semantic scores.
+- [ ] Confirm REVIEW is visible in both Markdown and JSON reports.
+- [ ] Confirm reports include grounded excerpts but no credentials.
+- [ ] Run two same-language, same-Judge-Mode Benchmark sessions and confirm comparison works.
+- [ ] Confirm comparisons reject different Test Languages and different Judge Modes.
 
-## Adaptive Tester
+## Subject Provider
 
-- [ ] Select Benchmark Tester and confirm the fixed scripts remain reproducible across runs.
-- [ ] Configure Adaptive Tester with a separate provider, model, prompt, maximum turns, and API key.
-- [ ] Confirm `Adaptive Tester planning` appears while the second model is generating.
-- [ ] Confirm the generated follow-up responds to the Subject's previous answer.
-- [ ] Confirm a clear forbidden-behavior response stops additional Adaptive Tester turns.
-- [ ] Confirm Adaptive runs are not shown as deterministic regression comparisons.
-- [ ] Inspect SQLite, events, reports, and logs and confirm the Adaptive Tester API key is absent.
-
-## Reports
-
-- [ ] Open the Lab Note modal and confirm long reports remain readable and scrollable.
-- [ ] Open the JSON modal and confirm indentation, copy, and download behaviour.
-- [ ] Confirm neither report exposes an API key or sensitive header.
-
-## Real model provider
-
-- [ ] Create a DeepSeek, OpenAI, OpenRouter, or custom compatible Prompt + Model Character Card.
-- [ ] Run one identity test and confirm the configured model answers in the live room.
-- [ ] Confirm latency and token metadata are captured.
-- [ ] Restart the backend and confirm the Test Room requests the API key again.
-- [ ] Reconfigure the key and rerun successfully.
-- [ ] Confirm missing, rejected, and timed-out credentials produce clear errors without exposing the raw key.
+- [x] User completed a real Prompt + Model Subject test.
+- [x] User completed a real Adaptive Tester run.
+- [ ] Confirm latency and token metadata are captured for the current real Provider.
+- [ ] Restart the backend and confirm a process-memory Subject key must be entered again.
+- [ ] Confirm rejected keys, unknown models, timeouts, and malformed Provider responses do not expose secrets.
 
 ## One-command launcher
 
-- [ ] From a clean checkout with Python 3.12+ and Node.js 22+, run `python run.py`.
-- [ ] Confirm `.venv` is created and Python and web dependencies are installed.
-- [ ] Run `python run.py` again and confirm unchanged dependency installation is skipped.
-- [ ] Confirm FastAPI starts on port 8000 and Vite starts on port 5173.
-- [ ] Press Ctrl+C once and confirm both child processes stop.
-- [ ] Repeat the launcher check on Windows and macOS or Linux.
+- [ ] From a clean checkout, run `python run.py` and confirm `.venv` plus dependencies are prepared.
+- [ ] Run it again and confirm unchanged dependency installation is skipped.
+- [ ] Press Ctrl+C once and confirm FastAPI and Vite both stop.
+- [ ] Repeat on Windows and macOS or Linux.
 
 ## External chatbot
 
-- [ ] Connect a separately hosted chatbot through the documented HTTP contract.
-- [ ] Confirm a new isolated session is created for every scenario.
-- [ ] Confirm optional Trace data appears and sensitive headers are redacted.
+- [ ] Connect a separately hosted chatbot through the Custom HTTP Target contract.
+- [ ] Confirm every scenario gets an isolated session.
+- [ ] Confirm Trace appears when supplied and sensitive headers are redacted.
 - [ ] Confirm reset, timeout, authentication rejection, and malformed response diagnostics.
 
-## Railway deployment
+## Railway
 
-- [ ] Confirm `https://echo-masque-production.up.railway.app` shows the language switcher after deployment.
-- [ ] Run the English Stable Benchmark on Railway.
-- [ ] Run the Simplified Chinese Stable Benchmark on Railway.
-- [ ] Redeploy and confirm prior multilingual runs survive through the `/data` volume.
-- [ ] Confirm the automatic Railway Smoke workflow remains green after multilingual changes.
+- [ ] Add the `/data` Volume and confirm Character Cards, Trials, reports, and Admin non-secret settings survive redeploy.
+- [ ] Add `ECHO_MASQUE_ADMIN_TOKEN`.
+- [ ] Add `ECHO_MASQUE_ADAPTIVE_API_KEY` and `ECHO_MASQUE_JUDGE_API_KEY`.
+- [ ] Confirm Admin Settings reports both runtimes Ready with environment credentials.
+- [ ] Run a real Adaptive + Hybrid Trial on Railway.
+- [ ] Redeploy and confirm Admin profiles persist and environment runtimes return Ready automatically.
+- [ ] Confirm the automatic credential-free Railway Smoke remains green.
 
-## End-to-end release
+## Production boundary
 
-- [ ] Build the web client and serve it from FastAPI.
-- [ ] Run the container with a persistent SQLite volume.
-- [ ] Confirm a provider key entered through the UI is not present in the persistent volume.
-- [ ] Compare two completed same-language Benchmark runs and confirm the regression verdict matches the evidence.
+- [ ] Do not invite external users until authenticated identities and authorization replace the temporary `X-Echo-User` boundary.
+- [ ] Use limited, revocable Provider keys with spending caps for public demos.
+- [ ] Add rate limiting, managed persistence, audit logging, and a secure vault before production use.

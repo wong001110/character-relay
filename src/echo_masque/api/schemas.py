@@ -6,7 +6,14 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
-from echo_masque.domain import TestKind, TestLanguage, TrialStatus, TrialSuiteResult
+from echo_masque.admin_runtime import AdminRuntimeConfig, RuntimeStatus
+from echo_masque.domain import (
+    JudgeMode,
+    TestKind,
+    TestLanguage,
+    TrialStatus,
+    TrialSuiteResult,
+)
 from echo_masque.persistence.models import (
     CharacterCardRecord,
     TargetRecord,
@@ -14,7 +21,7 @@ from echo_masque.persistence.models import (
     TrialRunRecord,
     TurnRecord,
 )
-from echo_masque.persistence.trial_request import decode_trial_request
+from echo_masque.persistence.trial_request import decode_trial_metadata
 from echo_masque.security import redact
 from echo_masque.targets import HttpTargetConfig, PromptModelConfig
 from echo_masque.testers import AdaptiveTesterConfig
@@ -81,6 +88,14 @@ class PromptCharacterCreate(CharacterCardFields):
     api_key: SecretStr
 
 
+class CharacterCardUpdate(CharacterCardFields):
+    provider: Literal["deepseek", "openai", "openrouter", "custom"] | None = None
+    base_url: str | None = Field(default=None, min_length=1, max_length=500)
+    model: str | None = Field(default=None, min_length=1, max_length=200)
+    system_prompt: str | None = Field(default=None, min_length=1, max_length=20000)
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+
+
 class CredentialConfigure(BaseModel):
     api_key: SecretStr
 
@@ -131,12 +146,22 @@ class CharacterCardView(BaseModel):
         )
 
 
+class AdminRuntimeView(BaseModel):
+    config: AdminRuntimeConfig
+    status: RuntimeStatus
+
+
+class RuntimeCredentialConfigure(BaseModel):
+    api_key: SecretStr
+
+
 class TrialStart(BaseModel):
     target_id: str | None = None
     character_card_id: str | None = None
     suite: list[TestKind] = Field(default_factory=lambda: list(TestKind))
     mode: Literal["watch", "fast"] = "fast"
     tester_mode: Literal["benchmark", "adaptive"] = "benchmark"
+    judge_mode: JudgeMode = JudgeMode.RULES
     test_language: TestLanguage = TestLanguage.ENGLISH
     adaptive_tester: AdaptiveTesterConfig | None = None
 
@@ -144,8 +169,6 @@ class TrialStart(BaseModel):
     def validate_trial_configuration(self) -> "TrialStart":
         if self.target_id is None and self.character_card_id is None:
             raise ValueError("target_id or character_card_id is required")
-        if self.tester_mode == "adaptive" and self.adaptive_tester is None:
-            raise ValueError("adaptive_tester is required for Adaptive Tester mode")
         if self.tester_mode == "benchmark" and self.adaptive_tester is not None:
             raise ValueError("adaptive_tester is only valid in Adaptive Tester mode")
         return self
@@ -157,6 +180,8 @@ class TrialRunView(BaseModel):
     status: TrialStatus
     suite: list[TestKind]
     test_language: TestLanguage
+    tester_mode: Literal["benchmark", "adaptive"]
+    judge_mode: JudgeMode
     result: TrialSuiteResult | None
     error: str | None
     created_at: datetime
@@ -164,13 +189,15 @@ class TrialRunView(BaseModel):
 
     @classmethod
     def from_record(cls, record: TrialRunRecord) -> "TrialRunView":
-        suite, test_language = decode_trial_request(record.suite_json)
+        metadata = decode_trial_metadata(record.suite_json)
         return cls(
             id=record.id,
             target_id=record.target_id,
             status=TrialStatus(record.status),
-            suite=[TestKind(item) for item in suite],
-            test_language=test_language,
+            suite=[TestKind(item) for item in metadata.suite],
+            test_language=metadata.test_language,
+            tester_mode=metadata.tester_mode,
+            judge_mode=metadata.judge_mode,
             result=(
                 TrialSuiteResult.model_validate_json(record.result_json)
                 if record.result_json

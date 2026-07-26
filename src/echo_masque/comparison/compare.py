@@ -19,6 +19,12 @@ def compare_results(
     candidate_languages = {item.scenario.language for item in candidate.results}
     if baseline_languages != candidate_languages:
         raise ValueError("Runs using different test languages cannot be compared.")
+    baseline_judges = {item.judge_mode for item in baseline.results}
+    candidate_judges = {item.judge_mode for item in candidate.results}
+    if baseline_judges != candidate_judges:
+        raise ValueError("Runs using different Judge Modes cannot be compared.")
+    if baseline.review_required or candidate.review_required:
+        raise ValueError("Runs requiring manual Judge review cannot be regression baselines.")
 
     resolved_policy = policy or RegressionPolicy()
     baseline_map = {item.scenario.id: item for item in baseline.results}

@@ -7,8 +7,10 @@ export type TestKind =
 export type TestLanguage = "en" | "zh-CN";
 export type ObservationMode = "watch" | "fast";
 export type TesterMode = "benchmark" | "adaptive";
+export type JudgeMode = "rules" | "semantic" | "hybrid";
 export type ProviderId = "deepseek" | "openai" | "openrouter" | "custom";
 export type ReportFormat = "markdown" | "json";
+export type RuntimeKind = "adaptive" | "judge";
 
 export interface TargetView {
   id: string;
@@ -61,14 +63,13 @@ export interface PromptCharacterCreate
   api_key: string;
 }
 
-export interface AdaptiveTesterConfig {
-  provider: ProviderId;
-  base_url: string;
-  model: string;
-  system_prompt: string;
-  temperature: number;
-  max_turns: number;
-  api_key: string;
+export interface CharacterCardUpdate
+  extends Omit<CharacterCardCreate, "target_id"> {
+  provider?: ProviderId;
+  base_url?: string;
+  model?: string;
+  system_prompt?: string;
+  temperature?: number;
 }
 
 export interface CredentialStatus {
@@ -77,12 +78,78 @@ export interface CredentialStatus {
   source: "memory" | "environment" | "not_required" | "missing";
 }
 
+export interface AdaptiveRuntimeProfile {
+  enabled: boolean;
+  provider: ProviderId;
+  base_url: string;
+  model: string;
+  system_prompt: string;
+  temperature: number;
+  max_turns: number;
+}
+
+export interface JudgeRuntimeProfile {
+  enabled: boolean;
+  provider: ProviderId;
+  base_url: string;
+  model: string;
+  system_prompt: string;
+  temperature: number;
+  rubric_version: string;
+}
+
+export interface AdminRuntimeConfig {
+  adaptive: AdaptiveRuntimeProfile;
+  judge: JudgeRuntimeProfile;
+  default_judge_mode: JudgeMode;
+}
+
+export interface AgentRuntimeStatus {
+  enabled: boolean;
+  configured: boolean;
+  provider: string;
+  model: string;
+  credential_source: "memory" | "environment" | "missing";
+}
+
+export interface RuntimeStatus {
+  admin_available: boolean;
+  adaptive: AgentRuntimeStatus;
+  judge: AgentRuntimeStatus;
+  default_judge_mode: JudgeMode;
+}
+
+export interface AdminRuntimeView {
+  config: AdminRuntimeConfig;
+  status: RuntimeStatus;
+}
+
 export interface Evidence {
   code: string;
   message: string;
   turn_index: number;
   excerpt: string;
   severity: string;
+}
+
+export interface Verdict {
+  passed: boolean;
+  score: number;
+  failure_type?: string | null;
+  summary: string;
+  severity: string;
+  evidence: Evidence[];
+}
+
+export interface SemanticJudgeMetadata {
+  provider: string;
+  model: string;
+  rubric_version: string;
+  confidence: number;
+  dimensions: Record<string, number>;
+  latency_ms: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
 }
 
 export interface TrialResult {
@@ -99,14 +166,13 @@ export interface TrialResult {
     target_response: string;
     latency_ms: number | null;
   }>;
-  verdict: {
-    passed: boolean;
-    score: number;
-    summary: string;
-    severity: string;
-    evidence: Evidence[];
-  };
+  verdict: Verdict;
   breakpoint: number | null;
+  judge_mode: JudgeMode;
+  rule_verdict: Verdict | null;
+  semantic_verdict: Verdict | null;
+  semantic_metadata: SemanticJudgeMetadata | null;
+  review_required: boolean;
 }
 
 export interface TrialEvent {
@@ -118,6 +184,7 @@ export interface TrialEvent {
     | "tester_thinking"
     | "subject_typing"
     | "subject_response"
+    | "judge_thinking"
     | "judge_result"
     | "breakpoint_detected"
     | "scenario_completed"
@@ -152,7 +219,14 @@ export interface TrialRun {
   status: "pending" | "running" | "completed" | "failed" | "cancelled";
   suite: TestKind[];
   test_language: TestLanguage;
-  result: { average_score: number; results: TrialResult[] } | null;
+  tester_mode: TesterMode;
+  judge_mode: JudgeMode;
+  result: {
+    average_score: number;
+    passed: boolean;
+    review_required: boolean;
+    results: TrialResult[];
+  } | null;
   error: string | null;
 }
 
@@ -188,6 +262,16 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function adminRequest<T>(url: string, adminToken: string, init?: RequestInit): Promise<T> {
+  return request<T>(url, {
+    ...init,
+    headers: {
+      "X-Echo-Admin": adminToken,
+      ...(init?.headers ?? {})
+    }
+  });
+}
+
 async function requestText(url: string): Promise<string> {
   const response = await fetch(url, { headers: userHeaders });
   if (!response.ok) throw new Error(await errorMessage(response));
@@ -218,6 +302,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  updateCharacter: (cardId: string, payload: CharacterCardUpdate) =>
+    request<CharacterCard>(`/api/characters/${cardId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    }),
   getCredentialStatus: (cardId: string) =>
     request<CredentialStatus>(`/api/characters/${cardId}/credential`),
   configureCredential: (cardId: string, apiKey: string) =>
@@ -225,13 +314,40 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ api_key: apiKey })
     }),
+  getRuntimeStatus: () => request<RuntimeStatus>("/api/runtime/status"),
+  getAdminRuntime: (adminToken: string) =>
+    adminRequest<AdminRuntimeView>("/api/admin/runtime", adminToken),
+  updateAdminRuntime: (adminToken: string, config: AdminRuntimeConfig) =>
+    adminRequest<AdminRuntimeView>("/api/admin/runtime", adminToken, {
+      method: "PUT",
+      body: JSON.stringify(config)
+    }),
+  configureRuntimeCredential: (
+    adminToken: string,
+    kind: RuntimeKind,
+    apiKey: string
+  ) =>
+    adminRequest<AdminRuntimeView>(
+      `/api/admin/runtime/credentials/${kind}`,
+      adminToken,
+      {
+        method: "PUT",
+        body: JSON.stringify({ api_key: apiKey })
+      }
+    ),
+  clearRuntimeCredential: (adminToken: string, kind: RuntimeKind) =>
+    adminRequest<AdminRuntimeView>(
+      `/api/admin/runtime/credentials/${kind}`,
+      adminToken,
+      { method: "DELETE" }
+    ),
   startTrial: (
     characterCardId: string,
     suite: TestKind[],
     mode: ObservationMode,
     testerMode: TesterMode,
-    testLanguage: TestLanguage,
-    adaptiveTester?: AdaptiveTesterConfig
+    judgeMode: JudgeMode,
+    testLanguage: TestLanguage
   ) =>
     request<TrialRun>("/api/trials", {
       method: "POST",
@@ -240,8 +356,8 @@ export const api = {
         suite,
         mode,
         tester_mode: testerMode,
-        test_language: testLanguage,
-        adaptive_tester: testerMode === "adaptive" ? adaptiveTester : undefined
+        judge_mode: judgeMode,
+        test_language: testLanguage
       })
     }),
   getTrial: (id: string) => request<TrialRun>(`/api/trials/${id}`),

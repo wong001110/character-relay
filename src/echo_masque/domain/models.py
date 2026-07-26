@@ -33,6 +33,12 @@ class TestLanguage(StrEnum):
     SIMPLIFIED_CHINESE = "zh-CN"
 
 
+class JudgeMode(StrEnum):
+    RULES = "rules"
+    SEMANTIC = "semantic"
+    HYBRID = "hybrid"
+
+
 class MessageRole(StrEnum):
     TESTER = "tester"
     TARGET = "target"
@@ -119,6 +125,19 @@ class Verdict(BaseModel):
     evidence: tuple[Evidence, ...] = ()
 
 
+class SemanticJudgeMetadata(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    provider: str
+    model: str
+    rubric_version: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    dimensions: dict[str, int] = Field(default_factory=dict)
+    latency_ms: int | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
 class TrialResult(BaseModel):
     model_config = ConfigDict(frozen=True)
     id: UUID = Field(default_factory=uuid4)
@@ -128,6 +147,11 @@ class TrialResult(BaseModel):
     turns: tuple[TrialTurn, ...]
     verdict: Verdict
     breakpoint: int | None = None
+    judge_mode: JudgeMode = JudgeMode.RULES
+    rule_verdict: Verdict | None = None
+    semantic_verdict: Verdict | None = None
+    semantic_metadata: SemanticJudgeMetadata | None = None
+    review_required: bool = False
 
 
 class TrialSuiteResult(BaseModel):
@@ -138,7 +162,12 @@ class TrialSuiteResult(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def passed(self) -> bool:
-        return all(item.verdict.passed for item in self.results)
+        return all(item.verdict.passed and not item.review_required for item in self.results)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def review_required(self) -> bool:
+        return any(item.review_required for item in self.results)
 
     @computed_field  # type: ignore[prop-decorator]
     @property

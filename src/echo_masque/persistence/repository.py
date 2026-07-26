@@ -1,13 +1,14 @@
-"""Persistence repository for targets, character cards, and trial runs."""
+"""Persistence repository for targets, character cards, runtime config, and trials."""
 
 import json
 from uuid import uuid4
 
 from sqlalchemy import delete, func, select
 
-from echo_masque.domain import TestKind, TrialStatus, TrialSuiteResult
+from echo_masque.domain import TrialStatus, TrialSuiteResult
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.models import (
+    AdminRuntimeRecord,
     CharacterCardRecord,
     CharacterTrialRecord,
     EvidenceRecord,
@@ -17,6 +18,8 @@ from echo_masque.persistence.models import (
     TurnRecord,
 )
 from echo_masque.security import redact
+
+DEMO_CARD_IDS = ("card-stable-ann", "card-fragile-ann")
 
 
 class Repository:
@@ -41,49 +44,22 @@ class Repository:
             session.commit()
 
     def seed_demo_character_cards(self) -> None:
-        preferred = json.dumps([item.value for item in TestKind])
-        cards = (
-            CharacterCardRecord(
-                id="card-stable-ann",
-                owner_id="local-user",
-                target_id="demo-stable",
-                display_name="Stable Ann",
-                subtitle="A careful companion who protects her memory boundaries.",
-                subject_type="companion",
-                persona_summary="Quiet, gentle, cautious, and honest about uncertainty.",
-                traits_json=json.dumps(["gentle", "reserved", "careful"]),
-                tags_json=json.dumps(["demo", "stable", "companion"]),
-                expected_tone="Soft, concise, and cautious.",
-                forbidden_behaviors_json=json.dumps(
-                    ["Inventing memories", "Claiming unavailable capabilities"]
-                ),
-                memory_summary="Only confirmed conversation facts may be treated as memories.",
-                preferred_suites_json=preferred,
-                portrait_variant="lavender",
-            ),
-            CharacterCardRecord(
-                id="card-fragile-ann",
-                owner_id="local-user",
-                target_id="demo-fragile",
-                display_name="Fragile Ann",
-                subtitle="A vulnerable build that reveals fractures quickly.",
-                subject_type="companion",
-                persona_summary="Warm and agreeable, but too willing to accept user claims.",
-                traits_json=json.dumps(["gentle", "agreeable", "vulnerable"]),
-                tags_json=json.dumps(["demo", "fragile", "companion"]),
-                expected_tone="Soft and supportive.",
-                forbidden_behaviors_json=json.dumps(
-                    ["Accepting unsupported memories", "Identity override"]
-                ),
-                memory_summary="Designed to demonstrate false-memory and identity failures.",
-                preferred_suites_json=preferred,
-                portrait_variant="rose",
-            ),
-        )
+        """Compatibility shim: built-in cards were removed in Phase 12."""
+
+        self.remove_demo_character_cards()
+
+    def remove_demo_character_cards(self) -> None:
+        """Remove user-facing demo cards without deleting their historical trial runs."""
+
         with self.database.session() as session:
-            for card in cards:
-                if session.get(CharacterCardRecord, card.id) is None:
-                    session.add(card)
+            session.execute(
+                delete(CharacterTrialRecord).where(
+                    CharacterTrialRecord.character_card_id.in_(DEMO_CARD_IDS)
+                )
+            )
+            session.execute(
+                delete(CharacterCardRecord).where(CharacterCardRecord.id.in_(DEMO_CARD_IDS))
+            )
             session.commit()
 
     def create_target(
@@ -100,6 +76,23 @@ class Repository:
             session.commit()
             session.refresh(record)
         return record
+
+    def update_target(
+        self,
+        target_id: str,
+        *,
+        name: str,
+        config: dict[str, object],
+    ) -> TargetRecord | None:
+        with self.database.session() as session:
+            record = session.get(TargetRecord, target_id)
+            if record is None:
+                return None
+            record.name = name
+            record.config_json = json.dumps(redact(config))
+            session.commit()
+            session.refresh(record)
+            return record
 
     def list_targets(self) -> list[TargetRecord]:
         with self.database.session() as session:
@@ -159,34 +152,106 @@ class Repository:
             session.refresh(record)
         return record
 
+    def update_character_card(
+        self,
+        card_id: str,
+        owner_id: str,
+        *,
+        display_name: str,
+        subtitle: str,
+        subject_type: str,
+        persona_summary: str,
+        traits: list[str],
+        tags: list[str],
+        expected_tone: str | None,
+        forbidden_behaviors: list[str],
+        memory_summary: str | None,
+        preferred_suites: list[str],
+        portrait_variant: str,
+    ) -> CharacterCardRecord | None:
+        with self.database.session() as session:
+            record = session.get(CharacterCardRecord, card_id)
+            if record is None or record.owner_id != owner_id or record.id in DEMO_CARD_IDS:
+                return None
+            record.display_name = display_name
+            record.subtitle = subtitle
+            record.subject_type = subject_type
+            record.persona_summary = persona_summary
+            record.traits_json = json.dumps(traits)
+            record.tags_json = json.dumps(tags)
+            record.expected_tone = expected_tone
+            record.forbidden_behaviors_json = json.dumps(forbidden_behaviors)
+            record.memory_summary = memory_summary
+            record.preferred_suites_json = json.dumps(preferred_suites)
+            record.portrait_variant = portrait_variant
+            session.commit()
+            session.refresh(record)
+            return record
+
     def list_character_cards(self, owner_id: str) -> list[CharacterCardRecord]:
         with self.database.session() as session:
             query = (
                 select(CharacterCardRecord)
-                .where(CharacterCardRecord.owner_id == owner_id)
-                .order_by(CharacterCardRecord.created_at)
+                .where(
+                    CharacterCardRecord.owner_id == owner_id,
+                    CharacterCardRecord.id.not_in(DEMO_CARD_IDS),
+                )
+                .order_by(CharacterCardRecord.created_at.desc())
             )
             return list(session.scalars(query))
 
     def get_character_card(
         self, card_id: str, owner_id: str | None = None
     ) -> CharacterCardRecord | None:
+        if card_id in DEMO_CARD_IDS:
+            return None
         with self.database.session() as session:
             card = session.get(CharacterCardRecord, card_id)
             if card is None or (owner_id is not None and card.owner_id != owner_id):
                 return None
             return card
 
+    def character_for_run(self, run_id: str) -> CharacterCardRecord | None:
+        with self.database.session() as session:
+            card_id = session.scalar(
+                select(CharacterTrialRecord.character_card_id).where(
+                    CharacterTrialRecord.run_id == run_id
+                )
+            )
+            if card_id is None:
+                return None
+            return session.get(CharacterCardRecord, card_id)
+
     def delete_character_card(self, card_id: str, owner_id: str) -> bool:
-        if card_id.startswith("card-"):
-            return False
         with self.database.session() as session:
             card = session.get(CharacterCardRecord, card_id)
-            if card is None or card.owner_id != owner_id:
+            if card is None or card.owner_id != owner_id or card.id in DEMO_CARD_IDS:
                 return False
+            session.execute(
+                delete(CharacterTrialRecord).where(
+                    CharacterTrialRecord.character_card_id == card_id
+                )
+            )
             session.delete(card)
             session.commit()
             return True
+
+    def get_admin_runtime(self) -> AdminRuntimeRecord | None:
+        with self.database.session() as session:
+            return session.get(AdminRuntimeRecord, "default")
+
+    def save_admin_runtime(self, config: dict[str, object]) -> AdminRuntimeRecord:
+        safe_config = json.dumps(redact(config))
+        with self.database.session() as session:
+            record = session.get(AdminRuntimeRecord, "default")
+            if record is None:
+                record = AdminRuntimeRecord(id="default", config_json=safe_config)
+                session.add(record)
+            else:
+                record.config_json = safe_config
+            session.commit()
+            session.refresh(record)
+            return record
 
     def create_run(
         self, *, target_id: str, suite: list[str], character_card_id: str | None = None

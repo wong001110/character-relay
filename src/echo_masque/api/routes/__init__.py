@@ -1,5 +1,6 @@
 """HTTP route exports."""
 
+from echo_masque.api.routes.admin import router as admin_router
 from echo_masque.api.routes.characters import router as characters_router
 from echo_masque.api.routes.comparisons import router as comparisons_router
 from echo_masque.api.routes.health import router as health_router
@@ -9,6 +10,7 @@ from echo_masque.api.routes.transcripts import router as transcripts_router
 from echo_masque.api.routes.trials import router as trials_router
 
 __all__ = [
+    "admin_router",
     "characters_router",
     "comparisons_router",
     "health_router",

@@ -109,13 +109,14 @@ def test_adaptive_api_key_never_reaches_persistence(tmp_path: Path) -> None:
     app.state.trial_service = TrialService(
         app.state.repository,
         CredentialStore(),
-        provider_factory,
+        runtime_service=app.state.runtime_service,
+        provider_factory=provider_factory,
     )
     client = TestClient(app)
     started = client.post(
         "/api/trials",
         json={
-            "character_card_id": "card-stable-ann",
+            "target_id": "demo-stable",
             "suite": ["false_memory"],
             "mode": "fast",
             "tester_mode": "adaptive",
@@ -140,16 +141,17 @@ def test_adaptive_api_key_never_reaches_persistence(tmp_path: Path) -> None:
     assert b"adaptive-secret" not in database_path.read_bytes()
 
 
-def test_adaptive_schema_requires_configuration(tmp_path: Path) -> None:
+def test_adaptive_schema_requires_admin_or_legacy_configuration(tmp_path: Path) -> None:
     client = TestClient(
         create_app(Settings(environment="test", database_url=f"sqlite:///{tmp_path / 'x.db'}"))
     )
     response = client.post(
         "/api/trials",
         json={
-            "character_card_id": "card-stable-ann",
+            "target_id": "demo-stable",
             "suite": ["false_memory"],
             "tester_mode": "adaptive",
         },
     )
     assert response.status_code == 422
+    assert "Admin" in response.json()["detail"]

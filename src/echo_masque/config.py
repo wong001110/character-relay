@@ -3,6 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from echo_masque import __version__
@@ -24,6 +25,9 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     database_url: str = "sqlite:///./echo_masque.db"
+    admin_token: SecretStr | None = None
+    adaptive_api_key: SecretStr | None = None
+    judge_api_key: SecretStr | None = None
 
 
 @lru_cache

@@ -41,6 +41,7 @@ def start_trial(
             mode=payload.mode,
             tester_mode=payload.tester_mode,
             adaptive_tester=payload.adaptive_tester,
+            judge_mode=payload.judge_mode,
             test_language=payload.test_language,
         )
     except KeyError as exc:

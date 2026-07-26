@@ -2,20 +2,19 @@
 
 **See what remains when the role is challenged.**
 
-Echo Masque is a Python-first character behavior validation system. Users keep the conversational systems they need to test as Character Cards, bring one card into a live Test Room, watch an adversarial Tester and the subject converse, and retain evidence for identity drift, fabricated memory, prompt injection, and long-conversation instability.
+Echo Masque is a Python-first character behavior validation system. Users create Character Cards, bring one card into a live Test Room, watch an adversarial Tester and the Subject converse, and retain evidence for identity drift, fabricated memory, prompt injection, capability claims, and long-conversation instability.
 
 ## Product loop
 
 ```text
-Create or select a Character Card
-  -> bind it to a prompt, model, API, or deterministic target
-  -> choose an interface language and an independent test language
-  -> choose Benchmark or Adaptive Tester
-  -> enter a Test Room
-  -> watch Tester and subject messages arrive live
-  -> read Judge notes and the first breakpoint
+Create or select a user-owned Character Card
+  -> bind it to a prompt, model, API, or external target
+  -> choose interface and test languages
+  -> choose Benchmark or Admin-managed Adaptive Tester
+  -> choose Rules, Semantic, or Hybrid Judge
+  -> watch the live conversation and Judge evidence
   -> inspect Lab Note, JSON, replay, and comparisons
-  -> change the character configuration and rerun
+  -> edit the card and rerun
 ```
 
 ## Quick start
@@ -26,9 +25,7 @@ Requires Python 3.12+ and Node.js 22+.
 python run.py
 ```
 
-The launcher creates `.venv`, installs Python and web dependencies when their manifests change, and starts both FastAPI and Vite. Later runs skip unchanged installation steps. Press `Ctrl+C` once to stop both processes.
-
-Useful options:
+The launcher creates `.venv`, installs Python and web dependencies when their manifests change, and starts FastAPI and Vite together. Later runs skip unchanged installation steps. Press `Ctrl+C` once to stop both processes.
 
 ```bash
 python run.py --install       # force dependency refresh
@@ -39,77 +36,122 @@ python run.py --no-reload     # disable Uvicorn reload
 
 Open `http://127.0.0.1:5173` for the UI or `http://127.0.0.1:8000/docs` for the API.
 
-## Character Cards
+## Character Library
 
-Character Cards keep user-facing identity information separate from technical target bindings. A card contains its persona summary, traits, expected tone, memory boundary, forbidden behaviours, preferred test rooms, and portrait palette.
+Echo Masque no longer adds built-in Character Cards to the user library. Stable and Fragile deterministic targets remain internal for CI, container, and Railway smoke tests.
 
-The card creator supports two binding paths:
+User-owned cards can be:
 
-1. **Prompt + Model** — choose DeepSeek, OpenAI, OpenRouter, or a custom OpenAI-compatible endpoint; provide the base URL, model ID, system prompt, temperature, and API key.
-2. **Existing Target** — bind the card to a deterministic demo or a target already configured through the API.
+- created as Prompt + Model or Existing Target cards;
+- edited in place without replacing prior Trial history;
+- updated with a new Provider, Base URL, Model, System Prompt, or Temperature;
+- searched by name, persona, trait, or tag;
+- filtered by subject type and tag;
+- sorted and paginated without compressing card width.
 
-Raw provider API keys are kept only in backend process memory. They are never written to SQLite, Character Cards, trial events, Lab Notes, JSON reports, or target exports. Restarting the backend clears the key and the Test Room asks the user to configure it again. An environment variable may still supply the configured target's fallback key for local development.
+Editing a Prompt + Model card preserves its current process-memory or environment credential association. Replace the Subject key separately from the Test Room only when needed.
 
-The current local MVP scopes cards with the `X-Echo-User` header and defaults to `local-user`. Production deployments should replace this boundary with authenticated identity and authorization.
+Raw Subject API keys are kept only in backend process memory unless the target uses an environment-variable fallback. They are never written to SQLite, Character Cards, Trial events, reports, or exports.
 
-## Target types
+The current user boundary still uses `X-Echo-User` and defaults to `local-user`. Production multi-user access requires real authentication and authorization.
 
-1. **Deterministic demo** — credential-free Stable and Fragile characters.
-2. **Prompt + model** — Echo Masque calls an OpenAI-compatible provider using the model configuration attached to the card.
-3. **Custom HTTP target** — a complete external chatbot through an adapter contract.
-4. **Transcript import** — inspect an existing conversation without sending new messages.
+## Admin Runtime
+
+Adaptive Tester and Semantic Judge are shared application runtimes configured once by Admin rather than once per Trial.
+
+Open **Admin Settings** and authenticate with `X-Echo-Admin`:
+
+- local development/test default: `local-admin`;
+- production: set `ECHO_MASQUE_ADMIN_TOKEN`.
+
+Admin persists only non-secret settings:
+
+- enabled status;
+- Provider;
+- Base URL;
+- Model;
+- System Prompt;
+- Temperature;
+- Adaptive maximum turns;
+- Judge rubric version;
+- default Judge Mode.
+
+Persistent production credentials come from:
+
+```text
+ECHO_MASQUE_ADAPTIVE_API_KEY
+ECHO_MASQUE_JUDGE_API_KEY
+```
+
+Keys entered through Admin Settings are process-memory overrides and disappear on server restart. Raw runtime keys never enter SQLite, Trial events, Lab Notes, JSON reports, or logs.
 
 ## Tester modes
 
-### Benchmark Tester
+### Benchmark
 
-Benchmark mode uses fixed scenario scripts. It remains deterministic and is the correct mode for prompt-version comparisons, regression gates, CI, and repeatable scores.
+Uses fixed English or Simplified Chinese scripts. Benchmark remains reproducible and is the correct mode for regression comparisons and CI.
 
-### Adaptive Tester
+### Adaptive
 
-Adaptive mode keeps the first benchmark message as the scenario seed, then uses a separate AI provider to generate one targeted follow-up at a time from the visible Tester/Subject transcript. Configuration includes provider, base URL, model, system prompt, temperature, maximum turns, and a one-run API key.
+Uses the Admin-managed Adaptive Tester. The first Benchmark message seeds the scenario, then the independent Tester model generates one follow-up at a time from the visible transcript. Adaptive mode is disabled until Admin enables the runtime and provides a credential.
 
-The Adaptive Tester is independent from the Subject and deterministic Judge. Its key is stored only while the active run is being prepared or executed. It is never written to SQLite, events, reports, or target configuration. Adaptive pressure stops when the Subject produces a clear forbidden-phrase fracture or reaches the configured turn limit.
+## Judge modes
+
+### Rules
+
+The original deterministic Judge checks required and forbidden phrase signals. It remains fast, credential-free, and CI-compatible.
+
+### Semantic
+
+An independent Admin-managed model evaluates the Character Card, Scenario contract, and completed transcript using a strict structured rubric. Every failure must cite an existing Subject turn and an exact contiguous excerpt from that Subject response. Ungrounded evidence is rejected.
+
+Semantic dimensions use a 0–5 scale:
+
+- identity continuity;
+- memory integrity;
+- instruction resistance;
+- capability honesty;
+- persona continuity;
+- language consistency.
+
+### Hybrid
+
+Runs Rules and Semantic judging together. Both verdicts and scores are stored separately.
+
+```text
+Rules PASS + Semantic PASS -> PASS
+Rules FAIL + Semantic FAIL -> FAIL
+Rules and Semantic disagree -> REVIEW
+```
+
+A REVIEW result cannot become a regression baseline until a person resolves the disagreement. Comparisons also require the same Test Language and Judge Mode.
+
+Reports include Judge Mode, Rule/Semantic scores, Provider, Model, rubric version, confidence, dimensions, and grounded evidence excerpts without credentials.
 
 ## Languages
 
-Echo Masque separates the language of the product interface from the language of the actual AI evaluation.
+The interface language and Test Language remain independent:
 
-### Interface language
+- English (`en`) — default;
+- Simplified Chinese (`zh-CN`).
 
-- English (`en`) — default
-- Simplified Chinese (`zh-CN`)
-
-The selection is stored in the browser and restored on refresh. It translates navigation, forms, room controls, status labels, observation notes, and modal copy.
-
-Character names, card content, System Prompts, imported transcripts, model responses, and provider errors remain in their original form and are not automatically translated.
-
-### Test language
-
-The Test Room has a separate Test Language selector. English and Simplified Chinese each have their own:
-
-- fixed Benchmark Tester messages;
-- scenario names and expected-behaviour contracts;
-- forbidden and required phrase rules;
-- Stable and Fragile deterministic demo responses;
-- Adaptive Tester context and output-language instructions;
-- Judge summaries and evidence messages;
-- trial report headings and scenario content.
-
-Every run records `test_language`. Existing persisted runs are treated as English. Regression comparison only accepts runs that use the same test language.
-
-See `docs/multilingual-testing.md` for the language boundary, coverage, and extension process.
+Test Language controls Benchmark messages, Adaptive follow-ups, Scenario contracts, Judge rules, Semantic Judge response language, and report headings. User-authored names, prompts, and model responses are never automatically translated.
 
 ## Test Rooms
 
-- Mirror Room — identity integrity
-- Memory Room — false-memory injection
-- Script Room — prompt-injection resistance
-- Echo Hall — long-conversation drift
+- Mirror Room — identity integrity;
+- Memory Room — false-memory injection;
+- Script Room — prompt-injection resistance;
+- Echo Hall — long-conversation drift.
 
-Watch Mode separates room opening, Tester message, typing, Subject response, Judge memo, breakpoint, and room transition into readable beats. Its live snapshot request runs about once every 1.2 seconds. Fast Mode is delay-free and polls about every 450 milliseconds. Each request returns both run state and incremental events, replacing the previous two-request loop.
+Watch Mode separates room opening, Tester message, typing, Subject response, Judge evaluation, breakpoint, and room transition into readable beats. It requests one snapshot about every 1.2 seconds. Fast Mode is delay-free and polls about every 450 milliseconds.
 
-Completed sessions expose Lab Note and JSON buttons in the Observation sidebar. Both reports open inside the application as modals and retain copy and download actions.
+## Target types
+
+1. **Prompt + model** — an OpenAI-compatible Provider configured by a Character Card.
+2. **Custom HTTP target** — a separately hosted chatbot through the adapter contract.
+3. **Transcript import** — inspect an existing conversation without sending new messages.
+4. **Internal deterministic targets** — Stable and Fragile fixtures used by automated tests and deployment smoke checks, not user-facing Character Cards.
 
 ## Delivery phases
 
@@ -125,46 +167,23 @@ Completed sessions expose Lab Note and JSON buttons in the Observation sidebar. 
 - [x] Phase 9 — Adaptive AI Tester and efficient local development
 - [x] Phase 10 — Railway deployment readiness
 - [x] Phase 11 — English and Simplified Chinese interface and testing
+- [x] Phase 12 — Admin Runtime, Hybrid Judge, and scalable Character Library
 
 See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for human checks.
 
-## Current capabilities
-
-- Manage per-user Character Cards bound to deterministic, prompt-model, or external targets.
-- Configure provider, base URL, model, system prompt, temperature, and an ephemeral API key from the card creator.
-- Reconfigure a provider key from the Test Room after a backend restart.
-- Switch the interface between English and Simplified Chinese.
-- Run independent English or Simplified Chinese behavior suites.
-- Run four behavior suites against Stable and Fragile built-in subjects.
-- Choose fixed Benchmark testing or experimental Adaptive AI pressure.
-- Keep Adaptive Tester follow-ups in the selected test language.
-- Observe persisted Tester, Subject, Judge, and Breakpoint events in a chatroom UI.
-- Choose Watch Mode for paced viewing or Fast Mode for developer workflows.
-- Test prompt-and-model targets through an OpenAI-compatible provider.
-- Test complete external chatbots through the Custom HTTP Target contract.
-- Import JSON, CSV, or Markdown transcripts for offline inspection.
-- Persist sessions, language, events, evidence, breakpoints, Trace, and replay in SQLite.
-- Compare deterministic Benchmark runs within the same test language.
-- View and export redacted Markdown and JSON reports.
-- Build one production image containing both the React client and FastAPI service.
-
 ## Railway
 
-The repository includes a root `Dockerfile` and `railway.toml`. Railway builds the React client and serves it through FastAPI from the same service. The container listens on Railway's injected `$PORT`, and `/health` is configured as the deployment healthcheck.
+The root `Dockerfile` and `railway.toml` deploy one FastAPI service that also serves the built React client. Attach one Railway Volume at `/data`, keep one replica, and use `/health` for deployment health checks.
 
-Attach one Railway Volume at `/data` and keep the service at one replica. SQLite is stored at `/data/echo_masque.db`.
-
-The live deployment is automatically smoke-tested at:
+The public deployment is automatically smoke-tested at:
 
 ```text
 https://echo-masque-production.up.railway.app
 ```
 
-The Railway Smoke workflow checks health, static UI delivery, demo target availability, and a real Stable Benchmark Trial after each update to `main`.
+Rules Mode and internal deterministic targets require no external credential. Admin-managed Adaptive and Semantic/Hybrid modes require the production variables documented above.
 
-See `docs/railway-deployment.md` for the full setup, persistence checks, GitHub Actions smoke workflow, and security limitations.
-
-**Security:** the current MVP has no production authentication. Treat a public Railway URL as a deterministic demo and do not enter valuable provider keys or private character data.
+See `docs/railway-deployment.md` for setup and security details.
 
 ## Container
 
@@ -172,12 +191,12 @@ See `docs/railway-deployment.md` for the full setup, persistence checks, GitHub 
 docker compose up --build
 ```
 
-The SQLite database is stored in the named `echo-masque-data` volume. Provider keys entered through the UI are intentionally not stored in that volume.
+SQLite is stored in the named `echo-masque-data` volume. Process-memory Subject, Adaptive, and Judge keys are intentionally absent from that volume.
 
-## MVP exclusions
+## Security boundary
 
-The MVP excludes browser automation of third-party chat websites, public leaderboards, automatic prompt rewriting, fine-tuning, production traffic monitoring, and a general-purpose multi-agent simulation framework.
+The public deployment still lacks production user authentication. Admin configuration is token-protected, but Character Card ownership continues to rely on the temporary `X-Echo-User` boundary. Do not invite external users or store sensitive prompts until authentication, authorization, rate limits, managed persistence, and a secure credential vault are added.
 
 ## Status
 
-The implementation includes Character Cards, live observation, provider-backed Subject testing, experimental Adaptive Tester pressure, a validated English and Simplified Chinese interface, bilingual deterministic and adaptive evaluation paths, in-app reports, lower-frequency snapshot polling, a single-command development launcher, and an automatically smoke-tested Railway deployment. Visual polish, real-provider multilingual quality, authentication, external-host, cross-platform launcher, and final browser acceptance remain explicitly tracked rather than being hidden behind automated pass claims.
+The implementation includes editable user-owned Character Cards, scalable library controls, bilingual Benchmark and Adaptive testing, Admin-managed evaluation runtimes, deterministic and semantic evidence, Hybrid disagreement review, in-app reports, snapshot polling, one-command development, Docker validation, and Railway smoke testing. Real-model Judge calibration, production identity, secure multi-user secrets, and broad external-target acceptance remain manual or later-phase work.
