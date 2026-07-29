@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from echo_masque.domain import JudgeMode, Severity, TestKind, TestLanguage, TrialScenario
 
@@ -66,6 +66,13 @@ class ScenarioView(BaseModel):
     recommended_judge_mode: str
     created_at: datetime
     updated_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def kind(self) -> str:
+        """Expose the TrialScenario field name in immutable run snapshots."""
+
+        return self.category
 
     def to_trial_scenario(self) -> TrialScenario:
         return TrialScenario(
