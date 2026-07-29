@@ -134,7 +134,7 @@ jobs:
           after=$(python -c 'import json; print(json.load(open("health-after.json"))["storage"]["storage_instance_id"])')
           test "$before" = "$after"
       - name: Run container smoke test
-        run: python scripts/railway_smoke.py http://127.0.0.1:8000
+        run: python scripts/railway_smoke.py http://127.0.0.1:8000 --require-storage
       - name: Show container logs
         if: always()
         run: docker logs echo-masque-ci || true
