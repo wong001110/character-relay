@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
-import os
 import tempfile
 from pathlib import Path
-from typing import Annotated, cast
+from typing import cast
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 
 from echo_masque.api.routes.admin import AdminDependency
 from echo_masque.config import Settings
@@ -40,19 +47,19 @@ def trial_service(request: Request) -> TrialService:
     return cast(TrialService, request.app.state.trial_service)
 
 
-def owner_header(
-    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
-) -> str:
-    return owner_id
-
-
-# Custom scenarios
 @router.get("/api/scenarios", response_model=list[ScenarioView])
-def list_scenarios(request: Request, owner_id: str = Header("local-user", alias="X-Echo-User")) -> list[ScenarioView]:
+def list_scenarios(
+    request: Request,
+    owner_id: str = Header("local-user", alias="X-Echo-User"),
+) -> list[ScenarioView]:
     return workspace_repository(request).list_scenarios(owner_id)
 
 
-@router.post("/api/scenarios", response_model=ScenarioView, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/api/scenarios",
+    response_model=ScenarioView,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_scenario(
     payload: ScenarioCreate,
     request: Request,
@@ -80,13 +87,20 @@ def update_scenario(
     request: Request,
     owner_id: str = Header("local-user", alias="X-Echo-User"),
 ) -> ScenarioView:
-    item = workspace_repository(request).update_scenario(scenario_id, owner_id, payload)
+    item = workspace_repository(request).update_scenario(
+        scenario_id,
+        owner_id,
+        payload,
+    )
     if item is None:
         raise HTTPException(status_code=404, detail="Scenario not found.")
     return item
 
 
-@router.post("/api/scenarios/{scenario_id}/duplicate", response_model=ScenarioView)
+@router.post(
+    "/api/scenarios/{scenario_id}/duplicate",
+    response_model=ScenarioView,
+)
 def duplicate_scenario(
     scenario_id: str,
     request: Request,
@@ -98,7 +112,10 @@ def duplicate_scenario(
     return item
 
 
-@router.delete("/api/scenarios/{scenario_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/api/scenarios/{scenario_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 def delete_scenario(
     scenario_id: str,
     request: Request,
@@ -108,7 +125,6 @@ def delete_scenario(
         raise HTTPException(status_code=404, detail="Scenario not found.")
 
 
-# Test packs
 @router.get("/api/test-packs", response_model=list[TestPackView])
 def list_packs(
     request: Request,
@@ -117,7 +133,11 @@ def list_packs(
     return workspace_repository(request).list_packs(owner_id)
 
 
-@router.post("/api/test-packs", response_model=TestPackView, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/api/test-packs",
+    response_model=TestPackView,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_pack(
     payload: TestPackCreate,
     request: Request,
@@ -157,7 +177,10 @@ def update_pack(
     return item
 
 
-@router.post("/api/test-packs/{pack_id}/duplicate", response_model=TestPackView)
+@router.post(
+    "/api/test-packs/{pack_id}/duplicate",
+    response_model=TestPackView,
+)
 def duplicate_pack(
     pack_id: str,
     request: Request,
@@ -169,7 +192,10 @@ def duplicate_pack(
     return item
 
 
-@router.delete("/api/test-packs/{pack_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/api/test-packs/{pack_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 def delete_pack(
     pack_id: str,
     request: Request,
@@ -179,7 +205,6 @@ def delete_pack(
         raise HTTPException(status_code=404, detail="Test Pack not found.")
 
 
-# Experiment history
 @router.get("/api/experiments", response_model=ExperimentHistoryPage)
 def experiment_history(
     request: Request,
@@ -206,7 +231,10 @@ def experiment_history(
     )
 
 
-@router.get("/api/experiments/{run_id}/snapshot", response_model=RunSnapshotView)
+@router.get(
+    "/api/experiments/{run_id}/snapshot",
+    response_model=RunSnapshotView,
+)
 def experiment_snapshot(
     run_id: str,
     request: Request,
@@ -218,7 +246,10 @@ def experiment_snapshot(
     return item
 
 
-@router.put("/api/experiments/{run_id}/baseline", response_model=RunSnapshotView)
+@router.put(
+    "/api/experiments/{run_id}/baseline",
+    response_model=RunSnapshotView,
+)
 def set_experiment_baseline(
     run_id: str,
     value: bool,
@@ -231,22 +262,34 @@ def set_experiment_baseline(
     return item
 
 
-@router.post("/api/experiments/{run_id}/rerun", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/api/experiments/{run_id}/rerun",
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def rerun_experiment(
     run_id: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     owner_id: str = Header("local-user", alias="X-Echo-User"),
 ) -> dict[str, str]:
+    service = trial_service(request)
     try:
-        new_run_id = trial_service(request).rerun(run_id, owner_id=owner_id)
+        new_run_id = service.rerun(run_id, owner_id=owner_id)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Experiment snapshot not found.") from exc
+        raise HTTPException(
+            status_code=404,
+            detail="Experiment snapshot not found.",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    background_tasks.add_task(service.execute, new_run_id)
     return {"run_id": new_run_id}
 
 
-@router.delete("/api/experiments/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/api/experiments/{run_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 def delete_experiment(
     run_id: str,
     request: Request,
@@ -256,7 +299,6 @@ def delete_experiment(
         raise HTTPException(status_code=404, detail="Experiment not found.")
 
 
-# Admin persistence and workspace portability
 @router.get("/api/admin/storage", response_model=StorageDiagnostics)
 def storage_diagnostics(
     request: Request,
@@ -275,15 +317,24 @@ def storage_diagnostics(
         parent = Path(path).parent
         try:
             parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(dir=parent, prefix="echo-masque-write-", delete=True):
+            with tempfile.NamedTemporaryFile(
+                dir=parent,
+                prefix="echo-masque-write-",
+                delete=True,
+            ):
                 pass
         except OSError:
             writable = False
     persistent_expected = settings.environment == "production" and kind == "sqlite"
-    persistent_configured = not persistent_expected or (path is not None and path.startswith("/data/"))
+    persistent_configured = not persistent_expected or (
+        path is not None and path.startswith("/data/")
+    )
     warning = None
     if persistent_expected and not persistent_configured:
-        warning = "Production SQLite is not stored under /data; data may be lost after redeploy."
+        warning = (
+            "Production SQLite is not stored under /data; "
+            "data may be lost after redeploy."
+        )
     counts = repo.counts(owner_id)
     return StorageDiagnostics(
         environment=settings.environment,
@@ -302,7 +353,10 @@ def storage_diagnostics(
     )
 
 
-@router.post("/api/admin/storage/probes", response_model=PersistenceProbeView)
+@router.post(
+    "/api/admin/storage/probes",
+    response_model=PersistenceProbeView,
+)
 def create_persistence_probe(
     marker: str,
     request: Request,
@@ -312,7 +366,10 @@ def create_persistence_probe(
     return workspace_repository(request).create_probe(owner_id, marker)
 
 
-@router.get("/api/admin/storage/probes/{probe_id}", response_model=PersistenceProbeView)
+@router.get(
+    "/api/admin/storage/probes/{probe_id}",
+    response_model=PersistenceProbeView,
+)
 def get_persistence_probe(
     probe_id: str,
     request: Request,
@@ -325,7 +382,10 @@ def get_persistence_probe(
     return probe
 
 
-@router.delete("/api/admin/storage/probes/{probe_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/api/admin/storage/probes/{probe_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 def delete_persistence_probe(
     probe_id: str,
     request: Request,
@@ -336,7 +396,10 @@ def delete_persistence_probe(
         raise HTTPException(status_code=404, detail="Persistence probe not found.")
 
 
-@router.get("/api/admin/workspace/export", response_model=WorkspaceArchive)
+@router.get(
+    "/api/admin/workspace/export",
+    response_model=WorkspaceArchive,
+)
 def export_workspace(
     request: Request,
     _: AdminDependency,
@@ -345,18 +408,25 @@ def export_workspace(
     return workspace_repository(request).export_workspace(owner_id)
 
 
-@router.post("/api/admin/workspace/import", response_model=WorkspaceImportResult)
+@router.post(
+    "/api/admin/workspace/import",
+    response_model=WorkspaceImportResult,
+)
 def import_workspace(
     payload: WorkspaceImportRequest,
     request: Request,
     _: AdminDependency,
     owner_id: str = Header("local-user", alias="X-Echo-User"),
 ) -> WorkspaceImportResult:
-    if payload.archive.owner_id != owner_id:
-        payload.archive.owner_id = owner_id
+    archive = payload.archive.model_copy(update={"owner_id": owner_id})
     try:
         return workspace_repository(request).import_workspace(
-            owner_id, payload.archive, payload.mode
+            owner_id,
+            archive,
+            payload.mode,
         )
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail=f"Workspace import failed: {exc}") from exc
+        raise HTTPException(
+            status_code=422,
+            detail=f"Workspace import failed: {exc}",
+        ) from exc
