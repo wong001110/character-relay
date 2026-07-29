@@ -237,11 +237,11 @@
 - [x] Persistence probe restart test
 - [x] Workspace export/import round-trip test
 - [x] Frontend request-contract tests
-- [ ] Final Python 3.12 Ruff, strict mypy, and pytest passed
-- [ ] Final Python 3.13 Ruff, strict mypy, and pytest passed
-- [ ] Final TypeScript, Vitest, and production web build passed
-- [ ] Final Docker image and container smoke passed
-- [ ] Final Railway live smoke passed
+- [x] Final Python 3.12 Ruff, strict mypy, and pytest passed
+- [x] Final Python 3.13 Ruff, strict mypy, and pytest passed
+- [x] Final TypeScript, Vitest, and production web build passed
+- [x] Final Docker image and container smoke passed
+- [x] Final Railway live smoke passed
 
 ### Manual validation
 - [ ] Create English and Chinese versions of one custom Scenario
@@ -262,5 +262,6 @@
 - [x] Phase 10 GitHub-hosted Ruff, mypy, pytest, web build, and Docker smoke passed
 - [x] Phase 11 GitHub-hosted Ruff, mypy, pytest, web build, Docker smoke, and Railway live smoke passed
 - [x] Phase 12 GitHub-hosted Ruff, strict mypy, pytest, TypeScript, Vitest, production build, Docker smoke, and Railway live smoke passed
+- [x] Phase 13 GitHub-hosted Ruff, strict mypy, pytest, TypeScript, Vitest, production build, Docker smoke, and Railway live smoke passed
 
-Phase 13 implementation is complete when the final documentation-triggered CI passes, the PR is merged, and the post-deploy Railway smoke remains green. The persistence probe remains a required human redeploy check because ordinary CI does not redeploy the production service twice around one marker.
+Phase 13 implementation and hosted validation are complete. The persistence probe remains a required human redeploy check because ordinary CI does not redeploy the production service twice around one marker.
