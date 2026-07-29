@@ -11,6 +11,7 @@ import {
 import { CharacterCreator } from "./CharacterCreator";
 import { CharacterShelf } from "./CharacterShelf";
 import { useI18n } from "./i18n";
+import { PackRunLauncher } from "./PackRunLauncher";
 import { TestRoom } from "./TestRoom";
 import { WorkspaceHub } from "./WorkspaceHub";
 import "./styles.css";
@@ -67,7 +68,18 @@ export default function App() {
   }
 
   if (workspaceOpen) {
-    return <WorkspaceHub cards={cards} onClose={() => { setWorkspaceOpen(false); void load(); }} />;
+    return (
+      <>
+        <WorkspaceHub
+          cards={cards}
+          onClose={() => {
+            setWorkspaceOpen(false);
+            void load();
+          }}
+        />
+        <PackRunLauncher cards={cards} />
+      </>
+    );
   }
 
   if (activeCard) {
