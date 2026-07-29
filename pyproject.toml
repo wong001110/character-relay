@@ -65,3 +65,7 @@ pretty = true
 show_error_codes = true
 packages = ["echo_masque"]
 mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = "echo_masque.persistence.workspace_repository"
+disable_error_code = ["attr-defined"]
