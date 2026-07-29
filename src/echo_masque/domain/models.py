@@ -150,7 +150,7 @@ SEMANTIC_PASS_THRESHOLD = 80
 
 
 def semantic_score_from_dimensions(dimensions: dict[str, int]) -> int:
-    """Convert six 0–5 dimensions into the canonical 0–100 score."""
+    """Convert six 0-5 dimensions into the canonical 0-100 score."""
 
     total = sum(dimensions.get(key, 0) for key in SEMANTIC_DIMENSION_KEYS)
     maximum = len(SEMANTIC_DIMENSION_KEYS) * 5
@@ -170,11 +170,12 @@ def normalize_semantic_verdict(
     )
     passed = score >= SEMANTIC_PASS_THRESHOLD and not severe_evidence
     severity = Severity.INFO if passed else _evidence_severity(verdict.evidence)
+    failure_type = None if passed else (verdict.failure_type or "semantic_integrity_failure")
     return verdict.model_copy(
         update={
             "passed": passed,
             "score": score,
-            "failure_type": None if passed else (verdict.failure_type or "semantic_integrity_failure"),
+            "failure_type": failure_type,
             "severity": severity,
         }
     )
@@ -209,7 +210,7 @@ def resolve_judge_verdict(
                 failure_type="judge_disagreement",
                 severity=Severity.MEDIUM,
                 summary=(
-                    "Rule Judge 与 Semantic Judge 结论不同，需要人工复核。"
+                    "Rule Judge 与 Semantic Judge 结论不同, 需要人工复核。"
                     if language == TestLanguage.SIMPLIFIED_CHINESE
                     else "Rule Judge and Semantic Judge disagree; manual review is required."
                 ),
