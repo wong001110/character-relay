@@ -282,6 +282,109 @@
   display: none;
 }
 
+.pack-run-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 40;
+  padding: 13px 18px;
+  border: 0;
+  border-radius: 999px;
+  color: white;
+  background: linear-gradient(135deg, #695475, #a3738d);
+  box-shadow: 0 14px 34px rgba(73, 51, 82, .24);
+  font-weight: 850;
+}
+
+.pack-run-launcher {
+  position: fixed;
+  right: 24px;
+  bottom: 82px;
+  z-index: 39;
+  width: min(390px, calc(100vw - 32px));
+  max-height: calc(100vh - 120px);
+  padding: 20px;
+  overflow-y: auto;
+  box-shadow: 0 22px 55px rgba(59, 42, 66, .25);
+}
+
+.pack-run-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.pack-run-heading span {
+  color: #907e94;
+  font-size: .65rem;
+  text-transform: uppercase;
+}
+
+.pack-run-heading h3 {
+  margin: 3px 0 0;
+}
+
+.pack-run-heading > button {
+  border: 0;
+  color: #745f79;
+  background: transparent;
+  font-size: 1.4rem;
+}
+
+.pack-run-launcher > label,
+.pack-run-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 10px;
+  color: #6a586f;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.pack-run-launcher select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid rgba(96, 72, 100, .18);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .75);
+}
+
+.pack-run-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.pack-run-status {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 9px;
+  background: #eee6f1;
+}
+
+.pack-run-status span {
+  color: #7d6b82;
+  text-transform: uppercase;
+  font-size: .66rem;
+}
+
+.pack-run-status button {
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 8px;
+  color: white;
+  background: #6c5877;
+  font-size: .7rem;
+  font-weight: 800;
+}
+
 @media (max-width: 900px) {
   .history-filters,
   .history-row {
@@ -303,7 +406,8 @@
 
   .workspace-form,
   .history-filters,
-  .history-row {
+  .history-row,
+  .pack-run-grid {
     grid-template-columns: 1fr;
   }
 
@@ -311,5 +415,10 @@
   .workspace-form .wide,
   .workspace-form fieldset {
     grid-column: 1;
+  }
+
+  .pack-run-fab,
+  .pack-run-launcher {
+    right: 16px;
   }
 }
