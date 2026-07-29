@@ -248,7 +248,7 @@ Test Language controls Benchmark messages, Adaptive follow-ups, Scenario contrac
 - [x] Phase 10 — Railway deployment readiness
 - [x] Phase 11 — English and Simplified Chinese interface and testing
 - [x] Phase 12 — Admin Runtime, Hybrid Judge, and scalable Character Library
-- [ ] Phase 13 — Custom Test Packs, Experiment History, and persistence guardrails
+- [x] Phase 13 — Custom Test Packs, Experiment History, and persistence guardrails
 
 See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for human checks.
 
@@ -288,4 +288,4 @@ The public deployment still lacks production user authentication. Admin configur
 
 ## Status
 
-Phase 13 implementation includes user-authored Scenarios, versioned Test Packs, pack-driven Trials, immutable experiment snapshots, history and rerun controls, storage diagnostics, redeploy probes, and secret-free workspace backup/restore. Final hosted validation and real Railway persistence acceptance remain tracked separately rather than being assumed from Volume configuration alone.
+Phase 13 implementation and automated validation are complete: user-authored Scenarios, versioned Test Packs, pack-driven Trials, immutable experiment snapshots, history and rerun controls, storage diagnostics, redeploy probes, and secret-free workspace backup/restore are available. A real Railway persistence probe across a redeploy remains a separate human acceptance check because ordinary CI cannot prove that two successive deployments opened the same Volume-backed database.
