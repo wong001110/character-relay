@@ -83,7 +83,7 @@ def inspect_storage(
 
 
 def _database_path(value: str | None) -> Path | None:
-    if value in {None, "", ":memory:"}:
+    if value is None or value in {"", ":memory:"}:
         return None
     return Path(value).expanduser().resolve()
 
