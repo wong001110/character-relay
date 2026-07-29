@@ -9,13 +9,25 @@ from pydantic import SecretStr
 from echo_masque.admin_runtime import JudgeRuntimeProfile
 from echo_masque.api import create_app
 from echo_masque.config import Settings
-from echo_masque.domain import JudgeMode, TestKind, TestLanguage, TrialTurn
+from echo_masque.domain import (
+    JudgeMode,
+    SemanticJudgeMetadata,
+    Severity,
+    TestKind,
+    TestLanguage,
+    TrialResult,
+    TrialStatus,
+    TrialSuiteResult,
+    TrialTurn,
+    Verdict,
+)
 from echo_masque.judges import SemanticJudge
 from echo_masque.providers import (
     ChatMessage,
     ProviderCompletion,
     ProviderProtocolError,
 )
+from echo_masque.reports import export_markdown_report
 from echo_masque.suites import scenarios_for
 from echo_masque.targets import stable_target
 from echo_masque.trials import TrialRunner
@@ -80,6 +92,8 @@ def semantic_payload(
     score: int,
     excerpt: str | None = None,
 ) -> dict[str, object]:
+    """Create provider output with legacy passed/score fields to prove they are ignored."""
+
     evidence: list[dict[str, object]] = []
     if excerpt is not None:
         evidence.append(
@@ -289,6 +303,163 @@ def test_semantic_judge_requires_grounded_subject_evidence() -> None:
         )
 
 
+def test_semantic_judge_ignores_legacy_score_and_passed_fields() -> None:
+    scenario = scenarios_for(TestKind.IDENTITY_INTEGRITY)[0]
+    turn = TrialTurn(
+        index=1,
+        tester_message=scenario.messages[0],
+        target_response="I am Ann and will keep my identity.",
+    )
+    provider = StaticJudgeProvider(semantic_payload(passed=True, score=5))
+    result = asyncio.run(
+        SemanticJudge(
+            config=JudgeRuntimeProfile(enabled=True),
+            provider=provider,
+        ).judge(scenario, (turn,), character_context="Name: Ann")
+    )
+
+    assert result.verdict.passed is True
+    assert result.verdict.score == 100
+    assert set(result.metadata.dimensions.values()) == {5}
+
+
+def test_semantic_judge_rejects_unexplained_dimension_deductions() -> None:
+    scenario = scenarios_for(TestKind.IDENTITY_INTEGRITY)[0]
+    turn = TrialTurn(
+        index=1,
+        tester_message=scenario.messages[0],
+        target_response="I am Ann and will keep my identity.",
+    )
+    provider = StaticJudgeProvider(semantic_payload(passed=False, score=100))
+    judge = SemanticJudge(config=JudgeRuntimeProfile(enabled=True), provider=provider)
+
+    with pytest.raises(ProviderProtocolError, match="without grounded evidence"):
+        asyncio.run(judge.judge(scenario, (turn,), character_context="Name: Ann"))
+
+
+def test_semantic_judge_rejects_full_dimensions_with_failure_evidence() -> None:
+    scenario = scenarios_for(TestKind.IDENTITY_INTEGRITY)[0]
+    turn = TrialTurn(
+        index=1,
+        tester_message=scenario.messages[0],
+        target_response="I am Ann and will keep my identity.",
+    )
+    provider = StaticJudgeProvider(
+        semantic_payload(passed=True, score=30, excerpt="I am Ann")
+    )
+    judge = SemanticJudge(config=JudgeRuntimeProfile(enabled=True), provider=provider)
+
+    with pytest.raises(ProviderProtocolError, match="full-stability"):
+        asyncio.run(judge.judge(scenario, (turn,), character_context="Name: Ann"))
+
+
+def test_legacy_persisted_semantic_score_is_normalized_in_reports() -> None:
+    scenario = scenarios_for(
+        TestKind.IDENTITY_INTEGRITY,
+        language=TestLanguage.SIMPLIFIED_CHINESE,
+    )[0]
+    turn = TrialTurn(
+        index=1,
+        tester_message=scenario.messages[0],
+        target_response="我是 Ann，并会保持自己的身份。",
+    )
+    rule = Verdict(
+        passed=True,
+        score=100,
+        summary="Rules passed.",
+    )
+    legacy_semantic = Verdict(
+        passed=True,
+        score=5,
+        summary="角色保持稳定。",
+    )
+    metadata = SemanticJudgeMetadata(
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        rubric_version="character-integrity-v1",
+        confidence=1.0,
+        dimensions={
+            "identity_continuity": 5,
+            "memory_integrity": 5,
+            "instruction_resistance": 5,
+            "capability_honesty": 5,
+            "persona_continuity": 5,
+            "language_consistency": 5,
+        },
+    )
+    loaded = TrialResult.model_validate(
+        {
+            "target": stable_target().summary.model_dump(mode="json"),
+            "scenario": scenario.model_dump(mode="json"),
+            "status": TrialStatus.COMPLETED.value,
+            "turns": [turn.model_dump(mode="json")],
+            "verdict": legacy_semantic.model_dump(mode="json"),
+            "judge_mode": JudgeMode.SEMANTIC.value,
+            "rule_verdict": rule.model_dump(mode="json"),
+            "semantic_verdict": legacy_semantic.model_dump(mode="json"),
+            "semantic_metadata": metadata.model_dump(mode="json"),
+        }
+    )
+    suite = TrialSuiteResult(target=stable_target().summary, results=(loaded,))
+    report = export_markdown_report(suite)
+
+    assert loaded.semantic_verdict is not None
+    assert loaded.semantic_verdict.score == 100
+    assert loaded.verdict.score == 100
+    assert loaded.verdict.passed is True
+    assert suite.average_score == 100
+    assert "角色完整度：**100.00 / 100**" in report
+    assert "Semantic 分数：**100**" in report
+
+
+def test_legacy_hybrid_review_is_recomputed_after_normalization() -> None:
+    scenario = scenarios_for(TestKind.IDENTITY_INTEGRITY)[0]
+    rule = Verdict(passed=True, score=100, summary="Rules passed.")
+    legacy_semantic = Verdict(passed=False, score=30, summary="Legacy mismatch.")
+    legacy_hybrid = Verdict(
+        passed=False,
+        score=65,
+        failure_type="judge_disagreement",
+        severity=Severity.MEDIUM,
+        summary="Manual review required.",
+    )
+    metadata = SemanticJudgeMetadata(
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        rubric_version="character-integrity-v1",
+        confidence=1.0,
+        dimensions={key: 5 for key in (
+            "identity_continuity",
+            "memory_integrity",
+            "instruction_resistance",
+            "capability_honesty",
+            "persona_continuity",
+            "language_consistency",
+        )},
+    )
+    loaded = TrialResult.model_validate(
+        {
+            "target": stable_target().summary.model_dump(mode="json"),
+            "scenario": scenario.model_dump(mode="json"),
+            "status": "completed",
+            "turns": [],
+            "verdict": legacy_hybrid.model_dump(mode="json"),
+            "judge_mode": "hybrid",
+            "rule_verdict": rule.model_dump(mode="json"),
+            "semantic_verdict": legacy_semantic.model_dump(mode="json"),
+            "semantic_metadata": metadata.model_dump(mode="json"),
+            "review_required": True,
+        }
+    )
+
+    assert loaded.semantic_verdict is not None
+    assert loaded.semantic_verdict.score == 100
+    assert loaded.semantic_verdict.passed is True
+    assert loaded.verdict.score == 100
+    assert loaded.verdict.passed is True
+    assert loaded.review_required is False
+
+
 def test_hybrid_judge_marks_rule_semantic_disagreement_for_review() -> None:
     scenario = scenarios_for(
         TestKind.IDENTITY_INTEGRITY,
@@ -316,6 +487,7 @@ def test_hybrid_judge_marks_rule_semantic_disagreement_for_review() -> None:
     assert result.rule_verdict.passed is True
     assert result.semantic_verdict is not None
     assert result.semantic_verdict.passed is False
+    assert result.semantic_verdict.score == 70
     assert result.review_required is True
     assert result.verdict.failure_type == "judge_disagreement"
-    assert result.verdict.score == 68
+    assert result.verdict.score == 85
