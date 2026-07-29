@@ -8,6 +8,7 @@ on:
         required: false
         default: https://echo-masque-production.up.railway.app
   pull_request:
+    types: [opened]
     paths:
       - scripts/live_demo_seed.py
       - scripts/live_demo_seed_runner.py
@@ -27,7 +28,7 @@ env:
 
 jobs:
   seed:
-    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'agent/live-demo-seed'
+    if: github.event_name == 'workflow_dispatch' || github.event.action == 'opened'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
