@@ -30,7 +30,7 @@ class StorageStatus:
     mount_ready: bool
     storage_instance_id: str | None = None
 
-    def with_instance_id(self, instance_id: str) -> "StorageStatus":
+    def with_instance_id(self, instance_id: str) -> StorageStatus:
         return replace(self, storage_instance_id=instance_id)
 
 
