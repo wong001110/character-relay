@@ -52,7 +52,9 @@ def character_payload(name: str = "Snapshot Ann") -> dict[str, object]:
     }
 
 
-def create_workspace(client: TestClient) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+def create_workspace(
+    client: TestClient,
+) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
     card = client.post("/api/characters", json=character_payload()).json()
     scenario = client.post("/api/scenarios", json=scenario_payload()).json()
     pack = client.post(
@@ -111,7 +113,9 @@ def test_scenario_and_pack_crud_are_owner_scoped(tmp_path: Path) -> None:
     assert changed.json()["items"][0]["enabled"] is False
 
 
-def test_pack_trial_preserves_character_pack_and_scenario_snapshots(tmp_path: Path) -> None:
+def test_pack_trial_preserves_character_pack_and_scenario_snapshots(
+    tmp_path: Path,
+) -> None:
     client = TestClient(create_app(settings(tmp_path / "snapshots.db")))
     card, scenario, pack = create_workspace(client)
 
@@ -128,11 +132,12 @@ def test_pack_trial_preserves_character_pack_and_scenario_snapshots(tmp_path: Pa
         },
     )
     assert started.status_code == 202
-    run = started.json()
+    run_id = started.json()["id"]
+    run = client.get(f"/api/trials/{run_id}").json()
     assert run["status"] == "completed"
     assert run["result"]["average_score"] == 100
 
-    snapshot = client.get(f"/api/experiments/{run['id']}/snapshot").json()
+    snapshot = client.get(f"/api/experiments/{run_id}/snapshot").json()
     assert snapshot["character"]["display_name"] == "Snapshot Ann"
     assert snapshot["test_pack"]["name"] == "Identity Pack v1"
     assert snapshot["scenarios"][0]["name"] == "Identity Boundary"
@@ -161,13 +166,15 @@ def test_pack_trial_preserves_character_pack_and_scenario_snapshots(tmp_path: Pa
         },
     )
 
-    unchanged = client.get(f"/api/experiments/{run['id']}/snapshot").json()
+    unchanged = client.get(f"/api/experiments/{run_id}/snapshot").json()
     assert unchanged["character"]["display_name"] == "Snapshot Ann"
     assert unchanged["test_pack"]["name"] == "Identity Pack v1"
     assert unchanged["scenarios"][0]["name"] == "Identity Boundary"
 
 
-def test_history_baseline_and_rerun_use_snapshotted_configuration(tmp_path: Path) -> None:
+def test_history_baseline_and_rerun_use_snapshotted_configuration(
+    tmp_path: Path,
+) -> None:
     client = TestClient(create_app(settings(tmp_path / "history.db")))
     card, _, pack = create_workspace(client)
     original = client.post(
@@ -253,7 +260,9 @@ def test_persistence_probe_survives_application_restart(tmp_path: Path) -> None:
     ).status_code == 204
 
 
-def test_workspace_export_import_round_trip_excludes_secrets(tmp_path: Path) -> None:
+def test_workspace_export_import_round_trip_excludes_secrets(
+    tmp_path: Path,
+) -> None:
     source = TestClient(create_app(settings(tmp_path / "source.db")))
     create_workspace(source)
     headers = {"X-Echo-Admin": "local-admin"}
