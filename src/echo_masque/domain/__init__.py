@@ -1,13 +1,13 @@
 """Domain exports."""
 
 from echo_masque.domain.models import (
+    SEMANTIC_DIMENSION_KEYS,
+    SEMANTIC_PASS_THRESHOLD,
     CharacterProfile,
     Evidence,
     HealthResponse,
     JudgeMode,
     MessageRole,
-    SEMANTIC_DIMENSION_KEYS,
-    SEMANTIC_PASS_THRESHOLD,
     SemanticJudgeMetadata,
     Severity,
     TargetCapabilities,
@@ -28,13 +28,13 @@ from echo_masque.domain.models import (
 )
 
 __all__ = [
+    "SEMANTIC_DIMENSION_KEYS",
+    "SEMANTIC_PASS_THRESHOLD",
     "CharacterProfile",
     "Evidence",
     "HealthResponse",
     "JudgeMode",
     "MessageRole",
-    "SEMANTIC_DIMENSION_KEYS",
-    "SEMANTIC_PASS_THRESHOLD",
     "SemanticJudgeMetadata",
     "Severity",
     "TargetCapabilities",
