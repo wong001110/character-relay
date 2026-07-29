@@ -10,7 +10,9 @@ on:
   pull_request:
     paths:
       - scripts/live_demo_seed.py
+      - scripts/live_demo_seed_runner.py
       - tests/test_live_demo_seed.py
+      - tests/test_live_demo_seed_runner.py
       - .github/workflows/live-demo-seed.yml
 
 concurrency:
@@ -48,7 +50,7 @@ jobs:
         env:
           LIVE_URL: ${{ steps.target.outputs.url }}
         run: |
-          python scripts/live_demo_seed.py "$LIVE_URL" --output live-demo-result.json
+          python scripts/live_demo_seed_runner.py "$LIVE_URL" --output live-demo-result.json
           cat live-demo-result.json >> "$GITHUB_STEP_SUMMARY"
       - name: Upload Live Demo result
         uses: actions/upload-artifact@v4
