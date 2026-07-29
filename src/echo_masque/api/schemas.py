@@ -158,6 +158,7 @@ class RuntimeCredentialConfigure(BaseModel):
 class TrialStart(BaseModel):
     target_id: str | None = None
     character_card_id: str | None = None
+    test_pack_id: str | None = None
     suite: list[TestKind] = Field(default_factory=lambda: list(TestKind))
     mode: Literal["watch", "fast"] = "fast"
     tester_mode: Literal["benchmark", "adaptive"] = "benchmark"
