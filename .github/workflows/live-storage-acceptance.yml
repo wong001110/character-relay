@@ -1,0 +1,61 @@
+name: Live Storage Acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Public Echo Masque URL
+        required: false
+        default: https://echo-masque-production.up.railway.app
+  pull_request:
+    types: [opened]
+    paths:
+      - scripts/live_storage_acceptance.py
+      - tests/test_live_storage_acceptance.py
+      - .github/workflows/live-storage-acceptance.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-storage-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DEFAULT_LIVE_URL: https://echo-masque-production.up.railway.app
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Resolve Live URL
+        id: target
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_URL: ${{ inputs.url }}
+        run: |
+          target="$DEFAULT_LIVE_URL"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$INPUT_URL" ]; then
+            target="$INPUT_URL"
+          fi
+          echo "url=$target" >> "$GITHUB_OUTPUT"
+      - name: Capture storage identity and retained IDs
+        env:
+          LIVE_URL: ${{ steps.target.outputs.url }}
+          PYTHONPATH: .
+        run: |
+          python scripts/live_storage_acceptance.py \
+            "$LIVE_URL" \
+            --output live-storage-acceptance.json
+          cat live-storage-acceptance.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload acceptance snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-storage-acceptance
+          path: live-storage-acceptance.json
+          if-no-files-found: error
