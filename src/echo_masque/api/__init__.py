@@ -17,10 +17,11 @@ from echo_masque.api.routes import (
     targets_router,
     transcripts_router,
     trials_router,
+    workspace_router,
 )
 from echo_masque.config import Settings, get_settings
 from echo_masque.credentials import CredentialStore
-from echo_masque.persistence import Database, Repository
+from echo_masque.persistence import Database, Repository, WorkspaceRepository
 from echo_masque.services import RuntimeService, TrialService
 
 
@@ -29,6 +30,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     database = Database(resolved.database_url)
     database.initialize()
     repository = Repository(database)
+    workspace_repository = WorkspaceRepository(database)
     repository.seed_demo_targets()
     repository.remove_demo_character_cards()
     credential_store = CredentialStore()
@@ -53,6 +55,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = resolved
     app.state.database = database
     app.state.repository = repository
+    app.state.workspace_repository = workspace_repository
     app.state.credential_store = credential_store
     app.state.runtime_credentials = runtime_credentials
     app.state.runtime_service = runtime_service
@@ -60,6 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repository,
         credential_store,
         runtime_service,
+        workspace_repository=workspace_repository,
     )
     app.include_router(health_router)
     app.include_router(admin_router)
@@ -69,6 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(transcripts_router)
     app.include_router(comparisons_router)
     app.include_router(reports_router)
+    app.include_router(workspace_router)
 
     web_dist = Path("web/dist")
     if web_dist.exists():
