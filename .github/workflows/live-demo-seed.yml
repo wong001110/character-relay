@@ -49,6 +49,7 @@ jobs:
       - name: Seed and test permanent Live Demo
         env:
           LIVE_URL: ${{ steps.target.outputs.url }}
+          PYTHONPATH: .
         run: |
           python scripts/live_demo_seed_runner.py "$LIVE_URL" --output live-demo-result.json
           cat live-demo-result.json >> "$GITHUB_STEP_SUMMARY"
