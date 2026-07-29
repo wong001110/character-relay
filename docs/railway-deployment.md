@@ -10,8 +10,11 @@ Railway public domain
      -> /api/* and /health
      -> built React client from web/dist
   -> SQLite at /data/echo_masque.db
+     -> Character Cards
+     -> Custom Scenarios and Test Packs
+     -> immutable Run snapshots and Experiment History
+     -> reports, evidence, and Admin non-secret profiles
   -> Admin-managed Adaptive Tester and Semantic Judge
-     -> non-secret profiles in SQLite
      -> credentials from Railway environment variables
 ```
 
@@ -41,7 +44,9 @@ The production database path is:
 sqlite:////data/echo_masque.db
 ```
 
-Without the volume, user Character Cards, Admin non-secret runtime profiles, Trials, reports, and evidence disappear on redeploy.
+Without the volume, user Character Cards, Scenarios, Test Packs, Admin non-secret runtime profiles, snapshotted Trials, reports, and evidence disappear on redeploy.
+
+Creating or attaching a Volume does not copy a database from an older ephemeral container into `/data`. Records created before the service started using the mounted path may already be unrecoverable.
 
 Keep exactly one replica. Multiple replicas cannot safely share the current SQLite and process-memory runtime design.
 
@@ -72,7 +77,7 @@ Production Admin APIs are disabled until this variable exists:
 ECHO_MASQUE_ADMIN_TOKEN=<long-random-admin-token>
 ```
 
-The browser sends the value through `X-Echo-Admin`. Admin Settings stores it only in browser `sessionStorage`, so closing the browser session clears it.
+The browser sends the value through `X-Echo-Admin`. Admin Settings and Workspace Storage tools store it only in browser `sessionStorage`, so closing the browser session clears it.
 
 Do not reuse a Provider API key as the Admin token.
 
@@ -96,7 +101,7 @@ The Adaptive and Judge keys may be the same limited test key during MVP evaluati
 
 Keys entered directly in Admin Settings are process-memory overrides. They disappear after a Railway restart or redeploy. Railway variables are the persistent source.
 
-Raw Admin runtime keys are never written to SQLite, Character Cards, Trial events, Lab Notes, JSON reports, or application logs.
+Raw Admin runtime keys are never written to SQLite, Character Cards, Trial events, Lab Notes, JSON reports, Run snapshots, workspace archives, or application logs.
 
 ### Subject model credentials
 
@@ -109,7 +114,7 @@ A Subject key entered while creating or reconnecting a Prompt + Model Character 
 3. Choose Southeast Asia / Singapore when available on the Railway plan.
 4. Leave the service at one replica.
 
-## 5. Validate the deployment
+## 5. Validate application availability
 
 ```bash
 python scripts/railway_smoke.py https://your-service.up.railway.app
@@ -126,6 +131,8 @@ The credential-free smoke test verifies:
 
 The deployment smoke does not call Adaptive Tester or Semantic Judge and therefore does not spend Provider credits.
 
+This test proves that the current deployment is available. It does not prove that the same database will survive the next deployment.
+
 ## 6. Validate Admin Runtime
 
 After setting `ECHO_MASQUE_ADMIN_TOKEN`:
@@ -135,7 +142,7 @@ After setting `ECHO_MASQUE_ADMIN_TOKEN`:
 3. Enable Adaptive Tester and Semantic Judge.
 4. Configure their non-secret Provider profiles.
 5. Confirm their status reports `environment` as the credential source after setting the two Railway keys.
-6. Run one Adaptive + Hybrid Trial.
+6. Run one Adaptive + Hybrid Trial or Test Pack.
 7. Redeploy the service.
 8. Confirm Admin profiles persist and both runtimes return to Ready without re-entering API keys.
 
@@ -148,7 +155,75 @@ Process-memory override keys          -> cleared on restart
 Subject card credentials              -> cleared unless environment-backed
 ```
 
-## 7. GitHub-hosted smoke tests
+## 7. Storage Diagnostics
+
+Open **Workspace → Storage & Backup** and enter the Admin Token.
+
+For the Railway deployment, the expected values are:
+
+```text
+Environment: production
+Database kind: sqlite
+Database path: /data/echo_masque.db
+Writable: Yes
+Persistent path: Yes
+Warning: none
+```
+
+The page also shows Character, Scenario, Test Pack, and snapshotted Run counts plus the last workspace write timestamp.
+
+A Volume card in Railway only confirms the resource is attached. Storage Diagnostics confirms that the running application actually resolved SQLite to the mounted path and can write there.
+
+## 8. Persistence probe across a redeploy
+
+The persistence probe is the required acceptance test:
+
+1. Open **Workspace → Storage & Backup**.
+2. Create a persistence probe.
+3. Copy the returned probe ID.
+4. In Railway, redeploy the service or deploy a new commit.
+5. Wait for `/health` and Railway deployment status to become healthy.
+6. Return to Storage & Backup.
+7. Enter the same Admin Token.
+8. Check the saved probe ID.
+9. Confirm its marker and creation time are unchanged.
+10. Delete the probe.
+
+Interpretation:
+
+```text
+Probe survives -> the new deployment opened the same persistent database
+Probe missing  -> the new deployment opened a different or ephemeral database
+```
+
+Do not treat “Volume attached” or “database path looks correct” as a substitute for this cross-deployment probe.
+
+## 9. Workspace backup and restore
+
+Before significant Railway changes, export the workspace from **Storage & Backup**.
+
+The archive includes:
+
+- user-owned Targets and Character Cards;
+- Custom Scenarios and versioned Test Packs;
+- immutable Run snapshots;
+- Trial records, turns, events, evidence, and reports;
+- non-secret Admin Runtime configuration.
+
+It excludes:
+
+- Admin Token;
+- Subject API keys;
+- Adaptive Tester API key;
+- Semantic Judge API key;
+- authorization headers and other redacted credentials.
+
+Import modes:
+
+- **Merge** keeps existing IDs and skips duplicates.
+- **Replace** deletes the current owner's workspace before importing. Retain a separate export before using it.
+
+## 10. GitHub-hosted smoke tests
 
 The Railway Smoke workflow targets:
 
@@ -158,15 +233,11 @@ https://echo-masque-production.up.railway.app
 
 It runs for pull requests, updates to `main`, and manual workflow dispatch. The workflow retries while Railway finishes a rollout.
 
-## 8. Persistence acceptance
-
-Create a user-owned Character Card and complete a Rules-mode Trial. Redeploy and confirm the card, Trial, evidence, reports, and Admin non-secret settings survive. If data disappears, confirm the Volume is mounted at exactly `/data`.
-
-Railway Volumes are mounted as root. The production container currently runs as root so SQLite can write to the mounted path. Revisit this when moving to a managed database.
+The GitHub smoke remains credential-free and does not trigger a production redeploy around a probe. The human persistence probe therefore remains a separate required check.
 
 ## Security boundary
 
-Admin Runtime configuration is token-protected, but the application still lacks production user authentication and authorization. A public deployment remains a controlled demo environment:
+Admin Runtime configuration, storage diagnostics, probes, and workspace portability are token-protected, but the application still lacks production user authentication and authorization. A public deployment remains a controlled demo environment:
 
 - use a long random Admin token;
 - use limited, revocable Provider test keys;

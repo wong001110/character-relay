@@ -11,7 +11,9 @@ import {
 import { CharacterCreator } from "./CharacterCreator";
 import { CharacterShelf } from "./CharacterShelf";
 import { useI18n } from "./i18n";
+import { PackRunLauncher } from "./PackRunLauncher";
 import { TestRoom } from "./TestRoom";
+import { WorkspaceHub } from "./WorkspaceHub";
 import "./styles.css";
 import "./polish.css";
 
@@ -24,6 +26,7 @@ export default function App() {
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<CharacterCard | null>(null);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -62,6 +65,21 @@ export default function App() {
 
   function runtimeUpdated(view: AdminRuntimeView) {
     setRuntime(view.status);
+  }
+
+  if (workspaceOpen) {
+    return (
+      <>
+        <WorkspaceHub
+          cards={cards}
+          onClose={() => {
+            setWorkspaceOpen(false);
+            void load();
+          }}
+        />
+        <PackRunLauncher cards={cards} />
+      </>
+    );
   }
 
   if (activeCard) {
@@ -117,6 +135,7 @@ export default function App() {
         }}
         onEnter={setActiveCard}
         onAdmin={() => setAdminOpen(true)}
+        onWorkspace={() => setWorkspaceOpen(true)}
       />
       {creatorOpen && (
         <CharacterCreator

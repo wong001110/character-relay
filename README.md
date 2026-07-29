@@ -2,19 +2,19 @@
 
 **See what remains when the role is challenged.**
 
-Echo Masque is a Python-first character behavior validation system. Users create Character Cards, bring one card into a live Test Room, watch an adversarial Tester and the Subject converse, and retain evidence for identity drift, fabricated memory, prompt injection, capability claims, and long-conversation instability.
+Echo Masque is a Python-first character behavior validation system. Users create Character Cards, define reusable test scenarios, compose Test Packs, run Benchmark or Adaptive pressure, and retain grounded evidence for identity drift, fabricated memory, prompt injection, capability claims, and long-conversation instability.
 
 ## Product loop
 
 ```text
 Create or select a user-owned Character Card
-  -> bind it to a prompt, model, API, or external target
-  -> choose interface and test languages
+  -> create language-specific Scenarios
+  -> compose a versioned Test Pack
   -> choose Benchmark or Admin-managed Adaptive Tester
   -> choose Rules, Semantic, or Hybrid Judge
-  -> watch the live conversation and Judge evidence
-  -> inspect Lab Note, JSON, replay, and comparisons
-  -> edit the card and rerun
+  -> run the pack and preserve an immutable configuration snapshot
+  -> inspect Experiment History, reports, baselines, and reruns
+  -> edit the card or pack without changing old experiment meaning
 ```
 
 ## Quick start
@@ -38,7 +38,7 @@ Open `http://127.0.0.1:5173` for the UI or `http://127.0.0.1:8000/docs` for the 
 
 ## Character Library
 
-Echo Masque no longer adds built-in Character Cards to the user library. Stable and Fragile deterministic targets remain internal for CI, container, and Railway smoke tests.
+Echo Masque does not add built-in Character Cards to the user library. Stable and Fragile deterministic targets remain internal for CI, container, and Railway smoke tests.
 
 User-owned cards can be:
 
@@ -51,9 +51,98 @@ User-owned cards can be:
 
 Editing a Prompt + Model card preserves its current process-memory or environment credential association. Replace the Subject key separately from the Test Room only when needed.
 
-Raw Subject API keys are kept only in backend process memory unless the target uses an environment-variable fallback. They are never written to SQLite, Character Cards, Trial events, reports, or exports.
+Raw Subject API keys are kept only in backend process memory unless the target uses an environment-variable fallback. They are never written to SQLite, Character Cards, Trial events, reports, snapshots, or workspace exports.
 
 The current user boundary still uses `X-Echo-User` and defaults to `local-user`. Production multi-user access requires real authentication and authorization.
+
+## Experiment Workspace
+
+Open **Workspace** from the Character Library. The workspace contains four areas.
+
+### Custom Scenarios
+
+A Scenario stores:
+
+- category and description;
+- English or Simplified Chinese Test Language;
+- one or more initial Tester messages;
+- expected behavior;
+- required and forbidden signals;
+- severity;
+- maximum Adaptive turns;
+- recommended Tester and Judge modes.
+
+Scenarios support create, edit, duplicate, and delete. Scenario ownership follows `X-Echo-User`.
+
+### Test Packs
+
+A Test Pack is an ordered, versioned collection of Scenarios. Each item may be enabled or disabled without deleting the Scenario. Editing a pack increments its version.
+
+The Workspace includes a Test Pack launcher for selecting:
+
+- Character Card;
+- Test Pack;
+- Test Language;
+- Benchmark or Adaptive Tester;
+- Rules, Semantic, or Hybrid Judge;
+- Fast or Watch pacing.
+
+The existing four Test Rooms remain available as a fast fixed-suite path.
+
+### Immutable Run snapshots
+
+Every Phase 13 Run freezes:
+
+- Character Card profile;
+- Target Provider, Model, System Prompt, Temperature, and endpoint configuration;
+- Test Pack name and version;
+- ordered Scenario definitions;
+- language, Tester Mode, and Judge Mode.
+
+Editing or deleting current cards, packs, or scenarios does not rewrite an old Run snapshot. Reports and reruns therefore retain the configuration that was actually tested.
+
+API keys and Admin tokens are never included in snapshots.
+
+### Experiment History
+
+Experiment History provides:
+
+- pagination;
+- Character, Test Pack, language, Tester, and Judge filters;
+- score, PASS, FAIL, REVIEW, and run status;
+- report access;
+- rerun from the frozen snapshot;
+- compatible baseline marking;
+- experiment deletion.
+
+Phase 13 history begins with Runs that contain immutable snapshots. Earlier Run reports remain accessible by their Run IDs but are not presented as reproducible Phase 13 experiments.
+
+## Persistence and workspace backup
+
+The **Storage & Backup** tab is Admin-protected. It shows:
+
+- effective database backend and path;
+- writeability;
+- whether production SQLite is under `/data`;
+- Character, Scenario, Pack, and Run counts;
+- last workspace write time;
+- a prominent warning when production SQLite is not persistent.
+
+### Persistence probe
+
+Create a probe, copy its ID, redeploy Railway, and check the same ID afterward. Delete the probe after the verification. This proves that the active deployment is reading the same persistent database rather than only checking that a Volume exists.
+
+### Workspace export and import
+
+Admin may export a JSON archive containing:
+
+- user-owned targets and Character Cards;
+- Custom Scenarios and Test Packs;
+- snapshotted Trial Runs;
+- turns, events, evidence, and reports;
+- non-secret Admin Runtime configuration.
+
+The archive excludes Subject, Adaptive, and Judge API keys and the Admin token. Import supports merge or replace mode.
 
 ## Admin Runtime
 
@@ -83,27 +172,27 @@ ECHO_MASQUE_ADAPTIVE_API_KEY
 ECHO_MASQUE_JUDGE_API_KEY
 ```
 
-Keys entered through Admin Settings are process-memory overrides and disappear on server restart. Raw runtime keys never enter SQLite, Trial events, Lab Notes, JSON reports, or logs.
+Keys entered through Admin Settings are process-memory overrides and disappear on server restart. Raw runtime keys never enter SQLite, Trial events, Lab Notes, JSON reports, snapshots, workspace exports, or logs.
 
 ## Tester modes
 
 ### Benchmark
 
-Uses fixed English or Simplified Chinese scripts. Benchmark remains reproducible and is the correct mode for regression comparisons and CI.
+Uses fixed or user-authored English or Simplified Chinese scripts. Benchmark remains reproducible and is the correct mode for regression comparisons and CI.
 
 ### Adaptive
 
-Uses the Admin-managed Adaptive Tester. The first Benchmark message seeds the scenario, then the independent Tester model generates one follow-up at a time from the visible transcript. Adaptive mode is disabled until Admin enables the runtime and provides a credential.
+Uses the Admin-managed Adaptive Tester. The first Scenario message seeds the pressure sequence, then the independent Tester model generates one follow-up at a time from the visible transcript. The effective turn limit is the lower of the Admin maximum and the selected Scenario limits.
 
 ## Judge modes
 
 ### Rules
 
-The original deterministic Judge checks required and forbidden phrase signals. It remains fast, credential-free, and CI-compatible.
+The deterministic Judge checks required and forbidden phrase signals. It remains fast, credential-free, and CI-compatible.
 
 ### Semantic
 
-An independent Admin-managed model evaluates the Character Card, Scenario contract, and completed transcript using a strict structured rubric. Every failure must cite an existing Subject turn and an exact contiguous excerpt from that Subject response. Ungrounded evidence is rejected.
+An independent Admin-managed model evaluates the Character Card snapshot, Scenario contract, and completed transcript using a strict structured rubric. Every failure must cite an existing Subject turn and an exact contiguous excerpt from that Subject response. Ungrounded evidence is rejected.
 
 Semantic dimensions use a 0–5 scale:
 
@@ -113,6 +202,8 @@ Semantic dimensions use a 0–5 scale:
 - capability honesty;
 - persona continuity;
 - language consistency.
+
+Python calculates the canonical 0–100 Semantic score from those dimensions. Model-authored score and pass/fail fields do not control the result.
 
 ### Hybrid
 
@@ -124,9 +215,7 @@ Rules FAIL + Semantic FAIL -> FAIL
 Rules and Semantic disagree -> REVIEW
 ```
 
-A REVIEW result cannot become a regression baseline until a person resolves the disagreement. Comparisons also require the same Test Language and Judge Mode.
-
-Reports include Judge Mode, Rule/Semantic scores, Provider, Model, rubric version, confidence, dimensions, and grounded evidence excerpts without credentials.
+A REVIEW result cannot become a regression baseline until a person resolves the disagreement. Comparisons require the same Test Language and Judge Mode.
 
 ## Languages
 
@@ -136,15 +225,6 @@ The interface language and Test Language remain independent:
 - Simplified Chinese (`zh-CN`).
 
 Test Language controls Benchmark messages, Adaptive follow-ups, Scenario contracts, Judge rules, Semantic Judge response language, and report headings. User-authored names, prompts, and model responses are never automatically translated.
-
-## Test Rooms
-
-- Mirror Room — identity integrity;
-- Memory Room — false-memory injection;
-- Script Room — prompt-injection resistance;
-- Echo Hall — long-conversation drift.
-
-Watch Mode separates room opening, Tester message, typing, Subject response, Judge evaluation, breakpoint, and room transition into readable beats. It requests one snapshot about every 1.2 seconds. Fast Mode is delay-free and polls about every 450 milliseconds.
 
 ## Target types
 
@@ -168,12 +248,19 @@ Watch Mode separates room opening, Tester message, typing, Subject response, Jud
 - [x] Phase 10 — Railway deployment readiness
 - [x] Phase 11 — English and Simplified Chinese interface and testing
 - [x] Phase 12 — Admin Runtime, Hybrid Judge, and scalable Character Library
+- [x] Phase 13 — Custom Test Packs, Experiment History, and persistence guardrails
 
 See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for human checks.
 
 ## Railway
 
 The root `Dockerfile` and `railway.toml` deploy one FastAPI service that also serves the built React client. Attach one Railway Volume at `/data`, keep one replica, and use `/health` for deployment health checks.
+
+The required SQLite setting is:
+
+```text
+ECHO_MASQUE_DATABASE_URL=sqlite:////data/echo_masque.db
+```
 
 The public deployment is automatically smoke-tested at:
 
@@ -182,6 +269,8 @@ https://echo-masque-production.up.railway.app
 ```
 
 Rules Mode and internal deterministic targets require no external credential. Admin-managed Adaptive and Semantic/Hybrid modes require the production variables documented above.
+
+The ordinary Railway smoke verifies application availability and bilingual deterministic Trials. Use the Admin persistence probe to prove data survives an actual redeploy.
 
 See `docs/railway-deployment.md` for setup and security details.
 
@@ -195,8 +284,8 @@ SQLite is stored in the named `echo-masque-data` volume. Process-memory Subject,
 
 ## Security boundary
 
-The public deployment still lacks production user authentication. Admin configuration is token-protected, but Character Card ownership continues to rely on the temporary `X-Echo-User` boundary. Do not invite external users or store sensitive prompts until authentication, authorization, rate limits, managed persistence, and a secure credential vault are added.
+The public deployment still lacks production user authentication. Admin configuration and workspace portability are token-protected, but Character ownership continues to rely on the temporary `X-Echo-User` boundary. Do not invite external users or store sensitive prompts until authentication, authorization, rate limits, managed persistence, and a secure credential vault are added.
 
 ## Status
 
-The implementation includes editable user-owned Character Cards, scalable library controls, bilingual Benchmark and Adaptive testing, Admin-managed evaluation runtimes, deterministic and semantic evidence, Hybrid disagreement review, in-app reports, snapshot polling, one-command development, Docker validation, and Railway smoke testing. Real-model Judge calibration, production identity, secure multi-user secrets, and broad external-target acceptance remain manual or later-phase work.
+Phase 13 implementation and automated validation are complete: user-authored Scenarios, versioned Test Packs, pack-driven Trials, immutable experiment snapshots, history and rerun controls, storage diagnostics, redeploy probes, and secret-free workspace backup/restore are available. A real Railway persistence probe across a redeploy remains a separate human acceptance check because ordinary CI cannot prove that two successive deployments opened the same Volume-backed database.

@@ -165,6 +165,7 @@
 - [x] Include grounded Hybrid Judge detail in Markdown and JSON reports
 - [x] Reject comparisons across different Judge Modes
 - [x] Reject REVIEW runs as regression baselines
+- [x] Normalize Semantic score in Python from the six dimensions
 
 ### Character Library
 - [x] Stop seeding user-facing built-in Character Cards
@@ -186,22 +187,73 @@
 - [x] Adaptive/Semantic modes require configured Admin runtimes
 - [x] Ungrounded Semantic evidence is rejected
 - [x] Hybrid disagreement becomes REVIEW
-- [x] Python 3.12 Ruff, strict mypy, and pytest passed
-- [x] Python 3.13 Ruff, strict mypy, and pytest passed
-- [x] TypeScript, Vitest, and production web build passed
-- [x] Docker image and container smoke passed
-- [x] Final documentation commit CI and Railway live smoke passed
+- [x] Python 3.12/3.13, Web, Docker, and Railway validation
+
+## Phase 13 — Custom Test Packs, Experiment History, and persistence guardrails
+
+### Custom Scenarios
+- [x] Add migration-safe Scenario persistence table
+- [x] Add owner-scoped create, list, detail, edit, duplicate, and delete APIs
+- [x] Support English and Simplified Chinese variants
+- [x] Store initial messages, expected behavior, required and forbidden signals
+- [x] Store severity, maximum turns, and recommended modes
+- [x] Add bilingual Scenario editor UI
+
+### Test Packs
+- [x] Add versioned Test Pack and ordered Pack Item persistence
+- [x] Add owner-scoped create, list, detail, edit, duplicate, and delete APIs
+- [x] Enable, disable, and reorder included Scenarios
+- [x] Add bilingual Test Pack editor UI
+- [x] Add Character Card + Test Pack run launcher
+- [x] Keep the fixed four-room path compatible
+
+### Reproducible experiments
+- [x] Snapshot Character Card profile before execution
+- [x] Snapshot Target Provider, Model, Prompt, Temperature, and endpoint configuration
+- [x] Snapshot Test Pack version and ordered Scenario definitions
+- [x] Execute from immutable snapshots
+- [x] Preserve old experiment meaning after card, pack, or scenario edits
+- [x] Add paginated and filterable Experiment History
+- [x] Add report, rerun, baseline, and delete controls
+- [x] Store rerun lineage
+- [x] Keep pre-Phase-13 Runs outside reproducible history rather than fabricating snapshots
+
+### Persistence and portability
+- [x] Add Admin storage diagnostics
+- [x] Show effective database path and writeability
+- [x] Warn when production SQLite is not under `/data`
+- [x] Show Character, Scenario, Pack, and Run counts
+- [x] Add create/check/delete persistence probe flow
+- [x] Add secret-free Workspace export
+- [x] Add merge and replace Workspace import
+- [x] Exclude Subject, Adaptive, Judge, and Admin secrets
+
+### Automated validation
+- [x] Scenario and Test Pack ownership tests
+- [x] Snapshot immutability tests
+- [x] Test Pack Trial execution test
+- [x] History, baseline, and rerun tests
+- [x] Storage warning test
+- [x] Persistence probe restart test
+- [x] Workspace export/import round-trip test
+- [x] Frontend request-contract tests
+- [x] Final Python 3.12 Ruff, strict mypy, and pytest passed
+- [x] Final Python 3.13 Ruff, strict mypy, and pytest passed
+- [x] Final TypeScript, Vitest, and production web build passed
+- [x] Final Docker image and container smoke passed
+- [x] Final Railway live smoke passed
 
 ### Manual validation
-- [ ] Configure Admin Runtime once and reuse it across browser sessions
-- [ ] Confirm Test Room never asks for Adaptive or Judge credentials
-- [ ] Configure real Semantic and Hybrid Judge models
-- [ ] Compare Stable and OOC cards with real Hybrid Judge
-- [ ] Confirm disagreement evidence is useful for manual review
-- [ ] Create enough cards to exercise search, filters, and pagination
-- [ ] Edit a card and confirm the next Trial uses the updated prompt
-- [ ] Configure Railway Admin/Adaptive/Judge environment variables
-- [ ] Redeploy Railway and confirm runtime profiles and environment readiness survive
+- [ ] Create English and Chinese versions of one custom Scenario
+- [ ] Compose and reorder a multi-scenario Test Pack
+- [ ] Run the same pack against Stable and OOC cards
+- [ ] Edit the card and pack, then confirm the old snapshot remains unchanged
+- [ ] Mark a compatible baseline and rerun from history
+- [ ] Export and import a real workspace JSON archive
+- [ ] Create a Railway persistence probe, redeploy, and verify the same ID remains
+- [ ] Confirm Storage Diagnostics shows `/data/echo_masque.db`
+- [ ] Confirm no API key or Admin token appears in the workspace archive
+- [ ] Inspect Workspace Hub on narrow mobile width
 
 ## Automated acceptance history
 - [x] Phase 8 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
@@ -210,5 +262,6 @@
 - [x] Phase 10 GitHub-hosted Ruff, mypy, pytest, web build, and Docker smoke passed
 - [x] Phase 11 GitHub-hosted Ruff, mypy, pytest, web build, Docker smoke, and Railway live smoke passed
 - [x] Phase 12 GitHub-hosted Ruff, strict mypy, pytest, TypeScript, Vitest, production build, Docker smoke, and Railway live smoke passed
+- [x] Phase 13 GitHub-hosted Ruff, strict mypy, pytest, TypeScript, Vitest, production build, Docker smoke, and Railway live smoke passed
 
-Phase 12 implementation and automated validation are complete. Remaining checks require real Admin Provider credentials, Railway environment configuration, or human UI judgment.
+Phase 13 implementation and hosted validation are complete. The persistence probe remains a required human redeploy check because ordinary CI does not redeploy the production service twice around one marker.

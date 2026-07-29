@@ -11,6 +11,7 @@ interface Props {
   onEdit: (card: CharacterCard) => void;
   onEnter: (card: CharacterCard) => void;
   onAdmin: () => void;
+  onWorkspace: () => void;
 }
 
 const PAGE_SIZE = 8;
@@ -28,9 +29,10 @@ export function CharacterShelf({
   onCreate,
   onEdit,
   onEnter,
-  onAdmin
+  onAdmin,
+  onWorkspace
 }: Props) {
-  const { t } = useI18n();
+  const { language, t } = useI18n();
   const [query, setQuery] = useState("");
   const [subject, setSubject] = useState("all");
   const [tag, setTag] = useState("all");
@@ -89,6 +91,9 @@ export function CharacterShelf({
         </div>
         <div className="header-actions">
           <LanguageSwitcher />
+          <button className="paper-button" onClick={onWorkspace}>
+            {language === "zh-CN" ? "实验工作区" : "Workspace"}
+          </button>
           <button className="paper-button" onClick={onAdmin}>
             {t("shelf.admin")}
           </button>

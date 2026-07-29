@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -115,3 +115,79 @@ class EvidenceRecord(Base):
     turn_index: Mapped[int] = mapped_column(Integer, nullable=False)
     excerpt: Mapped[str] = mapped_column(Text, nullable=False)
     severity: Mapped[str] = mapped_column(String(20), nullable=False)
+
+
+class CustomScenarioRecord(Base):
+    __tablename__ = "custom_scenarios"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    category: Mapped[str] = mapped_column(String(50), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    language: Mapped[str] = mapped_column(String(20), nullable=False)
+    messages_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    expected_behavior: Mapped[str] = mapped_column(Text, nullable=False)
+    forbidden_phrases_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    required_phrases_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), default="medium", nullable=False)
+    max_turns: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
+    recommended_tester_mode: Mapped[str] = mapped_column(
+        String(30), default="benchmark", nullable=False
+    )
+    recommended_judge_mode: Mapped[str] = mapped_column(
+        String(30), default="hybrid", nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class TestPackRecord(Base):
+    __tablename__ = "test_packs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class TestPackItemRecord(Base):
+    __tablename__ = "test_pack_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    pack_id: Mapped[str] = mapped_column(ForeignKey("test_packs.id"), index=True)
+    scenario_id: Mapped[str] = mapped_column(ForeignKey("custom_scenarios.id"), index=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class RunSnapshotRecord(Base):
+    __tablename__ = "run_snapshots"
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("trial_runs.id"), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    character_card_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    test_pack_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    character_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    target_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    pack_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    scenarios_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    rerun_of: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    is_baseline: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PersistenceProbeRecord(Base):
+    __tablename__ = "persistence_probes"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    marker: Mapped[str] = mapped_column(String(200), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

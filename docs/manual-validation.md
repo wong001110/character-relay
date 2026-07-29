@@ -1,6 +1,69 @@
 # Manual Validation
 
-These checks require human judgment, real Provider credentials, or an external environment. They do not replace automated CI.
+These checks require human judgment, real Provider credentials, a Railway redeploy, or an external environment. They do not replace automated CI.
+
+## Phase 13 priority acceptance
+
+### Custom Scenarios
+
+- [ ] Create one English and one Simplified Chinese variant of the same behavioral test.
+- [ ] Confirm each variant preserves its own messages, expected behavior, required signals, forbidden signals, severity, and maximum turns.
+- [ ] Edit a Scenario and confirm its updated fields appear in newly created Runs.
+- [ ] Duplicate a Scenario and confirm the copy receives a new ID.
+- [ ] Delete a Scenario and confirm it is removed from any current Test Pack without altering prior Run snapshots.
+
+### Test Packs
+
+- [ ] Create a Test Pack containing at least four Scenarios.
+- [ ] Reorder the items and confirm the displayed order is preserved after refresh.
+- [ ] Disable one item and confirm it is not executed.
+- [ ] Edit the pack and confirm its version increments.
+- [ ] Duplicate the pack and confirm the copy is independently editable.
+- [ ] Use the Test Pack launcher with a user-owned Character Card.
+- [ ] Run the same pack against a stable card and an intentionally OOC card.
+- [ ] Confirm a pack with no enabled Scenario for the selected Test Language cannot start.
+
+### Immutable experiment snapshots
+
+- [ ] Complete a Test Pack Run and record the Character name, Pack version, Scenario content, Provider, Model, System Prompt, and Temperature shown in its snapshot/report.
+- [ ] Edit the Character Card, Target configuration, Test Pack, and Scenarios.
+- [ ] Reopen the old experiment and confirm every saved value remains unchanged.
+- [ ] Run the edited configuration and confirm the new Run contains the new values.
+- [ ] Confirm a deleted current Scenario or Pack does not break an already completed Run report.
+- [ ] Confirm no Subject, Adaptive, Judge, or Admin secret appears in the snapshot.
+
+### Experiment History
+
+- [ ] Filter by Character, Test Pack, language, Tester Mode, and Judge Mode.
+- [ ] Confirm pagination works with more than 20 snapshotted Runs.
+- [ ] Mark one compatible Run as baseline and confirm a later baseline replaces it for the same Character/Pack pair.
+- [ ] Rerun an experiment and confirm the new Run records `rerun_of` and uses the frozen configuration.
+- [ ] Open a Lab Note from history.
+- [ ] Delete a Run and confirm its turns, events, evidence, snapshot, and history entry are removed.
+- [ ] Confirm pre-Phase-13 Runs are not misrepresented as reproducible snapshots.
+
+### Storage Diagnostics and persistence probe
+
+- [ ] Open Workspace → Storage & Backup using the Admin Token.
+- [ ] Confirm Environment is `production` on Railway.
+- [ ] Confirm Database Path is `/data/echo_masque.db`.
+- [ ] Confirm Writable is Yes and Persistent Path is Yes.
+- [ ] Confirm Character, Scenario, Pack, and Run counts match the visible workspace.
+- [ ] Create a persistence probe and copy its ID.
+- [ ] Trigger a real Railway redeploy.
+- [ ] After the new deployment is healthy, check the same probe ID and confirm the marker remains.
+- [ ] Delete the probe after verification.
+- [ ] Temporarily point a local production configuration outside `/data` and confirm the red persistence warning appears.
+
+### Workspace export and import
+
+- [ ] Export the real workspace as JSON.
+- [ ] Search the archive for Subject, Adaptive, Judge, and Admin secrets and confirm none are present.
+- [ ] Confirm Character Cards, Scenarios, Packs, snapshotted Runs, turns, events, evidence, and non-secret Admin Runtime configuration are included.
+- [ ] Import into a clean local database using Merge mode.
+- [ ] Confirm a second Merge import skips duplicate IDs rather than duplicating records.
+- [ ] Test Replace mode only after retaining a backup and confirm the current owner workspace is replaced.
+- [ ] Open an imported report and confirm Unicode Chinese content remains intact.
 
 ## Phase 12 priority acceptance
 
@@ -43,11 +106,11 @@ These checks require human judgment, real Provider credentials, or an external e
 ## Existing interface and multilingual checks
 
 - [x] User accepted the current desktop UI for the MVP stage.
-- [ ] Confirm the Character Library, creator, Admin Settings, and Test Room remain readable on narrow mobile width.
+- [ ] Confirm the Character Library, Workspace Hub, Scenario editor, Pack editor, launcher, Admin Settings, and Test Room remain readable on narrow mobile width.
 - [ ] Confirm English is the default in a fresh browser profile.
 - [ ] Switch to Simplified Chinese, refresh, and confirm the interface language persists.
 - [ ] Confirm UI Language and Test Language remain independent.
-- [ ] Confirm user-authored card fields, prompts, and model responses are not automatically translated.
+- [ ] Confirm user-authored card fields, prompts, Scenario text, and model responses are not automatically translated.
 
 ## Live Test Room
 
@@ -92,12 +155,14 @@ These checks require human judgment, real Provider credentials, or an external e
 
 ## Railway
 
-- [ ] Add the `/data` Volume and confirm Character Cards, Trials, reports, and Admin non-secret settings survive redeploy.
+- [x] Volume is attached to the Echo Masque service at `/data`.
+- [x] `ECHO_MASQUE_DATABASE_URL` is configured as `sqlite:////data/echo_masque.db`.
+- [ ] Complete the Phase 13 persistence probe across a real redeploy.
 - [ ] Add `ECHO_MASQUE_ADMIN_TOKEN`.
 - [ ] Add `ECHO_MASQUE_ADAPTIVE_API_KEY` and `ECHO_MASQUE_JUDGE_API_KEY`.
 - [ ] Confirm Admin Settings reports both runtimes Ready with environment credentials.
-- [ ] Run a real Adaptive + Hybrid Trial on Railway.
-- [ ] Redeploy and confirm Admin profiles persist and environment runtimes return Ready automatically.
+- [ ] Run a real Adaptive + Hybrid Test Pack on Railway.
+- [ ] Redeploy and confirm Admin profiles, Character Cards, Scenarios, Packs, experiments, and the probe persist.
 - [ ] Confirm the automatic credential-free Railway Smoke remains green.
 
 ## Production boundary

@@ -8,11 +8,13 @@ from echo_masque.persistence.trial_request import (
     decode_trial_request,
     encode_trial_request,
 )
+from echo_masque.persistence.workspace_repository import WorkspaceRepository
 
 __all__ = [
     "Database",
     "Repository",
     "TrialRequestMetadata",
+    "WorkspaceRepository",
     "decode_trial_metadata",
     "decode_trial_request",
     "encode_trial_request",
