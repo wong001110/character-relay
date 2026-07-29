@@ -48,6 +48,12 @@ class ScenarioUpdate(ScenarioFields):
 
 
 class ScenarioView(ScenarioFields):
+    # SQLAlchemy records expose string-backed enums; Pydantic normalizes them on use.
+    category: TestKind | str
+    language: TestLanguage | str = TestLanguage.ENGLISH
+    severity: Severity | str = Severity.MEDIUM
+    recommended_tester_mode: TesterMode | str = "benchmark"
+    recommended_judge_mode: JudgeMode | str = JudgeMode.HYBRID
     id: str
     owner_id: str
     created_at: datetime
@@ -57,13 +63,12 @@ class ScenarioView(ScenarioFields):
         return TrialScenario(
             id=self.id,
             name=self.name,
-            kind=self.category,
-            language=self.language,
+            kind=TestKind(self.category),
+            language=TestLanguage(self.language),
             messages=tuple(self.messages),
             expected_behavior=self.expected_behavior,
             forbidden_phrases=tuple(self.forbidden_phrases),
             required_phrases=tuple(self.required_phrases),
-            max_turns=self.max_turns,
         )
 
 
@@ -117,7 +122,7 @@ class TestPackView(BaseModel):
         return tuple(
             item.scenario.to_trial_scenario()
             for item in sorted(self.items, key=lambda value: value.position)
-            if item.enabled and item.scenario.language == language
+            if item.enabled and TestLanguage(item.scenario.language) == language
         )
 
 
