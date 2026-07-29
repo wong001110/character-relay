@@ -1,0 +1,62 @@
+name: Live Demo Seed
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Public Echo Masque URL
+        required: false
+        default: https://echo-masque-production.up.railway.app
+  pull_request:
+    types: [opened]
+    paths:
+      - scripts/live_demo_seed.py
+      - scripts/live_demo_seed_runner.py
+      - tests/test_live_demo_seed.py
+      - tests/test_live_demo_seed_runner.py
+      - .github/workflows/live-demo-seed.yml
+
+concurrency:
+  group: live-demo-seed-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DEFAULT_LIVE_URL: https://echo-masque-production.up.railway.app
+
+jobs:
+  seed:
+    if: github.event_name == 'workflow_dispatch' || github.event.action == 'opened'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Resolve Live URL
+        id: target
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_URL: ${{ inputs.url }}
+        run: |
+          target="$DEFAULT_LIVE_URL"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$INPUT_URL" ]; then
+            target="$INPUT_URL"
+          fi
+          echo "url=$target" >> "$GITHUB_OUTPUT"
+      - name: Seed and test permanent Live Demo
+        env:
+          LIVE_URL: ${{ steps.target.outputs.url }}
+          PYTHONPATH: .
+        run: |
+          python scripts/live_demo_seed_runner.py "$LIVE_URL" --output live-demo-result.json
+          cat live-demo-result.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload Live Demo result
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-demo-result
+          path: live-demo-result.json
+          if-no-files-found: error
