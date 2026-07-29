@@ -191,3 +191,14 @@ class PersistenceProbeRecord(Base):
     owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
     marker: Mapped[str] = mapped_column(String(200), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class StorageMetadataRecord(Base):
+    __tablename__ = "storage_metadata"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default="default")
+    instance_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )

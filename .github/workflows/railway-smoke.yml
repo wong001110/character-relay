@@ -40,15 +40,25 @@ jobs:
           if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$INPUT_URL" ]; then
             target="$INPUT_URL"
           fi
+          require_storage=false
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            require_storage=true
+          fi
           echo "Testing $target"
           echo "url=$target" >> "$GITHUB_OUTPUT"
+          echo "require_storage=$require_storage" >> "$GITHUB_OUTPUT"
       - name: Wait for deployment and run smoke test
         env:
           RAILWAY_PUBLIC_URL: ${{ steps.target.outputs.url }}
+          REQUIRE_STORAGE: ${{ steps.target.outputs.require_storage }}
         run: |
+          extra_args=()
+          if [ "$REQUIRE_STORAGE" = "true" ]; then
+            extra_args+=(--require-storage)
+          fi
           for attempt in $(seq 1 20); do
             echo "Railway smoke attempt $attempt/20"
-            if python scripts/railway_smoke.py "$RAILWAY_PUBLIC_URL"; then
+            if python scripts/railway_smoke.py "$RAILWAY_PUBLIC_URL" "${extra_args[@]}"; then
               exit 0
             fi
             if [ "$attempt" -lt 20 ]; then

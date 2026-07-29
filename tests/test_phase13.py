@@ -1,11 +1,13 @@
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from echo_masque.api import create_app
 from echo_masque.config import Settings
+from echo_masque.persistence import UnsafeProductionStorageError
 
 
 def settings(path: Path, **overrides: object) -> Settings:
@@ -214,25 +216,18 @@ def test_history_baseline_and_rerun_use_snapshotted_configuration(
     }
 
 
-def test_storage_diagnostics_warn_on_non_persistent_production_sqlite(
-    tmp_path: Path,
-) -> None:
+def test_production_app_rejects_non_persistent_sqlite(tmp_path: Path) -> None:
     configured = Settings(
         environment="production",
         database_url=f"sqlite:///{tmp_path / 'temporary.db'}",
         admin_token=SecretStr("admin-test-token"),
     )
-    client = TestClient(create_app(configured))
-    response = client.get(
-        "/api/admin/storage",
-        headers={"X-Echo-Admin": "admin-test-token"},
-    )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["writable"] is True
-    assert payload["persistent_path_expected"] is True
-    assert payload["persistent_path_configured"] is False
-    assert "/data" in payload["warning"]
+
+    with pytest.raises(
+        UnsafeProductionStorageError,
+        match="must be under /data",
+    ):
+        create_app(configured)
 
 
 def test_persistence_probe_survives_application_restart(tmp_path: Path) -> None:

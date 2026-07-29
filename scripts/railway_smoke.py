@@ -66,6 +66,27 @@ def contains_cjk(value: str) -> bool:
     return any("\u4e00" <= character <= "\u9fff" for character in value)
 
 
+def validate_storage_health(health: dict[str, Any], *, required: bool) -> str:
+    storage = health.get("storage")
+    if not isinstance(storage, dict):
+        if required:
+            raise RuntimeError(f"Health response did not include storage metadata: {health}")
+        return "legacy-health"
+    instance_id = storage.get("storage_instance_id")
+    if not isinstance(instance_id, str) or not instance_id:
+        raise RuntimeError(f"Storage identity was missing: {storage}")
+    if health.get("environment") == "production":
+        if storage.get("persistent_required") is not True:
+            raise RuntimeError(f"Production did not require persistent storage: {storage}")
+        if storage.get("mount_ready") is not True:
+            raise RuntimeError(f"Production /data mount was not ready: {storage}")
+        if storage.get("mount_path") != "/data":
+            raise RuntimeError(f"Production mount path was unexpected: {storage}")
+        if storage.get("database_path") != "/data/echo_masque.db":
+            raise RuntimeError(f"Production database path was unexpected: {storage}")
+    return instance_id
+
+
 def completed_language_trial(base_url: str, test_language: str) -> float:
     started = request_json(
         base_url,
@@ -128,10 +149,11 @@ def completed_language_trial(base_url: str, test_language: str) -> float:
     return float(score)
 
 
-def run_smoke(base_url: str) -> None:
+def run_smoke(base_url: str, *, require_storage: bool = False) -> None:
     health = request_json(base_url, "/health")
     if health.get("name") != "Echo Masque":
         raise RuntimeError(f"Unexpected health response: {health}")
+    storage_instance_id = validate_storage_health(health, required=require_storage)
 
     _, content_type = request_text(base_url, "/")
     if content_type != "text/html":
@@ -146,15 +168,20 @@ def run_smoke(base_url: str) -> None:
     chinese_score = completed_language_trial(base_url, "zh-CN")
     print(
         "Railway multilingual smoke passed: "
-        f"{base_url} (en={english_score}, zh-CN={chinese_score})"
+        f"{base_url} (storage={storage_instance_id}, en={english_score}, zh-CN={chinese_score})"
     )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("base_url", help="Public Railway URL, for example https://app.up.railway.app")
+    parser.add_argument(
+        "--require-storage",
+        action="store_true",
+        help="Require the deployed version to expose verified persistent storage health.",
+    )
     args = parser.parse_args()
-    run_smoke(normalized_base_url(args.base_url))
+    run_smoke(normalized_base_url(args.base_url), require_storage=args.require_storage)
     return 0
 
 
