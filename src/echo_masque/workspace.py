@@ -26,6 +26,15 @@ class ScenarioFields(BaseModel):
     recommended_tester_mode: TesterMode = "benchmark"
     recommended_judge_mode: JudgeMode = JudgeMode.HYBRID
 
+    @model_validator(mode="before")
+    @classmethod
+    def discard_generated_kind(cls, value: object) -> object:
+        if isinstance(value, dict) and "kind" in value:
+            cleaned = dict(value)
+            cleaned.pop("kind", None)
+            return cleaned
+        return value
+
     @model_validator(mode="after")
     def normalize_text_lists(self) -> "ScenarioFields":
         messages = _clean(self.messages)
