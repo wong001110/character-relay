@@ -36,6 +36,7 @@ def start_trial(
         run_id = service(request).start(
             target_id=payload.target_id,
             character_card_id=payload.character_card_id,
+            test_pack_id=payload.test_pack_id,
             owner_id=owner_id,
             suite=payload.suite,
             mode=payload.mode,
@@ -45,7 +46,10 @@ def start_trial(
             test_language=payload.test_language,
         )
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Target or Character Card not found.") from exc
+        raise HTTPException(
+            status_code=404,
+            detail="Target, Character Card, or Test Pack not found.",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     background_tasks.add_task(service(request).execute, run_id)
