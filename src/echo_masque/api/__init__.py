@@ -1,5 +1,6 @@
 """FastAPI application factory."""
 
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -21,14 +22,31 @@ from echo_masque.api.routes import (
 )
 from echo_masque.config import Settings, get_settings
 from echo_masque.credentials import CredentialStore
-from echo_masque.persistence import Database, Repository, WorkspaceRepository
+from echo_masque.persistence import (
+    Database,
+    Repository,
+    WorkspaceRepository,
+    inspect_storage,
+)
 from echo_masque.services import RuntimeService, TrialService
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings or get_settings()
+    storage_status = inspect_storage(resolved)
     database = Database(resolved.database_url)
     database.initialize()
+    storage_status = storage_status.with_instance_id(database.ensure_storage_instance_id())
+    logger.info(
+        "Storage ready: kind=%s path=%s mount=%s instance=%s",
+        storage_status.database_kind,
+        storage_status.database_path,
+        storage_status.mount_ready,
+        storage_status.storage_instance_id,
+    )
+
     repository = Repository(database)
     workspace_repository = WorkspaceRepository(database)
     repository.seed_demo_targets()
@@ -53,6 +71,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
     app.state.settings = resolved
+    app.state.storage_status = storage_status
     app.state.database = database
     app.state.repository = repository
     app.state.workspace_repository = workspace_repository
