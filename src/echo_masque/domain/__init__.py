@@ -1,6 +1,8 @@
 """Domain exports."""
 
 from echo_masque.domain.models import (
+    SEMANTIC_DIMENSION_KEYS,
+    SEMANTIC_PASS_THRESHOLD,
     CharacterProfile,
     Evidence,
     HealthResponse,
@@ -20,9 +22,14 @@ from echo_masque.domain.models import (
     TrialSuiteResult,
     TrialTurn,
     Verdict,
+    normalize_semantic_verdict,
+    resolve_judge_verdict,
+    semantic_score_from_dimensions,
 )
 
 __all__ = [
+    "SEMANTIC_DIMENSION_KEYS",
+    "SEMANTIC_PASS_THRESHOLD",
     "CharacterProfile",
     "Evidence",
     "HealthResponse",
@@ -42,4 +49,7 @@ __all__ = [
     "TrialSuiteResult",
     "TrialTurn",
     "Verdict",
+    "normalize_semantic_verdict",
+    "resolve_judge_verdict",
+    "semantic_score_from_dimensions",
 ]
