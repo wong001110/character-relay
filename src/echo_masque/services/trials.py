@@ -4,7 +4,7 @@ import asyncio
 import json
 import os
 from collections.abc import Callable
-from typing import Literal, cast
+from typing import Literal
 
 from pydantic import SecretStr
 
@@ -21,6 +21,7 @@ from echo_masque.domain import (
 from echo_masque.judges import SemanticJudge
 from echo_masque.persistence import (
     Repository,
+    TrialRequestMetadata,
     WorkspaceRepository,
     decode_trial_metadata,
     encode_trial_request,
@@ -118,15 +119,15 @@ class TrialService:
             selected = [
                 item.scenario
                 for item in sorted(pack.items, key=lambda value: value.position)
-                if item.enabled and item.scenario.language == test_language
+                if item.enabled
+                and TestLanguage(item.scenario.language) == test_language
             ]
             if not selected:
                 raise ValueError(
                     "The selected Test Pack has no enabled scenarios for this Test Language."
                 )
-            scenarios = tuple(item.to_trial_scenario() for item in selected)
             scenario_payloads = [item.model_dump(mode="json") for item in selected]
-            suite_values = [item.category.value for item in selected]
+            suite_values = [TestKind(item.category).value for item in selected]
         else:
             scenarios = tuple(
                 scenario
@@ -150,14 +151,17 @@ class TrialService:
             )
         if resolved_adaptive is not None and scenario_payloads:
             caps = [
-                int(item.get("max_turns", resolved_adaptive.max_turns))
+                self._scenario_turn_cap(item, resolved_adaptive.max_turns)
                 for item in scenario_payloads
-                if isinstance(item.get("max_turns", resolved_adaptive.max_turns), int)
             ]
-            if caps:
-                resolved_adaptive = resolved_adaptive.model_copy(
-                    update={"max_turns": max(1, min(resolved_adaptive.max_turns, min(caps)))}
-                )
+            resolved_adaptive = resolved_adaptive.model_copy(
+                update={
+                    "max_turns": max(
+                        1,
+                        min(resolved_adaptive.max_turns, min(caps)),
+                    )
+                }
+            )
 
         judge_profile: JudgeRuntimeProfile | None = None
         judge_credential: SecretStr | None = None
@@ -286,7 +290,9 @@ class TrialService:
             adaptive = None
             if metadata.tester_mode == "adaptive":
                 if adaptive_config is None:
-                    raise ValueError("Adaptive Tester configuration is no longer available.")
+                    raise ValueError(
+                        "Adaptive Tester configuration is no longer available."
+                    )
                 adaptive = AdaptiveTester(
                     config=adaptive_config,
                     provider=self.provider_factory(
@@ -298,10 +304,15 @@ class TrialService:
             semantic_judge = None
             if metadata.judge_mode in {JudgeMode.SEMANTIC, JudgeMode.HYBRID}:
                 if judge_profile is None or judge_credential is None:
-                    raise ValueError("Semantic Judge configuration is no longer available.")
+                    raise ValueError(
+                        "Semantic Judge configuration is no longer available."
+                    )
                 semantic_judge = SemanticJudge(
                     config=judge_profile,
-                    provider=self.provider_factory(judge_profile.base_url, judge_credential),
+                    provider=self.provider_factory(
+                        judge_profile.base_url,
+                        judge_credential,
+                    ),
                 )
 
             scenarios = self._scenarios_from_snapshot(snapshot, metadata)
@@ -321,7 +332,11 @@ class TrialService:
                 self.repository.save_result(run_id, result)
         except (ProviderError, ValueError, KeyError) as exc:
             await observe("session_failed", {"message": str(exc)})
-            self.repository.set_run_status(run_id, TrialStatus.FAILED, error=str(exc))
+            self.repository.set_run_status(
+                run_id,
+                TrialStatus.FAILED,
+                error=str(exc),
+            )
         finally:
             self._clear_run_state(run_id)
 
@@ -349,18 +364,23 @@ class TrialService:
         )
 
     def _scenarios_from_snapshot(
-        self, snapshot: RunSnapshotView | None, metadata: object
+        self,
+        snapshot: RunSnapshotView | None,
+        metadata: TrialRequestMetadata,
     ) -> tuple[TrialScenario, ...]:
         if snapshot is not None and snapshot.scenarios:
-            return tuple(TrialScenario.model_validate(item) for item in snapshot.scenarios)
-        resolved = cast(object, metadata)
-        suite = getattr(resolved, "suite")
-        language = getattr(resolved, "test_language")
-        kinds = [TestKind(item) for item in suite]
+            return tuple(
+                TrialScenario.model_validate(item)
+                for item in snapshot.scenarios
+            )
+        kinds = [TestKind(item) for item in metadata.suite]
         return tuple(
             scenario
             for kind in kinds
-            for scenario in scenarios_for(kind, language=language)
+            for scenario in scenarios_for(
+                kind,
+                language=metadata.test_language,
+            )
         )
 
     def _target(
@@ -394,7 +414,9 @@ class TrialService:
         raise ValueError(f"Unsupported persisted target kind: {target_kind}")
 
     @staticmethod
-    def _character_snapshot(card: CharacterCardRecord | None) -> dict[str, object]:
+    def _character_snapshot(
+        card: CharacterCardRecord | None,
+    ) -> dict[str, object]:
         if card is None:
             return {}
         return {
@@ -423,23 +445,43 @@ class TrialService:
         }
 
     @staticmethod
-    def _character_context_from_snapshot(snapshot: RunSnapshotView | None) -> str:
+    def _character_context_from_snapshot(
+        snapshot: RunSnapshotView | None,
+    ) -> str:
         if snapshot is None or not snapshot.character:
-            return "No Character Card profile was supplied. Judge only the scenario contract."
+            return (
+                "No Character Card profile was supplied. "
+                "Judge only the scenario contract."
+            )
         card = snapshot.character
+        traits = TrialService._string_items(card.get("traits"))
+        forbidden = TrialService._string_items(card.get("forbidden_behaviors"))
         return "\n".join(
             (
                 f"Name: {card.get('display_name', 'Unknown')}",
                 f"Subject type: {card.get('subject_type', 'custom')}",
                 f"Subtitle: {card.get('subtitle', '')}",
                 f"Persona: {card.get('persona_summary', '')}",
-                f"Traits: {', '.join(str(item) for item in card.get('traits', []))}",
+                f"Traits: {', '.join(traits)}",
                 f"Expected tone: {card.get('expected_tone') or 'Not specified'}",
-                "Forbidden behaviors: "
-                f"{', '.join(str(item) for item in card.get('forbidden_behaviors', []))}",
+                f"Forbidden behaviors: {', '.join(forbidden)}",
                 f"Memory boundary: {card.get('memory_summary') or 'Not specified'}",
             )
         )
+
+    @staticmethod
+    def _scenario_turn_cap(
+        payload: dict[str, object],
+        default: int,
+    ) -> int:
+        value = payload.get("max_turns")
+        return value if isinstance(value, int) else default
+
+    @staticmethod
+    def _string_items(value: object) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item) for item in value]
 
     def cancel(self, run_id: str) -> bool:
         run = self.repository.get_run(run_id)
