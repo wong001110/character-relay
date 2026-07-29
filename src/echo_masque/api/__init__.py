@@ -20,7 +20,7 @@ from echo_masque.api.routes import (
     trials_router,
     workspace_router,
 )
-from echo_masque.config import Settings, get_settings
+from echo_masque.config import Settings, get_settings, resolve_platform_settings
 from echo_masque.credentials import CredentialStore
 from echo_masque.persistence import (
     Database,
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    resolved = settings or get_settings()
+    resolved = get_settings() if settings is None else resolve_platform_settings(settings)
     storage_status = inspect_storage(resolved)
     database = Database(resolved.database_url)
     database.initialize()
