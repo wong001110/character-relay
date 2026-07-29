@@ -47,15 +47,23 @@ class ScenarioUpdate(ScenarioFields):
     pass
 
 
-class ScenarioView(ScenarioFields):
-    # SQLAlchemy records expose string-backed enums; Pydantic normalizes them on use.
-    category: TestKind | str
-    language: TestLanguage | str = TestLanguage.ENGLISH
-    severity: Severity | str = Severity.MEDIUM
-    recommended_tester_mode: TesterMode | str = "benchmark"
-    recommended_judge_mode: JudgeMode | str = JudgeMode.HYBRID
+class ScenarioView(BaseModel):
+    """String-backed persistence view with explicit execution-time enum parsing."""
+
     id: str
     owner_id: str
+    name: str
+    category: str
+    description: str
+    language: str
+    messages: list[str]
+    expected_behavior: str
+    forbidden_phrases: list[str]
+    required_phrases: list[str]
+    severity: str
+    max_turns: int
+    recommended_tester_mode: str
+    recommended_judge_mode: str
     created_at: datetime
     updated_at: datetime
 
