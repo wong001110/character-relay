@@ -44,7 +44,10 @@ def credential_store(request: Request) -> CredentialStore:
 
 
 def credential_source(request: Request) -> Literal["vault", "memory"]:
-    return "vault" if isinstance(credential_store(request), CredentialVault) else "memory"
+    store = credential_store(request)
+    if isinstance(store, CredentialVault) and store.settings.environment == "production":
+        return "vault"
+    return "memory"
 
 
 def target_access(request: Request) -> TargetAccessRepository:
