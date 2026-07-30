@@ -8,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from echo_masque.admin_runtime import RuntimeCredentialStore
 from echo_masque.api.routes import (
     admin_router,
     auth_router,
@@ -56,6 +55,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     auth_repository = AuthRepository(database)
     auth_service = AuthService(auth_repository, resolved)
     auth_service.ensure_development_user()
+    auth_service.ensure_system_runtime_user()
+    auth_service.ensure_bootstrap_admin()
 
     repository = Repository(database)
     workspace_repository = WorkspaceRepository(database)
@@ -70,8 +71,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     repository.seed_demo_targets()
     repository.remove_demo_character_cards()
     credential_store = CredentialVault(auth_repository, resolved)
-    runtime_credentials = RuntimeCredentialStore()
-    runtime_service = RuntimeService(repository, resolved, runtime_credentials)
+    runtime_service = RuntimeService(repository, resolved, credential_store)
     trial_service = TrialService(
         repository,
         credential_store,
@@ -110,7 +110,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.matrix_repository = matrix_repository
     app.state.target_access_repository = target_access_repository
     app.state.credential_store = credential_store
-    app.state.runtime_credentials = runtime_credentials
     app.state.runtime_service = runtime_service
     app.state.trial_service = trial_service
     app.state.matrix_service = matrix_service

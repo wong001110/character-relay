@@ -1,4 +1,4 @@
-"""Provider credential storage with encrypted persistence for authenticated workspaces."""
+"""Encrypted provider and Admin Runtime credential persistence."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ class CredentialVaultUnavailable(RuntimeError):
 
 
 class CredentialStore:
-    """Keep user-supplied provider keys in process memory only."""
+    """Compatibility interface for provider credential resolution."""
 
     def __init__(self) -> None:
         self._values: dict[tuple[str, str], SecretStr] = {}
@@ -43,9 +43,10 @@ class CredentialStore:
 
 
 class CredentialVault(CredentialStore):
-    """Persist Subject credentials as authenticated ciphertext with rotation support."""
+    """Persist credentials as authenticated ciphertext with key rotation support."""
 
-    scope_kind = "character_provider"
+    character_scope_kind = "character_provider"
+    runtime_scope_kind = "admin_runtime"
 
     def __init__(self, repository: AuthRepository, settings: Settings) -> None:
         super().__init__()
@@ -73,29 +74,84 @@ class CredentialVault(CredentialStore):
     def configured(self) -> bool:
         return self._cipher is not None
 
+    @property
+    def primary_version(self) -> str:
+        return self._primary_version
+
     def set(self, owner_id: str, card_id: str, api_key: SecretStr) -> None:
+        self.set_scope(
+            owner_id=owner_id,
+            scope_kind=self.character_scope_kind,
+            scope_id=card_id,
+            value=api_key,
+            actor_user_id=owner_id,
+            resource_type="character_card",
+        )
+
+    def get(self, owner_id: str, card_id: str) -> SecretStr | None:
+        return self.get_scope(
+            owner_id=owner_id,
+            scope_kind=self.character_scope_kind,
+            scope_id=card_id,
+        )
+
+    def has(self, owner_id: str, card_id: str) -> bool:
+        return self.has_scope(
+            owner_id=owner_id,
+            scope_kind=self.character_scope_kind,
+            scope_id=card_id,
+        )
+
+    def delete(self, owner_id: str, card_id: str) -> None:
+        self.delete_scope(
+            owner_id=owner_id,
+            scope_kind=self.character_scope_kind,
+            scope_id=card_id,
+            actor_user_id=owner_id,
+            resource_type="character_card",
+        )
+
+    def set_scope(
+        self,
+        *,
+        owner_id: str,
+        scope_kind: str,
+        scope_id: str,
+        value: SecretStr,
+        actor_user_id: str,
+        resource_type: str,
+    ) -> None:
         cipher = self._require_cipher()
-        encrypted = cipher.encrypt(api_key.get_secret_value().encode("utf-8")).decode("ascii")
+        encrypted = cipher.encrypt(value.get_secret_value().encode("utf-8")).decode("ascii")
         self.repository.save_credential(
             owner_id=owner_id,
-            scope_kind=self.scope_kind,
-            scope_id=card_id,
+            scope_kind=scope_kind,
+            scope_id=scope_id,
             encrypted_value=encrypted,
             key_version=self._primary_version,
         )
         self.repository.audit(
-            actor_user_id=owner_id,
+            actor_user_id=actor_user_id,
             action="credential.configured",
-            resource_type="character_card",
-            resource_id=card_id,
-            metadata={"key_version": self._primary_version},
+            resource_type=resource_type,
+            resource_id=scope_id,
+            metadata={
+                "scope_kind": scope_kind,
+                "key_version": self._primary_version,
+            },
         )
 
-    def get(self, owner_id: str, card_id: str) -> SecretStr | None:
+    def get_scope(
+        self,
+        *,
+        owner_id: str,
+        scope_kind: str,
+        scope_id: str,
+    ) -> SecretStr | None:
         record = self.repository.get_credential(
             owner_id=owner_id,
-            scope_kind=self.scope_kind,
-            scope_id=card_id,
+            scope_kind=scope_kind,
+            scope_id=scope_id,
         )
         if record is None:
             return None
@@ -108,32 +164,47 @@ class CredentialVault(CredentialStore):
             ) from exc
         return SecretStr(value)
 
-    def has(self, owner_id: str, card_id: str) -> bool:
+    def has_scope(
+        self,
+        *,
+        owner_id: str,
+        scope_kind: str,
+        scope_id: str,
+    ) -> bool:
         if not self.configured:
             return False
         return (
             self.repository.get_credential(
                 owner_id=owner_id,
-                scope_kind=self.scope_kind,
-                scope_id=card_id,
+                scope_kind=scope_kind,
+                scope_id=scope_id,
             )
             is not None
         )
 
-    def delete(self, owner_id: str, card_id: str) -> None:
+    def delete_scope(
+        self,
+        *,
+        owner_id: str,
+        scope_kind: str,
+        scope_id: str,
+        actor_user_id: str,
+        resource_type: str,
+    ) -> None:
         self.repository.delete_credential(
             owner_id=owner_id,
-            scope_kind=self.scope_kind,
-            scope_id=card_id,
+            scope_kind=scope_kind,
+            scope_id=scope_id,
         )
         self.repository.audit(
-            actor_user_id=owner_id,
+            actor_user_id=actor_user_id,
             action="credential.deleted",
-            resource_type="character_card",
-            resource_id=card_id,
+            resource_type=resource_type,
+            resource_id=scope_id,
+            metadata={"scope_kind": scope_kind},
         )
 
-    def rotate_all(self) -> int:
+    def rotate_all(self, *, actor_user_id: str | None = None) -> int:
         cipher = self._require_cipher()
         rotated = 0
         for record in self.repository.list_credentials():
@@ -152,6 +223,16 @@ class CredentialVault(CredentialStore):
                 rotated=True,
             )
             rotated += 1
+        if actor_user_id is not None:
+            self.repository.audit(
+                actor_user_id=actor_user_id,
+                action="credential.rotation_completed",
+                resource_type="credential_vault",
+                metadata={
+                    "rotated_count": rotated,
+                    "key_version": self._primary_version,
+                },
+            )
         return rotated
 
     def _require_cipher(self) -> MultiFernet:

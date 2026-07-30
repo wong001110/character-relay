@@ -16,6 +16,8 @@ from echo_masque.persistence.auth_repository import AuthRepository
 from echo_masque.persistence.models import AuthSessionRecord, UserRecord
 
 Role = Literal["user", "admin"]
+SYSTEM_RUNTIME_USER_ID = "system-runtime"
+SYSTEM_RUNTIME_EMAIL = "system-runtime@echo-masque.invalid"
 
 
 class AuthenticationError(ValueError):
@@ -83,6 +85,67 @@ class AuthService:
                 display_name="Local User" if user_id == "local-user" else user_id,
                 password_hash=self.passwords.hash(secrets.token_urlsafe(32)),
                 role="admin" if user_id == "local-user" else "user",
+            )
+        return AuthenticatedUser.from_record(record)
+
+    def ensure_system_runtime_user(self) -> AuthenticatedUser:
+        """Create a non-interactive owner for shared encrypted Runtime credentials."""
+
+        record = self.repository.get_user(SYSTEM_RUNTIME_USER_ID)
+        if record is None:
+            record = self.repository.create_user(
+                user_id=SYSTEM_RUNTIME_USER_ID,
+                email=SYSTEM_RUNTIME_EMAIL,
+                display_name="Echo Masque Runtime",
+                password_hash=self.passwords.hash(secrets.token_urlsafe(64)),
+                role="admin",
+            )
+        return AuthenticatedUser.from_record(record)
+
+    def ensure_bootstrap_admin(self) -> AuthenticatedUser | None:
+        """Create or promote the configured first production administrator."""
+
+        email = self.settings.bootstrap_admin_email
+        password_secret = self.settings.bootstrap_admin_password
+        if email is None and password_secret is None:
+            return None
+        if email is None or password_secret is None:
+            raise ValueError(
+                "ECHO_MASQUE_BOOTSTRAP_ADMIN_EMAIL and "
+                "ECHO_MASQUE_BOOTSTRAP_ADMIN_PASSWORD must be configured together."
+            )
+        normalized = self._normalize_email(email)
+        record = self.repository.get_user_by_email(normalized)
+        if record is None:
+            password = password_secret.get_secret_value()
+            if len(password) < 12:
+                raise ValueError("Bootstrap Admin password must contain at least 12 characters.")
+            record = self.repository.create_user(
+                email=normalized,
+                display_name=self.settings.bootstrap_admin_display_name,
+                password_hash=self.passwords.hash(password),
+                role="admin",
+            )
+            self.repository.audit(
+                actor_user_id=record.id,
+                action="admin.bootstrap_created",
+                resource_type="user",
+                resource_id=record.id,
+            )
+        elif record.role != "admin":
+            with self.repository.database.session() as session:
+                stored = session.get(UserRecord, record.id)
+                if stored is None:
+                    raise RuntimeError("Bootstrap Admin disappeared during promotion.")
+                stored.role = "admin"
+                session.commit()
+                session.refresh(stored)
+                record = stored
+            self.repository.audit(
+                actor_user_id=record.id,
+                action="admin.bootstrap_promoted",
+                resource_type="user",
+                resource_id=record.id,
             )
         return AuthenticatedUser.from_record(record)
 

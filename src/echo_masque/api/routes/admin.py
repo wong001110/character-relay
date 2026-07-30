@@ -1,49 +1,32 @@
-"""Public runtime status and protected Admin AI configuration endpoints."""
+"""Public runtime status and role-protected Admin AI configuration endpoints."""
 
 from __future__ import annotations
 
-import hmac
-from typing import Annotated, Literal, cast
+from typing import Literal, cast
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import BaseModel
 
 from echo_masque.admin_runtime import AdminRuntimeConfig, RuntimeStatus
+from echo_masque.api.dependencies import AdminUserDependency
 from echo_masque.api.schemas import AdminRuntimeView, RuntimeCredentialConfigure
-from echo_masque.config import Settings
+from echo_masque.credentials import CredentialVaultUnavailable
 from echo_masque.services import RuntimeService
 
 router = APIRouter(tags=["runtime"])
+
+
+class CredentialRotationView(BaseModel):
+    rotated_count: int
+    key_version: str
 
 
 def runtime_service(request: Request) -> RuntimeService:
     return cast(RuntimeService, request.app.state.runtime_service)
 
 
-def settings(request: Request) -> Settings:
-    return cast(Settings, request.app.state.settings)
-
-
-def require_admin(
-    request: Request,
-    token: Annotated[str | None, Header(alias="X-Echo-Admin")] = None,
-) -> None:
-    resolved = settings(request)
-    expected = resolved.admin_token
-    if expected is None:
-        if resolved.environment in {"development", "test"}:
-            expected_value = "local-admin"
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Admin access is disabled until ECHO_MASQUE_ADMIN_TOKEN is configured.",
-            )
-    else:
-        expected_value = expected.get_secret_value()
-    if token is None or not hmac.compare_digest(token, expected_value):
-        raise HTTPException(status_code=401, detail="Invalid Admin token.")
-
-
-AdminDependency = Annotated[None, Depends(require_admin)]
+def legacy_admin_request(request: Request) -> bool:
+    return bool(getattr(request.state, "legacy_admin", False))
 
 
 @router.get("/api/runtime/status", response_model=RuntimeStatus)
@@ -52,7 +35,10 @@ def public_runtime_status(request: Request) -> RuntimeStatus:
 
 
 @router.get("/api/admin/runtime", response_model=AdminRuntimeView)
-def get_admin_runtime(request: Request, _: AdminDependency) -> AdminRuntimeView:
+def get_admin_runtime(
+    request: Request,
+    admin: AdminUserDependency,
+) -> AdminRuntimeView:
     service = runtime_service(request)
     return AdminRuntimeView(config=service.config(), status=service.status())
 
@@ -61,10 +47,10 @@ def get_admin_runtime(request: Request, _: AdminDependency) -> AdminRuntimeView:
 def update_admin_runtime(
     payload: AdminRuntimeConfig,
     request: Request,
-    _: AdminDependency,
+    admin: AdminUserDependency,
 ) -> AdminRuntimeView:
     service = runtime_service(request)
-    config = service.save(payload)
+    config = service.save(payload, actor_user_id=admin.id)
     return AdminRuntimeView(config=config, status=service.status())
 
 
@@ -76,10 +62,21 @@ def configure_runtime_credential(
     kind: Literal["adaptive", "judge"],
     payload: RuntimeCredentialConfigure,
     request: Request,
-    _: AdminDependency,
+    admin: AdminUserDependency,
 ) -> AdminRuntimeView:
     service = runtime_service(request)
-    service.set_credential(kind, payload.api_key)
+    try:
+        service.set_credential(
+            kind,
+            payload.api_key,
+            actor_user_id=admin.id,
+            legacy=legacy_admin_request(request),
+        )
+    except CredentialVaultUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
     return AdminRuntimeView(config=service.config(), status=service.status())
 
 
@@ -90,8 +87,39 @@ def configure_runtime_credential(
 def clear_runtime_credential(
     kind: Literal["adaptive", "judge"],
     request: Request,
-    _: AdminDependency,
+    admin: AdminUserDependency,
 ) -> AdminRuntimeView:
     service = runtime_service(request)
-    service.clear_credential(kind)
+    service.clear_credential(
+        kind,
+        actor_user_id=admin.id,
+        legacy=legacy_admin_request(request),
+    )
     return AdminRuntimeView(config=service.config(), status=service.status())
+
+
+@router.post(
+    "/api/admin/credentials/rotate",
+    response_model=CredentialRotationView,
+)
+def rotate_credential_vault(
+    request: Request,
+    admin: AdminUserDependency,
+) -> CredentialRotationView:
+    if legacy_admin_request(request):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credential rotation requires an authenticated Admin session.",
+        )
+    service = runtime_service(request)
+    try:
+        rotated = service.rotate_credentials(actor_user_id=admin.id)
+    except CredentialVaultUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    return CredentialRotationView(
+        rotated_count=rotated,
+        key_version=service.credential_vault.primary_version,
+    )
