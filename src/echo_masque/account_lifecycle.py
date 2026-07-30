@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from sqlalchemy import delete, func, select, update
 
-from echo_masque.auth import Role, SYSTEM_RUNTIME_USER_ID
+from echo_masque.auth import SYSTEM_RUNTIME_USER_ID
 from echo_masque.persistence import AuthRepository, Database
 from echo_masque.persistence.models import (
     AuditEventRecord,
