@@ -13,15 +13,18 @@ PASSWORD = "correct horse battery staple"
 
 
 def settings(path: Path, **overrides: object) -> Settings:
-    return Settings(
-        environment="test",
-        database_url=f"sqlite:///{path}",
-        legacy_local_user_enabled=False,
-        public_registration_enabled=True,
-        credential_encryption_keys=SecretStr(Fernet.generate_key().decode("ascii")),
-        request_limit_per_minute=1000,
-        **overrides,
-    )
+    values: dict[str, object] = {
+        "environment": "test",
+        "database_url": f"sqlite:///{path}",
+        "legacy_local_user_enabled": False,
+        "public_registration_enabled": True,
+        "credential_encryption_keys": SecretStr(
+            Fernet.generate_key().decode("ascii")
+        ),
+        "request_limit_per_minute": 1000,
+    }
+    values.update(overrides)
+    return Settings.model_validate(values)
 
 
 def register(client: TestClient, email: str = "quota@example.com") -> dict[str, object]:
@@ -189,7 +192,10 @@ def test_daily_matrix_task_quota_and_concurrent_run_quota(tmp_path: Path) -> Non
     auth = register(client)
     owner_id = str(auth["user"]["id"])
     card = client.post("/api/characters", json=character_payload("Matrix Ann")).json()
-    scenario = client.post("/api/scenarios", json=scenario_payload("Matrix Scenario")).json()
+    scenario = client.post(
+        "/api/scenarios",
+        json=scenario_payload("Matrix Scenario"),
+    ).json()
     pack = create_pack(client, scenario["id"], "Matrix Pack")
 
     blocked_run = client.post(
