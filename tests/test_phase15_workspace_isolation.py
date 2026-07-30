@@ -7,7 +7,6 @@ from pydantic import SecretStr
 from echo_masque.api import create_app
 from echo_masque.config import Settings
 
-
 PASSWORD = "correct horse battery staple"
 
 
@@ -67,10 +66,16 @@ def character_payload(name: str) -> dict[str, object]:
     }
 
 
-def create_workspace(client: TestClient, prefix: str) -> tuple[dict[str, object], dict[str, object]]:
+def create_workspace(
+    client: TestClient,
+    prefix: str,
+) -> tuple[dict[str, object], dict[str, object]]:
     card_response = client.post("/api/characters", json=character_payload(f"{prefix} Ann"))
     assert card_response.status_code == 201
-    scenario_response = client.post("/api/scenarios", json=scenario_payload(f"{prefix} Scenario"))
+    scenario_response = client.post(
+        "/api/scenarios",
+        json=scenario_payload(f"{prefix} Scenario"),
+    )
     assert scenario_response.status_code == 201
     scenario = scenario_response.json()
     pack_response = client.post(
