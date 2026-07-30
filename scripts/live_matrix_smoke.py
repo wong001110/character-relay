@@ -70,7 +70,12 @@ def wait_for_phase14(base_url: str) -> None:
 def named_item(items: object, name: str) -> dict[str, Any]:
     if not isinstance(items, list):
         raise RuntimeError(f"Expected a list while looking for {name}: {items}")
-    matches = [item for item in items if isinstance(item, dict) and item.get("display_name", item.get("name")) == name]
+    matches = [
+        item
+        for item in items
+        if isinstance(item, dict)
+        and item.get("display_name", item.get("name")) == name
+    ]
     if not matches:
         raise RuntimeError(f"Required retained Live Demo item is missing: {name}")
     return matches[0]
