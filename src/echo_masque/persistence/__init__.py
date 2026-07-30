@@ -1,6 +1,7 @@
 """Persistence exports."""
 
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.matrix_repository import MatrixRepository
 from echo_masque.persistence.repository import Repository
 from echo_masque.persistence.storage import (
     StorageStatus,
@@ -17,6 +18,7 @@ from echo_masque.persistence.workspace_repository import WorkspaceRepository
 
 __all__ = [
     "Database",
+    "MatrixRepository",
     "Repository",
     "StorageStatus",
     "TrialRequestMetadata",

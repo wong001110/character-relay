@@ -14,6 +14,7 @@ from echo_masque.api.routes import (
     characters_router,
     comparisons_router,
     health_router,
+    matrices_router,
     reports_router,
     targets_router,
     transcripts_router,
@@ -24,11 +25,12 @@ from echo_masque.config import Settings, get_settings
 from echo_masque.credentials import CredentialStore
 from echo_masque.persistence import (
     Database,
+    MatrixRepository,
     Repository,
     WorkspaceRepository,
     inspect_storage,
 )
-from echo_masque.services import RuntimeService, TrialService
+from echo_masque.services import MatrixService, RuntimeService, TrialService
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +51,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     repository = Repository(database)
     workspace_repository = WorkspaceRepository(database)
+    matrix_repository = MatrixRepository(database)
+    recovered_matrices = matrix_repository.recover_interrupted()
+    if recovered_matrices:
+        logger.warning(
+            "Recovered %s interrupted Experiment Matrices as paused.",
+            recovered_matrices,
+        )
     repository.seed_demo_targets()
     repository.remove_demo_character_cards()
     credential_store = CredentialStore()
     runtime_credentials = RuntimeCredentialStore()
     runtime_service = RuntimeService(repository, resolved, runtime_credentials)
+    trial_service = TrialService(
+        repository,
+        credential_store,
+        runtime_service,
+        workspace_repository=workspace_repository,
+    )
+    matrix_service = MatrixService(
+        repository,
+        workspace_repository,
+        matrix_repository,
+        trial_service,
+    )
 
     app = FastAPI(
         title=resolved.app_name,
@@ -75,15 +96,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.database = database
     app.state.repository = repository
     app.state.workspace_repository = workspace_repository
+    app.state.matrix_repository = matrix_repository
     app.state.credential_store = credential_store
     app.state.runtime_credentials = runtime_credentials
     app.state.runtime_service = runtime_service
-    app.state.trial_service = TrialService(
-        repository,
-        credential_store,
-        runtime_service,
-        workspace_repository=workspace_repository,
-    )
+    app.state.trial_service = trial_service
+    app.state.matrix_service = matrix_service
     app.include_router(health_router)
     app.include_router(admin_router)
     app.include_router(characters_router)
@@ -93,6 +111,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(comparisons_router)
     app.include_router(reports_router)
     app.include_router(workspace_router)
+    app.include_router(matrices_router)
 
     web_dist = Path("web/dist")
     if web_dist.exists():

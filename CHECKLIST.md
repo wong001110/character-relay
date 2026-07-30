@@ -255,6 +255,61 @@
 - [ ] Confirm no API key or Admin token appears in the workspace archive
 - [ ] Inspect Workspace Hub on narrow mobile width
 
+## Phase 14 — Batch Experiment Matrix and Comparative Analytics
+
+### Matrix definitions and launch safety
+- [x] Add owner-scoped Matrix CRUD and paginated listing
+- [x] Expand Character/Prompt, Model, Temperature, Pack, Language, Tester, Judge, and repeat combinations
+- [x] Preview the exact server-side task count before launch
+- [x] Require the caller to confirm the same task count
+- [x] Enforce a 200-task server cap
+- [x] Preflight Adaptive and Semantic Admin Runtime readiness
+
+### Persistent queue and controls
+- [x] Add migration-safe Matrix and Matrix Task tables
+- [x] Persist pending, running, completed, failed, and cancelled state
+- [x] Add bounded concurrency
+- [x] Add pause, resume, cancel remaining, and retry failed controls
+- [x] Store attempt, retry, error, and provider backoff metadata
+- [x] Recover interrupted running tasks as pending and pause their Matrix after restart
+- [x] Keep all Subject, Adaptive, Judge, and Admin credentials outside Matrix persistence
+
+### Prompt versions and immutable execution
+- [x] Capture Prompt + Model configuration versions automatically
+- [x] Preserve Provider, Base URL, Model, System Prompt, and Temperature
+- [x] Add version diff, restore, and production marker
+- [x] Apply selected Prompt, Model, and Temperature overrides to immutable Run snapshots
+- [x] Keep previous Run snapshots unchanged after version restoration
+
+### Analytics, regression, and exports
+- [x] Aggregate mean, minimum, maximum, variance, and standard deviation
+- [x] Aggregate pass, review, and failure rates
+- [x] Aggregate failure types and first-breakpoint frequency
+- [x] Aggregate token usage, latency, provider errors, and retries
+- [x] Break down results by Character, Prompt, Model, Temperature, Language, Tester, Judge, and Scenario
+- [x] Add compatible Matrix baseline regression classification
+- [x] Reject misleading regression when Pack, Language, Tester, or Judge dimensions differ
+- [x] Add secret-free JSON, CSV, and Markdown export
+
+### Matrix Lab
+- [x] Add a separate bilingual Matrix Lab entry from the Character Library
+- [x] Add Builder, Queue, Analytics, Regression, and Prompt Version views
+- [x] Add combination-count and Provider-call warnings
+- [x] Add responsive desktop, tablet, and narrow-layout styling
+- [x] Add typed frontend API contracts and Vitest coverage
+
+### Automated validation
+- [x] Matrix preview, task cap, and stale-confirmation tests
+- [x] Deterministic repeated-run Matrix and analytics tests
+- [x] Queue pause, resume, cancel, retry, and restart-recovery tests
+- [x] Prompt version immutability, diff, restore, and production-marker tests
+- [x] Compatible regression and secret-free export tests
+- [x] Python 3.12 Ruff, strict mypy, and pytest
+- [x] Python 3.13 Ruff, strict mypy, and pytest
+- [x] TypeScript, Vitest, and production web build
+- [x] Docker persistent-volume and container smoke
+- [x] Railway live smoke
+
 ## Automated acceptance history
 - [x] Phase 8 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
 - [x] MVP polish GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
@@ -263,5 +318,6 @@
 - [x] Phase 11 GitHub-hosted Ruff, mypy, pytest, web build, Docker smoke, and Railway live smoke passed
 - [x] Phase 12 GitHub-hosted Ruff, strict mypy, pytest, TypeScript, Vitest, production build, Docker smoke, and Railway live smoke passed
 - [x] Phase 13 GitHub-hosted Ruff, strict mypy, pytest, TypeScript, Vitest, production build, Docker smoke, and Railway live smoke passed
+- [x] Phase 14 GitHub-hosted Ruff, strict mypy, pytest, TypeScript, Vitest, production build, Docker persistence smoke, and Railway live smoke passed
 
-Phase 13 implementation and hosted validation are complete. The persistence probe remains a required human redeploy check because ordinary CI does not redeploy the production service twice around one marker.
+Phase 14 implementation and hosted validation are complete. Manual acceptance remains for large real-provider Matrices, visual queue controls, regression interpretation, exports, and narrow-screen usability.

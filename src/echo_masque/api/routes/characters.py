@@ -15,7 +15,7 @@ from echo_masque.api.schemas import (
     PromptCharacterCreate,
 )
 from echo_masque.credentials import CredentialStore
-from echo_masque.persistence import Repository
+from echo_masque.persistence import MatrixRepository, Repository
 from echo_masque.targets import PromptModelConfig
 
 router = APIRouter(prefix="/api/characters", tags=["characters"])
@@ -23,6 +23,10 @@ router = APIRouter(prefix="/api/characters", tags=["characters"])
 
 def repository(request: Request) -> Repository:
     return cast(Repository, request.app.state.repository)
+
+
+def matrix_repository(request: Request) -> MatrixRepository:
+    return cast(MatrixRepository, request.app.state.matrix_repository)
 
 
 def credential_store(request: Request) -> CredentialStore:
@@ -128,12 +132,14 @@ def create_character(
     repo = repository(request)
     if repo.get_target(payload.target_id) is None:
         raise HTTPException(status_code=404, detail="Target binding not found.")
-    return _create_card(
+    card = _create_card(
         repo,
         owner_id=owner_id,
         target_id=payload.target_id,
         payload=payload,
     )
+    matrix_repository(request).capture_prompt_version(owner_id, card.id)
+    return card
 
 
 @router.post(
@@ -167,6 +173,7 @@ def create_prompt_character(
         payload=payload,
     )
     credential_store(request).set(owner_id, card.id, payload.api_key)
+    matrix_repository(request).capture_prompt_version(owner_id, card.id, label="Initial")
     return card
 
 
@@ -184,6 +191,7 @@ def update_character(
     target = repo.get_target(card.target_id)
     if target is None:
         raise HTTPException(status_code=404, detail="Target binding not found.")
+    prompt_changed = False
     if target.target_kind == "prompt_model":
         current = PromptModelConfig.model_validate_json(target.config_json)
         config = PromptModelConfig(
@@ -197,18 +205,22 @@ def update_character(
                 payload.temperature if payload.temperature is not None else current.temperature
             ),
         )
+        prompt_changed = config.model_dump(mode="json") != current.model_dump(mode="json")
         if repo.update_target(
             target.id,
             name=payload.display_name,
             config=config.model_dump(mode="json"),
         ) is None:
             raise HTTPException(status_code=404, detail="Target binding not found.")
-    return _update_card(
+    updated = _update_card(
         repo,
         owner_id=owner_id,
         card_id=card_id,
         payload=payload,
     )
+    if prompt_changed:
+        matrix_repository(request).capture_prompt_version(owner_id, card_id)
+    return updated
 
 
 @router.get("/{card_id}/credential", response_model=CredentialStatus)

@@ -254,10 +254,10 @@ Test Language controls Benchmark messages, Adaptive follow-ups, Scenario contrac
 - [x] Phase 12 — Admin Runtime, Hybrid Judge, and scalable Character Library
 - [x] Phase 13 — Custom Test Packs, Experiment History, and persistence guardrails
 - [x] Production release gate — Railway Volume-backed SQLite, persistent Live Demo data, real Adaptive + Hybrid validation, and bounded Semantic evidence repair
+- [x] Phase 14 — Batch Experiment Matrix and Comparative Analytics
 
 ### Planned
 
-- [ ] Phase 14 — Batch Experiment Matrix and Comparative Analytics
 - [ ] Phase 15 — Authentication, User Isolation, and Secure Credential Vault
 - [ ] Phase 16 — AI-generated Scenario Authoring, Calibration Datasets, and Evaluation Analytics
 
@@ -279,7 +279,7 @@ Phase 14 turns one-at-a-time experiments into controlled batches across:
 - Rules, Semantic, or Hybrid Judge;
 - repeat count.
 
-Planned deliverables:
+Implemented deliverables:
 
 - Matrix CRUD and a run-count preview before execution;
 - a SQLite-backed queue with concurrency limits, pause, resume, cancellation, retries, and provider backoff;
@@ -290,7 +290,9 @@ Planned deliverables:
 - token, latency, provider-error, and retry aggregation;
 - CSV, JSON, and Markdown export.
 
-Phase 14 does not introduce public accounts, billing, a distributed worker fleet, or a Scenario marketplace.
+Phase 14 is available through the bilingual **Matrix Lab**. The server requires an exact run-count confirmation before launch, enforces a 200-task cap, persists queue state in SQLite, and pauses interrupted work after restart. Phase 14 does not introduce public accounts, billing, a distributed worker fleet, or a Scenario marketplace.
+
+See `docs/phase-14-experiment-matrix.md` for the execution, analytics, regression, and export contracts.
 
 ### Phase 15 — Authentication, User Isolation, and Secure Credential Vault
 
@@ -361,6 +363,6 @@ The public deployment still lacks production user authentication. Admin configur
 
 ## Status
 
-Phase 13 and the production release gate are complete. Echo Masque now supports user-authored Scenarios, versioned Test Packs, immutable Run snapshots, Experiment History, workspace backup and restore, Railway Volume-backed SQLite, Admin-managed Adaptive Tester, and Rules, Semantic, or Hybrid judging.
+Phase 14 and the production release gate are complete. Echo Masque now supports user-authored Scenarios, versioned Test Packs, immutable Run snapshots, Experiment History, Prompt version history, controlled batch Matrices, a persistent queue, repeated-run statistics, regression comparisons, and secret-free Matrix exports.
 
-The retained Live Demo verifies the intended contrast under real Adaptive + Hybrid execution: Stable Ann completed the bilingual integrity pack at 100, while Drift Ann produced lower scores, FAIL results, and REVIEW cases. The next implementation phase is Phase 14 — Batch Experiment Matrix and Comparative Analytics.
+The retained Live Demo verifies the intended Stable/OOC contrast under real Adaptive + Hybrid execution. A separate retained Live Matrix validates the Phase 14 production API, Temperature variants, persisted tasks, and aggregate analytics. The next implementation phase is Phase 15 — Authentication, User Isolation, and Secure Credential Vault.

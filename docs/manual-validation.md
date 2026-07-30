@@ -2,6 +2,50 @@
 
 These checks require human judgment, real Provider credentials, a Railway redeploy, or an external environment. They do not replace automated CI.
 
+## Phase 14 priority acceptance
+
+### Matrix Builder
+
+- [ ] Select multiple Character Cards and Prompt versions and confirm the preview count matches the Cartesian product.
+- [ ] Add Model and Temperature variants and confirm leaving either list empty preserves each card's current configuration.
+- [ ] Combine English and Simplified Chinese with multiple Tester and Judge modes.
+- [ ] Confirm a stale confirmation count cannot launch and a Matrix above 200 tasks is rejected.
+- [ ] Confirm the Provider-call warning is visible before launching Adaptive or Semantic combinations.
+
+### Queue controls and recovery
+
+- [ ] Launch a Matrix with at least eight tasks and observe pending, running, completed, failed, and retry metadata.
+- [ ] Pause while tasks remain and confirm no new tasks start.
+- [ ] Resume and confirm pending work continues.
+- [ ] Cancel remaining work and confirm already completed Runs remain available.
+- [ ] Force one Provider failure, retry failed tasks, and confirm attempt/backoff metadata is understandable.
+- [ ] Restart the backend during a Matrix and confirm the Matrix returns as paused with interrupted tasks pending.
+
+### Prompt versions
+
+- [ ] Edit a Prompt + Model card twice and confirm immutable versions appear.
+- [ ] Compare two versions and inspect changed fields plus the full Prompt diff.
+- [ ] Restore an old version and confirm it becomes active without rewriting old Run snapshots.
+- [ ] Mark and clear a production version.
+- [ ] Run a Matrix using a non-current version and confirm the frozen Run snapshot identifies that version.
+
+### Analytics and regression
+
+- [ ] Run at least three repeats per variant and inspect mean, min, max, variance, and standard deviation.
+- [ ] Confirm pass, review, and failure rates match the underlying Runs.
+- [ ] Inspect breakdowns by Character, Prompt, Model, Temperature, Language, Tester, Judge, and Scenario.
+- [ ] Confirm token, latency, Provider-error, retry, failure-type, and breakpoint totals are credible.
+- [ ] Compare a compatible baseline and candidate and inspect improved/no-change/regression classification.
+- [ ] Compare incompatible Packs, languages, Tester modes, or Judge modes and confirm no misleading regression verdict is produced.
+
+### Exports and interface
+
+- [ ] Download JSON, CSV, and Markdown Matrix exports and confirm all tasks and aggregate metrics are represented.
+- [ ] Search each export for Subject, Adaptive, Judge, and Admin credentials and confirm none appear.
+- [ ] Inspect Matrix Lab Builder, Queue, Analytics, Regression, and Prompt Versions in English and Simplified Chinese.
+- [ ] Inspect Matrix Lab at desktop, tablet, and narrow mobile widths.
+- [ ] On Railway, run one retained Benchmark + Rules Matrix and one limited Adaptive + Hybrid Matrix with spending-capped keys.
+
 ## Phase 13 priority acceptance
 
 ### Custom Scenarios

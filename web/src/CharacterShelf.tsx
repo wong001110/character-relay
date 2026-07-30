@@ -12,6 +12,7 @@ interface Props {
   onEnter: (card: CharacterCard) => void;
   onAdmin: () => void;
   onWorkspace: () => void;
+  onMatrix: () => void;
 }
 
 const PAGE_SIZE = 8;
@@ -30,7 +31,8 @@ export function CharacterShelf({
   onEdit,
   onEnter,
   onAdmin,
-  onWorkspace
+  onWorkspace,
+  onMatrix
 }: Props) {
   const { language, t } = useI18n();
   const [query, setQuery] = useState("");
@@ -91,6 +93,9 @@ export function CharacterShelf({
         </div>
         <div className="header-actions">
           <LanguageSwitcher />
+          <button className="paper-button" onClick={onMatrix}>
+            {language === "zh-CN" ? "矩阵实验室" : "Matrix Lab"}
+          </button>
           <button className="paper-button" onClick={onWorkspace}>
             {language === "zh-CN" ? "实验工作区" : "Workspace"}
           </button>

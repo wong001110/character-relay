@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -182,6 +182,73 @@ class RunSnapshotRecord(Base):
     rerun_of: Mapped[str | None] = mapped_column(String(64), nullable=True)
     is_baseline: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PromptVersionRecord(Base):
+    __tablename__ = "prompt_versions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    character_card_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str] = mapped_column(String(160), default="", nullable=False)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    base_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    model: Mapped[str] = mapped_column(String(200), nullable=False)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    temperature: Mapped[float] = mapped_column(Float, nullable=False)
+    config_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_production: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ExperimentMatrixRecord(Base):
+    __tablename__ = "experiment_matrices"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="draft", nullable=False)
+    definition_json: Mapped[str] = mapped_column(Text, nullable=False)
+    total_tasks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    pending_tasks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    running_tasks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    completed_tasks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_tasks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cancelled_tasks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_baseline: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ExperimentMatrixTaskRecord(Base):
+    __tablename__ = "experiment_matrix_tasks"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    matrix_id: Mapped[str] = mapped_column(
+        ForeignKey("experiment_matrices.id"), index=True, nullable=False
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="pending", nullable=False)
+    combination_json: Mapped[str] = mapped_column(Text, nullable=False)
+    run_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    backoff_seconds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PersistenceProbeRecord(Base):
