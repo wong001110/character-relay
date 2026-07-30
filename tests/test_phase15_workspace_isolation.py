@@ -104,8 +104,11 @@ def start_run(client: TestClient, card_id: str, pack_id: str) -> dict[str, objec
         },
     )
     assert response.status_code == 202
-    assert response.json()["status"] == "completed"
-    return response.json()
+    run_id = str(response.json()["id"])
+    completed = client.get(f"/api/trials/{run_id}")
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
+    return completed.json()
 
 
 def test_workspace_runs_reports_and_matrices_are_isolated(tmp_path: Path) -> None:
