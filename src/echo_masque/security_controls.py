@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Literal, cast
 
 from sqlalchemy import delete, func, select
 
@@ -160,16 +160,20 @@ class QuotaService:
         runs: int,
         matrices: int = 0,
     ) -> None:
-        incoming = {
+        incoming: dict[str, int] = {
             "character": characters,
             "scenario": scenarios,
             "pack": packs,
             "run": runs,
             "matrix": matrices,
         }
-        for kind, count in incoming.items():
+        for raw_kind, count in incoming.items():
             if count:
-                self.enforce_create(owner_id, kind, incoming=count)  # type: ignore[arg-type]
+                self.enforce_create(
+                    owner_id,
+                    cast(ResourceKind, raw_kind),
+                    incoming=count,
+                )
         if sum(incoming.values()) + self.counts(owner_id)["workspace"] > (
             self.settings.max_workspace_records_per_user
         ):
@@ -177,11 +181,46 @@ class QuotaService:
 
     def counts(self, owner_id: str) -> dict[str, int]:
         with self.database.session() as session:
-            characters = self._count(session, CharacterCardRecord, owner_id)
-            scenarios = self._count(session, CustomScenarioRecord, owner_id)
-            packs = self._count(session, TestPackRecord, owner_id)
-            runs = self._count(session, RunSnapshotRecord, owner_id)
-            matrices = self._count(session, ExperimentMatrixRecord, owner_id)
+            characters = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(CharacterCardRecord)
+                    .where(CharacterCardRecord.owner_id == owner_id)
+                )
+                or 0
+            )
+            scenarios = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(CustomScenarioRecord)
+                    .where(CustomScenarioRecord.owner_id == owner_id)
+                )
+                or 0
+            )
+            packs = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(TestPackRecord)
+                    .where(TestPackRecord.owner_id == owner_id)
+                )
+                or 0
+            )
+            runs = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(RunSnapshotRecord)
+                    .where(RunSnapshotRecord.owner_id == owner_id)
+                )
+                or 0
+            )
+            matrices = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(ExperimentMatrixRecord)
+                    .where(ExperimentMatrixRecord.owner_id == owner_id)
+                )
+                or 0
+            )
         return {
             "character": characters,
             "scenario": scenarios,
@@ -229,13 +268,6 @@ class QuotaService:
                 )
                 raise QuotaExceeded(message, retry_after=retry_after)
             session.commit()
-
-    @staticmethod
-    def _count(session: object, model: object, owner_id: str) -> int:
-        value = session.scalar(  # type: ignore[attr-defined]
-            select(func.count()).select_from(model).where(model.owner_id == owner_id)  # type: ignore[attr-defined]
-        )
-        return int(value or 0)
 
     @staticmethod
     def _utc(value: datetime) -> datetime:
