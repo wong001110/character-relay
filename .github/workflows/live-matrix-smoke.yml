@@ -23,6 +23,7 @@ concurrency:
 
 permissions:
   contents: read
+  issues: write
 
 env:
   DEFAULT_LIVE_URL: https://echo-masque-production.up.railway.app
@@ -50,6 +51,39 @@ jobs:
         env:
           LIVE_URL: ${{ steps.target.outputs.url }}
         run: python scripts/live_matrix_smoke.py "$LIVE_URL" --output live-matrix-result.json
+      - name: Build acceptance summary
+        run: |
+          python - <<'PY' > live-matrix-summary.md
+          import json
+          import os
+
+          with open("live-matrix-result.json", encoding="utf-8") as handle:
+              result = json.load(handle)
+          matrix = result["matrix"]
+          analytics = result["analytics"]
+          tasks = result["tasks"]
+          temperatures = [task["combination"]["temperature"] for task in tasks]
+          run_ids = [task["run_id"] for task in tasks]
+          print("## Phase 14 Live Matrix acceptance passed")
+          print()
+          print(f"- Workflow: `{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}`")
+          print(f"- Matrix: **{matrix['name']}**")
+          print(f"- Matrix ID: `{matrix['id']}`")
+          print(f"- Status: **{matrix['status']}**")
+          print(f"- Temperature variants: `{temperatures}`")
+          print(f"- Completed runs: **{analytics['completed_runs']} / {analytics['total_tasks']}**")
+          print(f"- Mean score: **{analytics['mean_score']:.2f}**")
+          print(f"- Pass rate: **{analytics['pass_rate']:.1%}**")
+          print(f"- Review rate: **{analytics['review_rate']:.1%}**")
+          print(f"- Failure rate: **{analytics['failure_rate']:.1%}**")
+          print(f"- Run IDs: `{run_ids}`")
+          print()
+          print("The Matrix, tasks, Runs, and analytics remain in the production workspace.")
+          PY
+      - name: Publish acceptance to Phase 14 issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue comment 34 --body-file live-matrix-summary.md
       - name: Upload Live Matrix result
         uses: actions/upload-artifact@v4
         with:
