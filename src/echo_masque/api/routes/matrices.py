@@ -14,7 +14,11 @@ from fastapi import (
     status,
 )
 
-from echo_masque.api.dependencies import CurrentUserDependency
+from echo_masque.api.dependencies import (
+    CurrentUserDependency,
+    quota_http_exception,
+    quota_service,
+)
 from echo_masque.matrix import (
     ExportFormat,
     MatrixAnalytics,
@@ -31,6 +35,7 @@ from echo_masque.matrix import (
     PromptVersionView,
 )
 from echo_masque.persistence import MatrixRepository
+from echo_masque.security_controls import QuotaExceeded
 from echo_masque.services import MatrixService
 
 router = APIRouter(tags=["matrices"])
@@ -81,6 +86,10 @@ def create_matrix(
     request: Request,
     user: CurrentUserDependency,
 ) -> MatrixView:
+    try:
+        quota_service(request).enforce_create(user.id, "matrix")
+    except QuotaExceeded as exc:
+        raise quota_http_exception(exc) from exc
     try:
         return matrix_service(request).create(user.id, payload)
     except ValueError as exc:
@@ -141,6 +150,13 @@ def launch_matrix(
     background_tasks: BackgroundTasks,
     user: CurrentUserDependency,
 ) -> MatrixView:
+    try:
+        quota_service(request).enforce_matrix_launch(
+            user.id,
+            payload.confirmed_task_count,
+        )
+    except QuotaExceeded as exc:
+        raise quota_http_exception(exc) from exc
     try:
         matrix = matrix_service(request).launch(matrix_id, user.id, payload)
     except KeyError as exc:
