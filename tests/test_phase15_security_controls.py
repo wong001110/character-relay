@@ -186,6 +186,7 @@ def test_daily_matrix_task_quota_and_concurrent_run_quota(tmp_path: Path) -> Non
             max_matrices_per_user=2,
             max_matrix_tasks_per_day=1,
             max_concurrent_runs_per_user=0,
+            max_matrix_concurrency_per_user=1,
         )
     )
     client = TestClient(app)
@@ -215,6 +216,10 @@ def test_daily_matrix_task_quota_and_concurrent_run_quota(tmp_path: Path) -> Non
         app.state.quota_service.enforce_run_start(owner_id)
 
     definition = matrix_definition(card["id"], pack["id"])
+    over_concurrency = {**definition, "concurrency": 2}
+    rejected_preview = client.post("/api/matrices/preview", json=over_concurrency)
+    assert rejected_preview.status_code == 429
+
     first = client.post(
         "/api/matrices",
         json={"name": "First Matrix", "description": "", "definition": definition},
