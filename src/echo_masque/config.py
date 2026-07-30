@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     database_url: str = "sqlite:///./echo_masque.db"
+
+    # Legacy environment credentials remain read-only migration fallbacks. Admin API access
+    # is role-based and never trusts the legacy token after Phase 15C.
     admin_token: SecretStr | None = None
     adaptive_api_key: SecretStr | None = None
     judge_api_key: SecretStr | None = None
@@ -34,6 +37,9 @@ class Settings(BaseSettings):
     auth_cookie_secure: bool = False
     public_registration_enabled: bool = False
     legacy_local_user_enabled: bool = True
+    bootstrap_admin_email: str | None = None
+    bootstrap_admin_password: SecretStr | None = None
+    bootstrap_admin_display_name: str = "Echo Masque Admin"
     credential_encryption_keys: SecretStr | None = None
 
 
