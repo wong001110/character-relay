@@ -25,6 +25,10 @@ def runtime_service(request: Request) -> RuntimeService:
     return cast(RuntimeService, request.app.state.runtime_service)
 
 
+def legacy_admin_request(request: Request) -> bool:
+    return bool(getattr(request.state, "legacy_admin", False))
+
+
 @router.get("/api/runtime/status", response_model=RuntimeStatus)
 def public_runtime_status(request: Request) -> RuntimeStatus:
     return runtime_service(request).status()
@@ -62,7 +66,12 @@ def configure_runtime_credential(
 ) -> AdminRuntimeView:
     service = runtime_service(request)
     try:
-        service.set_credential(kind, payload.api_key, actor_user_id=admin.id)
+        service.set_credential(
+            kind,
+            payload.api_key,
+            actor_user_id=admin.id,
+            legacy=legacy_admin_request(request),
+        )
     except CredentialVaultUnavailable as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -81,7 +90,11 @@ def clear_runtime_credential(
     admin: AdminUserDependency,
 ) -> AdminRuntimeView:
     service = runtime_service(request)
-    service.clear_credential(kind, actor_user_id=admin.id)
+    service.clear_credential(
+        kind,
+        actor_user_id=admin.id,
+        legacy=legacy_admin_request(request),
+    )
     return AdminRuntimeView(config=service.config(), status=service.status())
 
 
@@ -93,6 +106,11 @@ def rotate_credential_vault(
     request: Request,
     admin: AdminUserDependency,
 ) -> CredentialRotationView:
+    if legacy_admin_request(request):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credential rotation requires an authenticated Admin session.",
+        )
     service = runtime_service(request)
     try:
         rotated = service.rotate_credentials(actor_user_id=admin.id)
