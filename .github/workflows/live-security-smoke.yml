@@ -1,0 +1,50 @@
+name: Phase 15 Live Security Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      live_url:
+        description: Deployed Echo Masque URL
+        required: true
+        default: https://echo-masque-production.up.railway.app
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase-15-live-security
+  cancel-in-progress: false
+
+jobs:
+  security-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      LIVE_URL: ${{ inputs.live_url }}
+      ADMIN_EMAIL: ${{ secrets.ECHO_MASQUE_LIVE_ADMIN_EMAIL }}
+      ADMIN_PASSWORD: ${{ secrets.ECHO_MASQUE_LIVE_ADMIN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Require Live Admin acceptance credentials
+        run: |
+          test -n "$ADMIN_EMAIL" || (echo "Missing ECHO_MASQUE_LIVE_ADMIN_EMAIL" && exit 1)
+          test -n "$ADMIN_PASSWORD" || (echo "Missing ECHO_MASQUE_LIVE_ADMIN_PASSWORD" && exit 1)
+      - name: Install Echo Masque
+        run: python -m pip install -e .
+      - name: Run multi-account and vault acceptance
+        run: |
+          python scripts/live_security_smoke.py "$LIVE_URL" \
+            --admin-email "$ADMIN_EMAIL" \
+            --admin-password "$ADMIN_PASSWORD" \
+            > phase15-live-security.json
+      - name: Publish redacted result
+        run: cat phase15-live-security.json
+      - name: Upload acceptance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase15-live-security
+          path: phase15-live-security.json
+          if-no-files-found: error
