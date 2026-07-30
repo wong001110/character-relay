@@ -38,7 +38,7 @@ class AuthenticatedUser(BaseModel):
     is_active: bool
 
     @classmethod
-    def from_record(cls, record: UserRecord) -> "AuthenticatedUser":
+    def from_record(cls, record: UserRecord) -> AuthenticatedUser:
         return cls(
             id=record.id,
             email=record.email,
