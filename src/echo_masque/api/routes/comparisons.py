@@ -2,6 +2,8 @@
 
 from fastapi import APIRouter, HTTPException, Request
 
+from echo_masque.api.access import require_run_access
+from echo_masque.api.dependencies import OptionalAuthContextDependency
 from echo_masque.api.schemas import ComparisonRequest
 from echo_masque.comparison import ComparisonResult, RegressionPolicy, compare_results
 from echo_masque.persistence import Repository
@@ -10,7 +12,13 @@ router = APIRouter(prefix="/api/comparisons", tags=["comparisons"])
 
 
 @router.post("", response_model=ComparisonResult)
-def compare(payload: ComparisonRequest, request: Request) -> ComparisonResult:
+def compare(
+    payload: ComparisonRequest,
+    request: Request,
+    context: OptionalAuthContextDependency,
+) -> ComparisonResult:
+    require_run_access(request, payload.baseline_run_id, context)
+    require_run_access(request, payload.candidate_run_id, context)
     repository: Repository = request.app.state.repository
     baseline = repository.result_for(payload.baseline_run_id)
     candidate = repository.result_for(payload.candidate_run_id)
