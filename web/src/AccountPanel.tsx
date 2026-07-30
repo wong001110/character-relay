@@ -29,9 +29,11 @@ const copy = {
     revoke: "Revoke",
     logout: "Sign out",
     export: "Export my workspace",
-    exportHint: "Downloads a secret-free JSON archive of your Character Cards, tests, Runs, and evidence.",
+    exportHint:
+      "Downloads a secret-free JSON archive of your Character Cards, tests, Runs, and evidence.",
     danger: "Delete account",
-    dangerHint: "This permanently removes your workspace, sessions, and encrypted credentials. Audit references are anonymized and retained.",
+    dangerHint:
+      "This permanently removes your workspace, sessions, and encrypted credentials. Audit references are anonymized and retained.",
     email: "Confirm email",
     confirmation: "Type DELETE MY ACCOUNT",
     delete: "Delete account permanently",
@@ -44,9 +46,11 @@ const copy = {
     users: "Users",
     audit: "Audit events",
     claim: "Claim legacy local workspace",
-    claimHint: "Moves pre-authentication local-user data into this Admin account. This is a one-time migration action.",
+    claimHint:
+      "Moves pre-authentication local-user data into this Admin account. This is a one-time migration action.",
     rotate: "Rotate encrypted credentials",
-    rotateHint: "Re-encrypts all Character and Runtime credentials with the current primary key.",
+    rotateHint:
+      "Re-encrypts all Character and Runtime credentials with the current primary key.",
     active: "active",
     accepted: "accepted",
     revoked: "revoked",
@@ -95,8 +99,8 @@ const copy = {
 } as const;
 
 export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
-  const { locale } = useI18n();
-  const t = copy[locale];
+  const { language } = useI18n();
+  const t = copy[language];
   const [tab, setTab] = useState<Tab>("sessions");
   const [sessions, setSessions] = useState<AuthSession[]>([]);
   const [invitations, setInvitations] = useState<InvitationView[]>([]);
@@ -199,20 +203,44 @@ export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
         aria-labelledby="account-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button className="close-button" onClick={onClose} aria-label={t.close}>×</button>
+        <button className="close-button" onClick={onClose} aria-label={t.close}>
+          ×
+        </button>
         <p className="tape-label">{user.role === "admin" ? "ADMIN" : "ACCOUNT"}</p>
         <h2 id="account-title">{t.title}</h2>
-        <p className="account-identity"><strong>{user.display_name}</strong><span>{user.email}</span></p>
+        <p className="account-identity">
+          <strong>{user.display_name}</strong>
+          <span>{user.email}</span>
+        </p>
 
         <div className="account-tabs" role="tablist">
-          <button className={tab === "sessions" ? "active" : ""} onClick={() => setTab("sessions")}>{t.sessions}</button>
-          <button className={tab === "data" ? "active" : ""} onClick={() => setTab("data")}>{t.data}</button>
+          <button
+            className={tab === "sessions" ? "active" : ""}
+            onClick={() => setTab("sessions")}
+          >
+            {t.sessions}
+          </button>
+          <button
+            className={tab === "data" ? "active" : ""}
+            onClick={() => setTab("data")}
+          >
+            {t.data}
+          </button>
           {user.role === "admin" && (
-            <button className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}>{t.admin}</button>
+            <button
+              className={tab === "admin" ? "active" : ""}
+              onClick={() => setTab("admin")}
+            >
+              {t.admin}
+            </button>
           )}
         </div>
 
-        {message && <p className="error-note" role="alert">{message}</p>}
+        {message && (
+          <p className="error-note" role="alert">
+            {message}
+          </p>
+        )}
 
         {tab === "sessions" && (
           <div className="account-section">
@@ -230,10 +258,12 @@ export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
                     <button
                       className="paper-button"
                       disabled={working || session.revoked_at !== null}
-                      onClick={() => void run(async () => {
-                        await api.revokeSession(session.id);
-                        await loadSessions();
-                      })}
+                      onClick={() =>
+                        void run(async () => {
+                          await api.revokeSession(session.id);
+                          await loadSessions();
+                        })
+                      }
                     >
                       {t.revoke}
                     </button>
@@ -241,7 +271,13 @@ export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
                 </article>
               ))}
             </div>
-            <button className="paper-button danger-button" disabled={working} onClick={() => void onLogout()}>{t.logout}</button>
+            <button
+              className="paper-button danger-button"
+              disabled={working}
+              onClick={() => void onLogout()}
+            >
+              {t.logout}
+            </button>
           </div>
         )}
 
@@ -250,15 +286,29 @@ export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
             <article className="account-action-card">
               <h3>{t.export}</h3>
               <p>{t.exportHint}</p>
-              <button className="paper-button" disabled={working} onClick={() => void exportWorkspace()}>{t.export}</button>
+              <button
+                className="paper-button"
+                disabled={working}
+                onClick={() => void exportWorkspace()}
+              >
+                {t.export}
+              </button>
             </article>
             <article className="account-action-card danger-zone">
               <h3>{t.danger}</h3>
               <p>{t.dangerHint}</p>
               <form onSubmit={submitDelete}>
-                <label>{t.email}<input name="email" type="email" required /></label>
-                <label>{t.confirmation}<input name="confirmation" required autoComplete="off" /></label>
-                <button className="ink-button danger-button" disabled={working}>{t.delete}</button>
+                <label>
+                  {t.email}
+                  <input name="email" type="email" required />
+                </label>
+                <label>
+                  {t.confirmation}
+                  <input name="confirmation" required autoComplete="off" />
+                </label>
+                <button className="ink-button danger-button" disabled={working}>
+                  {t.delete}
+                </button>
               </form>
             </article>
           </div>
@@ -269,24 +319,56 @@ export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
             <article className="account-action-card">
               <h3>{t.invitations}</h3>
               <form className="compact-form" onSubmit={submitInvitation}>
-                <label>{t.inviteEmail}<input name="email" type="email" /></label>
-                <label>{t.inviteRole}<select name="role"><option value="user">user</option><option value="admin">admin</option></select></label>
-                <label>{t.inviteDays}<input name="days" type="number" min="1" max="30" defaultValue="7" /></label>
-                <button className="paper-button" disabled={working}>{t.createInvite}</button>
+                <label>
+                  {t.inviteEmail}
+                  <input name="email" type="email" />
+                </label>
+                <label>
+                  {t.inviteRole}
+                  <select name="role">
+                    <option value="user">user</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </label>
+                <label>
+                  {t.inviteDays}
+                  <input name="days" type="number" min="1" max="30" defaultValue="7" />
+                </label>
+                <button className="paper-button" disabled={working}>
+                  {t.createInvite}
+                </button>
               </form>
               {newCode && (
                 <div className="invitation-code">
                   <strong>{t.newCode}</strong>
                   <code>{newCode}</code>
-                  <button className="paper-button" onClick={() => void navigator.clipboard.writeText(newCode)}>Copy</button>
+                  <button
+                    className="paper-button"
+                    onClick={() => void navigator.clipboard.writeText(newCode)}
+                  >
+                    Copy
+                  </button>
                 </div>
               )}
               <div className="compact-list">
                 {invitations.map((item) => (
                   <div key={item.id}>
-                    <span>{item.email ?? "*"} · {item.role}</span>
+                    <span>
+                      {item.email ?? "*"} · {item.role}
+                    </span>
                     <span className="status-chip">{t[item.status]}</span>
-                    {item.status === "active" && <button onClick={() => void run(async () => { await api.revokeInvitation(item.id); await loadAdmin(); })}>×</button>}
+                    {item.status === "active" && (
+                      <button
+                        onClick={() =>
+                          void run(async () => {
+                            await api.revokeInvitation(item.id);
+                            await loadAdmin();
+                          })
+                        }
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -297,14 +379,22 @@ export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
               <div className="compact-list">
                 {users.map((item) => (
                   <div key={item.id}>
-                    <span>{item.display_name}<small>{item.email}</small></span>
+                    <span>
+                      {item.display_name}
+                      <small>{item.email}</small>
+                    </span>
                     <select
                       value={item.role}
                       disabled={working || item.id === user.id}
-                      onChange={(event) => void run(async () => {
-                        await api.updateUserRole(item.id, event.target.value as "user" | "admin");
-                        await loadAdmin();
-                      })}
+                      onChange={(event) =>
+                        void run(async () => {
+                          await api.updateUserRole(
+                            item.id,
+                            event.target.value as "user" | "admin"
+                          );
+                          await loadAdmin();
+                        })
+                      }
                     >
                       <option value="user">user</option>
                       <option value="admin">admin</option>
@@ -317,10 +407,32 @@ export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
             <article className="account-action-card">
               <h3>{t.claim}</h3>
               <p>{t.claimHint}</p>
-              <button className="paper-button" disabled={working} onClick={() => void run(async () => { const result = await api.claimLocalWorkspace(); setMessage(JSON.stringify(result.affected)); })}>{t.claim}</button>
+              <button
+                className="paper-button"
+                disabled={working}
+                onClick={() =>
+                  void run(async () => {
+                    const result = await api.claimLocalWorkspace();
+                    setMessage(JSON.stringify(result.affected));
+                  })
+                }
+              >
+                {t.claim}
+              </button>
               <h3>{t.rotate}</h3>
               <p>{t.rotateHint}</p>
-              <button className="paper-button" disabled={working} onClick={() => void run(async () => { const result = await api.rotateCredentialVault(); setMessage(`${result.rotated_count} · ${result.key_version}`); })}>{t.rotate}</button>
+              <button
+                className="paper-button"
+                disabled={working}
+                onClick={() =>
+                  void run(async () => {
+                    const result = await api.rotateCredentialVault();
+                    setMessage(`${result.rotated_count} · ${result.key_version}`);
+                  })
+                }
+              >
+                {t.rotate}
+              </button>
             </article>
 
             <article className="account-action-card audit-card">
@@ -329,7 +441,9 @@ export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
                 {audit.slice(0, 80).map((item) => (
                   <div key={item.id}>
                     <strong>{item.action}</strong>
-                    <span>{item.resource_type} · {new Date(item.created_at).toLocaleString()}</span>
+                    <span>
+                      {item.resource_type} · {new Date(item.created_at).toLocaleString()}
+                    </span>
                   </div>
                 ))}
               </div>
