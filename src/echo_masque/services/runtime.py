@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Literal, cast
+from typing import Literal
 
 from pydantic import SecretStr
 from sqlalchemy import func, select
@@ -149,7 +149,7 @@ class RuntimeService:
                 ),
                 provider=config.adaptive.provider,
                 model=config.adaptive.model,
-                credential_source=cast(CredentialSource, adaptive_source),
+                credential_source=adaptive_source,
             ),
             judge=AgentRuntimeStatus(
                 enabled=config.judge.enabled,
@@ -162,7 +162,7 @@ class RuntimeService:
                 ),
                 provider=config.judge.provider,
                 model=config.judge.model,
-                credential_source=cast(CredentialSource, judge_source),
+                credential_source=judge_source,
             ),
             default_judge_mode=config.default_judge_mode,
         )
