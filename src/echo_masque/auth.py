@@ -10,10 +10,16 @@ from typing import Literal, cast
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from echo_masque.config import Settings
 from echo_masque.persistence.auth_repository import AuthRepository
-from echo_masque.persistence.models import AuthSessionRecord, UserRecord
+from echo_masque.persistence.models import (
+    AuthSessionRecord,
+    InvitationRecord,
+    UserRecord,
+)
 
 Role = Literal["user", "admin"]
 SYSTEM_RUNTIME_USER_ID = "system-runtime"
@@ -30,6 +36,10 @@ class RegistrationClosedError(ValueError):
 
 class DuplicateAccountError(ValueError):
     """Raised when an email address is already registered."""
+
+
+class InvitationError(ValueError):
+    """Raised when an invitation is invalid, expired, or already consumed."""
 
 
 class AuthenticatedUser(BaseModel):
@@ -155,13 +165,36 @@ class AuthService:
             return None
         return AuthContext(user=user, session_id=None, expires_at=None)
 
-    def register(self, *, email: str, display_name: str, password: str) -> AuthenticatedUser:
+    def register(
+        self,
+        *,
+        email: str,
+        display_name: str,
+        password: str,
+        invitation_code: str | None = None,
+    ) -> AuthenticatedUser:
         normalized = self._normalize_email(email)
         if (
             self.settings.environment == "production"
             and not self.settings.public_registration_enabled
         ):
-            raise RegistrationClosedError("Registration requires an invitation.")
+            if invitation_code is None or not invitation_code.strip():
+                raise RegistrationClosedError("Registration requires an invitation.")
+            record = self._register_from_invitation(
+                email=normalized,
+                display_name=display_name,
+                password=password,
+                invitation_code=invitation_code,
+            )
+            self.repository.audit(
+                actor_user_id=record.id,
+                action="account.registered",
+                resource_type="user",
+                resource_id=record.id,
+                metadata={"registration_source": "invitation"},
+            )
+            return AuthenticatedUser.from_record(record)
+
         if self.repository.get_user_by_email(normalized) is not None:
             raise DuplicateAccountError("An account with this email already exists.")
         record = self.repository.create_user(
@@ -175,8 +208,68 @@ class AuthService:
             action="account.registered",
             resource_type="user",
             resource_id=record.id,
+            metadata={"registration_source": "public"},
         )
         return AuthenticatedUser.from_record(record)
+
+    def _register_from_invitation(
+        self,
+        *,
+        email: str,
+        display_name: str,
+        password: str,
+        invitation_code: str,
+    ) -> UserRecord:
+        now = datetime.now(UTC)
+        code_hash = self._digest(invitation_code.strip())
+        try:
+            with self.repository.database.session() as session:
+                invitation = session.scalar(
+                    select(InvitationRecord).where(
+                        InvitationRecord.code_hash == code_hash
+                    )
+                )
+                if invitation is None:
+                    raise InvitationError("Invitation is invalid or unavailable.")
+                if invitation.accepted_at is not None or invitation.revoked_at is not None:
+                    raise InvitationError("Invitation is invalid or unavailable.")
+                if self._utc(invitation.expires_at) <= now:
+                    raise InvitationError("Invitation is invalid or unavailable.")
+                if invitation.email is not None and invitation.email != email:
+                    raise InvitationError("Invitation is invalid or unavailable.")
+                existing = session.scalar(
+                    select(UserRecord).where(func.lower(UserRecord.email) == email)
+                )
+                if existing is not None:
+                    raise DuplicateAccountError(
+                        "An account with this email already exists."
+                    )
+                record = UserRecord(
+                    id=secrets.token_hex(16),
+                    email=email,
+                    display_name=display_name.strip(),
+                    password_hash=self.passwords.hash(password),
+                    role=invitation.role,
+                    is_active=True,
+                )
+                session.add(record)
+                session.flush()
+                invitation.accepted_by = record.id
+                invitation.accepted_at = now
+                session.commit()
+                session.refresh(record)
+                invitation_id = invitation.id
+        except IntegrityError as exc:
+            raise DuplicateAccountError(
+                "An account with this email already exists."
+            ) from exc
+        self.repository.audit(
+            actor_user_id=record.id,
+            action="invitation.accepted",
+            resource_type="invitation",
+            resource_id=invitation_id,
+        )
+        return record
 
     def login(self, *, email: str, password: str, user_agent: str | None) -> IssuedSession:
         normalized = self._normalize_email(email)
@@ -262,6 +355,10 @@ class AuthService:
         ):
             raise ValueError("Enter a valid email address.")
         return normalized
+
+    @staticmethod
+    def token_digest(value: str) -> str:
+        return AuthService._digest(value.strip())
 
     @staticmethod
     def _digest(value: str) -> str:
