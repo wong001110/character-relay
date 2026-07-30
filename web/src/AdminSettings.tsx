@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 import {
   api,
@@ -15,28 +15,23 @@ interface Props {
   onUpdated: (view: AdminRuntimeView) => void;
 }
 
-const STORAGE_KEY = "echo-masque-admin-token";
-
-function storedToken(): string {
-  return window.sessionStorage.getItem(STORAGE_KEY) ?? "";
-}
-
 export function AdminSettings({ onClose, onUpdated }: Props) {
-  const { t } = useI18n();
-  const [token, setToken] = useState(storedToken);
+  const { language, t } = useI18n();
   const [view, setView] = useState<AdminRuntimeView | null>(null);
   const [adaptiveKey, setAdaptiveKey] = useState("");
   const [judgeKey, setJudgeKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  async function connect(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function load() {
     try {
       setSaving(true);
       setMessage(null);
-      const loaded = await api.getAdminRuntime(token);
-      window.sessionStorage.setItem(STORAGE_KEY, token);
+      const loaded = await api.getAdminRuntime();
       setView(loaded);
       onUpdated(loaded);
     } catch (reason) {
@@ -52,12 +47,12 @@ export function AdminSettings({ onClose, onUpdated }: Props) {
     try {
       setSaving(true);
       setMessage(null);
-      let next = await api.updateAdminRuntime(token, view.config);
+      let next = await api.updateAdminRuntime(view.config);
       if (adaptiveKey.trim()) {
-        next = await api.configureRuntimeCredential(token, "adaptive", adaptiveKey.trim());
+        next = await api.configureRuntimeCredential("adaptive", adaptiveKey.trim());
       }
       if (judgeKey.trim()) {
-        next = await api.configureRuntimeCredential(token, "judge", judgeKey.trim());
+        next = await api.configureRuntimeCredential("judge", judgeKey.trim());
       }
       setAdaptiveKey("");
       setJudgeKey("");
@@ -79,7 +74,8 @@ export function AdminSettings({ onClose, onUpdated }: Props) {
     if (!view) return;
     try {
       setSaving(true);
-      const next = await api.clearRuntimeCredential(token, kind);
+      setMessage(null);
+      const next = await api.clearRuntimeCredential(kind);
       setView(next);
       onUpdated(next);
     } catch (reason) {
@@ -106,23 +102,16 @@ export function AdminSettings({ onClose, onUpdated }: Props) {
         <p className="creator-help">{t("admin.help")}</p>
 
         {!view ? (
-          <form className="admin-login" onSubmit={connect}>
-            <label>
-              {t("admin.token")}
-              <input
-                type="password"
-                value={token}
-                onChange={(event) => setToken(event.currentTarget.value)}
-                autoComplete="off"
-                required
-                placeholder={t("admin.tokenPlaceholder")}
-              />
-            </label>
-            <p>{t("admin.tokenHelp")}</p>
-            <button className="ink-button" disabled={saving}>
+          <div className="admin-login">
+            <p>
+              {language === "zh-CN"
+                ? "管理员权限由当前登录 Session 验证，不再使用浏览器 Admin Token。"
+                : "Admin access is verified by the signed-in Session. Browser Admin tokens are no longer used."}
+            </p>
+            <button className="ink-button" disabled={saving} onClick={() => void load()}>
               {saving ? t("admin.connecting") : t("admin.connect")}
             </button>
-          </form>
+          </div>
         ) : (
           <form className="admin-runtime-form" onSubmit={save}>
             <section className="runtime-panel">
@@ -331,7 +320,8 @@ export function AdminSettings({ onClose, onUpdated }: Props) {
                 onChange={(event) =>
                   updateConfig({
                     ...view.config,
-                    default_judge_mode: event.currentTarget.value as AdminRuntimeConfig["default_judge_mode"]
+                    default_judge_mode:
+                      event.currentTarget.value as AdminRuntimeConfig["default_judge_mode"]
                   })
                 }
               >
@@ -341,7 +331,11 @@ export function AdminSettings({ onClose, onUpdated }: Props) {
               </select>
             </label>
 
-            <p className="admin-security-note">{t("admin.security")}</p>
+            <p className="admin-security-note">
+              {language === "zh-CN"
+                ? "Runtime API Key 会写入服务器端加密凭证库；浏览器不会保存原始 Key。"
+                : "Runtime API keys are written to the server-side encrypted vault. The browser does not retain raw keys."}
+            </p>
             <div className="form-actions">
               <button type="button" className="paper-button" onClick={onClose}>
                 {t("creator.cancel")}
@@ -352,7 +346,11 @@ export function AdminSettings({ onClose, onUpdated }: Props) {
             </div>
           </form>
         )}
-        {message && <p className={message === t("admin.saved") ? "success-note" : "error-note"}>{message}</p>}
+        {message && (
+          <p className={message === t("admin.saved") ? "success-note" : "error-note"}>
+            {message}
+          </p>
+        )}
       </section>
     </div>
   );
@@ -370,7 +368,10 @@ function RuntimeHeader({
   const { t } = useI18n();
   return (
     <div className="runtime-heading">
-      <div><span>{t("admin.runtime")}</span><h3>{title}</h3></div>
+      <div>
+        <span>{t("admin.runtime")}</span>
+        <h3>{title}</h3>
+      </div>
       <div className={configured ? "runtime-badge ready" : "runtime-badge missing"}>
         {configured ? t("admin.ready") : t("admin.missing")}
         <small>{source}</small>
@@ -391,27 +392,40 @@ function ProviderFields({
   onChange: (provider: ProviderId, baseUrl: string, model: string) => void;
 }) {
   const { t } = useI18n();
+
   function choose(next: ProviderId) {
     const preset = getProviderPreset(next);
     onChange(next, preset.baseUrl, preset.defaultModel);
   }
+
   return (
     <div className="runtime-provider-grid">
       <label>
         {t("creator.provider")}
-        <select value={provider} onChange={(event) => choose(event.currentTarget.value as ProviderId)}>
+        <select
+          value={provider}
+          onChange={(event) => choose(event.currentTarget.value as ProviderId)}
+        >
           {providerPresets.map((item) => (
-            <option value={item.id} key={item.id}>{item.label}</option>
+            <option value={item.id} key={item.id}>
+              {item.label}
+            </option>
           ))}
         </select>
       </label>
       <label>
         {t("creator.modelId")}
-        <input value={model} onChange={(event) => onChange(provider, baseUrl, event.currentTarget.value)} />
+        <input
+          value={model}
+          onChange={(event) => onChange(provider, baseUrl, event.currentTarget.value)}
+        />
       </label>
       <label className="wide">
         {t("creator.baseUrl")}
-        <input value={baseUrl} onChange={(event) => onChange(provider, event.currentTarget.value, model)} />
+        <input
+          value={baseUrl}
+          onChange={(event) => onChange(provider, event.currentTarget.value, model)}
+        />
       </label>
     </div>
   );
@@ -430,20 +444,23 @@ function CredentialField({
 }) {
   const { t } = useI18n();
   return (
-    <div className="admin-credential-row">
+    <div className="runtime-credential-row">
       <label>
         {t("admin.apiKey")}
         <input
           type="password"
           value={value}
           onChange={(event) => onChange(event.currentTarget.value)}
-          autoComplete="off"
           placeholder={t("admin.apiKeyPlaceholder")}
+          autoComplete="off"
         />
       </label>
-      <button type="button" className="paper-button" onClick={onClear} disabled={source !== "memory"}>
-        {t("admin.clearMemoryKey")}
-      </button>
+      <div>
+        <span className="status-chip">{source}</span>
+        <button type="button" className="paper-button" onClick={onClear}>
+          {t("admin.clearMemoryKey")}
+        </button>
+      </div>
     </div>
   );
 }
