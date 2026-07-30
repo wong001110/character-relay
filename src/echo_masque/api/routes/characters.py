@@ -1,7 +1,7 @@
 """Character Card collection and provider credential endpoints."""
 
 import os
-from typing import cast
+from typing import Literal, cast
 
 from fastapi import APIRouter, HTTPException, Request, status
 
@@ -19,7 +19,11 @@ from echo_masque.api.schemas import (
     CredentialStatus,
     PromptCharacterCreate,
 )
-from echo_masque.credentials import CredentialStore, CredentialVaultUnavailable
+from echo_masque.credentials import (
+    CredentialStore,
+    CredentialVault,
+    CredentialVaultUnavailable,
+)
 from echo_masque.persistence import MatrixRepository, Repository, TargetAccessRepository
 from echo_masque.security_controls import QuotaExceeded
 from echo_masque.targets import PromptModelConfig
@@ -37,6 +41,10 @@ def matrix_repository(request: Request) -> MatrixRepository:
 
 def credential_store(request: Request) -> CredentialStore:
     return cast(CredentialStore, request.app.state.credential_store)
+
+
+def credential_source(request: Request) -> Literal["vault", "memory"]:
+    return "vault" if isinstance(credential_store(request), CredentialVault) else "memory"
 
 
 def target_access(request: Request) -> TargetAccessRepository:
@@ -119,7 +127,11 @@ def _status_for(
         return CredentialStatus(required=False, configured=True, source="not_required")
     config = PromptModelConfig.model_validate_json(target.config_json)
     if credential_store(request).has(owner_id, card_id):
-        return CredentialStatus(required=True, configured=True, source="memory")
+        return CredentialStatus(
+            required=True,
+            configured=True,
+            source=credential_source(request),
+        )
     if os.getenv(config.api_key_env):
         return CredentialStatus(required=True, configured=True, source="environment")
     return CredentialStatus(required=True, configured=False, source="missing")
@@ -275,7 +287,11 @@ def configure_credential(
         credential_store(request).set(user.id, card_id, payload.api_key)
     except CredentialVaultUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return CredentialStatus(required=True, configured=True, source="memory")
+    return CredentialStatus(
+        required=True,
+        configured=True,
+        source=credential_source(request),
+    )
 
 
 @router.delete("/{card_id}/credential", status_code=status.HTTP_204_NO_CONTENT)
