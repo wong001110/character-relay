@@ -19,6 +19,7 @@ from echo_masque.auth import (
     AuthenticationError,
     AuthService,
     DuplicateAccountError,
+    InvitationError,
     RegistrationClosedError,
 )
 from echo_masque.config import Settings
@@ -32,6 +33,7 @@ class RegisterRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     display_name: str = Field(min_length=1, max_length=120)
     password: SecretStr = Field(min_length=12, max_length=256)
+    invitation_code: str | None = Field(default=None, min_length=8, max_length=256)
 
 
 class LoginRequest(BaseModel):
@@ -64,6 +66,7 @@ class AuthResponse(BaseModel):
 
 class AuthConfigView(BaseModel):
     registration_enabled: bool
+    invitation_required: bool
     authentication_required: bool
 
 
@@ -120,10 +123,13 @@ def _set_session_cookie(response: Response, resolved: Settings, token: str) -> N
 @router.get("/config", response_model=AuthConfigView)
 def auth_config(request: Request) -> AuthConfigView:
     resolved = settings(request)
+    invitation_required = (
+        resolved.environment == "production"
+        and not resolved.public_registration_enabled
+    )
     return AuthConfigView(
-        registration_enabled=(
-            resolved.environment != "production" or resolved.public_registration_enabled
-        ),
+        registration_enabled=True,
+        invitation_required=invitation_required,
         authentication_required=(
             resolved.environment == "production" or not resolved.legacy_local_user_enabled
         ),
@@ -146,6 +152,7 @@ def register(
             email=payload.email,
             display_name=payload.display_name,
             password=payload.password.get_secret_value(),
+            invitation_code=payload.invitation_code,
         )
         issued = auth.login(
             email=payload.email,
@@ -154,6 +161,8 @@ def register(
         )
     except RegistrationClosedError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except InvitationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except DuplicateAccountError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
