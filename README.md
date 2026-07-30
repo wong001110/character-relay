@@ -205,6 +205,8 @@ Semantic dimensions use a 0–5 scale:
 
 Python calculates the canonical 0–100 Semantic score from those dimensions. Model-authored score and pass/fail fields do not control the result.
 
+A provider formatting error receives at most one bounded correction attempt. The corrected output must still pass the same strict JSON, consistency, and exact-evidence grounding checks; fuzzy or paraphrased evidence is never accepted.
+
 ### Hybrid
 
 Runs Rules and Semantic judging together. Both verdicts and scores are stored separately.
@@ -235,6 +237,8 @@ Test Language controls Benchmark messages, Adaptive follow-ups, Scenario contrac
 
 ## Delivery phases
 
+### Completed
+
 - [x] Phase 0 — Product contract and roadmap
 - [x] Phase 1 — Python foundation
 - [x] Phase 2 — Deterministic trial engine
@@ -249,8 +253,77 @@ Test Language controls Benchmark messages, Adaptive follow-ups, Scenario contrac
 - [x] Phase 11 — English and Simplified Chinese interface and testing
 - [x] Phase 12 — Admin Runtime, Hybrid Judge, and scalable Character Library
 - [x] Phase 13 — Custom Test Packs, Experiment History, and persistence guardrails
+- [x] Production release gate — Railway Volume-backed SQLite, persistent Live Demo data, real Adaptive + Hybrid validation, and bounded Semantic evidence repair
+
+### Planned
+
+- [ ] Phase 14 — Batch Experiment Matrix and Comparative Analytics
+- [ ] Phase 15 — Authentication, User Isolation, and Secure Credential Vault
+- [ ] Phase 16 — AI-generated Scenario Authoring, Calibration Datasets, and Evaluation Analytics
 
 See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for human checks.
+
+## Forward roadmap
+
+The roadmap is directional. Each phase receives a dedicated issue and acceptance checklist before implementation, and scope may be adjusted when production evidence exposes a higher-priority reliability or security problem.
+
+### Phase 14 — Batch Experiment Matrix and Comparative Analytics
+
+Phase 14 turns one-at-a-time experiments into controlled batches across:
+
+- Character Card or Prompt version;
+- Provider and Model;
+- Temperature;
+- Test Pack and Test Language;
+- Benchmark or Adaptive Tester;
+- Rules, Semantic, or Hybrid Judge;
+- repeat count.
+
+Planned deliverables:
+
+- Matrix CRUD and a run-count preview before execution;
+- a SQLite-backed queue with concurrency limits, pause, resume, cancellation, retries, and provider backoff;
+- repeated-run statistics including mean, minimum, maximum, pass rate, review rate, failure rate, and variance;
+- comparison views for Prompt, Model, Temperature, Language, Tester, and Judge combinations;
+- Prompt version history with diff, restore, and production-version marking;
+- baseline regression summaries;
+- token, latency, provider-error, and retry aggregation;
+- CSV, JSON, and Markdown export.
+
+Phase 14 does not introduce public accounts, billing, a distributed worker fleet, or a Scenario marketplace.
+
+### Phase 15 — Authentication, User Isolation, and Secure Credential Vault
+
+Phase 15 makes the public deployment suitable for multiple real users.
+
+Planned deliverables:
+
+- production authentication and session management;
+- server-enforced workspace ownership instead of trusting `X-Echo-User`;
+- role-based Admin authorization;
+- secure encrypted credential storage and rotation;
+- per-user rate limits, quotas, and abuse controls;
+- audit events for sensitive configuration changes;
+- managed production persistence and migration tooling;
+- safe invitation, account deletion, and workspace export flows.
+
+Phase 15 is the security boundary required before the public deployment is promoted as a general multi-user service.
+
+### Phase 16 — AI-generated Scenario Authoring, Calibration Datasets, and Evaluation Analytics
+
+Phase 16 adds assisted evaluation design without allowing generated content to silently become ground truth.
+
+Planned deliverables:
+
+- AI-assisted Scenario and Test Pack drafting from Character Cards and known risks;
+- human approval and versioning before generated tests can run;
+- calibration datasets with expected verdicts and grounded evidence;
+- Judge agreement, disagreement, false-positive, and false-negative analysis;
+- rubric-version comparison and calibration reports;
+- coverage analysis across identity, memory, instruction resistance, capability honesty, persona, and language;
+- reusable evaluation templates and shareable, secret-free test assets.
+
+Generated Scenarios and Judge recommendations remain reviewable artifacts. Deterministic validation and human-approved calibration data remain the authority.
 
 ## Railway
 
@@ -270,7 +343,7 @@ https://echo-masque-production.up.railway.app
 
 Rules Mode and internal deterministic targets require no external credential. Admin-managed Adaptive and Semantic/Hybrid modes require the production variables documented above.
 
-The ordinary Railway smoke verifies application availability and bilingual deterministic Trials. Use the Admin persistence probe to prove data survives an actual redeploy.
+The Railway deployment has been validated with Volume-backed SQLite across application deployments. Continue using Storage Diagnostics, the stable storage instance ID, and persistence probes when changing the Railway service, environment, database path, or Volume attachment.
 
 See `docs/railway-deployment.md` for setup and security details.
 
@@ -288,4 +361,6 @@ The public deployment still lacks production user authentication. Admin configur
 
 ## Status
 
-Phase 13 implementation and automated validation are complete: user-authored Scenarios, versioned Test Packs, pack-driven Trials, immutable experiment snapshots, history and rerun controls, storage diagnostics, redeploy probes, and secret-free workspace backup/restore are available. A real Railway persistence probe across a redeploy remains a separate human acceptance check because ordinary CI cannot prove that two successive deployments opened the same Volume-backed database.
+Phase 13 and the production release gate are complete. Echo Masque now supports user-authored Scenarios, versioned Test Packs, immutable Run snapshots, Experiment History, workspace backup and restore, Railway Volume-backed SQLite, Admin-managed Adaptive Tester, and Rules, Semantic, or Hybrid judging.
+
+The retained Live Demo verifies the intended contrast under real Adaptive + Hybrid execution: Stable Ann completed the bilingual integrity pack at 100, while Drift Ann produced lower scores, FAIL results, and REVIEW cases. The next implementation phase is Phase 14 — Batch Experiment Matrix and Comparative Analytics.
