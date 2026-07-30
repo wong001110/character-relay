@@ -117,8 +117,9 @@ def test_pause_resume_cancel_and_retry_transitions(tmp_path: Path) -> None:
     )
     assert failed.status == MatrixTaskStatus.FAILED
 
-    retried = client.post(f"/api/matrices/{matrix_id}/retry-failed")
-    assert retried.status_code == 200
+    retried = repo.retry_failed(matrix_id, "local-user")
+    assert retried is not None
+    assert retried.status == MatrixStatus.QUEUED
     reset = next(
         item
         for item in repo.list_tasks(matrix_id, "local-user") or []
