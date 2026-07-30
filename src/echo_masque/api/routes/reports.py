@@ -4,6 +4,8 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from echo_masque.api.access import require_run_access
+from echo_masque.api.dependencies import OptionalAuthContextDependency
 from echo_masque.persistence import Repository, decode_trial_metadata
 from echo_masque.reports import export_json_report, export_markdown_report
 
@@ -14,8 +16,10 @@ router = APIRouter(prefix="/api/reports", tags=["reports"])
 def trial_report(
     run_id: str,
     request: Request,
+    context: OptionalAuthContextDependency,
     format: Literal["markdown", "json"] = "markdown",
 ) -> Response:
+    require_run_access(request, run_id, context)
     repository: Repository = request.app.state.repository
     record = repository.get_run(run_id)
     result = repository.result_for(run_id)
