@@ -9,12 +9,12 @@ import statistics
 from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from itertools import product
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 
-from echo_masque.domain import TrialStatus, TrialSuiteResult
+from echo_masque.domain import TrialSuiteResult
 from echo_masque.matrix import (
     MAX_MATRIX_TASKS,
     DistributionItem,
@@ -40,7 +40,6 @@ from echo_masque.persistence.models import (
     ExperimentMatrixRecord,
     ExperimentMatrixTaskRecord,
     PromptVersionRecord,
-    RunSnapshotRecord,
     TargetRecord,
     TestPackRecord,
     TrialRunRecord,
@@ -76,14 +75,16 @@ class MatrixRepository:
                     PromptVersionRecord.config_hash == digest,
                 )
             )
-            session.execute(
-                PromptVersionRecord.__table__.update()
-                .where(
-                    PromptVersionRecord.owner_id == owner_id,
-                    PromptVersionRecord.character_card_id == character_card_id,
+            versions = list(
+                session.scalars(
+                    select(PromptVersionRecord).where(
+                        PromptVersionRecord.owner_id == owner_id,
+                        PromptVersionRecord.character_card_id == character_card_id,
+                    )
                 )
-                .values(is_active=False)
             )
+            for item in versions:
+                item.is_active = False
             if existing is not None:
                 existing.is_active = True
                 if label.strip():
@@ -179,15 +180,16 @@ class MatrixRepository:
             )
             target.name = card.display_name
             target.config_json = restored.model_dump_json()
-            session.execute(
-                PromptVersionRecord.__table__.update()
-                .where(
-                    PromptVersionRecord.owner_id == owner_id,
-                    PromptVersionRecord.character_card_id == character_card_id,
+            versions = list(
+                session.scalars(
+                    select(PromptVersionRecord).where(
+                        PromptVersionRecord.owner_id == owner_id,
+                        PromptVersionRecord.character_card_id == character_card_id,
+                    )
                 )
-                .values(is_active=False)
             )
-            version.is_active = True
+            for item in versions:
+                item.is_active = item.id == version_id
             session.commit()
             session.refresh(version)
             return self._prompt_view(version)
@@ -209,7 +211,7 @@ class MatrixRepository:
                 return None
             if value:
                 session.execute(
-                    PromptVersionRecord.__table__.update()
+                    update(PromptVersionRecord)
                     .where(
                         PromptVersionRecord.owner_id == owner_id,
                         PromptVersionRecord.character_card_id == character_card_id,
@@ -340,7 +342,9 @@ class MatrixRepository:
                 if target is None:
                     raise ValueError(f"Target binding not found for {card.display_name}.")
                 if subject.prompt_version_ids and target.target_kind != "prompt_model":
-                    raise ValueError("Prompt versions can only be selected for Prompt + Model cards.")
+                    raise ValueError(
+                        "Prompt versions can only be selected for Prompt + Model cards."
+                    )
                 for version_id in subject.prompt_version_ids:
                     version = session.get(PromptVersionRecord, version_id)
                     if (
@@ -411,11 +415,19 @@ class MatrixRepository:
                 )
             else:
                 subject_variants.append((subject.character_card_id, None))
-        models: list[str | None] = definition.model_overrides or [None]
-        temperatures: list[float | None] = definition.temperatures or [None]
+        models: list[str | None] = (
+            [*definition.model_overrides]
+            if definition.model_overrides
+            else [None]
+        )
+        temperatures: list[float | None] = (
+            [*definition.temperatures]
+            if definition.temperatures
+            else [None]
+        )
         combinations: list[MatrixTaskCombination] = []
         for (
-            subject,
+            subject_variant,
             model,
             temperature,
             pack_id,
@@ -435,8 +447,8 @@ class MatrixRepository:
         ):
             combinations.append(
                 MatrixTaskCombination(
-                    character_card_id=subject[0],
-                    prompt_version_id=subject[1],
+                    character_card_id=subject_variant[0],
+                    prompt_version_id=subject_variant[1],
                     model_override=model,
                     temperature=temperature,
                     test_pack_id=pack_id,
@@ -541,7 +553,7 @@ class MatrixRepository:
             if record is None or record.owner_id != owner_id:
                 return None
             session.execute(
-                ExperimentMatrixTaskRecord.__table__.update()
+                update(ExperimentMatrixTaskRecord)
                 .where(
                     ExperimentMatrixTaskRecord.matrix_id == matrix_id,
                     ExperimentMatrixTaskRecord.status.in_(
@@ -567,7 +579,7 @@ class MatrixRepository:
             if record is None or record.owner_id != owner_id:
                 return None
             session.execute(
-                ExperimentMatrixTaskRecord.__table__.update()
+                update(ExperimentMatrixTaskRecord)
                 .where(
                     ExperimentMatrixTaskRecord.matrix_id == matrix_id,
                     ExperimentMatrixTaskRecord.status == MatrixTaskStatus.FAILED.value,
@@ -670,7 +682,7 @@ class MatrixRepository:
                 return None
             if value:
                 session.execute(
-                    ExperimentMatrixRecord.__table__.update()
+                    update(ExperimentMatrixRecord)
                     .where(ExperimentMatrixRecord.owner_id == owner_id)
                     .values(is_baseline=False)
                 )
@@ -774,10 +786,26 @@ class MatrixRepository:
             return None
         incompatibilities: list[str] = []
         pairs = (
-            ("Test Packs", baseline_matrix.definition.test_pack_ids, candidate_matrix.definition.test_pack_ids),
-            ("Languages", baseline_matrix.definition.test_languages, candidate_matrix.definition.test_languages),
-            ("Tester Modes", baseline_matrix.definition.tester_modes, candidate_matrix.definition.tester_modes),
-            ("Judge Modes", baseline_matrix.definition.judge_modes, candidate_matrix.definition.judge_modes),
+            (
+                "Test Packs",
+                baseline_matrix.definition.test_pack_ids,
+                candidate_matrix.definition.test_pack_ids,
+            ),
+            (
+                "Languages",
+                baseline_matrix.definition.test_languages,
+                candidate_matrix.definition.test_languages,
+            ),
+            (
+                "Tester Modes",
+                baseline_matrix.definition.tester_modes,
+                candidate_matrix.definition.tester_modes,
+            ),
+            (
+                "Judge Modes",
+                baseline_matrix.definition.judge_modes,
+                candidate_matrix.definition.judge_modes,
+            ),
         )
         for label, left, right in pairs:
             if set(left) != set(right):
@@ -788,12 +816,18 @@ class MatrixRepository:
             if candidate.mean_score is not None and baseline.mean_score is not None
             else None
         )
-        classification = "incompatible"
+        classification: Literal[
+            "improved",
+            "no_meaningful_change",
+            "regression",
+            "incompatible",
+        ] = "incompatible"
         if compatible:
             if score_delta is not None and score_delta >= 3 and candidate.pass_rate >= baseline.pass_rate:
                 classification = "improved"
             elif score_delta is not None and (
-                score_delta <= -3 or candidate.pass_rate < baseline.pass_rate - 0.05
+                score_delta <= -3
+                or candidate.pass_rate < baseline.pass_rate - 0.05
             ):
                 classification = "regression"
             else:
@@ -1010,7 +1044,10 @@ def _group(
     for sample in samples:
         combination = sample["combination"]
         groups[str(key_fn(combination))].append(sample)
-    return [_variant(f"{prefix}:{key}", key, items) for key, items in sorted(groups.items())]
+    return [
+        _variant(f"{prefix}:{key}", key, items)
+        for key, items in sorted(groups.items())
+    ]
 
 
 def _group_scenarios(samples: list[dict[str, Any]]) -> list[MatrixVariantAnalytics]:

@@ -349,7 +349,8 @@ function MatrixBuilder({
     });
     if (!exists && versions[cardId] === undefined) {
       try {
-        setVersions((current) => ({ ...current, [cardId]: await workspaceApi.listPromptVersions(cardId) }));
+        const loaded = await workspaceApi.listPromptVersions(cardId);
+        setVersions((current) => ({ ...current, [cardId]: loaded }));
       } catch {
         setVersions((current) => ({ ...current, [cardId]: [] }));
       }

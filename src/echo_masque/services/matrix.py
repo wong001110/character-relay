@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import csv
 import io
 import json
 from copy import deepcopy
 from dataclasses import dataclass
 
-from echo_masque.domain import TestKind, TrialStatus
+from echo_masque.domain import TrialStatus
 from echo_masque.matrix import (
     ExportFormat,
     MatrixAnalytics,
@@ -245,10 +246,8 @@ class MatrixService:
             return None
         for task in tasks:
             if task.status == MatrixTaskStatus.RUNNING and task.run_id is not None:
-                try:
+                with contextlib.suppress(KeyError):
                     self.trial_service.cancel(task.run_id)
-                except KeyError:
-                    pass
         return self.matrix_repository.cancel_matrix(matrix_id, owner_id)
 
     def retry_failed(self, matrix_id: str, owner_id: str) -> MatrixView | None:
@@ -350,10 +349,16 @@ class MatrixService:
             "| Variant | Runs | Mean | Pass | Review | Failure |",
             "|---|---:|---:|---:|---:|---:|",
         ]
-        for item in analytics.by_temperature + analytics.by_model + analytics.by_language:
+        variants = (
+            analytics.by_temperature
+            + analytics.by_model
+            + analytics.by_language
+        )
+        for variant in variants:
             lines.append(
-                f"| {item.label} | {item.run_count} | {_display(item.mean_score)} | "
-                f"{item.pass_rate:.1%} | {item.review_rate:.1%} | {item.failure_rate:.1%} |"
+                f"| {variant.label} | {variant.run_count} | "
+                f"{_display(variant.mean_score)} | {variant.pass_rate:.1%} | "
+                f"{variant.review_rate:.1%} | {variant.failure_rate:.1%} |"
             )
         return MatrixExport("\n".join(lines), "text/markdown", f"{safe_name}.md")
 

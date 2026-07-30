@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from typing import Annotated, cast
 
-from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 
 from echo_masque.matrix import (
     ExportFormat,
@@ -26,6 +35,7 @@ from echo_masque.services import MatrixService
 
 router = APIRouter(tags=["matrices"])
 OwnerHeader = Annotated[str, Header(alias="X-Echo-User")]
+ExportFormatQuery = Query("json", alias="format")
 
 
 def matrix_repository(request: Request) -> MatrixRepository:
@@ -254,7 +264,7 @@ def compare_matrices(
 def export_matrix(
     matrix_id: str,
     request: Request,
-    export_format: ExportFormat = Query("json", alias="format"),
+    export_format: ExportFormat = ExportFormatQuery,
     owner_id: OwnerHeader = "local-user",
 ) -> Response:
     exported = matrix_service(request).export(matrix_id, owner_id, export_format)
