@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from echo_masque.admin_runtime import RuntimeCredentialStore
 from echo_masque.api.routes import (
     admin_router,
+    auth_router,
     characters_router,
     comparisons_router,
     health_router,
@@ -21,12 +22,15 @@ from echo_masque.api.routes import (
     trials_router,
     workspace_router,
 )
+from echo_masque.auth import AuthService
 from echo_masque.config import Settings, get_settings
-from echo_masque.credentials import CredentialStore
+from echo_masque.credentials import CredentialVault
 from echo_masque.persistence import (
+    AuthRepository,
     Database,
     MatrixRepository,
     Repository,
+    TargetAccessRepository,
     WorkspaceRepository,
     inspect_storage,
 )
@@ -49,9 +53,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         storage_status.storage_instance_id,
     )
 
+    auth_repository = AuthRepository(database)
+    auth_service = AuthService(auth_repository, resolved)
+    auth_service.ensure_development_user()
+
     repository = Repository(database)
     workspace_repository = WorkspaceRepository(database)
     matrix_repository = MatrixRepository(database)
+    target_access_repository = TargetAccessRepository(database)
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
         logger.warning(
@@ -60,7 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     repository.seed_demo_targets()
     repository.remove_demo_character_cards()
-    credential_store = CredentialStore()
+    credential_store = CredentialVault(auth_repository, resolved)
     runtime_credentials = RuntimeCredentialStore()
     runtime_service = RuntimeService(repository, resolved, runtime_credentials)
     trial_service = TrialService(
@@ -87,22 +96,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
-        allow_credentials=False,
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
     app.state.settings = resolved
     app.state.storage_status = storage_status
     app.state.database = database
+    app.state.auth_repository = auth_repository
+    app.state.auth_service = auth_service
     app.state.repository = repository
     app.state.workspace_repository = workspace_repository
     app.state.matrix_repository = matrix_repository
+    app.state.target_access_repository = target_access_repository
     app.state.credential_store = credential_store
     app.state.runtime_credentials = runtime_credentials
     app.state.runtime_service = runtime_service
     app.state.trial_service = trial_service
     app.state.matrix_service = matrix_service
     app.include_router(health_router)
+    app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(characters_router)
     app.include_router(targets_router)
