@@ -1,0 +1,58 @@
+name: Live Matrix Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Public Echo Masque URL
+        required: false
+        default: https://echo-masque-production.up.railway.app
+  push:
+    branches: [main]
+    paths:
+      - src/echo_masque/matrix.py
+      - src/echo_masque/api/routes/matrices.py
+      - src/echo_masque/services/matrix.py
+      - src/echo_masque/persistence/matrix_repository.py
+      - scripts/live_matrix_smoke.py
+      - .github/workflows/live-matrix-smoke.yml
+
+concurrency:
+  group: live-matrix-smoke
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DEFAULT_LIVE_URL: https://echo-masque-production.up.railway.app
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Resolve Live URL
+        id: target
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_URL: ${{ inputs.url }}
+        run: |
+          target="$DEFAULT_LIVE_URL"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$INPUT_URL" ]; then
+            target="$INPUT_URL"
+          fi
+          echo "url=$target" >> "$GITHUB_OUTPUT"
+      - name: Run retained Phase 14 Matrix
+        env:
+          LIVE_URL: ${{ steps.target.outputs.url }}
+        run: python scripts/live_matrix_smoke.py "$LIVE_URL" --output live-matrix-result.json
+      - name: Upload Live Matrix result
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-matrix-result
+          path: live-matrix-result.json
+          if-no-files-found: error
