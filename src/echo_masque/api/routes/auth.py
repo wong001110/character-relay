@@ -10,9 +10,9 @@ from pydantic import BaseModel, Field, SecretStr
 
 from echo_masque.api.dependencies import AuthContextDependency
 from echo_masque.auth import (
-    AuthService,
     AuthenticatedUser,
     AuthenticationError,
+    AuthService,
     DuplicateAccountError,
     RegistrationClosedError,
 )
@@ -40,7 +40,7 @@ class UserView(BaseModel):
     role: Literal["user", "admin"]
 
     @classmethod
-    def from_user(cls, user: AuthenticatedUser) -> "UserView":
+    def from_user(cls, user: AuthenticatedUser) -> UserView:
         return cls(
             id=user.id,
             email=user.email,
@@ -75,7 +75,7 @@ class SessionView(BaseModel):
         record: AuthSessionRecord,
         *,
         current_session_id: str | None,
-    ) -> "SessionView":
+    ) -> SessionView:
         return cls(
             id=record.id,
             created_at=record.created_at,
