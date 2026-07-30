@@ -4,7 +4,7 @@ import json
 import pytest
 
 from echo_masque.admin_runtime import JudgeRuntimeProfile
-from echo_masque.domain import TestKind, TrialTurn
+from echo_masque.domain import TestKind, TrialScenario, TrialTurn
 from echo_masque.judges import SemanticJudge
 from echo_masque.providers import ChatMessage, ProviderCompletion, ProviderProtocolError
 from echo_masque.suites import scenarios_for
@@ -61,7 +61,7 @@ def semantic_payload(excerpt: str) -> dict[str, object]:
     }
 
 
-def judge_context() -> tuple[object, TrialTurn]:
+def judge_context() -> tuple[TrialScenario, TrialTurn]:
     scenario = scenarios_for(TestKind.IDENTITY_INTEGRITY)[0]
     turn = TrialTurn(
         index=1,
@@ -85,7 +85,7 @@ def test_semantic_judge_repairs_ungrounded_excerpt_once() -> None:
             config=JudgeRuntimeProfile(enabled=True),
             provider=provider,
         ).judge(
-            scenario,  # type: ignore[arg-type]
+            scenario,
             (turn,),
             character_context="Name: Ann",
         )
@@ -111,14 +111,14 @@ def test_semantic_judge_still_fails_after_two_ungrounded_outputs() -> None:
 
     with pytest.raises(
         ProviderProtocolError,
-        match="remained invalid after one repair attempt.*not grounded",
+        match=r"remained invalid after one repair attempt.*not grounded",
     ):
         asyncio.run(
             SemanticJudge(
                 config=JudgeRuntimeProfile(enabled=True),
                 provider=provider,
             ).judge(
-                scenario,  # type: ignore[arg-type]
+                scenario,
                 (turn,),
                 character_context="Name: Ann",
             )
