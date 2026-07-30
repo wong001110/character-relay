@@ -141,7 +141,10 @@ def run_acceptance(
                 200,
             )
             if not credential.get("configured") or credential.get("source") != "vault":
-                raise RuntimeError(f"Character credential was not in the encrypted vault: {credential}")
+                raise RuntimeError(
+                    "Character credential was not in the encrypted vault: "
+                    f"{credential}"
+                )
 
             rotated = expect(admin.post("/api/admin/credentials/rotate"), 200)
             if int(rotated.get("rotated_count", 0)) < 1:
