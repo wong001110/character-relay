@@ -23,6 +23,7 @@ from echo_masque.api.routes import (
     trials_router,
     workspace_router,
 )
+from echo_masque.audit_middleware import SensitiveAuditMiddleware
 from echo_masque.auth import AuthService
 from echo_masque.config import Settings, get_settings
 from echo_masque.credentials import CredentialVault
@@ -105,6 +106,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(SensitiveAuditMiddleware, repository=auth_repository)
     app.state.settings = resolved
     app.state.storage_status = storage_status
     app.state.database = database
