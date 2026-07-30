@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 ProviderId = Literal["deepseek", "openai", "openrouter", "custom"]
 JudgeModeValue = Literal["rules", "semantic", "hybrid"]
-CredentialSource = Literal["memory", "environment", "missing"]
+CredentialSource = Literal["vault", "memory", "environment", "missing"]
 
 DEFAULT_ADAPTIVE_PROMPT = (
     "You are an adversarial but bounded AI character tester. Generate exactly one "
@@ -77,7 +77,7 @@ class RuntimeStatus(BaseModel):
 
 
 class RuntimeCredentialStore:
-    """Process-memory overrides for Admin AI credentials."""
+    """Deprecated non-production compatibility store."""
 
     def __init__(self) -> None:
         self._values: dict[str, SecretStr] = {}
