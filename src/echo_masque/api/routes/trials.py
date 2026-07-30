@@ -13,7 +13,7 @@ from echo_masque.api.schemas import (
     TrialSnapshotView,
     TrialStart,
 )
-from echo_masque.persistence import Repository
+from echo_masque.persistence import Repository, TargetAccessRepository
 from echo_masque.services import TrialService
 
 router = APIRouter(prefix="/api/trials", tags=["trials"])
@@ -21,6 +21,10 @@ router = APIRouter(prefix="/api/trials", tags=["trials"])
 
 def repository(request: Request) -> Repository:
     return cast(Repository, request.app.state.repository)
+
+
+def target_access(request: Request) -> TargetAccessRepository:
+    return cast(TargetAccessRepository, request.app.state.target_access_repository)
 
 
 def service(request: Request) -> TrialService:
@@ -35,6 +39,14 @@ def start_trial(
     context: OptionalAuthContextDependency,
 ) -> TrialRunView:
     owner_id = owner_for_trial_start(payload, context)
+    if payload.target_id is not None and not target_access(request).can_access(
+        owner_id=owner_id,
+        target_id=payload.target_id,
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Target, Character Card, or Test Pack not found.",
+        )
     try:
         run_id = service(request).start(
             target_id=payload.target_id,
