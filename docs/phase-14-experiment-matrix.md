@@ -66,6 +66,10 @@ The Matrix Lab is separate from the Scenario/Test Pack Workspace and contains:
 
 The interface supports English and Simplified Chinese.
 
+## Production acceptance
+
+The retained `Live Matrix Smoke` workflow waits for the Phase 14 Railway API, reuses the existing Stable Ann and bilingual integrity pack, and preserves one two-task Matrix comparing Temperature `0.3` and `0.7` through the Chinese Benchmark + Rules path. It verifies persisted tasks, linked Runs, aggregate analytics, and the production Matrix API without deleting the Matrix.
+
 ## Exclusions
 
 Phase 14 does not include authentication, billing, public sharing, a Scenario marketplace, or distributed workers. Those boundaries remain in later roadmap phases.
