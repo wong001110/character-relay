@@ -8,7 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from echo_masque.account_lifecycle import AccountLifecycleService
 from echo_masque.api.routes import (
+    accounts_router,
     admin_router,
     auth_router,
     characters_router,
@@ -64,6 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     matrix_repository = MatrixRepository(database)
     target_access_repository = TargetAccessRepository(database)
     quota_service = QuotaService(database, resolved)
+    account_lifecycle_service = AccountLifecycleService(database, auth_repository)
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
         logger.warning(
@@ -112,12 +115,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.matrix_repository = matrix_repository
     app.state.target_access_repository = target_access_repository
     app.state.quota_service = quota_service
+    app.state.account_lifecycle_service = account_lifecycle_service
     app.state.credential_store = credential_store
     app.state.runtime_service = runtime_service
     app.state.trial_service = trial_service
     app.state.matrix_service = matrix_service
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(accounts_router)
     app.include_router(admin_router)
     app.include_router(characters_router)
     app.include_router(targets_router)
