@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     max_matrices_per_user: int = 100
     max_matrix_tasks_per_day: int = 1000
     max_concurrent_runs_per_user: int = 3
+    max_matrix_concurrency_per_user: int = 4
     max_workspace_records_per_user: int = 3000
 
 
