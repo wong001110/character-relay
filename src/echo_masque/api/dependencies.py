@@ -7,7 +7,7 @@ from typing import Annotated, cast
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
-from echo_masque.auth import AuthContext, AuthService, AuthenticatedUser
+from echo_masque.auth import AuthContext, AuthenticatedUser, AuthService
 from echo_masque.config import Settings
 
 _oauth2 = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
