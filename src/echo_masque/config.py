@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     adaptive_api_key: SecretStr | None = None
     judge_api_key: SecretStr | None = None
 
+    auth_cookie_name: str = "echo_masque_session"
+    auth_session_ttl_seconds: int = 60 * 60 * 24 * 30
+    auth_cookie_secure: bool = False
+    public_registration_enabled: bool = False
+    legacy_local_user_enabled: bool = True
+    credential_encryption_keys: SecretStr | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

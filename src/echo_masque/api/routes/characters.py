@@ -1,10 +1,11 @@
 """Character Card collection and provider credential endpoints."""
 
 import os
-from typing import Annotated, cast
+from typing import cast
 
-from fastapi import APIRouter, Header, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
 
+from echo_masque.api.dependencies import CurrentUserDependency
 from echo_masque.api.schemas import (
     CharacterCardCreate,
     CharacterCardFields,
@@ -14,8 +15,11 @@ from echo_masque.api.schemas import (
     CredentialStatus,
     PromptCharacterCreate,
 )
-from echo_masque.credentials import CredentialStore
-from echo_masque.persistence import MatrixRepository, Repository
+from echo_masque.credentials import (
+    CredentialStore,
+    CredentialVaultUnavailable,
+)
+from echo_masque.persistence import MatrixRepository, Repository, TargetAccessRepository
 from echo_masque.targets import PromptModelConfig
 
 router = APIRouter(prefix="/api/characters", tags=["characters"])
@@ -31,6 +35,10 @@ def matrix_repository(request: Request) -> MatrixRepository:
 
 def credential_store(request: Request) -> CredentialStore:
     return cast(CredentialStore, request.app.state.credential_store)
+
+
+def target_access(request: Request) -> TargetAccessRepository:
+    return cast(TargetAccessRepository, request.app.state.target_access_repository)
 
 
 def _create_card(
@@ -115,11 +123,11 @@ def _status_for(
 @router.get("", response_model=list[CharacterCardView])
 def list_characters(
     request: Request,
-    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
+    user: CurrentUserDependency,
 ) -> list[CharacterCardView]:
     return [
         CharacterCardView.from_record(item)
-        for item in repository(request).list_character_cards(owner_id)
+        for item in repository(request).list_character_cards(user.id)
     ]
 
 
@@ -127,18 +135,21 @@ def list_characters(
 def create_character(
     payload: CharacterCardCreate,
     request: Request,
-    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
+    user: CurrentUserDependency,
 ) -> CharacterCardView:
     repo = repository(request)
-    if repo.get_target(payload.target_id) is None:
+    target = repo.get_target(payload.target_id)
+    if target is None or not target_access(request).can_access(
+        owner_id=user.id, target_id=payload.target_id
+    ):
         raise HTTPException(status_code=404, detail="Target binding not found.")
     card = _create_card(
         repo,
-        owner_id=owner_id,
+        owner_id=user.id,
         target_id=payload.target_id,
         payload=payload,
     )
-    matrix_repository(request).capture_prompt_version(owner_id, card.id)
+    matrix_repository(request).capture_prompt_version(user.id, card.id)
     return card
 
 
@@ -150,7 +161,7 @@ def create_character(
 def create_prompt_character(
     payload: PromptCharacterCreate,
     request: Request,
-    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
+    user: CurrentUserDependency,
 ) -> CharacterCardView:
     repo = repository(request)
     config = PromptModelConfig(
@@ -166,14 +177,21 @@ def create_prompt_character(
         target_kind="prompt_model",
         config=config.model_dump(mode="json"),
     )
+    target_access(request).assign(owner_id=user.id, target_id=target.id)
     card = _create_card(
         repo,
-        owner_id=owner_id,
+        owner_id=user.id,
         target_id=target.id,
         payload=payload,
     )
-    credential_store(request).set(owner_id, card.id, payload.api_key)
-    matrix_repository(request).capture_prompt_version(owner_id, card.id, label="Initial")
+    try:
+        credential_store(request).set(user.id, card.id, payload.api_key)
+    except CredentialVaultUnavailable as exc:
+        repo.delete_character_card(card.id, user.id)
+        target_access(request).remove(owner_id=user.id, target_id=target.id)
+        repo.delete_target(target.id)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    matrix_repository(request).capture_prompt_version(user.id, card.id, label="Initial")
     return card
 
 
@@ -182,10 +200,10 @@ def update_character(
     card_id: str,
     payload: CharacterCardUpdate,
     request: Request,
-    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
+    user: CurrentUserDependency,
 ) -> CharacterCardView:
     repo = repository(request)
-    card = repo.get_character_card(card_id, owner_id)
+    card = repo.get_character_card(card_id, user.id)
     if card is None:
         raise HTTPException(status_code=404, detail="Character Card not found.")
     target = repo.get_target(card.target_id)
@@ -214,12 +232,12 @@ def update_character(
             raise HTTPException(status_code=404, detail="Target binding not found.")
     updated = _update_card(
         repo,
-        owner_id=owner_id,
+        owner_id=user.id,
         card_id=card_id,
         payload=payload,
     )
     if prompt_changed:
-        matrix_repository(request).capture_prompt_version(owner_id, card_id)
+        matrix_repository(request).capture_prompt_version(user.id, card_id)
     return updated
 
 
@@ -227,9 +245,9 @@ def update_character(
 def credential_status(
     card_id: str,
     request: Request,
-    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
+    user: CurrentUserDependency,
 ) -> CredentialStatus:
-    return _status_for(request, owner_id=owner_id, card_id=card_id)
+    return _status_for(request, owner_id=user.id, card_id=card_id)
 
 
 @router.put("/{card_id}/credential", response_model=CredentialStatus)
@@ -237,15 +255,18 @@ def configure_credential(
     card_id: str,
     payload: CredentialConfigure,
     request: Request,
-    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
+    user: CurrentUserDependency,
 ) -> CredentialStatus:
-    current = _status_for(request, owner_id=owner_id, card_id=card_id)
+    current = _status_for(request, owner_id=user.id, card_id=card_id)
     if not current.required:
         raise HTTPException(
             status_code=409,
             detail="This Character Card does not use a model-provider credential.",
         )
-    credential_store(request).set(owner_id, card_id, payload.api_key)
+    try:
+        credential_store(request).set(user.id, card_id, payload.api_key)
+    except CredentialVaultUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return CredentialStatus(required=True, configured=True, source="memory")
 
 
@@ -253,19 +274,19 @@ def configure_credential(
 def clear_credential(
     card_id: str,
     request: Request,
-    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
+    user: CurrentUserDependency,
 ) -> None:
-    _status_for(request, owner_id=owner_id, card_id=card_id)
-    credential_store(request).delete(owner_id, card_id)
+    _status_for(request, owner_id=user.id, card_id=card_id)
+    credential_store(request).delete(user.id, card_id)
 
 
 @router.get("/{card_id}", response_model=CharacterCardView)
 def get_character(
     card_id: str,
     request: Request,
-    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
+    user: CurrentUserDependency,
 ) -> CharacterCardView:
-    record = repository(request).get_character_card(card_id, owner_id)
+    record = repository(request).get_character_card(card_id, user.id)
     if record is None:
         raise HTTPException(status_code=404, detail="Character Card not found.")
     return CharacterCardView.from_record(record)
@@ -275,8 +296,8 @@ def get_character(
 def delete_character(
     card_id: str,
     request: Request,
-    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
+    user: CurrentUserDependency,
 ) -> None:
-    if not repository(request).delete_character_card(card_id, owner_id):
+    if not repository(request).delete_character_card(card_id, user.id):
         raise HTTPException(status_code=409, detail="Character Card cannot be deleted.")
-    credential_store(request).delete(owner_id, card_id)
+    credential_store(request).delete(user.id, card_id)
