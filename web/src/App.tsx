@@ -11,6 +11,7 @@ import {
 import { CharacterCreator } from "./CharacterCreator";
 import { CharacterShelf } from "./CharacterShelf";
 import { useI18n } from "./i18n";
+import { MatrixWorkspace } from "./MatrixWorkspace";
 import { PackRunLauncher } from "./PackRunLauncher";
 import { TestRoom } from "./TestRoom";
 import { WorkspaceHub } from "./WorkspaceHub";
@@ -27,6 +28,7 @@ export default function App() {
   const [editingCard, setEditingCard] = useState<CharacterCard | null>(null);
   const [adminOpen, setAdminOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [matrixOpen, setMatrixOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -65,6 +67,18 @@ export default function App() {
 
   function runtimeUpdated(view: AdminRuntimeView) {
     setRuntime(view.status);
+  }
+
+  if (matrixOpen) {
+    return (
+      <MatrixWorkspace
+        cards={cards}
+        onClose={() => {
+          setMatrixOpen(false);
+          void load();
+        }}
+      />
+    );
   }
 
   if (workspaceOpen) {
@@ -136,6 +150,7 @@ export default function App() {
         onEnter={setActiveCard}
         onAdmin={() => setAdminOpen(true)}
         onWorkspace={() => setWorkspaceOpen(true)}
+        onMatrix={() => setMatrixOpen(true)}
       />
       {creatorOpen && (
         <CharacterCreator
