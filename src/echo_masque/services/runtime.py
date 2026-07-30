@@ -17,7 +17,7 @@ from echo_masque.admin_runtime import (
 from echo_masque.auth import SYSTEM_RUNTIME_USER_ID
 from echo_masque.config import Settings
 from echo_masque.credentials import CredentialVault
-from echo_masque.persistence import Repository
+from echo_masque.persistence import AuthRepository, Repository
 from echo_masque.persistence.models import UserRecord
 from echo_masque.testers import AdaptiveTesterConfig
 
@@ -29,11 +29,14 @@ class RuntimeService:
         self,
         repository: Repository,
         settings: Settings,
-        credential_vault: CredentialVault,
+        credential_vault: CredentialVault | None = None,
     ) -> None:
         self.repository = repository
         self.settings = settings
-        self.credential_vault = credential_vault
+        self.credential_vault = credential_vault or CredentialVault(
+            AuthRepository(repository.database),
+            settings,
+        )
 
     def config(self) -> AdminRuntimeConfig:
         record = self.repository.get_admin_runtime()
