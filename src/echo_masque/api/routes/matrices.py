@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Annotated, cast
+from typing import cast
 
 from fastapi import (
     APIRouter,
     BackgroundTasks,
-    Header,
     HTTPException,
     Query,
     Request,
@@ -15,6 +14,7 @@ from fastapi import (
     status,
 )
 
+from echo_masque.api.dependencies import CurrentUserDependency
 from echo_masque.matrix import (
     ExportFormat,
     MatrixAnalytics,
@@ -34,7 +34,6 @@ from echo_masque.persistence import MatrixRepository
 from echo_masque.services import MatrixService
 
 router = APIRouter(tags=["matrices"])
-OwnerHeader = Annotated[str, Header(alias="X-Echo-User")]
 ExportFormatQuery = Query("json", alias="format")
 
 
@@ -50,10 +49,10 @@ def matrix_service(request: Request) -> MatrixService:
 def preview_matrix(
     definition: MatrixDefinition,
     request: Request,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> MatrixPreview:
     try:
-        return matrix_service(request).preview(owner_id, definition)
+        return matrix_service(request).preview(user.id, definition)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -61,12 +60,12 @@ def preview_matrix(
 @router.get("/api/matrices", response_model=MatrixListPage)
 def list_matrices(
     request: Request,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ) -> MatrixListPage:
     return matrix_repository(request).list_matrices(
-        owner_id,
+        user.id,
         page=page,
         page_size=page_size,
     )
@@ -80,10 +79,10 @@ def list_matrices(
 def create_matrix(
     payload: MatrixCreate,
     request: Request,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> MatrixView:
     try:
-        return matrix_service(request).create(owner_id, payload)
+        return matrix_service(request).create(user.id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -92,9 +91,9 @@ def create_matrix(
 def get_matrix(
     matrix_id: str,
     request: Request,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> MatrixView:
-    item = matrix_repository(request).get_matrix(matrix_id, owner_id)
+    item = matrix_repository(request).get_matrix(matrix_id, user.id)
     if item is None:
         raise HTTPException(status_code=404, detail="Experiment Matrix not found.")
     return item
@@ -105,10 +104,10 @@ def update_matrix(
     matrix_id: str,
     payload: MatrixUpdate,
     request: Request,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> MatrixView:
     try:
-        item = matrix_service(request).update(matrix_id, owner_id, payload)
+        item = matrix_service(request).update(matrix_id, user.id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if item is None:
@@ -120,10 +119,10 @@ def update_matrix(
 def delete_matrix(
     matrix_id: str,
     request: Request,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> None:
     try:
-        deleted = matrix_repository(request).delete_matrix(matrix_id, owner_id)
+        deleted = matrix_repository(request).delete_matrix(matrix_id, user.id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not deleted:
@@ -140,10 +139,10 @@ def launch_matrix(
     payload: MatrixLaunch,
     request: Request,
     background_tasks: BackgroundTasks,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> MatrixView:
     try:
-        matrix = matrix_service(request).launch(matrix_id, owner_id, payload)
+        matrix = matrix_service(request).launch(matrix_id, user.id, payload)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Experiment Matrix not found.") from exc
     except ValueError as exc:
@@ -156,10 +155,10 @@ def launch_matrix(
 def pause_matrix(
     matrix_id: str,
     request: Request,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> MatrixView:
     try:
-        item = matrix_service(request).pause(matrix_id, owner_id)
+        item = matrix_service(request).pause(matrix_id, user.id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if item is None:
@@ -172,10 +171,10 @@ def resume_matrix(
     matrix_id: str,
     request: Request,
     background_tasks: BackgroundTasks,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> MatrixView:
     try:
-        item = matrix_service(request).resume(matrix_id, owner_id)
+        item = matrix_service(request).resume(matrix_id, user.id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if item is None:
@@ -188,9 +187,9 @@ def resume_matrix(
 def cancel_matrix(
     matrix_id: str,
     request: Request,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> MatrixView:
-    item = matrix_service(request).cancel(matrix_id, owner_id)
+    item = matrix_service(request).cancel(matrix_id, user.id)
     if item is None:
         raise HTTPException(status_code=404, detail="Experiment Matrix not found.")
     return item
@@ -201,9 +200,9 @@ def retry_failed_tasks(
     matrix_id: str,
     request: Request,
     background_tasks: BackgroundTasks,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> MatrixView:
-    item = matrix_service(request).retry_failed(matrix_id, owner_id)
+    item = matrix_service(request).retry_failed(matrix_id, user.id)
     if item is None:
         raise HTTPException(status_code=404, detail="Experiment Matrix not found.")
     background_tasks.add_task(matrix_service(request).run_matrix, matrix_id)
@@ -215,9 +214,9 @@ def set_matrix_baseline(
     matrix_id: str,
     value: bool,
     request: Request,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> MatrixView:
-    item = matrix_repository(request).set_matrix_baseline(matrix_id, owner_id, value)
+    item = matrix_repository(request).set_matrix_baseline(matrix_id, user.id, value)
     if item is None:
         raise HTTPException(status_code=404, detail="Experiment Matrix not found.")
     return item
@@ -227,9 +226,9 @@ def set_matrix_baseline(
 def matrix_tasks(
     matrix_id: str,
     request: Request,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> list[MatrixTaskView]:
-    items = matrix_repository(request).list_tasks(matrix_id, owner_id)
+    items = matrix_repository(request).list_tasks(matrix_id, user.id)
     if items is None:
         raise HTTPException(status_code=404, detail="Experiment Matrix not found.")
     return items
@@ -239,9 +238,9 @@ def matrix_tasks(
 def matrix_analytics(
     matrix_id: str,
     request: Request,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> MatrixAnalytics:
-    item = matrix_service(request).analytics(matrix_id, owner_id)
+    item = matrix_service(request).analytics(matrix_id, user.id)
     if item is None:
         raise HTTPException(status_code=404, detail="Experiment Matrix not found.")
     return item
@@ -252,9 +251,9 @@ def compare_matrices(
     request: Request,
     baseline_id: str,
     candidate_id: str,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> MatrixComparison:
-    item = matrix_service(request).compare(baseline_id, candidate_id, owner_id)
+    item = matrix_service(request).compare(baseline_id, candidate_id, user.id)
     if item is None:
         raise HTTPException(status_code=404, detail="One or both Matrices were not found.")
     return item
@@ -264,10 +263,10 @@ def compare_matrices(
 def export_matrix(
     matrix_id: str,
     request: Request,
+    user: CurrentUserDependency,
     export_format: ExportFormat = ExportFormatQuery,
-    owner_id: OwnerHeader = "local-user",
 ) -> Response:
-    exported = matrix_service(request).export(matrix_id, owner_id, export_format)
+    exported = matrix_service(request).export(matrix_id, user.id, export_format)
     if exported is None:
         raise HTTPException(status_code=404, detail="Experiment Matrix not found.")
     return Response(
@@ -284,9 +283,9 @@ def export_matrix(
 def list_prompt_versions(
     character_card_id: str,
     request: Request,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> list[PromptVersionView]:
-    items = matrix_repository(request).list_prompt_versions(owner_id, character_card_id)
+    items = matrix_repository(request).list_prompt_versions(user.id, character_card_id)
     if items is None:
         raise HTTPException(status_code=404, detail="Character Card not found.")
     return items
@@ -300,10 +299,10 @@ def restore_prompt_version(
     character_card_id: str,
     version_id: str,
     request: Request,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> PromptVersionView:
     item = matrix_repository(request).restore_prompt_version(
-        owner_id,
+        user.id,
         character_card_id,
         version_id,
     )
@@ -321,10 +320,10 @@ def set_production_prompt_version(
     version_id: str,
     value: bool,
     request: Request,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> PromptVersionView:
     item = matrix_repository(request).set_production_version(
-        owner_id,
+        user.id,
         character_card_id,
         version_id,
         value,
@@ -342,9 +341,9 @@ def compare_prompt_versions(
     request: Request,
     left_id: str,
     right_id: str,
-    owner_id: OwnerHeader = "local-user",
+    user: CurrentUserDependency,
 ) -> PromptVersionDiff:
-    item = matrix_repository(request).prompt_version_diff(owner_id, left_id, right_id)
+    item = matrix_repository(request).prompt_version_diff(user.id, left_id, right_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Comparable Prompt versions not found.")
     return item
