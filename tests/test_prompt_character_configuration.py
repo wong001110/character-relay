@@ -34,7 +34,7 @@ def prompt_character_payload() -> dict[str, object]:
     }
 
 
-def test_prompt_character_configuration_keeps_key_ephemeral(tmp_path: Path) -> None:
+def test_prompt_character_configuration_encrypts_and_restores_key(tmp_path: Path) -> None:
     database_path = tmp_path / "prompt-character.db"
     client = TestClient(create_app(settings(database_path)))
 
@@ -60,24 +60,16 @@ def test_prompt_character_configuration_keeps_key_ephemeral(tmp_path: Path) -> N
     assert target["config"]["provider"] == "deepseek"
     assert target["config"]["model"] == "deepseek-v4-flash"
     assert "never-persist-this-key" not in json.dumps(target)
+    assert b"never-persist-this-key" not in database_path.read_bytes()
 
     restarted = TestClient(create_app(settings(database_path)))
-    missing = restarted.get(f"/api/characters/{card_id}/credential")
-    assert missing.status_code == 200
-    assert missing.json()["configured"] is False
-    assert missing.json()["source"] == "missing"
-
-    blocked = restarted.post(
-        "/api/trials",
-        json={
-            "character_card_id": card_id,
-            "suite": ["identity_integrity"],
-            "mode": "fast",
-        },
-    )
-    assert blocked.status_code == 422
-    assert "API key" in blocked.text
-    assert "never-persist-this-key" not in blocked.text
+    restored = restarted.get(f"/api/characters/{card_id}/credential")
+    assert restored.status_code == 200
+    assert restored.json() == {
+        "required": True,
+        "configured": True,
+        "source": "memory",
+    }
 
     configured = restarted.put(
         f"/api/characters/{card_id}/credential",
@@ -85,6 +77,7 @@ def test_prompt_character_configuration_keeps_key_ephemeral(tmp_path: Path) -> N
     )
     assert configured.status_code == 200
     assert configured.json()["source"] == "memory"
+    assert b"replacement-secret" not in database_path.read_bytes()
 
 
 def test_character_credentials_are_owner_scoped(tmp_path: Path) -> None:
