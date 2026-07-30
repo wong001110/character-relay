@@ -169,25 +169,65 @@ class AccountLifecycleService:
             )
 
     def claim_local_workspace(self, *, actor_user_id: str) -> dict[str, int]:
-        counts: dict[str, int] = {}
-        owner_models = {
-            "characters": CharacterCardRecord,
-            "scenarios": CustomScenarioRecord,
-            "test_packs": TestPackRecord,
-            "run_snapshots": RunSnapshotRecord,
-            "prompt_versions": PromptVersionRecord,
-            "matrices": ExperimentMatrixRecord,
-            "probes": PersistenceProbeRecord,
-            "credentials": EncryptedCredentialRecord,
-        }
         with self.database.session() as session:
-            for label, model in owner_models.items():
-                result = session.execute(
-                    update(model)
-                    .where(model.owner_id == LOCAL_WORKSPACE_OWNER)
-                    .values(owner_id=actor_user_id)
-                )
-                counts[label] = int(result.rowcount or 0)
+            counts = {
+                "characters": self._rowcount(
+                    session.execute(
+                        update(CharacterCardRecord)
+                        .where(CharacterCardRecord.owner_id == LOCAL_WORKSPACE_OWNER)
+                        .values(owner_id=actor_user_id)
+                    )
+                ),
+                "scenarios": self._rowcount(
+                    session.execute(
+                        update(CustomScenarioRecord)
+                        .where(CustomScenarioRecord.owner_id == LOCAL_WORKSPACE_OWNER)
+                        .values(owner_id=actor_user_id)
+                    )
+                ),
+                "test_packs": self._rowcount(
+                    session.execute(
+                        update(TestPackRecord)
+                        .where(TestPackRecord.owner_id == LOCAL_WORKSPACE_OWNER)
+                        .values(owner_id=actor_user_id)
+                    )
+                ),
+                "run_snapshots": self._rowcount(
+                    session.execute(
+                        update(RunSnapshotRecord)
+                        .where(RunSnapshotRecord.owner_id == LOCAL_WORKSPACE_OWNER)
+                        .values(owner_id=actor_user_id)
+                    )
+                ),
+                "prompt_versions": self._rowcount(
+                    session.execute(
+                        update(PromptVersionRecord)
+                        .where(PromptVersionRecord.owner_id == LOCAL_WORKSPACE_OWNER)
+                        .values(owner_id=actor_user_id)
+                    )
+                ),
+                "matrices": self._rowcount(
+                    session.execute(
+                        update(ExperimentMatrixRecord)
+                        .where(ExperimentMatrixRecord.owner_id == LOCAL_WORKSPACE_OWNER)
+                        .values(owner_id=actor_user_id)
+                    )
+                ),
+                "probes": self._rowcount(
+                    session.execute(
+                        update(PersistenceProbeRecord)
+                        .where(PersistenceProbeRecord.owner_id == LOCAL_WORKSPACE_OWNER)
+                        .values(owner_id=actor_user_id)
+                    )
+                ),
+                "credentials": self._rowcount(
+                    session.execute(
+                        update(EncryptedCredentialRecord)
+                        .where(EncryptedCredentialRecord.owner_id == LOCAL_WORKSPACE_OWNER)
+                        .values(owner_id=actor_user_id)
+                    )
+                ),
+            }
 
             ownerships = list(
                 session.scalars(
@@ -238,15 +278,14 @@ class AccountLifecycleService:
                     counts["target_ownership"] += 1
             session.commit()
 
-        total = sum(counts.values())
-        if total == 0:
+        if sum(counts.values()) == 0:
             raise LifecycleConflict("No unclaimed local workspace data was found.")
         self.auth_repository.audit(
             actor_user_id=actor_user_id,
             action="workspace.local_claimed",
             resource_type="workspace",
             resource_id=actor_user_id,
-            metadata=counts,
+            metadata=cast(dict[str, object], counts),
         )
         return counts
 
@@ -308,7 +347,7 @@ class AccountLifecycleService:
             action="account.deleted",
             resource_type="user",
             resource_id=user_id,
-            metadata=deleted,
+            metadata=cast(dict[str, object], deleted),
         )
         return deleted
 
@@ -323,18 +362,20 @@ class AccountLifecycleService:
                 )
             )
             if matrix_ids:
-                result = session.execute(
-                    delete(ExperimentMatrixTaskRecord).where(
-                        ExperimentMatrixTaskRecord.matrix_id.in_(matrix_ids)
+                deleted["matrix_tasks"] = self._rowcount(
+                    session.execute(
+                        delete(ExperimentMatrixTaskRecord).where(
+                            ExperimentMatrixTaskRecord.matrix_id.in_(matrix_ids)
+                        )
                     )
                 )
-                deleted["matrix_tasks"] = int(result.rowcount or 0)
-                result = session.execute(
-                    delete(ExperimentMatrixRecord).where(
-                        ExperimentMatrixRecord.id.in_(matrix_ids)
+                deleted["matrices"] = self._rowcount(
+                    session.execute(
+                        delete(ExperimentMatrixRecord).where(
+                            ExperimentMatrixRecord.id.in_(matrix_ids)
+                        )
                     )
                 )
-                deleted["matrices"] = int(result.rowcount or 0)
 
             run_ids = list(
                 session.scalars(
@@ -344,26 +385,42 @@ class AccountLifecycleService:
                 )
             )
             if run_ids:
-                for label, model in (
-                    ("evidence", EvidenceRecord),
-                    ("events", TrialEventRecord),
-                    ("turns", TurnRecord),
-                    ("character_trials", CharacterTrialRecord),
-                ):
-                    result = session.execute(
-                        delete(model).where(model.run_id.in_(run_ids))
-                    )
-                    deleted[label] = int(result.rowcount or 0)
-                result = session.execute(
-                    delete(RunSnapshotRecord).where(
-                        RunSnapshotRecord.run_id.in_(run_ids)
+                deleted["evidence"] = self._rowcount(
+                    session.execute(
+                        delete(EvidenceRecord).where(EvidenceRecord.run_id.in_(run_ids))
                     )
                 )
-                deleted["run_snapshots"] = int(result.rowcount or 0)
-                result = session.execute(
-                    delete(TrialRunRecord).where(TrialRunRecord.id.in_(run_ids))
+                deleted["events"] = self._rowcount(
+                    session.execute(
+                        delete(TrialEventRecord).where(
+                            TrialEventRecord.run_id.in_(run_ids)
+                        )
+                    )
                 )
-                deleted["trial_runs"] = int(result.rowcount or 0)
+                deleted["turns"] = self._rowcount(
+                    session.execute(
+                        delete(TurnRecord).where(TurnRecord.run_id.in_(run_ids))
+                    )
+                )
+                deleted["character_trials"] = self._rowcount(
+                    session.execute(
+                        delete(CharacterTrialRecord).where(
+                            CharacterTrialRecord.run_id.in_(run_ids)
+                        )
+                    )
+                )
+                deleted["run_snapshots"] = self._rowcount(
+                    session.execute(
+                        delete(RunSnapshotRecord).where(
+                            RunSnapshotRecord.run_id.in_(run_ids)
+                        )
+                    )
+                )
+                deleted["trial_runs"] = self._rowcount(
+                    session.execute(
+                        delete(TrialRunRecord).where(TrialRunRecord.id.in_(run_ids))
+                    )
+                )
 
             pack_ids = list(
                 session.scalars(
@@ -371,23 +428,26 @@ class AccountLifecycleService:
                 )
             )
             if pack_ids:
-                result = session.execute(
-                    delete(TestPackItemRecord).where(
-                        TestPackItemRecord.pack_id.in_(pack_ids)
+                deleted["pack_items"] = self._rowcount(
+                    session.execute(
+                        delete(TestPackItemRecord).where(
+                            TestPackItemRecord.pack_id.in_(pack_ids)
+                        )
                     )
                 )
-                deleted["pack_items"] = int(result.rowcount or 0)
-                result = session.execute(
-                    delete(TestPackRecord).where(TestPackRecord.id.in_(pack_ids))
+                deleted["test_packs"] = self._rowcount(
+                    session.execute(
+                        delete(TestPackRecord).where(TestPackRecord.id.in_(pack_ids))
+                    )
                 )
-                deleted["test_packs"] = int(result.rowcount or 0)
 
-            result = session.execute(
-                delete(CustomScenarioRecord).where(
-                    CustomScenarioRecord.owner_id == owner_id
+            deleted["scenarios"] = self._rowcount(
+                session.execute(
+                    delete(CustomScenarioRecord).where(
+                        CustomScenarioRecord.owner_id == owner_id
+                    )
                 )
             )
-            deleted["scenarios"] = int(result.rowcount or 0)
 
             card_records = list(
                 session.scalars(
@@ -399,25 +459,28 @@ class AccountLifecycleService:
             card_ids = [item.id for item in card_records]
             target_ids = {item.target_id for item in card_records}
             if card_ids:
-                result = session.execute(
-                    delete(PromptVersionRecord).where(
-                        PromptVersionRecord.character_card_id.in_(card_ids)
+                deleted["prompt_versions"] = self._rowcount(
+                    session.execute(
+                        delete(PromptVersionRecord).where(
+                            PromptVersionRecord.character_card_id.in_(card_ids)
+                        )
                     )
                 )
-                deleted["prompt_versions"] = int(result.rowcount or 0)
-                result = session.execute(
-                    delete(CharacterCardRecord).where(
-                        CharacterCardRecord.id.in_(card_ids)
+                deleted["characters"] = self._rowcount(
+                    session.execute(
+                        delete(CharacterCardRecord).where(
+                            CharacterCardRecord.id.in_(card_ids)
+                        )
                     )
                 )
-                deleted["characters"] = int(result.rowcount or 0)
 
-            result = session.execute(
-                delete(TargetOwnershipRecord).where(
-                    TargetOwnershipRecord.owner_id == owner_id
+            deleted["target_ownership"] = self._rowcount(
+                session.execute(
+                    delete(TargetOwnershipRecord).where(
+                        TargetOwnershipRecord.owner_id == owner_id
+                    )
                 )
             )
-            deleted["target_ownership"] = int(result.rowcount or 0)
             for target_id in target_ids:
                 if target_id.startswith("demo-"):
                     continue
@@ -432,19 +495,19 @@ class AccountLifecycleService:
                     .where(TargetOwnershipRecord.target_id == target_id)
                 )
                 if not remaining_cards and not remaining_owners:
-                    result = session.execute(
-                        delete(TargetRecord).where(TargetRecord.id == target_id)
-                    )
-                    deleted["targets"] = deleted.get("targets", 0) + int(
-                        result.rowcount or 0
+                    deleted["targets"] = deleted.get("targets", 0) + self._rowcount(
+                        session.execute(
+                            delete(TargetRecord).where(TargetRecord.id == target_id)
+                        )
                     )
 
-            result = session.execute(
-                delete(PersistenceProbeRecord).where(
-                    PersistenceProbeRecord.owner_id == owner_id
+            deleted["probes"] = self._rowcount(
+                session.execute(
+                    delete(PersistenceProbeRecord).where(
+                        PersistenceProbeRecord.owner_id == owner_id
+                    )
                 )
             )
-            deleted["probes"] = int(result.rowcount or 0)
             session.commit()
         return deleted
 
@@ -455,6 +518,10 @@ class AccountLifecycleService:
         except json.JSONDecodeError:
             return {}
         return cast(dict[str, object], value) if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _rowcount(result: object) -> int:
+        return int(getattr(result, "rowcount", 0) or 0)
 
     @staticmethod
     def _digest(value: str) -> str:
