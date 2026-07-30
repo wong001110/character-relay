@@ -2,8 +2,10 @@
 
 from typing import Annotated, cast
 
-from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 
+from echo_masque.api.access import owner_for_trial_start, require_run_access
+from echo_masque.api.dependencies import OptionalAuthContextDependency
 from echo_masque.api.schemas import (
     ReplayTurn,
     TrialEventView,
@@ -30,8 +32,9 @@ def start_trial(
     payload: TrialStart,
     request: Request,
     background_tasks: BackgroundTasks,
-    owner_id: Annotated[str, Header(alias="X-Echo-User")] = "local-user",
+    context: OptionalAuthContextDependency,
 ) -> TrialRunView:
+    owner_id = owner_for_trial_start(payload, context)
     try:
         run_id = service(request).start(
             target_id=payload.target_id,
@@ -59,7 +62,12 @@ def start_trial(
 
 
 @router.get("/{run_id}", response_model=TrialRunView)
-def get_trial(run_id: str, request: Request) -> TrialRunView:
+def get_trial(
+    run_id: str,
+    request: Request,
+    context: OptionalAuthContextDependency,
+) -> TrialRunView:
+    require_run_access(request, run_id, context)
     run = repository(request).get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Trial not found.")
@@ -70,8 +78,10 @@ def get_trial(run_id: str, request: Request) -> TrialRunView:
 def trial_snapshot(
     run_id: str,
     request: Request,
+    context: OptionalAuthContextDependency,
     after: Annotated[int, Query(ge=0)] = 0,
 ) -> TrialSnapshotView:
+    require_run_access(request, run_id, context)
     repo = repository(request)
     run = repo.get_run(run_id)
     if run is None:
@@ -89,10 +99,10 @@ def trial_snapshot(
 def trial_events(
     run_id: str,
     request: Request,
+    context: OptionalAuthContextDependency,
     after: Annotated[int, Query(ge=0)] = 0,
 ) -> list[TrialEventView]:
-    if repository(request).get_run(run_id) is None:
-        raise HTTPException(status_code=404, detail="Trial not found.")
+    require_run_access(request, run_id, context)
     return [
         TrialEventView.from_record(item)
         for item in repository(request).list_trial_events(run_id, after)
@@ -100,7 +110,12 @@ def trial_events(
 
 
 @router.post("/{run_id}/cancel", response_model=TrialRunView)
-def cancel_trial(run_id: str, request: Request) -> TrialRunView:
+def cancel_trial(
+    run_id: str,
+    request: Request,
+    context: OptionalAuthContextDependency,
+) -> TrialRunView:
+    require_run_access(request, run_id, context, allow_public=False)
     try:
         changed = service(request).cancel(run_id)
     except KeyError as exc:
@@ -116,7 +131,10 @@ def cancel_trial(run_id: str, request: Request) -> TrialRunView:
 
 
 @router.get("/{run_id}/replay", response_model=list[ReplayTurn])
-def replay_trial(run_id: str, request: Request) -> list[ReplayTurn]:
-    if repository(request).get_run(run_id) is None:
-        raise HTTPException(status_code=404, detail="Trial not found.")
+def replay_trial(
+    run_id: str,
+    request: Request,
+    context: OptionalAuthContextDependency,
+) -> list[ReplayTurn]:
+    require_run_access(request, run_id, context)
     return [ReplayTurn.from_record(item) for item in repository(request).replay(run_id)]
