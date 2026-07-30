@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, cast
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
 from echo_masque.auth import AuthContext, AuthenticatedUser, AuthService
@@ -60,11 +60,27 @@ def current_user(
 
 
 def require_admin(
-    user: Annotated[AuthenticatedUser, Depends(current_user)],
+    request: Request,
+    context: Annotated[AuthContext, Depends(current_auth_context)],
+    legacy_header: Annotated[str | None, Header(alias="X-Echo-Admin")] = None,
 ) -> AuthenticatedUser:
-    if user.role != "admin":
+    if context.user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin role required.")
-    return user
+    if context.session_id is not None:
+        return context.user
+    resolved = settings(request)
+    if (
+        resolved.environment != "production"
+        and resolved.legacy_local_user_enabled
+        and legacy_header is not None
+    ):
+        request.state.legacy_admin = True
+        return context.user
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authenticated Admin session required.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 OptionalAuthContextDependency = Annotated[
