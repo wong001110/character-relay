@@ -1,4 +1,4 @@
-"""Shared authentication and authorization dependencies."""
+"""Shared authentication, authorization, and request-limit dependencies."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from fastapi.security import OAuth2PasswordBearer
 
 from echo_masque.auth import AuthContext, AuthenticatedUser, AuthService
 from echo_masque.config import Settings
+from echo_masque.security_controls import QuotaExceeded, QuotaService
 
 _oauth2 = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
@@ -19,6 +20,21 @@ def auth_service(request: Request) -> AuthService:
 
 def settings(request: Request) -> Settings:
     return cast(Settings, request.app.state.settings)
+
+
+def quota_service(request: Request) -> QuotaService:
+    return cast(QuotaService, request.app.state.quota_service)
+
+
+def quota_http_exception(exc: QuotaExceeded) -> HTTPException:
+    headers: dict[str, str] | None = None
+    if exc.retry_after is not None:
+        headers = {"Retry-After": str(exc.retry_after)}
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=str(exc),
+        headers=headers,
+    )
 
 
 def optional_auth_context(
@@ -42,15 +58,21 @@ def optional_auth_context(
 
 
 def current_auth_context(
+    request: Request,
     context: Annotated[AuthContext | None, Depends(optional_auth_context)],
 ) -> AuthContext:
-    if context is not None:
-        return context
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Authentication required.",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    if context is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if context.session_id is not None:
+        try:
+            quota_service(request).consume_request(context.user.id)
+        except QuotaExceeded as exc:
+            raise quota_http_exception(exc) from exc
+    return context
 
 
 def current_user(

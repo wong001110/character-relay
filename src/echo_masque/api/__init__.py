@@ -33,6 +33,7 @@ from echo_masque.persistence import (
     WorkspaceRepository,
     inspect_storage,
 )
+from echo_masque.security_controls import QuotaService
 from echo_masque.services import MatrixService, RuntimeService, TrialService
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     workspace_repository = WorkspaceRepository(database)
     matrix_repository = MatrixRepository(database)
     target_access_repository = TargetAccessRepository(database)
+    quota_service = QuotaService(database, resolved)
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
         logger.warning(
@@ -109,6 +111,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.workspace_repository = workspace_repository
     app.state.matrix_repository = matrix_repository
     app.state.target_access_repository = target_access_repository
+    app.state.quota_service = quota_service
     app.state.credential_store = credential_store
     app.state.runtime_service = runtime_service
     app.state.trial_service = trial_service

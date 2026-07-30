@@ -5,7 +5,11 @@ from typing import Annotated, cast
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 
 from echo_masque.api.access import owner_for_trial_start, require_run_access
-from echo_masque.api.dependencies import OptionalAuthContextDependency
+from echo_masque.api.dependencies import (
+    OptionalAuthContextDependency,
+    quota_http_exception,
+    quota_service,
+)
 from echo_masque.api.schemas import (
     ReplayTurn,
     TrialEventView,
@@ -14,6 +18,7 @@ from echo_masque.api.schemas import (
     TrialStart,
 )
 from echo_masque.persistence import Repository, TargetAccessRepository
+from echo_masque.security_controls import QuotaExceeded
 from echo_masque.services import TrialService
 
 router = APIRouter(prefix="/api/trials", tags=["trials"])
@@ -39,6 +44,11 @@ def start_trial(
     context: OptionalAuthContextDependency,
 ) -> TrialRunView:
     owner_id = owner_for_trial_start(payload, context)
+    if context is not None and context.session_id is not None:
+        try:
+            quota_service(request).enforce_run_start(owner_id)
+        except QuotaExceeded as exc:
+            raise quota_http_exception(exc) from exc
     if payload.target_id is not None and not target_access(request).can_access(
         owner_id=owner_id,
         target_id=payload.target_id,

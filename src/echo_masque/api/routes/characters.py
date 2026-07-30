@@ -5,7 +5,11 @@ from typing import cast
 
 from fastapi import APIRouter, HTTPException, Request, status
 
-from echo_masque.api.dependencies import CurrentUserDependency
+from echo_masque.api.dependencies import (
+    CurrentUserDependency,
+    quota_http_exception,
+    quota_service,
+)
 from echo_masque.api.schemas import (
     CharacterCardCreate,
     CharacterCardFields,
@@ -15,11 +19,9 @@ from echo_masque.api.schemas import (
     CredentialStatus,
     PromptCharacterCreate,
 )
-from echo_masque.credentials import (
-    CredentialStore,
-    CredentialVaultUnavailable,
-)
+from echo_masque.credentials import CredentialStore, CredentialVaultUnavailable
 from echo_masque.persistence import MatrixRepository, Repository, TargetAccessRepository
+from echo_masque.security_controls import QuotaExceeded
 from echo_masque.targets import PromptModelConfig
 
 router = APIRouter(prefix="/api/characters", tags=["characters"])
@@ -39,6 +41,13 @@ def credential_store(request: Request) -> CredentialStore:
 
 def target_access(request: Request) -> TargetAccessRepository:
     return cast(TargetAccessRepository, request.app.state.target_access_repository)
+
+
+def _enforce_create_quota(request: Request, owner_id: str) -> None:
+    try:
+        quota_service(request).enforce_create(owner_id, "character")
+    except QuotaExceeded as exc:
+        raise quota_http_exception(exc) from exc
 
 
 def _create_card(
@@ -107,11 +116,7 @@ def _status_for(
     if target is None:
         raise HTTPException(status_code=404, detail="Target binding not found.")
     if target.target_kind != "prompt_model":
-        return CredentialStatus(
-            required=False,
-            configured=True,
-            source="not_required",
-        )
+        return CredentialStatus(required=False, configured=True, source="not_required")
     config = PromptModelConfig.model_validate_json(target.config_json)
     if credential_store(request).has(owner_id, card_id):
         return CredentialStatus(required=True, configured=True, source="memory")
@@ -137,10 +142,12 @@ def create_character(
     request: Request,
     user: CurrentUserDependency,
 ) -> CharacterCardView:
+    _enforce_create_quota(request, user.id)
     repo = repository(request)
     target = repo.get_target(payload.target_id)
     if target is None or not target_access(request).can_access(
-        owner_id=user.id, target_id=payload.target_id
+        owner_id=user.id,
+        target_id=payload.target_id,
     ):
         raise HTTPException(status_code=404, detail="Target binding not found.")
     card = _create_card(
@@ -163,6 +170,7 @@ def create_prompt_character(
     request: Request,
     user: CurrentUserDependency,
 ) -> CharacterCardView:
+    _enforce_create_quota(request, user.id)
     repo = repository(request)
     config = PromptModelConfig(
         name=payload.display_name,

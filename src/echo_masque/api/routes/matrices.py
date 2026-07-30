@@ -14,7 +14,12 @@ from fastapi import (
     status,
 )
 
-from echo_masque.api.dependencies import CurrentUserDependency
+from echo_masque.api.dependencies import (
+    CurrentUserDependency,
+    quota_http_exception,
+    quota_service,
+)
+from echo_masque.config import Settings
 from echo_masque.matrix import (
     ExportFormat,
     MatrixAnalytics,
@@ -31,6 +36,7 @@ from echo_masque.matrix import (
     PromptVersionView,
 )
 from echo_masque.persistence import MatrixRepository
+from echo_masque.security_controls import QuotaExceeded
 from echo_masque.services import MatrixService
 
 router = APIRouter(tags=["matrices"])
@@ -45,12 +51,23 @@ def matrix_service(request: Request) -> MatrixService:
     return cast(MatrixService, request.app.state.matrix_service)
 
 
+def _enforce_matrix_concurrency(request: Request, concurrency: int) -> None:
+    resolved = cast(Settings, request.app.state.settings)
+    if concurrency > resolved.max_matrix_concurrency_per_user:
+        raise quota_http_exception(
+            QuotaExceeded(
+                "Matrix concurrency exceeds the account limit."
+            )
+        )
+
+
 @router.post("/api/matrices/preview", response_model=MatrixPreview)
 def preview_matrix(
     definition: MatrixDefinition,
     request: Request,
     user: CurrentUserDependency,
 ) -> MatrixPreview:
+    _enforce_matrix_concurrency(request, definition.concurrency)
     try:
         return matrix_service(request).preview(user.id, definition)
     except ValueError as exc:
@@ -81,6 +98,11 @@ def create_matrix(
     request: Request,
     user: CurrentUserDependency,
 ) -> MatrixView:
+    _enforce_matrix_concurrency(request, payload.definition.concurrency)
+    try:
+        quota_service(request).enforce_create(user.id, "matrix")
+    except QuotaExceeded as exc:
+        raise quota_http_exception(exc) from exc
     try:
         return matrix_service(request).create(user.id, payload)
     except ValueError as exc:
@@ -106,6 +128,8 @@ def update_matrix(
     request: Request,
     user: CurrentUserDependency,
 ) -> MatrixView:
+    if payload.definition is not None:
+        _enforce_matrix_concurrency(request, payload.definition.concurrency)
     try:
         item = matrix_service(request).update(matrix_id, user.id, payload)
     except ValueError as exc:
@@ -141,6 +165,13 @@ def launch_matrix(
     background_tasks: BackgroundTasks,
     user: CurrentUserDependency,
 ) -> MatrixView:
+    try:
+        quota_service(request).enforce_matrix_launch(
+            user.id,
+            payload.confirmed_task_count,
+        )
+    except QuotaExceeded as exc:
+        raise quota_http_exception(exc) from exc
     try:
         matrix = matrix_service(request).launch(matrix_id, user.id, payload)
     except KeyError as exc:

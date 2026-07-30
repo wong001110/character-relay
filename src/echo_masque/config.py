@@ -42,6 +42,20 @@ class Settings(BaseSettings):
     bootstrap_admin_display_name: str = "Echo Masque Admin"
     credential_encryption_keys: SecretStr | None = None
 
+    request_limit_per_minute: int = 300
+    login_failure_limit: int = 5
+    login_failure_window_seconds: int = 15 * 60
+    login_block_seconds: int = 15 * 60
+    max_characters_per_user: int = 100
+    max_scenarios_per_user: int = 250
+    max_test_packs_per_user: int = 100
+    max_runs_per_user: int = 2000
+    max_matrices_per_user: int = 100
+    max_matrix_tasks_per_day: int = 1000
+    max_concurrent_runs_per_user: int = 3
+    max_matrix_concurrency_per_user: int = 4
+    max_workspace_records_per_user: int = 3000
+
 
 @lru_cache
 def get_settings() -> Settings:

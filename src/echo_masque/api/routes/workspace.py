@@ -15,7 +15,12 @@ from fastapi import (
     status,
 )
 
-from echo_masque.api.dependencies import AdminUserDependency, CurrentUserDependency
+from echo_masque.api.dependencies import (
+    AdminUserDependency,
+    CurrentUserDependency,
+    quota_http_exception,
+    quota_service,
+)
 from echo_masque.config import Settings
 from echo_masque.persistence import (
     Database,
@@ -23,6 +28,7 @@ from echo_masque.persistence import (
     TargetAccessRepository,
     WorkspaceRepository,
 )
+from echo_masque.security_controls import QuotaExceeded, ResourceKind
 from echo_masque.services import TrialService
 from echo_masque.workspace import (
     ExperimentHistoryPage,
@@ -59,6 +65,17 @@ def trial_service(request: Request) -> TrialService:
     return cast(TrialService, request.app.state.trial_service)
 
 
+def _enforce_create_quota(
+    request: Request,
+    owner_id: str,
+    kind: ResourceKind,
+) -> None:
+    try:
+        quota_service(request).enforce_create(owner_id, kind)
+    except QuotaExceeded as exc:
+        raise quota_http_exception(exc) from exc
+
+
 @router.get("/api/scenarios", response_model=list[ScenarioView])
 def list_scenarios(
     request: Request,
@@ -77,6 +94,7 @@ def create_scenario(
     request: Request,
     user: CurrentUserDependency,
 ) -> ScenarioView:
+    _enforce_create_quota(request, user.id, "scenario")
     return workspace_repository(request).create_scenario(user.id, payload)
 
 
@@ -118,6 +136,7 @@ def duplicate_scenario(
     request: Request,
     user: CurrentUserDependency,
 ) -> ScenarioView:
+    _enforce_create_quota(request, user.id, "scenario")
     item = workspace_repository(request).duplicate_scenario(scenario_id, user.id)
     if item is None:
         raise HTTPException(status_code=404, detail="Scenario not found.")
@@ -155,6 +174,7 @@ def create_pack(
     request: Request,
     user: CurrentUserDependency,
 ) -> TestPackView:
+    _enforce_create_quota(request, user.id, "pack")
     try:
         return workspace_repository(request).create_pack(user.id, payload)
     except ValueError as exc:
@@ -198,6 +218,7 @@ def duplicate_pack(
     request: Request,
     user: CurrentUserDependency,
 ) -> TestPackView:
+    _enforce_create_quota(request, user.id, "pack")
     item = workspace_repository(request).duplicate_pack(pack_id, user.id)
     if item is None:
         raise HTTPException(status_code=404, detail="Test Pack not found.")
@@ -284,6 +305,10 @@ def rerun_experiment(
     background_tasks: BackgroundTasks,
     user: CurrentUserDependency,
 ) -> dict[str, str]:
+    try:
+        quota_service(request).enforce_run_start(user.id)
+    except QuotaExceeded as exc:
+        raise quota_http_exception(exc) from exc
     service = trial_service(request)
     try:
         new_run_id = service.rerun(run_id, owner_id=user.id)
@@ -428,6 +453,16 @@ def import_workspace(
     archive = payload.archive.model_copy(
         update={"owner_id": user.id, "admin_runtime": None}
     )
+    try:
+        quota_service(request).enforce_import(
+            user.id,
+            characters=len(archive.character_cards),
+            scenarios=len(archive.scenarios),
+            packs=len(archive.test_packs),
+            runs=len(archive.run_snapshots),
+        )
+    except QuotaExceeded as exc:
+        raise quota_http_exception(exc) from exc
     for raw in archive.targets:
         target_id = raw.get("id")
         if not isinstance(target_id, str) or not target_id:
