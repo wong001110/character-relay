@@ -120,7 +120,7 @@ class AuthService:
         record = self.repository.get_user_by_email(normalized)
         password_hash = record.password_hash if record is not None else self._dummy_hash
         try:
-            valid = self.passwords.verify(password_hash, password)
+            valid = bool(self.passwords.verify(password_hash, password))
         except VerificationError:
             valid = False
         if record is None or not valid or not record.is_active:
