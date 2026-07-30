@@ -5,6 +5,7 @@ on:
     branches: [agent/phase-14-experiment-matrix]
     paths:
       - scripts/phase14_autofix.py
+      - .github/workflows/phase14-autofix.yml
 
 permissions:
   contents: write
