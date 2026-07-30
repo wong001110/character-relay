@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from typing import Literal, cast
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, SecretStr
 
-from echo_masque.api.dependencies import AuthContextDependency
+from echo_masque.api.dependencies import (
+    AuthContextDependency,
+    quota_http_exception,
+    quota_service,
+)
 from echo_masque.auth import (
     AuthenticatedUser,
     AuthenticationError,
@@ -18,6 +23,7 @@ from echo_masque.auth import (
 )
 from echo_masque.config import Settings
 from echo_masque.persistence.models import AuthSessionRecord
+from echo_masque.security_controls import QuotaExceeded
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
@@ -94,6 +100,11 @@ def settings(request: Request) -> Settings:
     return cast(Settings, request.app.state.settings)
 
 
+def _identity_hash(email: str) -> str:
+    normalized = email.casefold().strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 def _set_session_cookie(response: Response, resolved: Settings, token: str) -> None:
     response.set_cookie(
         key=resolved.auth_cookie_name,
@@ -160,6 +171,12 @@ def register(
 
 @router.post("/login", response_model=AuthResponse)
 def login(payload: LoginRequest, request: Request, response: Response) -> AuthResponse:
+    identity_hash = _identity_hash(payload.email)
+    limits = quota_service(request)
+    try:
+        limits.check_login(identity_hash)
+    except QuotaExceeded as exc:
+        raise quota_http_exception(exc) from exc
     try:
         issued = service(request).login(
             email=payload.email,
@@ -167,7 +184,9 @@ def login(payload: LoginRequest, request: Request, response: Response) -> AuthRe
             user_agent=request.headers.get("user-agent"),
         )
     except (AuthenticationError, ValueError) as exc:
+        limits.record_login_failure(identity_hash)
         raise HTTPException(status_code=401, detail="Invalid email or password.") from exc
+    limits.record_login_success(identity_hash)
     _set_session_cookie(response, settings(request), issued.token)
     expires_at = issued.context.expires_at
     if expires_at is None:
