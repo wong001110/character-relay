@@ -459,7 +459,7 @@ def import_workspace(
             characters=len(archive.character_cards),
             scenarios=len(archive.scenarios),
             packs=len(archive.test_packs),
-            runs=len(archive.runs),
+            runs=len(archive.run_snapshots),
         )
     except QuotaExceeded as exc:
         raise quota_http_exception(exc) from exc
