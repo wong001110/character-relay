@@ -11,6 +11,76 @@ export type JudgeMode = "rules" | "semantic" | "hybrid";
 export type ProviderId = "deepseek" | "openai" | "openrouter" | "custom";
 export type ReportFormat = "markdown" | "json";
 export type RuntimeKind = "adaptive" | "judge";
+export type AccountRole = "user" | "admin";
+
+export interface AuthConfig {
+  registration_enabled: boolean;
+  invitation_required: boolean;
+  authentication_required: boolean;
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  display_name: string;
+  role: AccountRole;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: "bearer";
+  expires_at: string;
+  user: AuthUser;
+}
+
+export interface AuthSession {
+  id: string;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  current: boolean;
+}
+
+export interface InvitationView {
+  id: string;
+  email: string | null;
+  role: AccountRole;
+  created_by: string | null;
+  created_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
+  status: "active" | "accepted" | "revoked" | "expired";
+}
+
+export interface InvitationCreated {
+  invitation: InvitationView;
+  code: string;
+}
+
+export interface AdminAccount {
+  id: string;
+  email: string;
+  display_name: string;
+  role: AccountRole;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AuditEventView {
+  id: string;
+  actor_user_id: string | null;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface LifecycleResult {
+  affected: Record<string, number>;
+}
 
 export interface TargetView {
   id: string;
@@ -75,7 +145,7 @@ export interface CharacterCardUpdate
 export interface CredentialStatus {
   required: boolean;
   configured: boolean;
-  source: "memory" | "environment" | "not_required" | "missing";
+  source: "vault" | "memory" | "environment" | "not_required" | "missing";
 }
 
 export interface AdaptiveRuntimeProfile {
@@ -109,7 +179,7 @@ export interface AgentRuntimeStatus {
   configured: boolean;
   provider: string;
   model: string;
-  credential_source: "memory" | "environment" | "missing";
+  credential_source: "vault" | "memory" | "environment" | "missing";
 }
 
 export interface RuntimeStatus {
@@ -235,8 +305,6 @@ export interface TrialSnapshot {
   events: TrialEvent[];
 }
 
-const userHeaders = { "X-Echo-User": "local-user" };
-
 async function errorMessage(response: Response): Promise<string> {
   const raw = await response.text();
   try {
@@ -251,9 +319,9 @@ async function errorMessage(response: Response): Promise<string> {
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...userHeaders,
       ...(init?.headers ?? {})
     }
   });
@@ -262,18 +330,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function adminRequest<T>(url: string, adminToken: string, init?: RequestInit): Promise<T> {
-  return request<T>(url, {
-    ...init,
-    headers: {
-      "X-Echo-Admin": adminToken,
-      ...(init?.headers ?? {})
-    }
-  });
-}
-
 async function requestText(url: string): Promise<string> {
-  const response = await fetch(url, { headers: userHeaders });
+  const response = await fetch(url, { credentials: "include" });
   if (!response.ok) throw new Error(await errorMessage(response));
   return response.text();
 }
@@ -290,6 +348,67 @@ export function pollIntervalForMode(mode: ObservationMode): number {
 }
 
 export const api = {
+  getAuthConfig: () => request<AuthConfig>("/api/auth/config"),
+  getCurrentUser: () => request<AuthUser>("/api/auth/me"),
+  login: (email: string, password: string) =>
+    request<AuthResponse>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password })
+    }),
+  register: (
+    email: string,
+    displayName: string,
+    password: string,
+    invitationCode?: string
+  ) =>
+    request<AuthResponse>("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        email,
+        display_name: displayName,
+        password,
+        invitation_code: invitationCode || null
+      })
+    }),
+  logout: () => request<void>("/api/auth/logout", { method: "POST" }),
+  listSessions: () => request<AuthSession[]>("/api/auth/sessions"),
+  revokeSession: (sessionId: string) =>
+    request<void>(`/api/auth/sessions/${sessionId}`, { method: "DELETE" }),
+  exportAccount: () => request<Record<string, unknown>>("/api/account/export"),
+  deleteAccount: (email: string, confirmation: string) =>
+    request<LifecycleResult>("/api/account", {
+      method: "DELETE",
+      body: JSON.stringify({ email, confirmation })
+    }),
+  listInvitations: () => request<InvitationView[]>("/api/admin/invitations"),
+  createInvitation: (payload: {
+    email: string | null;
+    role: AccountRole;
+    expires_in_days: number;
+  }) =>
+    request<InvitationCreated>("/api/admin/invitations", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  revokeInvitation: (invitationId: string) =>
+    request<void>(`/api/admin/invitations/${invitationId}`, { method: "DELETE" }),
+  listAdminUsers: () => request<AdminAccount[]>("/api/admin/users"),
+  updateUserRole: (userId: string, role: AccountRole) =>
+    request<AdminAccount>(`/api/admin/users/${userId}/role`, {
+      method: "PUT",
+      body: JSON.stringify({ role })
+    }),
+  listAuditEvents: () => request<AuditEventView[]>("/api/admin/audit"),
+  claimLocalWorkspace: () =>
+    request<LifecycleResult>("/api/admin/workspace/claim-local", {
+      method: "POST",
+      body: JSON.stringify({ confirmation: "CLAIM LOCAL WORKSPACE" })
+    }),
+  rotateCredentialVault: () =>
+    request<{ rotated_count: number; key_version: string }>(
+      "/api/admin/credentials/rotate",
+      { method: "POST" }
+    ),
   listTargets: () => request<TargetView[]>("/api/targets"),
   listCharacters: () => request<CharacterCard[]>("/api/characters"),
   createCharacter: (payload: CharacterCardCreate) =>
@@ -315,32 +434,21 @@ export const api = {
       body: JSON.stringify({ api_key: apiKey })
     }),
   getRuntimeStatus: () => request<RuntimeStatus>("/api/runtime/status"),
-  getAdminRuntime: (adminToken: string) =>
-    adminRequest<AdminRuntimeView>("/api/admin/runtime", adminToken),
-  updateAdminRuntime: (adminToken: string, config: AdminRuntimeConfig) =>
-    adminRequest<AdminRuntimeView>("/api/admin/runtime", adminToken, {
+  getAdminRuntime: () => request<AdminRuntimeView>("/api/admin/runtime"),
+  updateAdminRuntime: (config: AdminRuntimeConfig) =>
+    request<AdminRuntimeView>("/api/admin/runtime", {
       method: "PUT",
       body: JSON.stringify(config)
     }),
-  configureRuntimeCredential: (
-    adminToken: string,
-    kind: RuntimeKind,
-    apiKey: string
-  ) =>
-    adminRequest<AdminRuntimeView>(
-      `/api/admin/runtime/credentials/${kind}`,
-      adminToken,
-      {
-        method: "PUT",
-        body: JSON.stringify({ api_key: apiKey })
-      }
-    ),
-  clearRuntimeCredential: (adminToken: string, kind: RuntimeKind) =>
-    adminRequest<AdminRuntimeView>(
-      `/api/admin/runtime/credentials/${kind}`,
-      adminToken,
-      { method: "DELETE" }
-    ),
+  configureRuntimeCredential: (kind: RuntimeKind, apiKey: string) =>
+    request<AdminRuntimeView>(`/api/admin/runtime/credentials/${kind}`, {
+      method: "PUT",
+      body: JSON.stringify({ api_key: apiKey })
+    }),
+  clearRuntimeCredential: (kind: RuntimeKind) =>
+    request<AdminRuntimeView>(`/api/admin/runtime/credentials/${kind}`, {
+      method: "DELETE"
+    }),
   startTrial: (
     characterCardId: string,
     suite: TestKind[],
@@ -401,6 +509,6 @@ export const api = {
       if (!["pending", "running"].includes(snapshot.run.status)) return snapshot.run;
       await new Promise((resolve) => window.setTimeout(resolve, interval));
     }
-    throw new Error("The observation session exceeded the live viewing window.");
+    throw new Error("Trial observation timed out.");
   }
 };

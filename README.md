@@ -2,19 +2,19 @@
 
 **See what remains when the role is challenged.**
 
-Echo Masque is a Python-first character behavior validation system. Users create Character Cards, define reusable test scenarios, compose Test Packs, run Benchmark or Adaptive pressure, and retain grounded evidence for identity drift, fabricated memory, prompt injection, capability claims, and long-conversation instability.
+Echo Masque is a Python-first behavior validation system for conversational characters and agents. It combines user-owned Character Cards, reusable Scenarios and Test Packs, Benchmark or Adaptive pressure, Rules/Semantic/Hybrid judging, immutable experiment evidence, and comparative Matrix analytics.
 
 ## Product loop
 
 ```text
-Create or select a user-owned Character Card
-  -> create language-specific Scenarios
-  -> compose a versioned Test Pack
+Sign in to an isolated workspace
+  -> create or select a Character Card
+  -> create Scenarios and versioned Test Packs
   -> choose Benchmark or Admin-managed Adaptive Tester
   -> choose Rules, Semantic, or Hybrid Judge
-  -> run the pack and preserve an immutable configuration snapshot
-  -> inspect Experiment History, reports, baselines, and reruns
-  -> edit the card or pack without changing old experiment meaning
+  -> run and preserve an immutable configuration snapshot
+  -> inspect evidence, reports, history, baselines, and Matrix analytics
+  -> revise the character or evaluation without rewriting prior results
 ```
 
 ## Quick start
@@ -25,215 +25,145 @@ Requires Python 3.12+ and Node.js 22+.
 python run.py
 ```
 
-The launcher creates `.venv`, installs Python and web dependencies when their manifests change, and starts FastAPI and Vite together. Later runs skip unchanged installation steps. Press `Ctrl+C` once to stop both processes.
+The launcher creates `.venv`, installs Python and web dependencies when their manifests change, and starts FastAPI and Vite together.
 
 ```bash
-python run.py --install       # force dependency refresh
-python run.py --no-install    # skip dependency installation
-python run.py --api-only      # start only FastAPI
-python run.py --no-reload     # disable Uvicorn reload
+python run.py --install
+python run.py --no-install
+python run.py --api-only
+python run.py --no-reload
 ```
 
 Open `http://127.0.0.1:5173` for the UI or `http://127.0.0.1:8000/docs` for the API.
 
-## Character Library
+Local development keeps an explicit compatibility path for the historical `local-user` workspace. Production derives every private resource owner from an authenticated Session.
 
-Echo Masque does not add built-in Character Cards to the user library. Stable and Fragile deterministic targets remain internal for CI, container, and Railway smoke tests.
+## Core capabilities
 
-User-owned cards can be:
+### Character Library
 
-- created as Prompt + Model or Existing Target cards;
-- edited in place without replacing prior Trial history;
-- updated with a new Provider, Base URL, Model, System Prompt, or Temperature;
-- searched by name, persona, trait, or tag;
-- filtered by subject type and tag;
-- sorted and paginated without compressing card width.
+Users can create, edit, search, filter, sort, and test Prompt + Model or existing-target Character Cards. Provider, endpoint, Model, System Prompt, and Temperature changes preserve prior Run meaning through immutable snapshots and Prompt version history.
 
-Editing a Prompt + Model card preserves its current process-memory or environment credential association. Replace the Subject key separately from the Test Room only when needed.
+### Experiment Workspace
 
-Raw Subject API keys are kept only in backend process memory unless the target uses an environment-variable fallback. They are never written to SQLite, Character Cards, Trial events, reports, snapshots, or workspace exports.
+Custom Scenarios support English and Simplified Chinese, expected behavior, required and forbidden signals, severity, bounded Adaptive turns, and recommended modes. Test Packs provide ordered and versioned Scenario collections. Experiment History retains reports, reruns, compatible baselines, filters, and lineage.
 
-The current user boundary still uses `X-Echo-User` and defaults to `local-user`. Production multi-user access requires real authentication and authorization.
+### Test Room
 
-## Experiment Workspace
+The Test Room supports:
 
-Open **Workspace** from the Character Library. The workspace contains four areas.
+- fixed Benchmark pressure;
+- Admin-managed Adaptive Tester pressure;
+- deterministic Rules Judge;
+- grounded Semantic Judge;
+- Hybrid disagreement as `REVIEW`;
+- Watch and Fast observation modes;
+- persisted Tester, Subject, Judge, evidence, and breakpoint events.
 
-### Custom Scenarios
+### Matrix Lab
 
-A Scenario stores:
+Matrix Lab executes controlled combinations of Character/Prompt, Model, Temperature, Pack, Language, Tester, Judge, and repeat count. It includes persistent queue controls, bounded concurrency, retries, Provider backoff, repeated-run statistics, compatible regressions, Prompt version management, and secret-free JSON/CSV/Markdown export.
 
-- category and description;
-- English or Simplified Chinese Test Language;
-- one or more initial Tester messages;
-- expected behavior;
-- required and forbidden signals;
-- severity;
-- maximum Adaptive turns;
-- recommended Tester and Judge modes.
+## Authentication and workspace isolation
 
-Scenarios support create, edit, duplicate, and delete. Scenario ownership follows `X-Echo-User`.
+Phase 15 replaces caller-selected identity headers with server-enforced identity and authorization:
 
-### Test Packs
+- passwords are stored as Argon2 hashes;
+- browser authentication uses opaque, revocable, expiring server-side Sessions;
+- the browser receives an HttpOnly SameSite cookie and does not persist the raw Session token;
+- Character Cards, Targets, Scenarios, Packs, Runs, Reports, Matrices, exports, imports, and storage operations are owner-scoped;
+- Admin APIs require an authenticated account with the `admin` role;
+- invitation registration, Session revocation, account export, and destructive account deletion are supported;
+- sensitive mutations create append-only redacted Audit Events.
 
-A Test Pack is an ordered, versioned collection of Scenarios. Each item may be enabled or disabled without deleting the Scenario. Editing a pack increments its version.
+The bilingual web client includes sign-in, invitation registration, Session/device management, workspace export, account deletion, invitation administration, role management, Audit inspection, legacy workspace claim, and credential rotation controls.
 
-The Workspace includes a Test Pack launcher for selecting:
+## Secure credential vault
 
-- Character Card;
-- Test Pack;
-- Test Language;
-- Benchmark or Adaptive Tester;
-- Rules, Semantic, or Hybrid Judge;
-- Fast or Watch pacing.
+Character provider keys and shared Adaptive/Judge keys are encrypted with Fernet before entering SQLite. API responses expose status metadata only. Raw keys, encrypted blobs, Session tokens, password hashes, and invitation codes are excluded from workspace exports, Run snapshots, events, reports, and logs.
 
-The existing four Test Rooms remain available as a fast fixed-suite path.
+Production key rotation:
 
-### Immutable Run snapshots
+1. Generate a new Fernet key.
+2. Set `ECHO_MASQUE_CREDENTIAL_ENCRYPTION_KEYS=<new>,<old>`.
+3. Redeploy.
+4. Rotate credentials from **Account & security → Admin control**.
+5. Run the Phase 15 live security gate.
+6. Remove the old key only after acceptance passes.
 
-Every Phase 13 Run freezes:
+## Quotas and abuse controls
 
-- Character Card profile;
-- Target Provider, Model, System Prompt, Temperature, and endpoint configuration;
-- Test Pack name and version;
-- ordered Scenario definitions;
-- language, Tester Mode, and Judge Mode.
+SQLite-backed controls persist across restart and cover:
 
-Editing or deleting current cards, packs, or scenarios does not rewrite an old Run snapshot. Reports and reruns therefore retain the configuration that was actually tested.
+- authenticated request rate limits;
+- login failure windows and temporary blocking;
+- Characters, Scenarios, Test Packs, Runs, and Matrices per user;
+- daily Matrix task volume;
+- concurrent Runs and Matrix tasks;
+- total workspace record limits.
 
-API keys and Admin tokens are never included in snapshots.
+Blocked requests return `429 Too Many Requests`, with `Retry-After` for time-bound blocks.
 
-### Experiment History
+## Production deployment
 
-Experiment History provides:
+The root `Dockerfile` and `railway.toml` deploy one FastAPI service that serves the built React client. Attach one Railway Volume at `/data`, use one replica for SQLite, and configure `/health` as the health check.
 
-- pagination;
-- Character, Test Pack, language, Tester, and Judge filters;
-- score, PASS, FAIL, REVIEW, and run status;
-- report access;
-- rerun from the frozen snapshot;
-- compatible baseline marking;
-- experiment deletion.
-
-Phase 13 history begins with Runs that contain immutable snapshots. Earlier Run reports remain accessible by their Run IDs but are not presented as reproducible Phase 13 experiments.
-
-## Persistence and workspace backup
-
-The **Storage & Backup** tab is Admin-protected. It shows:
-
-- effective database backend and path;
-- writeability;
-- whether production SQLite is under `/data`;
-- Character, Scenario, Pack, and Run counts;
-- last workspace write time;
-- a prominent warning when production SQLite is not persistent.
-
-### Persistence probe
-
-Create a probe, copy its ID, redeploy Railway, and check the same ID afterward. Delete the probe after the verification. This proves that the active deployment is reading the same persistent database rather than only checking that a Volume exists.
-
-### Workspace export and import
-
-Admin may export a JSON archive containing:
-
-- user-owned targets and Character Cards;
-- Custom Scenarios and Test Packs;
-- snapshotted Trial Runs;
-- turns, events, evidence, and reports;
-- non-secret Admin Runtime configuration.
-
-The archive excludes Subject, Adaptive, and Judge API keys and the Admin token. Import supports merge or replace mode.
-
-## Admin Runtime
-
-Adaptive Tester and Semantic Judge are shared application runtimes configured once by Admin rather than once per Trial.
-
-Open **Admin Settings** and authenticate with `X-Echo-Admin`:
-
-- local development/test default: `local-admin`;
-- production: set `ECHO_MASQUE_ADMIN_TOKEN`.
-
-Admin persists only non-secret settings:
-
-- enabled status;
-- Provider;
-- Base URL;
-- Model;
-- System Prompt;
-- Temperature;
-- Adaptive maximum turns;
-- Judge rubric version;
-- default Judge Mode.
-
-Persistent production credentials come from:
+Required Railway variables:
 
 ```text
-ECHO_MASQUE_ADAPTIVE_API_KEY
-ECHO_MASQUE_JUDGE_API_KEY
+ECHO_MASQUE_ENVIRONMENT=production
+ECHO_MASQUE_DATABASE_URL=sqlite:////data/echo_masque.db
+ECHO_MASQUE_LEGACY_LOCAL_USER_ENABLED=false
+ECHO_MASQUE_PUBLIC_REGISTRATION_ENABLED=false
+ECHO_MASQUE_BOOTSTRAP_ADMIN_EMAIL=<admin email>
+ECHO_MASQUE_BOOTSTRAP_ADMIN_PASSWORD=<long unique password>
+ECHO_MASQUE_CREDENTIAL_ENCRYPTION_KEYS=<Fernet key>
 ```
 
-Keys entered through Admin Settings are process-memory overrides and disappear on server restart. Raw runtime keys never enter SQLite, Trial events, Lab Notes, JSON reports, snapshots, workspace exports, or logs.
+Generate an encryption key locally:
 
-## Tester modes
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
 
-### Benchmark
+Keep encryption keys and account passwords outside Git. Losing every matching Fernet key makes existing encrypted Provider credentials unrecoverable.
 
-Uses fixed or user-authored English or Simplified Chinese scripts. Benchmark remains reproducible and is the correct mode for regression comparisons and CI.
+## Backup-first Phase 15 migration
 
-### Adaptive
+Before enabling the authenticated Production UI, stop writes or use a maintenance window and run:
 
-Uses the Admin-managed Adaptive Tester. The first Scenario message seeds the pressure sequence, then the independent Tester model generates one follow-up at a time from the visible transcript. The effective turn limit is the lower of the Admin maximum and the selected Scenario limits.
+```bash
+python scripts/phase15_migrate.py \
+  --database-url sqlite:////data/echo_masque.db \
+  --backup-directory /data/backups
+```
 
-## Judge modes
+The migration copies the SQLite database before creating missing tables and is safe to rerun. Existing `local-user` data can be claimed from the Admin account panel or by passing `--claim-user-email`.
 
-### Rules
+See [`docs/phase-15-security.md`](docs/phase-15-security.md) for migration, quota, key-rotation, account-lifecycle, and release-gate details.
 
-The deterministic Judge checks required and forbidden phrase signals. It remains fast, credential-free, and CI-compatible.
+## Phase 15 live security gate
 
-### Semantic
-
-An independent Admin-managed model evaluates the Character Card snapshot, Scenario contract, and completed transcript using a strict structured rubric. Every failure must cite an existing Subject turn and an exact contiguous excerpt from that Subject response. Ungrounded evidence is rejected.
-
-Semantic dimensions use a 0–5 scale:
-
-- identity continuity;
-- memory integrity;
-- instruction resistance;
-- capability honesty;
-- persona continuity;
-- language consistency.
-
-Python calculates the canonical 0–100 Semantic score from those dimensions. Model-authored score and pass/fail fields do not control the result.
-
-A provider formatting error receives at most one bounded correction attempt. The corrected output must still pass the same strict JSON, consistency, and exact-evidence grounding checks; fuzzy or paraphrased evidence is never accepted.
-
-### Hybrid
-
-Runs Rules and Semantic judging together. Both verdicts and scores are stored separately.
+Add these GitHub Actions Repository Secrets:
 
 ```text
-Rules PASS + Semantic PASS -> PASS
-Rules FAIL + Semantic FAIL -> FAIL
-Rules and Semantic disagree -> REVIEW
+ECHO_MASQUE_LIVE_ADMIN_EMAIL
+ECHO_MASQUE_LIVE_ADMIN_PASSWORD
 ```
 
-A REVIEW result cannot become a regression baseline until a person resolves the disagreement. Comparisons require the same Test Language and Judge Mode.
+Run **Phase 15 Live Security Smoke** after deployment and after every authentication or encryption-key migration. The workflow creates two temporary invited accounts, verifies cross-user isolation, confirms encrypted Vault status, rotates credentials, checks export redaction, and deletes the temporary accounts. Its uploaded JSON artifact contains no secret material.
 
-## Languages
+## Automated validation
 
-The interface language and Test Language remain independent:
+Pull requests run:
 
-- English (`en`) — default;
-- Simplified Chinese (`zh-CN`).
+- Ruff and strict mypy on Python 3.12 and 3.13;
+- the full pytest suite;
+- TypeScript checking, Vitest, and the React Production build;
+- Production Docker build and persistent-volume replacement smoke;
+- Railway live smoke.
 
-Test Language controls Benchmark messages, Adaptive follow-ups, Scenario contracts, Judge rules, Semantic Judge response language, and report headings. User-authored names, prompts, and model responses are never automatically translated.
-
-## Target types
-
-1. **Prompt + model** — an OpenAI-compatible Provider configured by a Character Card.
-2. **Custom HTTP target** — a separately hosted chatbot through the adapter contract.
-3. **Transcript import** — inspect an existing conversation without sending new messages.
-4. **Internal deterministic targets** — Stable and Fragile fixtures used by automated tests and deployment smoke checks, not user-facing Character Cards.
+The manual Phase 15 workflow is the Production multi-account and credential-rotation acceptance gate.
 
 ## Delivery phases
 
@@ -253,116 +183,11 @@ Test Language controls Benchmark messages, Adaptive follow-ups, Scenario contrac
 - [x] Phase 11 — English and Simplified Chinese interface and testing
 - [x] Phase 12 — Admin Runtime, Hybrid Judge, and scalable Character Library
 - [x] Phase 13 — Custom Test Packs, Experiment History, and persistence guardrails
-- [x] Production release gate — Railway Volume-backed SQLite, persistent Live Demo data, real Adaptive + Hybrid validation, and bounded Semantic evidence repair
 - [x] Phase 14 — Batch Experiment Matrix and Comparative Analytics
+- [x] Phase 15 — Authentication, User Isolation, and Secure Credential Vault
 
 ### Planned
 
-- [ ] Phase 15 — Authentication, User Isolation, and Secure Credential Vault
 - [ ] Phase 16 — AI-generated Scenario Authoring, Calibration Datasets, and Evaluation Analytics
 
-See `CHECKLIST.md` for automated acceptance and `docs/manual-validation.md` for human checks.
-
-## Forward roadmap
-
-The roadmap is directional. Each phase receives a dedicated issue and acceptance checklist before implementation, and scope may be adjusted when production evidence exposes a higher-priority reliability or security problem.
-
-### Phase 14 — Batch Experiment Matrix and Comparative Analytics
-
-Phase 14 turns one-at-a-time experiments into controlled batches across:
-
-- Character Card or Prompt version;
-- Provider and Model;
-- Temperature;
-- Test Pack and Test Language;
-- Benchmark or Adaptive Tester;
-- Rules, Semantic, or Hybrid Judge;
-- repeat count.
-
-Implemented deliverables:
-
-- Matrix CRUD and a run-count preview before execution;
-- a SQLite-backed queue with concurrency limits, pause, resume, cancellation, retries, and provider backoff;
-- repeated-run statistics including mean, minimum, maximum, pass rate, review rate, failure rate, and variance;
-- comparison views for Prompt, Model, Temperature, Language, Tester, and Judge combinations;
-- Prompt version history with diff, restore, and production-version marking;
-- baseline regression summaries;
-- token, latency, provider-error, and retry aggregation;
-- CSV, JSON, and Markdown export.
-
-Phase 14 is available through the bilingual **Matrix Lab**. The server requires an exact run-count confirmation before launch, enforces a 200-task cap, persists queue state in SQLite, and pauses interrupted work after restart. Phase 14 does not introduce public accounts, billing, a distributed worker fleet, or a Scenario marketplace.
-
-See `docs/phase-14-experiment-matrix.md` for the execution, analytics, regression, and export contracts.
-
-### Phase 15 — Authentication, User Isolation, and Secure Credential Vault
-
-Phase 15 makes the public deployment suitable for multiple real users.
-
-Planned deliverables:
-
-- production authentication and session management;
-- server-enforced workspace ownership instead of trusting `X-Echo-User`;
-- role-based Admin authorization;
-- secure encrypted credential storage and rotation;
-- per-user rate limits, quotas, and abuse controls;
-- audit events for sensitive configuration changes;
-- managed production persistence and migration tooling;
-- safe invitation, account deletion, and workspace export flows.
-
-Phase 15 is the security boundary required before the public deployment is promoted as a general multi-user service.
-
-### Phase 16 — AI-generated Scenario Authoring, Calibration Datasets, and Evaluation Analytics
-
-Phase 16 adds assisted evaluation design without allowing generated content to silently become ground truth.
-
-Planned deliverables:
-
-- AI-assisted Scenario and Test Pack drafting from Character Cards and known risks;
-- human approval and versioning before generated tests can run;
-- calibration datasets with expected verdicts and grounded evidence;
-- Judge agreement, disagreement, false-positive, and false-negative analysis;
-- rubric-version comparison and calibration reports;
-- coverage analysis across identity, memory, instruction resistance, capability honesty, persona, and language;
-- reusable evaluation templates and shareable, secret-free test assets.
-
-Generated Scenarios and Judge recommendations remain reviewable artifacts. Deterministic validation and human-approved calibration data remain the authority.
-
-## Railway
-
-The root `Dockerfile` and `railway.toml` deploy one FastAPI service that also serves the built React client. Attach one Railway Volume at `/data`, keep one replica, and use `/health` for deployment health checks.
-
-The required SQLite setting is:
-
-```text
-ECHO_MASQUE_DATABASE_URL=sqlite:////data/echo_masque.db
-```
-
-The public deployment is automatically smoke-tested at:
-
-```text
-https://echo-masque-production.up.railway.app
-```
-
-Rules Mode and internal deterministic targets require no external credential. Admin-managed Adaptive and Semantic/Hybrid modes require the production variables documented above.
-
-The Railway deployment has been validated with Volume-backed SQLite across application deployments. Continue using Storage Diagnostics, the stable storage instance ID, and persistence probes when changing the Railway service, environment, database path, or Volume attachment.
-
-See `docs/railway-deployment.md` for setup and security details.
-
-## Container
-
-```bash
-docker compose up --build
-```
-
-SQLite is stored in the named `echo-masque-data` volume. Process-memory Subject, Adaptive, and Judge keys are intentionally absent from that volume.
-
-## Security boundary
-
-The public deployment still lacks production user authentication. Admin configuration and workspace portability are token-protected, but Character ownership continues to rely on the temporary `X-Echo-User` boundary. Do not invite external users or store sensitive prompts until authentication, authorization, rate limits, managed persistence, and a secure credential vault are added.
-
-## Status
-
-Phase 14 and the production release gate are complete. Echo Masque now supports user-authored Scenarios, versioned Test Packs, immutable Run snapshots, Experiment History, Prompt version history, controlled batch Matrices, a persistent queue, repeated-run statistics, regression comparisons, and secret-free Matrix exports.
-
-The retained Live Demo verifies the intended Stable/OOC contrast under real Adaptive + Hybrid execution. A separate retained Live Matrix validates the Phase 14 production API, Temperature variants, persisted tasks, and aggregate analytics. The next implementation phase is Phase 15 — Authentication, User Isolation, and Secure Credential Vault.
+See `CHECKLIST.md` for acceptance status and `docs/manual-validation.md` for human checks.

@@ -103,7 +103,7 @@ class CredentialConfigure(BaseModel):
 class CredentialStatus(BaseModel):
     required: bool
     configured: bool
-    source: Literal["memory", "vault", "environment", "not_required", "missing"]
+    source: Literal["vault", "memory", "environment", "not_required", "missing"]
 
 
 class CharacterCardView(BaseModel):
