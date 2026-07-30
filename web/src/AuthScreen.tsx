@@ -12,7 +12,8 @@ const copy = {
   en: {
     eyebrow: "Secure workspace",
     title: "Enter Echo Masque",
-    intro: "Your Character Cards, experiments, and provider credentials are isolated behind an encrypted account workspace.",
+    intro:
+      "Your Character Cards, experiments, and provider credentials are isolated behind an encrypted account workspace.",
     login: "Sign in",
     register: "Create account",
     email: "Email",
@@ -25,7 +26,8 @@ const copy = {
     switchingLogin: "Already have an account?",
     switchingRegister: "Need an account?",
     working: "Checking…",
-    security: "Sessions use an HttpOnly cookie. Raw session tokens and provider keys are never stored in the browser."
+    security:
+      "Sessions use an HttpOnly cookie. Raw session tokens and provider keys are never stored in the browser."
   },
   "zh-CN": {
     eyebrow: "安全工作区",
@@ -48,8 +50,8 @@ const copy = {
 } as const;
 
 export function AuthScreen({ config, onAuthenticated }: Props) {
-  const { locale, setLocale } = useI18n();
-  const t = copy[locale];
+  const { language, setLanguage } = useI18n();
+  const t = copy[language];
   const [mode, setMode] = useState<"login" | "register">("login");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,14 +64,15 @@ export function AuthScreen({ config, onAuthenticated }: Props) {
     try {
       setWorking(true);
       setError(null);
-      const response = mode === "login"
-        ? await api.login(email, password)
-        : await api.register(
-            email,
-            String(values.get("display_name") ?? ""),
-            password,
-            String(values.get("invitation_code") ?? "") || undefined
-          );
+      const response =
+        mode === "login"
+          ? await api.login(email, password)
+          : await api.register(
+              email,
+              String(values.get("display_name") ?? ""),
+              password,
+              String(values.get("invitation_code") ?? "") || undefined
+            );
       onAuthenticated(response.user);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -85,15 +88,15 @@ export function AuthScreen({ config, onAuthenticated }: Props) {
           <span className="tape-label">{t.eyebrow}</span>
           <div className="language-toggle" role="group" aria-label="Language">
             <button
-              className={locale === "en" ? "active" : ""}
-              onClick={() => setLocale("en")}
+              className={language === "en" ? "active" : ""}
+              onClick={() => setLanguage("en")}
               type="button"
             >
               EN
             </button>
             <button
-              className={locale === "zh-CN" ? "active" : ""}
-              onClick={() => setLocale("zh-CN")}
+              className={language === "zh-CN" ? "active" : ""}
+              onClick={() => setLanguage("zh-CN")}
               type="button"
             >
               简中
@@ -151,7 +154,11 @@ export function AuthScreen({ config, onAuthenticated }: Props) {
               <small>{t.invitationHint}</small>
             </label>
           )}
-          {error && <p className="error-note" role="alert">{error}</p>}
+          {error && (
+            <p className="error-note" role="alert">
+              {error}
+            </p>
+          )}
           <button className="ink-button auth-submit" disabled={working}>
             {working
               ? t.working
@@ -161,13 +168,15 @@ export function AuthScreen({ config, onAuthenticated }: Props) {
           </button>
         </form>
 
-        <button
-          type="button"
-          className="auth-switch"
-          onClick={() => setMode(mode === "login" ? "register" : "login")}
-        >
-          {mode === "login" ? t.switchingRegister : t.switchingLogin}
-        </button>
+        {config.registration_enabled && (
+          <button
+            type="button"
+            className="auth-switch"
+            onClick={() => setMode(mode === "login" ? "register" : "login")}
+          >
+            {mode === "login" ? t.switchingRegister : t.switchingLogin}
+          </button>
+        )}
         <p className="secret-note auth-security">{t.security}</p>
       </section>
     </main>
