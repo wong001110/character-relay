@@ -55,15 +55,14 @@ def get_target(
     request: Request,
     context: OptionalAuthContextDependency,
 ) -> TargetView:
-    if target_id.startswith("demo-"):
-        record = repository(request).get_target(target_id)
-    elif context is not None and target_access(request).can_access(
-        owner_id=context.user.id,
-        target_id=target_id,
-    ):
-        record = repository(request).get_target(target_id)
-    else:
-        record = None
+    is_visible = target_id.startswith("demo-") or (
+        context is not None
+        and target_access(request).can_access(
+            owner_id=context.user.id,
+            target_id=target_id,
+        )
+    )
+    record = repository(request).get_target(target_id) if is_visible else None
     if record is None:
         raise HTTPException(status_code=404, detail="Target not found.")
     return TargetView.from_record(record)
