@@ -12,6 +12,7 @@ from echo_masque.admin_runtime import (
     AdminRuntimeConfig,
     AgentRuntimeStatus,
     CredentialSource,
+    RuntimeCredentialStore,
     RuntimeStatus,
 )
 from echo_masque.auth import SYSTEM_RUNTIME_USER_ID
@@ -30,6 +31,7 @@ class RuntimeService:
         repository: Repository,
         settings: Settings,
         credential_vault: CredentialVault | None = None,
+        legacy_store: RuntimeCredentialStore | None = None,
     ) -> None:
         self.repository = repository
         self.settings = settings
@@ -37,6 +39,7 @@ class RuntimeService:
             AuthRepository(repository.database),
             settings,
         )
+        self.legacy_store = legacy_store or RuntimeCredentialStore()
 
     def config(self) -> AdminRuntimeConfig:
         record = self.repository.get_admin_runtime()
@@ -69,7 +72,11 @@ class RuntimeService:
         value: SecretStr,
         *,
         actor_user_id: str,
+        legacy: bool = False,
     ) -> None:
+        if legacy and self._legacy_allowed:
+            self.legacy_store.set(kind, value)
+            return
         self.credential_vault.set_scope(
             owner_id=SYSTEM_RUNTIME_USER_ID,
             scope_kind=CredentialVault.runtime_scope_kind,
@@ -79,7 +86,16 @@ class RuntimeService:
             resource_type="admin_runtime",
         )
 
-    def clear_credential(self, kind: RuntimeKind, *, actor_user_id: str) -> None:
+    def clear_credential(
+        self,
+        kind: RuntimeKind,
+        *,
+        actor_user_id: str,
+        legacy: bool = False,
+    ) -> None:
+        if legacy and self._legacy_allowed:
+            self.legacy_store.delete(kind)
+            return
         self.credential_vault.delete_scope(
             owner_id=SYSTEM_RUNTIME_USER_ID,
             scope_kind=CredentialVault.runtime_scope_kind,
@@ -92,6 +108,9 @@ class RuntimeService:
         return self.credential_vault.rotate_all(actor_user_id=actor_user_id)
 
     def credential(self, kind: RuntimeKind) -> tuple[SecretStr | None, CredentialSource]:
+        legacy = self.legacy_store.get(kind)
+        if legacy is not None and self._legacy_allowed:
+            return legacy, "memory"
         if self.credential_vault.has_scope(
             owner_id=SYSTEM_RUNTIME_USER_ID,
             scope_kind=CredentialVault.runtime_scope_kind,
@@ -161,6 +180,13 @@ class RuntimeService:
             temperature=config.temperature,
             max_turns=config.max_turns,
             api_key=key,
+        )
+
+    @property
+    def _legacy_allowed(self) -> bool:
+        return (
+            self.settings.environment != "production"
+            and self.settings.legacy_local_user_enabled
         )
 
     def _has_interactive_admin(self) -> bool:
