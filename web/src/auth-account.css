@@ -1,3 +1,16 @@
+.auth-page,
+.account-sheet {
+  --auth-ink: #4d415b;
+  --auth-ink-soft: #6f6078;
+  --auth-border: rgba(91, 73, 106, 0.22);
+  --auth-border-strong: rgba(119, 88, 139, 0.46);
+  --auth-paper: rgba(255, 253, 249, 0.92);
+  --auth-paper-tint: rgba(248, 243, 251, 0.92);
+  --auth-lavender: #eee6f7;
+  --auth-lavender-strong: #8f72a6;
+  --auth-focus: rgba(143, 114, 166, 0.2);
+}
+
 .auth-page {
   min-height: 100vh;
   display: grid;
@@ -28,6 +41,10 @@
   gap: 12px;
 }
 
+.auth-topline {
+  min-height: 42px;
+}
+
 .auth-mark {
   display: block;
   width: 72px;
@@ -43,6 +60,54 @@
 .auth-intro,
 .auth-security {
   text-align: center;
+}
+
+.language-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--auth-border);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(238, 230, 247, 0.82));
+  box-shadow:
+    0 8px 20px rgba(74, 57, 86, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.language-toggle button {
+  min-width: 54px;
+  min-height: 34px;
+  padding: 7px 13px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--auth-ink-soft);
+  font: inherit;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.language-toggle button:hover {
+  color: var(--auth-ink);
+  transform: translateY(-1px);
+}
+
+.language-toggle button.active {
+  background: linear-gradient(135deg, #675476, #8f72a6);
+  color: #fffdf9;
+  box-shadow: 0 5px 12px rgba(85, 62, 100, 0.22);
+}
+
+.language-toggle button:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--auth-focus);
 }
 
 .auth-tabs,
@@ -61,12 +126,26 @@
   border-radius: 999px;
   padding: 10px 14px;
   background: transparent;
+  color: var(--auth-ink);
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.auth-tabs button:hover,
+.account-tabs button:hover {
+  background: rgba(238, 230, 247, 0.64);
 }
 
 .auth-tabs button.active,
 .account-tabs button.active {
   background: #4d415b;
   color: white;
+  box-shadow: 0 7px 16px rgba(63, 49, 73, 0.18);
 }
 
 .auth-form,
@@ -80,27 +159,123 @@
 .compact-form label,
 .danger-zone label {
   display: grid;
-  gap: 6px;
-  font-weight: 700;
+  gap: 7px;
+  color: var(--auth-ink);
+  font-weight: 750;
 }
 
 .auth-form small,
 .compact-form small {
-  font-weight: 400;
-  opacity: 0.68;
+  color: var(--auth-ink-soft);
+  font-weight: 450;
+  line-height: 1.45;
+}
+
+.auth-card input,
+.account-sheet input,
+.account-sheet select,
+.account-sheet textarea {
+  width: 100%;
+  min-height: 46px;
+  box-sizing: border-box;
+  padding: 11px 14px;
+  border: 1px solid var(--auth-border);
+  border-radius: 15px;
+  background: linear-gradient(180deg, var(--auth-paper), var(--auth-paper-tint));
+  color: var(--auth-ink);
+  font: inherit;
+  font-weight: 550;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 4px 12px rgba(74, 57, 86, 0.05);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.account-sheet select {
+  appearance: none;
+  padding-right: 42px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--auth-ink-soft) 50%),
+    linear-gradient(135deg, var(--auth-ink-soft) 50%, transparent 50%),
+    linear-gradient(180deg, var(--auth-paper), var(--auth-paper-tint));
+  background-position:
+    calc(100% - 20px) 50%,
+    calc(100% - 14px) 50%,
+    0 0;
+  background-size: 6px 6px, 6px 6px, 100% 100%;
+  background-repeat: no-repeat;
+}
+
+.auth-card input:hover,
+.account-sheet input:hover,
+.account-sheet select:hover,
+.account-sheet textarea:hover {
+  border-color: rgba(119, 88, 139, 0.34);
+}
+
+.auth-card input:focus,
+.account-sheet input:focus,
+.account-sheet select:focus,
+.account-sheet textarea:focus {
+  outline: 0;
+  border-color: var(--auth-border-strong);
+  background: #fffdfb;
+  box-shadow:
+    0 0 0 4px var(--auth-focus),
+    0 8px 20px rgba(74, 57, 86, 0.08);
+}
+
+.auth-card input::placeholder,
+.account-sheet input::placeholder,
+.account-sheet textarea::placeholder {
+  color: rgba(94, 78, 104, 0.5);
+}
+
+.auth-card input[name="invitation_code"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9rem;
+  letter-spacing: 0.015em;
 }
 
 .auth-submit {
   width: 100%;
-  min-height: 46px;
+  min-height: 48px;
+  margin-top: 2px;
+  border-radius: 18px;
 }
 
 .auth-switch {
   display: block;
-  margin: 14px auto 0;
+  margin: 16px auto 0;
+  padding: 8px 14px;
   border: 0;
-  background: transparent;
-  text-decoration: underline;
+  border-radius: 999px;
+  background: rgba(238, 230, 247, 0.58);
+  color: var(--auth-ink);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.auth-switch:hover {
+  background: rgba(225, 212, 239, 0.82);
+  transform: translateY(-1px);
+}
+
+.auth-security {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-left: 3px solid rgba(143, 114, 166, 0.72);
+  border-radius: 0 12px 12px 0;
+  background: rgba(238, 230, 247, 0.55);
+  color: var(--auth-ink-soft);
+  line-height: 1.55;
 }
 
 .account-sheet {
@@ -166,6 +341,15 @@
   margin: 0 0 8px;
 }
 
+.compact-form .paper-button {
+  min-height: 46px;
+  border-radius: 15px;
+  border-color: rgba(119, 88, 139, 0.28);
+  background: linear-gradient(135deg, rgba(238, 230, 247, 0.96), rgba(250, 243, 237, 0.96));
+  color: var(--auth-ink);
+  font-weight: 800;
+}
+
 .danger-zone {
   border-color: rgba(154, 51, 51, 0.34);
   background: rgba(255, 237, 232, 0.62);
@@ -176,17 +360,54 @@
 }
 
 .invitation-code {
+  position: relative;
   display: grid;
-  gap: 8px;
-  margin: 14px 0;
-  padding: 14px;
-  border-radius: 14px;
-  background: #eee6fa;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px dashed rgba(119, 88, 139, 0.34);
+  border-radius: 17px;
+  background:
+    linear-gradient(135deg, rgba(238, 230, 250, 0.96), rgba(247, 238, 244, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 24px rgba(74, 57, 86, 0.08);
+}
+
+.invitation-code strong {
+  color: var(--auth-ink);
 }
 
 .invitation-code code {
-  overflow-wrap: anywhere;
+  display: block;
+  max-width: 100%;
+  padding: 11px 13px;
+  overflow: hidden;
+  border: 1px solid rgba(119, 88, 139, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 253, 249, 0.72);
+  color: #594565;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.87rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   user-select: all;
+}
+
+.invitation-code .paper-button {
+  min-height: 44px;
+  border-radius: 14px;
+  border-color: rgba(119, 88, 139, 0.3);
+  background: rgba(255, 253, 249, 0.78);
+  color: var(--auth-ink);
+  font-weight: 800;
+}
+
+.invitation-code .paper-button:hover {
+  background: #fffdf9;
+  box-shadow: 0 8px 18px rgba(74, 57, 86, 0.09);
 }
 
 .compact-list > div {
@@ -196,6 +417,10 @@
 .compact-list select,
 .compact-list button {
   width: auto;
+}
+
+.compact-list select {
+  min-width: 112px;
 }
 
 .audit-card {
@@ -222,6 +447,15 @@
   .auth-card,
   .account-sheet {
     padding: 22px 18px;
+  }
+
+  .auth-topline {
+    align-items: flex-start;
+  }
+
+  .language-toggle button {
+    min-width: 48px;
+    padding-inline: 10px;
   }
 
   .account-data-grid,
