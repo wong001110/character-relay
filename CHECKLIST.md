@@ -1,323 +1,176 @@
 # Echo Masque Delivery Checklist
 
-## Phase 0 — Product contract
-- [x] Product purpose and terminology documented
-- [x] MVP scope and exclusions documented
-- [x] Delivery phases created as GitHub issues
+## Phases 0–7 — Foundation and release baseline
 
-## Phase 1 — Python foundation
-- [x] Installable Python package
-- [x] FastAPI health endpoint
-- [x] Environment-based settings
-- [x] Domain primitives
-- [x] Automated Python tests
-- [x] CI workflow
+- [x] Product contract, roadmap, and terminology
+- [x] Installable Python package and FastAPI service
+- [x] Deterministic trial engine and four test suites
+- [x] Prompt-model and external target adapters
+- [x] SQLite persistence, HTTP API, replay, reports, and comparisons
+- [x] React/TypeScript observation interface
+- [x] Recursive secret redaction and release automation
 
-## Phase 2 — Deterministic trial engine
-- [x] Target protocol and reset lifecycle
-- [x] Stable and Fragile deterministic targets
-- [x] Four deterministic test suites
-- [x] Rule-based evidence and verdicts
-- [x] First breakpoint detection
-- [x] CLI demo runner
-- [x] Unit and integration tests
+Manual follow-up:
 
-## Phase 3 — Prompt-model target
-- [x] OpenAI-compatible provider
-- [x] Safe credential handling
-- [x] Retry, timeout, usage, and latency metadata
-- [x] Offline mock provider tests
+- [ ] Narrow mobile acceptance
+- [ ] Validate a separately hosted chatbot adapter
+- [ ] Broad browser acceptance
 
-## Phase 4 — Persistence and API
-- [x] SQLite persistence
-- [x] Target and trial endpoints
-- [x] Trial status, result, cancellation, and replay
-- [x] Restart-safe completed results
+## Phases 8–11 — Character testing, Adaptive pressure, deployment, and language
 
-## Phase 5 — Observation interface
-- [x] React and TypeScript client
-- [x] Target selection and trial execution
-- [x] Breakpoint and evidence display
-- [x] Session replay
-- [x] User accepted MVP visual hierarchy
-- [ ] Manual: narrow mobile acceptance
+- [x] User-owned Character Cards and Live Test Room
+- [x] Prompt + Model creation and editing
+- [x] Persisted Tester, Subject, Judge, evidence, and breakpoint events
+- [x] Benchmark and Adaptive Tester modes
+- [x] Watch and Fast observation modes
+- [x] Cross-platform local launcher
+- [x] Railway Docker deployment and persistent SQLite smoke
+- [x] English and Simplified Chinese interface and Test Language
+- [x] Language-aware catalogs, judging, reports, and comparisons
 
-## Phase 6 — External targets
-- [x] Custom HTTP target
-- [x] Transcript import
-- [x] Contract validation and redaction
-- [ ] Manual: validate against a separately hosted chatbot
+Manual follow-up:
 
-## Phase 7 — Comparison and release
-- [x] Run comparison and regression gates
-- [x] Markdown and JSON reports
-- [x] Recursive secret redaction
-- [x] Security and privacy review document
-- [x] Container and tagged release workflow
-- [x] Fixed direct frontend dependency versions
-- [ ] Manual: broad end-to-end browser acceptance
-
-## Phase 8 — Character Cards and Live Test Room
-- [x] Per-user Character Card persistence
-- [x] Character Card create, list, detail, and delete API
-- [x] Persisted Tester, Subject, Judge, and Breakpoint events
-- [x] Watch Mode and Fast Mode
-- [x] Character Library and Character Card creator
-- [x] Left/right live chatroom UI
-- [x] Scrapbook visual system and lightweight SVG assets
-- [x] Existing replay, comparison, and reports retained
-- [x] Built-in Character Cards retired in Phase 12
-
-## MVP polish — provider configuration and reports
-- [x] Slower multi-beat Watch Mode pacing
-- [x] Fast Mode remains delay-free
-- [x] Prompt + Model Character Card creation
-- [x] DeepSeek, OpenAI, OpenRouter, and custom compatible presets
-- [x] Provider, base URL, model, system prompt, temperature, and API key fields
-- [x] API keys remain process-memory only and are not persisted
-- [x] API key reconfiguration after backend restart
-- [x] Prompt-model cards execute through the OpenAI-compatible provider
-- [x] Lab Note and JSON report modals
-- [x] Copy and download actions inside report modals
-- [x] User completed a real provider Subject test
-
-## Phase 9 — Adaptive Tester and efficient local development
-- [x] Single trial snapshot endpoint returns run state and incremental events
-- [x] Watch Mode snapshot interval is approximately 1.2 seconds
-- [x] Fast Mode snapshot interval is approximately 450 milliseconds
-- [x] Previous two-request polling loop removed from the live observer
-- [x] Benchmark Tester remains fixed and reproducible
-- [x] Adaptive Tester follows Subject replies
-- [x] Separate Adaptive Tester provider, model, prompt, temperature, turns, and key
-- [x] Adaptive Tester key remains active-run memory only
-- [x] Tester planning and generated messages appear in the live room
-- [x] Clear forbidden-phrase fractures stop further adaptive pressure
-- [x] Existing deterministic Judge remains independent
-- [x] Cross-platform `python run.py` launcher
-- [x] Launcher creates `.venv` and skips unchanged dependency installation
-- [x] Launcher starts and stops FastAPI and Vite together
-- [x] User completed a real Adaptive Tester run
-- [ ] Manual: verify launcher on both Windows and macOS/Linux
-
-## Phase 10 — Railway deployment readiness
-- [x] Railway config-as-code selects the root Dockerfile
-- [x] Production container listens on Railway-provided `PORT`
-- [x] React production build is served by FastAPI from one service
-- [x] Railway healthcheck uses `/health`
-- [x] SQLite production path remains `/data/echo_masque.db`
-- [x] Remote deterministic smoke-test script
-- [x] Automatic GitHub Actions Railway Smoke workflow
-- [x] CI builds and starts the production Docker image
-- [x] CI mounts a persistent Docker volume and runs a real Trial
-- [x] Railway deployment and persistence guide
-- [x] Public Railway domain created
-- [x] GitHub-hosted bilingual Railway Smoke passes
-- [ ] Manual: confirm SQLite data survives a Railway redeploy
-
-## Phase 11 — English and Simplified Chinese
-- [x] Typed i18n provider without an additional runtime package
-- [x] English interface remains the default
-- [x] Simplified Chinese interface option
-- [x] Interface language persists and updates document language
-- [x] Interface language remains separate from Test Language
-- [x] English and Simplified Chinese Benchmark catalogs
-- [x] Language-specific Judge signals
-- [x] Bilingual deterministic targets
-- [x] Adaptive Tester follows the selected test language
-- [x] Trial Run persists `test_language` with old-run English fallback
-- [x] English and Chinese runs use separate regression baselines
-- [x] Cross-language comparison is rejected
-- [x] English and Chinese transcript-analysis rules
-- [x] English and Chinese Markdown trial reports
-- [x] User-authored data and model responses are not automatically translated
-- [x] Multilingual frontend, backend, Docker, and Railway tests
-- [x] User accepted the multilingual MVP interface
+- [ ] Verify the launcher on Windows and macOS/Linux
+- [ ] Confirm SQLite data survives a real Railway redeploy
 
 ## Phase 12 — Admin Runtime, Hybrid Judge, and scalable Character Library
 
-### Admin Runtime
-- [x] Persist non-secret Adaptive Tester and Semantic Judge profiles
-- [x] Add `ECHO_MASQUE_ADMIN_TOKEN`
-- [x] Add `ECHO_MASQUE_ADAPTIVE_API_KEY`
-- [x] Add `ECHO_MASQUE_JUDGE_API_KEY`
-- [x] Protect Admin APIs with `X-Echo-Admin`
-- [x] Add public runtime readiness status
-- [x] Add bilingual Admin Settings UI
-- [x] Store browser Admin token in session storage only
-- [x] Support process-memory key overrides
-- [x] Never persist or expose raw Admin runtime keys
-
-### Adaptive Tester
-- [x] Resolve Adaptive Tester from Admin configuration
-- [x] Remove the per-run Adaptive configuration modal
-- [x] Disable Adaptive mode with a clear status when Admin runtime is unavailable
-- [x] Preserve legacy API payload compatibility for existing integrations
-
-### Hybrid Judge
-- [x] Keep Rules Mode deterministic and credential-free
-- [x] Add strict structured Semantic Judge output
-- [x] Validate Semantic evidence against real Subject turns and exact excerpts
-- [x] Add Rules, Semantic, and Hybrid Judge Modes
-- [x] Store Rule and Semantic verdicts separately
-- [x] Mark Rule/Semantic disagreement as REVIEW
-- [x] Add English and Simplified Chinese Semantic Judge instructions
-- [x] Store Provider, Model, rubric, confidence, dimensions, and usage metadata
-- [x] Include grounded Hybrid Judge detail in Markdown and JSON reports
-- [x] Reject comparisons across different Judge Modes
-- [x] Reject REVIEW runs as regression baselines
-- [x] Normalize Semantic score in Python from the six dimensions
-
-### Character Library
-- [x] Stop seeding user-facing built-in Character Cards
-- [x] Remove previously seeded built-in cards without deleting Trial runs
-- [x] Keep deterministic targets internal for CI and Railway smoke
-- [x] Add Character Card update API
-- [x] Edit prompt-model Provider, Model, System Prompt, Base URL, and Temperature
-- [x] Preserve Subject credential association during edits
-- [x] Add Edit action to Character Cards
-- [x] Add search, subject/tag filters, sorting, fixed-width cards, and pagination
-- [x] Add an empty-library state
-
-### Automated validation
-- [x] Fresh database contains no built-in Character Cards
-- [x] Character edits persist and preserve target/key association
-- [x] Admin non-secret settings survive restart
-- [x] Process-memory runtime keys clear on restart
-- [x] Environment runtime keys remain available after restart
-- [x] Adaptive/Semantic modes require configured Admin runtimes
-- [x] Ungrounded Semantic evidence is rejected
-- [x] Hybrid disagreement becomes REVIEW
+- [x] Persistent non-secret Adaptive/Judge configuration
+- [x] Independent Rules and grounded Semantic Judges
+- [x] Hybrid disagreement becomes `REVIEW`
+- [x] Strict structured and exact-evidence Semantic validation
+- [x] Scalable Character Library search, filters, sorting, and pagination
+- [x] Character Card editing preserves target and credential association
 - [x] Python 3.12/3.13, Web, Docker, and Railway validation
 
 ## Phase 13 — Custom Test Packs, Experiment History, and persistence guardrails
 
-### Custom Scenarios
-- [x] Add migration-safe Scenario persistence table
-- [x] Add owner-scoped create, list, detail, edit, duplicate, and delete APIs
-- [x] Support English and Simplified Chinese variants
-- [x] Store initial messages, expected behavior, required and forbidden signals
-- [x] Store severity, maximum turns, and recommended modes
-- [x] Add bilingual Scenario editor UI
+- [x] Owner-scoped custom Scenario CRUD
+- [x] Versioned, ordered Test Pack CRUD
+- [x] Immutable Character, Target, Pack, and Scenario snapshots
+- [x] Experiment History, rerun lineage, reports, and baselines
+- [x] Storage diagnostics and persistence probes
+- [x] Secret-free workspace export/import
+- [x] Python 3.12/3.13, Web, Docker, and Railway validation
 
-### Test Packs
-- [x] Add versioned Test Pack and ordered Pack Item persistence
-- [x] Add owner-scoped create, list, detail, edit, duplicate, and delete APIs
-- [x] Enable, disable, and reorder included Scenarios
-- [x] Add bilingual Test Pack editor UI
-- [x] Add Character Card + Test Pack run launcher
-- [x] Keep the fixed four-room path compatible
+Manual follow-up:
 
-### Reproducible experiments
-- [x] Snapshot Character Card profile before execution
-- [x] Snapshot Target Provider, Model, Prompt, Temperature, and endpoint configuration
-- [x] Snapshot Test Pack version and ordered Scenario definitions
-- [x] Execute from immutable snapshots
-- [x] Preserve old experiment meaning after card, pack, or scenario edits
-- [x] Add paginated and filterable Experiment History
-- [x] Add report, rerun, baseline, and delete controls
-- [x] Store rerun lineage
-- [x] Keep pre-Phase-13 Runs outside reproducible history rather than fabricating snapshots
-
-### Persistence and portability
-- [x] Add Admin storage diagnostics
-- [x] Show effective database path and writeability
-- [x] Warn when production SQLite is not under `/data`
-- [x] Show Character, Scenario, Pack, and Run counts
-- [x] Add create/check/delete persistence probe flow
-- [x] Add secret-free Workspace export
-- [x] Add merge and replace Workspace import
-- [x] Exclude Subject, Adaptive, Judge, and Admin secrets
-
-### Automated validation
-- [x] Scenario and Test Pack ownership tests
-- [x] Snapshot immutability tests
-- [x] Test Pack Trial execution test
-- [x] History, baseline, and rerun tests
-- [x] Storage warning test
-- [x] Persistence probe restart test
-- [x] Workspace export/import round-trip test
-- [x] Frontend request-contract tests
-- [x] Final Python 3.12 Ruff, strict mypy, and pytest passed
-- [x] Final Python 3.13 Ruff, strict mypy, and pytest passed
-- [x] Final TypeScript, Vitest, and production web build passed
-- [x] Final Docker image and container smoke passed
-- [x] Final Railway live smoke passed
-
-### Manual validation
-- [ ] Create English and Chinese versions of one custom Scenario
-- [ ] Compose and reorder a multi-scenario Test Pack
-- [ ] Run the same pack against Stable and OOC cards
-- [ ] Edit the card and pack, then confirm the old snapshot remains unchanged
-- [ ] Mark a compatible baseline and rerun from history
-- [ ] Export and import a real workspace JSON archive
-- [ ] Create a Railway persistence probe, redeploy, and verify the same ID remains
-- [ ] Confirm Storage Diagnostics shows `/data/echo_masque.db`
-- [ ] Confirm no API key or Admin token appears in the workspace archive
-- [ ] Inspect Workspace Hub on narrow mobile width
+- [ ] Run and inspect a real multilingual custom Test Pack
+- [ ] Export and import a real workspace archive
+- [ ] Confirm Storage Diagnostics and persistence probe after Railway redeploy
 
 ## Phase 14 — Batch Experiment Matrix and Comparative Analytics
 
-### Matrix definitions and launch safety
-- [x] Add owner-scoped Matrix CRUD and paginated listing
-- [x] Expand Character/Prompt, Model, Temperature, Pack, Language, Tester, Judge, and repeat combinations
-- [x] Preview the exact server-side task count before launch
-- [x] Require the caller to confirm the same task count
-- [x] Enforce a 200-task server cap
-- [x] Preflight Adaptive and Semantic Admin Runtime readiness
+- [x] Owner-scoped Matrix CRUD and task-count confirmation
+- [x] Persistent queue, bounded concurrency, pause/resume/cancel/retry
+- [x] Provider backoff and restart recovery
+- [x] Prompt version capture, diff, restore, and Production marker
+- [x] Repeated-run statistics and dimension breakdowns
+- [x] Compatible Matrix baselines and regression classification
+- [x] Secret-free JSON, CSV, and Markdown exports
+- [x] Bilingual Matrix Lab
+- [x] Python 3.12/3.13, Web, Docker, and Railway validation
 
-### Persistent queue and controls
-- [x] Add migration-safe Matrix and Matrix Task tables
-- [x] Persist pending, running, completed, failed, and cancelled state
-- [x] Add bounded concurrency
-- [x] Add pause, resume, cancel remaining, and retry failed controls
-- [x] Store attempt, retry, error, and provider backoff metadata
-- [x] Recover interrupted running tasks as pending and pause their Matrix after restart
-- [x] Keep all Subject, Adaptive, Judge, and Admin credentials outside Matrix persistence
+## Phase 15 — Authentication, User Isolation, and Secure Credential Vault
 
-### Prompt versions and immutable execution
-- [x] Capture Prompt + Model configuration versions automatically
-- [x] Preserve Provider, Base URL, Model, System Prompt, and Temperature
-- [x] Add version diff, restore, and production marker
-- [x] Apply selected Prompt, Model, and Temperature overrides to immutable Run snapshots
-- [x] Keep previous Run snapshots unchanged after version restoration
+### Identity and Sessions
 
-### Analytics, regression, and exports
-- [x] Aggregate mean, minimum, maximum, variance, and standard deviation
-- [x] Aggregate pass, review, and failure rates
-- [x] Aggregate failure types and first-breakpoint frequency
-- [x] Aggregate token usage, latency, provider errors, and retries
-- [x] Break down results by Character, Prompt, Model, Temperature, Language, Tester, Judge, and Scenario
-- [x] Add compatible Matrix baseline regression classification
-- [x] Reject misleading regression when Pack, Language, Tester, or Judge dimensions differ
-- [x] Add secret-free JSON, CSV, and Markdown export
+- [x] User, Session, Invitation, Credential, Audit, rate-limit, and quota records
+- [x] Argon2 password hashing
+- [x] Register, login, logout, current-user, Session listing, and Session revocation APIs
+- [x] Opaque expiring server-side Sessions
+- [x] HttpOnly SameSite browser cookie
+- [x] Bearer-token API compatibility
+- [x] Production bootstrap Admin account
+- [x] Invitation-controlled Production registration
+- [x] `user` and `admin` role model
 
-### Matrix Lab
-- [x] Add a separate bilingual Matrix Lab entry from the Character Library
-- [x] Add Builder, Queue, Analytics, Regression, and Prompt Version views
-- [x] Add combination-count and Provider-call warnings
-- [x] Add responsive desktop, tablet, and narrow-layout styling
-- [x] Add typed frontend API contracts and Vitest coverage
+### Server-enforced workspace isolation
 
-### Automated validation
-- [x] Matrix preview, task cap, and stale-confirmation tests
-- [x] Deterministic repeated-run Matrix and analytics tests
-- [x] Queue pause, resume, cancel, retry, and restart-recovery tests
-- [x] Prompt version immutability, diff, restore, and production-marker tests
-- [x] Compatible regression and secret-free export tests
-- [x] Python 3.12 Ruff, strict mypy, and pytest
-- [x] Python 3.13 Ruff, strict mypy, and pytest
-- [x] TypeScript, Vitest, and production web build
-- [x] Docker persistent-volume and container smoke
-- [x] Railway live smoke
+- [x] Remove caller-selected Production identity headers
+- [x] Session-derived ownership for Character Cards and Targets
+- [x] Session-derived ownership for Scenarios and Test Packs
+- [x] Session-derived ownership for Runs, Reports, reruns, and baselines
+- [x] Session-derived ownership for Matrices and Prompt versions
+- [x] Session-derived ownership for storage probes, exports, and imports
+- [x] Cross-user read, update, delete, rerun, baseline, Matrix, and export tests
+- [x] Explicit, idempotent legacy `local-user` workspace claim
+
+### Role-based Admin boundary
+
+- [x] Authenticated Admin dependency
+- [x] Role-protected Admin Runtime APIs
+- [x] Role-protected storage and lifecycle controls
+- [x] Safe role promotion and demotion with final-Admin protection
+- [x] Legacy Admin token retained only as a non-Production migration fallback
+
+### Secure credential vault
+
+- [x] Fernet encryption before credentials enter SQLite
+- [x] Character provider credential persistence
+- [x] Adaptive Tester and Semantic Judge credential persistence
+- [x] Versioned master-key metadata
+- [x] Multi-key decryption and primary-key rotation
+- [x] Redacted credential status responses
+- [x] Exclude plaintext and encrypted material from exports, snapshots, events, reports, and logs
+- [x] Production Character credential status reports `vault`
+
+### Quotas and abuse controls
+
+- [x] Persistent authenticated request buckets
+- [x] Persistent login failure windows and temporary blocking
+- [x] Per-user Character, Scenario, Pack, Run, and Matrix limits
+- [x] Daily Matrix task limit
+- [x] Per-user Run and Matrix concurrency limits
+- [x] Total workspace-record limit
+- [x] `429` and `Retry-After` behavior
+
+### Audit and account lifecycle
+
+- [x] Append-only redacted Audit Events
+- [x] Audit authentication, Session, credential, Admin, import/export, deletion, and role changes
+- [x] Single-use invitation creation, acceptance, expiry, and revocation
+- [x] Secret-free user-scoped account export
+- [x] Destructive account deletion with email and confirmation phrase
+- [x] Workspace, Session, credential, and rate-limit cleanup
+- [x] User anonymization while retaining Audit referential integrity
+
+### Authenticated UI
+
+- [x] Bilingual sign-in and invitation registration
+- [x] Workspace loading gated behind authenticated Session
+- [x] Browser owner headers and persistent Admin tokens removed
+- [x] Session/device management
+- [x] Account export and deletion
+- [x] Admin invitations and user-role management
+- [x] Audit inspection, legacy workspace claim, and credential rotation
+- [x] Session-authenticated Admin Runtime settings
+
+### Migration and Production release gate
+
+- [x] Backup-first idempotent Phase 15 migration script
+- [x] Railway environment, quota, migration, deletion, and key-rotation documentation
+- [x] Automated multi-account isolation and Vault-rotation acceptance script
+- [x] GitHub Actions workflow with secret-free JSON evidence
+- [x] Automatic post-merge wait for the authenticated Railway deployment
+- [x] Pull-request Python 3.12 Ruff, strict mypy, and pytest
+- [x] Pull-request Python 3.13 Ruff, strict mypy, and pytest
+- [x] Pull-request TypeScript, Vitest, and Production web build
+- [x] Pull-request Docker persistent-volume and container smoke
+- [x] Pull-request Railway smoke
+- [ ] Main-branch Phase 15 live multi-account and Vault-rotation acceptance
+
+## Phase 16 — Planned
+
+- [ ] AI-assisted Scenario and Test Pack drafting
+- [ ] Human approval and versioning before generated tests run
+- [ ] Calibration datasets and Judge agreement analysis
+- [ ] Evaluation coverage and rubric-version analytics
 
 ## Automated acceptance history
-- [x] Phase 8 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
-- [x] MVP polish GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
-- [x] Phase 9 GitHub-hosted Ruff, mypy, pytest, Vitest, and production build passed
-- [x] Phase 10 GitHub-hosted Ruff, mypy, pytest, web build, and Docker smoke passed
-- [x] Phase 11 GitHub-hosted Ruff, mypy, pytest, web build, Docker smoke, and Railway live smoke passed
-- [x] Phase 12 GitHub-hosted Ruff, strict mypy, pytest, TypeScript, Vitest, production build, Docker smoke, and Railway live smoke passed
-- [x] Phase 13 GitHub-hosted Ruff, strict mypy, pytest, TypeScript, Vitest, production build, Docker smoke, and Railway live smoke passed
-- [x] Phase 14 GitHub-hosted Ruff, strict mypy, pytest, TypeScript, Vitest, production build, Docker persistence smoke, and Railway live smoke passed
 
-Phase 14 implementation and hosted validation are complete. Manual acceptance remains for large real-provider Matrices, visual queue controls, regression interpretation, exports, and narrow-screen usability.
+- [x] Phases 8–14 passed their GitHub-hosted Python, Web, Docker, and Railway gates
+- [x] Phase 15 pull-request validation passed
+- [ ] Phase 15 Production security gate passed after merge
+
+Phase 15 implementation is complete. Promotion to completed status requires the post-merge live security workflow to pass against the authenticated Railway deployment.
