@@ -298,7 +298,7 @@ See `docs/phase-14-experiment-matrix.md` for the execution, analytics, regressio
 
 Phase 15 makes the public deployment suitable for multiple real users.
 
-Implemented deliverables:
+Planned deliverables:
 
 - production authentication and session management;
 - server-enforced workspace ownership instead of trusting `X-Echo-User`;
@@ -315,7 +315,7 @@ Phase 15 is the security boundary required before the public deployment is promo
 
 Phase 16 adds assisted evaluation design without allowing generated content to silently become ground truth.
 
-Implemented deliverables:
+Planned deliverables:
 
 - AI-assisted Scenario and Test Pack drafting from Character Cards and known risks;
 - human approval and versioning before generated tests can run;
