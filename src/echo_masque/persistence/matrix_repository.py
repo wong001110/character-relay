@@ -823,7 +823,11 @@ class MatrixRepository:
             "incompatible",
         ] = "incompatible"
         if compatible:
-            if score_delta is not None and score_delta >= 3 and candidate.pass_rate >= baseline.pass_rate:
+            if (
+                score_delta is not None
+                and score_delta >= 3
+                and candidate.pass_rate >= baseline.pass_rate
+            ):
                 classification = "improved"
             elif score_delta is not None and (
                 score_delta <= -3
@@ -937,7 +941,10 @@ class MatrixRepository:
             if record is None or record.owner_id != owner_id:
                 return None
             if MatrixStatus(record.status) not in allowed:
-                raise ValueError(f"Matrix cannot transition from {record.status} to {status.value}.")
+                raise ValueError(
+                    f"Matrix cannot transition from {record.status} "
+                    f"to {status.value}."
+                )
             record.status = status.value
             record.completed_at = None
             session.commit()
