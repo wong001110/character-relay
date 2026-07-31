@@ -21,6 +21,9 @@ from echo_masque.persistence.calibration_repository import (
 )
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.matrix_repository import MatrixRepository
+from echo_masque.persistence.portable_calibration_repository import (
+    PortableCalibrationRepository,
+)
 from echo_masque.persistence.repository import Repository
 from echo_masque.persistence.storage import (
     StorageStatus,
@@ -50,6 +53,7 @@ __all__ = [
     "CalibrationRepository",
     "Database",
     "MatrixRepository",
+    "PortableCalibrationRepository",
     "Repository",
     "StorageStatus",
     "TargetAccessRepository",
