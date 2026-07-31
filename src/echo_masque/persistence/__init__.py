@@ -1,5 +1,6 @@
 """Persistence exports."""
 
+from echo_masque.persistence.auth_repository import AuthRepository
 from echo_masque.persistence.authoring_models import (
     AuthoringScenarioDraftRecord,
     AuthoringTestPackDraftItemRecord,
@@ -9,7 +10,6 @@ from echo_masque.persistence.authoring_repository import (
     AuthoringConflict,
     AuthoringRepository,
 )
-from echo_masque.persistence.auth_repository import AuthRepository
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.matrix_repository import MatrixRepository
 from echo_masque.persistence.repository import Repository
@@ -28,12 +28,12 @@ from echo_masque.persistence.trial_request import (
 from echo_masque.persistence.workspace_repository import WorkspaceRepository
 
 __all__ = [
+    "AuthRepository",
     "AuthoringConflict",
     "AuthoringRepository",
     "AuthoringScenarioDraftRecord",
     "AuthoringTestPackDraftItemRecord",
     "AuthoringTestPackDraftRecord",
-    "AuthRepository",
     "Database",
     "MatrixRepository",
     "Repository",
