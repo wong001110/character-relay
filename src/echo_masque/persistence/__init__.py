@@ -2,6 +2,7 @@
 
 from echo_masque.persistence.auth_repository import AuthRepository
 from echo_masque.persistence.authoring_models import (
+    AuthoringRuntimeRecord,
     AuthoringScenarioDraftRecord,
     AuthoringTestPackDraftItemRecord,
     AuthoringTestPackDraftRecord,
@@ -31,6 +32,7 @@ __all__ = [
     "AuthRepository",
     "AuthoringConflict",
     "AuthoringRepository",
+    "AuthoringRuntimeRecord",
     "AuthoringScenarioDraftRecord",
     "AuthoringTestPackDraftItemRecord",
     "AuthoringTestPackDraftRecord",

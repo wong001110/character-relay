@@ -13,6 +13,7 @@ from echo_masque.api.routes import (
     admin_router,
     auth_router,
     authoring_archive_router,
+    authoring_generation_router,
     authoring_router,
     characters_router,
     comparisons_router,
@@ -27,7 +28,9 @@ from echo_masque.api.routes import (
 from echo_masque.audit_middleware import SensitiveAuditMiddleware
 from echo_masque.auth import AuthService
 from echo_masque.authoring_archive import AuthoringArchiveService
+from echo_masque.authoring_generation import AuthoringGenerationService
 from echo_masque.authoring_lifecycle import AuthoringAwareAccountLifecycleService
+from echo_masque.authoring_runtime import AuthoringRuntimeService
 from echo_masque.config import Settings, get_settings
 from echo_masque.credentials import CredentialVault
 from echo_masque.persistence import (
@@ -88,6 +91,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     repository.remove_demo_character_cards()
     credential_store = CredentialVault(auth_repository, resolved)
     runtime_service = RuntimeService(repository, resolved, credential_store)
+    authoring_runtime_service = AuthoringRuntimeService(
+        database,
+        auth_repository,
+        credential_store,
+        resolved,
+    )
+    authoring_generation_service = AuthoringGenerationService(
+        repository,
+        workspace_repository,
+        authoring_repository,
+        auth_repository,
+        authoring_runtime_service,
+    )
     trial_service = TrialService(
         repository,
         credential_store,
@@ -126,6 +142,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.workspace_repository = workspace_repository
     app.state.authoring_repository = authoring_repository
     app.state.authoring_archive_service = authoring_archive_service
+    app.state.authoring_runtime_service = authoring_runtime_service
+    app.state.authoring_generation_service = authoring_generation_service
     app.state.matrix_repository = matrix_repository
     app.state.target_access_repository = target_access_repository
     app.state.quota_service = quota_service
@@ -140,6 +158,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_router)
     app.include_router(authoring_router)
     app.include_router(authoring_archive_router)
+    app.include_router(authoring_generation_router)
     app.include_router(characters_router)
     app.include_router(targets_router)
     app.include_router(trials_router)

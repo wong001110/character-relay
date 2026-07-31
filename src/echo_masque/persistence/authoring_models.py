@@ -8,6 +8,16 @@ from sqlalchemy.orm import Mapped, mapped_column
 from echo_masque.persistence.models import Base, utcnow
 
 
+class AuthoringRuntimeRecord(Base):
+    __tablename__ = "authoring_runtime"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default="default")
+    config_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class AuthoringScenarioDraftRecord(Base):
     __tablename__ = "authoring_scenario_drafts"
 
