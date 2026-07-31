@@ -8,7 +8,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from echo_masque.matrix import PromptVersionView
 from echo_masque.persistence import MatrixRepository, Repository
 from echo_masque.targets import PromptModelConfig
 
