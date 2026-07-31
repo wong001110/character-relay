@@ -16,6 +16,7 @@ import { AuthoringLab } from "./AuthoringLab";
 import { CalibrationLab } from "./CalibrationLab";
 import { CharacterCreator } from "./CharacterCreator";
 import { CharacterShelf } from "./CharacterShelf";
+import { EvaluationLab } from "./EvaluationLab";
 import { useI18n } from "./i18n";
 import { MatrixWorkspace } from "./MatrixWorkspace";
 import { PackRunLauncher } from "./PackRunLauncher";
@@ -43,6 +44,7 @@ export default function App() {
   const [matrixOpen, setMatrixOpen] = useState(false);
   const [authoringOpen, setAuthoringOpen] = useState(false);
   const [calibrationOpen, setCalibrationOpen] = useState(false);
+  const [evaluationOpen, setEvaluationOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const workspaceAllowed =
@@ -92,7 +94,7 @@ export default function App() {
   function clearWorkspaceState() {
     setCards([]); setTargets([]); setRuntime(null); setActiveCard(null); setCreatorOpen(false);
     setEditingCard(null); setAdminOpen(false); setAccountOpen(false); setWorkspaceOpen(false);
-    setMatrixOpen(false); setAuthoringOpen(false); setCalibrationOpen(false);
+    setMatrixOpen(false); setAuthoringOpen(false); setCalibrationOpen(false); setEvaluationOpen(false);
   }
 
   async function logout() { try { await api.logout(); } finally { setUser(null); clearWorkspaceState(); } }
@@ -113,6 +115,7 @@ export default function App() {
     return <>{content}{user && <div style={{ position:"fixed", top:16, right:16, zIndex:40, display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
       <button type="button" className="paper-button" onClick={() => setAuthoringOpen(true)}>{language === "zh-CN" ? "评测编写" : "Authoring Lab"}</button>
       <button type="button" className="paper-button" onClick={() => setCalibrationOpen(true)}>{language === "zh-CN" ? "校准数据" : "Calibration Lab"}</button>
+      <button type="button" className="paper-button" onClick={() => setEvaluationOpen(true)}>{language === "zh-CN" ? "Judge 分析" : "Judge Analytics"}</button>
       <button type="button" className="paper-button" onClick={() => setAccountOpen(true)}>{language === "zh-CN" ? "账户与安全" : "Account & security"}</button>
     </div>}
     {accountOpen && user && <AccountPanel user={user} onClose={() => setAccountOpen(false)} onLogout={logout} onDeleted={accountDeleted} />}
@@ -123,6 +126,7 @@ export default function App() {
   if (!authConfig) return <main className="auth-page"><section className="auth-card paper-sheet"><h1>Echo Masque</h1><p className="error-note">{bootError ?? t("app.openShelfError")}</p></section></main>;
   if (authConfig.authentication_required && !user) return <AuthScreen config={authConfig} onAuthenticated={(authenticatedUser) => { setBootError(null); setUser(authenticatedUser); }} />;
 
+  if (evaluationOpen && user) return withAccount(<EvaluationLab onClose={() => { setEvaluationOpen(false); void load(); }} />);
   if (calibrationOpen && user) return withAccount(<CalibrationLab onClose={() => { setCalibrationOpen(false); void load(); }} />);
   if (authoringOpen && user) return withAccount(<AuthoringLab user={user} cards={cards} onClose={() => { setAuthoringOpen(false); void load(); }} />);
   if (matrixOpen) return withAccount(<MatrixWorkspace cards={cards} onClose={() => { setMatrixOpen(false); void load(); }} />);

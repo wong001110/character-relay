@@ -7,10 +7,7 @@ from echo_masque.persistence.authoring_models import (
     AuthoringTestPackDraftItemRecord,
     AuthoringTestPackDraftRecord,
 )
-from echo_masque.persistence.authoring_repository import (
-    AuthoringConflict,
-    AuthoringRepository,
-)
+from echo_masque.persistence.authoring_repository import AuthoringConflict, AuthoringRepository
 from echo_masque.persistence.calibration_models import (
     CalibrationCaseRecord,
     CalibrationDatasetRecord,
@@ -20,6 +17,11 @@ from echo_masque.persistence.calibration_repository import (
     CalibrationRepository as BaseCalibrationRepository,
 )
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.evaluation_models import (
+    JudgeEvaluationRecord,
+    JudgePredictionRecord,
+)
+from echo_masque.persistence.evaluation_repository import EvaluationRepository
 from echo_masque.persistence.matrix_repository import MatrixRepository
 from echo_masque.persistence.portable_calibration_repository import (
     PortableCalibrationRepository,
@@ -55,6 +57,9 @@ __all__ = [
     "CalibrationDatasetRecord",
     "CalibrationRepository",
     "Database",
+    "EvaluationRepository",
+    "JudgeEvaluationRecord",
+    "JudgePredictionRecord",
     "MatrixRepository",
     "PortableCalibrationRepository",
     "Repository",
