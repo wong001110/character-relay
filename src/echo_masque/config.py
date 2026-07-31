@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     max_concurrent_runs_per_user: int = 3
     max_matrix_concurrency_per_user: int = 4
     max_workspace_records_per_user: int = 3000
+    max_authoring_generations_per_day: int = 50
+    max_evaluation_cases_per_day: int = 1000
+    max_template_instantiations_per_day: int = 100
+    max_shared_assets_per_bundle: int = 200
 
 
 @lru_cache
