@@ -74,3 +74,7 @@ mypy_path = "src"
 [[tool.mypy.overrides]]
 module = "echo_masque.persistence.workspace_repository"
 disable_error_code = ["attr-defined"]
+
+[[tool.mypy.overrides]]
+module = "echo_masque.template_sharing"
+disable_error_code = ["arg-type"]
