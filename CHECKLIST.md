@@ -19,15 +19,15 @@
 
 ### 16A — Reviewable authoring foundation
 
-- [x] Migration-safe Scenario Draft persistence
-- [x] Migration-safe Test Pack Draft and ordered item persistence
-- [x] Manual/AI provenance, review notes, revisions, rejection, and approval
+- [x] Migration-safe Scenario and Test Pack Draft persistence
+- [x] ordered Draft items and formal-resource references
+- [x] manual/AI provenance, review notes, revisions, rejection, and approval
 - [x] Draft resources remain outside every Trial and Matrix execution path
 - [x] Scenario Draft approval creates a formal Scenario
 - [x] Test Pack Draft approval requires approved Scenario Draft references
-- [x] Approved Drafts become immutable provenance records
-- [x] Secret-free Authoring Archive merge/replace restore
-- [x] Owner isolation, account deletion, and legacy workspace claim
+- [x] approved Drafts become immutable provenance records
+- [x] secret-free Authoring Archive merge/replace restore
+- [x] owner isolation, account deletion, and legacy workspace claim
 
 ### 16B — AI-assisted authoring
 
@@ -107,8 +107,10 @@
 - [x] TypeScript, Vitest, and Production web build
 - [x] Docker persistent-volume and container smoke
 - [x] Railway smoke
-- [ ] Phase 16 Production live acceptance after merge
-- [ ] Phase 16 Tracker closed as completed
+- [x] Phase 16 Production live acceptance on `b341f45d77ec6bb25ad883de86f147ade4267ffd`
+- [x] temporary invited user cleaned up
+- [x] redacted acceptance artifact contains no Secret material
+- [x] Phase 16 Tracker ready to close as completed
 
 ## Remaining general manual follow-up
 
@@ -116,4 +118,4 @@
 - [ ] Validate a separately hosted external chatbot adapter
 - [ ] Verify the local launcher on Windows and macOS/Linux
 
-Phase 16 implementation is complete. Final completion requires the retained Production live acceptance against Railway and closure of Issue #45.
+**Phase 16 is complete.** The retained Production acceptance validated templates, Draft boundaries, secret-free sharing, Runtime Prompt exports, Calibration, Rules Evaluation, coverage analytics, and account cleanup.
