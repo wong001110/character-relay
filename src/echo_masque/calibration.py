@@ -44,7 +44,7 @@ class CalibrationCaseFields(BaseModel):
     scenario_name: str = Field(min_length=1, max_length=160)
     scenario_category: str = Field(min_length=1, max_length=80)
     language: CalibrationLanguage
-    turn_index: int | None = Field(default=None, ge=0)
+    turn_index: int | None = Field(default=None, ge=1)
     tester_message: str = Field(default="", max_length=12000)
     subject_response: str = Field(min_length=1, max_length=30000)
     expected_verdict: CalibrationVerdict
@@ -100,7 +100,7 @@ class CalibrationRunImport(BaseModel):
 
     run_id: str = Field(min_length=1, max_length=64)
     scenario_id: str = Field(min_length=1, max_length=120)
-    turn_index: int = Field(ge=0)
+    turn_index: int = Field(ge=1)
     expected_verdict: CalibrationVerdict
     failure_type: str = Field(default="", max_length=100)
     evidence_excerpt: str = Field(default="", max_length=8000)
