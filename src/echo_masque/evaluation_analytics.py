@@ -9,6 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 EvaluationMode = Literal["rules", "semantic", "hybrid"]
 EvaluationVerdict = Literal["PASS", "FAIL", "REVIEW"]
+EvaluationStatus = Literal["completed", "partial", "failed"]
+ContractSource = Literal["run_snapshot", "current_character", "generic"]
+
+
+def _default_evaluation_modes() -> list[EvaluationMode]:
+    return ["rules", "semantic", "hybrid"]
 
 
 class JudgeEvaluationCreate(BaseModel):
@@ -16,7 +22,7 @@ class JudgeEvaluationCreate(BaseModel):
 
     dataset_id: str = Field(min_length=1, max_length=64)
     modes: list[EvaluationMode] = Field(
-        default_factory=lambda: ["rules", "semantic", "hybrid"],
+        default_factory=_default_evaluation_modes,
         min_length=1,
         max_length=3,
     )
@@ -39,7 +45,7 @@ class JudgePredictionView(BaseModel):
     failure_types: list[str]
     dimensions: dict[str, int]
     evidence: list[dict[str, object]]
-    contract_source: Literal["run_snapshot", "current_character", "generic"]
+    contract_source: ContractSource
     error: str | None
     created_at: datetime
 
@@ -84,7 +90,7 @@ class JudgeEvaluationView(BaseModel):
     modes: list[EvaluationMode]
     judge_config: dict[str, object]
     metrics: JudgeEvaluationMetrics
-    status: Literal["completed", "partial", "failed"]
+    status: EvaluationStatus
     predictions: list[JudgePredictionView]
     created_at: datetime
 
@@ -100,18 +106,21 @@ class EvaluationCaseMetadata(BaseModel):
 def classification_metrics(
     predictions: list[JudgePredictionView],
 ) -> ClassificationMetrics:
-    labels = ("PASS", "FAIL", "REVIEW")
+    labels: tuple[EvaluationVerdict, ...] = ("PASS", "FAIL", "REVIEW")
     eligible = [
         item
         for item in predictions
         if item.predicted_verdict is not None and item.error is None
     ]
-    confusion = {
+    confusion: dict[str, dict[str, int]] = {
         expected: {predicted: 0 for predicted in labels}
         for expected in labels
     }
     for item in eligible:
-        confusion[item.expected_verdict][item.predicted_verdict] += 1
+        predicted = item.predicted_verdict
+        if predicted is None:
+            continue
+        confusion[item.expected_verdict][predicted] += 1
 
     correct = sum(confusion[label][label] for label in labels)
     per_class: dict[str, dict[str, float]] = {}
@@ -179,11 +188,12 @@ def evaluation_metrics(
     predictions: list[JudgePredictionView],
     metadata: dict[str, EvaluationCaseMetadata],
 ) -> JudgeEvaluationMetrics:
+    modes: tuple[EvaluationMode, ...] = ("rules", "semantic", "hybrid")
     by_mode = {
         mode: classification_metrics(
             [item for item in predictions if item.mode == mode]
         )
-        for mode in ("rules", "semantic", "hybrid")
+        for mode in modes
     }
     rules_by_case = {
         item.case_id: item
@@ -241,6 +251,7 @@ def _breakdown(
             for item in metadata.values()
         }
     )
+    modes: tuple[EvaluationMode, ...] = ("rules", "semantic", "hybrid")
     result: dict[str, dict[str, ClassificationMetrics]] = {}
     for value in values:
         case_ids = {
@@ -256,7 +267,7 @@ def _breakdown(
                     if item.mode == mode and item.case_id in case_ids
                 ]
             )
-            for mode in ("rules", "semantic", "hybrid")
+            for mode in modes
         }
     return result
 
