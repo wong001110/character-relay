@@ -110,6 +110,11 @@ class CalibrationRunImport(BaseModel):
     )
     notes: str = Field(default="", max_length=8000)
 
+    @field_validator("turn_index", mode="before")
+    @classmethod
+    def normalize_first_turn(cls, value: object) -> object:
+        return 1 if value == 0 else value
+
     @field_validator("expected_verdict")
     @classmethod
     def valid_verdict(cls, value: str) -> str:
