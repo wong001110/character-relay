@@ -9,6 +9,7 @@ interface Props {
   error: string | null;
   onCreate: () => void;
   onEdit: (card: CharacterCard) => void;
+  onPrompt: (card: CharacterCard) => void;
   onEnter: (card: CharacterCard) => void;
   onAdmin: () => void;
   onWorkspace: () => void;
@@ -29,6 +30,7 @@ export function CharacterShelf({
   error,
   onCreate,
   onEdit,
+  onPrompt,
   onEnter,
   onAdmin,
   onWorkspace,
@@ -201,6 +203,9 @@ export function CharacterShelf({
                 <div className="card-actions">
                   <button className="paper-button" onClick={() => onEdit(card)}>
                     {t("shelf.edit")}
+                  </button>
+                  <button className="paper-button" onClick={() => onPrompt(card)}>
+                    {language === "zh-CN" ? "真实 Prompt" : "View Prompt"}
                   </button>
                   <button className="enter-room" onClick={() => onEnter(card)}>
                     {t("shelf.enterRoom")}

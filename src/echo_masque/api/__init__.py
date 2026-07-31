@@ -21,6 +21,7 @@ from echo_masque.api.routes import (
     evaluations_router,
     health_router,
     matrices_router,
+    prompt_inspector_router,
     reports_router,
     targets_router,
     transcripts_router,
@@ -48,6 +49,7 @@ from echo_masque.persistence import (
     WorkspaceRepository,
     inspect_storage,
 )
+from echo_masque.prompt_inspector import CharacterPromptInspector
 from echo_masque.security_controls import QuotaService
 from echo_masque.services import MatrixService, RuntimeService, TrialService
 
@@ -85,6 +87,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     evaluation_repository = EvaluationRepository(database)
     matrix_repository = MatrixRepository(database)
+    character_prompt_inspector = CharacterPromptInspector(
+        repository,
+        matrix_repository,
+    )
     target_access_repository = TargetAccessRepository(database)
     quota_service = QuotaService(database, resolved)
     account_lifecycle_service = EvaluationAwareAccountLifecycleService(
@@ -168,6 +174,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.evaluation_repository = evaluation_repository
     app.state.judge_evaluation_service = judge_evaluation_service
     app.state.matrix_repository = matrix_repository
+    app.state.character_prompt_inspector = character_prompt_inspector
     app.state.target_access_repository = target_access_repository
     app.state.quota_service = quota_service
     app.state.account_lifecycle_service = account_lifecycle_service
@@ -185,6 +192,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(calibration_router)
     app.include_router(evaluations_router)
     app.include_router(characters_router)
+    app.include_router(prompt_inspector_router)
     app.include_router(targets_router)
     app.include_router(trials_router)
     app.include_router(transcripts_router)
