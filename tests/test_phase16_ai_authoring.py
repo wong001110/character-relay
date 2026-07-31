@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from cryptography.fernet import Fernet
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
@@ -49,7 +50,10 @@ def settings(path: Path) -> Settings:
 
 
 def login(client: TestClient, email: str, password: str = PASSWORD) -> None:
-    response = client.post("/api/auth/login", json={"email": email, "password": password})
+    response = client.post(
+        "/api/auth/login",
+        json={"email": email, "password": password},
+    )
     assert response.status_code == 200
 
 
@@ -68,7 +72,11 @@ def register(client: TestClient, email: str) -> None:
 def create_character(client: TestClient, name: str = "Ann") -> str:
     target = client.post(
         "/api/targets",
-        json={"name": f"{name} target", "target_kind": "stable", "config": {}},
+        json={
+            "name": f"{name} target",
+            "target_kind": "stable",
+            "config": {},
+        },
     )
     assert target.status_code == 201
     card = client.post(
@@ -78,7 +86,9 @@ def create_character(client: TestClient, name: str = "Ann") -> str:
             "display_name": name,
             "subtitle": "Phase 16 authoring fixture",
             "subject_type": "companion",
-            "persona_summary": "A calm companion who protects identity and memory integrity.",
+            "persona_summary": (
+                "A calm companion who protects identity and memory integrity."
+            ),
             "traits": ["calm", "careful"],
             "tags": ["fixture"],
             "expected_tone": "Warm and precise",
@@ -142,26 +152,31 @@ def valid_generation() -> str:
     }"""
 
 
-def install_provider(app: object, provider: SequenceProvider) -> None:
-    application = app
-    application.state.authoring_generation_service = AuthoringGenerationService(
-        application.state.repository,
-        application.state.workspace_repository,
-        application.state.authoring_repository,
-        application.state.auth_repository,
-        application.state.authoring_runtime_service,
+def install_provider(app: FastAPI, provider: SequenceProvider) -> None:
+    app.state.authoring_generation_service = AuthoringGenerationService(
+        app.state.repository,
+        app.state.workspace_repository,
+        app.state.authoring_repository,
+        app.state.auth_repository,
+        app.state.authoring_runtime_service,
         provider_factory=lambda: provider,
     )
 
 
-def test_authoring_runtime_is_admin_managed_and_vault_backed(tmp_path: Path) -> None:
+def test_authoring_runtime_is_admin_managed_and_vault_backed(
+    tmp_path: Path,
+) -> None:
     app = create_app(settings(tmp_path / "runtime.db"))
     admin = TestClient(app)
     member = TestClient(app)
     login(admin, ADMIN_EMAIL)
     register(member, "phase16b-member@example.com")
 
-    assert member.put("/api/admin/authoring-runtime", json=runtime_payload()).status_code == 403
+    denied = member.put(
+        "/api/admin/authoring-runtime",
+        json=runtime_payload(),
+    )
+    assert denied.status_code == 403
     updated = admin.put("/api/admin/authoring-runtime", json=runtime_payload())
     assert updated.status_code == 200
     assert updated.json()["status"]["configured"] is False
@@ -173,9 +188,9 @@ def test_authoring_runtime_is_admin_managed_and_vault_backed(tmp_path: Path) -> 
     assert credential.status_code == 200
     assert credential.json()["status"]["credential_source"] == "vault"
     assert credential.json()["status"]["configured"] is True
-    assert "phase16b-secret-provider-key" not in (tmp_path / "runtime.db").read_text(
-        errors="ignore"
-    )
+    assert "phase16b-secret-provider-key" not in (
+        tmp_path / "runtime.db"
+    ).read_text(errors="ignore")
 
     public_status = member.get("/api/authoring/runtime/status")
     assert public_status.status_code == 200
@@ -189,7 +204,11 @@ def test_generation_creates_reviewable_drafts_and_uses_one_bounded_repair(
     client = TestClient(app)
     login(client, ADMIN_EMAIL)
     card_id = create_character(client)
-    assert client.put("/api/admin/authoring-runtime", json=runtime_payload()).status_code == 200
+    updated = client.put(
+        "/api/admin/authoring-runtime",
+        json=runtime_payload(),
+    )
+    assert updated.status_code == 200
 
     provider = SequenceProvider(["not-json", valid_generation()])
     install_provider(app, provider)
@@ -216,26 +235,35 @@ def test_generation_creates_reviewable_drafts_and_uses_one_bounded_repair(
     assert client.get("/api/test-packs").json() == []
 
     first_id = body["scenario_drafts"][0]["id"]
-    approval = client.post(f"/api/authoring/scenario-drafts/{first_id}/approve")
+    approval = client.post(
+        f"/api/authoring/scenario-drafts/{first_id}/approve"
+    )
     assert approval.status_code == 200
     assert len(client.get("/api/scenarios").json()) == 1
 
 
-def test_generation_enforces_character_ownership_and_filters_duplicates(tmp_path: Path) -> None:
+def test_generation_enforces_character_ownership_and_filters_duplicates(
+    tmp_path: Path,
+) -> None:
     app = create_app(settings(tmp_path / "isolation.db"))
     admin = TestClient(app)
     other = TestClient(app)
     login(admin, ADMIN_EMAIL)
     register(other, "phase16b-other@example.com")
     card_id = create_character(admin)
-    assert admin.put("/api/admin/authoring-runtime", json=runtime_payload()).status_code == 200
+    updated = admin.put(
+        "/api/admin/authoring-runtime",
+        json=runtime_payload(),
+    )
+    assert updated.status_code == 200
 
     provider = SequenceProvider([valid_generation(), valid_generation()])
     install_provider(app, provider)
-    assert other.post(
+    foreign = other.post(
         "/api/authoring/generate",
         json={"character_card_id": card_id, "scenario_count": 2},
-    ).status_code == 404
+    )
+    assert foreign.status_code == 404
 
     first = admin.post(
         "/api/authoring/generate",
@@ -249,5 +277,6 @@ def test_generation_enforces_character_ownership_and_filters_duplicates(tmp_path
     assert duplicate.status_code == 422
     assert "duplicated" in duplicate.json()["detail"]
 
-    actions = {item["action"] for item in admin.get("/api/admin/audit").json()}
+    audit = admin.get("/api/admin/audit")
+    actions = {item["action"] for item in audit.json()}
     assert "authoring.generation_completed" in actions
