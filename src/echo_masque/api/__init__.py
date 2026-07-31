@@ -29,8 +29,8 @@ from echo_masque.auth import AuthService
 from echo_masque.config import Settings, get_settings
 from echo_masque.credentials import CredentialVault
 from echo_masque.persistence import (
-    AuthRepository,
     AuthoringRepository,
+    AuthRepository,
     Database,
     MatrixRepository,
     Repository,
