@@ -26,15 +26,20 @@ from echo_masque.persistence.evaluation_models import (
     JudgePredictionRecord,
 )
 
-_MODES = TypeAdapter(list[EvaluationMode])
-_STATUS = TypeAdapter(EvaluationStatus)
-_VERDICT = TypeAdapter(EvaluationVerdict)
-_OPTIONAL_VERDICT = TypeAdapter(EvaluationVerdict | None)
-_CONTRACT_SOURCE = TypeAdapter(ContractSource)
-_STRING_LIST = TypeAdapter(list[str])
-_INT_MAP = TypeAdapter(dict[str, int])
-_OBJECT_LIST = TypeAdapter(list[dict[str, object]])
-_OBJECT_MAP = TypeAdapter(dict[str, object])
+_MODES: TypeAdapter[list[EvaluationMode]] = TypeAdapter(list[EvaluationMode])
+_MODE: TypeAdapter[EvaluationMode] = TypeAdapter(EvaluationMode)
+_STATUS: TypeAdapter[EvaluationStatus] = TypeAdapter(EvaluationStatus)
+_VERDICT: TypeAdapter[EvaluationVerdict] = TypeAdapter(EvaluationVerdict)
+_OPTIONAL_VERDICT: TypeAdapter[EvaluationVerdict | None] = TypeAdapter(
+    EvaluationVerdict | None
+)
+_CONTRACT_SOURCE: TypeAdapter[ContractSource] = TypeAdapter(ContractSource)
+_STRING_LIST: TypeAdapter[list[str]] = TypeAdapter(list[str])
+_INT_MAP: TypeAdapter[dict[str, int]] = TypeAdapter(dict[str, int])
+_OBJECT_LIST: TypeAdapter[list[dict[str, object]]] = TypeAdapter(
+    list[dict[str, object]]
+)
+_OBJECT_MAP: TypeAdapter[dict[str, object]] = TypeAdapter(dict[str, object])
 
 
 class EvaluationRepository:
@@ -198,7 +203,7 @@ class EvaluationRepository:
             id=record.id,
             evaluation_id=record.evaluation_id,
             case_id=record.case_id,
-            mode=TypeAdapter(EvaluationMode).validate_python(record.mode),
+            mode=_MODE.validate_python(record.mode),
             expected_verdict=_VERDICT.validate_python(record.expected_verdict),
             predicted_verdict=_OPTIONAL_VERDICT.validate_python(
                 record.predicted_verdict
