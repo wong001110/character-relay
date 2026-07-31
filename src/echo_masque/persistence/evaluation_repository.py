@@ -6,12 +6,16 @@ import json
 from typing import cast
 from uuid import uuid4
 
+from pydantic import TypeAdapter
 from sqlalchemy import delete, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from echo_masque.evaluation_analytics import (
+    ContractSource,
     EvaluationMode,
+    EvaluationStatus,
+    EvaluationVerdict,
     JudgeEvaluationMetrics,
     JudgeEvaluationView,
     JudgePredictionView,
@@ -21,6 +25,16 @@ from echo_masque.persistence.evaluation_models import (
     JudgeEvaluationRecord,
     JudgePredictionRecord,
 )
+
+_MODES = TypeAdapter(list[EvaluationMode])
+_STATUS = TypeAdapter(EvaluationStatus)
+_VERDICT = TypeAdapter(EvaluationVerdict)
+_OPTIONAL_VERDICT = TypeAdapter(EvaluationVerdict | None)
+_CONTRACT_SOURCE = TypeAdapter(ContractSource)
+_STRING_LIST = TypeAdapter(list[str])
+_INT_MAP = TypeAdapter(dict[str, int])
+_OBJECT_LIST = TypeAdapter(list[dict[str, object]])
+_OBJECT_MAP = TypeAdapter(dict[str, object])
 
 
 class EvaluationRepository:
@@ -37,7 +51,7 @@ class EvaluationRepository:
         modes: list[EvaluationMode],
         judge_config: dict[str, object],
         metrics: JudgeEvaluationMetrics,
-        status: str,
+        status: EvaluationStatus,
         predictions: list[JudgePredictionView],
     ) -> JudgeEvaluationView:
         evaluation_id = str(uuid4())
@@ -165,10 +179,12 @@ class EvaluationRepository:
             dataset_id=record.dataset_id,
             dataset_version=record.dataset_version,
             dataset_name=record.dataset_name,
-            modes=json.loads(record.modes_json),
-            judge_config=json.loads(record.judge_config_json),
+            modes=_MODES.validate_python(json.loads(record.modes_json)),
+            judge_config=_OBJECT_MAP.validate_python(
+                json.loads(record.judge_config_json)
+            ),
             metrics=JudgeEvaluationMetrics.model_validate_json(record.metrics_json),
-            status=record.status,
+            status=_STATUS.validate_python(record.status),
             predictions=[
                 EvaluationRepository._prediction_view(item)
                 for item in predictions
@@ -182,19 +198,29 @@ class EvaluationRepository:
             id=record.id,
             evaluation_id=record.evaluation_id,
             case_id=record.case_id,
-            mode=cast(EvaluationMode, record.mode),
-            expected_verdict=cast(str, record.expected_verdict),
-            predicted_verdict=cast(str | None, record.predicted_verdict),
+            mode=TypeAdapter(EvaluationMode).validate_python(record.mode),
+            expected_verdict=_VERDICT.validate_python(record.expected_verdict),
+            predicted_verdict=_OPTIONAL_VERDICT.validate_python(
+                record.predicted_verdict
+            ),
             score=record.score,
             confidence=(
                 float(record.confidence)
                 if record.confidence is not None
                 else None
             ),
-            failure_types=json.loads(record.failure_types_json),
-            dimensions=json.loads(record.dimensions_json),
-            evidence=json.loads(record.evidence_json),
-            contract_source=cast(str, record.contract_source),
+            failure_types=_STRING_LIST.validate_python(
+                json.loads(record.failure_types_json)
+            ),
+            dimensions=_INT_MAP.validate_python(
+                json.loads(record.dimensions_json)
+            ),
+            evidence=_OBJECT_LIST.validate_python(
+                json.loads(record.evidence_json)
+            ),
+            contract_source=_CONTRACT_SOURCE.validate_python(
+                record.contract_source
+            ),
             error=record.error,
             created_at=record.created_at,
         )
