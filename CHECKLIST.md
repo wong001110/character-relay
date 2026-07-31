@@ -158,19 +158,46 @@ Manual follow-up:
 - [x] Pull-request TypeScript, Vitest, and Production web build
 - [x] Pull-request Docker persistent-volume and container smoke
 - [x] Pull-request Railway smoke
-- [ ] Main-branch Phase 15 live multi-account and Vault-rotation acceptance
+- [x] Main-branch Phase 15 live multi-account and Vault-rotation acceptance
 
-## Phase 16 — Planned
+## Phase 16 — AI-assisted Authoring, Calibration, and Evaluation Analytics
 
-- [ ] AI-assisted Scenario and Test Pack drafting
-- [ ] Human approval and versioning before generated tests run
-- [ ] Calibration datasets and Judge agreement analysis
-- [ ] Evaluation coverage and rubric-version analytics
+### 16A — Reviewable authoring foundation
+
+- [x] Migration-safe Scenario Draft persistence
+- [x] Migration-safe Test Pack Draft and ordered item persistence
+- [x] Manual/AI provenance, review notes, revisions, and status metadata
+- [x] Owner-scoped Scenario Draft CRUD, reject, revise, and approve APIs
+- [x] Owner-scoped Test Pack Draft CRUD, reject, revise, and approve APIs
+- [x] Draft resources remain outside formal Scenario/Test Pack execution paths
+- [x] Scenario Draft approval creates a normal Phase 13 Scenario
+- [x] Test Pack Draft approval requires approved Scenario Draft references
+- [x] Approved Draft provenance becomes immutable
+- [x] Append-only Audit Events for Draft and archive operations
+- [x] Secret-free Authoring Archive export and merge/replace import
+- [x] Approved archive references require formal Workspace resources first
+- [x] Account deletion removes Scenario Drafts, Pack Drafts, and Draft items
+- [x] Legacy `local-user` claim includes authoring resources
+- [x] Cross-user isolation, persistence, approval-boundary, archive, and deletion tests
+- [x] Python 3.12/3.13 Ruff, strict mypy, and pytest
+- [x] TypeScript, Vitest, Production web build, Docker, and Railway smoke
+
+### 16B–16F — Remaining
+
+- [ ] Admin-managed Authoring Runtime and encrypted credential
+- [ ] Strict AI Scenario and Test Pack drafting with bounded correction
+- [ ] Duplicate, risk, and coverage heuristics
+- [ ] English and Simplified Chinese Authoring Lab
+- [ ] Calibration Datasets and human-approved Calibration Cases
+- [ ] Judge confusion matrix, agreement, false-positive, and false-negative analytics
+- [ ] Rubric-version comparison and dimension coverage reports
+- [ ] Reusable templates, secret-free sharing, quotas, and Production release gate
 
 ## Automated acceptance history
 
 - [x] Phases 8–14 passed their GitHub-hosted Python, Web, Docker, and Railway gates
 - [x] Phase 15 pull-request validation passed
-- [ ] Phase 15 Production security gate passed after merge
+- [x] Phase 15 Production security gate passed after merge
+- [x] Phase 16A reviewable authoring foundation passed pull-request validation
 
-Phase 15 implementation is complete. Promotion to completed status requires the post-merge live security workflow to pass against the authenticated Railway deployment.
+Phase 16 is in progress. Phase 16A establishes the non-executable Draft and human-approval boundary; AI generation begins in Phase 16B.
