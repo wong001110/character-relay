@@ -33,9 +33,9 @@ class EvaluationAwareAccountLifecycleService(
         self.evaluation_repository = evaluation_repository
 
     def delete_account(self, user_id: str, *, email: str) -> dict[str, int]:
+        evaluation_counts = self.evaluation_repository.delete_owner(user_id)
         deleted = super().delete_account(user_id, email=email)
-        deleted.update(self.evaluation_repository.delete_owner(user_id))
-        return deleted
+        return {**deleted, **evaluation_counts}
 
     def claim_local_workspace(self, *, actor_user_id: str) -> dict[str, int]:
         base_counts: dict[str, int] = {}
