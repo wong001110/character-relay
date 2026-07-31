@@ -10,6 +10,7 @@ from echo_masque.calibration import (
     CalibrationDatasetView,
     CalibrationImportResult,
 )
+from echo_masque.persistence.calibration_models import CalibrationDatasetRecord
 from echo_masque.persistence.calibration_repository import CalibrationRepository
 
 
@@ -22,7 +23,7 @@ class PortableCalibrationRepository(CalibrationRepository):
         archive: CalibrationArchive,
         mode: str,
     ) -> CalibrationImportResult:
-        if archive.owner_id == owner_id:
+        if not self._needs_remap(owner_id, archive):
             return super().import_archive(owner_id, archive, mode)
 
         dataset_ids = {item.id: str(uuid4()) for item in archive.datasets}
@@ -56,6 +57,20 @@ class PortableCalibrationRepository(CalibrationRepository):
             update={"owner_id": owner_id, "datasets": remapped}
         )
         return super().import_archive(owner_id, portable, mode)
+
+    def _needs_remap(
+        self,
+        owner_id: str,
+        archive: CalibrationArchive,
+    ) -> bool:
+        if archive.owner_id != owner_id:
+            return True
+        with self.database.session() as session:
+            for item in archive.datasets:
+                existing = session.get(CalibrationDatasetRecord, item.id)
+                if existing is not None and existing.owner_id != owner_id:
+                    return True
+        return False
 
     @staticmethod
     def _remap_case(
