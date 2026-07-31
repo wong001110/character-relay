@@ -1,3 +1,15 @@
+.character-card .card-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.character-card .card-actions .enter-room {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
 .prompt-inspector-backdrop {
   position: fixed;
   inset: 0;
