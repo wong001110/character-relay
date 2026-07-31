@@ -81,7 +81,7 @@ export function CalibrationLab({ onClose }: Props) {
 
   useEffect(() => { void run(async () => { await load(); }, ""); }, []);
 
-  async function run(action: () => Promise<void>, success = c.completed) {
+  async function run(action: () => Promise<void>, success: string = c.completed) {
     try { setWorking(true); setMessage(null); await action(); if (success) setMessage(success); }
     catch (reason) { setMessage(reason instanceof Error ? reason.message : c.error); }
     finally { setWorking(false); }
