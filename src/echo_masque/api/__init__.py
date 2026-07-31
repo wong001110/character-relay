@@ -13,6 +13,7 @@ from echo_masque.api.routes import (
     accounts_router,
     admin_router,
     auth_router,
+    authoring_router,
     characters_router,
     comparisons_router,
     health_router,
@@ -29,6 +30,7 @@ from echo_masque.config import Settings, get_settings
 from echo_masque.credentials import CredentialVault
 from echo_masque.persistence import (
     AuthRepository,
+    AuthoringRepository,
     Database,
     MatrixRepository,
     Repository,
@@ -64,6 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     repository = Repository(database)
     workspace_repository = WorkspaceRepository(database)
+    authoring_repository = AuthoringRepository(database, workspace_repository)
     matrix_repository = MatrixRepository(database)
     target_access_repository = TargetAccessRepository(database)
     quota_service = QuotaService(database, resolved)
@@ -114,6 +117,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.auth_service = auth_service
     app.state.repository = repository
     app.state.workspace_repository = workspace_repository
+    app.state.authoring_repository = authoring_repository
     app.state.matrix_repository = matrix_repository
     app.state.target_access_repository = target_access_repository
     app.state.quota_service = quota_service
@@ -126,6 +130,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(accounts_router)
     app.include_router(admin_router)
+    app.include_router(authoring_router)
     app.include_router(characters_router)
     app.include_router(targets_router)
     app.include_router(trials_router)
