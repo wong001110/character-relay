@@ -51,17 +51,19 @@ class CalibrationCaseRecord(Base):
     )
     owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
-    source: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)
+    source: Mapped[str | None] = mapped_column(
+        String(20), default="manual", nullable=False
+    )
     run_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     scenario_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     character_card_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     scenario_name: Mapped[str] = mapped_column(String(160), nullable=False)
     scenario_category: Mapped[str] = mapped_column(String(80), nullable=False)
-    language: Mapped[str] = mapped_column(String(20), nullable=False)
+    language: Mapped[str | None] = mapped_column(String(20), nullable=False)
     turn_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tester_message: Mapped[str] = mapped_column(Text, default="", nullable=False)
     subject_response: Mapped[str] = mapped_column(Text, nullable=False)
-    expected_verdict: Mapped[str] = mapped_column(String(20), nullable=False)
+    expected_verdict: Mapped[str | None] = mapped_column(String(20), nullable=False)
     failure_type: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     evidence_excerpt: Mapped[str] = mapped_column(Text, default="", nullable=False)
     coverage_dimensions_json: Mapped[str] = mapped_column(
