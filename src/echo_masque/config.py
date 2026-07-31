@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     admin_token: SecretStr | None = None
     adaptive_api_key: SecretStr | None = None
     judge_api_key: SecretStr | None = None
+    authoring_api_key: SecretStr | None = None
 
     auth_cookie_name: str = "echo_masque_session"
     auth_session_ttl_seconds: int = 60 * 60 * 24 * 30
