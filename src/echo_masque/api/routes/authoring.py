@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Annotated, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
@@ -18,7 +18,7 @@ from echo_masque.authoring import (
     TestPackDraftUpdate,
     TestPackDraftView,
 )
-from echo_masque.persistence import AuthRepository, AuthoringRepository
+from echo_masque.persistence import AuthoringRepository, AuthRepository
 from echo_masque.persistence.authoring_repository import AuthoringConflict
 
 router = APIRouter(prefix="/api/authoring", tags=["authoring"])
@@ -58,7 +58,7 @@ def _conflict(exc: AuthoringConflict) -> HTTPException:
 def list_scenario_drafts(
     request: Request,
     user: CurrentUserDependency,
-    draft_status: DraftStatus | None = Query(None, alias="status"),
+    draft_status: Annotated[DraftStatus | None, Query(alias="status")] = None,
 ) -> list[ScenarioDraftView]:
     return authoring_repository(request).list_scenario_drafts(
         user.id,
@@ -209,7 +209,7 @@ def delete_scenario_draft(
 def list_test_pack_drafts(
     request: Request,
     user: CurrentUserDependency,
-    draft_status: DraftStatus | None = Query(None, alias="status"),
+    draft_status: Annotated[DraftStatus | None, Query(alias="status")] = None,
 ) -> list[TestPackDraftView]:
     return authoring_repository(request).list_test_pack_drafts(
         user.id,
