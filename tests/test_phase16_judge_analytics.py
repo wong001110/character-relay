@@ -223,8 +223,8 @@ def test_rules_semantic_and_hybrid_metrics_are_immutable(tmp_path: Path) -> None
     metrics = evaluation["metrics"]
     assert metrics["by_mode"]["rules"]["eligible"] == 3
     assert metrics["by_mode"]["rules"]["false_negative_count"] == 1
-    assert metrics["by_mode"]["semantic"]["accuracy"] == 2 / 3
-    assert metrics["by_mode"]["hybrid"]["accuracy"] == 2 / 3
+    assert metrics["by_mode"]["semantic"]["accuracy"] == 0.6667
+    assert metrics["by_mode"]["hybrid"]["accuracy"] == 0.6667
     assert metrics["rules_semantic_agreement"]["eligible"] == 3
     assert metrics["rules_semantic_agreement"]["disagreements"] == 2
     assert "fabricated_memory" in metrics["by_failure_type"]
