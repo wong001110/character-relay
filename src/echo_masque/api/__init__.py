@@ -8,11 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from echo_masque.account_lifecycle import AccountLifecycleService
 from echo_masque.api.routes import (
     accounts_router,
     admin_router,
     auth_router,
+    authoring_archive_router,
     authoring_router,
     characters_router,
     comparisons_router,
@@ -26,6 +26,8 @@ from echo_masque.api.routes import (
 )
 from echo_masque.audit_middleware import SensitiveAuditMiddleware
 from echo_masque.auth import AuthService
+from echo_masque.authoring_archive import AuthoringArchiveService
+from echo_masque.authoring_lifecycle import AuthoringAwareAccountLifecycleService
 from echo_masque.config import Settings, get_settings
 from echo_masque.credentials import CredentialVault
 from echo_masque.persistence import (
@@ -67,10 +69,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     repository = Repository(database)
     workspace_repository = WorkspaceRepository(database)
     authoring_repository = AuthoringRepository(database, workspace_repository)
+    authoring_archive_service = AuthoringArchiveService(database, authoring_repository)
     matrix_repository = MatrixRepository(database)
     target_access_repository = TargetAccessRepository(database)
     quota_service = QuotaService(database, resolved)
-    account_lifecycle_service = AccountLifecycleService(database, auth_repository)
+    account_lifecycle_service = AuthoringAwareAccountLifecycleService(
+        database,
+        auth_repository,
+        authoring_archive_service,
+    )
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
         logger.warning(
@@ -118,6 +125,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.repository = repository
     app.state.workspace_repository = workspace_repository
     app.state.authoring_repository = authoring_repository
+    app.state.authoring_archive_service = authoring_archive_service
     app.state.matrix_repository = matrix_repository
     app.state.target_access_repository = target_access_repository
     app.state.quota_service = quota_service
@@ -131,6 +139,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(accounts_router)
     app.include_router(admin_router)
     app.include_router(authoring_router)
+    app.include_router(authoring_archive_router)
     app.include_router(characters_router)
     app.include_router(targets_router)
     app.include_router(trials_router)
