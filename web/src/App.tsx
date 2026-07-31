@@ -20,6 +20,7 @@ import { EvaluationLab } from "./EvaluationLab";
 import { useI18n } from "./i18n";
 import { MatrixWorkspace } from "./MatrixWorkspace";
 import { PackRunLauncher } from "./PackRunLauncher";
+import { PromptInspector } from "./PromptInspector";
 import { TestRoom } from "./TestRoom";
 import { WorkspaceHub } from "./WorkspaceHub";
 import "./styles.css";
@@ -38,6 +39,7 @@ export default function App() {
   const [activeCard, setActiveCard] = useState<CharacterCard | null>(null);
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<CharacterCard | null>(null);
+  const [promptCard, setPromptCard] = useState<CharacterCard | null>(null);
   const [adminOpen, setAdminOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -85,6 +87,7 @@ export default function App() {
       ]);
       setCards(nextCards); setTargets(nextTargets); setRuntime(nextRuntime);
       setActiveCard((current) => current ? nextCards.find((item) => item.id === current.id) ?? null : null);
+      setPromptCard((current) => current ? nextCards.find((item) => item.id === current.id) ?? null : null);
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("app.openShelfError"));
@@ -93,7 +96,7 @@ export default function App() {
 
   function clearWorkspaceState() {
     setCards([]); setTargets([]); setRuntime(null); setActiveCard(null); setCreatorOpen(false);
-    setEditingCard(null); setAdminOpen(false); setAccountOpen(false); setWorkspaceOpen(false);
+    setEditingCard(null); setPromptCard(null); setAdminOpen(false); setAccountOpen(false); setWorkspaceOpen(false);
     setMatrixOpen(false); setAuthoringOpen(false); setCalibrationOpen(false); setEvaluationOpen(false);
   }
 
@@ -139,5 +142,5 @@ export default function App() {
   }
 
   const editingTarget = editingCard ? targets.find((item) => item.id === editingCard.target_id) ?? null : null;
-  return withAccount(<><CharacterShelf cards={cards} error={error} onCreate={() => { setEditingCard(null); setCreatorOpen(true); }} onEdit={(card) => { setEditingCard(card); setCreatorOpen(true); }} onEnter={setActiveCard} onAdmin={openAdmin} onWorkspace={() => setWorkspaceOpen(true)} onMatrix={() => setMatrixOpen(true)} />{creatorOpen && <CharacterCreator targets={targets} card={editingCard} target={editingTarget} onClose={() => { setCreatorOpen(false); setEditingCard(null); }} onSaved={saved} />}</>);
+  return withAccount(<><CharacterShelf cards={cards} error={error} onCreate={() => { setEditingCard(null); setCreatorOpen(true); }} onEdit={(card) => { setEditingCard(card); setCreatorOpen(true); }} onPrompt={setPromptCard} onEnter={setActiveCard} onAdmin={openAdmin} onWorkspace={() => setWorkspaceOpen(true)} onMatrix={() => setMatrixOpen(true)} />{creatorOpen && <CharacterCreator targets={targets} card={editingCard} target={editingTarget} onClose={() => { setCreatorOpen(false); setEditingCard(null); }} onSaved={saved} />}{promptCard && <PromptInspector card={promptCard} onClose={() => setPromptCard(null)} />}</>);
 }
