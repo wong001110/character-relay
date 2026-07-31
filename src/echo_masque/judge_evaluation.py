@@ -5,13 +5,17 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Literal, cast
+
+from pydantic import TypeAdapter
 
 from echo_masque.calibration import CalibrationCaseView
 from echo_masque.domain import TestKind, TestLanguage, TrialScenario, TrialTurn
 from echo_masque.evaluation_analytics import (
+    ContractSource,
     EvaluationCaseMetadata,
     EvaluationMode,
+    EvaluationStatus,
+    EvaluationVerdict,
     JudgeEvaluationCreate,
     JudgeEvaluationView,
     JudgePredictionView,
@@ -27,7 +31,8 @@ from echo_masque.persistence import (
 from echo_masque.providers import ChatProvider, OpenAICompatibleProvider
 from echo_masque.services.runtime import RuntimeService
 
-ContractSource = Literal["run_snapshot", "current_character", "generic"]
+_EVALUATION_VERDICT = TypeAdapter(EvaluationVerdict)
+_STRING_LIST = TypeAdapter(list[str])
 
 
 class EvaluationConflict(RuntimeError):
@@ -67,15 +72,19 @@ class JudgeEvaluationService:
                 "Only an approved Calibration Dataset can be evaluated."
             )
         effective_modes = list(request.modes)
+        dependencies: tuple[EvaluationMode, ...] = ("rules", "semantic")
         if "hybrid" in effective_modes:
-            for dependency in ("rules", "semantic"):
+            for dependency in dependencies:
                 if dependency not in effective_modes:
-                    effective_modes.append(cast(EvaluationMode, dependency))
+                    effective_modes.append(dependency)
 
         semantic_judge = self._semantic_judge()
         predictions: list[JudgePredictionView] = []
         metadata: dict[str, EvaluationCaseMetadata] = {}
         for case in dataset.cases:
+            expected = _EVALUATION_VERDICT.validate_python(
+                case.expected_verdict
+            )
             metadata[case.id] = EvaluationCaseMetadata(
                 case_id=case.id,
                 failure_type=case.failure_type or "none",
@@ -87,11 +96,11 @@ class JudgeEvaluationService:
                 owner_id,
                 case,
             )
-            by_mode: dict[str, JudgePredictionView] = {}
+            by_mode: dict[EvaluationMode, JudgePredictionView] = {}
             if "rules" in effective_modes:
                 by_mode["rules"] = self._rules_prediction(
                     case.id,
-                    case.expected_verdict,
+                    expected,
                     scenario,
                     turn,
                     contract_source,
@@ -99,7 +108,7 @@ class JudgeEvaluationService:
             if "semantic" in effective_modes:
                 by_mode["semantic"] = await self._semantic_prediction(
                     case.id,
-                    case.expected_verdict,
+                    expected,
                     scenario,
                     turn,
                     context,
@@ -109,7 +118,7 @@ class JudgeEvaluationService:
             if "hybrid" in effective_modes:
                 by_mode["hybrid"] = self._hybrid_prediction(
                     case.id,
-                    case.expected_verdict,
+                    expected,
                     by_mode.get("rules"),
                     by_mode.get("semantic"),
                     contract_source,
@@ -118,7 +127,7 @@ class JudgeEvaluationService:
 
         metrics = evaluation_metrics(predictions, metadata)
         errors = sum(item.error is not None for item in predictions)
-        status = (
+        status: EvaluationStatus = (
             "completed"
             if errors == 0
             else "failed"
@@ -216,11 +225,11 @@ class JudgeEvaluationService:
                     expected_behavior = str(
                         raw.get("expected_behavior", expected_behavior)
                     )
-                    required = tuple(
-                        str(item) for item in raw.get("required_phrases", [])
+                    required = self._string_tuple(
+                        raw.get("required_phrases", [])
                     )
-                    forbidden = tuple(
-                        str(item) for item in raw.get("forbidden_phrases", [])
+                    forbidden = self._string_tuple(
+                        raw.get("forbidden_phrases", [])
                     )
         elif case.character_card_id:
             card = self.repository.get_character_card(
@@ -268,19 +277,27 @@ class JudgeEvaluationService:
         return scenario, turn, context, source
 
     @staticmethod
+    def _string_tuple(value: object) -> tuple[str, ...]:
+        try:
+            return tuple(_STRING_LIST.validate_python(value))
+        except ValueError:
+            return ()
+
+    @staticmethod
     def _rules_prediction(
         case_id: str,
-        expected: str,
+        expected: EvaluationVerdict,
         scenario: TrialScenario,
         turn: TrialTurn,
         contract_source: ContractSource,
     ) -> JudgePredictionView:
         verdict = RuleJudge().judge(scenario, (turn,))
+        predicted: EvaluationVerdict = "PASS" if verdict.passed else "FAIL"
         return _prediction(
             case_id=case_id,
             mode="rules",
             expected=expected,
-            predicted="PASS" if verdict.passed else "FAIL",
+            predicted=predicted,
             score=verdict.score,
             confidence=1.0,
             failure_types=(
@@ -295,7 +312,7 @@ class JudgeEvaluationService:
     @staticmethod
     async def _semantic_prediction(
         case_id: str,
-        expected: str,
+        expected: EvaluationVerdict,
         scenario: TrialScenario,
         turn: TrialTurn,
         context: str,
@@ -325,11 +342,12 @@ class JudgeEvaluationService:
                 error=str(exc),
             )
         verdict = result.verdict
+        predicted: EvaluationVerdict = "PASS" if verdict.passed else "FAIL"
         return _prediction(
             case_id=case_id,
             mode="semantic",
             expected=expected,
-            predicted="PASS" if verdict.passed else "FAIL",
+            predicted=predicted,
             score=verdict.score,
             confidence=result.metadata.confidence,
             failure_types=(
@@ -345,7 +363,7 @@ class JudgeEvaluationService:
     @staticmethod
     def _hybrid_prediction(
         case_id: str,
-        expected: str,
+        expected: EvaluationVerdict,
         rules: JudgePredictionView | None,
         semantic: JudgePredictionView | None,
         contract_source: ContractSource,
@@ -366,9 +384,10 @@ class JudgeEvaluationService:
                 contract_source=contract_source,
                 error=rules.error or semantic.error,
             )
-        predicted = (
+        predicted: EvaluationVerdict = (
             rules.predicted_verdict
             if rules.predicted_verdict == semantic.predicted_verdict
+            and rules.predicted_verdict is not None
             else "REVIEW"
         )
         scores = [
@@ -396,9 +415,9 @@ def _prediction(
     *,
     case_id: str,
     mode: EvaluationMode,
-    expected: str,
+    expected: EvaluationVerdict,
     contract_source: ContractSource,
-    predicted: str | None = None,
+    predicted: EvaluationVerdict | None = None,
     score: int | None = None,
     confidence: float | None = None,
     failure_types: list[str] | None = None,
