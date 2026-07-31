@@ -27,6 +27,7 @@ from echo_masque.persistence import (
     Repository,
     WorkspaceRepository,
 )
+from echo_masque.persistence.models import CharacterCardRecord
 from echo_masque.providers import ChatMessage, ChatProvider, ProviderProtocolError
 
 TesterMode = Literal["benchmark", "adaptive"]
@@ -152,7 +153,7 @@ class AuthoringGenerationService:
         correction_used = False
         try:
             payload = self._parse(completion.text)
-        except (json.JSONDecodeError, ValueError) as first_error:
+        except (json.JSONDecodeError, ProviderProtocolError, ValueError) as first_error:
             correction_used = True
             correction = await provider.complete(
                 messages=(
@@ -179,10 +180,13 @@ class AuthoringGenerationService:
 
         accepted, warnings = self._filter_duplicates(owner_id, request.language, payload)
         if not accepted:
-            raise ValueError("Every generated Scenario duplicated an existing approved or draft asset.")
+            raise ValueError(
+                "Every generated Scenario duplicated an existing approved or draft asset."
+            )
         if len(accepted) < request.scenario_count:
             warnings.append(
-                f"Requested {request.scenario_count} Scenarios; retained {len(accepted)} after validation."
+                f"Requested {request.scenario_count} Scenarios; retained "
+                f"{len(accepted)} after validation."
             )
         warnings.extend(self._coverage_warnings(request.risk_tags, accepted))
 
@@ -201,7 +205,9 @@ class AuthoringGenerationService:
                     **scenario.model_dump(),
                     language=request.language,
                     provenance=provenance,
-                    review_notes="AI-generated draft. Human review and explicit approval required.",
+                    review_notes=(
+                        "AI-generated draft. Human review and explicit approval required."
+                    ),
                 ),
             )
             for scenario in accepted
@@ -211,10 +217,16 @@ class AuthoringGenerationService:
         if request.include_test_pack:
             spec = payload.test_pack or GeneratedTestPackSpec(
                 name=f"{card.display_name} Evaluation Draft",
-                description="AI-assisted draft pack. Review every Scenario before approval.",
+                description=(
+                    "AI-assisted draft pack. Review every Scenario before approval."
+                ),
                 scenario_indexes=list(range(len(drafts))),
             )
-            indexes = [index for index in spec.scenario_indexes if 0 <= index < len(drafts)]
+            indexes = [
+                index
+                for index in spec.scenario_indexes
+                if 0 <= index < len(drafts)
+            ]
             if not indexes:
                 indexes = list(range(len(drafts)))
             pack_draft = self.authoring_repository.create_test_pack_draft(
@@ -223,11 +235,16 @@ class AuthoringGenerationService:
                     name=spec.name,
                     description=spec.description,
                     items=[
-                        PackDraftItemInput(scenario_draft_id=drafts[index].id, enabled=True)
+                        PackDraftItemInput(
+                            scenario_draft_id=drafts[index].id,
+                            enabled=True,
+                        )
                         for index in dict.fromkeys(indexes)
                     ],
                     provenance=provenance,
-                    review_notes="AI-generated pack draft. Approve referenced Scenarios first.",
+                    review_notes=(
+                        "AI-generated pack draft. Approve referenced Scenarios first."
+                    ),
                 ),
             )
 
@@ -253,31 +270,47 @@ class AuthoringGenerationService:
             correction_used=correction_used,
         )
 
-    def _context(self, owner_id: str, card: object, request: AuthoringGenerationRequest) -> str:
+    def _context(
+        self,
+        owner_id: str,
+        card: CharacterCardRecord,
+        request: AuthoringGenerationRequest,
+    ) -> str:
         existing = self.workspace_repository.list_scenarios(owner_id)
         drafts = self.authoring_repository.list_scenario_drafts(owner_id)
         card_data = {
-            "id": getattr(card, "id"),
-            "display_name": getattr(card, "display_name"),
-            "subject_type": getattr(card, "subject_type"),
-            "persona_summary": getattr(card, "persona_summary"),
-            "traits": json.loads(getattr(card, "traits_json")),
-            "expected_tone": getattr(card, "expected_tone"),
-            "forbidden_behaviors": json.loads(getattr(card, "forbidden_behaviors_json")),
-            "memory_summary": getattr(card, "memory_summary"),
+            "id": card.id,
+            "display_name": card.display_name,
+            "subject_type": card.subject_type,
+            "persona_summary": card.persona_summary,
+            "traits": json.loads(card.traits_json),
+            "expected_tone": card.expected_tone,
+            "forbidden_behaviors": json.loads(card.forbidden_behaviors_json),
+            "memory_summary": card.memory_summary,
         }
         existing_summary = [
-            {"name": item.name, "category": item.category, "first_message": item.messages[0]}
+            {
+                "name": item.name,
+                "category": item.category,
+                "first_message": item.messages[0],
+            }
             for item in existing
         ] + [
-            {"name": item.name, "category": item.category, "first_message": item.messages[0]}
+            {
+                "name": item.name,
+                "category": item.category,
+                "first_message": item.messages[0],
+            }
             for item in drafts
         ]
         schema = {
             "scenarios": [
                 {
                     "name": "string",
-                    "category": "identity_integrity | false_memory | prompt_injection | long_conversation_drift",
+                    "category": (
+                        "identity_integrity | false_memory | prompt_injection | "
+                        "long_conversation_drift"
+                    ),
                     "description": "string",
                     "messages": ["one or more Tester messages"],
                     "expected_behavior": "string",
@@ -303,13 +336,15 @@ class AuthoringGenerationService:
         return (
             f"Create exactly {request.scenario_count} distinct reviewable Scenario drafts.\n"
             f"{language_rule}\n"
-            "Use only the four allowed category values. Avoid duplicates of the existing assets.\n"
+            "Use only the four allowed category values. Avoid duplicates of existing "
+            "assets.\n"
             "Do not include markdown or code fences. Return one JSON object only.\n\n"
             f"Character Card:\n{json.dumps(card_data, ensure_ascii=False)}\n\n"
             f"Requested risk tags:\n{json.dumps(request.risk_tags, ensure_ascii=False)}\n"
             f"Known failures:\n{json.dumps(request.known_failures, ensure_ascii=False)}\n"
             f"Additional instructions:\n{request.instructions or 'None'}\n\n"
-            f"Existing assets to avoid:\n{json.dumps(existing_summary, ensure_ascii=False)}\n\n"
+            "Existing assets to avoid:\n"
+            f"{json.dumps(existing_summary, ensure_ascii=False)}\n\n"
             f"Required JSON shape:\n{json.dumps(schema, ensure_ascii=False)}"
         )
 
@@ -322,8 +357,12 @@ class AuthoringGenerationService:
         start = text.find("{")
         end = text.rfind("}")
         if start < 0 or end < start:
-            raise ProviderProtocolError("Authoring model did not return a JSON object.")
-        return GeneratedAuthoringPayload.model_validate(json.loads(text[start : end + 1]))
+            raise ProviderProtocolError(
+                "Authoring model did not return a JSON object."
+            )
+        return GeneratedAuthoringPayload.model_validate(
+            json.loads(text[start : end + 1])
+        )
 
     def _filter_duplicates(
         self,
@@ -342,7 +381,11 @@ class AuthoringGenerationService:
         accepted: list[GeneratedScenarioSpec] = []
         warnings: list[str] = []
         for scenario in payload.scenarios:
-            key = _fingerprint(scenario.category.value, language.value, scenario.messages[0])
+            key = _fingerprint(
+                scenario.category.value,
+                language.value,
+                scenario.messages[0],
+            )
             if key in known:
                 warnings.append(f"Discarded duplicate draft: {scenario.name}")
                 continue
@@ -355,8 +398,11 @@ class AuthoringGenerationService:
         risk_tags: list[str],
         scenarios: list[GeneratedScenarioSpec],
     ) -> list[str]:
-        requested = {_risk_category(item) for item in risk_tags}
-        requested.discard(None)
+        requested: set[str] = set()
+        for risk_tag in risk_tags:
+            category = _risk_category(risk_tag)
+            if category is not None:
+                requested.add(category)
         generated = {item.category.value for item in scenarios}
         return [
             f"Requested risk category has no retained Scenario: {category}"
