@@ -15,8 +15,8 @@ from echo_masque.persistence.calibration_models import (
     CalibrationCaseRecord,
     CalibrationDatasetRecord,
 )
+from echo_masque.persistence.calibration_repository import CalibrationConflict
 from echo_masque.persistence.calibration_repository import (
-    CalibrationConflict,
     CalibrationRepository as BaseCalibrationRepository,
 )
 from echo_masque.persistence.database import Database
