@@ -17,7 +17,7 @@ from echo_masque.persistence.calibration_models import (
 )
 from echo_masque.persistence.calibration_repository import (
     CalibrationConflict,
-    CalibrationRepository,
+    CalibrationRepository as BaseCalibrationRepository,
 )
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.matrix_repository import MatrixRepository
@@ -39,6 +39,8 @@ from echo_masque.persistence.trial_request import (
 )
 from echo_masque.persistence.workspace_repository import WorkspaceRepository
 
+CalibrationRepository = PortableCalibrationRepository
+
 __all__ = [
     "AuthRepository",
     "AuthoringConflict",
@@ -47,6 +49,7 @@ __all__ = [
     "AuthoringScenarioDraftRecord",
     "AuthoringTestPackDraftItemRecord",
     "AuthoringTestPackDraftRecord",
+    "BaseCalibrationRepository",
     "CalibrationCaseRecord",
     "CalibrationConflict",
     "CalibrationDatasetRecord",
