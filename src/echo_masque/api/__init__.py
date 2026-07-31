@@ -18,6 +18,7 @@ from echo_masque.api.routes import (
     calibration_router,
     characters_router,
     comparisons_router,
+    evaluations_router,
     health_router,
     matrices_router,
     reports_router,
@@ -31,14 +32,16 @@ from echo_masque.auth import AuthService
 from echo_masque.authoring_archive import AuthoringArchiveService
 from echo_masque.authoring_generation import AuthoringGenerationService
 from echo_masque.authoring_runtime import AuthoringRuntimeService
-from echo_masque.calibration_lifecycle import CalibrationAwareAccountLifecycleService
 from echo_masque.config import Settings, get_settings
 from echo_masque.credentials import CredentialVault
+from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
+from echo_masque.judge_evaluation import JudgeEvaluationService
 from echo_masque.persistence import (
     AuthoringRepository,
     AuthRepository,
     CalibrationRepository,
     Database,
+    EvaluationRepository,
     MatrixRepository,
     Repository,
     TargetAccessRepository,
@@ -80,14 +83,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repository,
         workspace_repository,
     )
+    evaluation_repository = EvaluationRepository(database)
     matrix_repository = MatrixRepository(database)
     target_access_repository = TargetAccessRepository(database)
     quota_service = QuotaService(database, resolved)
-    account_lifecycle_service = CalibrationAwareAccountLifecycleService(
+    account_lifecycle_service = EvaluationAwareAccountLifecycleService(
         database,
         auth_repository,
         authoring_archive_service,
         calibration_repository,
+        evaluation_repository,
     )
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
@@ -111,6 +116,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         authoring_repository,
         auth_repository,
         authoring_runtime_service,
+    )
+    judge_evaluation_service = JudgeEvaluationService(
+        calibration_repository,
+        evaluation_repository,
+        repository,
+        workspace_repository,
+        runtime_service,
     )
     trial_service = TrialService(
         repository,
@@ -153,6 +165,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.authoring_runtime_service = authoring_runtime_service
     app.state.authoring_generation_service = authoring_generation_service
     app.state.calibration_repository = calibration_repository
+    app.state.evaluation_repository = evaluation_repository
+    app.state.judge_evaluation_service = judge_evaluation_service
     app.state.matrix_repository = matrix_repository
     app.state.target_access_repository = target_access_repository
     app.state.quota_service = quota_service
@@ -169,6 +183,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(authoring_archive_router)
     app.include_router(authoring_generation_router)
     app.include_router(calibration_router)
+    app.include_router(evaluations_router)
     app.include_router(characters_router)
     app.include_router(targets_router)
     app.include_router(trials_router)
