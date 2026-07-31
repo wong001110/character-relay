@@ -1,5 +1,7 @@
 """Account lifecycle integration for Phase 16 authoring resources."""
 
+from typing import cast
+
 from echo_masque.account_lifecycle import (
     AccountLifecycleService,
     LifecycleConflict,
@@ -47,6 +49,6 @@ class AuthoringAwareAccountLifecycleService(AccountLifecycleService):
                 action="workspace.authoring_local_claimed",
                 resource_type="workspace",
                 resource_id=actor_user_id,
-                metadata=authoring_counts,
+                metadata=cast(dict[str, object], authoring_counts),
             )
         return combined
