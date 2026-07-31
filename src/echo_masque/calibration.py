@@ -5,12 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 CalibrationDatasetStatus = Literal["draft", "approved", "archived"]
-CalibrationVerdict = Literal["PASS", "FAIL", "REVIEW"]
-CalibrationSource = Literal["manual", "run"]
-CalibrationLanguage = Literal["en", "zh-CN"]
+CalibrationVerdict = str
+CalibrationSource = str
+CalibrationLanguage = str
 CoverageDimension = Literal[
     "identity",
     "memory",
@@ -56,6 +56,20 @@ class CalibrationCaseFields(BaseModel):
     )
     notes: str = Field(default="", max_length=8000)
 
+    @field_validator("language")
+    @classmethod
+    def valid_language(cls, value: str) -> str:
+        if value not in {"en", "zh-CN"}:
+            raise ValueError("Calibration language must be en or zh-CN.")
+        return value
+
+    @field_validator("expected_verdict")
+    @classmethod
+    def valid_verdict(cls, value: str) -> str:
+        if value not in {"PASS", "FAIL", "REVIEW"}:
+            raise ValueError("Expected verdict must be PASS, FAIL, or REVIEW.")
+        return value
+
     @model_validator(mode="after")
     def validate_grounding(self) -> CalibrationCaseFields:
         self.failure_type = self.failure_type.strip()
@@ -96,6 +110,13 @@ class CalibrationRunImport(BaseModel):
     )
     notes: str = Field(default="", max_length=8000)
 
+    @field_validator("expected_verdict")
+    @classmethod
+    def valid_verdict(cls, value: str) -> str:
+        if value not in {"PASS", "FAIL", "REVIEW"}:
+            raise ValueError("Expected verdict must be PASS, FAIL, or REVIEW.")
+        return value
+
 
 class CalibrationCaseView(CalibrationCaseFields):
     id: str
@@ -106,6 +127,13 @@ class CalibrationCaseView(CalibrationCaseFields):
     run_id: str | None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("source")
+    @classmethod
+    def valid_source(cls, value: str) -> str:
+        if value not in {"manual", "run"}:
+            raise ValueError("Calibration source must be manual or run.")
+        return value
 
 
 class CalibrationDatasetView(CalibrationDatasetFields):
