@@ -1,0 +1,252 @@
+.coverage-page {
+  width: min(1320px, calc(100% - 36px));
+  margin: 0 auto;
+  padding: 28px 0 64px;
+}
+
+.coverage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.coverage-header h1 {
+  margin-bottom: 8px;
+  font-size: clamp(2.4rem, 5vw, 4.8rem);
+  line-height: 0.95;
+}
+
+.coverage-header p {
+  max-width: 760px;
+  color: var(--muted);
+}
+
+.coverage-message,
+.coverage-empty {
+  margin-bottom: 20px;
+  padding: 18px 22px;
+}
+
+.coverage-controls,
+.rubric-controls {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(240px, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+  margin-bottom: 28px;
+  padding: 22px;
+}
+
+.coverage-controls label,
+.rubric-controls label,
+.coverage-authoring label {
+  display: grid;
+  gap: 7px;
+  color: #67556f;
+  font-weight: 750;
+}
+
+.coverage-controls select,
+.rubric-controls select,
+.coverage-authoring select {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid #cdbfd7;
+  border-radius: 14px;
+  background: #fcfaf7;
+  color: #483b50;
+}
+
+.coverage-section {
+  margin-bottom: 32px;
+}
+
+.coverage-section > h2 {
+  margin-bottom: 16px;
+  font-size: clamp(1.8rem, 3vw, 2.8rem);
+}
+
+.coverage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.coverage-card {
+  min-height: 190px;
+  padding: 20px;
+  overflow: hidden;
+}
+
+.coverage-card::after {
+  content: "";
+  position: absolute;
+  right: -24px;
+  bottom: -34px;
+  width: 100px;
+  height: 100px;
+  border: 2px dashed rgba(128, 96, 140, 0.15);
+  border-radius: 50%;
+}
+
+.coverage-card h3 {
+  margin: 13px 0 8px;
+  text-transform: capitalize;
+}
+
+.coverage-card p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.coverage-status {
+  display: inline-flex;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.status-covered .coverage-status {
+  background: #dceee4;
+  color: #3f7357;
+}
+
+.status-weak .coverage-status {
+  background: #f5e9c8;
+  color: #81692f;
+}
+
+.status-missing .coverage-status {
+  background: #f4dce3;
+  color: #8e4f64;
+}
+
+.coverage-suggestions {
+  margin-top: 18px;
+  padding: 24px;
+}
+
+.coverage-suggestion {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.35fr) 1fr;
+  gap: 5px 18px;
+  padding: 13px 0;
+  border-bottom: 1px dashed rgba(105, 79, 109, 0.2);
+}
+
+.coverage-suggestion strong {
+  grid-row: 1 / span 2;
+  text-transform: capitalize;
+}
+
+.coverage-suggestion span,
+.coverage-suggestion small {
+  color: var(--muted);
+}
+
+.coverage-authoring {
+  display: grid;
+  grid-template-columns: 1fr 180px auto;
+  gap: 12px;
+  align-items: end;
+  margin-top: 22px;
+}
+
+.rubric-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.rubric-metrics article {
+  padding: 20px;
+}
+
+.rubric-metrics span,
+.rubric-metrics strong {
+  display: block;
+}
+
+.rubric-metrics span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.rubric-metrics strong {
+  margin-top: 8px;
+  font-family: Georgia, serif;
+  font-size: 1.9rem;
+}
+
+.rubric-table-wrap {
+  margin-top: 16px;
+  padding: 22px;
+  overflow-x: auto;
+}
+
+.rubric-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.rubric-table-wrap th,
+.rubric-table-wrap td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(104, 78, 108, 0.12);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.rubric-table-wrap th {
+  color: #745f7c;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+@media (max-width: 880px) {
+  .coverage-header,
+  .coverage-controls,
+  .rubric-controls,
+  .coverage-authoring {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .coverage-header {
+    flex-direction: column;
+  }
+
+  .coverage-grid,
+  .rubric-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .coverage-page {
+    width: min(100% - 20px, 1320px);
+  }
+
+  .coverage-grid,
+  .rubric-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .coverage-suggestion {
+    grid-template-columns: 1fr;
+  }
+
+  .coverage-suggestion strong {
+    grid-row: auto;
+  }
+}

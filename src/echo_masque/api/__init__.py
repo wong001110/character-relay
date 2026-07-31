@@ -18,6 +18,7 @@ from echo_masque.api.routes import (
     calibration_router,
     characters_router,
     comparisons_router,
+    coverage_router,
     evaluations_router,
     health_router,
     matrices_router,
@@ -34,6 +35,7 @@ from echo_masque.authoring_archive import AuthoringArchiveService
 from echo_masque.authoring_generation import AuthoringGenerationService
 from echo_masque.authoring_runtime import AuthoringRuntimeService
 from echo_masque.config import Settings, get_settings
+from echo_masque.coverage_analytics import CoverageAnalyticsService
 from echo_masque.credentials import CredentialVault
 from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
 from echo_masque.judge_evaluation import JudgeEvaluationService
@@ -86,6 +88,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         workspace_repository,
     )
     evaluation_repository = EvaluationRepository(database)
+    coverage_analytics_service = CoverageAnalyticsService(
+        calibration_repository,
+        evaluation_repository,
+    )
     matrix_repository = MatrixRepository(database)
     character_prompt_inspector = CharacterPromptInspector(
         repository,
@@ -172,6 +178,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.authoring_generation_service = authoring_generation_service
     app.state.calibration_repository = calibration_repository
     app.state.evaluation_repository = evaluation_repository
+    app.state.coverage_analytics_service = coverage_analytics_service
     app.state.judge_evaluation_service = judge_evaluation_service
     app.state.matrix_repository = matrix_repository
     app.state.character_prompt_inspector = character_prompt_inspector
@@ -191,6 +198,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(authoring_generation_router)
     app.include_router(calibration_router)
     app.include_router(evaluations_router)
+    app.include_router(coverage_router)
     app.include_router(characters_router)
     app.include_router(prompt_inspector_router)
     app.include_router(targets_router)
