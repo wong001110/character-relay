@@ -6,13 +6,23 @@ from typing import cast
 
 from fastapi import APIRouter, HTTPException, Request, status
 
-from echo_masque.api.dependencies import CurrentUserDependency
+from echo_masque.api.dependencies import (
+    CurrentUserDependency,
+    quota_http_exception,
+    quota_service,
+)
 from echo_masque.evaluation_analytics import (
+    EvaluationMode,
     JudgeEvaluationCreate,
     JudgeEvaluationView,
 )
 from echo_masque.judge_evaluation import EvaluationConflict, JudgeEvaluationService
-from echo_masque.persistence import AuthRepository, EvaluationRepository
+from echo_masque.persistence import (
+    AuthRepository,
+    CalibrationRepository,
+    EvaluationRepository,
+)
+from echo_masque.security_controls import QuotaExceeded
 
 router = APIRouter(prefix="/api/evaluations", tags=["evaluations"])
 
@@ -23,6 +33,10 @@ def evaluation_service(request: Request) -> JudgeEvaluationService:
 
 def evaluation_repository(request: Request) -> EvaluationRepository:
     return cast(EvaluationRepository, request.app.state.evaluation_repository)
+
+
+def calibration_repository(request: Request) -> CalibrationRepository:
+    return cast(CalibrationRepository, request.app.state.calibration_repository)
 
 
 def auth_repository(request: Request) -> AuthRepository:
@@ -59,8 +73,20 @@ async def create_evaluation(
     request: Request,
     user: CurrentUserDependency,
 ) -> JudgeEvaluationView:
+    dataset = calibration_repository(request).get_dataset(payload.dataset_id, user.id)
+    if dataset is None:
+        raise HTTPException(status_code=404, detail="Calibration Dataset not found.")
+    modes: set[EvaluationMode] = set(payload.modes)
+    if "hybrid" in modes:
+        modes.update(("rules", "semantic"))
     try:
+        quota_service(request).consume_evaluation_cases(
+            user.id,
+            len(dataset.cases) * len(modes),
+        )
         item = await evaluation_service(request).evaluate(user.id, payload)
+    except QuotaExceeded as exc:
+        raise quota_http_exception(exc) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except EvaluationConflict as exc:

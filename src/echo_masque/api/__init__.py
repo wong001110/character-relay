@@ -25,6 +25,7 @@ from echo_masque.api.routes import (
     prompt_inspector_router,
     reports_router,
     targets_router,
+    templates_router,
     transcripts_router,
     trials_router,
     workspace_router,
@@ -54,6 +55,7 @@ from echo_masque.persistence import (
 from echo_masque.prompt_inspector import CharacterPromptInspector
 from echo_masque.security_controls import QuotaService
 from echo_masque.services import MatrixService, RuntimeService, TrialService
+from echo_masque.template_sharing import EvaluationTemplateService
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +84,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     workspace_repository = WorkspaceRepository(database)
     authoring_repository = AuthoringRepository(database, workspace_repository)
     authoring_archive_service = AuthoringArchiveService(database, authoring_repository)
+    evaluation_template_service = EvaluationTemplateService(
+        workspace_repository,
+        authoring_repository,
+    )
     calibration_repository = CalibrationRepository(
         database,
         repository,
@@ -174,6 +180,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.workspace_repository = workspace_repository
     app.state.authoring_repository = authoring_repository
     app.state.authoring_archive_service = authoring_archive_service
+    app.state.evaluation_template_service = evaluation_template_service
     app.state.authoring_runtime_service = authoring_runtime_service
     app.state.authoring_generation_service = authoring_generation_service
     app.state.calibration_repository = calibration_repository
@@ -199,6 +206,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(calibration_router)
     app.include_router(evaluations_router)
     app.include_router(coverage_router)
+    app.include_router(templates_router)
     app.include_router(characters_router)
     app.include_router(prompt_inspector_router)
     app.include_router(targets_router)

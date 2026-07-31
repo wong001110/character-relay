@@ -56,6 +56,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 "src/echo_masque/services/trials.py" = ["B009"]
 "src/echo_masque/suites/catalog.py" = ["RUF001"]
 "src/echo_masque/targets/deterministic.py" = ["RUF001"]
+"src/echo_masque/template_sharing.py" = ["E501", "RUF001"]
 "src/echo_masque/testers/adaptive.py" = ["RUF001"]
 "src/echo_masque/transcripts/importer.py" = ["RUF001"]
 "src/echo_masque/trials/runner.py" = ["RUF001"]
@@ -73,3 +74,7 @@ mypy_path = "src"
 [[tool.mypy.overrides]]
 module = "echo_masque.persistence.workspace_repository"
 disable_error_code = ["attr-defined"]
+
+[[tool.mypy.overrides]]
+module = "echo_masque.template_sharing"
+disable_error_code = ["arg-type"]

@@ -43,6 +43,39 @@ class QuotaService:
             message="Request rate limit exceeded.",
         )
 
+    def consume_authoring_generation(self, user_id: str) -> None:
+        self._consume(
+            key=f"authoring-generation:{user_id}",
+            limit=self.settings.max_authoring_generations_per_day,
+            window_seconds=24 * 60 * 60,
+            message="Daily AI authoring generation quota exceeded.",
+        )
+
+    def consume_evaluation_cases(self, user_id: str, case_count: int) -> None:
+        if case_count <= 0:
+            return
+        self._consume(
+            key=f"evaluation-cases:{user_id}",
+            limit=self.settings.max_evaluation_cases_per_day,
+            window_seconds=24 * 60 * 60,
+            message="Daily Judge evaluation Case quota exceeded.",
+            amount=case_count,
+        )
+
+    def consume_template_instantiation(self, user_id: str) -> None:
+        self._consume(
+            key=f"template-instantiation:{user_id}",
+            limit=self.settings.max_template_instantiations_per_day,
+            window_seconds=24 * 60 * 60,
+            message="Daily evaluation template quota exceeded.",
+        )
+
+    def enforce_share_bundle(self, asset_count: int) -> None:
+        if asset_count <= 0:
+            raise QuotaExceeded("A Share Bundle requires at least one asset.")
+        if asset_count > self.settings.max_shared_assets_per_bundle:
+            raise QuotaExceeded("Share Bundle asset limit exceeded.")
+
     def check_login(self, identity_hash: str) -> None:
         key = f"login:{identity_hash}"
         now = datetime.now(UTC)
@@ -237,29 +270,34 @@ class QuotaService:
         limit: int,
         window_seconds: int,
         message: str,
+        amount: int = 1,
     ) -> None:
-        if limit <= 0:
+        if limit <= 0 or amount <= 0:
             return
         now = datetime.now(UTC)
         window = timedelta(seconds=window_seconds)
         with self.database.session() as session:
             record = session.get(RateLimitBucketRecord, key)
             if record is None:
+                if amount > limit:
+                    raise QuotaExceeded(message, retry_after=window_seconds)
                 record = RateLimitBucketRecord(
                     key=key,
                     window_started_at=now,
-                    count=1,
+                    count=amount,
                 )
                 session.add(record)
                 session.commit()
                 return
             if now - self._utc(record.window_started_at) >= window:
+                if amount > limit:
+                    raise QuotaExceeded(message, retry_after=window_seconds)
                 record.window_started_at = now
-                record.count = 1
+                record.count = amount
                 record.blocked_until = None
                 session.commit()
                 return
-            record.count += 1
+            record.count += amount
             if record.count > limit:
                 session.commit()
                 retry_after = max(

@@ -6,7 +6,12 @@ from typing import cast
 
 from fastapi import APIRouter, HTTPException, Request, status
 
-from echo_masque.api.dependencies import AdminUserDependency, CurrentUserDependency
+from echo_masque.api.dependencies import (
+    AdminUserDependency,
+    CurrentUserDependency,
+    quota_http_exception,
+    quota_service,
+)
 from echo_masque.authoring_generation import (
     AuthoringGenerationRequest,
     AuthoringGenerationResult,
@@ -22,6 +27,7 @@ from echo_masque.authoring_runtime import (
 )
 from echo_masque.credentials import CredentialVaultUnavailable
 from echo_masque.providers import ProviderError
+from echo_masque.security_controls import QuotaExceeded
 
 router = APIRouter(tags=["authoring"])
 
@@ -105,7 +111,10 @@ async def generate_authoring_drafts(
     user: CurrentUserDependency,
 ) -> AuthoringGenerationResult:
     try:
+        quota_service(request).consume_authoring_generation(user.id)
         return await generation_service(request).generate(user.id, payload)
+    except QuotaExceeded as exc:
+        raise quota_http_exception(exc) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except AuthoringRuntimeUnavailable as exc:
