@@ -6,7 +6,6 @@ import json
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, select, update
-from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from echo_masque.authoring import (
@@ -65,33 +64,43 @@ class AuthoringArchiveService:
             if mode == "replace":
                 self._delete_owner_in_session(session, owner_id)
 
-            for draft in archive.scenario_drafts:
-                existing = session.get(AuthoringScenarioDraftRecord, draft.id)
-                if existing is not None:
-                    if existing.owner_id != owner_id:
+            for scenario_draft in archive.scenario_drafts:
+                existing_scenario = session.get(
+                    AuthoringScenarioDraftRecord,
+                    scenario_draft.id,
+                )
+                if existing_scenario is not None:
+                    if existing_scenario.owner_id != owner_id:
                         raise AuthoringConflict(
                             "Scenario Draft import conflicts with another user's resource."
                         )
                     skipped["scenario_drafts"] += 1
                     continue
-                self._validate_scenario_approval(session, owner_id, draft)
-                session.add(self._scenario_record(owner_id, draft))
+                self._validate_scenario_approval(
+                    session,
+                    owner_id,
+                    scenario_draft,
+                )
+                session.add(self._scenario_record(owner_id, scenario_draft))
                 imported["scenario_drafts"] += 1
             session.flush()
 
-            for draft in archive.test_pack_drafts:
-                existing = session.get(AuthoringTestPackDraftRecord, draft.id)
-                if existing is not None:
-                    if existing.owner_id != owner_id:
+            for pack_draft in archive.test_pack_drafts:
+                existing_pack = session.get(
+                    AuthoringTestPackDraftRecord,
+                    pack_draft.id,
+                )
+                if existing_pack is not None:
+                    if existing_pack.owner_id != owner_id:
                         raise AuthoringConflict(
                             "Test Pack Draft import conflicts with another user's resource."
                         )
                     skipped["test_pack_drafts"] += 1
                     continue
-                self._validate_pack_approval(session, owner_id, draft)
-                session.add(self._pack_record(owner_id, draft))
+                self._validate_pack_approval(session, owner_id, pack_draft)
+                session.add(self._pack_record(owner_id, pack_draft))
                 session.flush()
-                for position, item in enumerate(draft.items):
+                for position, item in enumerate(pack_draft.items):
                     self._validate_pack_item(
                         session,
                         owner_id,
@@ -100,7 +109,7 @@ class AuthoringArchiveService:
                     )
                     session.add(
                         AuthoringTestPackDraftItemRecord(
-                            pack_draft_id=draft.id,
+                            pack_draft_id=pack_draft.id,
                             scenario_id=item.scenario_id,
                             scenario_draft_id=item.scenario_draft_id,
                             position=position,
@@ -298,5 +307,5 @@ class AuthoringArchiveService:
         }
 
     @staticmethod
-    def _rowcount(result: CursorResult[tuple[object, ...]]) -> int:
-        return max(0, int(result.rowcount or 0))
+    def _rowcount(result: object) -> int:
+        return int(getattr(result, "rowcount", 0) or 0)
