@@ -92,7 +92,12 @@ class AuthoringArchiveService:
                 session.add(self._pack_record(owner_id, draft))
                 session.flush()
                 for position, item in enumerate(draft.items):
-                    self._validate_pack_item(session, owner_id, item.scenario_id, item.scenario_draft_id)
+                    self._validate_pack_item(
+                        session,
+                        owner_id,
+                        item.scenario_id,
+                        item.scenario_draft_id,
+                    )
                     session.add(
                         AuthoringTestPackDraftItemRecord(
                             pack_draft_id=draft.id,
