@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 CalibrationDatasetStatus = Literal["draft", "approved", "archived"]
 CalibrationVerdict = Literal["PASS", "FAIL", "REVIEW"]
 CalibrationSource = Literal["manual", "run"]
+CalibrationLanguage = Literal["en", "zh-CN"]
 CoverageDimension = Literal[
     "identity",
     "memory",
@@ -42,7 +43,7 @@ class CalibrationCaseFields(BaseModel):
     character_card_id: str | None = Field(default=None, max_length=64)
     scenario_name: str = Field(min_length=1, max_length=160)
     scenario_category: str = Field(min_length=1, max_length=80)
-    language: Literal["en", "zh-CN"]
+    language: CalibrationLanguage
     turn_index: int | None = Field(default=None, ge=0)
     tester_message: str = Field(default="", max_length=12000)
     subject_response: str = Field(min_length=1, max_length=30000)
