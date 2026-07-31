@@ -148,3 +148,25 @@ class ScenarioDraftApproval(BaseModel):
 class TestPackDraftApproval(BaseModel):
     draft: TestPackDraftView
     test_pack: TestPackView
+
+
+class AuthoringArchive(BaseModel):
+    """Secret-free portable archive for Phase 16 authoring drafts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1"] = "1"
+    exported_at: datetime
+    owner_id: str
+    scenario_drafts: list[ScenarioDraftView] = Field(default_factory=list)
+    test_pack_drafts: list[TestPackDraftView] = Field(default_factory=list)
+
+
+class AuthoringImportRequest(BaseModel):
+    archive: AuthoringArchive
+    mode: Literal["merge", "replace"] = "merge"
+
+
+class AuthoringImportResult(BaseModel):
+    imported: dict[str, int]
+    skipped: dict[str, int]
