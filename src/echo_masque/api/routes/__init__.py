@@ -8,6 +8,7 @@ from echo_masque.api.routes.authoring_archive import router as authoring_archive
 from echo_masque.api.routes.authoring_generation import (
     router as authoring_generation_router,
 )
+from echo_masque.api.routes.calibration import router as calibration_router
 from echo_masque.api.routes.characters import router as characters_router
 from echo_masque.api.routes.comparisons import router as comparisons_router
 from echo_masque.api.routes.health import router as health_router
@@ -25,6 +26,7 @@ __all__ = [
     "authoring_archive_router",
     "authoring_generation_router",
     "authoring_router",
+    "calibration_router",
     "characters_router",
     "comparisons_router",
     "health_router",
