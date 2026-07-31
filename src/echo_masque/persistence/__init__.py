@@ -11,6 +11,14 @@ from echo_masque.persistence.authoring_repository import (
     AuthoringConflict,
     AuthoringRepository,
 )
+from echo_masque.persistence.calibration_models import (
+    CalibrationCaseRecord,
+    CalibrationDatasetRecord,
+)
+from echo_masque.persistence.calibration_repository import (
+    CalibrationConflict,
+    CalibrationRepository,
+)
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.matrix_repository import MatrixRepository
 from echo_masque.persistence.repository import Repository
@@ -36,6 +44,10 @@ __all__ = [
     "AuthoringScenarioDraftRecord",
     "AuthoringTestPackDraftItemRecord",
     "AuthoringTestPackDraftRecord",
+    "CalibrationCaseRecord",
+    "CalibrationConflict",
+    "CalibrationDatasetRecord",
+    "CalibrationRepository",
     "Database",
     "MatrixRepository",
     "Repository",
