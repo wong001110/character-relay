@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Literal, cast
 
+from echo_masque.calibration import CalibrationCaseView
 from echo_masque.domain import TestKind, TestLanguage, TrialScenario, TrialTurn
 from echo_masque.evaluation_analytics import (
     EvaluationCaseMetadata,
@@ -24,6 +26,8 @@ from echo_masque.persistence import (
 )
 from echo_masque.providers import ChatProvider, OpenAICompatibleProvider
 from echo_masque.services.runtime import RuntimeService
+
+ContractSource = Literal["run_snapshot", "current_character", "generic"]
 
 
 class EvaluationConflict(RuntimeError):
@@ -66,7 +70,7 @@ class JudgeEvaluationService:
         if "hybrid" in effective_modes:
             for dependency in ("rules", "semantic"):
                 if dependency not in effective_modes:
-                    effective_modes.append(dependency)
+                    effective_modes.append(cast(EvaluationMode, dependency))
 
         semantic_judge = self._semantic_judge()
         predictions: list[JudgePredictionView] = []
@@ -121,14 +125,13 @@ class JudgeEvaluationService:
             if errors == len(predictions)
             else "partial"
         )
-        judge_config = self._judge_config_snapshot()
         return self.evaluation_repository.save(
             owner_id=owner_id,
             dataset_id=dataset.id,
             dataset_version=dataset.version,
             dataset_name=dataset.name,
             modes=effective_modes,
-            judge_config=judge_config,
+            judge_config=self._judge_config_snapshot(),
             metrics=metrics,
             status=status,
             predictions=predictions,
@@ -177,25 +180,24 @@ class JudgeEvaluationService:
     def _case_context(
         self,
         owner_id: str,
-        case: object,
-    ) -> tuple[TrialScenario, TrialTurn, str, str]:
-        case_id = str(getattr(case, "id"))
-        scenario_id = str(getattr(case, "scenario_id") or case_id)
-        scenario_name = str(getattr(case, "scenario_name"))
-        category = str(getattr(case, "scenario_category"))
-        language = str(getattr(case, "language"))
-        tester_message = str(getattr(case, "tester_message"))
-        subject_response = str(getattr(case, "subject_response"))
-        turn_index = int(getattr(case, "turn_index") or 1)
-        expected_behavior = str(getattr(case, "notes") or "Evaluate the frozen response.")
+        case: CalibrationCaseView,
+    ) -> tuple[TrialScenario, TrialTurn, str, ContractSource]:
+        scenario_id = case.scenario_id or case.id
+        scenario_name = case.scenario_name
+        category = case.scenario_category
+        language = case.language
+        tester_message = case.tester_message
+        expected_behavior = case.notes or "Evaluate the frozen response."
         required: tuple[str, ...] = ()
         forbidden: tuple[str, ...] = ()
         context = "No Character Card snapshot was available."
-        source = "generic"
+        source: ContractSource = "generic"
 
-        run_id = getattr(case, "run_id")
-        if isinstance(run_id, str) and run_id:
-            snapshot = self.workspace_repository.get_run_snapshot(run_id, owner_id)
+        if case.run_id:
+            snapshot = self.workspace_repository.get_run_snapshot(
+                case.run_id,
+                owner_id,
+            )
             if snapshot is not None:
                 source = "run_snapshot"
                 context = json.dumps(snapshot.character, ensure_ascii=False)
@@ -220,9 +222,9 @@ class JudgeEvaluationService:
                     forbidden = tuple(
                         str(item) for item in raw.get("forbidden_phrases", [])
                     )
-        elif getattr(case, "character_card_id"):
+        elif case.character_card_id:
             card = self.repository.get_character_card(
-                str(getattr(case, "character_card_id")),
+                case.character_card_id,
                 owner_id,
             )
             if card is not None:
@@ -243,24 +245,25 @@ class JudgeEvaluationService:
 
         try:
             kind = TestKind(category)
+            test_language = TestLanguage(language)
         except ValueError as exc:
             raise EvaluationConflict(
-                f"Calibration Case {case_id} has unsupported category {category}."
+                f"Calibration Case {case.id} has an unsupported category or language."
             ) from exc
         scenario = TrialScenario(
             id=scenario_id,
             name=scenario_name,
             kind=kind,
-            language=TestLanguage(language),
+            language=test_language,
             messages=(tester_message or "Calibration evaluation",),
             expected_behavior=expected_behavior,
             required_phrases=required,
             forbidden_phrases=forbidden,
         )
         turn = TrialTurn(
-            index=max(1, turn_index),
+            index=max(1, case.turn_index or 1),
             tester_message=tester_message,
-            target_response=subject_response,
+            target_response=case.subject_response,
         )
         return scenario, turn, context, source
 
@@ -270,7 +273,7 @@ class JudgeEvaluationService:
         expected: str,
         scenario: TrialScenario,
         turn: TrialTurn,
-        contract_source: str,
+        contract_source: ContractSource,
     ) -> JudgePredictionView:
         verdict = RuleJudge().judge(scenario, (turn,))
         return _prediction(
@@ -285,7 +288,6 @@ class JudgeEvaluationService:
                 if verdict.failure_type is not None
                 else []
             ),
-            dimensions={},
             evidence=[item.model_dump(mode="json") for item in verdict.evidence],
             contract_source=contract_source,
         )
@@ -297,7 +299,7 @@ class JudgeEvaluationService:
         scenario: TrialScenario,
         turn: TrialTurn,
         context: str,
-        contract_source: str,
+        contract_source: ContractSource,
         judge: SemanticJudge | None,
     ) -> JudgePredictionView:
         if judge is None:
@@ -346,7 +348,7 @@ class JudgeEvaluationService:
         expected: str,
         rules: JudgePredictionView | None,
         semantic: JudgePredictionView | None,
-        contract_source: str,
+        contract_source: ContractSource,
     ) -> JudgePredictionView:
         if rules is None or semantic is None:
             return _prediction(
@@ -395,13 +397,13 @@ def _prediction(
     case_id: str,
     mode: EvaluationMode,
     expected: str,
+    contract_source: ContractSource,
     predicted: str | None = None,
     score: int | None = None,
     confidence: float | None = None,
     failure_types: list[str] | None = None,
     dimensions: dict[str, int] | None = None,
     evidence: list[dict[str, object]] | None = None,
-    contract_source: str,
     error: str | None = None,
 ) -> JudgePredictionView:
     return JudgePredictionView(
