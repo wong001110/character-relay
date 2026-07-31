@@ -31,8 +31,10 @@ from echo_masque.persistence import (
 from echo_masque.providers import ChatProvider, OpenAICompatibleProvider
 from echo_masque.services.runtime import RuntimeService
 
-_EVALUATION_VERDICT = TypeAdapter(EvaluationVerdict)
-_STRING_LIST = TypeAdapter(list[str])
+_EVALUATION_VERDICT: TypeAdapter[EvaluationVerdict] = TypeAdapter(
+    EvaluationVerdict
+)
+_STRING_LIST: TypeAdapter[list[str]] = TypeAdapter(list[str])
 
 
 class EvaluationConflict(RuntimeError):
