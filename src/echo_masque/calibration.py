@@ -44,7 +44,7 @@ class CalibrationCaseFields(BaseModel):
     scenario_name: str = Field(min_length=1, max_length=160)
     scenario_category: str = Field(min_length=1, max_length=80)
     language: CalibrationLanguage
-    turn_index: int | None = Field(default=None, ge=1)
+    turn_index: int | None = Field(default=None, ge=0)
     tester_message: str = Field(default="", max_length=12000)
     subject_response: str = Field(min_length=1, max_length=30000)
     expected_verdict: CalibrationVerdict
