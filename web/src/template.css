@@ -1,0 +1,218 @@
+.template-page {
+  width: min(1280px, calc(100% - 36px));
+  margin: 0 auto;
+  padding: 28px 0 64px;
+}
+
+.template-header,
+.template-section-heading,
+.share-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.template-header {
+  margin-bottom: 28px;
+}
+
+.template-header h1 {
+  margin: 0 0 8px;
+  font-size: clamp(2.5rem, 5vw, 4.8rem);
+  line-height: 0.95;
+}
+
+.template-header p {
+  max-width: 760px;
+  color: var(--muted);
+}
+
+.template-message {
+  margin-bottom: 22px;
+  padding: 16px 20px;
+}
+
+.template-section {
+  margin-bottom: 30px;
+}
+
+.template-section-heading {
+  align-items: end;
+  margin-bottom: 16px;
+}
+
+.template-section-heading h2,
+.share-section h2 {
+  margin: 0;
+  font-size: clamp(1.8rem, 3vw, 2.8rem);
+}
+
+.template-options,
+.share-fields {
+  display: grid;
+  grid-template-columns: minmax(170px, 220px) minmax(220px, 320px);
+  gap: 12px;
+}
+
+.template-options label,
+.share-fields label {
+  display: grid;
+  gap: 7px;
+  color: #67556f;
+  font-weight: 750;
+}
+
+.template-options select,
+.share-fields input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid #cdbfd7;
+  border-radius: 14px;
+  background: #fcfaf7;
+  color: #483b50;
+}
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.template-card {
+  display: flex;
+  min-height: 310px;
+  padding: 22px;
+  flex-direction: column;
+}
+
+.template-card > span {
+  color: #816d88;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.template-card h3 {
+  margin: 14px 0 8px;
+  font-size: 1.55rem;
+}
+
+.template-card p {
+  color: var(--muted);
+}
+
+.template-card .chip-row {
+  margin: 14px 0 20px;
+}
+
+.template-card .ink-button {
+  width: 100%;
+  margin-top: auto;
+}
+
+.share-section {
+  padding: 26px;
+}
+
+.share-fields {
+  grid-template-columns: 1fr 1fr;
+  margin: 20px 0;
+}
+
+.share-assets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+  margin: 22px 0;
+}
+
+.share-assets > div {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid rgba(126, 96, 140, 0.18);
+  border-radius: 17px;
+  background: rgba(248, 243, 250, 0.7);
+}
+
+.share-assets h3 {
+  margin-top: 0;
+}
+
+.share-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 0;
+  border-bottom: 1px dashed rgba(105, 79, 109, 0.16);
+}
+
+.share-check input {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  accent-color: #82649a;
+}
+
+.share-actions {
+  justify-content: flex-start;
+  margin-top: 20px;
+}
+
+.share-import {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.share-import input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  opacity: 0;
+}
+
+.share-section > small {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+}
+
+@media (max-width: 900px) {
+  .template-header,
+  .template-section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .template-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .template-options,
+  .share-fields,
+  .share-assets {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .template-page {
+    width: min(100% - 20px, 1280px);
+  }
+
+  .template-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .share-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
