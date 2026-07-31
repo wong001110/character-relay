@@ -1,0 +1,220 @@
+.authoring-page {
+  min-height: 100vh;
+  padding: 28px clamp(18px, 4vw, 58px) 54px;
+  background:
+    radial-gradient(circle at 10% 12%, rgba(190, 178, 225, 0.24), transparent 30%),
+    radial-gradient(circle at 92% 78%, rgba(244, 191, 175, 0.18), transparent 32%),
+    #f5f0e6;
+  color: #4d415b;
+}
+
+.authoring-header,
+.authoring-header .header-actions,
+.authoring-page .section-heading,
+.draft-card-head,
+.draft-actions,
+.authoring-check {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.authoring-header {
+  margin-bottom: 22px;
+}
+
+.authoring-header h1 {
+  margin: 4px 0 8px;
+  font-size: clamp(2.2rem, 6vw, 4.5rem);
+}
+
+.authoring-message {
+  margin: 0 0 18px;
+  padding: 12px 16px;
+  border-left: 4px solid #8f72a6;
+}
+
+.authoring-runtime,
+.authoring-generator,
+.authoring-editor {
+  margin-bottom: 24px;
+  padding: 24px;
+}
+
+.authoring-page .section-heading {
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.authoring-page .section-heading h2,
+.authoring-column > h2 {
+  margin: 5px 0 4px;
+}
+
+.authoring-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.authoring-form label {
+  display: grid;
+  gap: 7px;
+  font-weight: 750;
+}
+
+.authoring-form .wide {
+  grid-column: 1 / -1;
+}
+
+.authoring-form input,
+.authoring-form select,
+.authoring-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 14px;
+  border: 1px solid rgba(91, 73, 106, 0.24);
+  border-radius: 15px;
+  background: linear-gradient(180deg, rgba(255, 253, 249, 0.96), rgba(248, 243, 251, 0.94));
+  color: #4d415b;
+  font: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.authoring-form input:focus,
+.authoring-form select:focus,
+.authoring-form textarea:focus {
+  outline: 0;
+  border-color: rgba(119, 88, 139, 0.52);
+  box-shadow: 0 0 0 4px rgba(143, 114, 166, 0.18);
+}
+
+.authoring-form small {
+  color: #75677d;
+  font-weight: 450;
+  line-height: 1.45;
+}
+
+.authoring-check {
+  justify-content: flex-start;
+}
+
+.authoring-check input {
+  width: 20px;
+  min-height: 20px;
+}
+
+.authoring-warnings,
+.pack-blocked {
+  margin-top: 16px;
+  padding: 13px 15px;
+  border: 1px dashed rgba(143, 114, 166, 0.42);
+  border-radius: 14px;
+  background: rgba(238, 230, 247, 0.68);
+}
+
+.authoring-warnings p {
+  margin: 6px 0 0;
+}
+
+.authoring-assets {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.authoring-column {
+  display: grid;
+  gap: 14px;
+}
+
+.authoring-empty,
+.draft-card {
+  padding: 18px;
+}
+
+.draft-card h3 {
+  margin: 8px 0 0;
+}
+
+.draft-card-head {
+  align-items: flex-start;
+}
+
+.draft-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 12px 0;
+}
+
+.draft-meta span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(238, 230, 247, 0.8);
+  font-size: 0.78rem;
+}
+
+.draft-seed {
+  padding: 12px;
+  border-left: 3px solid rgba(143, 114, 166, 0.58);
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.draft-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.status-chip.draft {
+  background: #eee6f7;
+}
+
+.status-chip.rejected {
+  background: #f5dfdd;
+}
+
+.status-chip.approved {
+  background: #dcebdc;
+}
+
+.pack-blocked {
+  color: #795d38;
+  background: rgba(248, 229, 184, 0.46);
+}
+
+.authoring-runtime .runtime-badge,
+.authoring-generator .runtime-badge {
+  min-width: 110px;
+}
+
+@media (max-width: 900px) {
+  .authoring-assets,
+  .authoring-form {
+    grid-template-columns: 1fr;
+  }
+
+  .authoring-form .wide {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .authoring-page {
+    padding: 20px 14px 40px;
+  }
+
+  .authoring-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .authoring-runtime,
+  .authoring-generator,
+  .authoring-editor {
+    padding: 18px;
+  }
+}
