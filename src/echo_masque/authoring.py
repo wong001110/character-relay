@@ -49,11 +49,27 @@ class ScenarioDraftUpdate(ScenarioDraftFields):
     pass
 
 
-class ScenarioDraftView(ScenarioDraftFields):
+class ScenarioDraftView(BaseModel):
+    """String-backed persistence view for a reviewable Scenario Draft."""
+
     id: str
     owner_id: str
     status: DraftStatus
     revision: int
+    name: str
+    category: str
+    description: str
+    language: str
+    messages: list[str]
+    expected_behavior: str
+    forbidden_phrases: list[str]
+    required_phrases: list[str]
+    severity: str
+    max_turns: int
+    recommended_tester_mode: str
+    recommended_judge_mode: str
+    provenance: DraftProvenance
+    review_notes: str
     approved_scenario_id: str | None
     created_at: datetime
     updated_at: datetime
