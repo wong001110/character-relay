@@ -22,6 +22,7 @@ import { useI18n } from "./i18n";
 import { MatrixWorkspace } from "./MatrixWorkspace";
 import { PackRunLauncher } from "./PackRunLauncher";
 import { PromptInspector } from "./PromptInspector";
+import { TemplateLab } from "./TemplateLab";
 import { TestRoom } from "./TestRoom";
 import { WorkspaceHub } from "./WorkspaceHub";
 import "./styles.css";
@@ -49,6 +50,7 @@ export default function App() {
   const [calibrationOpen, setCalibrationOpen] = useState(false);
   const [evaluationOpen, setEvaluationOpen] = useState(false);
   const [coverageOpen, setCoverageOpen] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const workspaceAllowed =
@@ -99,7 +101,7 @@ export default function App() {
   function clearWorkspaceState() {
     setCards([]); setTargets([]); setRuntime(null); setActiveCard(null); setCreatorOpen(false);
     setEditingCard(null); setPromptCard(null); setAdminOpen(false); setAccountOpen(false); setWorkspaceOpen(false);
-    setMatrixOpen(false); setAuthoringOpen(false); setCalibrationOpen(false); setEvaluationOpen(false); setCoverageOpen(false);
+    setMatrixOpen(false); setAuthoringOpen(false); setCalibrationOpen(false); setEvaluationOpen(false); setCoverageOpen(false); setTemplateOpen(false);
   }
 
   async function logout() { try { await api.logout(); } finally { setUser(null); clearWorkspaceState(); } }
@@ -122,6 +124,7 @@ export default function App() {
       <button type="button" className="paper-button" onClick={() => setCalibrationOpen(true)}>{language === "zh-CN" ? "校准数据" : "Calibration Lab"}</button>
       <button type="button" className="paper-button" onClick={() => setEvaluationOpen(true)}>{language === "zh-CN" ? "Judge 分析" : "Judge Analytics"}</button>
       <button type="button" className="paper-button" onClick={() => setCoverageOpen(true)}>{language === "zh-CN" ? "覆盖分析" : "Coverage Lab"}</button>
+      <button type="button" className="paper-button" onClick={() => setTemplateOpen(true)}>{language === "zh-CN" ? "模板与分享" : "Templates & Sharing"}</button>
       <button type="button" className="paper-button" onClick={() => setAccountOpen(true)}>{language === "zh-CN" ? "账户与安全" : "Account & security"}</button>
     </div>}
     {accountOpen && user && <AccountPanel user={user} onClose={() => setAccountOpen(false)} onLogout={logout} onDeleted={accountDeleted} />}
@@ -132,6 +135,7 @@ export default function App() {
   if (!authConfig) return <main className="auth-page"><section className="auth-card paper-sheet"><h1>Echo Masque</h1><p className="error-note">{bootError ?? t("app.openShelfError")}</p></section></main>;
   if (authConfig.authentication_required && !user) return <AuthScreen config={authConfig} onAuthenticated={(authenticatedUser) => { setBootError(null); setUser(authenticatedUser); }} />;
 
+  if (templateOpen && user) return withAccount(<TemplateLab cards={cards} onClose={() => { setTemplateOpen(false); void load(); }} />);
   if (coverageOpen && user) return withAccount(<CoverageLab cards={cards} onClose={() => { setCoverageOpen(false); void load(); }} />);
   if (evaluationOpen && user) return withAccount(<EvaluationLab onClose={() => { setEvaluationOpen(false); void load(); }} />);
   if (calibrationOpen && user) return withAccount(<CalibrationLab onClose={() => { setCalibrationOpen(false); void load(); }} />);
