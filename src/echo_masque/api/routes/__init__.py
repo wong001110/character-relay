@@ -4,6 +4,7 @@ from echo_masque.api.routes.accounts import router as accounts_router
 from echo_masque.api.routes.admin import router as admin_router
 from echo_masque.api.routes.auth import router as auth_router
 from echo_masque.api.routes.authoring import router as authoring_router
+from echo_masque.api.routes.authoring_archive import router as authoring_archive_router
 from echo_masque.api.routes.characters import router as characters_router
 from echo_masque.api.routes.comparisons import router as comparisons_router
 from echo_masque.api.routes.health import router as health_router
@@ -18,6 +19,7 @@ __all__ = [
     "accounts_router",
     "admin_router",
     "auth_router",
+    "authoring_archive_router",
     "authoring_router",
     "characters_router",
     "comparisons_router",
