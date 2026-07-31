@@ -12,6 +12,7 @@ import {
   type TargetView
 } from "./api";
 import { AuthScreen } from "./AuthScreen";
+import { AuthoringLab } from "./AuthoringLab";
 import { CharacterCreator } from "./CharacterCreator";
 import { CharacterShelf } from "./CharacterShelf";
 import { useI18n } from "./i18n";
@@ -39,6 +40,7 @@ export default function App() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [matrixOpen, setMatrixOpen] = useState(false);
+  const [authoringOpen, setAuthoringOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const workspaceAllowed =
@@ -111,6 +113,7 @@ export default function App() {
     setAccountOpen(false);
     setWorkspaceOpen(false);
     setMatrixOpen(false);
+    setAuthoringOpen(false);
   }
 
   async function logout() {
@@ -161,14 +164,33 @@ export default function App() {
       <>
         {content}
         {user && (
-          <button
-            type="button"
-            className="paper-button"
-            style={{ position: "fixed", top: 16, right: 16, zIndex: 40 }}
-            onClick={() => setAccountOpen(true)}
+          <div
+            style={{
+              position: "fixed",
+              top: 16,
+              right: 16,
+              zIndex: 40,
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              justifyContent: "flex-end"
+            }}
           >
-            {language === "zh-CN" ? "账户与安全" : "Account & security"}
-          </button>
+            <button
+              type="button"
+              className="paper-button"
+              onClick={() => setAuthoringOpen(true)}
+            >
+              {language === "zh-CN" ? "评测编写" : "Authoring Lab"}
+            </button>
+            <button
+              type="button"
+              className="paper-button"
+              onClick={() => setAccountOpen(true)}
+            >
+              {language === "zh-CN" ? "账户与安全" : "Account & security"}
+            </button>
+          </div>
         )}
         {accountOpen && user && (
           <AccountPanel
@@ -217,6 +239,19 @@ export default function App() {
         onAuthenticated={(authenticatedUser) => {
           setBootError(null);
           setUser(authenticatedUser);
+        }}
+      />
+    );
+  }
+
+  if (authoringOpen && user) {
+    return withAccount(
+      <AuthoringLab
+        user={user}
+        cards={cards}
+        onClose={() => {
+          setAuthoringOpen(false);
+          void load();
         }}
       />
     );
