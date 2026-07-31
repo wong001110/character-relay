@@ -189,7 +189,7 @@ def evaluation_metrics(
     metadata: dict[str, EvaluationCaseMetadata],
 ) -> JudgeEvaluationMetrics:
     modes: tuple[EvaluationMode, ...] = ("rules", "semantic", "hybrid")
-    by_mode = {
+    by_mode: dict[str, ClassificationMetrics] = {
         mode: classification_metrics(
             [item for item in predictions if item.mode == mode]
         )
