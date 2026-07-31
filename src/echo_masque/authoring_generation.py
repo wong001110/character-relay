@@ -22,8 +22,8 @@ from echo_masque.authoring import (
 from echo_masque.authoring_runtime import AuthoringRuntimeService
 from echo_masque.domain import JudgeMode, Severity, TestKind, TestLanguage
 from echo_masque.persistence import (
-    AuthRepository,
     AuthoringRepository,
+    AuthRepository,
     Repository,
     WorkspaceRepository,
 )
