@@ -2,14 +2,15 @@
 
 **See what remains when the role is challenged.**
 
-Echo Masque is a Python-first behavior validation system for conversational characters and agents. It combines user-owned Character Cards, reusable Scenarios and Test Packs, Benchmark or Adaptive pressure, Rules/Semantic/Hybrid judging, immutable experiment evidence, and comparative Matrix analytics.
+Echo Masque is a Python-first behavior validation system for conversational characters and agents. It combines user-owned Character Cards, reusable Scenarios and Test Packs, Benchmark or Adaptive pressure, Rules/Semantic/Hybrid judging, immutable experiment evidence, comparative Matrix analytics, and a controlled authoring review boundary.
 
 ## Product loop
 
 ```text
 Sign in to an isolated workspace
   -> create or select a Character Card
-  -> create Scenarios and versioned Test Packs
+  -> draft, review, or create Scenarios and Test Packs
+  -> approve Drafts before they enter execution paths
   -> choose Benchmark or Admin-managed Adaptive Tester
   -> choose Rules, Semantic, or Hybrid Judge
   -> run and preserve an immutable configuration snapshot
@@ -63,6 +64,22 @@ The Test Room supports:
 ### Matrix Lab
 
 Matrix Lab executes controlled combinations of Character/Prompt, Model, Temperature, Pack, Language, Tester, Judge, and repeat count. It includes persistent queue controls, bounded concurrency, retries, Provider backoff, repeated-run statistics, compatible regressions, Prompt version management, and secret-free JSON/CSV/Markdown export.
+
+### Reviewable authoring foundation
+
+Phase 16A adds owner-scoped Scenario Drafts and Test Pack Drafts with manual or AI provenance, review notes, revisions, rejection, and explicit approval.
+
+Drafts are not executable resources:
+
+- they do not appear in formal Scenario or Test Pack listings;
+- existing Trial and Matrix launch paths accept only formal Phase 13 resources;
+- Scenario Draft approval creates a normal Scenario;
+- Test Pack Draft approval requires every referenced Scenario Draft to be approved;
+- approved Drafts become immutable provenance records.
+
+A separate secret-free Authoring Archive supports merge and replace restore. For cross-database restoration, import the normal Workspace Archive first and the Authoring Archive second so approved formal resource IDs already exist.
+
+See [`docs/phase-16-authoring.md`](docs/phase-16-authoring.md) for the state machine, API, archive, ownership, lifecycle, and Phase 16B boundary.
 
 ## Authentication and workspace isolation
 
@@ -163,7 +180,7 @@ Pull requests run:
 - Production Docker build and persistent-volume replacement smoke;
 - Railway live smoke.
 
-The manual Phase 15 workflow is the Production multi-account and credential-rotation acceptance gate.
+The Phase 15 workflow remains the Production multi-account and credential-rotation acceptance gate after every merge to `main`.
 
 ## Delivery phases
 
@@ -186,8 +203,13 @@ The manual Phase 15 workflow is the Production multi-account and credential-rota
 - [x] Phase 14 — Batch Experiment Matrix and Comparative Analytics
 - [x] Phase 15 — Authentication, User Isolation, and Secure Credential Vault
 
-### Planned
+### In progress
 
-- [ ] Phase 16 — AI-generated Scenario Authoring, Calibration Datasets, and Evaluation Analytics
+- [x] Phase 16A — Reviewable Scenario/Test Pack Draft foundation
+- [ ] Phase 16B — AI Scenario/Test Pack drafting and Authoring Lab
+- [ ] Phase 16C — Calibration Datasets
+- [ ] Phase 16D — Judge evaluation analytics
+- [ ] Phase 16E — Rubric comparison and coverage
+- [ ] Phase 16F — Templates, sharing, and Production release gate
 
-See `CHECKLIST.md` for acceptance status and `docs/manual-validation.md` for human checks.
+See `CHECKLIST.md` for acceptance status, Issue #45 for the Phase 16 tracker, and `docs/manual-validation.md` for human checks.
