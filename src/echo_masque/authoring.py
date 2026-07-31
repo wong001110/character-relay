@@ -26,7 +26,7 @@ class DraftProvenance(BaseModel):
     generated_at: datetime | None = None
 
     @model_validator(mode="after")
-    def normalize_risk_tags(self) -> "DraftProvenance":
+    def normalize_risk_tags(self) -> DraftProvenance:
         normalized: list[str] = []
         for value in self.risk_tags:
             item = value.strip()
@@ -71,14 +71,18 @@ class PackDraftItemInput(BaseModel):
     enabled: bool = True
 
     @model_validator(mode="after")
-    def exactly_one_reference(self) -> "PackDraftItemInput":
+    def exactly_one_reference(self) -> PackDraftItemInput:
         if (self.scenario_id is None) == (self.scenario_draft_id is None):
-            raise ValueError("Exactly one Scenario or Scenario Draft reference is required.")
+            raise ValueError(
+                "Exactly one Scenario or Scenario Draft reference is required."
+            )
         return self
 
     @property
     def reference_key(self) -> str:
-        return f"scenario:{self.scenario_id}" if self.scenario_id else f"draft:{self.scenario_draft_id}"
+        if self.scenario_id is not None:
+            return f"scenario:{self.scenario_id}"
+        return f"draft:{self.scenario_draft_id}"
 
 
 class TestPackDraftFields(BaseModel):
@@ -91,10 +95,12 @@ class TestPackDraftFields(BaseModel):
     review_notes: str = Field(default="", max_length=4000)
 
     @model_validator(mode="after")
-    def unique_references(self) -> "TestPackDraftFields":
+    def unique_references(self) -> TestPackDraftFields:
         references = [item.reference_key for item in self.items]
         if len(references) != len(set(references)):
-            raise ValueError("A Scenario reference may appear only once in a Test Pack Draft.")
+            raise ValueError(
+                "A Scenario reference may appear only once in a Test Pack Draft."
+            )
         return self
 
 
