@@ -24,7 +24,7 @@ class EvaluationAwareAccountLifecycleService(
         authoring_archive_service: AuthoringArchiveService,
         calibration_repository: CalibrationRepository,
         evaluation_repository: EvaluationRepository,
-        deployment_repository: DeploymentRepository,
+        deployment_repository: DeploymentRepository | None = None,
     ) -> None:
         super().__init__(
             database,
@@ -33,7 +33,7 @@ class EvaluationAwareAccountLifecycleService(
             calibration_repository,
         )
         self.evaluation_repository = evaluation_repository
-        self.deployment_repository = deployment_repository
+        self.deployment_repository = deployment_repository or DeploymentRepository(database)
 
     def delete_account(self, user_id: str, *, email: str) -> dict[str, int]:
         evaluation_counts = self.evaluation_repository.delete_owner(user_id)
