@@ -1,0 +1,93 @@
+name: Public Demo Status Check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  verify-public-demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Wait for the deployed readiness endpoint
+        run: |
+          python - <<'PY'
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+
+          url = "https://echo-masque-production.up.railway.app/api/public-demo/status"
+          latest = None
+          for attempt in range(60):
+              try:
+                  with urllib.request.urlopen(url, timeout=15) as response:
+                      latest = json.load(response)
+                  if latest.get("ready") is True:
+                      break
+              except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+                  latest = None
+              print(f"Waiting for Public Demo readiness ({attempt + 1}/60)...")
+              time.sleep(5)
+          else:
+              raise SystemExit(f"Public Demo did not become ready. Last response: {latest}")
+
+          if latest.get("enabled") is not True:
+              raise SystemExit("Public Demo is not enabled.")
+          if latest.get("role") != "user":
+              raise SystemExit("Public Demo role is not user.")
+          if latest.get("read_only") is not True:
+              raise SystemExit("Public Demo read-only boundary is not reported.")
+          if latest.get("secrets_included") is not False:
+              raise SystemExit("Public Demo status must remain secret-free.")
+          if len(latest.get("character_names", [])) != 2:
+              raise SystemExit("Public Demo must expose exactly two Character Cards.")
+          if latest.get("credential_ready_count") != 2:
+              raise SystemExit("Both Public Demo Character credentials must be ready.")
+          if latest.get("scenario_count", 0) < 1:
+              raise SystemExit("Public Demo has no synchronized Scenarios.")
+          if latest.get("test_pack_count", 0) < 1:
+              raise SystemExit("Public Demo has no synchronized Test Packs.")
+
+          with open("public-demo-status.json", "w", encoding="utf-8") as handle:
+              json.dump(latest, handle, ensure_ascii=False, indent=2)
+          PY
+      - name: Publish secret-free status
+        run: cat public-demo-status.json
+      - name: Upload readiness evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-demo-status
+          path: public-demo-status.json
+          if-no-files-found: error
+      - name: Record successful readiness check
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const result = JSON.parse(fs.readFileSync('public-demo-status.json', 'utf8'));
+            const cards = result.character_names.map((name) => `- ${name}`).join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 57,
+              body: `✅ Deployed Public Demo is ready for commit \`${context.sha}\`.\n\n${cards}\n- Scenarios: ${result.scenario_count}\n- Test Packs: ${result.test_pack_count}\n- Credential-ready Cards: ${result.credential_ready_count}\n- Role: ${result.role}\n- Read-only: ${result.read_only}\n- Daily Run limit: ${result.daily_run_limit}\n- Secrets included: no\n\nEvidence: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
+      - name: Record failed readiness check
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 57,
+              body: `❌ Deployed Public Demo readiness check failed for commit \`${context.sha}\`. No credential or Provider secret is included. Inspect: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
