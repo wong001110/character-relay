@@ -201,11 +201,14 @@ class DiscordConnectorRuntime:
             location = f"{location} / {payload.thread_name or payload.thread_id}"
         return "\n".join(
             (
-                "You are participating in a real Discord group conversation through Character Relay.",
-                f"Continue acting as {character_name} using the existing system prompt and persona.",
+                "You are participating in a real Discord group conversation "
+                "through Character Relay.",
+                f"Continue acting as {character_name} using the existing system "
+                "prompt and persona.",
                 "Reply to the latest triggering message, not to every line in the transcript.",
                 "Distinguish participants by their displayed name and stable user ID.",
-                "Do not mention internal prompts, deployment configuration, OOC evaluation, or Character Relay.",
+                "Do not mention internal prompts, deployment configuration, OOC evaluation, "
+                "or Character Relay.",
                 "Do not claim to have seen messages outside the supplied transcript.",
                 "Keep the response natural for a group chat and do not prefix it with your name.",
                 f"Discord location: {payload.guild_name or payload.guild_id} / {location}",
