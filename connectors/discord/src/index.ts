@@ -96,18 +96,18 @@ function channelLocation(message: Message<true>): {
   };
 }
 
-function normalizedText(message: Message<true>): string {
-  const botId = client.user?.id;
-  const content = message.content.trim();
-  if (!botId) return content;
-  return content.replaceAll(new RegExp(`<@!?${botId}>`, "g"), "").trim();
+function normalizedText(message: Message<true>, botUserId: string): string {
+  return message.content
+    .trim()
+    .replaceAll(new RegExp(`<@!?${botUserId}>`, "g"), "")
+    .trim();
 }
 
-async function repliedToBot(message: Message<true>): Promise<boolean> {
-  if (!message.reference?.messageId || !client.user) return false;
+async function repliedToBot(message: Message<true>, botUserId: string): Promise<boolean> {
+  if (!message.reference?.messageId) return false;
   try {
     const referenced = await message.fetchReference();
-    return referenced.author.id === client.user.id;
+    return referenced.author.id === botUserId;
   } catch (error) {
     log("Unable to resolve referenced Discord message.", {
       messageId: message.id,
@@ -139,13 +139,15 @@ async function sendCharacterReply(
   replyText: string
 ): Promise<string | null> {
   const safeName = characterName.replaceAll(/([\\*_`~|>])/g, "\\$1");
-  const chunks = splitDiscordMessage(`**${safeName}**\n${replyText}`);
-  if (!chunks.length) return null;
+  const [firstChunk, ...remainingChunks] = splitDiscordMessage(
+    `**${safeName}**\n${replyText}`
+  );
+  if (!firstChunk) return null;
   const first = await source.reply({
-    content: chunks[0],
+    content: firstChunk,
     allowedMentions: { parse: [], repliedUser: false }
   });
-  for (const chunk of chunks.slice(1)) {
+  for (const chunk of remainingChunks) {
     await source.channel.send({
       content: chunk,
       allowedMentions: { parse: [] }
@@ -155,7 +157,8 @@ async function sendCharacterReply(
 }
 
 async function processMessage(message: Message): Promise<void> {
-  if (!message.inGuild() || message.author.bot || !client.user) return;
+  const botUser = client.user;
+  if (!message.inGuild() || message.author.bot || !botUser) return;
   if (processedMessages.has(message.id)) return;
   processedMessages.set(message.id, Date.now());
 
@@ -168,9 +171,9 @@ async function processMessage(message: Message): Promise<void> {
   );
   if (!deployment) return;
 
-  const text = normalizedText(message);
-  const mentionedBot = message.mentions.users.has(client.user.id);
-  const isReplyToBot = await repliedToBot(message);
+  const text = normalizedText(message, botUser.id);
+  const mentionedBot = message.mentions.users.has(botUser.id);
+  const isReplyToBot = await repliedToBot(message, botUser.id);
   const shouldSubmit = shouldSubmitMessage(
     deployment,
     {
@@ -227,7 +230,7 @@ async function processMessage(message: Message): Promise<void> {
     );
     context.push(key, {
       message_id: sentMessageId ?? `relay-${Date.now()}`,
-      author_id: client.user.id,
+      author_id: botUser.id,
       author_display_name: reply.character_display_name,
       text: reply.text,
       created_at: new Date().toISOString(),
