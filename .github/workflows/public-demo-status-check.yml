@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -77,7 +80,7 @@ jobs:
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: 57,
+              issue_number: context.issue.number || 57,
               body: `✅ Deployed Public Demo is ready for commit \`${context.sha}\`.\n\n${cards}\n- Scenarios: ${result.scenario_count}\n- Test Packs: ${result.test_pack_count}\n- Credential-ready Cards: ${result.credential_ready_count}\n- Role: ${result.role}\n- Read-only: ${result.read_only}\n- Daily Run limit: ${result.daily_run_limit}\n- Secrets included: no\n\nEvidence: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
       - name: Record failed readiness check
@@ -88,6 +91,6 @@ jobs:
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: 57,
+              issue_number: context.issue.number || 57,
               body: `❌ Deployed Public Demo readiness check failed for commit \`${context.sha}\`. No credential or Provider secret is included. Inspect: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
