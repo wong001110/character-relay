@@ -12,6 +12,8 @@ DiscordParticipationMode = Literal[
     "smart",
 ]
 DiscordConnectionStatus = Literal["connected", "offline", "error"]
+DiscordIdentityMode = Literal["bot", "webhook"]
+DiscordWebhookStatus = Literal["pending", "active", "error", "not_required"]
 
 
 class DiscordConnectorDeploymentView(BaseModel):
@@ -28,6 +30,34 @@ class DiscordConnectorDeploymentView(BaseModel):
     participation_mode: DiscordParticipationMode
     version_label: str
     status: Literal["active"]
+    identity_mode: DiscordIdentityMode = "webhook"
+    identity_display_name: str
+    identity_avatar_url: str = ""
+    webhook_status: DiscordWebhookStatus = "pending"
+    webhook_id: str | None = None
+    webhook_token: str | None = None
+
+
+class DiscordWebhookRegistration(BaseModel):
+    connection_id: str = Field(min_length=1, max_length=64)
+    deployment_id: str = Field(min_length=1, max_length=64)
+    workspace_id: str = Field(default="", max_length=200)
+    channel_id: str = Field(min_length=1, max_length=200)
+    webhook_id: str = Field(min_length=1, max_length=200)
+    webhook_token: str = Field(min_length=1, max_length=500)
+
+
+class DiscordWebhookRegistrationView(BaseModel):
+    binding_id: str
+    webhook_id: str
+    webhook_token: str
+    status: Literal["active"] = "active"
+
+
+class DiscordWebhookStatusReport(BaseModel):
+    deployment_id: str = Field(min_length=1, max_length=64)
+    status: DiscordWebhookStatus
+    last_error: str = Field(default="", max_length=2000)
 
 
 class DiscordConnectorHeartbeat(BaseModel):

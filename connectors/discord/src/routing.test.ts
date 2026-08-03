@@ -26,7 +26,13 @@ function deployment(
     thread_name: threadId ? "Thread" : "",
     participation_mode: participationMode,
     version_label: "Current",
-    status: "active"
+    status: "active",
+    identity_mode: "webhook",
+    identity_display_name: "Ann",
+    identity_avatar_url: "https://example.com/ann.png",
+    webhook_status: "pending",
+    webhook_id: null,
+    webhook_token: null
   };
 }
 
