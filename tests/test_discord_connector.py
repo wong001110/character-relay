@@ -95,6 +95,39 @@ def seed_deployment(client: TestClient) -> tuple[dict[str, object], dict[str, ob
     return connection, deployment_response.json()
 
 
+def expected_connector_deployment(
+    connection: dict[str, object],
+    deployment: dict[str, object],
+    *,
+    webhook_status: str = "pending",
+    webhook_id: str | None = None,
+    webhook_token: str | None = None,
+    identity_name: str = "Ann",
+    avatar_url: str = "",
+) -> dict[str, object]:
+    return {
+        "deployment_id": deployment["id"],
+        "connection_id": connection["id"],
+        "character_card_id": deployment["character_card_id"],
+        "character_display_name": "Ann",
+        "workspace_id": "guild-001",
+        "workspace_name": "Test Guild",
+        "channel_id": "channel-001",
+        "channel_name": "ann-room",
+        "thread_id": "",
+        "thread_name": "",
+        "participation_mode": "mention_and_reply",
+        "version_label": "Current",
+        "status": "active",
+        "identity_mode": "webhook",
+        "identity_display_name": identity_name,
+        "identity_avatar_url": avatar_url,
+        "webhook_status": webhook_status,
+        "webhook_id": webhook_id,
+        "webhook_token": webhook_token,
+    }
+
+
 def test_connector_requires_shared_secret(tmp_path: Path) -> None:
     client = TestClient(create_app(settings(tmp_path / "discord-auth.db")))
     response = client.get(
@@ -103,6 +136,69 @@ def test_connector_requires_shared_secret(tmp_path: Path) -> None:
         headers=connector_headers("wrong-secret"),
     )
     assert response.status_code == 401
+
+
+def test_discord_webhook_identity_is_editable_and_encrypted(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "discord-webhook.db"))
+    client = TestClient(app)
+    connection, deployment = seed_deployment(client)
+
+    updated_identity = client.put(
+        f"/api/deployment-identities/{deployment['id']}",
+        json={
+            "mode": "webhook",
+            "display_name": "Ann in Discord",
+            "avatar_url": "https://example.com/ann.png",
+        },
+    )
+    assert updated_identity.status_code == 200, updated_identity.text
+    assert updated_identity.json()["webhook_status"] == "pending"
+
+    registration = client.put(
+        "/api/connectors/discord/webhooks",
+        headers=connector_headers(),
+        json={
+            "connection_id": connection["id"],
+            "deployment_id": deployment["id"],
+            "workspace_id": "guild-001",
+            "channel_id": "channel-001",
+            "webhook_id": "webhook-001",
+            "webhook_token": "super-secret-webhook-token",
+        },
+    )
+    assert registration.status_code == 200, registration.text
+    assert registration.json()["webhook_token"] == "super-secret-webhook-token"
+
+    listing = client.get(
+        "/api/connectors/discord/deployments",
+        params={"connection_id": connection["id"]},
+        headers=connector_headers(),
+    )
+    assert listing.status_code == 200, listing.text
+    assert listing.json() == [
+        expected_connector_deployment(
+            connection,
+            deployment,
+            webhook_status="active",
+            webhook_id="webhook-001",
+            webhook_token="super-secret-webhook-token",
+            identity_name="Ann in Discord",
+            avatar_url="https://example.com/ann.png",
+        )
+    ]
+
+    public_identities = client.get("/api/deployment-identities")
+    assert public_identities.status_code == 200
+    public_payload = public_identities.json()[0]
+    assert public_payload["display_name"] == "Ann in Discord"
+    assert "webhook_token" not in public_payload
+
+    credentials = app.state.auth_repository.list_credentials()
+    webhook_credentials = [
+        item for item in credentials if item.scope_kind == "discord_webhook"
+    ]
+    assert len(webhook_credentials) == 1
+    assert "super-secret-webhook-token" not in webhook_credentials[0].encrypted_value
 
 
 def test_discord_connector_lists_routes_heartbeats_and_replies(tmp_path: Path) -> None:
@@ -115,23 +211,7 @@ def test_discord_connector_lists_routes_heartbeats_and_replies(tmp_path: Path) -
         headers=connector_headers(),
     )
     assert listing.status_code == 200, listing.text
-    assert listing.json() == [
-        {
-            "deployment_id": deployment["id"],
-            "connection_id": connection["id"],
-            "character_card_id": deployment["character_card_id"],
-            "character_display_name": "Ann",
-            "workspace_id": "guild-001",
-            "workspace_name": "Test Guild",
-            "channel_id": "channel-001",
-            "channel_name": "ann-room",
-            "thread_id": "",
-            "thread_name": "",
-            "participation_mode": "mention_and_reply",
-            "version_label": "Current",
-            "status": "active",
-        }
-    ]
+    assert listing.json() == [expected_connector_deployment(connection, deployment)]
 
     heartbeat = client.post(
         "/api/connectors/discord/heartbeat",
