@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: public-demo-live-smoke
@@ -79,3 +80,28 @@ jobs:
           name: public-demo-live-smoke
           path: public-demo-live-smoke.json
           if-no-files-found: error
+      - name: Record successful acceptance
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const result = JSON.parse(fs.readFileSync('public-demo-live-smoke.json', 'utf8'));
+            const cards = result.character_names.map((name) => `- ${name}`).join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 56,
+              body: `✅ Public Demo live acceptance passed for commit \`${context.sha}\`.\n\n**Production resources**\n${cards}\n- Scenarios: ${result.scenario_count}\n- Test Packs: ${result.test_pack_count}\n- Credential-ready Cards: ${result.credential_ready_cards.length}\n- Read-only boundary: enforced\n- Daily Run limit: ${result.daily_run_limit}\n- Secrets included in evidence: no\n\nEvidence artifact: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
+      - name: Record failed acceptance
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 56,
+              body: `❌ Public Demo live acceptance failed for commit \`${context.sha}\`. No credential or Provider secret is included in this notice. Inspect run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
