@@ -385,6 +385,14 @@
   font-weight: 800;
 }
 
+.demo-read-only .workspace-tabs button:last-child,
+.demo-read-only .workspace-section > .section-heading .ink-button,
+.demo-read-only .scenario-card .card-actions,
+.demo-read-only .pack-card .card-actions,
+.demo-read-only .workspace-form {
+  display: none;
+}
+
 @media (max-width: 900px) {
   .history-filters,
   .history-row {

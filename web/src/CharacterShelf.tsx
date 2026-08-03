@@ -7,6 +7,7 @@ import { LanguageSwitcher } from "./LanguageSwitcher";
 interface Props {
   cards: CharacterCard[];
   error: string | null;
+  demoMode?: boolean;
   onCreate: () => void;
   onEdit: (card: CharacterCard) => void;
   onPrompt: (card: CharacterCard) => void;
@@ -28,6 +29,7 @@ const subjectKeys = {
 export function CharacterShelf({
   cards,
   error,
+  demoMode = false,
   onCreate,
   onEdit,
   onPrompt,
@@ -95,26 +97,39 @@ export function CharacterShelf({
         </div>
         <div className="header-actions">
           <LanguageSwitcher />
-          <button className="paper-button" onClick={onMatrix}>
-            {language === "zh-CN" ? "矩阵实验室" : "Matrix Lab"}
-          </button>
+          {demoMode && <span className="status-chip pass">PUBLIC DEMO</span>}
+          {!demoMode && (
+            <button className="paper-button" onClick={onMatrix}>
+              {language === "zh-CN" ? "矩阵实验室" : "Matrix Lab"}
+            </button>
+          )}
           <button className="paper-button" onClick={onWorkspace}>
             {language === "zh-CN" ? "实验工作区" : "Workspace"}
           </button>
-          <button className="paper-button" onClick={onAdmin}>
-            {t("shelf.admin")}
-          </button>
-          <button className="ink-button" onClick={onCreate}>
-            {t("shelf.newCard")}
-          </button>
+          {!demoMode && (
+            <button className="paper-button" onClick={onAdmin}>
+              {t("shelf.admin")}
+            </button>
+          )}
+          {!demoMode && (
+            <button className="ink-button" onClick={onCreate}>
+              {t("shelf.newCard")}
+            </button>
+          )}
         </div>
       </header>
 
       <section className="shelf-intro paper-sheet">
         <div>
-          <p className="tape-label">{t("shelf.label")}</p>
+          <p className="tape-label">{demoMode ? "READ-ONLY DEMO" : t("shelf.label")}</p>
           <h2>{t("shelf.heading")}</h2>
-          <p>{t("shelf.description")}</p>
+          <p>
+            {demoMode
+              ? language === "zh-CN"
+                ? "共享测试账户已预载角色卡、测试场景与测试包。可以查看 Prompt、进入测试房间并运行实验，但不能修改共享内容。"
+                : "This shared account includes preloaded Character Cards, Scenarios, and Test Packs. You can inspect Prompts and run tests, but shared content cannot be changed."
+              : t("shelf.description")}
+          </p>
         </div>
         <div className="shelf-count">
           <strong>{cards.length}</strong>
@@ -167,7 +182,7 @@ export function CharacterShelf({
           <img src="/assets/masque-mark.svg" alt="" />
           <h2>{t("shelf.emptyTitle")}</h2>
           <p>{t("shelf.emptyHelp")}</p>
-          <button className="ink-button" onClick={onCreate}>{t("shelf.newCard")}</button>
+          {!demoMode && <button className="ink-button" onClick={onCreate}>{t("shelf.newCard")}</button>}
         </section>
       ) : (
         <>
@@ -201,9 +216,11 @@ export function CharacterShelf({
                   <strong>{card.preferred_suites.length}</strong>
                 </div>
                 <div className="card-actions">
-                  <button className="paper-button" onClick={() => onEdit(card)}>
-                    {t("shelf.edit")}
-                  </button>
+                  {!demoMode && (
+                    <button className="paper-button" onClick={() => onEdit(card)}>
+                      {t("shelf.edit")}
+                    </button>
+                  )}
                   <button className="paper-button" onClick={() => onPrompt(card)}>
                     {language === "zh-CN" ? "真实 Prompt" : "View Prompt"}
                   </button>
@@ -214,7 +231,7 @@ export function CharacterShelf({
               </article>
             ))}
 
-            {page === pageCount && (
+            {!demoMode && page === pageCount && (
               <button className="blank-card" onClick={onCreate}>
                 <span className="plus-mark">+</span>
                 <strong>{t("shelf.createAnother")}</strong>

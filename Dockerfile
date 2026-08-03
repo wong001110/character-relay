@@ -10,6 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     ECHO_MASQUE_ENVIRONMENT=production \
     ECHO_MASQUE_DEBUG=false \
+    ECHO_MASQUE_PUBLIC_DEMO_ENABLED=true \
     ECHO_MASQUE_DATABASE_URL=sqlite:////data/echo_masque.db
 WORKDIR /app
 COPY pyproject.toml README.md ./

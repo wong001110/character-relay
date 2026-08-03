@@ -53,7 +53,9 @@ from echo_masque.persistence import (
     inspect_storage,
 )
 from echo_masque.prompt_inspector import CharacterPromptInspector
-from echo_masque.security_controls import QuotaService
+from echo_masque.public_demo import PublicDemoService
+from echo_masque.public_demo_middleware import PublicDemoReadOnlyMiddleware
+from echo_masque.public_demo_quota import PublicDemoQuotaService
 from echo_masque.services import MatrixService, RuntimeService, TrialService
 from echo_masque.template_sharing import EvaluationTemplateService
 
@@ -104,7 +106,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         matrix_repository,
     )
     target_access_repository = TargetAccessRepository(database)
-    quota_service = QuotaService(database, resolved)
+    credential_store = CredentialVault(auth_repository, resolved)
+    public_demo_result = PublicDemoService(
+        settings=resolved,
+        auth_service=auth_service,
+        auth_repository=auth_repository,
+        repository=repository,
+        workspace_repository=workspace_repository,
+        target_access_repository=target_access_repository,
+        credential_store=credential_store,
+    ).synchronize()
+    if public_demo_result is not None:
+        logger.info(
+            "Public Demo ready: user=%s characters=%s scenarios=%s packs=%s",
+            public_demo_result.user_id,
+            public_demo_result.character_count,
+            public_demo_result.scenario_count,
+            public_demo_result.test_pack_count,
+        )
+    quota_service = PublicDemoQuotaService(database, resolved)
     account_lifecycle_service = EvaluationAwareAccountLifecycleService(
         database,
         auth_repository,
@@ -120,7 +140,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     repository.seed_demo_targets()
     repository.remove_demo_character_cards()
-    credential_store = CredentialVault(auth_repository, resolved)
     runtime_service = RuntimeService(repository, resolved, credential_store)
     authoring_runtime_service = AuthoringRuntimeService(
         database,
@@ -171,6 +190,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
     app.add_middleware(SensitiveAuditMiddleware, repository=auth_repository)
+    app.add_middleware(PublicDemoReadOnlyMiddleware)
     app.state.settings = resolved
     app.state.storage_status = storage_status
     app.state.database = database
