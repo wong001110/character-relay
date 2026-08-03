@@ -9,7 +9,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
-from echo_masque.auth import AuthService
+from echo_masque.auth import AuthContext, AuthService
 from echo_masque.config import Settings
 from echo_masque.public_demo import is_public_demo_email
 
@@ -74,7 +74,7 @@ class PublicDemoReadOnlyMiddleware(BaseHTTPMiddleware):
         )
 
     @staticmethod
-    def _resolve_context(request: Request):
+    def _resolve_context(request: Request) -> AuthContext | None:
         settings = cast(Settings, request.app.state.settings)
         service = cast(AuthService, request.app.state.auth_service)
         authorization = request.headers.get("authorization", "")
