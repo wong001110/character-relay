@@ -134,6 +134,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         authoring_archive_service,
         calibration_repository,
         evaluation_repository,
+        deployment_repository,
     )
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
