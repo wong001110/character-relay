@@ -19,6 +19,7 @@ from echo_masque.api.routes import (
     characters_router,
     comparisons_router,
     coverage_router,
+    deployments_router,
     evaluations_router,
     health_router,
     matrices_router,
@@ -45,6 +46,7 @@ from echo_masque.persistence import (
     AuthRepository,
     CalibrationRepository,
     Database,
+    DeploymentRepository,
     EvaluationRepository,
     MatrixRepository,
     Repository,
@@ -83,6 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     auth_service.ensure_bootstrap_admin()
 
     repository = Repository(database)
+    deployment_repository = DeploymentRepository(database)
     workspace_repository = WorkspaceRepository(database)
     authoring_repository = AuthoringRepository(database, workspace_repository)
     authoring_archive_service = AuthoringArchiveService(database, authoring_repository)
@@ -179,7 +182,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version=resolved.app_version,
         debug=resolved.debug,
         description=(
-            "Behavior validation and stress testing for conversational characters and agents."
+            "Create, test, publish, and deploy persistent AI characters across chat platforms."
         ),
     )
     app.add_middleware(
@@ -197,6 +200,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.auth_repository = auth_repository
     app.state.auth_service = auth_service
     app.state.repository = repository
+    app.state.deployment_repository = deployment_repository
     app.state.workspace_repository = workspace_repository
     app.state.authoring_repository = authoring_repository
     app.state.authoring_archive_service = authoring_archive_service
@@ -228,6 +232,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(coverage_router)
     app.include_router(templates_router)
     app.include_router(characters_router)
+    app.include_router(deployments_router)
     app.include_router(prompt_inspector_router)
     app.include_router(targets_router)
     app.include_router(trials_router)
