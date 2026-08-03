@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     bootstrap_admin_email: str | None = None
     bootstrap_admin_password: SecretStr | None = None
     bootstrap_admin_display_name: str = "Echo Masque Admin"
+    public_demo_enabled: bool = False
     credential_encryption_keys: SecretStr | None = None
 
     request_limit_per_minute: int = 300
