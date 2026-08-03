@@ -17,6 +17,7 @@ import { CalibrationLab } from "./CalibrationLab";
 import { CharacterCreator } from "./CharacterCreator";
 import { CharacterShelf } from "./CharacterShelf";
 import { CoverageLab } from "./CoverageLab";
+import { DeploymentCenter } from "./DeploymentCenter";
 import { EvaluationLab } from "./EvaluationLab";
 import { useI18n } from "./i18n";
 import { MatrixWorkspace } from "./MatrixWorkspace";
@@ -29,6 +30,7 @@ import { WorkspaceHub } from "./WorkspaceHub";
 import "./styles.css";
 import "./polish.css";
 import "./auth-account.css";
+import "./deployments.css";
 
 const SHOW_ADVANCED_LABS = false;
 
@@ -49,6 +51,8 @@ export default function App() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [matrixOpen, setMatrixOpen] = useState(false);
+  const [deploymentsOpen, setDeploymentsOpen] = useState(false);
+  const [deploymentCharacterId, setDeploymentCharacterId] = useState<string | null>(null);
   const [authoringOpen, setAuthoringOpen] = useState(false);
   const [calibrationOpen, setCalibrationOpen] = useState(false);
   const [evaluationOpen, setEvaluationOpen] = useState(false);
@@ -105,7 +109,8 @@ export default function App() {
   function clearWorkspaceState() {
     setCards([]); setTargets([]); setRuntime(null); setActiveCard(null); setCreatorOpen(false);
     setEditingCard(null); setPromptCard(null); setAdminOpen(false); setAccountOpen(false); setWorkspaceOpen(false);
-    setMatrixOpen(false); setAuthoringOpen(false); setCalibrationOpen(false); setEvaluationOpen(false); setCoverageOpen(false); setTemplateOpen(false);
+    setMatrixOpen(false); setDeploymentsOpen(false); setDeploymentCharacterId(null); setAuthoringOpen(false);
+    setCalibrationOpen(false); setEvaluationOpen(false); setCoverageOpen(false); setTemplateOpen(false);
   }
 
   async function logout() { try { await api.logout(); } finally { setUser(null); clearWorkspaceState(); } }
@@ -130,6 +135,11 @@ export default function App() {
     setError(language === "zh-CN" ? "需要管理员账户。" : "An Admin account is required.");
   }
 
+  function openDeployments(characterId: string | null = null) {
+    setDeploymentCharacterId(characterId);
+    setDeploymentsOpen(true);
+  }
+
   function withAccount(content: ReactNode) {
     return <>{content}{user && <div style={{ position:"fixed", top:16, right:16, zIndex:40, display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
       {SHOW_ADVANCED_LABS && <>
@@ -151,8 +161,8 @@ export default function App() {
     {adminOpen && user?.role === "admin" && <AdminSettings onClose={() => setAdminOpen(false)} onUpdated={runtimeUpdated} />}</>;
   }
 
-  if (booting) return <main className="auth-page"><section className="auth-card paper-sheet"><h1>Echo Masque</h1><p>{language === "zh-CN" ? "正在验证安全 Session…" : "Checking secure Session…"}</p></section></main>;
-  if (!authConfig) return <main className="auth-page"><section className="auth-card paper-sheet"><h1>Echo Masque</h1><p className="error-note">{bootError ?? t("app.openShelfError")}</p></section></main>;
+  if (booting) return <main className="auth-page"><section className="auth-card paper-sheet"><h1>Character Relay</h1><p>{language === "zh-CN" ? "正在验证安全 Session…" : "Checking secure Session…"}</p></section></main>;
+  if (!authConfig) return <main className="auth-page"><section className="auth-card paper-sheet"><h1>Character Relay</h1><p className="error-note">{bootError ?? t("app.openShelfError")}</p></section></main>;
   if (authConfig.authentication_required && !user) return <AuthScreen config={authConfig} onAuthenticated={(authenticatedUser) => { setBootError(null); setUser(authenticatedUser); }} />;
 
   if (SHOW_ADVANCED_LABS && templateOpen && user) return withAccount(<TemplateLab cards={cards} onClose={() => { setTemplateOpen(false); void load(); }} />);
@@ -162,6 +172,7 @@ export default function App() {
   if (SHOW_ADVANCED_LABS && authoringOpen && user) return withAccount(<AuthoringLab user={user} cards={cards} onClose={() => { setAuthoringOpen(false); void load(); }} />);
   if (matrixOpen) return withAccount(<MatrixWorkspace cards={cards} onClose={() => { setMatrixOpen(false); void load(); }} />);
   if (workspaceOpen) return withAccount(<div className={publicDemo ? "demo-read-only" : undefined}><WorkspaceHub cards={cards} onClose={() => { setWorkspaceOpen(false); void load(); }} /><PackRunLauncher cards={cards} /></div>);
+  if (deploymentsOpen) return withAccount(<DeploymentCenter cards={cards} initialCharacterId={deploymentCharacterId} demoMode={publicDemo} onClose={() => { setDeploymentsOpen(false); setDeploymentCharacterId(null); }} />);
 
   if (activeCard) {
     const target = targets.find((item) => item.id === activeCard.target_id);
@@ -170,5 +181,5 @@ export default function App() {
   }
 
   const editingTarget = editingCard ? targets.find((item) => item.id === editingCard.target_id) ?? null : null;
-  return withAccount(<><CharacterShelf cards={cards} error={error} demoMode={publicDemo} onCreate={() => { setEditingCard(null); setCreatorOpen(true); }} onEdit={(card) => { setEditingCard(card); setCreatorOpen(true); }} onPrompt={setPromptCard} onEnter={setActiveCard} onAdmin={openAdmin} onWorkspace={() => setWorkspaceOpen(true)} onMatrix={() => setMatrixOpen(true)} />{creatorOpen && !publicDemo && <CharacterCreator targets={targets} card={editingCard} target={editingTarget} onClose={() => { setCreatorOpen(false); setEditingCard(null); }} onSaved={saved} />}{promptCard && <PromptInspector card={promptCard} onClose={() => setPromptCard(null)} />}</>);
+  return withAccount(<><CharacterShelf cards={cards} error={error} demoMode={publicDemo} onCreate={() => { setEditingCard(null); setCreatorOpen(true); }} onEdit={(card) => { setEditingCard(card); setCreatorOpen(true); }} onPrompt={setPromptCard} onEnter={setActiveCard} onDeploy={(card) => openDeployments(card.id)} onDeployments={() => openDeployments()} onAdmin={openAdmin} onWorkspace={() => setWorkspaceOpen(true)} onMatrix={() => setMatrixOpen(true)} />{creatorOpen && !publicDemo && <CharacterCreator targets={targets} card={editingCard} target={editingTarget} onClose={() => { setCreatorOpen(false); setEditingCard(null); }} onSaved={saved} />}{promptCard && <PromptInspector card={promptCard} onClose={() => setPromptCard(null)} />}</>);
 }

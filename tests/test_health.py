@@ -15,7 +15,7 @@ def test_health(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["name"] == "Echo Masque"
+    assert payload["name"] == "Character Relay"
     assert payload["version"] == "0.1.0"
     assert payload["status"] == "ok"
     assert payload["environment"] == "test"

@@ -12,6 +12,8 @@ from echo_masque import __version__
 class Settings(BaseSettings):
     """Environment-derived settings with credential-free defaults."""
 
+    # The ECHO_MASQUE_ prefix remains a compatibility contract for existing Railway
+    # deployments while the user-facing product transitions to Character Relay.
     model_config = SettingsConfigDict(
         env_prefix="ECHO_MASQUE_",
         env_file=".env",
@@ -19,7 +21,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "Echo Masque"
+    app_name: str = "Character Relay"
     app_version: str = __version__
     environment: Literal["development", "test", "production"] = "development"
     debug: bool = False
@@ -40,7 +42,7 @@ class Settings(BaseSettings):
     legacy_local_user_enabled: bool = True
     bootstrap_admin_email: str | None = None
     bootstrap_admin_password: SecretStr | None = None
-    bootstrap_admin_display_name: str = "Echo Masque Admin"
+    bootstrap_admin_display_name: str = "Character Relay Admin"
     public_demo_enabled: bool = False
     public_demo_max_runs_per_day: int = 20
     credential_encryption_keys: SecretStr | None = None

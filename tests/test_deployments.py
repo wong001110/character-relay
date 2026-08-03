@@ -1,0 +1,158 @@
+from pathlib import Path
+
+from cryptography.fernet import Fernet
+from fastapi.testclient import TestClient
+from pydantic import SecretStr
+
+from echo_masque.api import create_app
+from echo_masque.config import Settings
+
+ADMIN_EMAIL = "relay-admin@example.com"
+ADMIN_PASSWORD = "CharacterRelayAdmin2026!"
+
+
+def settings(path: Path) -> Settings:
+    return Settings(
+        environment="test",
+        database_url=f"sqlite:///{path}",
+        legacy_local_user_enabled=False,
+        bootstrap_admin_email=ADMIN_EMAIL,
+        bootstrap_admin_password=SecretStr(ADMIN_PASSWORD),
+        bootstrap_admin_display_name="Relay Admin",
+        credential_encryption_keys=SecretStr(Fernet.generate_key().decode("ascii")),
+    )
+
+
+def login(client: TestClient) -> None:
+    response = client.post(
+        "/api/auth/login",
+        json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
+    )
+    assert response.status_code == 200, response.text
+
+
+def create_character(client: TestClient) -> dict[str, object]:
+    response = client.post(
+        "/api/characters/prompt-model",
+        json={
+            "display_name": "Ann",
+            "subtitle": "Published social character",
+            "subject_type": "companion",
+            "persona_summary": "A calm character prepared for group-chat deployment.",
+            "traits": ["calm", "observant"],
+            "tags": ["deployment"],
+            "expected_tone": "Warm but concise.",
+            "forbidden_behaviors": ["invent private memories"],
+            "memory_summary": "Keep each group memory isolated.",
+            "preferred_suites": ["identity_integrity"],
+            "portrait_variant": "lavender",
+            "provider": "deepseek",
+            "base_url": "https://api.deepseek.com",
+            "model": "deepseek-v4-flash",
+            "system_prompt": "You are Ann.",
+            "temperature": 0.4,
+            "api_key": "test-provider-key",
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_connection_and_deployment_lifecycle(tmp_path: Path) -> None:
+    client = TestClient(create_app(settings(tmp_path / "deployments.db")))
+    login(client)
+    character = create_character(client)
+
+    connection_response = client.post(
+        "/api/connections",
+        json={
+            "platform": "discord",
+            "display_name": "Primary Discord Bot",
+            "connection_mode": "managed",
+            "external_account_id": "bot-123",
+            "status": "connected",
+            "metadata": {"guild_installation": "pending"},
+        },
+    )
+    assert connection_response.status_code == 201, connection_response.text
+    connection = connection_response.json()
+
+    deployment_payload = {
+        "character_card_id": character["id"],
+        "connection_id": connection["id"],
+        "workspace_id": "guild-001",
+        "workspace_name": "Juen Test Server",
+        "channel_id": "channel-001",
+        "channel_name": "#ann-room",
+        "thread_id": "",
+        "thread_name": "",
+        "participation_mode": "mention_and_reply",
+        "memory_scope": "channel_isolated",
+        "version_label": "v1.0",
+        "sticker_count": 12,
+        "status": "paused",
+    }
+    deployment_response = client.post("/api/deployments", json=deployment_payload)
+    assert deployment_response.status_code == 201, deployment_response.text
+    deployment = deployment_response.json()
+    assert deployment["character_display_name"] == "Ann"
+    assert deployment["platform"] == "discord"
+    assert deployment["channel_name"] == "#ann-room"
+    assert deployment["sticker_count"] == 12
+
+    duplicate = client.post("/api/deployments", json=deployment_payload)
+    assert duplicate.status_code == 409
+
+    listed = client.get(f"/api/deployments?character_card_id={character['id']}")
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()] == [deployment["id"]]
+
+    activated = client.patch(
+        f"/api/deployments/{deployment['id']}/status",
+        json={"status": "active", "last_error": ""},
+    )
+    assert activated.status_code == 200, activated.text
+    assert activated.json()["status"] == "active"
+
+    updated = client.put(
+        f"/api/deployments/{deployment['id']}",
+        json={
+            "participation_mode": "smart",
+            "memory_scope": "server_shared",
+            "sticker_count": 18,
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["participation_mode"] == "smart"
+    assert updated.json()["memory_scope"] == "server_shared"
+    assert updated.json()["sticker_count"] == 18
+
+    deleted_connection = client.delete(f"/api/connections/{connection['id']}")
+    assert deleted_connection.status_code == 204
+    assert client.get("/api/connections").json() == []
+    assert client.get("/api/deployments").json() == []
+
+
+def test_deployment_rejects_missing_owned_resources(tmp_path: Path) -> None:
+    client = TestClient(create_app(settings(tmp_path / "deployment-ownership.db")))
+    login(client)
+
+    response = client.post(
+        "/api/deployments",
+        json={
+            "character_card_id": "missing-character",
+            "connection_id": "missing-connection",
+            "workspace_id": "",
+            "workspace_name": "",
+            "channel_id": "channel-001",
+            "channel_name": "#general",
+            "thread_id": "",
+            "thread_name": "",
+            "participation_mode": "mention_only",
+            "memory_scope": "channel_isolated",
+            "version_label": "Current",
+            "sticker_count": 0,
+            "status": "paused",
+        },
+    )
+    assert response.status_code == 404

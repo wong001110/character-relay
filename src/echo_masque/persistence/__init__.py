@@ -17,6 +17,14 @@ from echo_masque.persistence.calibration_repository import (
     CalibrationRepository as BaseCalibrationRepository,
 )
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.deployment_models import (
+    CharacterDeploymentRecord,
+    PlatformConnectionRecord,
+)
+from echo_masque.persistence.deployment_repository import (
+    DeploymentConflict,
+    DeploymentRepository,
+)
 from echo_masque.persistence.evaluation_models import (
     JudgeEvaluationRecord,
     JudgePredictionRecord,
@@ -56,11 +64,15 @@ __all__ = [
     "CalibrationConflict",
     "CalibrationDatasetRecord",
     "CalibrationRepository",
+    "CharacterDeploymentRecord",
     "Database",
+    "DeploymentConflict",
+    "DeploymentRepository",
     "EvaluationRepository",
     "JudgeEvaluationRecord",
     "JudgePredictionRecord",
     "MatrixRepository",
+    "PlatformConnectionRecord",
     "PortableCalibrationRepository",
     "Repository",
     "StorageStatus",

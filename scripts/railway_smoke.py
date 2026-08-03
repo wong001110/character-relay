@@ -1,4 +1,4 @@
-"""Smoke-test a deployed Echo Masque service using only the Python standard library."""
+"""Smoke-test a deployed Character Relay service using only the Python standard library."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+EXPECTED_PRODUCT_NAMES = {"Character Relay", "Echo Masque"}
 USER_HEADERS = {
     "Content-Type": "application/json",
     "User-Agent": "echo-masque-railway-smoke/1.0",
@@ -151,7 +152,7 @@ def completed_language_trial(base_url: str, test_language: str) -> float:
 
 def run_smoke(base_url: str, *, require_storage: bool = False) -> None:
     health = request_json(base_url, "/health")
-    if health.get("name") != "Echo Masque":
+    if health.get("name") not in EXPECTED_PRODUCT_NAMES:
         raise RuntimeError(f"Unexpected health response: {health}")
     storage_instance_id = validate_storage_health(health, required=require_storage)
 
