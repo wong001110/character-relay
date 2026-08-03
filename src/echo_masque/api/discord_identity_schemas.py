@@ -1,7 +1,7 @@
 """HTTP schemas for deployment message identities."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import BaseModel, Field, HttpUrl
 
@@ -9,24 +9,22 @@ from echo_masque.persistence.discord_identity_models import (
     DeploymentMessageIdentityRecord,
 )
 
+IdentityMode = Literal["bot", "webhook"]
+WebhookStatus = Literal["pending", "active", "error", "not_required"]
+
 
 class DeploymentMessageIdentityUpdate(BaseModel):
-    mode: Literal["bot", "webhook"] = "webhook"
+    mode: IdentityMode = "webhook"
     display_name: str = Field(min_length=1, max_length=80)
     avatar_url: HttpUrl | None = None
 
 
 class DeploymentMessageIdentityView(BaseModel):
     deployment_id: str
-    mode: Literal["bot", "webhook"]
+    mode: IdentityMode
     display_name: str
     avatar_url: str
-    webhook_status: Literal[
-        "pending",
-        "active",
-        "error",
-        "not_required",
-    ]
+    webhook_status: WebhookStatus
     last_error: str
     updated_at: datetime
 
@@ -37,10 +35,10 @@ class DeploymentMessageIdentityView(BaseModel):
     ) -> "DeploymentMessageIdentityView":
         return cls(
             deployment_id=record.deployment_id,
-            mode=record.mode,  # type: ignore[arg-type]
+            mode=cast(IdentityMode, record.mode),
             display_name=record.display_name,
             avatar_url=record.avatar_url,
-            webhook_status=record.webhook_status,  # type: ignore[arg-type]
+            webhook_status=cast(WebhookStatus, record.webhook_status),
             last_error=record.last_error,
             updated_at=record.updated_at,
         )
