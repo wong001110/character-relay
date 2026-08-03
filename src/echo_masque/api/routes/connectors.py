@@ -168,6 +168,21 @@ def register_webhook(
     )
     if deployment is None:
         raise HTTPException(status_code=404, detail="Discord deployment not found.")
+
+    identity = identities.get_identity(deployment.id, deployment.owner_id)
+    if identity is None:
+        card = character_repository(request).get_character_card(
+            deployment.character_card_id,
+            deployment.owner_id,
+        )
+        identities.upsert_identity(
+            deployment_id=deployment.id,
+            owner_id=deployment.owner_id,
+            mode="webhook",
+            display_name=card.display_name if card is not None else "Character",
+            avatar_url="",
+        )
+
     binding = identities.upsert_binding(
         owner_id=deployment.owner_id,
         connection_id=payload.connection_id,
