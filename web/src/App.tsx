@@ -22,12 +22,15 @@ import { useI18n } from "./i18n";
 import { MatrixWorkspace } from "./MatrixWorkspace";
 import { PackRunLauncher } from "./PackRunLauncher";
 import { PromptInspector } from "./PromptInspector";
+import { isPublicDemoUser } from "./publicDemo";
 import { TemplateLab } from "./TemplateLab";
 import { TestRoom } from "./TestRoom";
 import { WorkspaceHub } from "./WorkspaceHub";
 import "./styles.css";
 import "./polish.css";
 import "./auth-account.css";
+
+const SHOW_ADVANCED_LABS = false;
 
 export default function App() {
   const { language, t } = useI18n();
@@ -55,6 +58,7 @@ export default function App() {
 
   const workspaceAllowed =
     authConfig !== null && (!authConfig.authentication_required || user !== null);
+  const publicDemo = isPublicDemoUser(user);
 
   useEffect(() => {
     let active = true;
@@ -113,6 +117,14 @@ export default function App() {
   }
   function runtimeUpdated(view: AdminRuntimeView) { setRuntime(view.status); }
   function openAdmin() {
+    if (publicDemo) {
+      setError(
+        language === "zh-CN"
+          ? "共享 Demo 账户不开放管理员设置。"
+          : "Admin settings are not available in the shared Demo account."
+      );
+      return;
+    }
     if (user?.role === "admin") { setAdminOpen(true); return; }
     if (user) { setAccountOpen(true); return; }
     setError(language === "zh-CN" ? "需要管理员账户。" : "An Admin account is required.");
@@ -120,14 +132,22 @@ export default function App() {
 
   function withAccount(content: ReactNode) {
     return <>{content}{user && <div style={{ position:"fixed", top:16, right:16, zIndex:40, display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
-      <button type="button" className="paper-button" onClick={() => setAuthoringOpen(true)}>{language === "zh-CN" ? "评测编写" : "Authoring Lab"}</button>
-      <button type="button" className="paper-button" onClick={() => setCalibrationOpen(true)}>{language === "zh-CN" ? "校准数据" : "Calibration Lab"}</button>
-      <button type="button" className="paper-button" onClick={() => setEvaluationOpen(true)}>{language === "zh-CN" ? "Judge 分析" : "Judge Analytics"}</button>
-      <button type="button" className="paper-button" onClick={() => setCoverageOpen(true)}>{language === "zh-CN" ? "覆盖分析" : "Coverage Lab"}</button>
-      <button type="button" className="paper-button" onClick={() => setTemplateOpen(true)}>{language === "zh-CN" ? "模板与分享" : "Templates & Sharing"}</button>
-      <button type="button" className="paper-button" onClick={() => setAccountOpen(true)}>{language === "zh-CN" ? "账户与安全" : "Account & security"}</button>
+      {SHOW_ADVANCED_LABS && <>
+        <button type="button" className="paper-button" onClick={() => setAuthoringOpen(true)}>{language === "zh-CN" ? "评测编写" : "Authoring Lab"}</button>
+        <button type="button" className="paper-button" onClick={() => setCalibrationOpen(true)}>{language === "zh-CN" ? "校准数据" : "Calibration Lab"}</button>
+        <button type="button" className="paper-button" onClick={() => setEvaluationOpen(true)}>{language === "zh-CN" ? "Judge 分析" : "Judge Analytics"}</button>
+        <button type="button" className="paper-button" onClick={() => setCoverageOpen(true)}>{language === "zh-CN" ? "覆盖分析" : "Coverage Lab"}</button>
+        <button type="button" className="paper-button" onClick={() => setTemplateOpen(true)}>{language === "zh-CN" ? "模板与分享" : "Templates & Sharing"}</button>
+      </>}
+      {publicDemo ? (
+        <button type="button" className="paper-button" onClick={() => void logout()}>
+          {language === "zh-CN" ? "退出 Demo" : "Sign out of Demo"}
+        </button>
+      ) : (
+        <button type="button" className="paper-button" onClick={() => setAccountOpen(true)}>{language === "zh-CN" ? "账户与安全" : "Account & security"}</button>
+      )}
     </div>}
-    {accountOpen && user && <AccountPanel user={user} onClose={() => setAccountOpen(false)} onLogout={logout} onDeleted={accountDeleted} />}
+    {accountOpen && user && !publicDemo && <AccountPanel user={user} onClose={() => setAccountOpen(false)} onLogout={logout} onDeleted={accountDeleted} />}
     {adminOpen && user?.role === "admin" && <AdminSettings onClose={() => setAdminOpen(false)} onUpdated={runtimeUpdated} />}</>;
   }
 
@@ -135,11 +155,11 @@ export default function App() {
   if (!authConfig) return <main className="auth-page"><section className="auth-card paper-sheet"><h1>Echo Masque</h1><p className="error-note">{bootError ?? t("app.openShelfError")}</p></section></main>;
   if (authConfig.authentication_required && !user) return <AuthScreen config={authConfig} onAuthenticated={(authenticatedUser) => { setBootError(null); setUser(authenticatedUser); }} />;
 
-  if (templateOpen && user) return withAccount(<TemplateLab cards={cards} onClose={() => { setTemplateOpen(false); void load(); }} />);
-  if (coverageOpen && user) return withAccount(<CoverageLab cards={cards} onClose={() => { setCoverageOpen(false); void load(); }} />);
-  if (evaluationOpen && user) return withAccount(<EvaluationLab onClose={() => { setEvaluationOpen(false); void load(); }} />);
-  if (calibrationOpen && user) return withAccount(<CalibrationLab onClose={() => { setCalibrationOpen(false); void load(); }} />);
-  if (authoringOpen && user) return withAccount(<AuthoringLab user={user} cards={cards} onClose={() => { setAuthoringOpen(false); void load(); }} />);
+  if (SHOW_ADVANCED_LABS && templateOpen && user) return withAccount(<TemplateLab cards={cards} onClose={() => { setTemplateOpen(false); void load(); }} />);
+  if (SHOW_ADVANCED_LABS && coverageOpen && user) return withAccount(<CoverageLab cards={cards} onClose={() => { setCoverageOpen(false); void load(); }} />);
+  if (SHOW_ADVANCED_LABS && evaluationOpen && user) return withAccount(<EvaluationLab onClose={() => { setEvaluationOpen(false); void load(); }} />);
+  if (SHOW_ADVANCED_LABS && calibrationOpen && user) return withAccount(<CalibrationLab onClose={() => { setCalibrationOpen(false); void load(); }} />);
+  if (SHOW_ADVANCED_LABS && authoringOpen && user) return withAccount(<AuthoringLab user={user} cards={cards} onClose={() => { setAuthoringOpen(false); void load(); }} />);
   if (matrixOpen) return withAccount(<MatrixWorkspace cards={cards} onClose={() => { setMatrixOpen(false); void load(); }} />);
   if (workspaceOpen) return withAccount(<><WorkspaceHub cards={cards} onClose={() => { setWorkspaceOpen(false); void load(); }} /><PackRunLauncher cards={cards} /></>);
 
@@ -150,5 +170,5 @@ export default function App() {
   }
 
   const editingTarget = editingCard ? targets.find((item) => item.id === editingCard.target_id) ?? null : null;
-  return withAccount(<><CharacterShelf cards={cards} error={error} onCreate={() => { setEditingCard(null); setCreatorOpen(true); }} onEdit={(card) => { setEditingCard(card); setCreatorOpen(true); }} onPrompt={setPromptCard} onEnter={setActiveCard} onAdmin={openAdmin} onWorkspace={() => setWorkspaceOpen(true)} onMatrix={() => setMatrixOpen(true)} />{creatorOpen && <CharacterCreator targets={targets} card={editingCard} target={editingTarget} onClose={() => { setCreatorOpen(false); setEditingCard(null); }} onSaved={saved} />}{promptCard && <PromptInspector card={promptCard} onClose={() => setPromptCard(null)} />}</>);
+  return withAccount(<><CharacterShelf cards={cards} error={error} demoMode={publicDemo} onCreate={() => { setEditingCard(null); setCreatorOpen(true); }} onEdit={(card) => { setEditingCard(card); setCreatorOpen(true); }} onPrompt={setPromptCard} onEnter={setActiveCard} onAdmin={openAdmin} onWorkspace={() => setWorkspaceOpen(true)} onMatrix={() => setMatrixOpen(true)} />{creatorOpen && !publicDemo && <CharacterCreator targets={targets} card={editingCard} target={editingTarget} onClose={() => { setCreatorOpen(false); setEditingCard(null); }} onSaved={saved} />}{promptCard && <PromptInspector card={promptCard} onClose={() => setPromptCard(null)} />}</>);
 }
