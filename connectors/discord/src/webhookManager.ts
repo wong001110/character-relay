@@ -88,17 +88,15 @@ export class DiscordWebhookManager {
     let firstMessageId: string | null = null;
 
     for (let index = 0; index < chunks.length; index += 1) {
-      let response = await this.executeWebhook(
-        binding,
-        deployment,
-        chunks[index]
-      );
+      const chunk = chunks[index];
+      if (!chunk) continue;
+      let response = await this.executeWebhook(binding, deployment, chunk);
       if ((response.status === 401 || response.status === 404) && index === 0) {
         deployment.webhook_id = null;
         deployment.webhook_token = null;
         deployment.webhook_status = "pending";
         binding = await this.ensure(deployment, botUserId);
-        response = await this.executeWebhook(binding, deployment, chunks[index]);
+        response = await this.executeWebhook(binding, deployment, chunk);
       }
       if (!response.ok) {
         throw new Error(
@@ -125,9 +123,7 @@ export class DiscordWebhookManager {
     deployment: DiscordDeployment,
     content: string
   ): Promise<Response> {
-    const url = new URL(
-      `${DISCORD_API}/webhooks/${binding.id}/${binding.token}`
-    );
+    const url = new URL(`${DISCORD_API}/webhooks/${binding.id}/${binding.token}`);
     url.searchParams.set("wait", "true");
     if (deployment.thread_id) {
       url.searchParams.set("thread_id", deployment.thread_id);
