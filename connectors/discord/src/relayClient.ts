@@ -2,7 +2,10 @@ import type {
   ConnectorHeartbeat,
   DiscordDeployment,
   DiscordInboundMessage,
-  DiscordReply
+  DiscordReply,
+  DiscordWebhookRegistration,
+  DiscordWebhookRegistrationResult,
+  DiscordWebhookStatusReport
 } from "./types.js";
 
 export class RelayClient {
@@ -17,6 +20,25 @@ export class RelayClient {
     return this.request<DiscordDeployment[]>(
       `/api/connectors/discord/deployments?${query.toString()}`
     );
+  }
+
+  async registerWebhook(
+    payload: Omit<DiscordWebhookRegistration, "connection_id">
+  ): Promise<DiscordWebhookRegistrationResult> {
+    return this.request<DiscordWebhookRegistrationResult>(
+      "/api/connectors/discord/webhooks",
+      {
+        method: "PUT",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
+  }
+
+  async reportWebhookStatus(payload: DiscordWebhookStatusReport): Promise<void> {
+    await this.request<void>("/api/connectors/discord/webhooks/status", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
   }
 
   async heartbeat(payload: Omit<ConnectorHeartbeat, "connection_id">): Promise<void> {
