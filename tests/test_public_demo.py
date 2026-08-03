@@ -139,6 +139,25 @@ def test_public_demo_sync_is_idempotent_and_copies_encrypted_credentials(
     assert len(packs) == 1
     assert len(packs[0]["items"]) == 2
 
+    status = first_restart.get("/api/public-demo/status")
+    assert status.status_code == 200
+    assert status.json() == {
+        "enabled": True,
+        "ready": True,
+        "email": PUBLIC_DEMO_EMAIL,
+        "role": "user",
+        "character_names": [
+            "LIVE DEMO — Drift Ann (OOC Control)",
+            "LIVE DEMO — Stable Ann",
+        ],
+        "scenario_count": 2,
+        "test_pack_count": 1,
+        "credential_ready_count": 2,
+        "read_only": True,
+        "daily_run_limit": 20,
+        "secrets_included": False,
+    }
+
     demo_user = first_restart.app.state.auth_repository.get_user_by_email(PUBLIC_DEMO_EMAIL)
     assert demo_user is not None
     copied_cards = first_restart.app.state.repository.list_character_cards(demo_user.id)
