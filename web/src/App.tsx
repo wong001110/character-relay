@@ -161,7 +161,7 @@ export default function App() {
   if (SHOW_ADVANCED_LABS && calibrationOpen && user) return withAccount(<CalibrationLab onClose={() => { setCalibrationOpen(false); void load(); }} />);
   if (SHOW_ADVANCED_LABS && authoringOpen && user) return withAccount(<AuthoringLab user={user} cards={cards} onClose={() => { setAuthoringOpen(false); void load(); }} />);
   if (matrixOpen) return withAccount(<MatrixWorkspace cards={cards} onClose={() => { setMatrixOpen(false); void load(); }} />);
-  if (workspaceOpen) return withAccount(<><WorkspaceHub cards={cards} onClose={() => { setWorkspaceOpen(false); void load(); }} /><PackRunLauncher cards={cards} /></>);
+  if (workspaceOpen) return withAccount(<div className={publicDemo ? "demo-read-only" : undefined}><WorkspaceHub cards={cards} onClose={() => { setWorkspaceOpen(false); void load(); }} /><PackRunLauncher cards={cards} /></div>);
 
   if (activeCard) {
     const target = targets.find((item) => item.id === activeCard.target_id);
