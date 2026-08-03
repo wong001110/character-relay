@@ -19,6 +19,7 @@ import {
   splitDiscordMessage
 } from "./routing.js";
 import type { DiscordContextMessage, DiscordDeployment } from "./types.js";
+import { DiscordWebhookManager } from "./webhookManager.js";
 
 const config = loadConfig();
 const relay = new RelayClient(
@@ -26,6 +27,7 @@ const relay = new RelayClient(
   config.relayConnectorToken,
   config.relayConnectionId
 );
+const webhookManager = new DiscordWebhookManager(config.discordBotToken, relay);
 const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
 if (config.messageContentIntent) intents.push(GatewayIntentBits.MessageContent);
 const client = new Client({
@@ -35,6 +37,7 @@ const client = new Client({
 const context = new ContextBuffer(config.maxContextMessages);
 const queues = new Map<string, Promise<void>>();
 const processedMessages = new Map<string, number>();
+const sentCharacterMessages = new Map<string, number>();
 let deployments = new Map<string, DiscordDeployment>();
 let lastDeploymentSyncAt: string | null = null;
 let lastError: string | null = null;
@@ -53,11 +56,45 @@ function log(message: string, metadata?: Record<string, unknown>): void {
   );
 }
 
+async function prepareWebhookIdentity(
+  deployment: DiscordDeployment,
+  botUserId: string
+): Promise<void> {
+  if (deployment.identity_mode !== "webhook") return;
+  try {
+    await webhookManager.ensure(deployment, botUserId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    deployment.webhook_status = "error";
+    await relay
+      .reportWebhookStatus({
+        deployment_id: deployment.deployment_id,
+        status: "error",
+        last_error: message
+      })
+      .catch(() => undefined);
+    log("Discord webhook preparation failed.", {
+      deploymentId: deployment.deployment_id,
+      channelId: deployment.channel_id,
+      error: message
+    });
+  }
+}
+
 async function refreshDeployments(): Promise<void> {
   const next = await relay.listDeployments();
+  const botUserId = client.user?.id;
+  if (botUserId) {
+    await Promise.all(next.map((item) => prepareWebhookIdentity(item, botUserId)));
+  }
   deployments = buildDeploymentIndex(next);
   lastDeploymentSyncAt = new Date().toISOString();
-  log("Discord deployments refreshed.", { count: next.length });
+  log("Discord deployments refreshed.", {
+    count: next.length,
+    webhookReady: next.filter(
+      (item) => item.identity_mode === "webhook" && item.webhook_status === "active"
+    ).length
+  });
 }
 
 async function sendHeartbeat(
@@ -83,7 +120,10 @@ function channelLocation(message: Message<true>): {
   if (message.channel.isThread()) {
     return {
       channelId: message.channel.parentId ?? "",
-      channelName: message.channel.parent?.name ?? message.channel.parentId ?? "unknown-channel",
+      channelName:
+        message.channel.parent?.name ??
+        message.channel.parentId ??
+        "unknown-channel",
       threadId: message.channel.id,
       threadName: message.channel.name
     };
@@ -103,11 +143,27 @@ function normalizedText(message: Message<true>, botUserId: string): string {
     .trim();
 }
 
-async function repliedToBot(message: Message<true>, botUserId: string): Promise<boolean> {
-  if (!message.reference?.messageId) return false;
+function knownWebhookIds(): Set<string> {
+  return new Set(
+    [...deployments.values()]
+      .map((item) => item.webhook_id)
+      .filter((item): item is string => Boolean(item))
+  );
+}
+
+async function repliedToCharacter(
+  message: Message<true>,
+  botUserId: string
+): Promise<boolean> {
+  const referencedId = message.reference?.messageId;
+  if (!referencedId) return false;
+  if (sentCharacterMessages.has(referencedId)) return true;
   try {
     const referenced = await message.fetchReference();
-    return referenced.author.id === botUserId;
+    return (
+      referenced.author.id === botUserId ||
+      (Boolean(referenced.webhookId) && knownWebhookIds().has(referenced.webhookId!))
+    );
   } catch (error) {
     log("Unable to resolve referenced Discord message.", {
       messageId: message.id,
@@ -133,7 +189,7 @@ function enqueue(destination: string, task: () => Promise<void>): void {
   queues.set(destination, next);
 }
 
-async function sendCharacterReply(
+async function sendBotFallback(
   source: Message<true>,
   characterName: string,
   replyText: string
@@ -156,6 +212,33 @@ async function sendCharacterReply(
   return first.id;
 }
 
+async function sendCharacterReply(
+  source: Message<true>,
+  deployment: DiscordDeployment,
+  replyText: string,
+  botUserId: string
+): Promise<string | null> {
+  if (deployment.identity_mode === "webhook") {
+    try {
+      return await webhookManager.send(
+        deployment,
+        splitDiscordMessage(replyText),
+        botUserId
+      );
+    } catch (error) {
+      log("Falling back to the shared Bot identity.", {
+        deploymentId: deployment.deployment_id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+  return sendBotFallback(
+    source,
+    deployment.identity_display_name || deployment.character_display_name,
+    replyText
+  );
+}
+
 async function processMessage(message: Message): Promise<void> {
   const botUser = client.user;
   if (!message.inGuild() || message.author.bot || !botUser) return;
@@ -173,12 +256,12 @@ async function processMessage(message: Message): Promise<void> {
 
   const text = normalizedText(message, botUser.id);
   const mentionedBot = message.mentions.users.has(botUser.id);
-  const isReplyToBot = await repliedToBot(message, botUser.id);
+  const isReplyToCharacter = await repliedToCharacter(message, botUser.id);
   const shouldSubmit = shouldSubmitMessage(
     deployment,
     {
       mentionedBot,
-      repliedToBot: isReplyToBot,
+      repliedToBot: isReplyToCharacter,
       hasReadableText: Boolean(text)
     },
     config.smartParticipationEnabled
@@ -214,30 +297,34 @@ async function processMessage(message: Message): Promise<void> {
       author_display_name: authorDisplayName,
       text: text || "The user mentioned the character without readable text.",
       mentioned_bot: mentionedBot,
-      replied_to_bot: isReplyToBot,
+      replied_to_bot: isReplyToCharacter,
       smart_candidate:
         deployment.participation_mode === "smart" &&
         config.smartParticipationEnabled,
       recent_messages: context.get(key)
     });
-    if (reply.action !== "reply" || !reply.text || !reply.character_display_name) {
-      return;
-    }
+    if (reply.action !== "reply" || !reply.text) return;
+
     const sentMessageId = await sendCharacterReply(
       message,
-      reply.character_display_name,
-      reply.text
+      deployment,
+      reply.text,
+      botUser.id
     );
+    if (sentMessageId) sentCharacterMessages.set(sentMessageId, Date.now());
     context.push(key, {
       message_id: sentMessageId ?? `relay-${Date.now()}`,
       author_id: botUser.id,
-      author_display_name: reply.character_display_name,
+      author_display_name:
+        deployment.identity_display_name || deployment.character_display_name,
       text: reply.text,
       created_at: new Date().toISOString(),
       is_bot: true
     });
     log("Character reply sent to Discord.", {
       deploymentId: reply.deployment_id,
+      identityMode: deployment.identity_mode,
+      webhookStatus: deployment.webhook_status,
       guildId: message.guildId,
       channelId: location.channelId,
       threadId: location.threadId || null,
@@ -253,6 +340,9 @@ const healthServer = createServer((request, response) => {
     response.end(JSON.stringify({ detail: "Not found" }));
     return;
   }
+  const webhookDeployments = [...deployments.values()].filter(
+    (item) => item.identity_mode === "webhook"
+  );
   response.writeHead(ready ? 200 : 503, { "Content-Type": "application/json" });
   response.end(
     JSON.stringify({
@@ -261,6 +351,13 @@ const healthServer = createServer((request, response) => {
       discord_user: client.user?.tag ?? null,
       connection_id: config.relayConnectionId,
       active_deployments: deployments.size,
+      webhook_deployments: webhookDeployments.length,
+      webhook_ready: webhookDeployments.filter(
+        (item) => item.webhook_status === "active"
+      ).length,
+      webhook_errors: webhookDeployments.filter(
+        (item) => item.webhook_status === "error"
+      ).length,
       message_content_intent: config.messageContentIntent,
       smart_participation_enabled: config.smartParticipationEnabled,
       last_deployment_sync_at: lastDeploymentSyncAt,
@@ -319,6 +416,9 @@ dedupeTimer = setInterval(() => {
   for (const [messageId, seenAt] of processedMessages) {
     if (seenAt < cutoff) processedMessages.delete(messageId);
   }
+  for (const [messageId, seenAt] of sentCharacterMessages) {
+    if (seenAt < cutoff) sentCharacterMessages.delete(messageId);
+  }
 }, 10 * 60 * 1000);
 
 async function shutdown(signal: string): Promise<void> {
@@ -326,7 +426,9 @@ async function shutdown(signal: string): Promise<void> {
   if (refreshTimer) clearInterval(refreshTimer);
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   if (dedupeTimer) clearInterval(dedupeTimer);
-  await sendHeartbeat("offline", `Connector stopped by ${signal}.`).catch(() => undefined);
+  await sendHeartbeat("offline", `Connector stopped by ${signal}.`).catch(
+    () => undefined
+  );
   client.destroy();
   healthServer.close();
   log("Discord connector stopped.", { signal });
