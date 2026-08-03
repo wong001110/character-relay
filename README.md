@@ -37,6 +37,22 @@ python run.py --api-only
 python run.py --no-reload
 ```
 
+## Public demo account
+
+A shared read-only account is available on the Production deployment:
+
+```text
+URL: https://echo-masque-production.up.railway.app
+Email: demo@echo-masque.app
+Password: EchoMasqueDemo2026!
+```
+
+The Demo workspace is synchronized from the Bootstrap Admin workspace on deployment. It receives the two Live Demo Character Cards plus the Admin's current custom Scenarios and Test Packs. Provider credentials remain encrypted and server-side.
+
+Demo users may inspect Character Prompts, browse the Experiment Workspace, run or cancel tests, rerun experiments, compare results, view reports, and sign out. Character, credential, Scenario, Test Pack, account, Matrix, Authoring, Calibration, Analytics, Template, import, and other shared-workspace mutations are rejected by the server.
+
+The Authoring, Calibration, Judge Analytics, Coverage, and Templates & Sharing navigation is temporarily hidden in the web UI while the public testing flow is being simplified.
+
 ## Core capabilities
 
 ### Character Library and Runtime Prompt Inspector
@@ -126,6 +142,8 @@ ECHO_MASQUE_BOOTSTRAP_ADMIN_PASSWORD=<long unique password>
 ECHO_MASQUE_CREDENTIAL_ENCRYPTION_KEYS=<Fernet key>
 ```
 
+The Production Docker image sets `ECHO_MASQUE_PUBLIC_DEMO_ENABLED=true`. Set it to `false` in the deployment environment to disable Demo-account provisioning and synchronization.
+
 Optional Phase 16 quota overrides:
 
 ```text
@@ -135,7 +153,7 @@ ECHO_MASQUE_MAX_TEMPLATE_INSTANTIATIONS_PER_DAY=100
 ECHO_MASQUE_MAX_SHARED_ASSETS_PER_BUNDLE=200
 ```
 
-Keep encryption keys and passwords outside Git. Losing every matching Fernet key makes existing encrypted Provider credentials unrecoverable.
+Keep encryption keys and administrator passwords outside Git. The documented Demo password is intentionally public and belongs only to the server-restricted low-privilege account. Losing every matching Fernet key makes existing encrypted Provider credentials unrecoverable.
 
 ## Validation
 
