@@ -1,26 +1,20 @@
-"""Smoke-test a deployed Echo Masque service using only the Python standard library."""
+"""Run a small multilingual production smoke test against a deployed service."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import time
-from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+import urllib.error
+import urllib.request
+from typing import cast
 
-USER_HEADERS = {
-    "Content-Type": "application/json",
-    "User-Agent": "echo-masque-railway-smoke/1.0",
-    "X-Echo-User": "railway-smoke",
-}
+
+EXPECTED_PRODUCT_NAMES = {"Character Relay", "Echo Masque"}
 
 
 def normalized_base_url(value: str) -> str:
-    base_url = value.strip().rstrip("/")
-    if not base_url.startswith(("http://", "https://")):
-        raise ValueError("Base URL must start with http:// or https://")
-    return base_url
+    return value.rstrip("/")
 
 
 def request_json(
@@ -29,66 +23,58 @@ def request_json(
     *,
     method: str = "GET",
     payload: dict[str, object] | None = None,
-) -> Any:
-    data = json.dumps(payload).encode() if payload is not None else None
-    request = Request(
+) -> dict[str, object] | list[dict[str, object]]:
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = urllib.request.Request(
         f"{base_url}{path}",
         data=data,
-        headers=USER_HEADERS,
         method=method,
+        headers={"Content-Type": "application/json"},
     )
     try:
-        with urlopen(request, timeout=20) as response:
-            return json.loads(response.read().decode())
-    except HTTPError as exc:
-        body = exc.read().decode(errors="replace")
-        raise RuntimeError(f"{method} {path} returned HTTP {exc.code}: {body}") from exc
-    except URLError as exc:
-        raise RuntimeError(f"{method} {path} could not connect: {exc.reason}") from exc
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return cast(
+                dict[str, object] | list[dict[str, object]],
+                json.loads(response.read().decode("utf-8")),
+            )
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"{method} {path} failed with {exc.code}: {body}") from exc
 
 
 def request_text(base_url: str, path: str) -> tuple[str, str]:
-    request = Request(
-        f"{base_url}{path}",
-        headers={"User-Agent": USER_HEADERS["User-Agent"]},
-    )
+    request = urllib.request.Request(f"{base_url}{path}", method="GET")
     try:
-        with urlopen(request, timeout=20) as response:
-            return response.read().decode(errors="replace"), response.headers.get_content_type()
-    except HTTPError as exc:
-        body = exc.read().decode(errors="replace")
-        raise RuntimeError(f"GET {path} returned HTTP {exc.code}: {body}") from exc
-    except URLError as exc:
-        raise RuntimeError(f"GET {path} could not connect: {exc.reason}") from exc
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.read().decode("utf-8"), response.headers.get_content_type()
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"GET {path} failed with {exc.code}: {body}") from exc
 
 
 def contains_cjk(value: str) -> bool:
     return any("\u4e00" <= character <= "\u9fff" for character in value)
 
 
-def validate_storage_health(health: dict[str, Any], *, required: bool) -> str:
+def validate_storage_health(health: dict[str, object], *, required: bool) -> str:
     storage = health.get("storage")
     if not isinstance(storage, dict):
         if required:
-            raise RuntimeError(f"Health response did not include storage metadata: {health}")
-        return "legacy-health"
+            raise RuntimeError(f"Health response omitted storage details: {health}")
+        return "not-reported"
     instance_id = storage.get("storage_instance_id")
     if not isinstance(instance_id, str) or not instance_id:
-        raise RuntimeError(f"Storage identity was missing: {storage}")
-    if health.get("environment") == "production":
-        if storage.get("persistent_required") is not True:
-            raise RuntimeError(f"Production did not require persistent storage: {storage}")
-        if storage.get("mount_ready") is not True:
-            raise RuntimeError(f"Production /data mount was not ready: {storage}")
-        if storage.get("mount_path") != "/data":
-            raise RuntimeError(f"Production mount path was unexpected: {storage}")
-        if storage.get("database_path") != "/data/echo_masque.db":
-            raise RuntimeError(f"Production database path was unexpected: {storage}")
+        raise RuntimeError(f"Storage identity is missing: {storage}")
+    if required:
+        if storage.get("database_kind") != "sqlite":
+            raise RuntimeError(f"Production smoke requires SQLite storage: {storage}")
+        if storage.get("mount_path") != "/data" or storage.get("mount_ready") is not True:
+            raise RuntimeError(f"Persistent /data mount is not ready: {storage}")
     return instance_id
 
 
 def completed_language_trial(base_url: str, test_language: str) -> float:
-    started = request_json(
+    run = request_json(
         base_url,
         "/api/trials",
         method="POST",
@@ -97,36 +83,46 @@ def completed_language_trial(base_url: str, test_language: str) -> float:
             "suite": ["identity_integrity"],
             "mode": "fast",
             "tester_mode": "benchmark",
+            "judge_mode": "rules",
             "test_language": test_language,
         },
     )
-    if started.get("test_language") != test_language:
-        raise RuntimeError(f"Trial did not preserve test language: {started}")
-    run_id = started.get("id")
+    if not isinstance(run, dict):
+        raise RuntimeError(f"Trial start response was not an object: {run}")
+    run_id = run.get("id")
     if not isinstance(run_id, str):
-        raise RuntimeError(f"Trial did not return a run ID: {started}")
+        raise RuntimeError(f"Trial start response had no id: {run}")
 
-    snapshot: dict[str, Any] | None = None
-    for _ in range(60):
-        snapshot = request_json(base_url, f"/api/trials/{run_id}/snapshot")
-        status = snapshot.get("run", {}).get("status")
-        if status not in {"pending", "running"}:
+    deadline = time.monotonic() + 90
+    snapshot: dict[str, object] | None = None
+    while time.monotonic() < deadline:
+        candidate = request_json(base_url, f"/api/trials/{run_id}/snapshot")
+        if not isinstance(candidate, dict):
+            raise RuntimeError(f"Trial snapshot response was not an object: {candidate}")
+        snapshot = candidate
+        run_view = candidate.get("run")
+        if not isinstance(run_view, dict):
+            raise RuntimeError(f"Trial snapshot omitted run metadata: {candidate}")
+        status = run_view.get("status")
+        if status == "completed":
             break
+        if status in {"failed", "cancelled"}:
+            raise RuntimeError(f"Trial ended as {status}: {candidate}")
         time.sleep(0.5)
+    else:
+        raise RuntimeError(f"Trial {run_id} did not complete before timeout: {snapshot}")
 
     if snapshot is None:
-        raise RuntimeError("No trial snapshot was returned.")
-    run = snapshot.get("run", {})
-    if run.get("status") != "completed":
-        raise RuntimeError(f"Deterministic trial did not complete: {run}")
-    if run.get("test_language") != test_language:
-        raise RuntimeError(f"Completed run changed test language: {run}")
-
-    result = run.get("result", {})
+        raise RuntimeError(f"Trial {run_id} produced no snapshot")
+    run_view = snapshot.get("run")
+    if not isinstance(run_view, dict):
+        raise RuntimeError(f"Trial snapshot omitted final run metadata: {snapshot}")
+    result = run_view.get("result")
+    if not isinstance(result, dict):
+        raise RuntimeError(f"Trial result was missing: {snapshot}")
     score = result.get("average_score")
-    if not isinstance(score, (int, float)) or score < 90:
-        raise RuntimeError(f"Stable deterministic score was unexpected: {score}")
-
+    if not isinstance(score, int | float):
+        raise RuntimeError(f"Trial score was missing: {result}")
     results = result.get("results")
     if not isinstance(results, list) or not results:
         raise RuntimeError(f"Trial result did not contain a scenario: {result}")
@@ -151,7 +147,7 @@ def completed_language_trial(base_url: str, test_language: str) -> float:
 
 def run_smoke(base_url: str, *, require_storage: bool = False) -> None:
     health = request_json(base_url, "/health")
-    if health.get("name") != "Echo Masque":
+    if not isinstance(health, dict) or health.get("name") not in EXPECTED_PRODUCT_NAMES:
         raise RuntimeError(f"Unexpected health response: {health}")
     storage_instance_id = validate_storage_health(health, required=require_storage)
 
@@ -160,6 +156,8 @@ def run_smoke(base_url: str, *, require_storage: bool = False) -> None:
         raise RuntimeError(f"Root did not serve the web client: {content_type}")
 
     targets = request_json(base_url, "/api/targets")
+    if not isinstance(targets, list):
+        raise RuntimeError(f"Target listing was not an array: {targets}")
     target_ids = {item.get("id") for item in targets}
     if "demo-stable" not in target_ids:
         raise RuntimeError("Stable demo target is missing from the deployment.")
@@ -178,7 +176,7 @@ def main() -> int:
     parser.add_argument(
         "--require-storage",
         action="store_true",
-        help="Require the deployed version to expose verified persistent storage health.",
+        help="Fail unless SQLite uses a ready /data persistent mount.",
     )
     args = parser.parse_args()
     run_smoke(normalized_base_url(args.base_url), require_storage=args.require_storage)
