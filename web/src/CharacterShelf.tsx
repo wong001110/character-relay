@@ -12,6 +12,8 @@ interface Props {
   onEdit: (card: CharacterCard) => void;
   onPrompt: (card: CharacterCard) => void;
   onEnter: (card: CharacterCard) => void;
+  onDeploy: (card: CharacterCard) => void;
+  onDeployments: () => void;
   onAdmin: () => void;
   onWorkspace: () => void;
   onMatrix: () => void;
@@ -34,11 +36,14 @@ export function CharacterShelf({
   onEdit,
   onPrompt,
   onEnter,
+  onDeploy,
+  onDeployments,
   onAdmin,
   onWorkspace,
   onMatrix
 }: Props) {
   const { language, t } = useI18n();
+  const zh = language === "zh-CN";
   const [query, setQuery] = useState("");
   const [subject, setSubject] = useState("all");
   const [tag, setTag] = useState("all");
@@ -90,21 +95,30 @@ export function CharacterShelf({
         <div className="brand-lockup">
           <img src="/assets/masque-mark.svg" alt="" />
           <div>
-            <p className="kicker">{t("shelf.kicker")}</p>
-            <h1>Echo Masque</h1>
-            <p>{t("shelf.tagline")}</p>
+            <p className="kicker">
+              {zh ? "AI 角色创建、测试与跨平台部署" : "AI character creation, testing, and deployment"}
+            </p>
+            <h1>Character Relay</h1>
+            <p>
+              {zh
+                ? "创建一次，验证角色，再把稳定版本带进真实群聊。"
+                : "Create once, validate the character, and bring stable versions into real conversations."}
+            </p>
           </div>
         </div>
         <div className="header-actions">
           <LanguageSwitcher />
           {demoMode && <span className="status-chip pass">PUBLIC DEMO</span>}
+          <button className="paper-button" onClick={onDeployments}>
+            {zh ? "部署中心" : "Deployments"}
+          </button>
           {!demoMode && (
             <button className="paper-button" onClick={onMatrix}>
-              {language === "zh-CN" ? "矩阵实验室" : "Matrix Lab"}
+              {zh ? "Echo Masque 矩阵" : "Echo Masque Matrix"}
             </button>
           )}
           <button className="paper-button" onClick={onWorkspace}>
-            {language === "zh-CN" ? "实验工作区" : "Workspace"}
+            {zh ? "Echo Masque 测试" : "Echo Masque Lab"}
           </button>
           {!demoMode && (
             <button className="paper-button" onClick={onAdmin}>
@@ -121,14 +135,20 @@ export function CharacterShelf({
 
       <section className="shelf-intro paper-sheet">
         <div>
-          <p className="tape-label">{demoMode ? "READ-ONLY DEMO" : t("shelf.label")}</p>
-          <h2>{t("shelf.heading")}</h2>
+          <p className="tape-label">{demoMode ? "READ-ONLY DEMO" : "CHARACTER STUDIO"}</p>
+          <h2>
+            {zh
+              ? "把角色卡从创作资产，变成可测试、可发布、可部署的角色。"
+              : "Turn Character Cards into testable, publishable, deployable characters."}
+          </h2>
           <p>
             {demoMode
-              ? language === "zh-CN"
-                ? "共享测试账户已预载角色卡、测试场景与测试包。可以查看 Prompt、进入测试房间并运行实验，但不能修改共享内容。"
-                : "This shared account includes preloaded Character Cards, Scenarios, and Test Packs. You can inspect Prompts and run tests, but shared content cannot be changed."
-              : t("shelf.description")}
+              ? zh
+                ? "共享测试账户已预载角色卡、测试场景与测试包。可以查看 Prompt、进入 Echo Masque 测试房并查看部署结构，但不能修改共享内容。"
+                : "This shared account includes Character Cards, Scenarios, and Test Packs. You can inspect prompts, enter the Echo Masque test room, and view deployment structure, but shared content cannot be changed."
+              : zh
+                ? "在角色库管理人物设定与模型连接，在 Echo Masque 中进行压力测试，再从部署中心查看角色目前进入了哪些 Server、Channel、Thread 或群组。"
+                : "Manage personas and model bindings here, pressure-test them in Echo Masque, then use the Deployment Center to see every server, channel, thread, or group where they run."}
           </p>
         </div>
         <div className="shelf-count">
@@ -222,10 +242,13 @@ export function CharacterShelf({
                     </button>
                   )}
                   <button className="paper-button" onClick={() => onPrompt(card)}>
-                    {language === "zh-CN" ? "真实 Prompt" : "View Prompt"}
+                    {zh ? "真实 Prompt" : "View Prompt"}
+                  </button>
+                  <button className="paper-button" onClick={() => onDeploy(card)}>
+                    {zh ? "部署" : "Deploy"}
                   </button>
                   <button className="enter-room" onClick={() => onEnter(card)}>
-                    {t("shelf.enterRoom")}
+                    {zh ? "进入 Echo Masque" : "Open Echo Masque"}
                   </button>
                 </div>
               </article>
