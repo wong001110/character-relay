@@ -1,4 +1,5 @@
 import type { AuthUser } from "./api";
+import "./demo-read-only.css";
 
 export const PUBLIC_DEMO_EMAIL = "demo@echo-masque.app";
 
