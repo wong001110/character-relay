@@ -189,18 +189,10 @@ def test_public_demo_can_browse_and_run_but_cannot_mutate_shared_workspace(
     assert demo_client.get("/api/auth/sessions").status_code == 403
     assert demo_client.delete("/api/account", json={}).status_code == 403
 
-    trial = demo_client.post(
-        "/api/trials",
-        json={
-            "character_card_id": cards.json()[0]["id"],
-            "suite": ["identity_integrity"],
-            "mode": "fast",
-            "tester_mode": "benchmark",
-            "judge_mode": "rules",
-            "test_language": "en",
-        },
-    )
-    assert trial.status_code == 202, trial.text
+    # The middleware permits Trial creation, while normal request validation still applies.
+    # An empty body proves the request reached the route without starting a model call.
+    trial_validation = demo_client.post("/api/trials", json={})
+    assert trial_validation.status_code == 422
 
     logout = demo_client.post("/api/auth/logout")
     assert logout.status_code == 204
