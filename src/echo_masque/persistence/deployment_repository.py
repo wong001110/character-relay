@@ -3,7 +3,7 @@
 import json
 from uuid import uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
 from echo_masque.persistence.database import Database
@@ -251,3 +251,41 @@ class DeploymentRepository:
             session.delete(record)
             session.commit()
             return True
+
+    def delete_owner(self, owner_id: str) -> dict[str, int]:
+        """Delete all connector configuration owned by an account."""
+        with self.database.session() as session:
+            deployment_result = session.execute(
+                delete(CharacterDeploymentRecord).where(
+                    CharacterDeploymentRecord.owner_id == owner_id
+                )
+            )
+            connection_result = session.execute(
+                delete(PlatformConnectionRecord).where(
+                    PlatformConnectionRecord.owner_id == owner_id
+                )
+            )
+            session.commit()
+        return {
+            "deployments": int(getattr(deployment_result, "rowcount", 0) or 0),
+            "connections": int(getattr(connection_result, "rowcount", 0) or 0),
+        }
+
+    def claim_owner(self, source_owner_id: str, target_owner_id: str) -> dict[str, int]:
+        """Move legacy local connector configuration into an authenticated workspace."""
+        with self.database.session() as session:
+            connection_result = session.execute(
+                update(PlatformConnectionRecord)
+                .where(PlatformConnectionRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
+            deployment_result = session.execute(
+                update(CharacterDeploymentRecord)
+                .where(CharacterDeploymentRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
+            session.commit()
+        return {
+            "connections": int(getattr(connection_result, "rowcount", 0) or 0),
+            "deployments": int(getattr(deployment_result, "rowcount", 0) or 0),
+        }
