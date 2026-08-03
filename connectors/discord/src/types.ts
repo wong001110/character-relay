@@ -4,6 +4,9 @@ export type ParticipationMode =
   | "mention_and_reply"
   | "smart";
 
+export type IdentityMode = "bot" | "webhook";
+export type WebhookStatus = "pending" | "active" | "error" | "not_required";
+
 export interface DiscordDeployment {
   deployment_id: string;
   connection_id: string;
@@ -18,6 +21,12 @@ export interface DiscordDeployment {
   participation_mode: ParticipationMode;
   version_label: string;
   status: "active";
+  identity_mode: IdentityMode;
+  identity_display_name: string;
+  identity_avatar_url: string;
+  webhook_status: WebhookStatus;
+  webhook_id?: string | null;
+  webhook_token?: string | null;
 }
 
 export interface DiscordContextMessage {
@@ -64,5 +73,27 @@ export interface ConnectorHeartbeat {
   bot_user_id: string;
   bot_display_name: string;
   status: "connected" | "offline" | "error";
+  last_error: string;
+}
+
+export interface DiscordWebhookRegistration {
+  connection_id: string;
+  deployment_id: string;
+  workspace_id: string;
+  channel_id: string;
+  webhook_id: string;
+  webhook_token: string;
+}
+
+export interface DiscordWebhookRegistrationResult {
+  binding_id: string;
+  webhook_id: string;
+  webhook_token: string;
+  status: "active";
+}
+
+export interface DiscordWebhookStatusReport {
+  deployment_id: string;
+  status: WebhookStatus;
   last_error: string;
 }
