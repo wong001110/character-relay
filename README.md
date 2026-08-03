@@ -1,24 +1,85 @@
-# Echo Masque
+# Character Relay
 
-**See what remains when the role is challenged.**
+**Create, test, and deploy persistent AI characters across chat platforms.**
 
-Echo Masque is a Python-first AI character evaluation workspace. It combines owner-scoped Character Cards, reusable tests, deterministic and model-backed execution, human-controlled calibration, Judge analytics, and a server-enforced review boundary for AI-generated evaluation assets.
+Character Relay is the expanded product direction of Echo Masque. It combines a secure Character Card workspace, the existing Echo Masque evaluation system, version-aware deployment management, and a connector-oriented architecture for bringing characters into Discord, WhatsApp, Telegram, and future chat platforms.
+
+Echo Masque remains part of the product as the character consistency and pressure-testing module. It is no longer the name of the entire platform.
 
 ## Product loop
 
 ```text
-Sign in to an isolated workspace
-  -> create or select a Character Card
-  -> inspect the exact Runtime System Prompt when applicable
-  -> author or generate reviewable Scenario/Test Pack Drafts
-  -> approve Drafts before they enter execution paths
-  -> run Benchmark or Adaptive pressure
-  -> judge with Rules, Semantic, or Hybrid mode
-  -> preserve immutable Run and Evaluation Snapshots
-  -> calibrate PASS / FAIL / REVIEW labels with exact evidence
-  -> compare Rubrics and inspect coverage gaps
-  -> exchange secret-free evaluation assets without bypassing review
+Create a Character Card
+  -> inspect the exact runtime prompt and model binding
+  -> test identity, memory, persona, and instruction resistance in Echo Masque
+  -> review evidence and publish a stable character version
+  -> connect a Discord, WhatsApp, or Telegram account
+  -> deploy the character to one or more channels, threads, or groups
+  -> manage every deployment independently
+  -> revise, retest, upgrade, pause, or roll back
 ```
+
+## Current release scope
+
+The current application includes:
+
+- **Character Studio** — user-owned Character Cards and prompt/model bindings;
+- **Echo Masque Lab** — deterministic and model-backed character evaluation;
+- **Experiment Workspace** — reusable scenarios, test packs, runs, reports, and matrices;
+- **Deployment Center** — persistent platform connections and one-record-per-destination deployments;
+- **Security workspace** — account isolation, encrypted provider credentials, audit controls, quotas, and read-only public Demo boundaries.
+
+The new Deployment Center is the foundation for connectors. It currently stores and manages connection/deployment configuration, status, channel/thread identity, participation mode, memory scope, version labels, and sticker counts. Discord OAuth, Telegram Bot setup, and the local WhatsApp QR connector are planned connector phases and are not falsely presented as active integrations in this release.
+
+## Deployment model
+
+One Character Card may be deployed to many destinations:
+
+```text
+Ann / Current
+├── Discord / Juen Test Server / #ann-room
+├── Discord / Juen Test Server / #general
+├── Discord / Roleplay Server / Thread: Chapter 1
+├── Telegram / Test Group
+└── WhatsApp / Local Test Group
+```
+
+Every channel, thread, or group is stored as an independent Deployment so it can have its own:
+
+- status: active, paused, offline, error, or disconnected;
+- participation mode: mention, reply, mention + reply, or smart participation;
+- memory scope: channel-isolated, server-shared, or custom;
+- character version label;
+- sticker mapping count;
+- destination and connection identity;
+- error and activity state.
+
+## Connector direction
+
+```text
+Chat platform
+  -> Platform Connector
+  -> normalized message contract
+  -> Social Participation Runtime
+  -> Character Runtime
+  -> platform-specific reply renderer
+```
+
+Recommended deployment topology:
+
+```text
+Railway
+├── Character Relay Web/API
+├── Discord Connector
+├── Telegram Connector
+└── persistent database / queue
+
+User computer
+└── WhatsApp Experimental Connector
+    └── linked-device session remains local
+```
+
+The Discord and Telegram connectors can use official Bot APIs and run as managed workers. The private-number WhatsApp experiment requires a separate local connector because it relies on a linked-device session rather than the official business messaging flow.
 
 ## Quick start
 
@@ -39,7 +100,7 @@ python run.py --no-reload
 
 ## Public demo account
 
-A shared read-only account is available on the Production deployment:
+The existing production URL remains unchanged during the product rename:
 
 ```text
 URL: https://echo-masque-production.up.railway.app
@@ -47,88 +108,54 @@ Email: demo@echo-masque.app
 Password: EchoMasqueDemo2026!
 ```
 
-The Demo workspace is synchronized from the Bootstrap Admin workspace on deployment. It receives the two Live Demo Character Cards plus the Admin's current custom Scenarios and Test Packs. Provider credentials remain encrypted and server-side.
+The shared Demo workspace is read-only. It can inspect prompts, browse the experiment workspace, run supported tests, view reports, and inspect deployment structure. Character, credential, connection, deployment, account, matrix, authoring, calibration, analytics, template, and import mutations remain server-blocked.
 
-Demo users may inspect Character Prompts, browse the Experiment Workspace, run or cancel tests, rerun experiments, compare results, view reports, and sign out. Character, credential, Scenario, Test Pack, account, Matrix, Authoring, Calibration, Analytics, Template, import, and other shared-workspace mutations are rejected by the server.
+## Echo Masque evaluation module
 
-The Authoring, Calibration, Judge Analytics, Coverage, and Templates & Sharing navigation is temporarily hidden in the web UI while the public testing flow is being simplified.
+Echo Masque continues to provide:
 
-## Core capabilities
+- exact Runtime System Prompt inspection;
+- Benchmark and Adaptive pressure testing;
+- Rules, Semantic, and Hybrid Judge modes;
+- identity, memory, instruction-resistance, capability-honesty, persona, and language coverage;
+- immutable Run and Evaluation Snapshots;
+- human-controlled calibration labels and exact evidence;
+- Matrix experiments and regression comparison;
+- reviewable AI-assisted Scenario and Test Pack authoring;
+- secret-free templates, archives, and sharing bundles.
 
-### Character Library and Runtime Prompt Inspector
+OOC and consistency checks belong primarily to creation, simulation, debugging, and release validation. A deployed character is not required to pay the latency and token cost of an OOC judge on every message.
 
-Prompt-model Character Cards expose the exact current Runtime System Message, Provider, Model, Temperature, active Prompt Version, and config hash. The Prompt can be copied or exported as:
+## Deployment API
 
-- plain text;
-- Markdown with metadata;
-- full secret-free JSON;
-- OpenAI-compatible messages JSON.
+Authenticated users can manage the deployment foundation through:
 
-The Inspector reads the authoritative `PromptModelConfig` used by `PromptModelTarget`. API keys, Environment Secret values, and Vault ciphertext are never exported.
+```text
+GET    /api/connections
+POST   /api/connections
+PATCH  /api/connections/{connection_id}
+DELETE /api/connections/{connection_id}
 
-### Test Room and Experiment Workspace
+GET    /api/deployments
+POST   /api/deployments
+PUT    /api/deployments/{deployment_id}
+PATCH  /api/deployments/{deployment_id}/status
+DELETE /api/deployments/{deployment_id}
+```
 
-The Test Room supports fixed Benchmark pressure, Admin-managed Adaptive pressure, Rules/Semantic/Hybrid Judge modes, Watch/Fast observation, grounded evidence, breakpoints, immutable Run Snapshots, reports, reruns, baselines, and lineage.
-
-Custom Scenarios and ordered Test Packs support English and Simplified Chinese, expected behavior, required and forbidden signals, severity, bounded turns, and recommended Tester/Judge modes.
-
-### Matrix Lab
-
-Matrix Lab executes controlled combinations of Character/Prompt, Model, Temperature, Pack, Language, Tester, Judge, and repeat count. It includes persistent queue controls, retries, bounded concurrency, repeated-run statistics, compatible regression analysis, Prompt version management, and secret-free JSON/CSV/Markdown exports.
-
-## Phase 16 evaluation-engineering workspace
-
-### Reviewable Authoring
-
-Scenario and Test Pack Drafts carry manual or AI provenance, review notes, risk tags, revisions, rejection, and explicit approval. Drafts do not appear in formal listings and cannot be launched by Trial or Matrix paths.
-
-The encrypted Authoring Runtime performs strict structured generation, allows one bounded correction, rejects duplicate fingerprints, surfaces risk-coverage warnings, and saves every result as a Draft.
-
-### Calibration Lab
-
-Calibration Datasets preserve human-controlled ground truth:
-
-- expected `PASS`, `FAIL`, or `REVIEW`;
-- frozen Subject responses;
-- exact contiguous evidence excerpts;
-- failure types and six coverage dimensions;
-- manual Cases or completed Run Turn import;
-- immutable approved versions and explicit next versions;
-- secret-free Archive export/import.
-
-### Judge Analytics
-
-Approved Dataset versions can be evaluated with Rules, Semantic, and Hybrid Judges. Immutable Evaluation Snapshots preserve Judge configuration metadata, per-Case predictions, evidence, errors, and metrics.
-
-Analytics include confusion matrices, accuracy, precision, recall, Macro F1, false-positive/false-negative rates, Rules/Semantic agreement, and breakdowns by failure type, language, Scenario category, and Character.
-
-### Rubric and Coverage Lab
-
-Semantic Rubrics can be compared only when both Evaluation Snapshots use the same frozen Dataset ID and version. Reports show metric deltas, six Semantic dimension deltas, and per-Case changes.
-
-Coverage is reported across identity, memory, instruction resistance, capability honesty, persona, and language. Missing or weak dimensions can create new AI Draft requests, but nothing is approved automatically.
-
-### Templates and Sharing
-
-Echo Masque includes bilingual templates for identity/memory, instruction/capability, and persona/language testing. Template instantiation creates reviewable Scenario and Test Pack Drafts only.
-
-Versioned Evaluation Share Bundles may include formal Scenario contracts and Test Pack structure. They exclude account data, owner IDs, credentials, Calibration labels, and private Run transcripts. Imports always become Drafts.
+Deleting a platform connection also removes its deployment records. Creating the same character deployment twice for the same connection/channel/thread returns a conflict instead of creating duplicate runtime assignments.
 
 ## Authentication and credential security
 
 Production uses Argon2 password hashes, opaque server-side Sessions, HttpOnly cookies, invitation-controlled registration, user/Admin roles, owner-scoped resources, encrypted Character and shared Runtime credentials, MultiFernet rotation, redacted Audit Events, and secret-free account export.
 
-Raw keys, encrypted blobs, Session tokens, password hashes, and invitation codes are excluded from exports, snapshots, events, reports, and logs.
-
-## Quotas and abuse controls
-
-Persistent SQLite-backed limits cover requests, login failures, workspace records, Runs, Matrices, daily Matrix tasks, concurrent work, AI Authoring generations, Judge Evaluation Case predictions, template/import operations, and Share Bundle assets.
-
-Blocked requests return `429 Too Many Requests`, with `Retry-After` when applicable.
+Raw keys, encrypted blobs, Session tokens, password hashes, invitation codes, and local connector sessions must not enter exports, snapshots, reports, or logs.
 
 ## Production deployment
 
 Deploy the root `Dockerfile` with `railway.toml`, one replica, and a Railway Volume mounted at `/data`.
+
+The existing `ECHO_MASQUE_*` environment prefix and SQLite filename remain intentionally supported as backward-compatible infrastructure identifiers during the Character Relay product rename.
 
 Required variables:
 
@@ -142,44 +169,17 @@ ECHO_MASQUE_BOOTSTRAP_ADMIN_PASSWORD=<long unique password>
 ECHO_MASQUE_CREDENTIAL_ENCRYPTION_KEYS=<Fernet key>
 ```
 
-The Production Docker image sets `ECHO_MASQUE_PUBLIC_DEMO_ENABLED=true`. Set it to `false` in the deployment environment to disable Demo-account provisioning and synchronization.
-
-Optional Phase 16 quota overrides:
-
-```text
-ECHO_MASQUE_MAX_AUTHORING_GENERATIONS_PER_DAY=50
-ECHO_MASQUE_MAX_EVALUATION_CASES_PER_DAY=1000
-ECHO_MASQUE_MAX_TEMPLATE_INSTANTIATIONS_PER_DAY=100
-ECHO_MASQUE_MAX_SHARED_ASSETS_PER_BUNDLE=200
-```
-
-Keep encryption keys and administrator passwords outside Git. The documented Demo password is intentionally public and belongs only to the server-restricted low-privilege account. Losing every matching Fernet key makes existing encrypted Provider credentials unrecoverable.
+Keep encryption keys, connector credentials, Bot tokens, WhatsApp linked-device sessions, and administrator passwords outside Git.
 
 ## Validation
 
-Pull requests run Ruff, strict mypy, pytest on Python 3.12/3.13, TypeScript, Vitest, the Production web build, Docker persistent-volume smoke, and Railway smoke.
+Pull requests run Ruff, strict mypy, pytest on Python 3.12/3.13, TypeScript, Vitest, the production web build, Docker persistent-volume smoke, and Railway smoke.
 
-Retained Production workflows:
-
-- **Phase 15 Live Security Smoke** — multi-account isolation, Vault rotation, and export redaction.
-- **Phase 16 Live Acceptance** — template Draft boundaries, secret-free Share Bundles, exact Runtime Prompt inspection and four exports, Calibration, Rules Evaluation, Coverage, and temporary-account cleanup.
-
-Phase 16 Production acceptance passed on merge commit `b341f45d77ec6bb25ad883de86f147ade4267ffd`.
-
-## Delivery status
-
-- [x] Phases 0–15 — secure authenticated evaluation platform
-- [x] Phase 16A — reviewable Draft foundation
-- [x] Phase 16B — AI-assisted Authoring Runtime and Lab
-- [x] Phase 16C — human-controlled Calibration Datasets
-- [x] Phase 16D — immutable Judge Evaluation Analytics
-- [x] Phase 16E — Rubric comparison and coverage analytics
-- [x] Phase 16F — templates, sharing, quotas, migration, and Production release gate
-
-**Phase 16 is complete.** See `CHECKLIST.md` and Issue #45 for the retained acceptance record.
+The retained Phase 15/16 security and evaluation acceptance suites remain part of the product. The deployment foundation adds owner-scoped connection and deployment API coverage without weakening the public Demo mutation boundary.
 
 ## Documentation
 
+- `CHECKLIST.md`
 - `docs/phase-15-security.md`
 - `docs/phase-16-authoring.md`
 - `docs/phase-16-ai-authoring.md`
