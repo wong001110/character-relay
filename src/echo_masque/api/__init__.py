@@ -18,6 +18,7 @@ from echo_masque.api.routes import (
     calibration_router,
     characters_router,
     comparisons_router,
+    connectors_router,
     coverage_router,
     deployments_router,
     evaluations_router,
@@ -37,6 +38,7 @@ from echo_masque.authoring_archive import AuthoringArchiveService
 from echo_masque.authoring_generation import AuthoringGenerationService
 from echo_masque.authoring_runtime import AuthoringRuntimeService
 from echo_masque.config import Settings, get_settings
+from echo_masque.connector_runtime import DiscordConnectorRuntime
 from echo_masque.coverage_analytics import CoverageAnalyticsService
 from echo_masque.credentials import CredentialVault
 from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
@@ -110,6 +112,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     target_access_repository = TargetAccessRepository(database)
     credential_store = CredentialVault(auth_repository, resolved)
+    discord_connector_runtime = DiscordConnectorRuntime(
+        repository,
+        deployment_repository,
+        credential_store,
+    )
     public_demo_result = PublicDemoService(
         settings=resolved,
         auth_service=auth_service,
@@ -202,6 +209,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.auth_service = auth_service
     app.state.repository = repository
     app.state.deployment_repository = deployment_repository
+    app.state.discord_connector_runtime = discord_connector_runtime
     app.state.workspace_repository = workspace_repository
     app.state.authoring_repository = authoring_repository
     app.state.authoring_archive_service = authoring_archive_service
@@ -234,6 +242,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(templates_router)
     app.include_router(characters_router)
     app.include_router(deployments_router)
+    app.include_router(connectors_router)
     app.include_router(prompt_inspector_router)
     app.include_router(targets_router)
     app.include_router(trials_router)

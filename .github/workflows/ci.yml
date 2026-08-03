@@ -73,6 +73,23 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  discord-connector:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: connectors/discord
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Build Discord connector image
+        run: docker build --tag character-relay-discord-connector:ci .
+
   docker:
     runs-on: ubuntu-latest
     steps:

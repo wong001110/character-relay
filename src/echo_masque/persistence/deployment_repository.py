@@ -11,7 +11,7 @@ from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
     PlatformConnectionRecord,
 )
-from echo_masque.persistence.models import CharacterCardRecord
+from echo_masque.persistence.models import CharacterCardRecord, utcnow
 from echo_masque.security import redact
 
 
@@ -93,6 +93,35 @@ class DeploymentRepository:
             session.commit()
             session.refresh(record)
             return record
+
+    def heartbeat_connection(
+        self,
+        *,
+        connection_id: str,
+        platform: str,
+        external_account_id: str,
+        display_name: str,
+        status: str,
+        last_error: str,
+    ) -> bool:
+        with self.database.session() as session:
+            record = session.get(PlatformConnectionRecord, connection_id)
+            if record is None or record.platform != platform:
+                return False
+            try:
+                raw_metadata = json.loads(record.metadata_json)
+            except json.JSONDecodeError:
+                raw_metadata = {}
+            metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+            metadata["last_error"] = last_error
+            metadata["heartbeat_source"] = f"{platform}_connector"
+            record.external_account_id = external_account_id
+            record.display_name = display_name
+            record.status = status
+            record.last_seen_at = utcnow()
+            record.metadata_json = json.dumps(redact(metadata))
+            session.commit()
+            return True
 
     def delete_connection(self, connection_id: str, owner_id: str) -> bool:
         with self.database.session() as session:
@@ -185,6 +214,46 @@ class DeploymentRepository:
             )
             return list(session.scalars(query))
 
+    def list_connector_deployments(
+        self,
+        *,
+        platform: str,
+        connection_id: str,
+    ) -> list[CharacterDeploymentRecord]:
+        with self.database.session() as session:
+            query = (
+                select(CharacterDeploymentRecord)
+                .where(
+                    CharacterDeploymentRecord.platform == platform,
+                    CharacterDeploymentRecord.connection_id == connection_id,
+                    CharacterDeploymentRecord.status == "active",
+                )
+                .order_by(
+                    CharacterDeploymentRecord.workspace_name,
+                    CharacterDeploymentRecord.channel_name,
+                    CharacterDeploymentRecord.thread_name,
+                )
+            )
+            return list(session.scalars(query))
+
+    def find_connector_deployment(
+        self,
+        *,
+        platform: str,
+        connection_id: str,
+        channel_id: str,
+        thread_id: str,
+    ) -> CharacterDeploymentRecord | None:
+        with self.database.session() as session:
+            query = select(CharacterDeploymentRecord).where(
+                CharacterDeploymentRecord.platform == platform,
+                CharacterDeploymentRecord.connection_id == connection_id,
+                CharacterDeploymentRecord.status == "active",
+                CharacterDeploymentRecord.channel_id == channel_id,
+                CharacterDeploymentRecord.thread_id == thread_id,
+            )
+            return session.scalar(query)
+
     def get_deployment(
         self, deployment_id: str, owner_id: str
     ) -> CharacterDeploymentRecord | None:
@@ -242,6 +311,25 @@ class DeploymentRepository:
                 ) from exc
             session.refresh(record)
             return record
+
+    def record_deployment_activity(self, deployment_id: str) -> None:
+        with self.database.session() as session:
+            record = session.get(CharacterDeploymentRecord, deployment_id)
+            if record is None:
+                return
+            record.status = "active"
+            record.last_message_at = utcnow()
+            record.last_error = ""
+            session.commit()
+
+    def record_deployment_error(self, deployment_id: str, message: str) -> None:
+        with self.database.session() as session:
+            record = session.get(CharacterDeploymentRecord, deployment_id)
+            if record is None:
+                return
+            record.status = "error"
+            record.last_error = message[:2000]
+            session.commit()
 
     def delete_deployment(self, deployment_id: str, owner_id: str) -> bool:
         with self.database.session() as session:

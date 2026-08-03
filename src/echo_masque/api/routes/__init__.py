@@ -11,6 +11,7 @@ from echo_masque.api.routes.authoring_generation import (
 from echo_masque.api.routes.calibration import router as calibration_router
 from echo_masque.api.routes.characters import router as characters_router
 from echo_masque.api.routes.comparisons import router as comparisons_router
+from echo_masque.api.routes.connectors import router as connectors_router
 from echo_masque.api.routes.coverage import router as coverage_router
 from echo_masque.api.routes.deployments import router as deployments_router
 from echo_masque.api.routes.evaluations import router as evaluations_router
@@ -34,6 +35,7 @@ __all__ = [
     "calibration_router",
     "characters_router",
     "comparisons_router",
+    "connectors_router",
     "coverage_router",
     "deployments_router",
     "evaluations_router",
