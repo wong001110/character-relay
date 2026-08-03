@@ -25,6 +25,11 @@ from echo_masque.persistence.deployment_repository import (
     DeploymentConflict,
     DeploymentRepository,
 )
+from echo_masque.persistence.discord_identity_models import (
+    DeploymentMessageIdentityRecord,
+    DiscordWebhookBindingRecord,
+)
+from echo_masque.persistence.discord_identity_repository import DiscordIdentityRepository
 from echo_masque.persistence.evaluation_models import (
     JudgeEvaluationRecord,
     JudgePredictionRecord,
@@ -67,7 +72,10 @@ __all__ = [
     "CharacterDeploymentRecord",
     "Database",
     "DeploymentConflict",
+    "DeploymentMessageIdentityRecord",
     "DeploymentRepository",
+    "DiscordIdentityRepository",
+    "DiscordWebhookBindingRecord",
     "EvaluationRepository",
     "JudgeEvaluationRecord",
     "JudgePredictionRecord",
