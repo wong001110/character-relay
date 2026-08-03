@@ -90,7 +90,7 @@ function channelLocation(message: Message<true>): {
   }
   return {
     channelId: message.channel.id,
-    channelName: "name" in message.channel ? message.channel.name : message.channel.id,
+    channelName: message.channel.name,
     threadId: "",
     threadName: ""
   };
