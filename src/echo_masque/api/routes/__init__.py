@@ -14,6 +14,7 @@ from echo_masque.api.routes.comparisons import router as comparisons_router
 from echo_masque.api.routes.connectors import router as connectors_router
 from echo_masque.api.routes.coverage import router as coverage_router
 from echo_masque.api.routes.deployments import router as deployments_router
+from echo_masque.api.routes.discord_identities import router as discord_identities_router
 from echo_masque.api.routes.evaluations import router as evaluations_router
 from echo_masque.api.routes.health import router as health_router
 from echo_masque.api.routes.matrices import router as matrices_router
@@ -38,6 +39,7 @@ __all__ = [
     "connectors_router",
     "coverage_router",
     "deployments_router",
+    "discord_identities_router",
     "evaluations_router",
     "health_router",
     "matrices_router",
