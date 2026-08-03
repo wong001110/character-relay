@@ -5,6 +5,14 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+DiscordParticipationMode = Literal[
+    "mention_only",
+    "reply_only",
+    "mention_and_reply",
+    "smart",
+]
+DiscordConnectionStatus = Literal["connected", "offline", "error"]
+
 
 class DiscordConnectorDeploymentView(BaseModel):
     deployment_id: str
@@ -17,12 +25,7 @@ class DiscordConnectorDeploymentView(BaseModel):
     channel_name: str
     thread_id: str
     thread_name: str
-    participation_mode: Literal[
-        "mention_only",
-        "reply_only",
-        "mention_and_reply",
-        "smart",
-    ]
+    participation_mode: DiscordParticipationMode
     version_label: str
     status: Literal["active"]
 
@@ -31,7 +34,7 @@ class DiscordConnectorHeartbeat(BaseModel):
     connection_id: str = Field(min_length=1, max_length=64)
     bot_user_id: str = Field(min_length=1, max_length=200)
     bot_display_name: str = Field(min_length=1, max_length=120)
-    status: Literal["connected", "offline", "error"] = "connected"
+    status: DiscordConnectionStatus = "connected"
     last_error: str = Field(default="", max_length=2000)
 
 
