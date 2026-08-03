@@ -21,6 +21,7 @@ from echo_masque.api.routes import (
     connectors_router,
     coverage_router,
     deployments_router,
+    discord_identities_router,
     evaluations_router,
     health_router,
     matrices_router,
@@ -49,6 +50,7 @@ from echo_masque.persistence import (
     CalibrationRepository,
     Database,
     DeploymentRepository,
+    DiscordIdentityRepository,
     EvaluationRepository,
     MatrixRepository,
     Repository,
@@ -88,6 +90,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     repository = Repository(database)
     deployment_repository = DeploymentRepository(database)
+    discord_identity_repository = DiscordIdentityRepository(database)
     workspace_repository = WorkspaceRepository(database)
     authoring_repository = AuthoringRepository(database, workspace_repository)
     authoring_archive_service = AuthoringArchiveService(database, authoring_repository)
@@ -142,6 +145,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         calibration_repository,
         evaluation_repository,
         deployment_repository,
+        discord_identity_repository,
     )
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
@@ -209,6 +213,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.auth_service = auth_service
     app.state.repository = repository
     app.state.deployment_repository = deployment_repository
+    app.state.discord_identity_repository = discord_identity_repository
     app.state.discord_connector_runtime = discord_connector_runtime
     app.state.workspace_repository = workspace_repository
     app.state.authoring_repository = authoring_repository
@@ -242,6 +247,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(templates_router)
     app.include_router(characters_router)
     app.include_router(deployments_router)
+    app.include_router(discord_identities_router)
     app.include_router(connectors_router)
     app.include_router(prompt_inspector_router)
     app.include_router(targets_router)
