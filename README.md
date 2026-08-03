@@ -27,9 +27,10 @@ The current application includes:
 - **Echo Masque Lab** — deterministic and model-backed character evaluation;
 - **Experiment Workspace** — reusable scenarios, test packs, runs, reports, and matrices;
 - **Deployment Center** — persistent platform connections and one-record-per-destination deployments;
+- **Discord Connector MVP** — official Gateway Bot integration for explicit group-chat participation;
 - **Security workspace** — account isolation, encrypted provider credentials, audit controls, quotas, and read-only public Demo boundaries.
 
-The new Deployment Center is the foundation for connectors. It currently stores and manages connection/deployment configuration, status, channel/thread identity, participation mode, memory scope, version labels, and sticker counts. Discord OAuth, Telegram Bot setup, and the local WhatsApp QR connector are planned connector phases and are not falsely presented as active integrations in this release.
+The Deployment Center stores and manages connection/deployment configuration, status, channel/thread identity, participation mode, memory scope, version labels, and sticker counts. The Discord Connector consumes active Discord deployments. Telegram Bot setup and the local WhatsApp QR connector remain later phases.
 
 ## Deployment model
 
@@ -79,11 +80,29 @@ User computer
     └── linked-device session remains local
 ```
 
-The Discord and Telegram connectors can use official Bot APIs and run as managed workers. The private-number WhatsApp experiment requires a separate local connector because it relies on a linked-device session rather than the official business messaging flow.
+## Discord Connector MVP
+
+The Discord worker lives in `connectors/discord` and uses the official Discord Bot Gateway.
+
+Current behavior:
+
+- caches Active Discord deployments from Character Relay;
+- routes by Server, Channel, and optional Thread;
+- supports Mention Only, Reply Only, and Mention + Reply;
+- keeps Smart Participation disabled by default;
+- buffers recent messages per destination;
+- serializes replies per Channel or Thread;
+- deduplicates Gateway events;
+- sends connector heartbeat and health state;
+- generates replies through the deployed Character Card without runtime OOC evaluation.
+
+The first release uses the shared Bot identity and prefixes each reply with the Character Card display name. Character-specific webhooks, server sticker selection, slash commands, persistent group memory, and the full Social Participation Engine remain later phases.
+
+See `connectors/discord/README.md` for Discord Developer Portal and Railway setup.
 
 ## Quick start
 
-Requires Python 3.12+ and Node.js 22+.
+Requires Python 3.12+ and Node.js 22+ for the main application. The Discord Connector uses Node.js 24.17+.
 
 ```bash
 python run.py
@@ -128,7 +147,7 @@ OOC and consistency checks belong primarily to creation, simulation, debugging, 
 
 ## Deployment API
 
-Authenticated users can manage the deployment foundation through:
+Authenticated users manage product configuration through:
 
 ```text
 GET    /api/connections
@@ -143,13 +162,21 @@ PATCH  /api/deployments/{deployment_id}/status
 DELETE /api/deployments/{deployment_id}
 ```
 
+The Discord worker uses shared-secret internal endpoints:
+
+```text
+GET  /api/connectors/discord/deployments
+POST /api/connectors/discord/heartbeat
+POST /api/connectors/discord/messages
+```
+
 Deleting a platform connection also removes its deployment records. Creating the same character deployment twice for the same connection/channel/thread returns a conflict instead of creating duplicate runtime assignments.
 
 ## Authentication and credential security
 
 Production uses Argon2 password hashes, opaque server-side Sessions, HttpOnly cookies, invitation-controlled registration, user/Admin roles, owner-scoped resources, encrypted Character and shared Runtime credentials, MultiFernet rotation, redacted Audit Events, and secret-free account export.
 
-Raw keys, encrypted blobs, Session tokens, password hashes, invitation codes, and local connector sessions must not enter exports, snapshots, reports, or logs.
+Raw keys, encrypted blobs, Session tokens, password hashes, invitation codes, Bot tokens, shared connector secrets, and local connector sessions must not enter exports, snapshots, reports, or logs.
 
 ## Production deployment
 
@@ -167,19 +194,21 @@ ECHO_MASQUE_PUBLIC_REGISTRATION_ENABLED=false
 ECHO_MASQUE_BOOTSTRAP_ADMIN_EMAIL=<admin email>
 ECHO_MASQUE_BOOTSTRAP_ADMIN_PASSWORD=<long unique password>
 ECHO_MASQUE_CREDENTIAL_ENCRYPTION_KEYS=<Fernet key>
+ECHO_MASQUE_CONNECTOR_SHARED_SECRET=<long random connector secret>
 ```
 
 Keep encryption keys, connector credentials, Bot tokens, WhatsApp linked-device sessions, and administrator passwords outside Git.
 
 ## Validation
 
-Pull requests run Ruff, strict mypy, pytest on Python 3.12/3.13, TypeScript, Vitest, the production web build, Docker persistent-volume smoke, and Railway smoke.
+Pull requests run Ruff, strict mypy, pytest on Python 3.12/3.13, the web TypeScript/Vitest/build pipeline, the Discord Connector TypeScript/Vitest/build/container pipeline, Docker persistent-volume smoke, and Railway smoke.
 
-The retained Phase 15/16 security and evaluation acceptance suites remain part of the product. The deployment foundation adds owner-scoped connection and deployment API coverage without weakening the public Demo mutation boundary.
+The retained Phase 15/16 security and evaluation acceptance suites remain part of the product. Connector endpoints use a separate shared-secret boundary and do not weaken the public Demo mutation boundary.
 
 ## Documentation
 
 - `CHECKLIST.md`
+- `connectors/discord/README.md`
 - `docs/phase-15-security.md`
 - `docs/phase-16-authoring.md`
 - `docs/phase-16-ai-authoring.md`
