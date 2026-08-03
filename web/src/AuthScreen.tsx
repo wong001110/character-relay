@@ -10,10 +10,10 @@ interface Props {
 
 const copy = {
   en: {
-    eyebrow: "Secure workspace",
-    title: "Enter Echo Masque",
+    eyebrow: "Secure character workspace",
+    title: "Enter Character Relay",
     intro:
-      "Your Character Cards, experiments, and provider credentials are isolated behind an encrypted account workspace.",
+      "Create and test Character Cards, then manage where stable versions are deployed. Echo Masque remains the built-in consistency evaluation lab.",
     login: "Sign in",
     register: "Create account",
     email: "Email",
@@ -30,9 +30,9 @@ const copy = {
       "Sessions use an HttpOnly cookie. Raw session tokens and provider keys are never stored in the browser."
   },
   "zh-CN": {
-    eyebrow: "安全工作区",
-    title: "进入 Echo Masque",
-    intro: "角色卡、实验与模型凭证会被隔离在你的加密账户工作区中。",
+    eyebrow: "安全角色工作区",
+    title: "进入 Character Relay",
+    intro: "创建和测试角色卡，再管理稳定角色版本部署到哪些聊天平台。Echo Masque 继续作为内置的一致性评测实验室。",
     login: "登录",
     register: "创建账户",
     email: "邮箱",
