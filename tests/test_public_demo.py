@@ -187,7 +187,7 @@ def test_public_demo_can_browse_and_run_but_cannot_mutate_shared_workspace(
     )
     assert blocked_scenario.status_code == 403
     assert demo_client.get("/api/auth/sessions").status_code == 403
-    assert demo_client.delete("/api/account", json={}).status_code == 403
+    assert demo_client.request("DELETE", "/api/account", json={}).status_code == 403
 
     # The middleware permits Trial creation, while normal request validation still applies.
     # An empty body proves the request reached the route without starting a model call.
