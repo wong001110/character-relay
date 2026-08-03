@@ -1,0 +1,4 @@
+.demo-read-only .history-actions button:nth-child(2),
+.demo-read-only .history-actions button.danger {
+  display: none;
+}
