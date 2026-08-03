@@ -12,6 +12,7 @@ from echo_masque.api.connector_schemas import (
     DiscordConnectorHeartbeat,
     DiscordConnectorReplyView,
     DiscordInboundMessage,
+    DiscordParticipationMode,
 )
 from echo_masque.config import Settings
 from echo_masque.connector_runtime import ConnectorRuntimeError, DiscordConnectorRuntime
@@ -84,7 +85,10 @@ def list_connector_deployments(
                 channel_name=record.channel_name,
                 thread_id=record.thread_id,
                 thread_name=record.thread_name,
-                participation_mode=record.participation_mode,
+                participation_mode=cast(
+                    DiscordParticipationMode,
+                    record.participation_mode,
+                ),
                 version_label=record.version_label,
                 status="active",
             )
