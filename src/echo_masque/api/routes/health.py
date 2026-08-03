@@ -1,5 +1,6 @@
 """Service health endpoints."""
 
+import os
 from typing import cast
 
 from fastapi import APIRouter, Request
@@ -13,7 +14,9 @@ from echo_masque.persistence import (
     StorageStatus,
     WorkspaceRepository,
 )
+from echo_masque.persistence.models import CharacterCardRecord
 from echo_masque.public_demo import PUBLIC_DEMO_EMAIL
+from echo_masque.targets import PromptModelConfig
 
 router = APIRouter(tags=["system"])
 
@@ -72,6 +75,23 @@ def health(request: Request) -> ServiceHealthResponse:
     )
 
 
+def _credential_ready(
+    repository: Repository,
+    credential_store: CredentialStore,
+    owner_id: str,
+    card: CharacterCardRecord,
+) -> bool:
+    target = repository.get_target(card.target_id)
+    if target is None:
+        return False
+    if target.target_kind != "prompt_model":
+        return True
+    if credential_store.get(owner_id, card.id) is not None:
+        return True
+    config = PromptModelConfig.model_validate_json(target.config_json)
+    return bool(os.getenv(config.api_key_env))
+
+
 @router.get("/api/public-demo/status", response_model=PublicDemoStatusResponse)
 def public_demo_status(request: Request) -> PublicDemoStatusResponse:
     """Expose only non-sensitive readiness metadata for the shared Demo workspace."""
@@ -101,15 +121,11 @@ def public_demo_status(request: Request) -> PublicDemoStatusResponse:
         )
 
     cards = repository.list_character_cards(user.id)
-    credential_ready_count = 0
-    for card in cards:
-        target = repository.get_target(card.target_id)
-        if target is not None and (
-            target.target_kind != "prompt_model"
-            or credential_store.get(user.id, card.id) is not None
-        ):
-            credential_ready_count += 1
-
+    credential_ready_count = sum(
+        1
+        for card in cards
+        if _credential_ready(repository, credential_store, user.id, card)
+    )
     scenarios = workspace_repository.list_scenarios(user.id)
     packs = workspace_repository.list_packs(user.id)
     return PublicDemoStatusResponse(
