@@ -53,8 +53,7 @@ def selected_source_cards(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
         tags = item.get("tags")
         display_name = str(item.get("display_name", ""))
         if (
-            isinstance(tags, list)
-            and "live-demo" in tags
+            (isinstance(tags, list) and "live-demo" in tags)
             or display_name.startswith("LIVE DEMO —")
         ):
             selected.append(item)
