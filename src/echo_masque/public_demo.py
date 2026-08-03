@@ -193,8 +193,8 @@ class PublicDemoService:
                 )
                 demo_cards[demo_card.display_name] = demo_card
             else:
-                demo_target = self.repository.get_target(demo_card.target_id)
-                if demo_target is None:
+                existing_target = self.repository.get_target(demo_card.target_id)
+                if existing_target is None:
                     demo_target = self.repository.create_target(
                         name=source_target.name,
                         target_kind=source_target.target_kind,
@@ -211,6 +211,7 @@ class PublicDemoService:
                         session.refresh(stored_card)
                         demo_card = stored_card
                 else:
+                    demo_target = existing_target
                     self.repository.update_target(
                         demo_target.id,
                         name=source_target.name,
