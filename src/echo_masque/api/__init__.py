@@ -55,7 +55,7 @@ from echo_masque.persistence import (
 from echo_masque.prompt_inspector import CharacterPromptInspector
 from echo_masque.public_demo import PublicDemoService
 from echo_masque.public_demo_middleware import PublicDemoReadOnlyMiddleware
-from echo_masque.security_controls import QuotaService
+from echo_masque.public_demo_quota import PublicDemoQuotaService
 from echo_masque.services import MatrixService, RuntimeService, TrialService
 from echo_masque.template_sharing import EvaluationTemplateService
 
@@ -124,7 +124,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             public_demo_result.scenario_count,
             public_demo_result.test_pack_count,
         )
-    quota_service = QuotaService(database, resolved)
+    quota_service = PublicDemoQuotaService(database, resolved)
     account_lifecycle_service = EvaluationAwareAccountLifecycleService(
         database,
         auth_repository,
