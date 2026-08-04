@@ -1,4 +1,4 @@
-export type PromptExportFormat = "text" | "markdown" | "json" | "openai";
+export type PromptExportFormat = "raw" | "text" | "markdown" | "json" | "openai";
 
 export interface PromptMessageView {
   role: "system";
@@ -14,8 +14,12 @@ export interface CharacterPromptView {
   base_url: string;
   model: string;
   temperature: number;
+  raw_system_prompt: string;
+  compiled_system_prompt: string;
   system_prompt: string;
   messages: PromptMessageView[];
+  compiler_version: string;
+  compiled_prompt_hash: string;
   prompt_version_id: string | null;
   prompt_version: number | null;
   prompt_version_label: string | null;
