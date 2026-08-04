@@ -16,7 +16,7 @@ def payload(*, author_is_bot: bool) -> DiscordInboundMessage:
         channel_name="companions",
         author_id="character:ann" if author_is_bot else "user-1",
         author_display_name="Ann" if author_is_bot else "Juen",
-        text="你怎么看？",
+        text="What do you think?",
         mentioned_bot=True,
         author_is_bot=author_is_bot,
         available_characters=["Ann", "织 · Zhi"],
@@ -25,7 +25,7 @@ def payload(*, author_is_bot: bool) -> DiscordInboundMessage:
                 message_id="context-1",
                 author_id="character:ann",
                 author_display_name="Ann",
-                text="@宁，你怎么看？",
+                text="@Ning, what do you think?",
                 is_bot=True,
             )
         ],
