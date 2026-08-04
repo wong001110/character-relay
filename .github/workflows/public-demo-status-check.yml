@@ -22,17 +22,31 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          import os
           import time
           import urllib.error
           import urllib.request
 
           url = "https://echo-masque-production.up.railway.app/api/public-demo/status"
+          event_name = os.environ.get("GITHUB_EVENT_NAME", "")
           latest = None
           for attempt in range(60):
               try:
                   with urllib.request.urlopen(url, timeout=15) as response:
                       latest = json.load(response)
-                  if latest.get("ready") is True:
+                  names = latest.get("character_names", [])
+                  components_ready = (
+                      latest.get("enabled") is True
+                      and len(names) >= 2
+                      and latest.get("credential_ready_count") == len(names)
+                      and latest.get("scenario_count", 0) >= 1
+                      and latest.get("test_pack_count", 0) >= 1
+                  )
+                  deployed_commit_ready = (
+                      event_name == "pull_request"
+                      or latest.get("ready") is True
+                  )
+                  if components_ready and deployed_commit_ready:
                       break
               except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
                   latest = None
@@ -49,10 +63,11 @@ jobs:
               raise SystemExit("Public Demo read-only boundary is not reported.")
           if latest.get("secrets_included") is not False:
               raise SystemExit("Public Demo status must remain secret-free.")
-          if len(latest.get("character_names", [])) != 2:
-              raise SystemExit("Public Demo must expose exactly two Character Cards.")
-          if latest.get("credential_ready_count") != 2:
-              raise SystemExit("Both Public Demo Character credentials must be ready.")
+          character_names = latest.get("character_names", [])
+          if len(character_names) < 2:
+              raise SystemExit("Public Demo must expose at least two Character Cards.")
+          if latest.get("credential_ready_count") != len(character_names):
+              raise SystemExit("Every Public Demo Character credential must be ready.")
           if latest.get("scenario_count", 0) < 1:
               raise SystemExit("Public Demo has no synchronized Scenarios.")
           if latest.get("test_pack_count", 0) < 1:

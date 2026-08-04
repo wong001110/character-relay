@@ -92,6 +92,23 @@ def _credential_ready(
     return bool(os.getenv(config.api_key_env))
 
 
+def _public_demo_ready(
+    *,
+    card_count: int,
+    credential_ready_count: int,
+    scenario_count: int,
+    test_pack_count: int,
+) -> bool:
+    """Require a useful Demo set without fixing the catalog to exactly two cards."""
+
+    return (
+        card_count >= 2
+        and scenario_count > 0
+        and test_pack_count > 0
+        and credential_ready_count == card_count
+    )
+
+
 @router.get("/api/public-demo/status", response_model=PublicDemoStatusResponse)
 def public_demo_status(request: Request) -> PublicDemoStatusResponse:
     """Expose only non-sensitive readiness metadata for the shared Demo workspace."""
@@ -130,11 +147,11 @@ def public_demo_status(request: Request) -> PublicDemoStatusResponse:
     packs = workspace_repository.list_packs(user.id)
     return PublicDemoStatusResponse(
         enabled=True,
-        ready=(
-            len(cards) == 2
-            and bool(scenarios)
-            and bool(packs)
-            and credential_ready_count == len(cards)
+        ready=_public_demo_ready(
+            card_count=len(cards),
+            credential_ready_count=credential_ready_count,
+            scenario_count=len(scenarios),
+            test_pack_count=len(packs),
         ),
         email=PUBLIC_DEMO_EMAIL,
         role=user.role,

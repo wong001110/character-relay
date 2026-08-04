@@ -121,6 +121,17 @@ export interface CharacterDeployment {
   updated_at: string;
 }
 
+export interface CharacterDeploymentPage {
+  items: CharacterDeployment[];
+  page: number;
+  page_size: number;
+  total: number;
+  pages: number;
+  active: number;
+  paused: number;
+  attention: number;
+}
+
 export interface CharacterDeploymentCreate {
   character_card_id: string;
   connection_id: string;
@@ -208,6 +219,30 @@ export const deploymentApi = {
         ? `/api/deployments?character_card_id=${encodeURIComponent(characterCardId)}`
         : "/api/deployments"
     ),
+  listDeploymentsPage: (options: {
+    page?: number;
+    pageSize?: number;
+    characterCardId?: string;
+    platform?: PlatformId | "all";
+    status?: DeploymentStatus | "all";
+  } = {}) => {
+    const query = new URLSearchParams({
+      page: String(options.page ?? 1),
+      page_size: String(options.pageSize ?? 20)
+    });
+    if (options.characterCardId && options.characterCardId !== "all") {
+      query.set("character_card_id", options.characterCardId);
+    }
+    if (options.platform && options.platform !== "all") {
+      query.set("platform", options.platform);
+    }
+    if (options.status && options.status !== "all") {
+      query.set("status", options.status);
+    }
+    return request<CharacterDeploymentPage>(
+      `/api/deployments/page?${query.toString()}`
+    );
+  },
   createDeployment: (payload: CharacterDeploymentCreate) =>
     request<CharacterDeployment>("/api/deployments", {
       method: "POST",

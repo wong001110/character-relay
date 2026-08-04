@@ -138,3 +138,40 @@ def test_provider_trace_portal_is_bootstrap_super_admin_only(tmp_path: Path) -> 
     assert cleared.status_code == 200
     assert cleared.json() == {"deleted_count": 1}
     assert super_client.get("/api/admin/provider-traces").json() == []
+
+def test_provider_trace_cursor_pagination(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "provider-trace-pagination.db"))
+    repository = app.state.provider_trace_repository
+    for index in range(1, 6):
+        repository.record_event(
+            {
+                "event": "provider.request",
+                "trace_id": f"trace-{index:03d}",
+                "endpoint": "https://api.deepseek.com/v1/chat/completions",
+                "model": "deepseek-v4-flash",
+                "trace_mode": "metadata",
+            }
+        )
+    client = TestClient(app)
+    login(client, SUPER_EMAIL, SUPER_PASSWORD)
+
+    first = client.get("/api/admin/provider-traces/page", params={"limit": 2})
+    assert first.status_code == 200, first.text
+    first_payload = first.json()
+    assert len(first_payload["items"]) == 2
+    assert first_payload["has_more"] is True
+
+    second = client.get(
+        "/api/admin/provider-traces/page",
+        params={"limit": 2, "cursor": first_payload["next_cursor"]},
+    )
+    assert second.status_code == 200, second.text
+    first_ids = {item["trace_id"] for item in first_payload["items"]}
+    second_ids = {item["trace_id"] for item in second.json()["items"]}
+    assert first_ids.isdisjoint(second_ids)
+
+    invalid = client.get(
+        "/api/admin/provider-traces/page",
+        params={"cursor": "not-a-valid-cursor"},
+    )
+    assert invalid.status_code == 422

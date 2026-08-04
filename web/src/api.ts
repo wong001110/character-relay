@@ -68,6 +68,12 @@ export interface AdminAccount {
   created_at: string;
 }
 
+export interface AuditEventPage {
+  items: AuditEventView[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
 export interface AuditEventView {
   id: string;
   actor_user_id: string | null;
@@ -399,6 +405,11 @@ export const api = {
       body: JSON.stringify({ role })
     }),
   listAuditEvents: () => request<AuditEventView[]>("/api/admin/audit"),
+  listAuditEventsPage: (cursor: string | null = null, limit = 50) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return request<AuditEventPage>(`/api/admin/audit/page?${query.toString()}`);
+  },
   claimLocalWorkspace: () =>
     request<LifecycleResult>("/api/admin/workspace/claim-local", {
       method: "POST",

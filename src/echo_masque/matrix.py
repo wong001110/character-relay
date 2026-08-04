@@ -217,6 +217,14 @@ class MatrixListPage(BaseModel):
     pages: int
 
 
+class MatrixTaskListPage(BaseModel):
+    items: list[MatrixTaskView]
+    page: int
+    page_size: int
+    total: int
+    pages: int
+
+
 class DistributionItem(BaseModel):
     key: str
     count: int

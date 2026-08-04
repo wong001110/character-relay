@@ -20,6 +20,7 @@ import {
   type DeploymentMessageIdentity
 } from "./discordIdentityApi";
 import { DiscordServerProfilesPanel } from "./DiscordServerProfilesPanel";
+import { Pagination } from "./Pagination";
 import { useI18n } from "./i18n";
 
 interface Props {
@@ -130,6 +131,14 @@ export function DeploymentCenter({
   const [serverProfiles, setServerProfiles] = useState<DiscordServerProfile[]>([]);
   const [serverCatalog, setServerCatalog] = useState<DiscordServerCatalog[]>([]);
   const [deployments, setDeployments] = useState<CharacterDeployment[]>([]);
+  const [deploymentPage, setDeploymentPage] = useState(1);
+  const [deploymentPages, setDeploymentPages] = useState(1);
+  const [deploymentTotal, setDeploymentTotal] = useState(0);
+  const [deploymentCounts, setDeploymentCounts] = useState({
+    active: 0,
+    paused: 0,
+    attention: 0
+  });
   const [identities, setIdentities] = useState<DeploymentMessageIdentity[]>([]);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
@@ -154,7 +163,7 @@ export function DeploymentCenter({
   const [statusFilter, setStatusFilter] = useState<"all" | DeploymentStatus>("all");
   const [characterFilter, setCharacterFilter] = useState(initialCharacterId ?? "all");
 
-  async function load() {
+  async function load(page = deploymentPage) {
     try {
       setLoading(true);
       const [
@@ -167,13 +176,27 @@ export function DeploymentCenter({
         deploymentApi.listConnections(),
         deploymentApi.listDiscordServerProfiles(),
         deploymentApi.listDiscordServerCatalog(),
-        deploymentApi.listDeployments(),
+        deploymentApi.listDeploymentsPage({
+          page,
+          pageSize: 20,
+          characterCardId: characterFilter,
+          platform: platformFilter,
+          status: statusFilter
+        }),
         discordIdentityApi.list()
       ]);
       setConnections(nextConnections);
       setServerProfiles(nextProfiles);
       setServerCatalog(nextCatalog);
-      setDeployments(nextDeployments);
+      setDeployments(nextDeployments.items);
+      setDeploymentPage(nextDeployments.page);
+      setDeploymentPages(nextDeployments.pages);
+      setDeploymentTotal(nextDeployments.total);
+      setDeploymentCounts({
+        active: nextDeployments.active,
+        paused: nextDeployments.paused,
+        attention: nextDeployments.attention
+      });
       setIdentities(nextIdentities);
       setDraftConnectionId((current) =>
         current && nextConnections.some((item) => item.id === current)
@@ -189,8 +212,8 @@ export function DeploymentCenter({
   }
 
   useEffect(() => {
-    void load();
-  }, []);
+    void load(1);
+  }, [characterFilter, platformFilter, statusFilter]);
 
   useEffect(() => {
     if (!initialCharacterId) return;
@@ -226,26 +249,6 @@ export function DeploymentCenter({
   const profileMap = useMemo(
     () => new Map(serverProfiles.map((profile) => [profile.id, profile])),
     [serverProfiles]
-  );
-  const filtered = useMemo(
-    () =>
-      deployments.filter(
-        (item) =>
-          (platformFilter === "all" || item.platform === platformFilter) &&
-          (statusFilter === "all" || item.status === statusFilter) &&
-          (characterFilter === "all" || item.character_card_id === characterFilter)
-      ),
-    [characterFilter, deployments, platformFilter, statusFilter]
-  );
-  const counts = useMemo(
-    () => ({
-      active: deployments.filter((item) => item.status === "active").length,
-      paused: deployments.filter((item) => item.status === "paused").length,
-      attention: deployments.filter(
-        (item) => item.status === "error" || item.status === "offline"
-      ).length
-    }),
-    [deployments]
   );
 
   const selectedConnection = connections.find((item) => item.id === draftConnectionId);
@@ -535,12 +538,12 @@ export function DeploymentCenter({
       <section className="deployment-summary-grid">
         <article className="paper-sheet deployment-summary-card">
           <span>{zh ? "部署总数" : "Deployments"}</span>
-          <strong>{deployments.length}</strong>
+          <strong>{deploymentTotal}</strong>
           <small>{zh ? "精确位置或 Server 范围" : "Exact or server-wide scopes"}</small>
         </article>
         <article className="paper-sheet deployment-summary-card">
           <span>{zh ? "运行中" : "Active"}</span>
-          <strong>{counts.active}</strong>
+          <strong>{deploymentCounts.active}</strong>
           <small>{zh ? "Connector 正在读取的部署" : "Read by the connector"}</small>
         </article>
         <article className="paper-sheet deployment-summary-card">
@@ -550,7 +553,7 @@ export function DeploymentCenter({
         </article>
         <article className="paper-sheet deployment-summary-card">
           <span>{zh ? "需要处理" : "Needs attention"}</span>
-          <strong>{counts.attention}</strong>
+          <strong>{deploymentCounts.attention}</strong>
           <small>{zh ? "离线或错误状态" : "Offline or error states"}</small>
         </article>
       </section>
@@ -1119,7 +1122,7 @@ export function DeploymentCenter({
                 <h2>{zh ? "目前部署到哪些位置" : "Where characters are deployed"}</h2>
               </div>
               <span>
-                {filtered.length} / {deployments.length}
+                {deployments.length} / {deploymentTotal}
               </span>
             </div>
 
@@ -1174,10 +1177,10 @@ export function DeploymentCenter({
               <div className="deployment-empty">
                 <strong>{zh ? "正在读取部署…" : "Loading deployments…"}</strong>
               </div>
-            ) : filtered.length === 0 ? (
+            ) : deployments.length === 0 ? (
               <div className="deployment-empty">
                 <strong>
-                  {deployments.length
+                  {deploymentTotal
                     ? zh
                       ? "没有符合筛选条件的部署"
                       : "No deployments match the filters"
@@ -1200,7 +1203,7 @@ export function DeploymentCenter({
                   <span>{zh ? "状态" : "Status"}</span>
                   <span>{zh ? "操作" : "Actions"}</span>
                 </div>
-                {filtered.map((item) => {
+                {deployments.map((item) => {
                   const identity = identityMap.get(item.id) ?? defaultIdentity(item);
                   const profile = item.server_profile_id
                     ? profileMap.get(item.server_profile_id)
@@ -1292,6 +1295,13 @@ export function DeploymentCenter({
                 })}
               </div>
             )}
+            <Pagination
+              page={deploymentPage}
+              pages={deploymentPages}
+              total={deploymentTotal}
+              disabled={loading || working}
+              onPage={(page) => void load(page)}
+            />
           </section>
         </section>
       </section>

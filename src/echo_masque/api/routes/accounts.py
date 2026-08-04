@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Literal, cast
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 
 from echo_masque.account_lifecycle import (
@@ -122,6 +122,12 @@ class AuditEventView(BaseModel):
             metadata=service.audit_metadata(record),
             created_at=record.created_at,
         )
+
+
+class AuditEventPage(BaseModel):
+    items: list[AuditEventView]
+    next_cursor: str | None
+    has_more: bool
 
 
 class LocalWorkspaceClaim(BaseModel):
@@ -241,6 +247,29 @@ def list_audit_events(
         AuditEventView.from_record(item, service)
         for item in service.list_audit_events(limit=bounded)
     ]
+
+
+@router.get("/api/admin/audit/page", response_model=AuditEventPage)
+def paginate_audit_events(
+    request: Request,
+    admin: AdminUserDependency,
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None, max_length=1000),
+) -> AuditEventPage:
+    del admin
+    service = lifecycle_service(request)
+    try:
+        records, next_cursor = service.list_audit_events_page(
+            limit=limit,
+            cursor=cursor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return AuditEventPage(
+        items=[AuditEventView.from_record(item, service) for item in records],
+        next_cursor=next_cursor,
+        has_more=next_cursor is not None,
+    )
 
 
 @router.post("/api/admin/workspace/claim-local", response_model=LifecycleResult)

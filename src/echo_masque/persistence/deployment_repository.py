@@ -1,9 +1,10 @@
 """Persistence operations for platform connections and character deployments."""
 
 import json
+import math
 from uuid import uuid4
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from echo_masque.persistence.database import Database
@@ -494,6 +495,91 @@ class DeploymentRepository:
                 CharacterDeploymentRecord.thread_name,
             )
             return list(session.scalars(query))
+
+    def list_deployments_page(
+        self,
+        owner_id: str,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        character_card_id: str | None = None,
+        platform: str | None = None,
+        status: str | None = None,
+    ) -> tuple[
+        list[CharacterDeploymentRecord],
+        int,
+        int,
+        int,
+        dict[str, int],
+    ]:
+        with self.database.session() as session:
+            conditions = [CharacterDeploymentRecord.owner_id == owner_id]
+            if character_card_id is not None:
+                conditions.append(
+                    CharacterDeploymentRecord.character_card_id == character_card_id
+                )
+            if platform is not None:
+                conditions.append(CharacterDeploymentRecord.platform == platform)
+            if status is not None:
+                conditions.append(CharacterDeploymentRecord.status == status)
+            total = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(CharacterDeploymentRecord)
+                    .where(*conditions)
+                )
+                or 0
+            )
+            pages = max(1, math.ceil(total / page_size))
+            safe_page = min(max(1, page), pages)
+            records = list(
+                session.scalars(
+                    select(CharacterDeploymentRecord)
+                    .where(*conditions)
+                    .order_by(
+                        CharacterDeploymentRecord.updated_at.desc(),
+                        CharacterDeploymentRecord.id.desc(),
+                    )
+                    .offset((safe_page - 1) * page_size)
+                    .limit(page_size)
+                )
+            )
+            counts = {
+                "active": int(
+                    session.scalar(
+                        select(func.count())
+                        .select_from(CharacterDeploymentRecord)
+                        .where(
+                            CharacterDeploymentRecord.owner_id == owner_id,
+                            CharacterDeploymentRecord.status == "active",
+                        )
+                    )
+                    or 0
+                ),
+                "paused": int(
+                    session.scalar(
+                        select(func.count())
+                        .select_from(CharacterDeploymentRecord)
+                        .where(
+                            CharacterDeploymentRecord.owner_id == owner_id,
+                            CharacterDeploymentRecord.status == "paused",
+                        )
+                    )
+                    or 0
+                ),
+                "attention": int(
+                    session.scalar(
+                        select(func.count())
+                        .select_from(CharacterDeploymentRecord)
+                        .where(
+                            CharacterDeploymentRecord.owner_id == owner_id,
+                            CharacterDeploymentRecord.status.in_(("error", "offline")),
+                        )
+                    )
+                    or 0
+                ),
+            }
+            return records, safe_page, total, pages, counts
 
     def list_connector_deployments(
         self,

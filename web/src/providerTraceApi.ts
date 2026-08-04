@@ -1,5 +1,11 @@
 export type ProviderTraceStatus = "pending" | "succeeded" | "error";
 
+export interface ProviderTracePage {
+  items: ProviderTraceView[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
 export interface ProviderTraceView {
   trace_id: string;
   status: ProviderTraceStatus;
@@ -49,6 +55,7 @@ export const providerTraceApi = {
     status?: ProviderTraceStatus | "all";
     model?: string;
     traceId?: string;
+    cursor?: string | null;
   } = {}) => {
     const query = new URLSearchParams();
     query.set("limit", String(options.limit ?? 100));
@@ -57,7 +64,10 @@ export const providerTraceApi = {
     }
     if (options.model?.trim()) query.set("model", options.model.trim());
     if (options.traceId?.trim()) query.set("trace_id", options.traceId.trim());
-    return request<ProviderTraceView[]>(`/api/admin/provider-traces?${query.toString()}`);
+    if (options.cursor) query.set("cursor", options.cursor);
+    return request<ProviderTracePage>(
+      `/api/admin/provider-traces/page?${query.toString()}`
+    );
   },
   clear: () =>
     request<{ deleted_count: number }>("/api/admin/provider-traces", {

@@ -235,6 +235,14 @@ export interface MatrixListPage {
   pages: number;
 }
 
+export interface MatrixTaskListPage {
+  items: MatrixTaskView[];
+  page: number;
+  page_size: number;
+  total: number;
+  pages: number;
+}
+
 export interface MatrixTaskCombination {
   character_card_id: string;
   prompt_version_id: string | null;
@@ -472,7 +480,21 @@ export const workspaceApi = {
   retryMatrix: (id: string) => request<MatrixView>(`/api/matrices/${id}/retry-failed`, { method: "POST" }),
   setMatrixBaseline: (id: string, value: boolean) =>
     request<MatrixView>(`/api/matrices/${id}/baseline?value=${value}`, { method: "PUT" }),
-  matrixTasks: (id: string) => request<MatrixTaskView[]>(`/api/matrices/${id}/tasks`),
+  matrixTasks: (
+    id: string,
+    page = 1,
+    pageSize = 50,
+    status: MatrixTaskStatus | "all" = "all"
+  ) => {
+    const query = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize)
+    });
+    if (status !== "all") query.set("status", status);
+    return request<MatrixTaskListPage>(
+      `/api/matrices/${id}/tasks/page?${query.toString()}`
+    );
+  },
   matrixAnalytics: (id: string) => request<MatrixAnalytics>(`/api/matrices/${id}/analytics`),
   compareMatrices: (baselineId: string, candidateId: string) =>
     request<MatrixComparison>(

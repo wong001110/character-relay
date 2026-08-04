@@ -40,21 +40,35 @@ export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
   const [traces, setTraces] = useState<ProviderTraceView[]>([]);
   const [status, setStatus] = useState<ProviderTraceStatus | "all">("all");
   const [model, setModel] = useState("");
+  const [appliedModel, setAppliedModel] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  async function load() {
+  async function load(
+    targetCursor: string | null = cursor,
+    targetModel = appliedModel
+  ) {
     try {
       setLoading(true);
-      const next = await providerTraceApi.list({ limit: 200, status, model });
-      setTraces(next);
+      const next = await providerTraceApi.list({
+        limit: 50,
+        status,
+        model: targetModel,
+        cursor: targetCursor
+      });
+      setTraces(next.items);
+      setNextCursor(next.next_cursor);
       setSelectedId((current) =>
-        current && next.some((item) => item.trace_id === current)
+        current && next.items.some((item) => item.trace_id === current)
           ? current
-          : next[0]?.trace_id ?? null
+          : next.items[0]?.trace_id ?? null
       );
       setError(null);
     } catch (reason) {
@@ -64,15 +78,48 @@ export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
     }
   }
 
+  function resetAndLoad(targetModel = appliedModel) {
+    setCursor(null);
+    setCursorHistory([]);
+    setPage(1);
+    void load(null, targetModel);
+  }
+
+  function applyFilters() {
+    const nextModel = model.trim();
+    setAppliedModel(nextModel);
+    resetAndLoad(nextModel);
+  }
+
+  function showOlder() {
+    if (!nextCursor) return;
+    setCursorHistory((current) => [...current, cursor]);
+    setCursor(nextCursor);
+    setPage((current) => current + 1);
+    void load(nextCursor);
+  }
+
+  function showNewer() {
+    const previous = cursorHistory.at(-1);
+    if (previous === undefined) return;
+    setCursorHistory((current) => current.slice(0, -1));
+    setCursor(previous);
+    setPage((current) => Math.max(1, current - 1));
+    void load(previous);
+  }
+
   useEffect(() => {
-    void load();
+    resetAndLoad();
   }, [status]);
 
   useEffect(() => {
     if (!autoRefresh) return;
-    const timer = window.setInterval(() => void load(), 5000);
+    const timer = window.setInterval(
+      () => void load(cursor, appliedModel),
+      5000
+    );
     return () => window.clearInterval(timer);
-  }, [autoRefresh, status, model]);
+  }, [autoRefresh, status, appliedModel, cursor]);
 
   const selected = useMemo(
     () => traces.find((item) => item.trace_id === selectedId) ?? null,
@@ -95,6 +142,10 @@ export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
       );
       setTraces([]);
       setSelectedId(null);
+      setCursor(null);
+      setCursorHistory([]);
+      setNextCursor(null);
+      setPage(1);
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -114,7 +165,7 @@ export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
           </p>
         </div>
         <div className="provider-trace-header-actions">
-          <button type="button" className="paper-button" onClick={() => void load()}>
+          <button type="button" className="paper-button" onClick={() => void load(cursor)}>
             {loading ? (zh ? "读取中…" : "Loading…") : zh ? "刷新" : "Refresh"}
           </button>
           <button type="button" className="paper-button danger-text" onClick={() => void clearAll()}>
@@ -147,12 +198,12 @@ export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
             value={model}
             onChange={(event) => setModel(event.currentTarget.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") void load();
+              if (event.key === "Enter") applyFilters();
             }}
             placeholder="deepseek-v4-flash"
           />
         </label>
-        <button type="button" className="paper-button" onClick={() => void load()}>
+        <button type="button" className="paper-button" onClick={applyFilters}>
           {zh ? "套用筛选" : "Apply filters"}
         </button>
         <label className="provider-trace-auto-refresh">
@@ -164,7 +215,7 @@ export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
           {zh ? "每 5 秒自动刷新" : "Refresh every 5 seconds"}
         </label>
         <span className="provider-trace-count">
-          {traces.length} {zh ? "条" : "traces"}
+          {zh ? `第 ${page} 页 · ${traces.length} 条` : `Page ${page} · ${traces.length} traces`}
         </span>
       </section>
 
@@ -185,7 +236,8 @@ export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
               </p>
             </div>
           ) : (
-            traces.map((trace) => (
+            <>
+              {traces.map((trace) => (
               <button
                 type="button"
                 key={trace.trace_id}
@@ -205,7 +257,17 @@ export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
                 </small>
                 <code>{trace.trace_id.slice(0, 12)}</code>
               </button>
-            ))
+              ))}
+              <nav className="library-pagination" style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 12 }}>
+                <button type="button" className="paper-button" disabled={cursorHistory.length === 0 || loading} onClick={showNewer}>
+                  {zh ? "较新" : "Newer"}
+                </button>
+                <span>{page}</span>
+                <button type="button" className="paper-button" disabled={!nextCursor || loading} onClick={showOlder}>
+                  {zh ? "较旧" : "Older"}
+                </button>
+              </nav>
+            </>
           )}
         </aside>
 

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { CharacterCard, JudgeMode, TestLanguage, TesterMode } from "./api";
 import { useI18n } from "./i18n";
 import { LanguageSwitcher } from "./LanguageSwitcher";
+import { Pagination } from "./Pagination";
 import {
   workspaceApi,
   type MatrixAnalytics,
@@ -10,7 +11,8 @@ import {
   type MatrixDefinition,
   type MatrixFields,
   type MatrixPreview,
-  type MatrixTaskView,
+  type MatrixTaskListPage,
+  type MatrixTaskStatus,
   type MatrixView,
   type PromptVersionDiff,
   type PromptVersionView,
@@ -227,30 +229,40 @@ export function MatrixWorkspace({ cards, onClose }: Props) {
   const [tab, setTab] = useState<MatrixTab>("builder");
   const [packs, setPacks] = useState<TestPackView[]>([]);
   const [matrices, setMatrices] = useState<MatrixView[]>([]);
+  const [matrixPage, setMatrixPage] = useState(1);
+  const [matrixPages, setMatrixPages] = useState(1);
+  const [matrixTotal, setMatrixTotal] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  async function load() {
+  async function load(page = matrixPage) {
     try {
       const [nextPacks, nextMatrices] = await Promise.all([
         workspaceApi.listPacks(),
-        workspaceApi.listMatrices()
+        workspaceApi.listMatrices(page)
       ]);
       setPacks(nextPacks);
       setMatrices(nextMatrices.items);
-      setSelectedId((current) => current ?? nextMatrices.items[0]?.id ?? null);
+      setMatrixPage(nextMatrices.page);
+      setMatrixPages(nextMatrices.pages);
+      setMatrixTotal(nextMatrices.total);
+      setSelectedId((current) =>
+        current && nextMatrices.items.some((item) => item.id === current)
+          ? current
+          : nextMatrices.items[0]?.id ?? null
+      );
       setMessage(null);
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : c.requestFailed);
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(1); }, []);
   useEffect(() => {
     if (!matrices.some((item) => ["queued", "running"].includes(item.status))) return;
-    const timer = window.setInterval(() => void load(), 2000);
+    const timer = window.setInterval(() => void load(matrixPage), 2000);
     return () => window.clearInterval(timer);
-  }, [matrices]);
+  }, [matrices, matrixPage]);
 
   const selected = matrices.find((item) => item.id === selectedId) ?? null;
 
@@ -285,7 +297,7 @@ export function MatrixWorkspace({ cards, onClose }: Props) {
           onCreated={async (matrix) => {
             setSelectedId(matrix.id);
             setMessage(c.saved);
-            await load();
+            await load(1);
             setTab("queue");
           }}
           onMessage={setMessage}
@@ -296,8 +308,12 @@ export function MatrixWorkspace({ cards, onClose }: Props) {
           matrices={matrices}
           selected={selected}
           onSelect={setSelectedId}
-          onChanged={load}
+          onChanged={() => load(matrixPage)}
           onMessage={setMessage}
+          page={matrixPage}
+          pages={matrixPages}
+          total={matrixTotal}
+          onPage={(page) => void load(page)}
           copy={c}
         />
       )}
@@ -306,6 +322,10 @@ export function MatrixWorkspace({ cards, onClose }: Props) {
           matrices={matrices}
           selected={selected}
           onSelect={setSelectedId}
+          page={matrixPage}
+          pages={matrixPages}
+          total={matrixTotal}
+          onPage={(page) => void load(page)}
           copy={c}
         />
       )}
@@ -549,6 +569,10 @@ function MatrixQueue({
   onSelect,
   onChanged,
   onMessage,
+  page,
+  pages,
+  total,
+  onPage,
   copy: c
 }: {
   matrices: MatrixView[];
@@ -556,13 +580,39 @@ function MatrixQueue({
   onSelect: (id: string) => void;
   onChanged: () => Promise<void>;
   onMessage: (message: string | null) => void;
+  page: number;
+  pages: number;
+  total: number;
+  onPage: (page: number) => void;
   copy: Copy;
 }) {
-  const [tasks, setTasks] = useState<MatrixTaskView[]>([]);
+  const [taskPage, setTaskPage] = useState<MatrixTaskListPage | null>(null);
+  const [taskPageNumber, setTaskPageNumber] = useState(1);
+  const [taskStatus, setTaskStatus] = useState<MatrixTaskStatus | "all">("all");
+
+  async function loadTasks(nextPage = taskPageNumber, nextStatus = taskStatus) {
+    if (!selected) {
+      setTaskPage(null);
+      return;
+    }
+    try {
+      const next = await workspaceApi.matrixTasks(
+        selected.id,
+        nextPage,
+        50,
+        nextStatus
+      );
+      setTaskPage(next);
+      setTaskPageNumber(next.page);
+    } catch {
+      setTaskPage(null);
+    }
+  }
+
   useEffect(() => {
-    if (!selected) { setTasks([]); return; }
-    void workspaceApi.matrixTasks(selected.id).then(setTasks).catch(() => setTasks([]));
-  }, [selected?.id, selected?.updated_at]);
+    setTaskPageNumber(1);
+    void loadTasks(1, taskStatus);
+  }, [selected?.id, selected?.updated_at, taskStatus]);
 
   async function action(run: () => Promise<unknown>) {
     try { await run(); onMessage(null); await onChanged(); }
@@ -577,6 +627,7 @@ function MatrixQueue({
           <strong>{matrix.name}</strong><span>{matrix.status}</span><small>{matrix.completed_tasks}/{matrix.total_tasks}</small>
         </button>
       ))}
+      <Pagination page={page} pages={pages} total={total} onPage={onPage} />
     </aside>
     <div className="matrix-detail">
       {!selected ? <div className="paper-sheet"><p>{c.selectMatrix}</p></div> : <>
@@ -598,20 +649,61 @@ function MatrixQueue({
           </div>
         </article>
         <div className="matrix-task-list">
-          <h3>{c.tasks}</h3>
-          {tasks.map((task) => <article className={`matrix-task paper-sheet status-${task.status}`} key={task.id}>
+          <div className="section-heading">
+            <h3>{c.tasks}</h3>
+            <select
+              value={taskStatus}
+              onChange={(event) =>
+                setTaskStatus(event.currentTarget.value as MatrixTaskStatus | "all")
+              }
+            >
+              <option value="all">All statuses</option>
+              <option value="pending">{c.pending}</option>
+              <option value="running">{c.running}</option>
+              <option value="completed">{c.completed}</option>
+              <option value="failed">{c.failed}</option>
+              <option value="cancelled">{c.cancelled}</option>
+            </select>
+          </div>
+          {(taskPage?.items ?? []).map((task) => <article className={`matrix-task paper-sheet status-${task.status}`} key={task.id}>
             <div><strong>#{task.ordinal}</strong><span>{task.status}</span></div>
             <div><span>{task.combination.test_language} · {task.combination.tester_mode} · {task.combination.judge_mode}</span><small>{task.combination.model_override ?? c.currentConfig} · T {task.combination.temperature ?? c.currentConfig} · R{task.combination.repeat_index}</small></div>
             <div><span>{c.attemptsLabel}: {task.attempt_count}/{task.max_attempts}</span><span>{task.retry_count ? `↻ ${task.retry_count}` : ""}</span></div>
             <div>{task.run_id ? <code>{task.run_id.slice(0, 12)}</code> : "—"}{task.error && <small className="task-error">{task.error}</small>}</div>
           </article>)}
+          {taskPage && (
+            <Pagination
+              page={taskPage.page}
+              pages={taskPage.pages}
+              total={taskPage.total}
+              onPage={(nextPage) => void loadTasks(nextPage, taskStatus)}
+            />
+          )}
         </div>
       </>}
     </div>
   </section>;
 }
 
-function MatrixAnalyticsPanel({ matrices, selected, onSelect, copy: c }: { matrices: MatrixView[]; selected: MatrixView | null; onSelect: (id: string) => void; copy: Copy }) {
+function MatrixAnalyticsPanel({
+  matrices,
+  selected,
+  onSelect,
+  page,
+  pages,
+  total,
+  onPage,
+  copy: c
+}: {
+  matrices: MatrixView[];
+  selected: MatrixView | null;
+  onSelect: (id: string) => void;
+  page: number;
+  pages: number;
+  total: number;
+  onPage: (page: number) => void;
+  copy: Copy;
+}) {
   const [analytics, setAnalytics] = useState<MatrixAnalytics | null>(null);
   const [candidateId, setCandidateId] = useState("");
   const [comparison, setComparison] = useState<MatrixComparison | null>(null);
@@ -634,6 +726,7 @@ function MatrixAnalyticsPanel({ matrices, selected, onSelect, copy: c }: { matri
       <label>{c.analytics}<select value={selected?.id ?? ""} onChange={(event) => onSelect(event.currentTarget.value)}><option value="">{c.selectMatrix}</option>{matrices.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
       <div className="export-links"><span>{c.exports}</span>{selected && (["json", "csv", "markdown"] as const).map((format) => <a key={format} href={workspaceApi.matrixExportUrl(selected.id, format)}>{format.toUpperCase()}</a>)}</div>
     </div>
+    <Pagination page={page} pages={pages} total={total} onPage={onPage} />
     {!analytics || analytics.completed_runs === 0 ? <div className="empty-library paper-sheet"><p>{c.noAnalytics}</p></div> : <>
       <div className="metric-grid">
         <Metric label={c.score} value={score(analytics.mean_score)} />

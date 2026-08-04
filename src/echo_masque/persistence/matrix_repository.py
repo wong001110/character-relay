@@ -25,6 +25,7 @@ from echo_masque.matrix import (
     MatrixListPage,
     MatrixStatus,
     MatrixTaskCombination,
+    MatrixTaskListPage,
     MatrixTaskStatus,
     MatrixTaskView,
     MatrixUpdate,
@@ -473,6 +474,48 @@ class MatrixRepository:
                 .order_by(ExperimentMatrixTaskRecord.ordinal)
             )
             return [self._task_view(item) for item in records]
+
+    def list_tasks_page(
+        self,
+        matrix_id: str,
+        owner_id: str,
+        *,
+        page: int = 1,
+        page_size: int = 50,
+        status: MatrixTaskStatus | None = None,
+    ) -> MatrixTaskListPage | None:
+        if self.get_matrix(matrix_id, owner_id) is None:
+            return None
+        with self.database.session() as session:
+            conditions = [ExperimentMatrixTaskRecord.matrix_id == matrix_id]
+            if status is not None:
+                conditions.append(
+                    ExperimentMatrixTaskRecord.status == status.value
+                )
+            total = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(ExperimentMatrixTaskRecord)
+                    .where(*conditions)
+                )
+                or 0
+            )
+            pages = max(1, math.ceil(total / page_size))
+            safe_page = min(max(1, page), pages)
+            records = session.scalars(
+                select(ExperimentMatrixTaskRecord)
+                .where(*conditions)
+                .order_by(ExperimentMatrixTaskRecord.ordinal)
+                .offset((safe_page - 1) * page_size)
+                .limit(page_size)
+            )
+            return MatrixTaskListPage(
+                items=[self._task_view(item) for item in records],
+                page=safe_page,
+                page_size=page_size,
+                total=total,
+                pages=pages,
+            )
 
     def pending_tasks(self, matrix_id: str, limit: int) -> list[MatrixTaskView]:
         with self.database.session() as session:
