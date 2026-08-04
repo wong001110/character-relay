@@ -45,6 +45,8 @@ export class DiscordWebhookManager {
       deployment_id: deployment.deployment_id,
       workspace_id: deployment.workspace_id,
       channel_id: deployment.channel_id,
+      category_id: deployment.category_id,
+      thread_id: deployment.thread_id,
       webhook_id: webhook.id,
       webhook_token: webhook.token
     });
