@@ -1,13 +1,17 @@
 """Persistence operations for Discord identities, webhooks, and reply routing."""
 
+import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy import delete, select, update
+from sqlalchemy.orm import Session
 
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
+    DiscordDeploymentScopeRecord,
+    DiscordServerProfileRecord,
     PlatformConnectionRecord,
 )
 from echo_masque.persistence.discord_identity_models import (
@@ -17,6 +21,36 @@ from echo_masque.persistence.discord_identity_models import (
 )
 
 _MESSAGE_ROUTE_RETENTION_DAYS = 180
+
+
+def _ids(value: str) -> set[str]:
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return set()
+    if not isinstance(decoded, list):
+        return set()
+    return {item.strip() for item in decoded if isinstance(item, str) and item.strip()}
+
+
+def _matches_destination(
+    session: Session,
+    deployment: CharacterDeploymentRecord,
+    *,
+    workspace_id: str,
+    channel_id: str,
+    thread_id: str,
+) -> bool:
+    scope = session.get(DiscordDeploymentScopeRecord, deployment.id)
+    if scope is None:
+        return deployment.channel_id == channel_id and deployment.thread_id == thread_id
+    profile = session.get(DiscordServerProfileRecord, scope.server_profile_id)
+    if profile is None or profile.guild_id != workspace_id:
+        return False
+    return (
+        channel_id not in _ids(profile.excluded_channel_ids_json)
+        and channel_id not in _ids(scope.excluded_channel_ids_json)
+    )
 
 
 class DiscordIdentityRepository:
@@ -119,14 +153,24 @@ class DiscordIdentityRepository:
         channel_id: str,
     ) -> CharacterDeploymentRecord | None:
         with self.database.session() as session:
-            return session.scalar(
-                select(CharacterDeploymentRecord).where(
-                    CharacterDeploymentRecord.id == deployment_id,
-                    CharacterDeploymentRecord.connection_id == connection_id,
-                    CharacterDeploymentRecord.channel_id == channel_id,
-                    CharacterDeploymentRecord.platform == "discord",
-                )
-            )
+            deployment = session.get(CharacterDeploymentRecord, deployment_id)
+            if (
+                deployment is None
+                or deployment.connection_id != connection_id
+                or deployment.platform != "discord"
+            ):
+                return None
+            scope = session.get(DiscordDeploymentScopeRecord, deployment_id)
+            if scope is None:
+                return deployment if deployment.channel_id == channel_id else None
+            profile = session.get(DiscordServerProfileRecord, scope.server_profile_id)
+            if profile is None:
+                return None
+            if channel_id in _ids(profile.excluded_channel_ids_json):
+                return None
+            if channel_id in _ids(scope.excluded_channel_ids_json):
+                return None
+            return deployment
 
     def get_binding(
         self,
@@ -226,17 +270,20 @@ class DiscordIdentityRepository:
     ) -> list[DiscordMessageRouteRecord]:
         now = datetime.now(UTC)
         with self.database.session() as session:
-            deployment = session.scalar(
-                select(CharacterDeploymentRecord).where(
-                    CharacterDeploymentRecord.id == deployment_id,
-                    CharacterDeploymentRecord.connection_id == connection_id,
-                    CharacterDeploymentRecord.platform == "discord",
-                    CharacterDeploymentRecord.status == "active",
-                    CharacterDeploymentRecord.channel_id == channel_id,
-                    CharacterDeploymentRecord.thread_id == thread_id,
+            deployment = session.get(CharacterDeploymentRecord, deployment_id)
+            if (
+                deployment is None
+                or deployment.connection_id != connection_id
+                or deployment.platform != "discord"
+                or deployment.status != "active"
+                or not _matches_destination(
+                    session,
+                    deployment,
+                    workspace_id=workspace_id,
+                    channel_id=channel_id,
+                    thread_id=thread_id,
                 )
-            )
-            if deployment is None:
+            ):
                 raise KeyError(deployment_id)
             records: list[DiscordMessageRouteRecord] = []
             for message_id in dict.fromkeys(message_ids):
@@ -287,17 +334,22 @@ class DiscordIdentityRepository:
             record = session.get(DiscordMessageRouteRecord, message_id)
             if record is None or record.connection_id != connection_id:
                 return None
-            deployment = session.scalar(
-                select(CharacterDeploymentRecord).where(
-                    CharacterDeploymentRecord.id == record.deployment_id,
-                    CharacterDeploymentRecord.connection_id == connection_id,
-                    CharacterDeploymentRecord.platform == "discord",
-                    CharacterDeploymentRecord.status == "active",
-                    CharacterDeploymentRecord.channel_id == record.channel_id,
-                    CharacterDeploymentRecord.thread_id == record.thread_id,
+            deployment = session.get(CharacterDeploymentRecord, record.deployment_id)
+            if (
+                deployment is None
+                or deployment.connection_id != connection_id
+                or deployment.platform != "discord"
+                or deployment.status != "active"
+                or not _matches_destination(
+                    session,
+                    deployment,
+                    workspace_id=record.workspace_id,
+                    channel_id=record.channel_id,
+                    thread_id=record.thread_id,
                 )
-            )
-            return record if deployment is not None else None
+            ):
+                return None
+            return record
 
     def delete_owner(self, owner_id: str) -> dict[str, int]:
         with self.database.session() as session:
