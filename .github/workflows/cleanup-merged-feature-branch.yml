@@ -1,0 +1,24 @@
+name: Cleanup merged feature branch
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  delete-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete merged feature branch when present
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code "$remote" refs/heads/feature/discord-server-profiles >/dev/null 2>&1; then
+            git push "$remote" --delete feature/discord-server-profiles
+          else
+            echo "Feature branch is already absent."
+          fi
