@@ -69,6 +69,7 @@ class DiscordWebhookRegistration(BaseModel):
     workspace_id: str = Field(default="", max_length=200)
     channel_id: str = Field(min_length=1, max_length=200)
     category_id: str = Field(default="", max_length=200)
+    thread_id: str = Field(default="", max_length=200)
     webhook_id: str = Field(min_length=1, max_length=200)
     webhook_token: str = Field(min_length=1, max_length=500)
 
