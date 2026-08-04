@@ -12,6 +12,10 @@ from echo_masque.api.connector_schemas import (
     DiscordContextMessage,
     DiscordInboundMessage,
 )
+from echo_masque.character_prompts import (
+    CharacterPromptProfile,
+    compile_character_prompt,
+)
 from echo_masque.credentials import CredentialStore
 from echo_masque.persistence import DeploymentRepository, Repository
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
@@ -89,6 +93,7 @@ class DiscordConnectorRuntime:
             config_json=target_record.config_json,
             owner_id=deployment.owner_id,
             character_card_id=card.id,
+            character_profile=CharacterPromptProfile.from_record(card),
         )
         prompt = self._social_prompt(
             character_name=card.display_name,
@@ -149,6 +154,7 @@ class DiscordConnectorRuntime:
         config_json: str,
         owner_id: str,
         character_card_id: str,
+        character_profile: CharacterPromptProfile,
     ) -> TargetAdapter:
         if target_kind == "stable":
             return stable_target()
@@ -169,9 +175,11 @@ class DiscordConnectorRuntime:
             raise ConnectorRuntimeError(
                 "The deployed Character Card needs a provider credential."
             )
+        compiled = compile_character_prompt(config.system_prompt, character_profile)
         return PromptModelTarget(
             config=config,
             provider=self.provider_factory(config.base_url, credential),
+            runtime_system_prompt=compiled.compiled_system_prompt,
         )
 
     @staticmethod
