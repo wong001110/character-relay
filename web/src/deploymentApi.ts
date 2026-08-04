@@ -36,6 +36,14 @@ export interface PlatformConnectionCreate {
   metadata: Record<string, unknown>;
 }
 
+export interface PlatformConnectionUpdate {
+  display_name?: string;
+  connection_mode?: ConnectionMode;
+  external_account_id?: string;
+  status?: ConnectionStatus;
+  metadata?: Record<string, unknown>;
+}
+
 export interface CharacterDeployment {
   id: string;
   character_card_id: string;
@@ -107,10 +115,7 @@ export const deploymentApi = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
-  updateConnection: (
-    connectionId: string,
-    payload: Partial<Pick<PlatformConnection, "display_name" | "status" | "metadata">>
-  ) =>
+  updateConnection: (connectionId: string, payload: PlatformConnectionUpdate) =>
     request<PlatformConnection>(`/api/connections/${connectionId}`, {
       method: "PATCH",
       body: JSON.stringify(payload)
