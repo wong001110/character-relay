@@ -77,6 +77,8 @@ class DeploymentRepository:
         owner_id: str,
         *,
         display_name: str | None = None,
+        connection_mode: str | None = None,
+        external_account_id: str | None = None,
         status: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> PlatformConnectionRecord | None:
@@ -86,6 +88,10 @@ class DeploymentRepository:
                 return None
             if display_name is not None:
                 record.display_name = display_name
+            if connection_mode is not None:
+                record.connection_mode = connection_mode
+            if external_account_id is not None:
+                record.external_account_id = external_account_id
             if status is not None:
                 record.status = status
             if metadata is not None:
@@ -115,8 +121,8 @@ class DeploymentRepository:
             metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
             metadata["last_error"] = last_error
             metadata["heartbeat_source"] = f"{platform}_connector"
+            metadata["connector_display_name"] = display_name
             record.external_account_id = external_account_id
-            record.display_name = display_name
             record.status = status
             record.last_seen_at = utcnow()
             record.metadata_json = json.dumps(redact(metadata))
