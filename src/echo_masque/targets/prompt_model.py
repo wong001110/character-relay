@@ -2,6 +2,10 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from echo_masque.character_prompts import (
+    CharacterPromptProfile,
+    compile_character_prompt,
+)
 from echo_masque.domain import (
     TargetCapabilities,
     TargetResponse,
@@ -26,6 +30,7 @@ class PromptModelConfig(BaseModel):
         max_length=160,
     )
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    character_profile: CharacterPromptProfile | None = None
 
 
 class PromptModelTarget:
@@ -38,7 +43,16 @@ class PromptModelTarget:
     ) -> None:
         self.config = config
         self.provider = provider
-        self.runtime_system_prompt = runtime_system_prompt or config.system_prompt
+        if runtime_system_prompt is not None:
+            resolved_system_prompt = runtime_system_prompt
+        elif config.character_profile is not None:
+            resolved_system_prompt = compile_character_prompt(
+                config.system_prompt,
+                config.character_profile,
+            ).compiled_system_prompt
+        else:
+            resolved_system_prompt = config.system_prompt
+        self.runtime_system_prompt = resolved_system_prompt
         self._summary = TargetSummary(
             name=config.name,
             target_type=TargetType.PROMPT_MODEL,
