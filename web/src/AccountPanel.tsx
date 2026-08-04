@@ -106,6 +106,10 @@ export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
   const [invitations, setInvitations] = useState<InvitationView[]>([]);
   const [users, setUsers] = useState<AdminAccount[]>([]);
   const [audit, setAudit] = useState<AuditEventView[]>([]);
+  const [auditCursor, setAuditCursor] = useState<string | null>(null);
+  const [auditCursorHistory, setAuditCursorHistory] = useState<Array<string | null>>([]);
+  const [auditNextCursor, setAuditNextCursor] = useState<string | null>(null);
+  const [auditPage, setAuditPage] = useState(1);
   const [newCode, setNewCode] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -131,14 +135,45 @@ export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
       const [nextInvitations, nextUsers, nextAudit] = await Promise.all([
         api.listInvitations(),
         api.listAdminUsers(),
-        api.listAuditEvents()
+        api.listAuditEventsPage()
       ]);
       setInvitations(nextInvitations);
       setUsers(nextUsers);
-      setAudit(nextAudit);
+      setAudit(nextAudit.items);
+      setAuditCursor(null);
+      setAuditCursorHistory([]);
+      setAuditNextCursor(nextAudit.next_cursor);
+      setAuditPage(1);
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : t.loadError);
     }
+  }
+
+  async function loadAudit(cursor: string | null) {
+    try {
+      const next = await api.listAuditEventsPage(cursor);
+      setAudit(next.items);
+      setAuditNextCursor(next.next_cursor);
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : t.loadError);
+    }
+  }
+
+  function showOlderAudit() {
+    if (!auditNextCursor) return;
+    setAuditCursorHistory((current) => [...current, auditCursor]);
+    setAuditCursor(auditNextCursor);
+    setAuditPage((current) => current + 1);
+    void loadAudit(auditNextCursor);
+  }
+
+  function showNewerAudit() {
+    const previous = auditCursorHistory.at(-1);
+    if (previous === undefined) return;
+    setAuditCursorHistory((current) => current.slice(0, -1));
+    setAuditCursor(previous);
+    setAuditPage((current) => Math.max(1, current - 1));
+    void loadAudit(previous);
   }
 
   async function run(action: () => Promise<void>) {
@@ -438,7 +473,7 @@ export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
             <article className="account-action-card audit-card">
               <h3>{t.audit}</h3>
               <div className="audit-list">
-                {audit.slice(0, 80).map((item) => (
+                {audit.map((item) => (
                   <div key={item.id}>
                     <strong>{item.action}</strong>
                     <span>
@@ -447,6 +482,15 @@ export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
                   </div>
                 ))}
               </div>
+              <nav className="library-pagination" style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 12 }}>
+                <button type="button" className="paper-button" disabled={auditCursorHistory.length === 0 || working} onClick={showNewerAudit}>
+                  {language === "zh-CN" ? "较新" : "Newer"}
+                </button>
+                <span>{auditPage}</span>
+                <button type="button" className="paper-button" disabled={!auditNextCursor || working} onClick={showOlderAudit}>
+                  {language === "zh-CN" ? "较旧" : "Older"}
+                </button>
+              </nav>
             </article>
           </div>
         )}
