@@ -71,6 +71,11 @@ function defaultIdentity(deployment: CharacterDeployment): DeploymentMessageIden
   };
 }
 
+function connectorDisplayName(connection: PlatformConnection): string {
+  const value = connection.metadata.connector_display_name;
+  return typeof value === "string" ? value : "";
+}
+
 export function DeploymentCenter({
   cards,
   initialCharacterId = null,
@@ -85,18 +90,22 @@ export function DeploymentCenter({
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const [connectionOpen, setConnectionOpen] = useState(false);
+  const [editingConnection, setEditingConnection] = useState<PlatformConnection | null>(null);
+  const [connectionPlatform, setConnectionPlatform] = useState<PlatformId>("discord");
+  const [connectionMode, setConnectionMode] = useState<ConnectionMode>("managed");
+
   const [deploymentOpen, setDeploymentOpen] = useState(Boolean(initialCharacterId));
   const [editingDeployment, setEditingDeployment] = useState<CharacterDeployment | null>(null);
-  const [platformFilter, setPlatformFilter] = useState<"all" | PlatformId>("all");
-  const [statusFilter, setStatusFilter] = useState<"all" | DeploymentStatus>("all");
-  const [characterFilter, setCharacterFilter] = useState(initialCharacterId ?? "all");
   const [draftCharacterId, setDraftCharacterId] = useState(
     initialCharacterId ?? cards[0]?.id ?? ""
   );
   const [draftConnectionId, setDraftConnectionId] = useState("");
-  const [connectionPlatform, setConnectionPlatform] = useState<PlatformId>("discord");
-  const [connectionMode, setConnectionMode] = useState<ConnectionMode>("managed");
+
+  const [platformFilter, setPlatformFilter] = useState<"all" | PlatformId>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | DeploymentStatus>("all");
+  const [characterFilter, setCharacterFilter] = useState(initialCharacterId ?? "all");
 
   async function load() {
     try {
@@ -127,11 +136,10 @@ export function DeploymentCenter({
   }, []);
 
   useEffect(() => {
-    if (initialCharacterId) {
-      setCharacterFilter(initialCharacterId);
-      setDraftCharacterId(initialCharacterId);
-      setDeploymentOpen(true);
-    }
+    if (!initialCharacterId) return;
+    setCharacterFilter(initialCharacterId);
+    setDraftCharacterId(initialCharacterId);
+    setDeploymentOpen(true);
   }, [initialCharacterId]);
 
   const identityMap = useMemo(
@@ -170,6 +178,62 @@ export function DeploymentCenter({
     setConnectionMode(platform === "whatsapp" ? "local" : "managed");
   }
 
+  function openNewConnection() {
+    setEditingConnection(null);
+    setConnectionPlatform("discord");
+    setConnectionMode("managed");
+    setConnectionOpen(true);
+  }
+
+  function openEditConnection(item: PlatformConnection) {
+    setEditingConnection(item);
+    setConnectionPlatform(item.platform);
+    setConnectionMode(item.connection_mode);
+    setConnectionOpen(true);
+  }
+
+  function closeConnectionForm() {
+    setConnectionOpen(false);
+    setEditingConnection(null);
+  }
+
+  async function saveConnection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const displayName = String(data.get("display_name") ?? "").trim();
+    const externalAccountId = String(data.get("external_account_id") ?? "").trim();
+    try {
+      setWorking(true);
+      setError(null);
+      if (editingConnection) {
+        await deploymentApi.updateConnection(editingConnection.id, {
+          display_name: displayName,
+          connection_mode: connectionMode,
+          external_account_id: externalAccountId
+        });
+      } else {
+        await deploymentApi.createConnection({
+          platform: connectionPlatform,
+          display_name: displayName,
+          connection_mode: connectionMode,
+          external_account_id: externalAccountId,
+          status: "disconnected",
+          metadata: {
+            setup_state: "connector_not_configured",
+            product_stage: "connector"
+          }
+        });
+      }
+      closeConnectionForm();
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setWorking(false);
+    }
+  }
+
   function openNewDeployment() {
     setEditingDeployment(null);
     setDraftCharacterId(initialCharacterId ?? cards[0]?.id ?? "");
@@ -188,34 +252,6 @@ export function DeploymentCenter({
   function closeDeploymentForm() {
     setDeploymentOpen(false);
     setEditingDeployment(null);
-  }
-
-  async function createConnection(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    try {
-      setWorking(true);
-      setError(null);
-      await deploymentApi.createConnection({
-        platform: connectionPlatform,
-        display_name: String(data.get("display_name") ?? "").trim(),
-        connection_mode: connectionMode,
-        external_account_id: String(data.get("external_account_id") ?? "").trim(),
-        status: "disconnected",
-        metadata: {
-          setup_state: "connector_not_configured",
-          product_stage: "connector"
-        }
-      });
-      form.reset();
-      setConnectionOpen(false);
-      await load();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setWorking(false);
-    }
   }
 
   async function saveDeployment(event: FormEvent<HTMLFormElement>) {
@@ -315,6 +351,7 @@ export function DeploymentCenter({
     try {
       setWorking(true);
       await deploymentApi.deleteConnection(item.id);
+      if (editingConnection?.id === item.id) closeConnectionForm();
       await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -337,8 +374,8 @@ export function DeploymentCenter({
           <h1>{zh ? "角色部署与平台连接" : "Character deployments and platform connections"}</h1>
           <p>
             {zh
-              ? "一张角色卡可以部署到多个 Server、Channel、Thread 或群组；现在可以直接编辑每个部署，并用 Webhook 显示角色自己的名称与头像。"
-              : "Deploy one character to multiple destinations, edit each deployment directly, and use Discord webhooks for the character's own name and avatar."}
+              ? "管理平台账户、角色部署和 Discord Webhook 身份。平台账户与每个部署都可以直接编辑。"
+              : "Manage platform accounts, character deployments, and Discord webhook identities. Accounts and deployments can both be edited directly."}
           </p>
         </div>
         <div className="deployment-header-actions">
@@ -361,7 +398,7 @@ export function DeploymentCenter({
         <article className="paper-sheet deployment-summary-card">
           <span>{zh ? "部署总数" : "Deployments"}</span>
           <strong>{deployments.length}</strong>
-          <small>{zh ? "每个 Channel / Thread 独立记录" : "One record per channel or thread"}</small>
+          <small>{zh ? "每个 Channel / Thread 独立记录" : "One record per destination"}</small>
         </article>
         <article className="paper-sheet deployment-summary-card">
           <span>{zh ? "运行中" : "Active"}</span>
@@ -380,7 +417,11 @@ export function DeploymentCenter({
         </article>
       </section>
 
-      {error && <p className="error-note deployment-error" role="alert">{error}</p>}
+      {error && (
+        <p className="error-note deployment-error" role="alert">
+          {error}
+        </p>
+      )}
 
       <section className="deployment-layout">
         <aside className="deployment-sidebar">
@@ -390,18 +431,33 @@ export function DeploymentCenter({
                 <p className="tape-label">CONNECTIONS</p>
                 <h2>{zh ? "平台账户" : "Platform accounts"}</h2>
               </div>
-              {!demoMode && (
-                <button
-                  className="paper-button"
-                  onClick={() => setConnectionOpen((current) => !current)}
-                >
-                  {connectionOpen ? (zh ? "取消" : "Cancel") : (zh ? "+ 添加" : "+ Add")}
+              {!demoMode && !connectionOpen && (
+                <button className="paper-button" onClick={openNewConnection}>
+                  {zh ? "+ 添加" : "+ Add"}
                 </button>
               )}
             </div>
 
             {connectionOpen && !demoMode && (
-              <form className="connection-form" onSubmit={createConnection}>
+              <form
+                className="connection-form"
+                onSubmit={saveConnection}
+                key={editingConnection?.id ?? "new-connection"}
+              >
+                <div className="panel-heading-row">
+                  <strong>
+                    {editingConnection
+                      ? zh
+                        ? "编辑平台账户"
+                        : "Edit platform account"
+                      : zh
+                        ? "添加平台账户"
+                        : "Add platform account"}
+                  </strong>
+                  <button type="button" className="text-button" onClick={closeConnectionForm}>
+                    {zh ? "取消" : "Cancel"}
+                  </button>
+                </div>
                 <label>
                   {zh ? "平台" : "Platform"}
                   <select
@@ -409,6 +465,7 @@ export function DeploymentCenter({
                     onChange={(event) =>
                       changeConnectionPlatform(event.currentTarget.value as PlatformId)
                     }
+                    disabled={Boolean(editingConnection)}
                   >
                     <option value="discord">Discord</option>
                     <option value="whatsapp">WhatsApp</option>
@@ -416,10 +473,11 @@ export function DeploymentCenter({
                   </select>
                 </label>
                 <label>
-                  {zh ? "连接名称" : "Connection name"}
+                  {zh ? "账户显示名称" : "Account display name"}
                   <input
                     name="display_name"
                     required
+                    defaultValue={editingConnection?.display_name ?? ""}
                     placeholder={zh ? "例如：主要 Discord Bot" : "e.g. Main Discord Bot"}
                   />
                 </label>
@@ -437,44 +495,88 @@ export function DeploymentCenter({
                 </label>
                 <label>
                   {zh ? "外部账号 ID（可选）" : "External account ID (optional)"}
-                  <input name="external_account_id" />
+                  <input
+                    name="external_account_id"
+                    defaultValue={editingConnection?.external_account_id ?? ""}
+                  />
                 </label>
                 <p className="connection-note">
-                  {zh
-                    ? platformNotes[connectionPlatform].zh
-                    : platformNotes[connectionPlatform].en}
+                  {editingConnection
+                    ? zh
+                      ? "平台类型建立后不能修改。账户名称会作为你的管理标签保留，不再被 Connector Heartbeat 覆盖。"
+                      : "The platform is immutable after creation. Your account label is preserved and is no longer overwritten by connector heartbeats."
+                    : zh
+                      ? platformNotes[connectionPlatform].zh
+                      : platformNotes[connectionPlatform].en}
                 </p>
                 <button className="ink-button" disabled={working}>
-                  {working ? (zh ? "保存中…" : "Saving…") : (zh ? "保存连接" : "Save connection")}
+                  {working
+                    ? zh
+                      ? "保存中…"
+                      : "Saving…"
+                    : editingConnection
+                      ? zh
+                        ? "保存账户修改"
+                        : "Save account changes"
+                      : zh
+                        ? "保存连接"
+                        : "Save connection"}
                 </button>
               </form>
             )}
 
             <div className="connection-list">
-              {connections.map((item) => (
-                <article className="connection-card" key={item.id}>
-                  <div className={`platform-icon platform-${item.platform}`} aria-hidden="true">
-                    {item.platform.slice(0, 1).toUpperCase()}
-                  </div>
-                  <div>
-                    <strong>{item.display_name}</strong>
-                    <span>{platformLabels[item.platform]} · {item.connection_mode}</span>
-                    <small>{zh ? platformNotes[item.platform].zh : platformNotes[item.platform].en}</small>
-                  </div>
-                  <span className={`deployment-status status-${item.status}`}>
-                    {statusLabel(item.status)}
-                  </span>
-                  {!demoMode && (
-                    <button
-                      className="text-button danger-text"
-                      onClick={() => void removeConnection(item)}
-                      disabled={working}
-                    >
-                      {zh ? "删除" : "Delete"}
-                    </button>
-                  )}
-                </article>
-              ))}
+              {connections.map((item) => {
+                const runtimeName = connectorDisplayName(item);
+                return (
+                  <article className="connection-card" key={item.id}>
+                    <div className={`platform-icon platform-${item.platform}`} aria-hidden="true">
+                      {item.platform.slice(0, 1).toUpperCase()}
+                    </div>
+                    <div>
+                      <strong>{item.display_name}</strong>
+                      <span>
+                        {platformLabels[item.platform]} · {item.connection_mode}
+                      </span>
+                      {runtimeName && runtimeName !== item.display_name && (
+                        <small>{zh ? "Connector 身份" : "Connector identity"}: {runtimeName}</small>
+                      )}
+                      {item.external_account_id && <small>ID: {item.external_account_id}</small>}
+                      <small>
+                        {zh ? platformNotes[item.platform].zh : platformNotes[item.platform].en}
+                      </small>
+                    </div>
+                    <span className={`deployment-status status-${item.status}`}>
+                      {statusLabel(item.status)}
+                    </span>
+                    {!demoMode && (
+                      <div
+                        style={{
+                          gridColumn: "2 / -1",
+                          display: "flex",
+                          gap: 12,
+                          flexWrap: "wrap"
+                        }}
+                      >
+                        <button
+                          className="text-button"
+                          onClick={() => openEditConnection(item)}
+                          disabled={working}
+                        >
+                          {zh ? "编辑" : "Edit"}
+                        </button>
+                        <button
+                          className="text-button danger-text"
+                          onClick={() => void removeConnection(item)}
+                          disabled={working}
+                        >
+                          {zh ? "删除" : "Delete"}
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
               {!loading && connections.length === 0 && (
                 <div className="deployment-empty compact-empty">
                   <strong>{zh ? "还没有平台连接" : "No platform connections yet"}</strong>
@@ -510,11 +612,11 @@ export function DeploymentCenter({
               <p className="deployment-foundation-note">
                 {discordIdentityEnabled
                   ? zh
-                    ? "Webhook 模式会由 Connector 自动查找或建立 Channel Webhook。你不需要手动填写 Webhook URL 或 Token。"
-                    : "Webhook mode is provisioned automatically by the connector. Do not paste a webhook URL or token here."
+                    ? "Webhook 模式会由 Connector 自动查找或建立 Channel Webhook。无需填写 Webhook URL 或 Token。"
+                    : "Webhook mode is provisioned automatically by the connector. Do not paste a webhook URL or token."
                   : zh
-                    ? "修改会保留当前部署状态，不需要先删除再重建。"
-                    : "Edits preserve the current deployment status; deletion and recreation are no longer required."}
+                    ? "修改会保留当前部署状态。"
+                    : "Edits preserve the current deployment status."}
               </p>
               <form
                 className="deployment-form"
@@ -530,7 +632,9 @@ export function DeploymentCenter({
                     required
                   >
                     {cards.map((card) => (
-                      <option value={card.id} key={card.id}>{card.display_name}</option>
+                      <option value={card.id} key={card.id}>
+                        {card.display_name}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -563,7 +667,7 @@ export function DeploymentCenter({
                     name="channel_name"
                     required
                     defaultValue={formDeployment?.channel_name ?? ""}
-                    placeholder="#ann-room"
+                    placeholder="#companions"
                   />
                 </label>
                 <label>
@@ -624,12 +728,18 @@ export function DeploymentCenter({
                   <>
                     <div className="deployment-form-divider">
                       <strong>{zh ? "Discord 消息身份" : "Discord message identity"}</strong>
-                      <span>{zh ? "名称和头像由 Webhook 每条消息动态覆盖" : "Name and avatar are overridden per webhook message"}</span>
+                      <span>
+                        {zh
+                          ? "名称和头像由 Webhook 每条消息动态覆盖"
+                          : "Name and avatar are overridden per webhook message"}
+                      </span>
                     </div>
                     <label>
                       {zh ? "发送方式" : "Delivery identity"}
                       <select name="identity_mode" defaultValue={formIdentity?.mode ?? "webhook"}>
-                        <option value="webhook">{zh ? "角色 Webhook 身份" : "Character webhook identity"}</option>
+                        <option value="webhook">
+                          {zh ? "角色 Webhook 身份" : "Character webhook identity"}
+                        </option>
                         <option value="bot">{zh ? "共用 Bot 身份" : "Shared Bot identity"}</option>
                       </select>
                     </label>
@@ -651,12 +761,12 @@ export function DeploymentCenter({
                         name="identity_avatar_url"
                         type="url"
                         defaultValue={formIdentity?.avatar_url ?? ""}
-                        placeholder="https://.../ann-avatar.png"
+                        placeholder="https://.../avatar.png"
                       />
                       <small>
                         {zh
-                          ? "Discord 必须能公开读取该图片。留空时使用 Webhook 默认头像。"
-                          : "Discord must be able to fetch this image publicly. Blank uses the webhook default."}
+                          ? "Discord 必须能公开读取该图片。"
+                          : "Discord must be able to fetch this image publicly."}
                       </small>
                     </label>
                   </>
@@ -688,7 +798,9 @@ export function DeploymentCenter({
                 <p className="tape-label">DEPLOYMENT LIST</p>
                 <h2>{zh ? "目前部署到哪些位置" : "Where characters are deployed"}</h2>
               </div>
-              <span>{filtered.length} / {deployments.length}</span>
+              <span>
+                {filtered.length} / {deployments.length}
+              </span>
             </div>
 
             <div className="deployment-filters">
@@ -700,7 +812,9 @@ export function DeploymentCenter({
                 >
                   <option value="all">{zh ? "全部角色" : "All characters"}</option>
                   {cards.map((card) => (
-                    <option value={card.id} key={card.id}>{card.display_name}</option>
+                    <option value={card.id} key={card.id}>
+                      {card.display_name}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -751,7 +865,7 @@ export function DeploymentCenter({
                       ? "还没有角色部署"
                       : "No character deployments yet"}
                 </strong>
-                <p>{zh ? "每个 Channel、Thread 或群组会成为一条独立记录。" : "Each destination appears as an independent record."}</p>
+                <p>{zh ? "每个目的地会成为一条独立记录。" : "Each destination is an independent record."}</p>
               </div>
             ) : (
               <div className="deployment-table" role="table">
@@ -777,11 +891,13 @@ export function DeploymentCenter({
                       <div>
                         <strong>{item.participation_mode.replaceAll("_", " ")}</strong>
                         <span>
-                          {item.memory_scope.replaceAll("_", " ")} · {item.sticker_count} {zh ? "贴图" : "stickers"}
+                          {item.memory_scope.replaceAll("_", " ")} · {item.sticker_count}{" "}
+                          {zh ? "贴图" : "stickers"}
                         </span>
                         {item.platform === "discord" && (
                           <span className="deployment-identity-line">
-                            {identity.mode === "webhook" ? "Webhook" : "Bot"} · {identity.display_name} · {statusLabel(identity.webhook_status)}
+                            {identity.mode === "webhook" ? "Webhook" : "Bot"} ·{" "}
+                            {identity.display_name} · {statusLabel(identity.webhook_status)}
                           </span>
                         )}
                         {identity.last_error && (

@@ -85,6 +85,8 @@ def update_connection(
         connection_id,
         user.id,
         display_name=payload.display_name,
+        connection_mode=payload.connection_mode,
+        external_account_id=payload.external_account_id,
         status=payload.status,
         metadata=payload.metadata,
     )
