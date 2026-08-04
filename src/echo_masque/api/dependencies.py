@@ -37,6 +37,17 @@ def quota_http_exception(exc: QuotaExceeded) -> HTTPException:
     )
 
 
+def is_super_admin(user: AuthenticatedUser, resolved: Settings) -> bool:
+    """Treat the configured Bootstrap Admin account as the unique Super Admin."""
+
+    bootstrap_email = resolved.bootstrap_admin_email
+    return (
+        user.role == "admin"
+        and bootstrap_email is not None
+        and user.email.casefold().strip() == bootstrap_email.casefold().strip()
+    )
+
+
 def optional_auth_context(
     request: Request,
     bearer_token: Annotated[str | None, Depends(_oauth2)],
@@ -105,6 +116,21 @@ def require_admin(
     )
 
 
+def require_super_admin(
+    request: Request,
+    context: Annotated[AuthContext, Depends(current_auth_context)],
+) -> AuthenticatedUser:
+    if not is_super_admin(context.user, settings(request)):
+        raise HTTPException(status_code=403, detail="Super Admin access required.")
+    if context.session_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authenticated Super Admin session required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return context.user
+
+
 OptionalAuthContextDependency = Annotated[
     AuthContext | None,
     Depends(optional_auth_context),
@@ -112,3 +138,4 @@ OptionalAuthContextDependency = Annotated[
 AuthContextDependency = Annotated[AuthContext, Depends(current_auth_context)]
 CurrentUserDependency = Annotated[AuthenticatedUser, Depends(current_user)]
 AdminUserDependency = Annotated[AuthenticatedUser, Depends(require_admin)]
+SuperAdminUserDependency = Annotated[AuthenticatedUser, Depends(require_super_admin)]

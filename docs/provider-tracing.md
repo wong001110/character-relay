@@ -1,10 +1,19 @@
 # Provider request and response tracing
 
-Character Relay writes correlated structured JSON events for every OpenAI-compatible provider call, including DeepSeek.
+Character Relay persists correlated provider traces for OpenAI-compatible model calls, including DeepSeek. Provider request and response content is not written to Railway process logs.
 
-The logs appear in the Character Relay Web/API service logs, not the Discord Connector service logs.
+The viewer is available inside the Portal only to the configured Bootstrap Admin account, which acts as the product's Super Admin. Regular Admin and User sessions receive `403 Forbidden` from the trace API.
 
-## Events
+## Portal access
+
+```text
+Sign in as the Bootstrap Admin
+→ Provider Trace
+```
+
+The Portal supports status and model filters, manual or five-second refresh, request/response JSON inspection, copying JSON, and clearing retained traces.
+
+Every trace uses one `trace_id` and may include:
 
 ```text
 provider.request
@@ -13,7 +22,7 @@ provider.response
 provider.error
 ```
 
-Every event contains the same `trace_id`, plus the endpoint, model, status, latency, token usage, and retry/error details when available. Authorization headers and API keys are never logged.
+Authorization headers and API keys are never persisted.
 
 ## Trace modes
 
@@ -24,17 +33,26 @@ ECHO_MASQUE_PROVIDER_TRACE_MODE=summary
 ECHO_MASQUE_PROVIDER_TRACE_MODE=content
 ```
 
-- `off`: no provider trace events.
+- `off`: do not persist provider traces.
 - `metadata`: model, endpoint, roles, character counts, latency, status, and token usage only.
-- `summary` (default): metadata plus the latest non-system request message and the response text.
+- `summary` (default): metadata plus the latest non-system request message and response text.
 - `content`: metadata plus the full request message sequence and response text, bounded by the configured character limit.
 
-Set the maximum logged text budget with:
+Set the per-event text budget with:
 
 ```text
 ECHO_MASQUE_PROVIDER_TRACE_MAX_CHARS=4000
 ```
 
-The accepted range is 256 to 20000 characters. Truncated text includes an omitted-character marker.
+The accepted range is 256 to 20000 characters. Truncated text contains an omitted-character marker.
 
-`content` mode may expose system prompts and private conversation text to anyone who can read the deployment logs. Use it only during controlled debugging, then return to `summary`, `metadata`, or `off`.
+`content` mode stores bounded System Prompt and private conversation content in the Character Relay database. It remains protected by the Super Admin API boundary, but should still be enabled only when that level of inspection is necessary.
+
+## Retention
+
+```text
+ECHO_MASQUE_PROVIDER_TRACE_RETENTION_DAYS=7
+ECHO_MASQUE_PROVIDER_TRACE_MAX_RECORDS=2000
+```
+
+Retention is bounded to 1–90 days and 100–10000 records. Oldest traces are pruned automatically when new requests are recorded. The Super Admin may also clear all traces from the Portal.

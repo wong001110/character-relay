@@ -23,6 +23,10 @@ import { useI18n } from "./i18n";
 import { MatrixWorkspace } from "./MatrixWorkspace";
 import { PackRunLauncher } from "./PackRunLauncher";
 import { PromptInspector } from "./PromptInspector";
+import {
+  ProviderTraceAccessButton,
+  ProviderTraceViewer
+} from "./ProviderTraceViewer";
 import { isPublicDemoUser } from "./publicDemo";
 import { TemplateLab } from "./TemplateLab";
 import { TestRoom } from "./TestRoom";
@@ -31,6 +35,7 @@ import "./styles.css";
 import "./polish.css";
 import "./auth-account.css";
 import "./deployments.css";
+import "./provider-traces.css";
 
 const SHOW_ADVANCED_LABS = false;
 
@@ -53,6 +58,7 @@ export default function App() {
   const [matrixOpen, setMatrixOpen] = useState(false);
   const [deploymentsOpen, setDeploymentsOpen] = useState(false);
   const [deploymentCharacterId, setDeploymentCharacterId] = useState<string | null>(null);
+  const [providerTracesOpen, setProviderTracesOpen] = useState(false);
   const [authoringOpen, setAuthoringOpen] = useState(false);
   const [calibrationOpen, setCalibrationOpen] = useState(false);
   const [evaluationOpen, setEvaluationOpen] = useState(false);
@@ -87,19 +93,31 @@ export default function App() {
       }
     }
     void bootstrap();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, []);
 
-  useEffect(() => { if (workspaceAllowed) void load(); }, [workspaceAllowed]);
+  useEffect(() => {
+    if (workspaceAllowed) void load();
+  }, [workspaceAllowed]);
 
   async function load() {
     try {
       const [nextCards, nextTargets, nextRuntime] = await Promise.all([
-        api.listCharacters(), api.listTargets(), api.getRuntimeStatus()
+        api.listCharacters(),
+        api.listTargets(),
+        api.getRuntimeStatus()
       ]);
-      setCards(nextCards); setTargets(nextTargets); setRuntime(nextRuntime);
-      setActiveCard((current) => current ? nextCards.find((item) => item.id === current.id) ?? null : null);
-      setPromptCard((current) => current ? nextCards.find((item) => item.id === current.id) ?? null : null);
+      setCards(nextCards);
+      setTargets(nextTargets);
+      setRuntime(nextRuntime);
+      setActiveCard((current) =>
+        current ? nextCards.find((item) => item.id === current.id) ?? null : null
+      );
+      setPromptCard((current) =>
+        current ? nextCards.find((item) => item.id === current.id) ?? null : null
+      );
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("app.openShelfError"));
@@ -107,20 +125,57 @@ export default function App() {
   }
 
   function clearWorkspaceState() {
-    setCards([]); setTargets([]); setRuntime(null); setActiveCard(null); setCreatorOpen(false);
-    setEditingCard(null); setPromptCard(null); setAdminOpen(false); setAccountOpen(false); setWorkspaceOpen(false);
-    setMatrixOpen(false); setDeploymentsOpen(false); setDeploymentCharacterId(null); setAuthoringOpen(false);
-    setCalibrationOpen(false); setEvaluationOpen(false); setCoverageOpen(false); setTemplateOpen(false);
+    setCards([]);
+    setTargets([]);
+    setRuntime(null);
+    setActiveCard(null);
+    setCreatorOpen(false);
+    setEditingCard(null);
+    setPromptCard(null);
+    setAdminOpen(false);
+    setAccountOpen(false);
+    setWorkspaceOpen(false);
+    setMatrixOpen(false);
+    setDeploymentsOpen(false);
+    setDeploymentCharacterId(null);
+    setProviderTracesOpen(false);
+    setAuthoringOpen(false);
+    setCalibrationOpen(false);
+    setEvaluationOpen(false);
+    setCoverageOpen(false);
+    setTemplateOpen(false);
   }
 
-  async function logout() { try { await api.logout(); } finally { setUser(null); clearWorkspaceState(); } }
-  function accountDeleted() { setUser(null); clearWorkspaceState(); }
-  function saved(card: CharacterCard) {
-    setCreatorOpen(false); setEditingCard(null);
-    setCards((current) => current.some((item) => item.id === card.id) ? current.map((item) => item.id === card.id ? card : item) : [card, ...current]);
-    setActiveCard((current) => current?.id === card.id ? card : current); void load();
+  async function logout() {
+    try {
+      await api.logout();
+    } finally {
+      setUser(null);
+      clearWorkspaceState();
+    }
   }
-  function runtimeUpdated(view: AdminRuntimeView) { setRuntime(view.status); }
+
+  function accountDeleted() {
+    setUser(null);
+    clearWorkspaceState();
+  }
+
+  function saved(card: CharacterCard) {
+    setCreatorOpen(false);
+    setEditingCard(null);
+    setCards((current) =>
+      current.some((item) => item.id === card.id)
+        ? current.map((item) => (item.id === card.id ? card : item))
+        : [card, ...current]
+    );
+    setActiveCard((current) => (current?.id === card.id ? card : current));
+    void load();
+  }
+
+  function runtimeUpdated(view: AdminRuntimeView) {
+    setRuntime(view.status);
+  }
+
   function openAdmin() {
     if (publicDemo) {
       setError(
@@ -130,8 +185,14 @@ export default function App() {
       );
       return;
     }
-    if (user?.role === "admin") { setAdminOpen(true); return; }
-    if (user) { setAccountOpen(true); return; }
+    if (user?.role === "admin") {
+      setAdminOpen(true);
+      return;
+    }
+    if (user) {
+      setAccountOpen(true);
+      return;
+    }
     setError(language === "zh-CN" ? "需要管理员账户。" : "An Admin account is required.");
   }
 
@@ -141,45 +202,298 @@ export default function App() {
   }
 
   function withAccount(content: ReactNode) {
-    return <>{content}{user && <div style={{ position:"fixed", top:16, right:16, zIndex:40, display:"flex", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
-      {SHOW_ADVANCED_LABS && <>
-        <button type="button" className="paper-button" onClick={() => setAuthoringOpen(true)}>{language === "zh-CN" ? "评测编写" : "Authoring Lab"}</button>
-        <button type="button" className="paper-button" onClick={() => setCalibrationOpen(true)}>{language === "zh-CN" ? "校准数据" : "Calibration Lab"}</button>
-        <button type="button" className="paper-button" onClick={() => setEvaluationOpen(true)}>{language === "zh-CN" ? "Judge 分析" : "Judge Analytics"}</button>
-        <button type="button" className="paper-button" onClick={() => setCoverageOpen(true)}>{language === "zh-CN" ? "覆盖分析" : "Coverage Lab"}</button>
-        <button type="button" className="paper-button" onClick={() => setTemplateOpen(true)}>{language === "zh-CN" ? "模板与分享" : "Templates & Sharing"}</button>
-      </>}
-      {publicDemo ? (
-        <button type="button" className="paper-button" onClick={() => void logout()}>
-          {language === "zh-CN" ? "退出 Demo" : "Sign out of Demo"}
-        </button>
-      ) : (
-        <button type="button" className="paper-button" onClick={() => setAccountOpen(true)}>{language === "zh-CN" ? "账户与安全" : "Account & security"}</button>
-      )}
-    </div>}
-    {accountOpen && user && !publicDemo && <AccountPanel user={user} onClose={() => setAccountOpen(false)} onLogout={logout} onDeleted={accountDeleted} />}
-    {adminOpen && user?.role === "admin" && <AdminSettings onClose={() => setAdminOpen(false)} onUpdated={runtimeUpdated} />}</>;
+    return (
+      <>
+        {content}
+        {user && (
+          <div
+            style={{
+              position: "fixed",
+              top: 16,
+              right: 16,
+              zIndex: 40,
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              justifyContent: "flex-end"
+            }}
+          >
+            {SHOW_ADVANCED_LABS && (
+              <>
+                <button
+                  type="button"
+                  className="paper-button"
+                  onClick={() => setAuthoringOpen(true)}
+                >
+                  {language === "zh-CN" ? "评测编写" : "Authoring Lab"}
+                </button>
+                <button
+                  type="button"
+                  className="paper-button"
+                  onClick={() => setCalibrationOpen(true)}
+                >
+                  {language === "zh-CN" ? "校准数据" : "Calibration Lab"}
+                </button>
+                <button
+                  type="button"
+                  className="paper-button"
+                  onClick={() => setEvaluationOpen(true)}
+                >
+                  {language === "zh-CN" ? "Judge 分析" : "Judge Analytics"}
+                </button>
+                <button
+                  type="button"
+                  className="paper-button"
+                  onClick={() => setCoverageOpen(true)}
+                >
+                  {language === "zh-CN" ? "覆盖分析" : "Coverage Lab"}
+                </button>
+                <button
+                  type="button"
+                  className="paper-button"
+                  onClick={() => setTemplateOpen(true)}
+                >
+                  {language === "zh-CN" ? "模板与分享" : "Templates & Sharing"}
+                </button>
+              </>
+            )}
+            {user.role === "admin" && !publicDemo && (
+              <ProviderTraceAccessButton onOpen={() => setProviderTracesOpen(true)} />
+            )}
+            {publicDemo ? (
+              <button type="button" className="paper-button" onClick={() => void logout()}>
+                {language === "zh-CN" ? "退出 Demo" : "Sign out of Demo"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="paper-button"
+                onClick={() => setAccountOpen(true)}
+              >
+                {language === "zh-CN" ? "账户与安全" : "Account & security"}
+              </button>
+            )}
+          </div>
+        )}
+        {accountOpen && user && !publicDemo && (
+          <AccountPanel
+            user={user}
+            onClose={() => setAccountOpen(false)}
+            onLogout={logout}
+            onDeleted={accountDeleted}
+          />
+        )}
+        {adminOpen && user?.role === "admin" && (
+          <AdminSettings
+            onClose={() => setAdminOpen(false)}
+            onUpdated={runtimeUpdated}
+          />
+        )}
+      </>
+    );
   }
 
-  if (booting) return <main className="auth-page"><section className="auth-card paper-sheet"><h1>Character Relay</h1><p>{language === "zh-CN" ? "正在验证安全 Session…" : "Checking secure Session…"}</p></section></main>;
-  if (!authConfig) return <main className="auth-page"><section className="auth-card paper-sheet"><h1>Character Relay</h1><p className="error-note">{bootError ?? t("app.openShelfError")}</p></section></main>;
-  if (authConfig.authentication_required && !user) return <AuthScreen config={authConfig} onAuthenticated={(authenticatedUser) => { setBootError(null); setUser(authenticatedUser); }} />;
+  if (booting) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card paper-sheet">
+          <h1>Character Relay</h1>
+          <p>
+            {language === "zh-CN"
+              ? "正在验证安全 Session…"
+              : "Checking secure Session…"}
+          </p>
+        </section>
+      </main>
+    );
+  }
 
-  if (SHOW_ADVANCED_LABS && templateOpen && user) return withAccount(<TemplateLab cards={cards} onClose={() => { setTemplateOpen(false); void load(); }} />);
-  if (SHOW_ADVANCED_LABS && coverageOpen && user) return withAccount(<CoverageLab cards={cards} onClose={() => { setCoverageOpen(false); void load(); }} />);
-  if (SHOW_ADVANCED_LABS && evaluationOpen && user) return withAccount(<EvaluationLab onClose={() => { setEvaluationOpen(false); void load(); }} />);
-  if (SHOW_ADVANCED_LABS && calibrationOpen && user) return withAccount(<CalibrationLab onClose={() => { setCalibrationOpen(false); void load(); }} />);
-  if (SHOW_ADVANCED_LABS && authoringOpen && user) return withAccount(<AuthoringLab user={user} cards={cards} onClose={() => { setAuthoringOpen(false); void load(); }} />);
-  if (matrixOpen) return withAccount(<MatrixWorkspace cards={cards} onClose={() => { setMatrixOpen(false); void load(); }} />);
-  if (workspaceOpen) return withAccount(<div className={publicDemo ? "demo-read-only" : undefined}><WorkspaceHub cards={cards} onClose={() => { setWorkspaceOpen(false); void load(); }} /><PackRunLauncher cards={cards} /></div>);
-  if (deploymentsOpen) return withAccount(<DeploymentCenter cards={cards} initialCharacterId={deploymentCharacterId} demoMode={publicDemo} onClose={() => { setDeploymentsOpen(false); setDeploymentCharacterId(null); }} />);
+  if (!authConfig) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card paper-sheet">
+          <h1>Character Relay</h1>
+          <p className="error-note">{bootError ?? t("app.openShelfError")}</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (authConfig.authentication_required && !user) {
+    return (
+      <AuthScreen
+        config={authConfig}
+        onAuthenticated={(authenticatedUser) => {
+          setBootError(null);
+          setUser(authenticatedUser);
+        }}
+      />
+    );
+  }
+
+  if (providerTracesOpen) {
+    return <ProviderTraceViewer onClose={() => setProviderTracesOpen(false)} />;
+  }
+
+  if (SHOW_ADVANCED_LABS && templateOpen && user) {
+    return withAccount(
+      <TemplateLab
+        cards={cards}
+        onClose={() => {
+          setTemplateOpen(false);
+          void load();
+        }}
+      />
+    );
+  }
+  if (SHOW_ADVANCED_LABS && coverageOpen && user) {
+    return withAccount(
+      <CoverageLab
+        cards={cards}
+        onClose={() => {
+          setCoverageOpen(false);
+          void load();
+        }}
+      />
+    );
+  }
+  if (SHOW_ADVANCED_LABS && evaluationOpen && user) {
+    return withAccount(
+      <EvaluationLab
+        onClose={() => {
+          setEvaluationOpen(false);
+          void load();
+        }}
+      />
+    );
+  }
+  if (SHOW_ADVANCED_LABS && calibrationOpen && user) {
+    return withAccount(
+      <CalibrationLab
+        onClose={() => {
+          setCalibrationOpen(false);
+          void load();
+        }}
+      />
+    );
+  }
+  if (SHOW_ADVANCED_LABS && authoringOpen && user) {
+    return withAccount(
+      <AuthoringLab
+        user={user}
+        cards={cards}
+        onClose={() => {
+          setAuthoringOpen(false);
+          void load();
+        }}
+      />
+    );
+  }
+  if (matrixOpen) {
+    return withAccount(
+      <MatrixWorkspace
+        cards={cards}
+        onClose={() => {
+          setMatrixOpen(false);
+          void load();
+        }}
+      />
+    );
+  }
+  if (workspaceOpen) {
+    return withAccount(
+      <div className={publicDemo ? "demo-read-only" : undefined}>
+        <WorkspaceHub
+          cards={cards}
+          onClose={() => {
+            setWorkspaceOpen(false);
+            void load();
+          }}
+        />
+        <PackRunLauncher cards={cards} />
+      </div>
+    );
+  }
+  if (deploymentsOpen) {
+    return withAccount(
+      <DeploymentCenter
+        cards={cards}
+        initialCharacterId={deploymentCharacterId}
+        demoMode={publicDemo}
+        onClose={() => {
+          setDeploymentsOpen(false);
+          setDeploymentCharacterId(null);
+        }}
+      />
+    );
+  }
 
   if (activeCard) {
     const target = targets.find((item) => item.id === activeCard.target_id);
-    if (!target) return withAccount(<main className="room-page"><section className="paper-sheet missing-binding"><h1>{t("app.bindingMissingTitle")}</h1><p>{t("app.bindingMissingBody")}</p><button className="paper-button" onClick={() => setActiveCard(null)}>{t("app.returnShelf")}</button></section></main>);
-    return withAccount(<TestRoom card={activeCard} target={target} runtime={runtime} onBack={() => setActiveCard(null)} onAdmin={openAdmin} />);
+    if (!target) {
+      return withAccount(
+        <main className="room-page">
+          <section className="paper-sheet missing-binding">
+            <h1>{t("app.bindingMissingTitle")}</h1>
+            <p>{t("app.bindingMissingBody")}</p>
+            <button className="paper-button" onClick={() => setActiveCard(null)}>
+              {t("app.returnShelf")}
+            </button>
+          </section>
+        </main>
+      );
+    }
+    return withAccount(
+      <TestRoom
+        card={activeCard}
+        target={target}
+        runtime={runtime}
+        onBack={() => setActiveCard(null)}
+        onAdmin={openAdmin}
+      />
+    );
   }
 
-  const editingTarget = editingCard ? targets.find((item) => item.id === editingCard.target_id) ?? null : null;
-  return withAccount(<><CharacterShelf cards={cards} error={error} demoMode={publicDemo} onCreate={() => { setEditingCard(null); setCreatorOpen(true); }} onEdit={(card) => { setEditingCard(card); setCreatorOpen(true); }} onPrompt={setPromptCard} onEnter={setActiveCard} onDeploy={(card) => openDeployments(card.id)} onDeployments={() => openDeployments()} onAdmin={openAdmin} onWorkspace={() => setWorkspaceOpen(true)} onMatrix={() => setMatrixOpen(true)} />{creatorOpen && !publicDemo && <CharacterCreator targets={targets} card={editingCard} target={editingTarget} onClose={() => { setCreatorOpen(false); setEditingCard(null); }} onSaved={saved} />}{promptCard && <PromptInspector card={promptCard} onClose={() => setPromptCard(null)} />}</>);
+  const editingTarget = editingCard
+    ? targets.find((item) => item.id === editingCard.target_id) ?? null
+    : null;
+  return withAccount(
+    <>
+      <CharacterShelf
+        cards={cards}
+        error={error}
+        demoMode={publicDemo}
+        onCreate={() => {
+          setEditingCard(null);
+          setCreatorOpen(true);
+        }}
+        onEdit={(card) => {
+          setEditingCard(card);
+          setCreatorOpen(true);
+        }}
+        onPrompt={setPromptCard}
+        onEnter={setActiveCard}
+        onDeploy={(card) => openDeployments(card.id)}
+        onDeployments={() => openDeployments()}
+        onAdmin={openAdmin}
+        onWorkspace={() => setWorkspaceOpen(true)}
+        onMatrix={() => setMatrixOpen(true)}
+      />
+      {creatorOpen && !publicDemo && (
+        <CharacterCreator
+          targets={targets}
+          card={editingCard}
+          target={editingTarget}
+          onClose={() => {
+            setCreatorOpen(false);
+            setEditingCard(null);
+          }}
+          onSaved={saved}
+        />
+      )}
+      {promptCard && (
+        <PromptInspector card={promptCard} onClose={() => setPromptCard(null)} />
+      )}
+    </>
+  );
 }

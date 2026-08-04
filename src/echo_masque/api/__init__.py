@@ -26,6 +26,7 @@ from echo_masque.api.routes import (
     health_router,
     matrices_router,
     prompt_inspector_router,
+    provider_traces_router,
     reports_router,
     targets_router,
     templates_router,
@@ -53,12 +54,14 @@ from echo_masque.persistence import (
     DiscordIdentityRepository,
     EvaluationRepository,
     MatrixRepository,
+    ProviderTraceRepository,
     Repository,
     TargetAccessRepository,
     WorkspaceRepository,
     inspect_storage,
 )
 from echo_masque.prompt_inspector import CharacterPromptInspector
+from echo_masque.providers.trace import configure_provider_trace_sink
 from echo_masque.public_demo import PublicDemoService
 from echo_masque.public_demo_middleware import PublicDemoReadOnlyMiddleware
 from echo_masque.public_demo_quota import PublicDemoQuotaService
@@ -91,6 +94,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     repository = Repository(database)
     deployment_repository = DeploymentRepository(database)
     discord_identity_repository = DiscordIdentityRepository(database)
+    provider_trace_repository = ProviderTraceRepository(
+        database,
+        retention_days=resolved.provider_trace_retention_days,
+        maximum_records=resolved.provider_trace_max_records,
+    )
+    configure_provider_trace_sink(provider_trace_repository.record_event)
     workspace_repository = WorkspaceRepository(database)
     authoring_repository = AuthoringRepository(database, workspace_repository)
     authoring_archive_service = AuthoringArchiveService(database, authoring_repository)
@@ -214,6 +223,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.repository = repository
     app.state.deployment_repository = deployment_repository
     app.state.discord_identity_repository = discord_identity_repository
+    app.state.provider_trace_repository = provider_trace_repository
     app.state.discord_connector_runtime = discord_connector_runtime
     app.state.workspace_repository = workspace_repository
     app.state.authoring_repository = authoring_repository
@@ -238,6 +248,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(accounts_router)
     app.include_router(admin_router)
+    app.include_router(provider_traces_router)
     app.include_router(authoring_router)
     app.include_router(authoring_archive_router)
     app.include_router(authoring_generation_router)
