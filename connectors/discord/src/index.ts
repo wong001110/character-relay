@@ -13,10 +13,13 @@ import { ContextBuffer } from "./contextBuffer.js";
 import { RelayClient } from "./relayClient.js";
 import {
   buildDeploymentIndex,
+  deploymentsFor,
   destinationKey,
-  findDeployment,
+  flattenDeployments,
+  selectDeployment,
   shouldSubmitMessage,
-  splitDiscordMessage
+  splitDiscordMessage,
+  type DeploymentIndex
 } from "./routing.js";
 import type { DiscordContextMessage, DiscordDeployment } from "./types.js";
 import { DiscordWebhookManager } from "./webhookManager.js";
@@ -37,8 +40,11 @@ const client = new Client({
 const context = new ContextBuffer(config.maxContextMessages);
 const queues = new Map<string, Promise<void>>();
 const processedMessages = new Map<string, number>();
-const sentCharacterMessages = new Map<string, number>();
-let deployments = new Map<string, DiscordDeployment>();
+const sentCharacterRoutes = new Map<
+  string,
+  { deploymentId: string; seenAt: number }
+>();
+let deployments: DeploymentIndex = new Map();
 let lastDeploymentSyncAt: string | null = null;
 let lastError: string | null = null;
 let ready = false;
@@ -85,12 +91,20 @@ async function refreshDeployments(): Promise<void> {
   const next = await relay.listDeployments();
   const botUserId = client.user?.id;
   if (botUserId) {
-    await Promise.all(next.map((item) => prepareWebhookIdentity(item, botUserId)));
+    // Keep webhook provisioning sequential so two characters in one channel do not
+    // race to create duplicate incoming webhooks during a cold start.
+    for (const item of next) {
+      await prepareWebhookIdentity(item, botUserId);
+    }
   }
   deployments = buildDeploymentIndex(next);
   lastDeploymentSyncAt = new Date().toISOString();
   log("Discord deployments refreshed.", {
     count: next.length,
+    destinations: deployments.size,
+    multiCharacterDestinations: [...deployments.values()].filter(
+      (items) => items.length > 1
+    ).length,
     webhookReady: next.filter(
       (item) => item.identity_mode === "webhook" && item.webhook_status === "active"
     ).length
@@ -145,31 +159,74 @@ function normalizedText(message: Message<true>, botUserId: string): string {
 
 function knownWebhookIds(): Set<string> {
   return new Set(
-    [...deployments.values()]
+    flattenDeployments(deployments)
       .map((item) => item.webhook_id)
       .filter((item): item is string => Boolean(item))
   );
 }
 
-async function repliedToCharacter(
+interface ReplyTarget {
+  deploymentId: string | null;
+  characterMessage: boolean;
+}
+
+async function resolveReplyTarget(
   message: Message<true>,
+  candidates: DiscordDeployment[],
   botUserId: string
-): Promise<boolean> {
+): Promise<ReplyTarget> {
   const referencedId = message.reference?.messageId;
-  if (!referencedId) return false;
-  if (sentCharacterMessages.has(referencedId)) return true;
+  if (!referencedId) {
+    return { deploymentId: null, characterMessage: false };
+  }
+
+  const cached = sentCharacterRoutes.get(referencedId);
+  if (
+    cached &&
+    candidates.some((item) => item.deployment_id === cached.deploymentId)
+  ) {
+    return { deploymentId: cached.deploymentId, characterMessage: true };
+  }
+
   try {
     const referenced = await message.fetchReference();
-    return (
+    const characterMessage =
       referenced.author.id === botUserId ||
-      (Boolean(referenced.webhookId) && knownWebhookIds().has(referenced.webhookId!))
-    );
+      (Boolean(referenced.webhookId) && knownWebhookIds().has(referenced.webhookId!));
+    if (!characterMessage) {
+      return { deploymentId: null, characterMessage: false };
+    }
+
+    const route = await relay.resolveMessageRoute(referencedId);
+    if (
+      route &&
+      route.channel_id === candidates[0]?.channel_id &&
+      route.thread_id === (candidates[0]?.thread_id ?? "") &&
+      candidates.some((item) => item.deployment_id === route.deployment_id)
+    ) {
+      sentCharacterRoutes.set(referencedId, {
+        deploymentId: route.deployment_id,
+        seenAt: Date.now()
+      });
+      return { deploymentId: route.deployment_id, characterMessage: true };
+    }
+
+    // Messages sent before persistent routing existed remain unambiguous when only
+    // one character is deployed to the destination.
+    if (candidates.length === 1) {
+      return {
+        deploymentId: candidates[0]?.deployment_id ?? null,
+        characterMessage: true
+      };
+    }
+    return { deploymentId: null, characterMessage: true };
   } catch (error) {
     log("Unable to resolve referenced Discord message.", {
       messageId: message.id,
+      referencedId,
       error: error instanceof Error ? error.message : String(error)
     });
-    return false;
+    return { deploymentId: null, characterMessage: false };
   }
 }
 
@@ -189,27 +246,44 @@ function enqueue(destination: string, task: () => Promise<void>): void {
   queues.set(destination, next);
 }
 
+async function sendSelectionHelp(
+  source: Message<true>,
+  options: string[]
+): Promise<void> {
+  const names = options.map((item) => `**${item}**`).join("、");
+  await source.reply({
+    content:
+      `这个位置有多个角色：${names}。` +
+      `请使用 \`@${client.user?.username ?? "CharacterRelayBot"} 角色名 消息\`，` +
+      "或直接回复目标角色发出的消息。",
+    allowedMentions: { parse: [], repliedUser: false }
+  });
+}
+
 async function sendBotFallback(
   source: Message<true>,
   characterName: string,
   replyText: string
-): Promise<string | null> {
+): Promise<string[]> {
   const safeName = characterName.replaceAll(/([\\*_`~|>])/g, "\\$1");
   const [firstChunk, ...remainingChunks] = splitDiscordMessage(
     `**${safeName}**\n${replyText}`
   );
-  if (!firstChunk) return null;
+  if (!firstChunk) return [];
+  const messageIds: string[] = [];
   const first = await source.reply({
     content: firstChunk,
     allowedMentions: { parse: [], repliedUser: false }
   });
+  messageIds.push(first.id);
   for (const chunk of remainingChunks) {
-    await source.channel.send({
+    const sent = await source.channel.send({
       content: chunk,
       allowedMentions: { parse: [] }
     });
+    messageIds.push(sent.id);
   }
-  return first.id;
+  return messageIds;
 }
 
 async function sendCharacterReply(
@@ -217,7 +291,7 @@ async function sendCharacterReply(
   deployment: DiscordDeployment,
   replyText: string,
   botUserId: string
-): Promise<string | null> {
+): Promise<string[]> {
   if (deployment.identity_mode === "webhook") {
     try {
       return await webhookManager.send(
@@ -239,6 +313,37 @@ async function sendCharacterReply(
   );
 }
 
+async function rememberSentMessages(
+  deployment: DiscordDeployment,
+  messageIds: string[],
+  guildId: string
+): Promise<void> {
+  if (!messageIds.length) return;
+  const now = Date.now();
+  for (const messageId of messageIds) {
+    sentCharacterRoutes.set(messageId, {
+      deploymentId: deployment.deployment_id,
+      seenAt: now
+    });
+  }
+  await relay
+    .registerMessageRoutes({
+      deployment_id: deployment.deployment_id,
+      guild_id: guildId,
+      channel_id: deployment.channel_id,
+      thread_id: deployment.thread_id,
+      webhook_id: deployment.webhook_id ?? "",
+      message_ids: messageIds
+    })
+    .catch((error: unknown) => {
+      log("Unable to persist Discord message routes.", {
+        deploymentId: deployment.deployment_id,
+        messageIds,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+}
+
 async function processMessage(message: Message): Promise<void> {
   const botUser = client.user;
   if (!message.inGuild() || message.author.bot || !botUser) return;
@@ -247,22 +352,38 @@ async function processMessage(message: Message): Promise<void> {
 
   const location = channelLocation(message);
   if (!location.channelId) return;
-  const deployment = findDeployment(
+  const candidates = deploymentsFor(
     deployments,
     location.channelId,
     location.threadId
   );
-  if (!deployment) return;
+  if (!candidates.length) return;
 
-  const text = normalizedText(message, botUser.id);
+  const originalText = normalizedText(message, botUser.id);
   const mentionedBot = message.mentions.users.has(botUser.id);
-  const isReplyToCharacter = await repliedToCharacter(message, botUser.id);
+  const replyTarget = await resolveReplyTarget(message, candidates, botUser.id);
+  const selection = selectDeployment(
+    candidates,
+    originalText,
+    replyTarget.deploymentId
+  );
+  if (!selection.deployment) {
+    if (
+      selection.reason === "ambiguous" &&
+      (mentionedBot || replyTarget.characterMessage)
+    ) {
+      await sendSelectionHelp(message, selection.options);
+    }
+    return;
+  }
+  const deployment = selection.deployment;
+  const isReplyToCharacter = selection.reason === "selected_reply";
   const shouldSubmit = shouldSubmitMessage(
     deployment,
     {
       mentionedBot,
       repliedToBot: isReplyToCharacter,
-      hasReadableText: Boolean(text)
+      hasReadableText: Boolean(selection.text)
     },
     config.smartParticipationEnabled
   );
@@ -276,7 +397,7 @@ async function processMessage(message: Message): Promise<void> {
     message_id: message.id,
     author_id: message.author.id,
     author_display_name: authorDisplayName,
-    text,
+    text: originalText,
     created_at: message.createdAt.toISOString(),
     is_bot: false
   };
@@ -286,6 +407,7 @@ async function processMessage(message: Message): Promise<void> {
   enqueue(key, async () => {
     await message.channel.sendTyping();
     const reply = await relay.processMessage({
+      deployment_id: deployment.deployment_id,
       message_id: message.id,
       guild_id: message.guildId,
       guild_name: message.guild.name,
@@ -295,7 +417,9 @@ async function processMessage(message: Message): Promise<void> {
       thread_name: location.threadName,
       author_id: message.author.id,
       author_display_name: authorDisplayName,
-      text: text || "The user mentioned the character without readable text.",
+      text:
+        selection.text ||
+        "The user addressed the character without additional readable text.",
       mentioned_bot: mentionedBot,
       replied_to_bot: isReplyToCharacter,
       smart_candidate:
@@ -305,15 +429,15 @@ async function processMessage(message: Message): Promise<void> {
     });
     if (reply.action !== "reply" || !reply.text) return;
 
-    const sentMessageId = await sendCharacterReply(
+    const sentMessageIds = await sendCharacterReply(
       message,
       deployment,
       reply.text,
       botUser.id
     );
-    if (sentMessageId) sentCharacterMessages.set(sentMessageId, Date.now());
+    await rememberSentMessages(deployment, sentMessageIds, message.guildId);
     context.push(key, {
-      message_id: sentMessageId ?? `relay-${Date.now()}`,
+      message_id: sentMessageIds[0] ?? `relay-${Date.now()}`,
       author_id: botUser.id,
       author_display_name:
         deployment.identity_display_name || deployment.character_display_name,
@@ -323,12 +447,15 @@ async function processMessage(message: Message): Promise<void> {
     });
     log("Character reply sent to Discord.", {
       deploymentId: reply.deployment_id,
+      characterId: deployment.character_card_id,
+      selectionReason: selection.reason,
       identityMode: deployment.identity_mode,
       webhookStatus: deployment.webhook_status,
       guildId: message.guildId,
       channelId: location.channelId,
       threadId: location.threadId || null,
       sourceMessageId: message.id,
+      sentMessageIds,
       latencyMs: reply.latency_ms ?? null
     });
   });
@@ -340,7 +467,8 @@ const healthServer = createServer((request, response) => {
     response.end(JSON.stringify({ detail: "Not found" }));
     return;
   }
-  const webhookDeployments = [...deployments.values()].filter(
+  const activeDeployments = flattenDeployments(deployments);
+  const webhookDeployments = activeDeployments.filter(
     (item) => item.identity_mode === "webhook"
   );
   response.writeHead(ready ? 200 : 503, { "Content-Type": "application/json" });
@@ -350,7 +478,12 @@ const healthServer = createServer((request, response) => {
       status: ready ? "ready" : "starting",
       discord_user: client.user?.tag ?? null,
       connection_id: config.relayConnectionId,
-      active_deployments: deployments.size,
+      active_deployments: activeDeployments.length,
+      active_destinations: deployments.size,
+      multi_character_destinations: [...deployments.values()].filter(
+        (items) => items.length > 1
+      ).length,
+      cached_message_routes: sentCharacterRoutes.size,
       webhook_deployments: webhookDeployments.length,
       webhook_ready: webhookDeployments.filter(
         (item) => item.webhook_status === "active"
@@ -375,7 +508,8 @@ client.once(Events.ClientReady, async (readyClient) => {
     log("Discord connector ready.", {
       discordUser: readyClient.user.tag,
       connectionId: config.relayConnectionId,
-      activeDeployments: deployments.size
+      activeDeployments: flattenDeployments(deployments).length,
+      activeDestinations: deployments.size
     });
     refreshTimer = setInterval(() => {
       void refreshDeployments().catch((error: unknown) => {
@@ -416,8 +550,8 @@ dedupeTimer = setInterval(() => {
   for (const [messageId, seenAt] of processedMessages) {
     if (seenAt < cutoff) processedMessages.delete(messageId);
   }
-  for (const [messageId, seenAt] of sentCharacterMessages) {
-    if (seenAt < cutoff) sentCharacterMessages.delete(messageId);
+  for (const [messageId, route] of sentCharacterRoutes) {
+    if (route.seenAt < cutoff) sentCharacterRoutes.delete(messageId);
   }
 }, 10 * 60 * 1000);
 
