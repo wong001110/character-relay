@@ -35,5 +35,10 @@ for marker in (
     if start < 0:
         raise SystemExit(f"Generator dedent call was not found: {marker}")
     text = text[:start] + "    class_block(\n" + text[start + len("    dedent(\n"):]
+    position = text.find(marker)
+    closing = text.find("\n    ).lstrip(),", position)
+    if closing < 0:
+        raise SystemExit(f"Generator block closing was not found: {marker}")
+    text = text[:closing] + "\n    )," + text[closing + len("\n    ).lstrip(),"):]
 path.write_text(text)
 Path(__file__).unlink()
