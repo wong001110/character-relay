@@ -23,7 +23,7 @@ jobs:
       - name: Apply pending pagination generators
         run: |
           changed=false
-          for generator in scripts/apply_pagination_backend.py scripts/apply_pagination_frontend.py; do
+          for generator in scripts/fix_pagination_backend_generator.py scripts/apply_pagination_backend.py scripts/apply_pagination_frontend.py; do
             if [ -f "$generator" ]; then
               python "$generator"
               changed=true
