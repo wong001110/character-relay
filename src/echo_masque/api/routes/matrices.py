@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Annotated, cast
 
 from fastapi import (
     APIRouter,
@@ -277,7 +277,10 @@ def matrix_tasks_page(
     user: CurrentUserDependency,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
-    task_status: MatrixTaskStatus | None = Query(default=None, alias="status"),
+    task_status: Annotated[
+        MatrixTaskStatus | None,
+        Query(alias="status"),
+    ] = None,
 ) -> MatrixTaskListPage:
     result = matrix_repository(request).list_tasks_page(
         matrix_id,
