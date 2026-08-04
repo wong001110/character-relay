@@ -61,8 +61,8 @@ export class DiscordWebhookManager {
     deployment: DiscordDeployment,
     chunks: string[],
     botUserId: string
-  ): Promise<string | null> {
-    if (!chunks.length) return null;
+  ): Promise<string[]> {
+    if (!chunks.length) return [];
     try {
       return await this.sendWithBinding(deployment, chunks, botUserId);
     } catch (error) {
@@ -83,9 +83,9 @@ export class DiscordWebhookManager {
     deployment: DiscordDeployment,
     chunks: string[],
     botUserId: string
-  ): Promise<string | null> {
+  ): Promise<string[]> {
     let binding = await this.ensure(deployment, botUserId);
-    let firstMessageId: string | null = null;
+    const messageIds: string[] = [];
 
     for (let index = 0; index < chunks.length; index += 1) {
       const chunk = chunks[index];
@@ -104,7 +104,7 @@ export class DiscordWebhookManager {
         );
       }
       const message = (await response.json()) as DiscordApiMessage;
-      if (index === 0) firstMessageId = message.id;
+      messageIds.push(message.id);
     }
 
     deployment.webhook_status = "active";
@@ -115,7 +115,7 @@ export class DiscordWebhookManager {
         last_error: ""
       })
       .catch(() => undefined);
-    return firstMessageId;
+    return messageIds;
   }
 
   private executeWebhook(
