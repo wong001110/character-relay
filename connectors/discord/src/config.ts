@@ -9,6 +9,7 @@ export interface ConnectorConfig {
   maxContextMessages: number;
   messageContentIntent: boolean;
   smartParticipationEnabled: boolean;
+  groupAddressAliases: string[];
 }
 
 function required(name: string): string {
@@ -35,6 +36,19 @@ function boolean(name: string, fallback = false): boolean {
   throw new Error(`${name} must be true or false.`);
 }
 
+function stringList(name: string): string[] {
+  const raw = process.env[name]?.trim();
+  if (!raw) return [];
+  return [
+    ...new Set(
+      raw
+        .split(/\r?\n|,/u)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  ];
+}
+
 export function loadConfig(): ConnectorConfig {
   return {
     discordBotToken: required("DISCORD_BOT_TOKEN"),
@@ -46,6 +60,7 @@ export function loadConfig(): ConnectorConfig {
     heartbeatSeconds: integer("HEARTBEAT_SECONDS", 30, 10),
     maxContextMessages: integer("MAX_CONTEXT_MESSAGES", 20, 1),
     messageContentIntent: boolean("DISCORD_MESSAGE_CONTENT_INTENT", false),
-    smartParticipationEnabled: boolean("DISCORD_SMART_PARTICIPATION_ENABLED", false)
+    smartParticipationEnabled: boolean("DISCORD_SMART_PARTICIPATION_ENABLED", false),
+    groupAddressAliases: stringList("DISCORD_GROUP_ADDRESS_ALIASES")
   };
 }
