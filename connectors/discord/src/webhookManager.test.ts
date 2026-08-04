@@ -16,6 +16,11 @@ function deployment(): DiscordDeployment {
     channel_name: "ann-room",
     thread_id: "thread-1",
     thread_name: "Scene",
+    category_id: "category-1",
+    server_profile_id: "",
+    channel_scope_mode: "exact",
+    excluded_channel_ids: [],
+    excluded_category_ids: [],
     participation_mode: "mention_and_reply",
     version_label: "Current",
     status: "active",
@@ -84,6 +89,8 @@ describe("DiscordWebhookManager", () => {
       deployment_id: "deployment-1",
       workspace_id: "guild-1",
       channel_id: "channel-1",
+      category_id: "category-1",
+      thread_id: "thread-1",
       webhook_id: "webhook-1",
       webhook_token: "token-1"
     });

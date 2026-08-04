@@ -59,6 +59,22 @@ def create_character(client: TestClient, name: str) -> dict[str, object]:
     return response.json()
 
 
+def create_connection(client: TestClient) -> dict[str, object]:
+    response = client.post(
+        "/api/connections",
+        json={
+            "platform": "discord",
+            "display_name": "Character Relay Discord",
+            "connection_mode": "managed",
+            "external_account_id": "",
+            "status": "disconnected",
+            "metadata": {},
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 def create_deployment(
     client: TestClient,
     *,
@@ -92,19 +108,7 @@ def create_deployment(
 def seed_deployment(client: TestClient) -> tuple[dict[str, object], dict[str, object]]:
     login(client)
     character = create_character(client, "Ann")
-    connection_response = client.post(
-        "/api/connections",
-        json={
-            "platform": "discord",
-            "display_name": "Character Relay Discord",
-            "connection_mode": "managed",
-            "external_account_id": "",
-            "status": "disconnected",
-            "metadata": {},
-        },
-    )
-    assert connection_response.status_code == 201, connection_response.text
-    connection = connection_response.json()
+    connection = create_connection(client)
     return connection, create_deployment(
         client,
         connection=connection,
@@ -134,6 +138,11 @@ def expected_connector_deployment(
         "channel_name": "companions",
         "thread_id": "",
         "thread_name": "",
+        "category_id": "",
+        "server_profile_id": "",
+        "channel_scope_mode": "exact",
+        "excluded_channel_ids": [],
+        "excluded_category_ids": [],
         "participation_mode": "mention_and_reply",
         "version_label": "Current",
         "status": "active",
@@ -154,6 +163,9 @@ def inbound_payload(
     text: str,
     mentioned_bot: bool,
     replied_to_bot: bool = False,
+    channel_id: str = "channel-001",
+    channel_name: str = "companions",
+    category_id: str = "",
 ) -> dict[str, object]:
     return {
         "connection_id": connection["id"],
@@ -161,8 +173,9 @@ def inbound_payload(
         "message_id": message_id,
         "guild_id": "guild-001",
         "guild_name": "Test Guild",
-        "channel_id": "channel-001",
-        "channel_name": "companions",
+        "channel_id": channel_id,
+        "channel_name": channel_name,
+        "category_id": category_id,
         "thread_id": "",
         "thread_name": "",
         "author_id": "user-001",
@@ -314,6 +327,151 @@ def test_discord_connector_lists_routes_heartbeats_and_replies(tmp_path: Path) -
     assert payload["character_display_name"] == "Ann"
     assert payload["reply_to_message_id"] == "message-002"
     assert payload["text"]
+
+
+def test_server_profile_defaults_to_all_channels_and_applies_exclusions(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(create_app(settings(tmp_path / "discord-server-profile.db")))
+    login(client)
+    character = create_character(client, "Ann")
+    connection = create_connection(client)
+
+    synced = client.put(
+        "/api/connectors/discord/server-catalog",
+        headers=connector_headers(),
+        json={
+            "connection_id": connection["id"],
+            "servers": [
+                {
+                    "guild_id": "guild-001",
+                    "guild_name": "Test Guild",
+                    "channels": [
+                        {
+                            "id": "channel-general",
+                            "name": "general",
+                            "category_id": "public-category",
+                            "category_name": "PUBLIC",
+                            "type": "text",
+                        },
+                        {
+                            "id": "channel-design",
+                            "name": "design",
+                            "category_id": "public-category",
+                            "category_name": "PUBLIC",
+                            "type": "text",
+                        },
+                        {
+                            "id": "channel-admin",
+                            "name": "admin",
+                            "category_id": "staff-category",
+                            "category_name": "STAFF",
+                            "type": "text",
+                        },
+                    ],
+                }
+            ],
+        },
+    )
+    assert synced.status_code == 204, synced.text
+
+    catalog = client.get(
+        "/api/discord/server-catalog",
+        params={"connection_id": connection["id"]},
+    )
+    assert catalog.status_code == 200, catalog.text
+    assert catalog.json()[0]["guild_name"] == "Test Guild"
+    assert len(catalog.json()[0]["channels"]) == 3
+
+    profile_response = client.post(
+        "/api/discord/server-profiles",
+        json={
+            "connection_id": connection["id"],
+            "name": "Private Companion Server",
+            "guild_id": "guild-001",
+            "guild_name": "Test Guild",
+            "excluded_channel_ids": ["channel-admin"],
+            "excluded_category_ids": ["staff-category"],
+            "thread_policy": "inherit_parent",
+        },
+    )
+    assert profile_response.status_code == 201, profile_response.text
+    profile = profile_response.json()
+
+    deployment_response = client.post(
+        "/api/deployments",
+        json={
+            "character_card_id": character["id"],
+            "connection_id": connection["id"],
+            "server_profile_id": profile["id"],
+            "excluded_channel_ids": ["channel-design"],
+            "excluded_category_ids": [],
+            "participation_mode": "mention_and_reply",
+            "memory_scope": "server_shared",
+            "version_label": "Current",
+            "sticker_count": 0,
+            "status": "active",
+        },
+    )
+    assert deployment_response.status_code == 201, deployment_response.text
+    deployment = deployment_response.json()
+    assert deployment["channel_scope_mode"] == "all_except"
+    assert deployment["server_profile_id"] == profile["id"]
+    assert deployment["workspace_id"] == "guild-001"
+    assert deployment["channel_id"] == f"@server:{profile['id']}"
+    assert deployment["excluded_channel_ids"] == ["channel-design"]
+
+    connector_listing = client.get(
+        "/api/connectors/discord/deployments",
+        params={"connection_id": connection["id"]},
+        headers=connector_headers(),
+    )
+    assert connector_listing.status_code == 200, connector_listing.text
+    connector_deployment = connector_listing.json()[0]
+    assert connector_deployment["channel_scope_mode"] == "all_except"
+    assert set(connector_deployment["excluded_channel_ids"]) == {
+        "channel-admin",
+        "channel-design",
+    }
+    assert connector_deployment["excluded_category_ids"] == ["staff-category"]
+
+    allowed = client.post(
+        "/api/connectors/discord/messages",
+        headers=connector_headers(),
+        json=inbound_payload(
+            connection,
+            deployment,
+            message_id="server-message-allowed",
+            text="Ann, are you there?",
+            mentioned_bot=True,
+            channel_id="channel-general",
+            channel_name="general",
+            category_id="public-category",
+        ),
+    )
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["action"] == "reply"
+
+    excluded = client.post(
+        "/api/connectors/discord/messages",
+        headers=connector_headers(),
+        json=inbound_payload(
+            connection,
+            deployment,
+            message_id="server-message-excluded",
+            text="Ann, are you there?",
+            mentioned_bot=True,
+            channel_id="channel-design",
+            channel_name="design",
+            category_id="public-category",
+        ),
+    )
+    assert excluded.status_code == 200, excluded.text
+    assert excluded.json()["action"] == "silent"
+    assert excluded.json()["reason"] == "no_active_deployment"
+
+    delete_in_use = client.delete(f"/api/discord/server-profiles/{profile['id']}")
+    assert delete_in_use.status_code == 409
 
 
 def test_same_channel_characters_are_selected_by_exact_deployment_id(

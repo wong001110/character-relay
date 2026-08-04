@@ -8,6 +8,9 @@ from pydantic import BaseModel, Field
 
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
+    DiscordDeploymentScopeRecord,
+    DiscordServerCatalogRecord,
+    DiscordServerProfileRecord,
     PlatformConnectionRecord,
 )
 
@@ -28,6 +31,22 @@ DeploymentStatus = Literal[
     "error",
     "disconnected",
 ]
+ChannelScopeMode = Literal["exact", "all_except"]
+ThreadPolicy = Literal["inherit_parent"]
+
+
+def _string_list(value: str) -> list[str]:
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(decoded, list):
+        return []
+    return list(
+        dict.fromkeys(
+            item.strip() for item in decoded if isinstance(item, str) and item.strip()
+        )
+    )
 
 
 class PlatformConnectionCreate(BaseModel):
@@ -77,15 +96,105 @@ class PlatformConnectionView(BaseModel):
         )
 
 
+class DiscordCatalogChannel(BaseModel):
+    id: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=160)
+    category_id: str = Field(default="", max_length=200)
+    category_name: str = Field(default="", max_length=160)
+    type: str = Field(default="text", max_length=40)
+
+
+class DiscordServerCatalogView(BaseModel):
+    connection_id: str
+    guild_id: str
+    guild_name: str
+    channels: list[DiscordCatalogChannel]
+    synced_at: datetime
+
+    @classmethod
+    def from_record(
+        cls, record: DiscordServerCatalogRecord
+    ) -> "DiscordServerCatalogView":
+        try:
+            raw = json.loads(record.channels_json)
+        except json.JSONDecodeError:
+            raw = []
+        channels = raw if isinstance(raw, list) else []
+        return cls(
+            connection_id=record.connection_id,
+            guild_id=record.guild_id,
+            guild_name=record.guild_name,
+            channels=[
+                DiscordCatalogChannel.model_validate(item)
+                for item in channels
+                if isinstance(item, dict)
+            ],
+            synced_at=record.synced_at,
+        )
+
+
+class DiscordServerProfileCreate(BaseModel):
+    connection_id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=120)
+    guild_id: str = Field(min_length=1, max_length=200)
+    guild_name: str = Field(min_length=1, max_length=160)
+    excluded_channel_ids: list[str] = Field(default_factory=list, max_length=500)
+    excluded_category_ids: list[str] = Field(default_factory=list, max_length=100)
+    thread_policy: ThreadPolicy = "inherit_parent"
+
+
+class DiscordServerProfileUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    guild_name: str | None = Field(default=None, min_length=1, max_length=160)
+    excluded_channel_ids: list[str] | None = Field(default=None, max_length=500)
+    excluded_category_ids: list[str] | None = Field(default=None, max_length=100)
+    thread_policy: ThreadPolicy | None = None
+
+
+class DiscordServerProfileView(BaseModel):
+    id: str
+    connection_id: str
+    name: str
+    guild_id: str
+    guild_name: str
+    channel_scope_mode: Literal["all_except"]
+    excluded_channel_ids: list[str]
+    excluded_category_ids: list[str]
+    thread_policy: ThreadPolicy
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_record(
+        cls, record: DiscordServerProfileRecord
+    ) -> "DiscordServerProfileView":
+        return cls(
+            id=record.id,
+            connection_id=record.connection_id,
+            name=record.name,
+            guild_id=record.guild_id,
+            guild_name=record.guild_name,
+            channel_scope_mode="all_except",
+            excluded_channel_ids=_string_list(record.excluded_channel_ids_json),
+            excluded_category_ids=_string_list(record.excluded_category_ids_json),
+            thread_policy=cast(ThreadPolicy, record.thread_policy),
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+
 class CharacterDeploymentCreate(BaseModel):
     character_card_id: str = Field(min_length=1, max_length=64)
     connection_id: str = Field(min_length=1, max_length=64)
+    server_profile_id: str = Field(default="", max_length=64)
     workspace_id: str = Field(default="", max_length=200)
     workspace_name: str = Field(default="", max_length=160)
-    channel_id: str = Field(min_length=1, max_length=200)
-    channel_name: str = Field(min_length=1, max_length=160)
+    channel_id: str = Field(default="", max_length=200)
+    channel_name: str = Field(default="", max_length=160)
     thread_id: str = Field(default="", max_length=200)
     thread_name: str = Field(default="", max_length=160)
+    excluded_channel_ids: list[str] = Field(default_factory=list, max_length=500)
+    excluded_category_ids: list[str] = Field(default_factory=list, max_length=100)
     participation_mode: ParticipationMode = "mention_and_reply"
     memory_scope: MemoryScope = "channel_isolated"
     version_label: str = Field(default="Current", min_length=1, max_length=80)
@@ -94,12 +203,15 @@ class CharacterDeploymentCreate(BaseModel):
 
 
 class CharacterDeploymentUpdate(BaseModel):
+    server_profile_id: str | None = Field(default=None, max_length=64)
     workspace_id: str | None = Field(default=None, max_length=200)
     workspace_name: str | None = Field(default=None, max_length=160)
-    channel_id: str | None = Field(default=None, min_length=1, max_length=200)
-    channel_name: str | None = Field(default=None, min_length=1, max_length=160)
+    channel_id: str | None = Field(default=None, max_length=200)
+    channel_name: str | None = Field(default=None, max_length=160)
     thread_id: str | None = Field(default=None, max_length=200)
     thread_name: str | None = Field(default=None, max_length=160)
+    excluded_channel_ids: list[str] | None = Field(default=None, max_length=500)
+    excluded_category_ids: list[str] | None = Field(default=None, max_length=100)
     participation_mode: ParticipationMode | None = None
     memory_scope: MemoryScope | None = None
     version_label: str | None = Field(default=None, min_length=1, max_length=80)
@@ -119,6 +231,11 @@ class CharacterDeploymentView(BaseModel):
     character_display_name: str
     connection_id: str
     platform: PlatformId
+    server_profile_id: str
+    server_profile_name: str
+    channel_scope_mode: ChannelScopeMode
+    excluded_channel_ids: list[str]
+    excluded_category_ids: list[str]
     workspace_id: str
     workspace_name: str
     channel_id: str
@@ -141,6 +258,8 @@ class CharacterDeploymentView(BaseModel):
         record: CharacterDeploymentRecord,
         *,
         character_display_name: str,
+        scope: DiscordDeploymentScopeRecord | None = None,
+        server_profile_name: str = "",
     ) -> "CharacterDeploymentView":
         return cls(
             id=record.id,
@@ -148,6 +267,19 @@ class CharacterDeploymentView(BaseModel):
             character_display_name=character_display_name,
             connection_id=record.connection_id,
             platform=cast(PlatformId, record.platform),
+            server_profile_id=scope.server_profile_id if scope is not None else "",
+            server_profile_name=server_profile_name,
+            channel_scope_mode="all_except" if scope is not None else "exact",
+            excluded_channel_ids=(
+                _string_list(scope.excluded_channel_ids_json)
+                if scope is not None
+                else []
+            ),
+            excluded_category_ids=(
+                _string_list(scope.excluded_category_ids_json)
+                if scope is not None
+                else []
+            ),
             workspace_id=record.workspace_id,
             workspace_name=record.workspace_name,
             channel_id=record.channel_id,

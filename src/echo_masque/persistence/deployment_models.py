@@ -28,8 +28,70 @@ class PlatformConnectionRecord(Base):
     )
 
 
+class DiscordServerCatalogRecord(Base):
+    """Latest Discord guild and channel inventory observed by a connector."""
+
+    __tablename__ = "discord_server_catalogs"
+    __table_args__ = (
+        UniqueConstraint(
+            "connection_id",
+            "guild_id",
+            name="uq_discord_server_catalog_connection_guild",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    connection_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    guild_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
+    guild_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    channels_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class DiscordServerProfileRecord(Base):
+    """Reusable owner-defined settings for one Discord server."""
+
+    __tablename__ = "discord_server_profiles"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id",
+            "connection_id",
+            "guild_id",
+            name="uq_discord_server_profile_connection_guild",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    connection_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    guild_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
+    guild_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    channel_scope_mode: Mapped[str] = mapped_column(
+        String(24), default="all_except", nullable=False
+    )
+    excluded_channel_ids_json: Mapped[str] = mapped_column(
+        Text, default="[]", nullable=False
+    )
+    excluded_category_ids_json: Mapped[str] = mapped_column(
+        Text, default="[]", nullable=False
+    )
+    thread_policy: Mapped[str] = mapped_column(
+        String(24), default="inherit_parent", nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class CharacterDeploymentRecord(Base):
-    """One character version assigned to one concrete chat destination."""
+    """One character version assigned to one concrete or server-wide destination."""
 
     __tablename__ = "character_deployments"
     __table_args__ = (
@@ -65,6 +127,33 @@ class CharacterDeploymentRecord(Base):
     status: Mapped[str] = mapped_column(String(24), default="paused", nullable=False)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class DiscordDeploymentScopeRecord(Base):
+    """Optional server-wide Discord scope attached to a deployment.
+
+    Keeping this in a separate table preserves compatibility with existing SQLite
+    databases whose character_deployments table predates server profiles.
+    """
+
+    __tablename__ = "discord_deployment_scopes"
+
+    deployment_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    server_profile_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    channel_scope_mode: Mapped[str] = mapped_column(
+        String(24), default="all_except", nullable=False
+    )
+    excluded_channel_ids_json: Mapped[str] = mapped_column(
+        Text, default="[]", nullable=False
+    )
+    excluded_category_ids_json: Mapped[str] = mapped_column(
+        Text, default="[]", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

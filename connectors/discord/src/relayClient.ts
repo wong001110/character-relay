@@ -6,6 +6,7 @@ import type {
   DiscordMessageRouteRegistration,
   DiscordMessageRouteView,
   DiscordReply,
+  DiscordServerCatalogSync,
   DiscordWebhookRegistration,
   DiscordWebhookRegistrationResult,
   DiscordWebhookStatusReport
@@ -39,6 +40,15 @@ export class RelayClient {
     return this.request<DiscordDeployment[]>(
       `/api/connectors/discord/deployments?${query.toString()}`
     );
+  }
+
+  async syncServerCatalog(
+    payload: Omit<DiscordServerCatalogSync, "connection_id">
+  ): Promise<void> {
+    await this.request<void>("/api/connectors/discord/server-catalog", {
+      method: "PUT",
+      body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+    });
   }
 
   async registerWebhook(

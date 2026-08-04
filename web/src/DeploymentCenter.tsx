@@ -6,6 +6,9 @@ import {
   type CharacterDeployment,
   type ConnectionMode,
   type DeploymentStatus,
+  type DiscordCatalogChannel,
+  type DiscordServerCatalog,
+  type DiscordServerProfile,
   type MemoryScope,
   type ParticipationMode,
   type PlatformConnection,
@@ -16,6 +19,7 @@ import {
   type DeploymentIdentityMode,
   type DeploymentMessageIdentity
 } from "./discordIdentityApi";
+import { DiscordServerProfilesPanel } from "./DiscordServerProfilesPanel";
 import { useI18n } from "./i18n";
 
 interface Props {
@@ -23,6 +27,12 @@ interface Props {
   initialCharacterId?: string | null;
   demoMode?: boolean;
   onClose: () => void;
+}
+
+interface ChannelGroup {
+  id: string;
+  name: string;
+  channels: DiscordCatalogChannel[];
 }
 
 const platformLabels: Record<PlatformId, string> = {
@@ -33,8 +43,8 @@ const platformLabels: Record<PlatformId, string> = {
 
 const platformNotes: Record<PlatformId, { en: string; zh: string }> = {
   discord: {
-    en: "Managed Gateway connector with per-channel webhook identity delivery.",
-    zh: "托管式 Gateway Connector，并支持每个 Channel 的 Webhook 角色身份。"
+    en: "Managed Gateway connector with reusable server profiles and per-character webhook identities.",
+    zh: "托管式 Gateway Connector，支持可复用 Server 配置与角色 Webhook 身份。"
   },
   whatsapp: {
     en: "Local experimental connector. The linked-device session stays on the user's computer.",
@@ -50,8 +60,13 @@ function statusLabel(status: string): string {
   return status.replaceAll("_", " ");
 }
 
-function destination(deployment: CharacterDeployment): string {
+function destination(deployment: CharacterDeployment, zh: boolean): string {
   const workspace = deployment.workspace_name || platformLabels[deployment.platform];
+  if (deployment.channel_scope_mode === "all_except") {
+    const excluded =
+      deployment.excluded_channel_ids.length + deployment.excluded_category_ids.length;
+    return `${workspace} / ${zh ? "全部 Channel，额外排除" : "All channels, additionally excluding"} ${excluded}`;
+  }
   const channel = deployment.channel_name || deployment.channel_id;
   return deployment.thread_name
     ? `${workspace} / ${channel} / ${deployment.thread_name}`
@@ -76,6 +91,33 @@ function connectorDisplayName(connection: PlatformConnection): string {
   return typeof value === "string" ? value : "";
 }
 
+function channelGroups(server: DiscordServerCatalog | undefined): ChannelGroup[] {
+  if (!server) return [];
+  const groups = new Map<string, ChannelGroup>();
+  for (const channel of server.channels) {
+    const key = channel.category_id || "@uncategorized";
+    const current = groups.get(key) ?? {
+      id: channel.category_id,
+      name: channel.category_name || "Uncategorized",
+      channels: []
+    };
+    current.channels.push(channel);
+    groups.set(key, current);
+  }
+  return [...groups.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function toggleSet(
+  current: Set<string>,
+  value: string,
+  setter: (value: Set<string>) => void
+) {
+  const next = new Set(current);
+  if (next.has(value)) next.delete(value);
+  else next.add(value);
+  setter(next);
+}
+
 export function DeploymentCenter({
   cards,
   initialCharacterId = null,
@@ -85,6 +127,8 @@ export function DeploymentCenter({
   const { language } = useI18n();
   const zh = language === "zh-CN";
   const [connections, setConnections] = useState<PlatformConnection[]>([]);
+  const [serverProfiles, setServerProfiles] = useState<DiscordServerProfile[]>([]);
+  const [serverCatalog, setServerCatalog] = useState<DiscordServerCatalog[]>([]);
   const [deployments, setDeployments] = useState<CharacterDeployment[]>([]);
   const [identities, setIdentities] = useState<DeploymentMessageIdentity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,6 +146,9 @@ export function DeploymentCenter({
     initialCharacterId ?? cards[0]?.id ?? ""
   );
   const [draftConnectionId, setDraftConnectionId] = useState("");
+  const [draftServerProfileId, setDraftServerProfileId] = useState("");
+  const [excludedChannels, setExcludedChannels] = useState<Set<string>>(new Set());
+  const [excludedCategories, setExcludedCategories] = useState<Set<string>>(new Set());
 
   const [platformFilter, setPlatformFilter] = useState<"all" | PlatformId>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | DeploymentStatus>("all");
@@ -110,12 +157,22 @@ export function DeploymentCenter({
   async function load() {
     try {
       setLoading(true);
-      const [nextConnections, nextDeployments, nextIdentities] = await Promise.all([
+      const [
+        nextConnections,
+        nextProfiles,
+        nextCatalog,
+        nextDeployments,
+        nextIdentities
+      ] = await Promise.all([
         deploymentApi.listConnections(),
+        deploymentApi.listDiscordServerProfiles(),
+        deploymentApi.listDiscordServerCatalog(),
         deploymentApi.listDeployments(),
         discordIdentityApi.list()
       ]);
       setConnections(nextConnections);
+      setServerProfiles(nextProfiles);
+      setServerCatalog(nextCatalog);
       setDeployments(nextDeployments);
       setIdentities(nextIdentities);
       setDraftConnectionId((current) =>
@@ -142,9 +199,33 @@ export function DeploymentCenter({
     setDeploymentOpen(true);
   }, [initialCharacterId]);
 
+  useEffect(() => {
+    if (editingDeployment) return;
+    const connection = connections.find((item) => item.id === draftConnectionId);
+    if (connection?.platform !== "discord") {
+      setDraftServerProfileId("");
+      return;
+    }
+    const valid = serverProfiles.some(
+      (profile) =>
+        profile.id === draftServerProfileId && profile.connection_id === draftConnectionId
+    );
+    if (!valid) {
+      setDraftServerProfileId(
+        serverProfiles.find((profile) => profile.connection_id === draftConnectionId)?.id ?? ""
+      );
+      setExcludedChannels(new Set());
+      setExcludedCategories(new Set());
+    }
+  }, [connections, draftConnectionId, draftServerProfileId, editingDeployment, serverProfiles]);
+
   const identityMap = useMemo(
     () => new Map(identities.map((item) => [item.deployment_id, item])),
     [identities]
+  );
+  const profileMap = useMemo(
+    () => new Map(serverProfiles.map((profile) => [profile.id, profile])),
+    [serverProfiles]
   );
   const filtered = useMemo(
     () =>
@@ -166,12 +247,36 @@ export function DeploymentCenter({
     }),
     [deployments]
   );
-  const selectedConnection = connections.find(
-    (item) => item.id === draftConnectionId
+
+  const selectedConnection = connections.find((item) => item.id === draftConnectionId);
+  const connectionProfiles = serverProfiles.filter(
+    (profile) => profile.connection_id === draftConnectionId
+  );
+  const selectedProfile = profileMap.get(draftServerProfileId);
+  const selectedCatalog = selectedProfile
+    ? serverCatalog.find(
+        (server) =>
+          server.connection_id === selectedProfile.connection_id &&
+          server.guild_id === selectedProfile.guild_id
+      )
+    : undefined;
+  const deploymentChannelGroups = useMemo(
+    () => channelGroups(selectedCatalog),
+    [selectedCatalog]
   );
   const formIdentity = editingDeployment
     ? identityMap.get(editingDeployment.id) ?? defaultIdentity(editingDeployment)
     : null;
+  const formConnection = editingDeployment
+    ? connections.find((item) => item.id === editingDeployment.connection_id)
+    : selectedConnection;
+  const discordIdentityEnabled = formConnection?.platform === "discord";
+  const isLegacyExactDiscord =
+    editingDeployment?.platform === "discord" &&
+    editingDeployment.channel_scope_mode === "exact" &&
+    !draftServerProfileId;
+  const globallyExcludedChannels = new Set(selectedProfile?.excluded_channel_ids ?? []);
+  const globallyExcludedCategories = new Set(selectedProfile?.excluded_category_ids ?? []);
 
   function changeConnectionPlatform(platform: PlatformId) {
     setConnectionPlatform(platform);
@@ -199,8 +304,7 @@ export function DeploymentCenter({
 
   async function saveConnection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
+    const data = new FormData(event.currentTarget);
     const displayName = String(data.get("display_name") ?? "").trim();
     const externalAccountId = String(data.get("external_account_id") ?? "").trim();
     try {
@@ -235,9 +339,15 @@ export function DeploymentCenter({
   }
 
   function openNewDeployment() {
+    const connectionId = connections[0]?.id ?? "";
     setEditingDeployment(null);
     setDraftCharacterId(initialCharacterId ?? cards[0]?.id ?? "");
-    setDraftConnectionId(connections[0]?.id ?? "");
+    setDraftConnectionId(connectionId);
+    setDraftServerProfileId(
+      serverProfiles.find((profile) => profile.connection_id === connectionId)?.id ?? ""
+    );
+    setExcludedChannels(new Set());
+    setExcludedCategories(new Set());
     setDeploymentOpen(true);
   }
 
@@ -245,6 +355,9 @@ export function DeploymentCenter({
     setEditingDeployment(item);
     setDraftCharacterId(item.character_card_id);
     setDraftConnectionId(item.connection_id);
+    setDraftServerProfileId(item.server_profile_id);
+    setExcludedChannels(new Set(item.excluded_channel_ids));
+    setExcludedCategories(new Set(item.excluded_category_ids));
     setDeploymentOpen(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -254,16 +367,44 @@ export function DeploymentCenter({
     setEditingDeployment(null);
   }
 
+  function changeDeploymentConnection(connectionId: string) {
+    setDraftConnectionId(connectionId);
+    setDraftServerProfileId(
+      serverProfiles.find((profile) => profile.connection_id === connectionId)?.id ?? ""
+    );
+    setExcludedChannels(new Set());
+    setExcludedCategories(new Set());
+  }
+
+  function changeServerProfile(profileId: string) {
+    setDraftServerProfileId(profileId);
+    setExcludedChannels(new Set());
+    setExcludedCategories(new Set());
+  }
+
   async function saveDeployment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const connection = connections.find((item) => item.id === draftConnectionId);
+    const usesServerProfile = connection?.platform === "discord" && Boolean(draftServerProfileId);
     const baseFields = {
-      workspace_id: String(data.get("workspace_id") ?? "").trim(),
-      workspace_name: String(data.get("workspace_name") ?? "").trim(),
-      channel_id: String(data.get("channel_id") ?? "").trim(),
-      channel_name: String(data.get("channel_name") ?? "").trim(),
-      thread_id: String(data.get("thread_id") ?? "").trim(),
-      thread_name: String(data.get("thread_name") ?? "").trim(),
+      server_profile_id: usesServerProfile ? draftServerProfileId : "",
+      workspace_id: usesServerProfile
+        ? ""
+        : String(data.get("workspace_id") ?? "").trim(),
+      workspace_name: usesServerProfile
+        ? ""
+        : String(data.get("workspace_name") ?? "").trim(),
+      channel_id: usesServerProfile ? "" : String(data.get("channel_id") ?? "").trim(),
+      channel_name: usesServerProfile
+        ? ""
+        : String(data.get("channel_name") ?? "").trim(),
+      thread_id: usesServerProfile ? "" : String(data.get("thread_id") ?? "").trim(),
+      thread_name: usesServerProfile
+        ? ""
+        : String(data.get("thread_name") ?? "").trim(),
+      excluded_channel_ids: usesServerProfile ? [...excludedChannels] : [],
+      excluded_category_ids: usesServerProfile ? [...excludedCategories] : [],
       participation_mode: String(data.get("participation_mode")) as ParticipationMode,
       memory_scope: String(data.get("memory_scope")) as MemoryScope,
       version_label:
@@ -282,9 +423,6 @@ export function DeploymentCenter({
             status: "paused"
           });
 
-      const connection = connections.find(
-        (item) => item.id === saved.connection_id
-      );
       if (connection?.platform === "discord") {
         const mode = String(data.get("identity_mode") ?? "webhook") as DeploymentIdentityMode;
         const displayName =
@@ -324,8 +462,8 @@ export function DeploymentCenter({
   async function removeDeployment(item: CharacterDeployment) {
     const confirmed = window.confirm(
       zh
-        ? `移除 ${item.character_display_name} 在 ${destination(item)} 的部署？`
-        : `Remove ${item.character_display_name} from ${destination(item)}?`
+        ? `移除 ${item.character_display_name} 在 ${destination(item, zh)} 的部署？`
+        : `Remove ${item.character_display_name} from ${destination(item, zh)}?`
     );
     if (!confirmed) return;
     try {
@@ -344,8 +482,8 @@ export function DeploymentCenter({
   async function removeConnection(item: PlatformConnection) {
     const confirmed = window.confirm(
       zh
-        ? `删除连接“${item.display_name}”？其下所有部署记录也会被移除。`
-        : `Delete “${item.display_name}”? All deployments using it will also be removed.`
+        ? `删除连接“${item.display_name}”？其下的 Server 配置与部署也会被移除。`
+        : `Delete “${item.display_name}”? Its server profiles and deployments will also be removed.`
     );
     if (!confirmed) return;
     try {
@@ -360,11 +498,11 @@ export function DeploymentCenter({
     }
   }
 
-  const formDeployment = editingDeployment;
-  const formConnection = formDeployment
-    ? connections.find((item) => item.id === formDeployment.connection_id)
-    : selectedConnection;
-  const discordIdentityEnabled = formConnection?.platform === "discord";
+  const canSaveDeployment =
+    Boolean(draftCharacterId && draftConnectionId) &&
+    (formConnection?.platform !== "discord" ||
+      Boolean(draftServerProfileId) ||
+      Boolean(isLegacyExactDiscord));
 
   return (
     <main className="deployment-page">
@@ -374,8 +512,8 @@ export function DeploymentCenter({
           <h1>{zh ? "角色部署与平台连接" : "Character deployments and platform connections"}</h1>
           <p>
             {zh
-              ? "管理平台账户、角色部署和 Discord Webhook 身份。平台账户与每个部署都可以直接编辑。"
-              : "Manage platform accounts, character deployments, and Discord webhook identities. Accounts and deployments can both be edited directly."}
+              ? "Discord Server 只需配置一次。部署角色时选择对应配置，默认覆盖全部 Channel，并按角色排除少数位置。"
+              : "Configure each Discord server once. Character deployments select that profile, cover all channels by default, and exclude only a few destinations when needed."}
           </p>
         </div>
         <div className="deployment-header-actions">
@@ -398,7 +536,7 @@ export function DeploymentCenter({
         <article className="paper-sheet deployment-summary-card">
           <span>{zh ? "部署总数" : "Deployments"}</span>
           <strong>{deployments.length}</strong>
-          <small>{zh ? "每个 Channel / Thread 独立记录" : "One record per destination"}</small>
+          <small>{zh ? "精确位置或 Server 范围" : "Exact or server-wide scopes"}</small>
         </article>
         <article className="paper-sheet deployment-summary-card">
           <span>{zh ? "运行中" : "Active"}</span>
@@ -406,9 +544,9 @@ export function DeploymentCenter({
           <small>{zh ? "Connector 正在读取的部署" : "Read by the connector"}</small>
         </article>
         <article className="paper-sheet deployment-summary-card">
-          <span>{zh ? "已暂停" : "Paused"}</span>
-          <strong>{counts.paused}</strong>
-          <small>{zh ? "配置保留，不参与聊天" : "Configured but silent"}</small>
+          <span>{zh ? "Server 配置" : "Server profiles"}</span>
+          <strong>{serverProfiles.length}</strong>
+          <small>{zh ? "可供多个角色复用" : "Reusable across characters"}</small>
         </article>
         <article className="paper-sheet deployment-summary-card">
           <span>{zh ? "需要处理" : "Needs attention"}</span>
@@ -503,8 +641,8 @@ export function DeploymentCenter({
                 <p className="connection-note">
                   {editingConnection
                     ? zh
-                      ? "平台类型建立后不能修改。账户名称会作为你的管理标签保留，不再被 Connector Heartbeat 覆盖。"
-                      : "The platform is immutable after creation. Your account label is preserved and is no longer overwritten by connector heartbeats."
+                      ? "平台类型建立后不能修改。管理标签不会被 Connector Heartbeat 覆盖。"
+                      : "The platform is immutable after creation. Connector heartbeats do not overwrite the management label."
                     : zh
                       ? platformNotes[connectionPlatform].zh
                       : platformNotes[connectionPlatform].en}
@@ -542,22 +680,12 @@ export function DeploymentCenter({
                         <small>{zh ? "Connector 身份" : "Connector identity"}: {runtimeName}</small>
                       )}
                       {item.external_account_id && <small>ID: {item.external_account_id}</small>}
-                      <small>
-                        {zh ? platformNotes[item.platform].zh : platformNotes[item.platform].en}
-                      </small>
                     </div>
                     <span className={`deployment-status status-${item.status}`}>
                       {statusLabel(item.status)}
                     </span>
                     {!demoMode && (
-                      <div
-                        style={{
-                          gridColumn: "2 / -1",
-                          display: "flex",
-                          gap: 12,
-                          flexWrap: "wrap"
-                        }}
-                      >
+                      <div className="connection-card-actions">
                         <button
                           className="text-button"
                           onClick={() => openEditConnection(item)}
@@ -585,6 +713,16 @@ export function DeploymentCenter({
               )}
             </div>
           </section>
+
+          <DiscordServerProfilesPanel
+            connections={connections}
+            profiles={serverProfiles}
+            catalog={serverCatalog}
+            demoMode={demoMode}
+            zh={zh}
+            onChanged={load}
+            onError={(message) => setError(message || null)}
+          />
         </aside>
 
         <section className="deployment-main">
@@ -593,16 +731,16 @@ export function DeploymentCenter({
               <div className="panel-heading-row">
                 <div>
                   <p className="tape-label">
-                    {formDeployment ? "EDIT DEPLOYMENT" : "NEW DEPLOYMENT"}
+                    {editingDeployment ? "EDIT DEPLOYMENT" : "NEW DEPLOYMENT"}
                   </p>
                   <h2>
-                    {formDeployment
+                    {editingDeployment
                       ? zh
                         ? "编辑现有部署"
                         : "Edit deployment"
                       : zh
-                        ? "将角色部署到一个聊天位置"
-                        : "Deploy a character to one chat destination"}
+                        ? "将角色部署到 Discord Server 或聊天位置"
+                        : "Deploy a character to a Discord server or chat destination"}
                   </h2>
                 </div>
                 <button className="paper-button" onClick={closeDeploymentForm}>
@@ -612,8 +750,8 @@ export function DeploymentCenter({
               <p className="deployment-foundation-note">
                 {discordIdentityEnabled
                   ? zh
-                    ? "Webhook 模式会由 Connector 自动查找或建立 Channel Webhook。无需填写 Webhook URL 或 Token。"
-                    : "Webhook mode is provisioned automatically by the connector. Do not paste a webhook URL or token."
+                    ? "选择 Server 配置后，角色默认进入该 Server 的全部可见 Channel。这里只需要再移除不适合该角色的位置。"
+                    : "After selecting a server profile, the character covers every visible channel by default. Remove only destinations that do not fit this character."
                   : zh
                     ? "修改会保留当前部署状态。"
                     : "Edits preserve the current deployment status."}
@@ -621,14 +759,14 @@ export function DeploymentCenter({
               <form
                 className="deployment-form"
                 onSubmit={saveDeployment}
-                key={formDeployment?.id ?? "new-deployment"}
+                key={editingDeployment?.id ?? "new-deployment"}
               >
                 <label>
                   {zh ? "角色" : "Character"}
                   <select
                     value={draftCharacterId}
                     onChange={(event) => setDraftCharacterId(event.currentTarget.value)}
-                    disabled={Boolean(formDeployment)}
+                    disabled={Boolean(editingDeployment)}
                     required
                   >
                     {cards.map((card) => (
@@ -642,8 +780,8 @@ export function DeploymentCenter({
                   {zh ? "平台连接" : "Platform connection"}
                   <select
                     value={draftConnectionId}
-                    onChange={(event) => setDraftConnectionId(event.currentTarget.value)}
-                    disabled={Boolean(formDeployment)}
+                    onChange={(event) => changeDeploymentConnection(event.currentTarget.value)}
+                    disabled={Boolean(editingDeployment)}
                     required
                   >
                     {connections.map((item) => (
@@ -653,44 +791,228 @@ export function DeploymentCenter({
                     ))}
                   </select>
                 </label>
-                <label>
-                  {zh ? "Server / Workspace 名称" : "Server / workspace name"}
-                  <input name="workspace_name" defaultValue={formDeployment?.workspace_name ?? ""} />
-                </label>
-                <label>
-                  {zh ? "Server / Workspace ID" : "Server / workspace ID"}
-                  <input name="workspace_id" defaultValue={formDeployment?.workspace_id ?? ""} />
-                </label>
-                <label>
-                  {zh ? "Channel / Group 名称" : "Channel / group name"}
-                  <input
-                    name="channel_name"
-                    required
-                    defaultValue={formDeployment?.channel_name ?? ""}
-                    placeholder="#companions"
-                  />
-                </label>
-                <label>
-                  {zh ? "Channel / Group ID" : "Channel / group ID"}
-                  <input
-                    name="channel_id"
-                    required
-                    defaultValue={formDeployment?.channel_id ?? ""}
-                  />
-                </label>
-                <label>
-                  {zh ? "Thread 名称（可选）" : "Thread name (optional)"}
-                  <input name="thread_name" defaultValue={formDeployment?.thread_name ?? ""} />
-                </label>
-                <label>
-                  {zh ? "Thread ID（可选）" : "Thread ID (optional)"}
-                  <input name="thread_id" defaultValue={formDeployment?.thread_id ?? ""} />
-                </label>
+
+                {discordIdentityEnabled ? (
+                  <>
+                    <label className="deployment-form-wide">
+                      {zh ? "Discord Server 配置" : "Discord server profile"}
+                      <select
+                        value={draftServerProfileId}
+                        onChange={(event) => changeServerProfile(event.currentTarget.value)}
+                        required={!isLegacyExactDiscord}
+                      >
+                        {isLegacyExactDiscord && (
+                          <option value="">
+                            {zh ? "旧版：固定 Channel / Thread" : "Legacy: exact channel / thread"}
+                          </option>
+                        )}
+                        {connectionProfiles.map((profile) => (
+                          <option value={profile.id} key={profile.id}>
+                            {profile.name} · {profile.guild_name}
+                          </option>
+                        ))}
+                      </select>
+                      <small>
+                        {connectionProfiles.length
+                          ? zh
+                            ? "Server ID 与 Channel 清单由 Connector 自动同步。"
+                            : "The connector supplies the server ID and channel inventory."
+                          : zh
+                            ? "请先在左侧建立 Discord Server 配置。"
+                            : "Create a Discord server profile in the left panel first."}
+                      </small>
+                    </label>
+
+                    {selectedProfile && (
+                      <div className="deployment-form-wide deployment-channel-picker">
+                        <div className="deployment-form-divider">
+                          <strong>{zh ? "角色专属 Channel 排除" : "Character-specific channel exclusions"}</strong>
+                          <span>
+                            {zh
+                              ? `默认允许全部。Server 配置已全局排除 ${selectedProfile.excluded_channel_ids.length + selectedProfile.excluded_category_ids.length} 个位置。`
+                              : `Everything is allowed by default. The server profile already excludes ${selectedProfile.excluded_channel_ids.length + selectedProfile.excluded_category_ids.length} destinations globally.`}
+                          </span>
+                        </div>
+                        {deploymentChannelGroups.map((group) => {
+                          const categoryGloballyExcluded =
+                            Boolean(group.id) && globallyExcludedCategories.has(group.id);
+                          return (
+                            <fieldset key={group.id || "uncategorized"}>
+                              <legend>
+                                {group.id && (
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      categoryGloballyExcluded || excludedCategories.has(group.id)
+                                    }
+                                    disabled={categoryGloballyExcluded}
+                                    onChange={() =>
+                                      toggleSet(
+                                        excludedCategories,
+                                        group.id,
+                                        setExcludedCategories
+                                      )
+                                    }
+                                  />
+                                )}
+                                {group.name}
+                                {categoryGloballyExcluded && (
+                                  <small>{zh ? "（全局排除）" : " (globally excluded)"}</small>
+                                )}
+                              </legend>
+                              {group.channels.map((channel) => {
+                                const globallyExcluded =
+                                  categoryGloballyExcluded ||
+                                  globallyExcludedChannels.has(channel.id);
+                                return (
+                                  <label key={channel.id} className="server-channel-option">
+                                    <input
+                                      type="checkbox"
+                                      checked={globallyExcluded || excludedChannels.has(channel.id)}
+                                      disabled={globallyExcluded}
+                                      onChange={() =>
+                                        toggleSet(
+                                          excludedChannels,
+                                          channel.id,
+                                          setExcludedChannels
+                                        )
+                                      }
+                                    />
+                                    <span>#{channel.name}</span>
+                                    <small>
+                                      {globallyExcluded
+                                        ? zh
+                                          ? "全局排除"
+                                          : "globally excluded"
+                                        : channel.type}
+                                    </small>
+                                  </label>
+                                );
+                              })}
+                            </fieldset>
+                          );
+                        })}
+                        {!selectedCatalog && (
+                          <p className="connection-note">
+                            {zh
+                              ? "Connector 暂时没有该 Server 的最新 Channel 清单。现有排除 ID 会保留，但需等待同步后才能从清单中选择。"
+                              : "The connector has not reported the latest channel inventory for this server. Existing exclusion IDs remain stored; wait for sync to select from the list."}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {isLegacyExactDiscord && (
+                      <>
+                        <div className="deployment-form-wide deployment-form-divider">
+                          <strong>{zh ? "旧版精确位置" : "Legacy exact destination"}</strong>
+                          <span>
+                            {zh
+                              ? "保持原本行为，或在上方选择 Server 配置进行转换。"
+                              : "Keep the existing behavior or select a server profile above to convert it."}
+                          </span>
+                        </div>
+                        <label>
+                          {zh ? "Server 名称" : "Server name"}
+                          <input
+                            name="workspace_name"
+                            defaultValue={editingDeployment?.workspace_name ?? ""}
+                          />
+                        </label>
+                        <label>
+                          {zh ? "Server ID" : "Server ID"}
+                          <input
+                            name="workspace_id"
+                            defaultValue={editingDeployment?.workspace_id ?? ""}
+                          />
+                        </label>
+                        <label>
+                          {zh ? "Channel 名称" : "Channel name"}
+                          <input
+                            name="channel_name"
+                            required
+                            defaultValue={editingDeployment?.channel_name ?? ""}
+                          />
+                        </label>
+                        <label>
+                          {zh ? "Channel ID" : "Channel ID"}
+                          <input
+                            name="channel_id"
+                            required
+                            defaultValue={editingDeployment?.channel_id ?? ""}
+                          />
+                        </label>
+                        <label>
+                          {zh ? "Thread 名称（可选）" : "Thread name (optional)"}
+                          <input
+                            name="thread_name"
+                            defaultValue={editingDeployment?.thread_name ?? ""}
+                          />
+                        </label>
+                        <label>
+                          {zh ? "Thread ID（可选）" : "Thread ID (optional)"}
+                          <input
+                            name="thread_id"
+                            defaultValue={editingDeployment?.thread_id ?? ""}
+                          />
+                        </label>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <label>
+                      {zh ? "Server / Workspace 名称" : "Server / workspace name"}
+                      <input
+                        name="workspace_name"
+                        defaultValue={editingDeployment?.workspace_name ?? ""}
+                      />
+                    </label>
+                    <label>
+                      {zh ? "Server / Workspace ID" : "Server / workspace ID"}
+                      <input
+                        name="workspace_id"
+                        defaultValue={editingDeployment?.workspace_id ?? ""}
+                      />
+                    </label>
+                    <label>
+                      {zh ? "Channel / Group 名称" : "Channel / group name"}
+                      <input
+                        name="channel_name"
+                        required
+                        defaultValue={editingDeployment?.channel_name ?? ""}
+                      />
+                    </label>
+                    <label>
+                      {zh ? "Channel / Group ID" : "Channel / group ID"}
+                      <input
+                        name="channel_id"
+                        required
+                        defaultValue={editingDeployment?.channel_id ?? ""}
+                      />
+                    </label>
+                    <label>
+                      {zh ? "Thread 名称（可选）" : "Thread name (optional)"}
+                      <input
+                        name="thread_name"
+                        defaultValue={editingDeployment?.thread_name ?? ""}
+                      />
+                    </label>
+                    <label>
+                      {zh ? "Thread ID（可选）" : "Thread ID (optional)"}
+                      <input
+                        name="thread_id"
+                        defaultValue={editingDeployment?.thread_id ?? ""}
+                      />
+                    </label>
+                  </>
+                )}
+
                 <label>
                   {zh ? "参与模式" : "Participation mode"}
                   <select
                     name="participation_mode"
-                    defaultValue={formDeployment?.participation_mode ?? "mention_and_reply"}
+                    defaultValue={editingDeployment?.participation_mode ?? "mention_and_reply"}
                   >
                     <option value="mention_only">Mention only</option>
                     <option value="reply_only">Reply only</option>
@@ -702,7 +1024,7 @@ export function DeploymentCenter({
                   {zh ? "记忆范围" : "Memory scope"}
                   <select
                     name="memory_scope"
-                    defaultValue={formDeployment?.memory_scope ?? "channel_isolated"}
+                    defaultValue={editingDeployment?.memory_scope ?? "channel_isolated"}
                   >
                     <option value="channel_isolated">Channel isolated</option>
                     <option value="server_shared">Server shared</option>
@@ -711,7 +1033,10 @@ export function DeploymentCenter({
                 </label>
                 <label>
                   {zh ? "角色版本" : "Character version"}
-                  <input name="version_label" defaultValue={formDeployment?.version_label ?? "Current"} />
+                  <input
+                    name="version_label"
+                    defaultValue={editingDeployment?.version_label ?? "Current"}
+                  />
                 </label>
                 <label>
                   {zh ? "已配置贴图数量" : "Configured stickers"}
@@ -720,18 +1045,18 @@ export function DeploymentCenter({
                     type="number"
                     min="0"
                     max="500"
-                    defaultValue={formDeployment?.sticker_count ?? 0}
+                    defaultValue={editingDeployment?.sticker_count ?? 0}
                   />
                 </label>
 
                 {discordIdentityEnabled && (
                   <>
-                    <div className="deployment-form-divider">
+                    <div className="deployment-form-wide deployment-form-divider">
                       <strong>{zh ? "Discord 消息身份" : "Discord message identity"}</strong>
                       <span>
                         {zh
-                          ? "名称和头像由 Webhook 每条消息动态覆盖"
-                          : "Name and avatar are overridden per webhook message"}
+                          ? "Webhook 会在实际发送 Channel 中按需建立，并使用角色名称与头像。"
+                          : "The connector provisions the webhook in the actual channel on demand and uses the character name and avatar."}
                       </span>
                     </div>
                     <label>
@@ -763,24 +1088,19 @@ export function DeploymentCenter({
                         defaultValue={formIdentity?.avatar_url ?? ""}
                         placeholder="https://.../avatar.png"
                       />
-                      <small>
-                        {zh
-                          ? "Discord 必须能公开读取该图片。"
-                          : "Discord must be able to fetch this image publicly."}
-                      </small>
                     </label>
                   </>
                 )}
 
                 <button
                   className="ink-button deployment-submit"
-                  disabled={working || !draftCharacterId || !draftConnectionId}
+                  disabled={working || !canSaveDeployment}
                 >
                   {working
                     ? zh
                       ? "保存中…"
                       : "Saving…"
-                    : formDeployment
+                    : editingDeployment
                       ? zh
                         ? "保存部署修改"
                         : "Save deployment changes"
@@ -865,7 +1185,11 @@ export function DeploymentCenter({
                       ? "还没有角色部署"
                       : "No character deployments yet"}
                 </strong>
-                <p>{zh ? "每个目的地会成为一条独立记录。" : "Each destination is an independent record."}</p>
+                <p>
+                  {zh
+                    ? "Discord 新部署会复用 Server 配置，并默认覆盖全部 Channel。"
+                    : "New Discord deployments reuse a server profile and cover all channels by default."}
+                </p>
               </div>
             ) : (
               <div className="deployment-table" role="table">
@@ -878,6 +1202,14 @@ export function DeploymentCenter({
                 </div>
                 {filtered.map((item) => {
                   const identity = identityMap.get(item.id) ?? defaultIdentity(item);
+                  const profile = item.server_profile_id
+                    ? profileMap.get(item.server_profile_id)
+                    : undefined;
+                  const totalExclusions =
+                    item.excluded_channel_ids.length +
+                    item.excluded_category_ids.length +
+                    (profile?.excluded_channel_ids.length ?? 0) +
+                    (profile?.excluded_category_ids.length ?? 0);
                   return (
                     <article className="deployment-row" role="row" key={item.id}>
                       <div>
@@ -886,7 +1218,13 @@ export function DeploymentCenter({
                       </div>
                       <div>
                         <strong>{platformLabels[item.platform]}</strong>
-                        <span>{destination(item)}</span>
+                        <span>{destination(item, zh)}</span>
+                        {item.channel_scope_mode === "all_except" && (
+                          <small>
+                            {item.server_profile_name || profile?.name} ·{" "}
+                            {zh ? "总排除" : "total exclusions"} {totalExclusions}
+                          </small>
+                        )}
                       </div>
                       <div>
                         <strong>{item.participation_mode.replaceAll("_", " ")}</strong>

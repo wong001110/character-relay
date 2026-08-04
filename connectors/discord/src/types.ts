@@ -6,6 +6,7 @@ export type ParticipationMode =
 
 export type IdentityMode = "bot" | "webhook";
 export type WebhookStatus = "pending" | "active" | "error" | "not_required";
+export type ChannelScopeMode = "exact" | "all_except";
 
 export interface DiscordDeployment {
   deployment_id: string;
@@ -18,6 +19,11 @@ export interface DiscordDeployment {
   channel_name: string;
   thread_id: string;
   thread_name: string;
+  category_id: string;
+  server_profile_id: string;
+  channel_scope_mode: ChannelScopeMode;
+  excluded_channel_ids: string[];
+  excluded_category_ids: string[];
   participation_mode: ParticipationMode;
   version_label: string;
   status: "active";
@@ -27,6 +33,25 @@ export interface DiscordDeployment {
   webhook_status: WebhookStatus;
   webhook_id?: string | null;
   webhook_token?: string | null;
+}
+
+export interface DiscordCatalogChannel {
+  id: string;
+  name: string;
+  category_id: string;
+  category_name: string;
+  type: string;
+}
+
+export interface DiscordCatalogServer {
+  guild_id: string;
+  guild_name: string;
+  channels: DiscordCatalogChannel[];
+}
+
+export interface DiscordServerCatalogSync {
+  connection_id: string;
+  servers: DiscordCatalogServer[];
 }
 
 export interface DiscordContextMessage {
@@ -46,6 +71,7 @@ export interface DiscordInboundMessage {
   guild_name: string;
   channel_id: string;
   channel_name: string;
+  category_id: string;
   thread_id: string;
   thread_name: string;
   author_id: string;
@@ -82,6 +108,8 @@ export interface DiscordWebhookRegistration {
   deployment_id: string;
   workspace_id: string;
   channel_id: string;
+  category_id: string;
+  thread_id: string;
   webhook_id: string;
   webhook_token: string;
 }

@@ -18,6 +18,7 @@ from echo_masque.api.connector_schemas import (
     DiscordMessageRouteRegistration,
     DiscordMessageRouteView,
     DiscordParticipationMode,
+    DiscordServerCatalogSync,
     DiscordWebhookRegistration,
     DiscordWebhookRegistrationView,
     DiscordWebhookStatus,
@@ -31,6 +32,7 @@ from echo_masque.persistence import (
     DiscordIdentityRepository,
     Repository,
 )
+from echo_masque.persistence.deployment_repository import decode_ids
 
 router = APIRouter(prefix="/api/connectors/discord", tags=["connectors"])
 _WEBHOOK_SCOPE = "discord_webhook"
@@ -86,7 +88,8 @@ def list_connector_deployments(
     authorization: Annotated[str | None, Header()] = None,
 ) -> list[DiscordConnectorDeploymentView]:
     _authorize_connector(request, authorization)
-    records = deployment_repository(request).list_connector_deployments(
+    deployments = deployment_repository(request)
+    records = deployments.list_connector_deployments(
         platform="discord",
         connection_id=connection_id,
     )
@@ -97,6 +100,14 @@ def list_connector_deployments(
     for record in records:
         card = repo.get_character_card(record.character_card_id, record.owner_id)
         if card is None:
+            continue
+        scope = deployments.get_deployment_scope(record.id)
+        profile = (
+            deployments.get_server_profile_for_deployment(record.id)
+            if scope is not None
+            else None
+        )
+        if scope is not None and profile is None:
             continue
         identity = identities.get_identity(record.id, record.owner_id)
         identity_mode = cast(
@@ -111,11 +122,13 @@ def list_connector_deployments(
             DiscordWebhookStatus,
             identity.webhook_status if identity is not None else "pending",
         )
-        binding = identities.get_binding(
-            owner_id=record.owner_id,
-            connection_id=record.connection_id,
-            channel_id=record.channel_id,
-        )
+        binding = None
+        if scope is None:
+            binding = identities.get_binding(
+                owner_id=record.owner_id,
+                connection_id=record.connection_id,
+                channel_id=record.channel_id,
+            )
         webhook_token: str | None = None
         if binding is not None and binding.status == "active":
             encrypted = vault.get_scope(
@@ -127,6 +140,18 @@ def list_connector_deployments(
                 webhook_token = encrypted.get_secret_value()
                 if identity_mode == "webhook":
                     webhook_status = "active"
+        excluded_channels = (
+            decode_ids(profile.excluded_channel_ids_json)
+            + decode_ids(scope.excluded_channel_ids_json)
+            if scope is not None and profile is not None
+            else []
+        )
+        excluded_categories = (
+            decode_ids(profile.excluded_category_ids_json)
+            + decode_ids(scope.excluded_category_ids_json)
+            if scope is not None and profile is not None
+            else []
+        )
         views.append(
             DiscordConnectorDeploymentView(
                 deployment_id=record.id,
@@ -139,6 +164,10 @@ def list_connector_deployments(
                 channel_name=record.channel_name,
                 thread_id=record.thread_id,
                 thread_name=record.thread_name,
+                server_profile_id=scope.server_profile_id if scope is not None else "",
+                channel_scope_mode="all_except" if scope is not None else "exact",
+                excluded_channel_ids=list(dict.fromkeys(excluded_channels)),
+                excluded_category_ids=list(dict.fromkeys(excluded_categories)),
                 participation_mode=cast(
                     DiscordParticipationMode,
                     record.participation_mode,
@@ -156,6 +185,29 @@ def list_connector_deployments(
     return views
 
 
+@router.put("/server-catalog", status_code=status.HTTP_204_NO_CONTENT)
+def sync_server_catalog(
+    payload: DiscordServerCatalogSync,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    _authorize_connector(request, authorization)
+    try:
+        deployment_repository(request).sync_discord_server_catalog(
+            connection_id=payload.connection_id,
+            servers=[
+                (
+                    server.guild_id,
+                    server.guild_name,
+                    [channel.model_dump() for channel in server.channels],
+                )
+                for server in payload.servers
+            ],
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Discord connection not found.") from exc
+
+
 @router.put("/webhooks", response_model=DiscordWebhookRegistrationView)
 def register_webhook(
     payload: DiscordWebhookRegistration,
@@ -163,15 +215,19 @@ def register_webhook(
     authorization: Annotated[str | None, Header()] = None,
 ) -> DiscordWebhookRegistrationView:
     _authorize_connector(request, authorization)
-    identities = identity_repository(request)
-    deployment = identities.deployment_for_connector(
-        deployment_id=payload.deployment_id,
+    deployments = deployment_repository(request)
+    deployment = deployments.deployment_matches_discord_destination(
+        payload.deployment_id,
         connection_id=payload.connection_id,
+        guild_id=payload.workspace_id,
         channel_id=payload.channel_id,
+        thread_id=payload.thread_id,
+        category_id=payload.category_id,
     )
     if deployment is None:
         raise HTTPException(status_code=404, detail="Discord deployment not found.")
 
+    identities = identity_repository(request)
     identity = identities.get_identity(deployment.id, deployment.owner_id)
     if identity is None:
         card = character_repository(request).get_character_card(

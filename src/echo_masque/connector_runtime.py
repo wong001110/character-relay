@@ -50,18 +50,13 @@ class DiscordConnectorRuntime:
         self.provider_factory = provider_factory
 
     async def respond(self, payload: DiscordInboundMessage) -> DiscordConnectorReplyView:
-        deployment = next(
-            (
-                item
-                for item in self.deployment_repository.list_connector_deployments(
-                    platform="discord",
-                    connection_id=payload.connection_id,
-                )
-                if item.id == payload.deployment_id
-                and item.channel_id == payload.channel_id
-                and item.thread_id == payload.thread_id
-            ),
-            None,
+        deployment = self.deployment_repository.deployment_matches_discord_destination(
+            payload.deployment_id,
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+            category_id=payload.category_id,
         )
         if deployment is None:
             return DiscordConnectorReplyView(

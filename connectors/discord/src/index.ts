@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 
 import {
+  ChannelType,
   Client,
   Events,
   GatewayIntentBits,
@@ -21,7 +22,11 @@ import {
   splitDiscordMessage,
   type DeploymentIndex
 } from "./routing.js";
-import type { DiscordContextMessage, DiscordDeployment } from "./types.js";
+import type {
+  DiscordCatalogServer,
+  DiscordContextMessage,
+  DiscordDeployment
+} from "./types.js";
 import { DiscordWebhookManager } from "./webhookManager.js";
 
 const config = loadConfig();
@@ -44,13 +49,22 @@ const sentCharacterRoutes = new Map<
   string,
   { deploymentId: string; seenAt: number }
 >();
+const observedWebhookIds = new Set<string>();
 let deployments: DeploymentIndex = new Map();
 let lastDeploymentSyncAt: string | null = null;
+let lastCatalogSyncAt: string | null = null;
 let lastError: string | null = null;
 let ready = false;
 let refreshTimer: NodeJS.Timeout | undefined;
 let heartbeatTimer: NodeJS.Timeout | undefined;
 let dedupeTimer: NodeJS.Timeout | undefined;
+
+const catalogChannelTypes = new Set<ChannelType>([
+  ChannelType.GuildText,
+  ChannelType.GuildAnnouncement,
+  ChannelType.GuildForum,
+  ChannelType.GuildMedia
+]);
 
 function log(message: string, metadata?: Record<string, unknown>): void {
   console.log(
@@ -62,13 +76,71 @@ function log(message: string, metadata?: Record<string, unknown>): void {
   );
 }
 
+async function syncServerCatalog(): Promise<void> {
+  const servers: DiscordCatalogServer[] = [];
+  for (const guild of client.guilds.cache.values()) {
+    const fetched = await guild.channels.fetch();
+    const categories = new Map(
+      [...fetched.values()]
+        .filter(
+          (channel): channel is NonNullable<typeof channel> =>
+            channel !== null && channel.type === ChannelType.GuildCategory
+        )
+        .map((channel) => [channel.id, channel.name])
+    );
+    const channels = [...fetched.values()]
+      .filter(
+        (channel): channel is NonNullable<typeof channel> =>
+          channel !== null &&
+          catalogChannelTypes.has(channel.type) &&
+          channel.viewable
+      )
+      .map((channel) => ({
+        id: channel.id,
+        name: channel.name,
+        category_id: channel.parentId ?? "",
+        category_name: channel.parentId ? (categories.get(channel.parentId) ?? "") : "",
+        type:
+          channel.type === ChannelType.GuildForum
+            ? "forum"
+            : channel.type === ChannelType.GuildMedia
+              ? "media"
+              : channel.type === ChannelType.GuildAnnouncement
+                ? "announcement"
+                : "text"
+      }))
+      .sort((left, right) =>
+        `${left.category_name}/${left.name}`.localeCompare(
+          `${right.category_name}/${right.name}`
+        )
+      );
+    servers.push({
+      guild_id: guild.id,
+      guild_name: guild.name,
+      channels
+    });
+  }
+  await relay.syncServerCatalog({ servers });
+  lastCatalogSyncAt = new Date().toISOString();
+  log("Discord server catalog synchronized.", {
+    servers: servers.length,
+    channels: servers.reduce((total, server) => total + server.channels.length, 0)
+  });
+}
+
 async function prepareWebhookIdentity(
   deployment: DiscordDeployment,
   botUserId: string
 ): Promise<void> {
-  if (deployment.identity_mode !== "webhook") return;
+  if (
+    deployment.identity_mode !== "webhook" ||
+    deployment.channel_scope_mode === "all_except"
+  ) {
+    return;
+  }
   try {
     await webhookManager.ensure(deployment, botUserId);
+    if (deployment.webhook_id) observedWebhookIds.add(deployment.webhook_id);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     deployment.webhook_status = "error";
@@ -91,8 +163,8 @@ async function refreshDeployments(): Promise<void> {
   const next = await relay.listDeployments();
   const botUserId = client.user?.id;
   if (botUserId) {
-    // Keep webhook provisioning sequential so two characters in one channel do not
-    // race to create duplicate incoming webhooks during a cold start.
+    // Exact-channel webhooks are prepared sequentially. Server-wide profiles are
+    // provisioned lazily for the concrete channel that receives a message.
     for (const item of next) {
       await prepareWebhookIdentity(item, botUserId);
     }
@@ -102,6 +174,7 @@ async function refreshDeployments(): Promise<void> {
   log("Discord deployments refreshed.", {
     count: next.length,
     destinations: deployments.size,
+    serverWide: next.filter((item) => item.channel_scope_mode === "all_except").length,
     multiCharacterDestinations: [...deployments.values()].filter(
       (items) => items.length > 1
     ).length,
@@ -109,6 +182,11 @@ async function refreshDeployments(): Promise<void> {
       (item) => item.identity_mode === "webhook" && item.webhook_status === "active"
     ).length
   });
+}
+
+async function refreshConnectorState(): Promise<void> {
+  await syncServerCatalog();
+  await refreshDeployments();
 }
 
 async function sendHeartbeat(
@@ -128,6 +206,7 @@ async function sendHeartbeat(
 function channelLocation(message: Message<true>): {
   channelId: string;
   channelName: string;
+  categoryId: string;
   threadId: string;
   threadName: string;
 } {
@@ -138,6 +217,7 @@ function channelLocation(message: Message<true>): {
         message.channel.parent?.name ??
         message.channel.parentId ??
         "unknown-channel",
+      categoryId: message.channel.parent?.parentId ?? "",
       threadId: message.channel.id,
       threadName: message.channel.name
     };
@@ -145,6 +225,7 @@ function channelLocation(message: Message<true>): {
   return {
     channelId: message.channel.id,
     channelName: message.channel.name,
+    categoryId: "parentId" in message.channel ? (message.channel.parentId ?? "") : "",
     threadId: "",
     threadName: ""
   };
@@ -158,11 +239,12 @@ function normalizedText(message: Message<true>, botUserId: string): string {
 }
 
 function knownWebhookIds(): Set<string> {
-  return new Set(
-    flattenDeployments(deployments)
+  return new Set([
+    ...observedWebhookIds,
+    ...flattenDeployments(deployments)
       .map((item) => item.webhook_id)
       .filter((item): item is string => Boolean(item))
-  );
+  ]);
 }
 
 interface ReplyTarget {
@@ -173,7 +255,9 @@ interface ReplyTarget {
 async function resolveReplyTarget(
   message: Message<true>,
   candidates: DiscordDeployment[],
-  botUserId: string
+  botUserId: string,
+  channelId: string,
+  threadId: string
 ): Promise<ReplyTarget> {
   const referencedId = message.reference?.messageId;
   if (!referencedId) {
@@ -189,19 +273,11 @@ async function resolveReplyTarget(
   }
 
   try {
-    const referenced = await message.fetchReference();
-    const characterMessage =
-      referenced.author.id === botUserId ||
-      (Boolean(referenced.webhookId) && knownWebhookIds().has(referenced.webhookId!));
-    if (!characterMessage) {
-      return { deploymentId: null, characterMessage: false };
-    }
-
     const route = await relay.resolveMessageRoute(referencedId);
     if (
       route &&
-      route.channel_id === candidates[0]?.channel_id &&
-      route.thread_id === (candidates[0]?.thread_id ?? "") &&
+      route.channel_id === channelId &&
+      route.thread_id === threadId &&
       candidates.some((item) => item.deployment_id === route.deployment_id)
     ) {
       sentCharacterRoutes.set(referencedId, {
@@ -209,6 +285,14 @@ async function resolveReplyTarget(
         seenAt: Date.now()
       });
       return { deploymentId: route.deployment_id, characterMessage: true };
+    }
+
+    const referenced = await message.fetchReference();
+    const characterMessage =
+      referenced.author.id === botUserId ||
+      (Boolean(referenced.webhookId) && knownWebhookIds().has(referenced.webhookId!));
+    if (!characterMessage) {
+      return { deploymentId: null, characterMessage: false };
     }
 
     // Messages sent before persistent routing existed remain unambiguous when only
@@ -296,11 +380,13 @@ async function sendCharacterReply(
 ): Promise<string[]> {
   if (deployment.identity_mode === "webhook") {
     try {
-      return await webhookManager.send(
+      const ids = await webhookManager.send(
         deployment,
         splitDiscordMessage(replyText),
         botUserId
       );
+      if (deployment.webhook_id) observedWebhookIds.add(deployment.webhook_id);
+      return ids;
     } catch (error) {
       log("Falling back to the shared Bot identity.", {
         deploymentId: deployment.deployment_id,
@@ -346,6 +432,26 @@ async function rememberSentMessages(
     });
 }
 
+function resolveDeploymentLocation(
+  deployment: DiscordDeployment,
+  location: ReturnType<typeof channelLocation>
+): DiscordDeployment {
+  if (deployment.channel_scope_mode !== "all_except") {
+    return { ...deployment, category_id: location.categoryId };
+  }
+  return {
+    ...deployment,
+    channel_id: location.channelId,
+    channel_name: location.channelName,
+    category_id: location.categoryId,
+    thread_id: location.threadId,
+    thread_name: location.threadName,
+    webhook_id: null,
+    webhook_token: null,
+    webhook_status: deployment.identity_mode === "webhook" ? "pending" : "not_required"
+  };
+}
+
 async function processMessage(message: Message): Promise<void> {
   const botUser = client.user;
   if (!message.inGuild() || message.author.bot || !botUser) return;
@@ -358,7 +464,9 @@ async function processMessage(message: Message): Promise<void> {
   const candidates = deploymentsFor(
     deployments,
     location.channelId,
-    location.threadId
+    location.threadId,
+    guildMessage.guildId,
+    location.categoryId
   );
   if (!candidates.length) return;
 
@@ -386,7 +494,9 @@ async function processMessage(message: Message): Promise<void> {
     const replyTarget = await resolveReplyTarget(
       guildMessage,
       candidates,
-      botUser.id
+      botUser.id,
+      location.channelId,
+      location.threadId
     );
     const audience = resolveAudience(
       candidates,
@@ -419,7 +529,8 @@ async function processMessage(message: Message): Promise<void> {
     if (!eligibleDeployments.length) return;
 
     const addressedToMultiple = audience.deployments.length > 1;
-    for (const [responseIndex, deployment] of eligibleDeployments.entries()) {
+    for (const [responseIndex, baseDeployment] of eligibleDeployments.entries()) {
+      const deployment = resolveDeploymentLocation(baseDeployment, location);
       await guildMessage.channel.sendTyping();
       const reply = await relay.processMessage({
         deployment_id: deployment.deployment_id,
@@ -428,6 +539,7 @@ async function processMessage(message: Message): Promise<void> {
         guild_name: guildMessage.guild.name,
         channel_id: location.channelId,
         channel_name: location.channelName,
+        category_id: location.categoryId,
         thread_id: location.threadId,
         thread_name: location.threadName,
         author_id: guildMessage.author.id,
@@ -473,8 +585,10 @@ async function processMessage(message: Message): Promise<void> {
         responseCount: eligibleDeployments.length,
         identityMode: deployment.identity_mode,
         webhookStatus: deployment.webhook_status,
+        serverProfileId: deployment.server_profile_id || null,
         guildId: guildMessage.guildId,
         channelId: location.channelId,
+        categoryId: location.categoryId || null,
         threadId: location.threadId || null,
         sourceMessageId: guildMessage.id,
         sentMessageIds,
@@ -502,11 +616,15 @@ const healthServer = createServer((request, response) => {
       discord_user: client.user?.tag ?? null,
       connection_id: config.relayConnectionId,
       active_deployments: activeDeployments.length,
+      server_wide_deployments: activeDeployments.filter(
+        (item) => item.channel_scope_mode === "all_except"
+      ).length,
       active_destinations: deployments.size,
       multi_character_destinations: [...deployments.values()].filter(
         (items) => items.length > 1
       ).length,
       cached_message_routes: sentCharacterRoutes.size,
+      observed_webhooks: observedWebhookIds.size,
       webhook_deployments: webhookDeployments.length,
       webhook_ready: webhookDeployments.filter(
         (item) => item.webhook_status === "active"
@@ -517,6 +635,7 @@ const healthServer = createServer((request, response) => {
       message_content_intent: config.messageContentIntent,
       smart_participation_enabled: config.smartParticipationEnabled,
       custom_group_address_aliases: config.groupAddressAliases.length,
+      last_catalog_sync_at: lastCatalogSyncAt,
       last_deployment_sync_at: lastDeploymentSyncAt,
       last_error: lastError
     })
@@ -525,7 +644,7 @@ const healthServer = createServer((request, response) => {
 
 client.once(Events.ClientReady, async (readyClient) => {
   try {
-    await refreshDeployments();
+    await refreshConnectorState();
     await sendHeartbeat("connected");
     ready = true;
     lastError = null;
@@ -536,9 +655,9 @@ client.once(Events.ClientReady, async (readyClient) => {
       activeDestinations: deployments.size
     });
     refreshTimer = setInterval(() => {
-      void refreshDeployments().catch((error: unknown) => {
+      void refreshConnectorState().catch((error: unknown) => {
         lastError = error instanceof Error ? error.message : String(error);
-        log("Deployment refresh failed.", { error: lastError });
+        log("Connector state refresh failed.", { error: lastError });
       });
     }, config.deploymentRefreshSeconds * 1000);
     heartbeatTimer = setInterval(() => {
@@ -561,6 +680,20 @@ client.on(Events.MessageCreate, (message) => {
       messageId: message.id,
       error: lastError
     });
+  });
+});
+
+client.on(Events.GuildCreate, () => {
+  void syncServerCatalog().catch((error: unknown) => {
+    lastError = error instanceof Error ? error.message : String(error);
+    log("Server catalog refresh failed after guild create.", { error: lastError });
+  });
+});
+
+client.on(Events.GuildDelete, () => {
+  void syncServerCatalog().catch((error: unknown) => {
+    lastError = error instanceof Error ? error.message : String(error);
+    log("Server catalog refresh failed after guild delete.", { error: lastError });
   });
 });
 

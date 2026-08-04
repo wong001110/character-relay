@@ -14,7 +14,8 @@ import type { DiscordDeployment } from "./types.js";
 function deployment(
   participationMode: DiscordDeployment["participation_mode"],
   threadId = "",
-  name = "Ann"
+  name = "Ann",
+  overrides: Partial<DiscordDeployment> = {}
 ): DiscordDeployment {
   return {
     deployment_id: `deployment-${name}-${participationMode}-${threadId || "channel"}`,
@@ -27,6 +28,11 @@ function deployment(
     channel_name: "companions",
     thread_id: threadId,
     thread_name: threadId ? "Thread" : "",
+    category_id: "category-1",
+    server_profile_id: "",
+    channel_scope_mode: "exact",
+    excluded_channel_ids: [],
+    excluded_category_ids: [],
     participation_mode: participationMode,
     version_label: "Current",
     status: "active",
@@ -35,7 +41,8 @@ function deployment(
     identity_avatar_url: `https://example.com/${name}.png`,
     webhook_status: "pending",
     webhook_id: null,
-    webhook_token: null
+    webhook_token: null,
+    ...overrides
   };
 }
 
@@ -51,6 +58,45 @@ describe("Discord deployment routing", () => {
     expect(findDeployment(index, "channel-1", "thread-1")?.deployment_id).toBe(
       thread.deployment_id
     );
+  });
+
+  it("routes server-wide deployments to new channels by default", () => {
+    const ann = deployment("mention_and_reply", "", "Ann", {
+      deployment_id: "ann-server-wide",
+      channel_id: "@server:profile-1",
+      channel_name: "All available channels",
+      server_profile_id: "profile-1",
+      channel_scope_mode: "all_except"
+    });
+    const index = buildDeploymentIndex([ann]);
+
+    expect(
+      deploymentsFor(index, "new-channel", "", "guild-1", "new-category").map(
+        (item) => item.deployment_id
+      )
+    ).toEqual([ann.deployment_id]);
+  });
+
+  it("applies profile and character channel exclusions", () => {
+    const ann = deployment("mention_and_reply", "", "Ann", {
+      deployment_id: "ann-server-wide",
+      channel_id: "@server:profile-1",
+      server_profile_id: "profile-1",
+      channel_scope_mode: "all_except",
+      excluded_channel_ids: ["private-channel"],
+      excluded_category_ids: ["staff-category"]
+    });
+    const index = buildDeploymentIndex([ann]);
+
+    expect(deploymentsFor(index, "general", "", "guild-1", "public-category")).toEqual([
+      ann
+    ]);
+    expect(deploymentsFor(index, "private-channel", "", "guild-1", "public-category"))
+      .toEqual([]);
+    expect(deploymentsFor(index, "general", "", "guild-1", "staff-category"))
+      .toEqual([]);
+    expect(deploymentsFor(index, "general", "", "another-guild", "public-category"))
+      .toEqual([]);
   });
 
   it("keeps multiple characters in one destination without overwriting", () => {
