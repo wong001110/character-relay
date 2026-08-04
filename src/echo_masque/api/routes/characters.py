@@ -19,12 +19,14 @@ from echo_masque.api.schemas import (
     CredentialStatus,
     PromptCharacterCreate,
 )
+from echo_masque.character_prompts import CharacterPromptProfile
 from echo_masque.credentials import (
     CredentialStore,
     CredentialVault,
     CredentialVaultUnavailable,
 )
 from echo_masque.persistence import MatrixRepository, Repository, TargetAccessRepository
+from echo_masque.persistence.models import CharacterCardRecord
 from echo_masque.security_controls import QuotaExceeded
 from echo_masque.targets import PromptModelConfig
 
@@ -61,6 +63,24 @@ def _enforce_create_quota(request: Request, owner_id: str) -> None:
         raise quota_http_exception(exc) from exc
 
 
+def _sync_prompt_profile(repo: Repository, card: CharacterCardRecord) -> None:
+    """Keep persisted prompt targets compatible with the runtime compiler."""
+
+    target = repo.get_target(card.target_id)
+    if target is None or target.target_kind != "prompt_model":
+        return
+    current = PromptModelConfig.model_validate_json(target.config_json)
+    profile = CharacterPromptProfile.from_record(card)
+    if current.character_profile == profile:
+        return
+    updated = current.model_copy(update={"character_profile": profile})
+    repo.update_target(
+        target.id,
+        name=target.name,
+        config=updated.model_dump(mode="json"),
+    )
+
+
 def _create_card(
     repo: Repository,
     *,
@@ -83,6 +103,7 @@ def _create_card(
         preferred_suites=[item.value for item in payload.preferred_suites],
         portrait_variant=payload.portrait_variant,
     )
+    _sync_prompt_profile(repo, record)
     return CharacterCardView.from_record(record)
 
 
@@ -110,6 +131,7 @@ def _update_card(
     )
     if record is None:
         raise HTTPException(status_code=404, detail="Character Card not found.")
+    _sync_prompt_profile(repo, record)
     return CharacterCardView.from_record(record)
 
 
@@ -123,6 +145,7 @@ def _status_for(
     card = repo.get_character_card(card_id, owner_id)
     if card is None:
         raise HTTPException(status_code=404, detail="Character Card not found.")
+    _sync_prompt_profile(repo, card)
     target = repo.get_target(card.target_id)
     if target is None:
         raise HTTPException(status_code=404, detail="Target binding not found.")
@@ -145,10 +168,11 @@ def list_characters(
     request: Request,
     user: CurrentUserDependency,
 ) -> list[CharacterCardView]:
-    return [
-        CharacterCardView.from_record(item)
-        for item in repository(request).list_character_cards(user.id)
-    ]
+    repo = repository(request)
+    records = repo.list_character_cards(user.id)
+    for item in records:
+        _sync_prompt_profile(repo, item)
+    return [CharacterCardView.from_record(item) for item in records]
 
 
 @router.post("", response_model=CharacterCardView, status_code=status.HTTP_201_CREATED)
@@ -245,6 +269,7 @@ def update_character(
             temperature=(
                 payload.temperature if payload.temperature is not None else current.temperature
             ),
+            character_profile=current.character_profile,
         )
         prompt_changed = config.model_dump(mode="json") != current.model_dump(mode="json")
         if repo.update_target(
@@ -313,18 +338,9 @@ def get_character(
     request: Request,
     user: CurrentUserDependency,
 ) -> CharacterCardView:
-    record = repository(request).get_character_card(card_id, user.id)
+    repo = repository(request)
+    record = repo.get_character_card(card_id, user.id)
     if record is None:
         raise HTTPException(status_code=404, detail="Character Card not found.")
+    _sync_prompt_profile(repo, record)
     return CharacterCardView.from_record(record)
-
-
-@router.delete("/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_character(
-    card_id: str,
-    request: Request,
-    user: CurrentUserDependency,
-) -> None:
-    if not repository(request).delete_character_card(card_id, user.id):
-        raise HTTPException(status_code=409, detail="Character Card cannot be deleted.")
-    credential_store(request).delete(user.id, card_id)
