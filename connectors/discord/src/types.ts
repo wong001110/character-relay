@@ -116,3 +116,7 @@ export interface DiscordMessageRouteView {
   channel_id: string;
   thread_id: string;
 }
+
+export interface DiscordMessageRouteLookup {
+  route: DiscordMessageRouteView | null;
+}
