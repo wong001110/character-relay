@@ -14,6 +14,7 @@ DiscordParticipationMode = Literal[
 DiscordConnectionStatus = Literal["connected", "offline", "error"]
 DiscordIdentityMode = Literal["bot", "webhook"]
 DiscordWebhookStatus = Literal["pending", "active", "error", "not_required"]
+DiscordChannelScopeMode = Literal["exact", "all_except"]
 
 
 class DiscordConnectorDeploymentView(BaseModel):
@@ -27,6 +28,11 @@ class DiscordConnectorDeploymentView(BaseModel):
     channel_name: str
     thread_id: str
     thread_name: str
+    category_id: str = ""
+    server_profile_id: str = ""
+    channel_scope_mode: DiscordChannelScopeMode = "exact"
+    excluded_channel_ids: list[str] = Field(default_factory=list)
+    excluded_category_ids: list[str] = Field(default_factory=list)
     participation_mode: DiscordParticipationMode
     version_label: str
     status: Literal["active"]
@@ -38,11 +44,31 @@ class DiscordConnectorDeploymentView(BaseModel):
     webhook_token: str | None = None
 
 
+class DiscordCatalogChannel(BaseModel):
+    id: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=160)
+    category_id: str = Field(default="", max_length=200)
+    category_name: str = Field(default="", max_length=160)
+    type: str = Field(default="text", max_length=40)
+
+
+class DiscordCatalogServer(BaseModel):
+    guild_id: str = Field(min_length=1, max_length=200)
+    guild_name: str = Field(min_length=1, max_length=160)
+    channels: list[DiscordCatalogChannel] = Field(default_factory=list, max_length=1000)
+
+
+class DiscordServerCatalogSync(BaseModel):
+    connection_id: str = Field(min_length=1, max_length=64)
+    servers: list[DiscordCatalogServer] = Field(default_factory=list, max_length=200)
+
+
 class DiscordWebhookRegistration(BaseModel):
     connection_id: str = Field(min_length=1, max_length=64)
     deployment_id: str = Field(min_length=1, max_length=64)
     workspace_id: str = Field(default="", max_length=200)
     channel_id: str = Field(min_length=1, max_length=200)
+    category_id: str = Field(default="", max_length=200)
     webhook_id: str = Field(min_length=1, max_length=200)
     webhook_token: str = Field(min_length=1, max_length=500)
 
@@ -107,6 +133,7 @@ class DiscordInboundMessage(BaseModel):
     guild_name: str = Field(default="", max_length=160)
     channel_id: str = Field(min_length=1, max_length=200)
     channel_name: str = Field(default="", max_length=160)
+    category_id: str = Field(default="", max_length=200)
     thread_id: str = Field(default="", max_length=200)
     thread_name: str = Field(default="", max_length=160)
     author_id: str = Field(min_length=1, max_length=200)
