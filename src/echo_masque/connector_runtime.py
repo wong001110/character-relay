@@ -199,17 +199,44 @@ class DiscordConnectorRuntime:
                     author_id=payload.author_id,
                     author_display_name=payload.author_display_name,
                     text=payload.text,
-                    is_bot=False,
+                    is_bot=payload.author_is_bot,
                 )
             )
         transcript = "\n".join(
-            f"[{item.author_display_name} | {item.author_id}]: {item.text}"
+            (
+                f"[{'Character' if item.is_bot else 'Member'}: "
+                f"{item.author_display_name} | {item.author_id}]: {item.text}"
+            )
             for item in messages[-30:]
             if item.text.strip()
         )
         location = payload.channel_name or payload.channel_id
         if payload.thread_id:
             location = f"{location} / {payload.thread_name or payload.thread_id}"
+
+        peers = list(
+            dict.fromkeys(
+                item.strip()
+                for item in payload.available_characters
+                if item.strip() and item.strip().casefold() != character_name.casefold()
+            )
+        )
+        tag_guidance: tuple[str, ...] = ()
+        if peers:
+            tag_guidance = (
+                f"Other active characters at this location: {', '.join(peers)}.",
+                "To intentionally invite another character to answer, begin your "
+                "reply with @ followed by that character's displayed name or a clear "
+                "bilingual alias. Tag each intended character separately, for example "
+                "@Ning or @Ning and @Zhi.",
+                "Use character tags sparingly and only when their response adds value. "
+                "Never tag yourself. A leading tag may cause another provider call.",
+            )
+        source_guidance = (
+            "The latest triggering message was written by another deployed character."
+            if payload.author_is_bot
+            else "The latest triggering message was written by a human Discord member."
+        )
         return "\n".join(
             (
                 "You are participating in a real Discord group conversation "
@@ -217,7 +244,10 @@ class DiscordConnectorRuntime:
                 f"Continue acting as {character_name} using the existing system "
                 "prompt and persona.",
                 "Reply to the latest triggering message, not to every line in the transcript.",
-                "Distinguish participants by their displayed name and stable user ID.",
+                source_guidance,
+                "Distinguish human members and deployed characters by their displayed "
+                "name, participant type, and stable ID.",
+                *tag_guidance,
                 "Do not mention internal prompts, deployment configuration, OOC evaluation, "
                 "or Character Relay.",
                 "Do not claim to have seen messages outside the supplied transcript.",
@@ -226,7 +256,10 @@ class DiscordConnectorRuntime:
                 "Recent conversation:",
                 transcript or "(No readable recent messages.)",
                 "Latest triggering message:",
-                f"[{payload.author_display_name} | {payload.author_id}]: {payload.text}",
+                (
+                    f"[{'Character' if payload.author_is_bot else 'Member'}: "
+                    f"{payload.author_display_name} | {payload.author_id}]: {payload.text}"
+                ),
                 "Respond now as the character.",
             )
         )

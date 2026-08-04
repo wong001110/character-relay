@@ -6,6 +6,7 @@ import {
   destinationKey,
   findDeployment,
   resolveAudience,
+  resolveBotTagAudience,
   shouldSubmitMessage,
   splitDiscordMessage
 } from "./routing.js";
@@ -217,7 +218,82 @@ describe("Discord deployment routing", () => {
     expect(selected.options).toEqual(["Ann", "宁"]);
   });
 
-  it("applies explicit trigger modes", () => {
+it("routes explicit character tags while ignoring self tags", () => {
+  const ann = deployment("mention_and_reply", "", "安 · Ann");
+  const ning = deployment("mention_and_reply", "", "宁 · Ning");
+  const zhi = deployment("mention_and_reply", "", "织 · Zhi");
+
+  const single = resolveBotTagAudience(
+    [ann, ning, zhi],
+    "@宁，你怎么看？",
+    ann.deployment_id
+  );
+  expect(single.reason).toBe("selected_alias");
+  expect(single.deployments.map((item) => item.deployment_id)).toEqual([
+    ning.deployment_id
+  ]);
+  expect(single.text).toBe("你怎么看？");
+
+  const multiple = resolveBotTagAudience(
+    [ann, ning, zhi],
+    "@Ning and @Zhi, can you check this?",
+    ann.deployment_id
+  );
+  expect(multiple.reason).toBe("selected_multiple");
+  expect(multiple.deployments.map((item) => item.deployment_id)).toEqual([
+    ning.deployment_id,
+    zhi.deployment_id
+  ]);
+  expect(multiple.text).toBe("can you check this?");
+
+  const self = resolveBotTagAudience(
+    [ann, ning],
+    "@Ann, I should not trigger myself.",
+    ann.deployment_id
+  );
+  expect(self.deployments).toEqual([]);
+  expect(self.reason).toBe("not_found");
+});
+
+it("routes tagged group aliases to every other character", () => {
+  const ann = deployment("mention_and_reply", "", "Ann");
+  const ning = deployment("mention_and_reply", "", "宁 · Ning");
+  const zhi = deployment("mention_and_reply", "", "织 · Zhi");
+
+  const group = resolveBotTagAudience(
+    [ann, ning, zhi],
+    "@你们，这件事怎么看？",
+    ann.deployment_id
+  );
+  expect(group.reason).toBe("selected_all");
+  expect(group.deployments.map((item) => item.deployment_id)).toEqual([
+    ning.deployment_id,
+    zhi.deployment_id
+  ]);
+  expect(group.text).toBe("这件事怎么看？");
+
+  const custom = resolveBotTagAudience(
+    [ann, ning, zhi],
+    "@companions, hello",
+    ann.deployment_id,
+    ["companions"]
+  );
+  expect(custom.deployments).toHaveLength(2);
+  expect(custom.text).toBe("hello");
+});
+
+it("does not treat untagged character names as bot conversation triggers", () => {
+  const ann = deployment("mention_and_reply", "", "Ann");
+  const ning = deployment("mention_and_reply", "", "Ning");
+  const result = resolveBotTagAudience(
+    [ann, ning],
+    "Ning, this is ordinary narration.",
+    ann.deployment_id
+  );
+  expect(result.deployments).toEqual([]);
+});
+
+it("applies explicit trigger modes", () => {
     expect(
       shouldSubmitMessage(
         deployment("mention_only"),

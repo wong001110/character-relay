@@ -80,6 +80,8 @@ export interface DiscordInboundMessage {
   mentioned_bot: boolean;
   replied_to_bot: boolean;
   smart_candidate: boolean;
+  author_is_bot: boolean;
+  available_characters: string[];
   recent_messages: DiscordContextMessage[];
 }
 

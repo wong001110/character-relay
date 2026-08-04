@@ -18,6 +18,7 @@ import {
   destinationKey,
   flattenDeployments,
   resolveAudience,
+  resolveBotTagAudience,
   shouldSubmitMessage,
   splitDiscordMessage,
   type DeploymentIndex
@@ -238,6 +239,10 @@ function normalizedText(message: Message<true>, botUserId: string): string {
     .trim();
 }
 
+function deploymentDisplayName(deployment: DiscordDeployment): string {
+  return deployment.identity_display_name || deployment.character_display_name;
+}
+
 function knownWebhookIds(): Set<string> {
   return new Set([
     ...observedWebhookIds,
@@ -452,6 +457,141 @@ function resolveDeploymentLocation(
   };
 }
 
+interface BotConversationBudget {
+  remainingResponses: number;
+}
+
+interface BotConversationTurn {
+  deployment: DiscordDeployment;
+  text: string;
+  sentMessageIds: string[];
+}
+
+async function continueBotTagConversation(
+  sourceMessage: Message<true>,
+  sourceDeployment: DiscordDeployment,
+  sourceText: string,
+  sourceMessageIds: string[],
+  candidates: DiscordDeployment[],
+  location: ReturnType<typeof channelLocation>,
+  key: string,
+  botUserId: string,
+  depth: number,
+  budget: BotConversationBudget
+): Promise<void> {
+  if (
+    !config.botTagConversationsEnabled ||
+    depth >= config.botTagMaxDepth ||
+    budget.remainingResponses <= 0
+  ) {
+    return;
+  }
+
+  const audience = resolveBotTagAudience(
+    candidates,
+    sourceText,
+    sourceDeployment.deployment_id,
+    config.groupAddressAliases
+  );
+  if (!audience.deployments.length) return;
+
+  const eligible = audience.deployments.filter((deployment) =>
+    shouldSubmitMessage(
+      deployment,
+      {
+        mentionedBot: true,
+        repliedToBot: false,
+        hasReadableText: Boolean(audience.text || sourceText)
+      },
+      config.smartParticipationEnabled
+    )
+  );
+  if (!eligible.length) return;
+
+  const sourceDisplayName = deploymentDisplayName(sourceDeployment);
+  const sourceDiscordMessageId = sourceMessageIds[0] ?? sourceMessage.id;
+  const nextTurns: BotConversationTurn[] = [];
+
+  for (const [responseIndex, baseDeployment] of eligible.entries()) {
+    if (budget.remainingResponses <= 0) break;
+    budget.remainingResponses -= 1;
+    const deployment = resolveDeploymentLocation(baseDeployment, location);
+    await sourceMessage.channel.sendTyping();
+    const reply = await relay.processMessage({
+      deployment_id: deployment.deployment_id,
+      message_id: sourceDiscordMessageId,
+      guild_id: sourceMessage.guildId,
+      guild_name: sourceMessage.guild.name,
+      channel_id: location.channelId,
+      channel_name: location.channelName,
+      category_id: location.categoryId,
+      thread_id: location.threadId,
+      thread_name: location.threadName,
+      author_id: `character:${sourceDeployment.character_card_id}`,
+      author_display_name: sourceDisplayName,
+      text:
+        audience.text ||
+        `${sourceDisplayName} tagged this character without additional readable text.`,
+      mentioned_bot: true,
+      replied_to_bot: false,
+      smart_candidate: false,
+      author_is_bot: true,
+      available_characters: candidates
+        .filter((item) => item.deployment_id !== deployment.deployment_id)
+        .map(deploymentDisplayName),
+      recent_messages: context.get(key)
+    });
+    if (reply.action !== "reply" || !reply.text) continue;
+
+    const sentMessageIds = await sendCharacterReply(
+      sourceMessage,
+      deployment,
+      reply.text,
+      botUserId
+    );
+    await rememberSentMessages(deployment, sentMessageIds, sourceMessage.guildId);
+    context.push(key, {
+      message_id: sentMessageIds[0] ?? `relay-bot-tag-${Date.now()}`,
+      author_id: `character:${deployment.character_card_id}`,
+      author_display_name: deploymentDisplayName(deployment),
+      text: reply.text,
+      created_at: new Date().toISOString(),
+      is_bot: true
+    });
+    nextTurns.push({ deployment, text: reply.text, sentMessageIds });
+    log("Character tag reply sent to Discord.", {
+      deploymentId: deployment.deployment_id,
+      characterId: deployment.character_card_id,
+      sourceDeploymentId: sourceDeployment.deployment_id,
+      tagDepth: depth + 1,
+      responseIndex: responseIndex + 1,
+      responseCount: eligible.length,
+      remainingResponseBudget: budget.remainingResponses,
+      guildId: sourceMessage.guildId,
+      channelId: location.channelId,
+      threadId: location.threadId || null,
+      sourceMessageId: sourceDiscordMessageId,
+      sentMessageIds,
+      latencyMs: reply.latency_ms ?? null
+    });
+  }
+
+  for (const turn of nextTurns) {
+    await continueBotTagConversation(
+      sourceMessage,
+      turn.deployment,
+      turn.text,
+      turn.sentMessageIds,
+      candidates,
+      location,
+      key,
+      botUserId,
+      depth + 1,
+      budget
+    );
+  }
+}
+
 async function processMessage(message: Message): Promise<void> {
   const botUser = client.user;
   if (!message.inGuild() || message.author.bot || !botUser) return;
@@ -487,8 +627,6 @@ async function processMessage(message: Message): Promise<void> {
   };
 
   enqueue(key, async () => {
-    // Observe every readable human message before routing. Mention and Reply remain
-    // the only response triggers while Smart Participation is disabled.
     context.push(key, contextMessage);
 
     const replyTarget = await resolveReplyTarget(
@@ -529,6 +667,9 @@ async function processMessage(message: Message): Promise<void> {
     if (!eligibleDeployments.length) return;
 
     const addressedToMultiple = audience.deployments.length > 1;
+    const botConversationBudget: BotConversationBudget = {
+      remainingResponses: config.botTagMaxResponses
+    };
     for (const [responseIndex, baseDeployment] of eligibleDeployments.entries()) {
       const deployment = resolveDeploymentLocation(baseDeployment, location);
       await guildMessage.channel.sendTyping();
@@ -552,6 +693,10 @@ async function processMessage(message: Message): Promise<void> {
         smart_candidate:
           deployment.participation_mode === "smart" &&
           config.smartParticipationEnabled,
+        author_is_bot: false,
+        available_characters: candidates
+          .filter((item) => item.deployment_id !== deployment.deployment_id)
+          .map(deploymentDisplayName),
         recent_messages: context.get(key)
       });
       if (reply.action !== "reply" || !reply.text) continue;
@@ -569,9 +714,8 @@ async function processMessage(message: Message): Promise<void> {
       );
       context.push(key, {
         message_id: sentMessageIds[0] ?? `relay-${Date.now()}`,
-        author_id: botUser.id,
-        author_display_name:
-          deployment.identity_display_name || deployment.character_display_name,
+        author_id: `character:${deployment.character_card_id}`,
+        author_display_name: deploymentDisplayName(deployment),
         text: reply.text,
         created_at: new Date().toISOString(),
         is_bot: true
@@ -594,6 +738,18 @@ async function processMessage(message: Message): Promise<void> {
         sentMessageIds,
         latencyMs: reply.latency_ms ?? null
       });
+      await continueBotTagConversation(
+        guildMessage,
+        deployment,
+        reply.text,
+        sentMessageIds,
+        candidates,
+        location,
+        key,
+        botUser.id,
+        0,
+        botConversationBudget
+      );
     }
   });
 }
@@ -634,6 +790,9 @@ const healthServer = createServer((request, response) => {
       ).length,
       message_content_intent: config.messageContentIntent,
       smart_participation_enabled: config.smartParticipationEnabled,
+      bot_tag_conversations_enabled: config.botTagConversationsEnabled,
+      bot_tag_max_depth: config.botTagMaxDepth,
+      bot_tag_max_responses: config.botTagMaxResponses,
       custom_group_address_aliases: config.groupAddressAliases.length,
       last_catalog_sync_at: lastCatalogSyncAt,
       last_deployment_sync_at: lastDeploymentSyncAt,

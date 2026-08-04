@@ -137,12 +137,21 @@ function stripLeadingNameConnector(value: string): string {
     .trimStart();
 }
 
-function withoutNameAlias(value: string, alias: string): string | null {
+function withoutNameAlias(
+  value: string,
+  alias: string,
+  requireTag = false
+): string | null {
   const pattern = new RegExp(
     `^${escapeRegex(alias)}(?=$|[\\s:：,，、.。?？!！\\-—–&＆/／+和与與跟及])`,
     "iu"
   );
-  const trimmed = value.trimStart();
+  let trimmed = value.trimStart();
+  if (requireTag) {
+    const tag = trimmed.match(/^[@＠]\s*/u);
+    if (!tag) return null;
+    trimmed = trimmed.slice(tag[0].length);
+  }
   const match = trimmed.match(pattern);
   if (!match) return null;
   return trimmed.slice(match[0].length);
@@ -155,11 +164,12 @@ interface NameMatch {
 
 function matchNamePrefix(
   candidates: DiscordDeployment[],
-  value: string
+  value: string,
+  requireTag = false
 ): NameMatch | null {
   const matches = candidates.flatMap((deployment) =>
     aliases(deployment).flatMap((alias) => {
-      const remainder = withoutNameAlias(value, alias);
+      const remainder = withoutNameAlias(value, alias, requireTag);
       return remainder === null ? [] : [{ deployment, alias, remainder }];
     })
   );
@@ -206,16 +216,27 @@ function stripGroupAddress(
   return null;
 }
 
+function stripTaggedGroupAddress(
+  value: string,
+  additionalAliases: string[]
+): string | null {
+  const trimmed = value.trimStart();
+  const tag = trimmed.match(/^[@＠]\s*/u);
+  if (!tag) return null;
+  return stripGroupAddress(trimmed.slice(tag[0].length), additionalAliases);
+}
+
 function namedAudience(
   candidates: DiscordDeployment[],
   text: string,
-  options: string[]
+  options: string[],
+  requireTag = false
 ): AudienceResolution | null {
   const selected = new Map<string, DiscordDeployment>();
   let remaining = text.trim();
 
   while (remaining) {
-    const match = matchNamePrefix(candidates, remaining);
+    const match = matchNamePrefix(candidates, remaining, requireTag);
     if (!match) break;
     if (match.deployments.length !== 1) {
       return {
@@ -231,7 +252,7 @@ function namedAudience(
     selected.set(deployment.deployment_id, deployment);
 
     const afterPunctuation = stripLeadingPunctuation(match.remainder);
-    const directNext = matchNamePrefix(candidates, afterPunctuation);
+    const directNext = matchNamePrefix(candidates, afterPunctuation, requireTag);
     if (directNext) {
       remaining = afterPunctuation;
       continue;
@@ -240,7 +261,7 @@ function namedAudience(
     const afterConnector = stripLeadingNameConnector(afterPunctuation);
     if (
       afterConnector !== afterPunctuation &&
-      matchNamePrefix(candidates, afterConnector)
+      matchNamePrefix(candidates, afterConnector, requireTag)
     ) {
       remaining = afterConnector;
       continue;
@@ -316,6 +337,40 @@ export function resolveAudience(
     deployments: [],
     text: text.trim(),
     reason: "ambiguous",
+    options
+  };
+}
+
+export function resolveBotTagAudience(
+  candidates: DiscordDeployment[],
+  text: string,
+  sourceDeploymentId: string,
+  additionalGroupAliases: string[] = []
+): AudienceResolution {
+  const available = candidates.filter(
+    (item) => item.deployment_id !== sourceDeploymentId
+  );
+  const options = [...new Set(available.map(displayName))];
+  if (!available.length) {
+    return { deployments: [], text: text.trim(), reason: "not_found", options };
+  }
+
+  const groupText = stripTaggedGroupAddress(text, additionalGroupAliases);
+  if (groupText !== null) {
+    return {
+      deployments: available,
+      text: groupText,
+      reason: "selected_all",
+      options
+    };
+  }
+
+  const named = namedAudience(available, text, options, true);
+  if (named) return named;
+  return {
+    deployments: [],
+    text: text.trim(),
+    reason: "not_found",
     options
   };
 }
