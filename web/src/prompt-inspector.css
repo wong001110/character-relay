@@ -22,7 +22,7 @@
 }
 
 .prompt-inspector {
-  width: min(920px, 100%);
+  width: min(980px, 100%);
   max-height: calc(100vh - 48px);
   overflow: auto;
   padding: clamp(22px, 4vw, 38px);
@@ -88,12 +88,85 @@
   font-weight: 650;
 }
 
+.prompt-compiled-meta {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(0, 1.3fr);
+  gap: 16px;
+  border-color: rgba(104, 126, 179, 0.28) !important;
+  background: rgba(232, 238, 250, 0.72) !important;
+}
+
+.prompt-compiled-meta > span {
+  min-width: 0;
+}
+
+.prompt-layer-tabs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+  margin: 0 0 24px;
+}
+
+.prompt-layer-tabs button {
+  display: grid;
+  gap: 7px;
+  min-height: 108px;
+  padding: 16px 18px;
+  text-align: left;
+  border: 1px solid rgba(130, 103, 151, 0.2);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.5);
+  color: #493c50;
+  cursor: pointer;
+}
+
+.prompt-layer-tabs button:hover {
+  border-color: rgba(103, 78, 132, 0.42);
+}
+
+.prompt-layer-tabs button.is-active {
+  border-color: rgba(87, 91, 159, 0.58);
+  background: rgba(230, 233, 249, 0.88);
+  box-shadow: 0 8px 24px rgba(78, 66, 111, 0.12);
+}
+
+.prompt-layer-tabs button strong {
+  font-size: 1rem;
+}
+
+.prompt-layer-tabs button span {
+  color: #716479;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.prompt-pipeline-arrow {
+  align-self: center;
+  color: #887594;
+  font-size: 1.45rem;
+  font-weight: 800;
+}
+
 .prompt-source-heading {
   margin-bottom: 10px;
 }
 
+.prompt-source-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.prompt-layer-kicker {
+  margin: 0;
+  color: #7a6684;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
 .prompt-source {
-  max-height: 44vh;
+  max-height: 46vh;
   margin: 0;
   padding: 20px;
   overflow: auto;
@@ -161,5 +234,15 @@
 
   .prompt-meta-wide {
     grid-column: 1 / -1;
+  }
+
+  .prompt-compiled-meta,
+  .prompt-layer-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .prompt-pipeline-arrow {
+    transform: rotate(90deg);
+    justify-self: center;
   }
 }
