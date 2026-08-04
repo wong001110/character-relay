@@ -1,0 +1,172 @@
+.connection-card-actions {
+  grid-column: 2 / -1;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.server-profile-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.server-profile-form {
+  margin: 0;
+}
+
+.server-profile-list {
+  display: grid;
+  gap: 10px;
+}
+
+.server-profile-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(41, 35, 48, 0.13);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.server-profile-card > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.server-profile-card span,
+.server-profile-card small {
+  color: rgba(41, 35, 48, 0.65);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.server-profile-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+}
+
+.server-channel-picker,
+.deployment-channel-picker {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px dashed rgba(41, 35, 48, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.server-channel-picker > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.server-channel-picker > div:first-child small,
+.deployment-channel-picker .deployment-form-divider span {
+  color: rgba(41, 35, 48, 0.64);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.server-channel-picker fieldset,
+.deployment-channel-picker fieldset {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid rgba(41, 35, 48, 0.13);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.server-channel-picker legend,
+.deployment-channel-picker legend {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 5px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.server-channel-picker legend small,
+.deployment-channel-picker legend small {
+  color: rgba(41, 35, 48, 0.58);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.server-channel-option {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px !important;
+  min-height: 30px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  font-size: 0.78rem !important;
+  font-weight: 600 !important;
+}
+
+.server-channel-option:hover {
+  background: rgba(112, 86, 158, 0.07);
+}
+
+.server-channel-option input,
+.server-channel-picker legend input,
+.deployment-channel-picker legend input {
+  width: 16px !important;
+  min-height: 16px !important;
+  margin: 0;
+  padding: 0 !important;
+}
+
+.server-channel-option small {
+  color: rgba(41, 35, 48, 0.55);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.deployment-form-wide {
+  grid-column: 1 / -1;
+}
+
+.deployment-form-divider {
+  display: grid;
+  gap: 4px;
+  padding: 12px 0 4px;
+  border-top: 1px dashed rgba(41, 35, 48, 0.2);
+}
+
+.deployment-channel-picker .deployment-form-divider {
+  padding-top: 0;
+  border-top: 0;
+}
+
+@media (max-width: 720px) {
+  .server-profile-card {
+    display: grid;
+  }
+
+  .server-profile-actions {
+    justify-content: flex-start;
+  }
+
+  .deployment-form-wide {
+    grid-column: auto;
+  }
+
+  .server-channel-option {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .server-channel-option small {
+    grid-column: 2;
+  }
+}
