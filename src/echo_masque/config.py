@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     database_url: str = "sqlite:///./echo_masque.db"
+    provider_trace_retention_days: int = 7
+    provider_trace_max_records: int = 2000
 
     # Legacy environment credentials remain read-only migration fallbacks. Admin API access
     # is role-based and never trusts the legacy token after Phase 15C.
