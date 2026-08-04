@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDeploymentIndex,
+  deploymentsFor,
   destinationKey,
   findDeployment,
+  selectDeployment,
   shouldSubmitMessage,
   splitDiscordMessage
 } from "./routing.js";
@@ -11,25 +13,26 @@ import type { DiscordDeployment } from "./types.js";
 
 function deployment(
   participationMode: DiscordDeployment["participation_mode"],
-  threadId = ""
+  threadId = "",
+  name = "Ann"
 ): DiscordDeployment {
   return {
-    deployment_id: `deployment-${participationMode}-${threadId || "channel"}`,
+    deployment_id: `deployment-${name}-${participationMode}-${threadId || "channel"}`,
     connection_id: "connection-1",
-    character_card_id: "character-1",
-    character_display_name: "Ann",
+    character_card_id: `character-${name}`,
+    character_display_name: name,
     workspace_id: "guild-1",
     workspace_name: "Guild",
     channel_id: "channel-1",
-    channel_name: "ann-room",
+    channel_name: "companions",
     thread_id: threadId,
     thread_name: threadId ? "Thread" : "",
     participation_mode: participationMode,
     version_label: "Current",
     status: "active",
     identity_mode: "webhook",
-    identity_display_name: "Ann",
-    identity_avatar_url: "https://example.com/ann.png",
+    identity_display_name: name,
+    identity_avatar_url: `https://example.com/${name}.png`,
     webhook_status: "pending",
     webhook_id: null,
     webhook_token: null
@@ -37,7 +40,7 @@ function deployment(
 }
 
 describe("Discord deployment routing", () => {
-  it("keeps channel and thread deployments independent", () => {
+  it("keeps channel and thread destinations independent", () => {
     const channel = deployment("mention_and_reply");
     const thread = deployment("reply_only", "thread-1");
     const index = buildDeploymentIndex([channel, thread]);
@@ -48,6 +51,53 @@ describe("Discord deployment routing", () => {
     expect(findDeployment(index, "channel-1", "thread-1")?.deployment_id).toBe(
       thread.deployment_id
     );
+  });
+
+  it("keeps multiple characters in one destination without overwriting", () => {
+    const ann = deployment("mention_and_reply", "", "Ann");
+    const ning = deployment("mention_and_reply", "", "宁");
+    const index = buildDeploymentIndex([ann, ning]);
+
+    expect(findDeployment(index, "channel-1")).toBeUndefined();
+    expect(deploymentsFor(index, "channel-1").map((item) => item.character_display_name))
+      .toEqual(["Ann", "宁"]);
+  });
+
+  it("selects a character by leading display name and removes the selector", () => {
+    const ann = deployment("mention_and_reply", "", "Ann");
+    const ning = deployment("mention_and_reply", "", "宁");
+
+    const english = selectDeployment([ann, ning], "Ann, what do you think?");
+    expect(english.deployment?.deployment_id).toBe(ann.deployment_id);
+    expect(english.text).toBe("what do you think?");
+    expect(english.reason).toBe("selected_alias");
+
+    const chinese = selectDeployment([ann, ning], "宁：你同意吗？");
+    expect(chinese.deployment?.deployment_id).toBe(ning.deployment_id);
+    expect(chinese.text).toBe("你同意吗？");
+  });
+
+  it("routes replies by the persisted deployment id before parsing aliases", () => {
+    const ann = deployment("mention_and_reply", "", "Ann");
+    const ning = deployment("mention_and_reply", "", "宁");
+    const selected = selectDeployment(
+      [ann, ning],
+      "Why?",
+      ning.deployment_id
+    );
+
+    expect(selected.deployment?.deployment_id).toBe(ning.deployment_id);
+    expect(selected.reason).toBe("selected_reply");
+  });
+
+  it("requires disambiguation when multiple characters have no selector", () => {
+    const ann = deployment("mention_and_reply", "", "Ann");
+    const ning = deployment("mention_and_reply", "", "宁");
+    const selected = selectDeployment([ann, ning], "What does everyone think?");
+
+    expect(selected.deployment).toBeUndefined();
+    expect(selected.reason).toBe("ambiguous");
+    expect(selected.options).toEqual(["Ann", "宁"]);
   });
 
   it("applies explicit trigger modes", () => {

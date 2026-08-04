@@ -60,6 +60,28 @@ class DiscordWebhookStatusReport(BaseModel):
     last_error: str = Field(default="", max_length=2000)
 
 
+class DiscordMessageRouteRegistration(BaseModel):
+    connection_id: str = Field(min_length=1, max_length=64)
+    deployment_id: str = Field(min_length=1, max_length=64)
+    guild_id: str = Field(default="", max_length=200)
+    channel_id: str = Field(min_length=1, max_length=200)
+    thread_id: str = Field(default="", max_length=200)
+    webhook_id: str = Field(default="", max_length=200)
+    message_ids: list[str] = Field(min_length=1, max_length=20)
+
+
+class DiscordMessageRouteView(BaseModel):
+    message_id: str
+    deployment_id: str
+    character_card_id: str
+    channel_id: str
+    thread_id: str
+
+
+class DiscordMessageRouteLookup(BaseModel):
+    route: DiscordMessageRouteView | None = None
+
+
 class DiscordConnectorHeartbeat(BaseModel):
     connection_id: str = Field(min_length=1, max_length=64)
     bot_user_id: str = Field(min_length=1, max_length=200)
@@ -79,6 +101,7 @@ class DiscordContextMessage(BaseModel):
 
 class DiscordInboundMessage(BaseModel):
     connection_id: str = Field(min_length=1, max_length=64)
+    deployment_id: str = Field(min_length=1, max_length=64)
     message_id: str = Field(min_length=1, max_length=200)
     guild_id: str = Field(min_length=1, max_length=200)
     guild_name: str = Field(default="", max_length=160)

@@ -77,9 +77,9 @@ describe("DiscordWebhookManager", () => {
 
     const item = deployment();
     const manager = new DiscordWebhookManager("bot-token", relay);
-    const messageId = await manager.send(item, ["Hello from Ann"], "bot-1");
+    const messageIds = await manager.send(item, ["Hello from Ann"], "bot-1");
 
-    expect(messageId).toBe("message-1");
+    expect(messageIds).toEqual(["message-1"]);
     expect(registerWebhook).toHaveBeenCalledWith({
       deployment_id: "deployment-1",
       workspace_id: "guild-1",
@@ -101,5 +101,34 @@ describe("DiscordWebhookManager", () => {
       avatar_url: "https://example.com/ann.png",
       allowed_mentions: { parse: [] }
     });
+  });
+
+  it("returns every chunk message id for persistent reply routing", async () => {
+    const relay = {
+      reportWebhookStatus: vi.fn().mockResolvedValue(undefined)
+    } as unknown as RelayClient;
+    const item = deployment();
+    item.webhook_id = "webhook-1";
+    item.webhook_token = "token-1";
+    item.webhook_status = "active";
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "message-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "message-2" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      );
+
+    const manager = new DiscordWebhookManager("bot-token", relay);
+    await expect(manager.send(item, ["one", "two"], "bot-1")).resolves.toEqual([
+      "message-1",
+      "message-2"
+    ]);
   });
 });

@@ -40,6 +40,7 @@ export interface DiscordContextMessage {
 
 export interface DiscordInboundMessage {
   connection_id: string;
+  deployment_id: string;
   message_id: string;
   guild_id: string;
   guild_name: string;
@@ -96,4 +97,26 @@ export interface DiscordWebhookStatusReport {
   deployment_id: string;
   status: WebhookStatus;
   last_error: string;
+}
+
+export interface DiscordMessageRouteRegistration {
+  connection_id: string;
+  deployment_id: string;
+  guild_id: string;
+  channel_id: string;
+  thread_id: string;
+  webhook_id: string;
+  message_ids: string[];
+}
+
+export interface DiscordMessageRouteView {
+  message_id: string;
+  deployment_id: string;
+  character_card_id: string;
+  channel_id: string;
+  thread_id: string;
+}
+
+export interface DiscordMessageRouteLookup {
+  route: DiscordMessageRouteView | null;
 }

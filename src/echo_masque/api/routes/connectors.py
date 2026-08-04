@@ -14,6 +14,9 @@ from echo_masque.api.connector_schemas import (
     DiscordConnectorReplyView,
     DiscordIdentityMode,
     DiscordInboundMessage,
+    DiscordMessageRouteLookup,
+    DiscordMessageRouteRegistration,
+    DiscordMessageRouteView,
     DiscordParticipationMode,
     DiscordWebhookRegistration,
     DiscordWebhookRegistrationView,
@@ -220,6 +223,54 @@ def report_webhook_status(
         deployment_id=payload.deployment_id,
         status=payload.status,
         last_error=payload.last_error,
+    )
+
+
+@router.put("/message-routes", status_code=status.HTTP_204_NO_CONTENT)
+def register_message_routes(
+    payload: DiscordMessageRouteRegistration,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    _authorize_connector(request, authorization)
+    if any(not item.strip() or len(item) > 200 for item in payload.message_ids):
+        raise HTTPException(status_code=422, detail="Invalid Discord message ID.")
+    try:
+        identity_repository(request).register_message_routes(
+            connection_id=payload.connection_id,
+            deployment_id=payload.deployment_id,
+            workspace_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+            webhook_id=payload.webhook_id,
+            message_ids=payload.message_ids,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Discord deployment not found.") from exc
+
+
+@router.get("/message-routes", response_model=DiscordMessageRouteLookup)
+def resolve_message_route(
+    request: Request,
+    connection_id: str = Query(min_length=1, max_length=64),
+    message_id: str = Query(min_length=1, max_length=200),
+    authorization: Annotated[str | None, Header()] = None,
+) -> DiscordMessageRouteLookup:
+    _authorize_connector(request, authorization)
+    record = identity_repository(request).resolve_message_route(
+        connection_id=connection_id,
+        message_id=message_id,
+    )
+    if record is None:
+        return DiscordMessageRouteLookup()
+    return DiscordMessageRouteLookup(
+        route=DiscordMessageRouteView(
+            message_id=record.message_id,
+            deployment_id=record.deployment_id,
+            character_card_id=record.character_card_id,
+            channel_id=record.channel_id,
+            thread_id=record.thread_id,
+        )
     )
 
 

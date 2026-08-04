@@ -2,6 +2,9 @@ import type {
   ConnectorHeartbeat,
   DiscordDeployment,
   DiscordInboundMessage,
+  DiscordMessageRouteLookup,
+  DiscordMessageRouteRegistration,
+  DiscordMessageRouteView,
   DiscordReply,
   DiscordWebhookRegistration,
   DiscordWebhookRegistrationResult,
@@ -55,6 +58,26 @@ export class RelayClient {
       method: "POST",
       body: JSON.stringify(payload)
     });
+  }
+
+  async registerMessageRoutes(
+    payload: Omit<DiscordMessageRouteRegistration, "connection_id">
+  ): Promise<void> {
+    await this.request<void>("/api/connectors/discord/message-routes", {
+      method: "PUT",
+      body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+    });
+  }
+
+  async resolveMessageRoute(messageId: string): Promise<DiscordMessageRouteView | null> {
+    const query = new URLSearchParams({
+      connection_id: this.connectionId,
+      message_id: messageId
+    });
+    const result = await this.request<DiscordMessageRouteLookup>(
+      `/api/connectors/discord/message-routes?${query.toString()}`
+    );
+    return result.route;
   }
 
   async heartbeat(payload: Omit<ConnectorHeartbeat, "connection_id">): Promise<void> {
