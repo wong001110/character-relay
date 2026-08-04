@@ -40,6 +40,8 @@ from echo_masque.persistence.matrix_repository import MatrixRepository
 from echo_masque.persistence.portable_calibration_repository import (
     PortableCalibrationRepository,
 )
+from echo_masque.persistence.provider_trace_models import ProviderTraceRecord
+from echo_masque.persistence.provider_trace_repository import ProviderTraceRepository
 from echo_masque.persistence.repository import Repository
 from echo_masque.persistence.storage import (
     StorageStatus,
@@ -84,6 +86,8 @@ __all__ = [
     "MatrixRepository",
     "PlatformConnectionRecord",
     "PortableCalibrationRepository",
+    "ProviderTraceRecord",
+    "ProviderTraceRepository",
     "Repository",
     "StorageStatus",
     "TargetAccessRepository",
