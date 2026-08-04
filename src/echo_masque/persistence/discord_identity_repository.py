@@ -1,6 +1,6 @@
-"""Persistence operations for Discord message identities and webhook bindings."""
+"""Persistence operations for Discord identities, webhooks, and reply routing."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy import delete, select, update
@@ -12,8 +12,11 @@ from echo_masque.persistence.deployment_models import (
 )
 from echo_masque.persistence.discord_identity_models import (
     DeploymentMessageIdentityRecord,
+    DiscordMessageRouteRecord,
     DiscordWebhookBindingRecord,
 )
+
+_MESSAGE_ROUTE_RETENTION_DAYS = 180
 
 
 class DiscordIdentityRepository:
@@ -83,6 +86,12 @@ class DiscordIdentityRepository:
             record = session.get(DeploymentMessageIdentityRecord, deployment_id)
             if record is None or record.owner_id != owner_id:
                 return False
+            session.execute(
+                delete(DiscordMessageRouteRecord).where(
+                    DiscordMessageRouteRecord.owner_id == owner_id,
+                    DiscordMessageRouteRecord.deployment_id == deployment_id,
+                )
+            )
             session.delete(record)
             session.commit()
             return True
@@ -204,8 +213,99 @@ class DiscordIdentityRepository:
             record.last_error = error
             session.commit()
 
+    def register_message_routes(
+        self,
+        *,
+        connection_id: str,
+        deployment_id: str,
+        workspace_id: str,
+        channel_id: str,
+        thread_id: str,
+        webhook_id: str,
+        message_ids: list[str],
+    ) -> list[DiscordMessageRouteRecord]:
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            deployment = session.scalar(
+                select(CharacterDeploymentRecord).where(
+                    CharacterDeploymentRecord.id == deployment_id,
+                    CharacterDeploymentRecord.connection_id == connection_id,
+                    CharacterDeploymentRecord.platform == "discord",
+                    CharacterDeploymentRecord.status == "active",
+                    CharacterDeploymentRecord.channel_id == channel_id,
+                    CharacterDeploymentRecord.thread_id == thread_id,
+                )
+            )
+            if deployment is None:
+                raise KeyError(deployment_id)
+            records: list[DiscordMessageRouteRecord] = []
+            for message_id in dict.fromkeys(message_ids):
+                record = session.get(DiscordMessageRouteRecord, message_id)
+                if record is None:
+                    record = DiscordMessageRouteRecord(
+                        message_id=message_id,
+                        owner_id=deployment.owner_id,
+                        connection_id=connection_id,
+                        deployment_id=deployment.id,
+                        character_card_id=deployment.character_card_id,
+                        workspace_id=workspace_id,
+                        channel_id=channel_id,
+                        thread_id=thread_id,
+                        webhook_id=webhook_id,
+                        created_at=now,
+                    )
+                    session.add(record)
+                else:
+                    record.owner_id = deployment.owner_id
+                    record.connection_id = connection_id
+                    record.deployment_id = deployment.id
+                    record.character_card_id = deployment.character_card_id
+                    record.workspace_id = workspace_id
+                    record.channel_id = channel_id
+                    record.thread_id = thread_id
+                    record.webhook_id = webhook_id
+                    record.created_at = now
+                records.append(record)
+            cutoff = now - timedelta(days=_MESSAGE_ROUTE_RETENTION_DAYS)
+            session.execute(
+                delete(DiscordMessageRouteRecord).where(
+                    DiscordMessageRouteRecord.created_at < cutoff
+                )
+            )
+            session.commit()
+            for record in records:
+                session.refresh(record)
+            return records
+
+    def resolve_message_route(
+        self,
+        *,
+        connection_id: str,
+        message_id: str,
+    ) -> DiscordMessageRouteRecord | None:
+        with self.database.session() as session:
+            record = session.get(DiscordMessageRouteRecord, message_id)
+            if record is None or record.connection_id != connection_id:
+                return None
+            deployment = session.scalar(
+                select(CharacterDeploymentRecord).where(
+                    CharacterDeploymentRecord.id == record.deployment_id,
+                    CharacterDeploymentRecord.connection_id == connection_id,
+                    CharacterDeploymentRecord.platform == "discord",
+                    CharacterDeploymentRecord.status == "active",
+                    CharacterDeploymentRecord.channel_id == record.channel_id,
+                    CharacterDeploymentRecord.thread_id == record.thread_id,
+                )
+            )
+            return record if deployment is not None else None
+
     def delete_owner(self, owner_id: str) -> dict[str, int]:
         with self.database.session() as session:
+            route_result = session.execute(
+                delete(DiscordMessageRouteRecord).where(
+                    DiscordMessageRouteRecord.owner_id == owner_id
+                )
+            )
             identity_result = session.execute(
                 delete(DeploymentMessageIdentityRecord).where(
                     DeploymentMessageIdentityRecord.owner_id == owner_id
@@ -218,6 +318,7 @@ class DiscordIdentityRepository:
             )
             session.commit()
         return {
+            "discord_message_routes": int(getattr(route_result, "rowcount", 0) or 0),
             "deployment_identities": int(
                 getattr(identity_result, "rowcount", 0) or 0
             ),
@@ -226,6 +327,11 @@ class DiscordIdentityRepository:
 
     def claim_owner(self, source_owner_id: str, target_owner_id: str) -> dict[str, int]:
         with self.database.session() as session:
+            route_result = session.execute(
+                update(DiscordMessageRouteRecord)
+                .where(DiscordMessageRouteRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
             identity_result = session.execute(
                 update(DeploymentMessageIdentityRecord)
                 .where(DeploymentMessageIdentityRecord.owner_id == source_owner_id)
@@ -238,6 +344,7 @@ class DiscordIdentityRepository:
             )
             session.commit()
         return {
+            "discord_message_routes": int(getattr(route_result, "rowcount", 0) or 0),
             "deployment_identities": int(
                 getattr(identity_result, "rowcount", 0) or 0
             ),
