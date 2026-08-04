@@ -38,7 +38,7 @@ class CharacterPromptProfile(BaseModel):
     memory_summary: str | None = None
 
     @classmethod
-    def from_record(cls, record: CharacterPromptRecord) -> "CharacterPromptProfile":
+    def from_record(cls, record: CharacterPromptRecord) -> CharacterPromptProfile:
         return cls(
             display_name=record.display_name,
             subtitle=record.subtitle,
@@ -54,7 +54,7 @@ class CharacterPromptProfile(BaseModel):
     def from_mapping(
         cls,
         value: Mapping[str, object],
-    ) -> "CharacterPromptProfile":
+    ) -> CharacterPromptProfile:
         return cls(
             display_name=_text(value.get("display_name")) or "Character",
             subtitle=_text(value.get("subtitle")),
