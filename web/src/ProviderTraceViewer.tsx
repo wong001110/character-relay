@@ -40,6 +40,7 @@ export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
   const [traces, setTraces] = useState<ProviderTraceView[]>([]);
   const [status, setStatus] = useState<ProviderTraceStatus | "all">("all");
   const [model, setModel] = useState("");
+  const [appliedModel, setAppliedModel] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -50,13 +51,16 @@ export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  async function load(targetCursor: string | null = cursor) {
+  async function load(
+    targetCursor: string | null = cursor,
+    targetModel = appliedModel
+  ) {
     try {
       setLoading(true);
       const next = await providerTraceApi.list({
         limit: 50,
         status,
-        model,
+        model: targetModel,
         cursor: targetCursor
       });
       setTraces(next.items);
@@ -74,11 +78,17 @@ export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
     }
   }
 
-  function resetAndLoad() {
+  function resetAndLoad(targetModel = appliedModel) {
     setCursor(null);
     setCursorHistory([]);
     setPage(1);
-    void load(null);
+    void load(null, targetModel);
+  }
+
+  function applyFilters() {
+    const nextModel = model.trim();
+    setAppliedModel(nextModel);
+    resetAndLoad(nextModel);
   }
 
   function showOlder() {
@@ -104,9 +114,12 @@ export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     if (!autoRefresh) return;
-    const timer = window.setInterval(() => void load(cursor), 5000);
+    const timer = window.setInterval(
+      () => void load(cursor, appliedModel),
+      5000
+    );
     return () => window.clearInterval(timer);
-  }, [autoRefresh, status, model]);
+  }, [autoRefresh, status, appliedModel, cursor]);
 
   const selected = useMemo(
     () => traces.find((item) => item.trace_id === selectedId) ?? null,
@@ -185,12 +198,12 @@ export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
             value={model}
             onChange={(event) => setModel(event.currentTarget.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") void load();
+              if (event.key === "Enter") applyFilters();
             }}
             placeholder="deepseek-v4-flash"
           />
         </label>
-        <button type="button" className="paper-button" onClick={resetAndLoad}>
+        <button type="button" className="paper-button" onClick={applyFilters}>
           {zh ? "套用筛选" : "Apply filters"}
         </button>
         <label className="provider-trace-auto-refresh">

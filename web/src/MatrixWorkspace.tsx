@@ -10,11 +10,9 @@ import {
   type MatrixComparison,
   type MatrixDefinition,
   type MatrixFields,
-  type MatrixListPage,
   type MatrixPreview,
   type MatrixTaskListPage,
   type MatrixTaskStatus,
-  type MatrixTaskView,
   type MatrixView,
   type PromptVersionDiff,
   type PromptVersionView,
@@ -299,7 +297,7 @@ export function MatrixWorkspace({ cards, onClose }: Props) {
           onCreated={async (matrix) => {
             setSelectedId(matrix.id);
             setMessage(c.saved);
-            await load();
+            await load(1);
             setTab("queue");
           }}
           onMessage={setMessage}
@@ -324,6 +322,10 @@ export function MatrixWorkspace({ cards, onClose }: Props) {
           matrices={matrices}
           selected={selected}
           onSelect={setSelectedId}
+          page={matrixPage}
+          pages={matrixPages}
+          total={matrixTotal}
+          onPage={(page) => void load(page)}
           copy={c}
         />
       )}
@@ -683,7 +685,25 @@ function MatrixQueue({
   </section>;
 }
 
-function MatrixAnalyticsPanel({ matrices, selected, onSelect, copy: c }: { matrices: MatrixView[]; selected: MatrixView | null; onSelect: (id: string) => void; copy: Copy }) {
+function MatrixAnalyticsPanel({
+  matrices,
+  selected,
+  onSelect,
+  page,
+  pages,
+  total,
+  onPage,
+  copy: c
+}: {
+  matrices: MatrixView[];
+  selected: MatrixView | null;
+  onSelect: (id: string) => void;
+  page: number;
+  pages: number;
+  total: number;
+  onPage: (page: number) => void;
+  copy: Copy;
+}) {
   const [analytics, setAnalytics] = useState<MatrixAnalytics | null>(null);
   const [candidateId, setCandidateId] = useState("");
   const [comparison, setComparison] = useState<MatrixComparison | null>(null);
@@ -706,6 +726,7 @@ function MatrixAnalyticsPanel({ matrices, selected, onSelect, copy: c }: { matri
       <label>{c.analytics}<select value={selected?.id ?? ""} onChange={(event) => onSelect(event.currentTarget.value)}><option value="">{c.selectMatrix}</option>{matrices.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
       <div className="export-links"><span>{c.exports}</span>{selected && (["json", "csv", "markdown"] as const).map((format) => <a key={format} href={workspaceApi.matrixExportUrl(selected.id, format)}>{format.toUpperCase()}</a>)}</div>
     </div>
+    <Pagination page={page} pages={pages} total={total} onPage={onPage} />
     {!analytics || analytics.completed_runs === 0 ? <div className="empty-library paper-sheet"><p>{c.noAnalytics}</p></div> : <>
       <div className="metric-grid">
         <Metric label={c.score} value={score(analytics.mean_score)} />
