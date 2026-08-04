@@ -7,12 +7,19 @@ export function destinationKey(channelId: string, threadId = ""): string {
   return threadId ? `${channelId}:${threadId}` : channelId;
 }
 
+function guildScopeKey(guildId: string): string {
+  return `@guild:${guildId}`;
+}
+
 export function buildDeploymentIndex(
   deployments: DiscordDeployment[]
 ): DeploymentIndex {
   const index: DeploymentIndex = new Map();
   for (const deployment of deployments) {
-    const key = destinationKey(deployment.channel_id, deployment.thread_id);
+    const key =
+      deployment.channel_scope_mode === "all_except"
+        ? guildScopeKey(deployment.workspace_id)
+        : destinationKey(deployment.channel_id, deployment.thread_id);
     const current = index.get(key) ?? [];
     current.push(deployment);
     index.set(key, current);
@@ -23,17 +30,42 @@ export function buildDeploymentIndex(
 export function deploymentsFor(
   index: DeploymentIndex,
   channelId: string,
-  threadId = ""
+  threadId = "",
+  guildId = "",
+  categoryId = ""
 ): DiscordDeployment[] {
-  return index.get(destinationKey(channelId, threadId)) ?? [];
+  const exact = index.get(destinationKey(channelId, threadId)) ?? [];
+  const serverWide = guildId
+    ? (index.get(guildScopeKey(guildId)) ?? []).filter(
+        (deployment) =>
+          !deployment.excluded_channel_ids.includes(channelId) &&
+          (!categoryId || !deployment.excluded_category_ids.includes(categoryId))
+      )
+    : [];
+  return [
+    ...new Map(
+      [...exact, ...serverWide].map((deployment) => [
+        deployment.deployment_id,
+        deployment
+      ])
+    ).values()
+  ];
 }
 
 export function findDeployment(
   index: DeploymentIndex,
   channelId: string,
-  threadId = ""
+  threadId = "",
+  guildId = "",
+  categoryId = ""
 ): DiscordDeployment | undefined {
-  const candidates = deploymentsFor(index, channelId, threadId);
+  const candidates = deploymentsFor(
+    index,
+    channelId,
+    threadId,
+    guildId,
+    categoryId
+  );
   return candidates.length === 1 ? candidates[0] : undefined;
 }
 
