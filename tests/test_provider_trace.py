@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from typing import Any
 
 import httpx
 from pydantic import SecretStr
@@ -8,10 +9,9 @@ from pydantic import SecretStr
 from echo_masque.providers import ChatMessage, OpenAICompatibleProvider
 
 
-def trace_events(caplog: object) -> list[dict[str, object]]:
-    records = getattr(caplog, "records")
+def trace_events(caplog: Any) -> list[dict[str, object]]:
     events: list[dict[str, object]] = []
-    for record in records:
+    for record in caplog.records:
         if record.name != "uvicorn.error" or not record.message.startswith("{"):
             continue
         events.append(json.loads(record.message))
@@ -19,8 +19,8 @@ def trace_events(caplog: object) -> list[dict[str, object]]:
 
 
 def test_provider_trace_logs_safe_request_and_response_summary(
-    monkeypatch: object,
-    caplog: object,
+    monkeypatch: Any,
+    caplog: Any,
 ) -> None:
     monkeypatch.setenv("ECHO_MASQUE_PROVIDER_TRACE_MODE", "summary")
     monkeypatch.setenv("ECHO_MASQUE_PROVIDER_TRACE_MAX_CHARS", "1000")
@@ -76,8 +76,8 @@ def test_provider_trace_logs_safe_request_and_response_summary(
 
 
 def test_provider_trace_content_mode_includes_bounded_messages(
-    monkeypatch: object,
-    caplog: object,
+    monkeypatch: Any,
+    caplog: Any,
 ) -> None:
     monkeypatch.setenv("ECHO_MASQUE_PROVIDER_TRACE_MODE", "content")
     monkeypatch.setenv("ECHO_MASQUE_PROVIDER_TRACE_MAX_CHARS", "256")
