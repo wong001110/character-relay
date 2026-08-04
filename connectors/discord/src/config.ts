@@ -10,6 +10,9 @@ export interface ConnectorConfig {
   messageContentIntent: boolean;
   smartParticipationEnabled: boolean;
   groupAddressAliases: string[];
+  botTagConversationsEnabled: boolean;
+  botTagMaxDepth: number;
+  botTagMaxResponses: number;
 }
 
 function required(name: string): string {
@@ -26,6 +29,19 @@ function integer(name: string, fallback: number, minimum: number): number {
     throw new Error(`${name} must be an integer greater than or equal to ${minimum}.`);
   }
   return parsed;
+}
+
+function boundedInteger(
+  name: string,
+  fallback: number,
+  minimum: number,
+  maximum: number
+): number {
+  const value = integer(name, fallback, minimum);
+  if (value > maximum) {
+    throw new Error(`${name} must be less than or equal to ${maximum}.`);
+  }
+  return value;
 }
 
 function boolean(name: string, fallback = false): boolean {
@@ -61,6 +77,17 @@ export function loadConfig(): ConnectorConfig {
     maxContextMessages: integer("MAX_CONTEXT_MESSAGES", 20, 1),
     messageContentIntent: boolean("DISCORD_MESSAGE_CONTENT_INTENT", false),
     smartParticipationEnabled: boolean("DISCORD_SMART_PARTICIPATION_ENABLED", false),
-    groupAddressAliases: stringList("DISCORD_GROUP_ADDRESS_ALIASES")
+    groupAddressAliases: stringList("DISCORD_GROUP_ADDRESS_ALIASES"),
+    botTagConversationsEnabled: boolean(
+      "DISCORD_BOT_TAG_CONVERSATIONS_ENABLED",
+      true
+    ),
+    botTagMaxDepth: boundedInteger("DISCORD_BOT_TAG_MAX_DEPTH", 4, 1, 12),
+    botTagMaxResponses: boundedInteger(
+      "DISCORD_BOT_TAG_MAX_RESPONSES",
+      8,
+      1,
+      30
+    )
   };
 }

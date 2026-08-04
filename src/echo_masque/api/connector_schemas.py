@@ -143,6 +143,8 @@ class DiscordInboundMessage(BaseModel):
     mentioned_bot: bool = False
     replied_to_bot: bool = False
     smart_candidate: bool = False
+    author_is_bot: bool = False
+    available_characters: list[str] = Field(default_factory=list, max_length=30)
     recent_messages: list[DiscordContextMessage] = Field(default_factory=list, max_length=30)
 
 

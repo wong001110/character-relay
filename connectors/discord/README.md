@@ -10,6 +10,7 @@ This worker connects one official Discord Bot account to Character Relay deploym
 - Specific character selection through `@CharacterRelayBot CharacterName message`.
 - Multiple named characters can be addressed in one message.
 - Explicit group addresses route to every character in the destination.
+- Character replies can explicitly Tag other deployed characters and continue a bounded Bot-to-Bot conversation.
 - Replies to character-authored messages return to the exact Character Deployment.
 - Persistent `Discord message_id -> deployment_id` routing survives Connector restarts.
 - Mention-only, reply-only, mention-plus-reply, and opt-in Smart Participation modes.
@@ -113,6 +114,38 @@ DISCORD_GROUP_ADDRESS_ALIASES=companions,team,semua kawan
 
 The value accepts comma-separated or newline-separated aliases. Custom aliases extend the built-in pack.
 
+## Character-to-character Tag conversations
+
+A deployed character may intentionally invite another deployed character to answer by
+beginning its generated reply with an explicit textual Tag:
+
+```text
+@Ning，你怎么看？
+@宁 and @Zhi, can you check this?
+@你们，这件事有什么遗漏？
+```
+
+Character Relay treats only a **leading** `@CharacterName` or `@group` expression as a
+Bot-to-Bot trigger. Ordinary narration that merely contains another character's name does
+not trigger a Provider call. A character cannot trigger itself.
+
+Bot Tag conversations are bounded per human trigger. Defaults are:
+
+```text
+DISCORD_BOT_TAG_CONVERSATIONS_ENABLED=true
+DISCORD_BOT_TAG_MAX_DEPTH=4
+DISCORD_BOT_TAG_MAX_RESPONSES=8
+```
+
+`MAX_DEPTH` limits chained Tag hops. `MAX_RESPONSES` is a shared budget across all branches
+created by the original human message, preventing exponential group loops. Participation
+modes still apply: an internal Tag counts as a Mention, so a `reply_only` deployment remains
+silent unless its mode is changed.
+
+The runtime prompt lists other active characters at the current destination and explains the
+Tag contract, while instructing characters to use it sparingly because every successful Tag
+may create another Provider call.
+
 ## Context behavior
 
 Mention + Reply observes all readable human messages in an active destination before deciding whether to respond. This allows a later explicit Mention or Reply to include the preceding conversation.
@@ -167,9 +200,12 @@ CHARACTER_RELAY_CONNECTION_ID=<Connection ID from Deployment Center>
 DISCORD_MESSAGE_CONTENT_INTENT=true
 DISCORD_SMART_PARTICIPATION_ENABLED=false
 DISCORD_GROUP_ADDRESS_ALIASES=
+DISCORD_BOT_TAG_CONVERSATIONS_ENABLED=true
+DISCORD_BOT_TAG_MAX_DEPTH=4
+DISCORD_BOT_TAG_MAX_RESPONSES=8
 ```
 
-The worker exposes `/health` and reports active deployments, destinations, multi-character destinations, cached reply routes, webhook readiness, custom group-alias count, the last deployment refresh, and the last Connector error.
+The worker exposes `/health` and reports active deployments, destinations, multi-character destinations, cached reply routes, webhook readiness, Bot Tag limits, custom group-alias count, the last deployment refresh, and the last Connector error.
 
 ## Trigger behavior
 
@@ -188,4 +224,4 @@ smart
   Full-channel submission requires DISCORD_SMART_PARTICIPATION_ENABLED=true.
 ```
 
-Smart Participation remains experimental. Multi-character autonomous participation is not enabled by this Mention + Reply work.
+Smart Participation remains experimental. Bot Tag conversations are explicit and bounded; they do not enable unrestricted autonomous channel participation.
