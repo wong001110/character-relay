@@ -29,9 +29,16 @@ class PromptModelConfig(BaseModel):
 
 
 class PromptModelTarget:
-    def __init__(self, *, config: PromptModelConfig, provider: ChatProvider) -> None:
+    def __init__(
+        self,
+        *,
+        config: PromptModelConfig,
+        provider: ChatProvider,
+        runtime_system_prompt: str | None = None,
+    ) -> None:
         self.config = config
         self.provider = provider
+        self.runtime_system_prompt = runtime_system_prompt or config.system_prompt
         self._summary = TargetSummary(
             name=config.name,
             target_type=TargetType.PROMPT_MODEL,
@@ -48,7 +55,9 @@ class PromptModelTarget:
         return tuple(self._history)
 
     async def reset(self) -> None:
-        self._history = [ChatMessage(role="system", content=self.config.system_prompt)]
+        self._history = [
+            ChatMessage(role="system", content=self.runtime_system_prompt)
+        ]
 
     async def send(self, message: str) -> TargetResponse:
         if not self._history:
