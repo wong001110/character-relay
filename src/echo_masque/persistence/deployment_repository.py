@@ -9,6 +9,9 @@ from sqlalchemy.exc import IntegrityError
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
+    DiscordDeploymentScopeRecord,
+    DiscordServerCatalogRecord,
+    DiscordServerProfileRecord,
     PlatformConnectionRecord,
 )
 from echo_masque.persistence.models import CharacterCardRecord, utcnow
@@ -16,7 +19,35 @@ from echo_masque.security import redact
 
 
 class DeploymentConflict(RuntimeError):
-    """Raised when a deployment target is already occupied by the same character."""
+    """Raised when a deployment or reusable server profile conflicts."""
+
+
+def _normalized_ids(values: list[str] | None) -> list[str]:
+    return list(dict.fromkeys(item.strip() for item in (values or []) if item.strip()))
+
+
+def _encode_ids(values: list[str] | None) -> str:
+    return json.dumps(_normalized_ids(values))
+
+
+def decode_ids(value: str) -> list[str]:
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(decoded, list):
+        return []
+    return _normalized_ids([item for item in decoded if isinstance(item, str)])
+
+
+def decode_channels(value: str) -> list[dict[str, object]]:
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(decoded, list):
+        return []
+    return [item for item in decoded if isinstance(item, dict)]
 
 
 class DeploymentRepository:
@@ -134,12 +165,217 @@ class DeploymentRepository:
             record = session.get(PlatformConnectionRecord, connection_id)
             if record is None or record.owner_id != owner_id:
                 return False
+            deployment_ids = list(
+                session.scalars(
+                    select(CharacterDeploymentRecord.id).where(
+                        CharacterDeploymentRecord.owner_id == owner_id,
+                        CharacterDeploymentRecord.connection_id == connection_id,
+                    )
+                )
+            )
+            if deployment_ids:
+                session.execute(
+                    delete(DiscordDeploymentScopeRecord).where(
+                        DiscordDeploymentScopeRecord.deployment_id.in_(deployment_ids)
+                    )
+                )
             session.execute(
                 delete(CharacterDeploymentRecord).where(
                     CharacterDeploymentRecord.owner_id == owner_id,
                     CharacterDeploymentRecord.connection_id == connection_id,
                 )
             )
+            session.execute(
+                delete(DiscordServerProfileRecord).where(
+                    DiscordServerProfileRecord.owner_id == owner_id,
+                    DiscordServerProfileRecord.connection_id == connection_id,
+                )
+            )
+            session.execute(
+                delete(DiscordServerCatalogRecord).where(
+                    DiscordServerCatalogRecord.owner_id == owner_id,
+                    DiscordServerCatalogRecord.connection_id == connection_id,
+                )
+            )
+            session.delete(record)
+            session.commit()
+            return True
+
+    def sync_discord_server_catalog(
+        self,
+        *,
+        connection_id: str,
+        servers: list[tuple[str, str, list[dict[str, object]]]],
+    ) -> list[DiscordServerCatalogRecord]:
+        """Replace one connector's visible Discord server inventory."""
+
+        with self.database.session() as session:
+            connection = session.get(PlatformConnectionRecord, connection_id)
+            if connection is None or connection.platform != "discord":
+                raise KeyError("connection")
+            existing = {
+                item.guild_id: item
+                for item in session.scalars(
+                    select(DiscordServerCatalogRecord).where(
+                        DiscordServerCatalogRecord.connection_id == connection_id
+                    )
+                )
+            }
+            seen: set[str] = set()
+            now = utcnow()
+            records: list[DiscordServerCatalogRecord] = []
+            for guild_id, guild_name, channels in servers:
+                seen.add(guild_id)
+                record = existing.get(guild_id)
+                if record is None:
+                    record = DiscordServerCatalogRecord(
+                        id=str(uuid4()),
+                        owner_id=connection.owner_id,
+                        connection_id=connection_id,
+                        guild_id=guild_id,
+                        guild_name=guild_name,
+                    )
+                    session.add(record)
+                record.guild_name = guild_name
+                record.channels_json = json.dumps(channels)
+                record.synced_at = now
+                records.append(record)
+            for guild_id, record in existing.items():
+                if guild_id not in seen:
+                    session.delete(record)
+            session.commit()
+            for record in records:
+                session.refresh(record)
+            return records
+
+    def list_discord_server_catalog(
+        self,
+        owner_id: str,
+        *,
+        connection_id: str | None = None,
+    ) -> list[DiscordServerCatalogRecord]:
+        with self.database.session() as session:
+            query = select(DiscordServerCatalogRecord).where(
+                DiscordServerCatalogRecord.owner_id == owner_id
+            )
+            if connection_id is not None:
+                query = query.where(
+                    DiscordServerCatalogRecord.connection_id == connection_id
+                )
+            query = query.order_by(
+                DiscordServerCatalogRecord.guild_name,
+                DiscordServerCatalogRecord.guild_id,
+            )
+            return list(session.scalars(query))
+
+    def create_server_profile(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        name: str,
+        guild_id: str,
+        guild_name: str,
+        excluded_channel_ids: list[str],
+        excluded_category_ids: list[str],
+        thread_policy: str,
+    ) -> DiscordServerProfileRecord:
+        with self.database.session() as session:
+            connection = session.get(PlatformConnectionRecord, connection_id)
+            if (
+                connection is None
+                or connection.owner_id != owner_id
+                or connection.platform != "discord"
+            ):
+                raise KeyError("connection")
+            record = DiscordServerProfileRecord(
+                id=str(uuid4()),
+                owner_id=owner_id,
+                connection_id=connection_id,
+                name=name,
+                guild_id=guild_id,
+                guild_name=guild_name,
+                channel_scope_mode="all_except",
+                excluded_channel_ids_json=_encode_ids(excluded_channel_ids),
+                excluded_category_ids_json=_encode_ids(excluded_category_ids),
+                thread_policy=thread_policy,
+            )
+            session.add(record)
+            try:
+                session.commit()
+            except IntegrityError as exc:
+                session.rollback()
+                raise DeploymentConflict(
+                    "A Discord server profile already exists for this account and server."
+                ) from exc
+            session.refresh(record)
+            return record
+
+    def list_server_profiles(self, owner_id: str) -> list[DiscordServerProfileRecord]:
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(DiscordServerProfileRecord)
+                    .where(DiscordServerProfileRecord.owner_id == owner_id)
+                    .order_by(
+                        DiscordServerProfileRecord.name,
+                        DiscordServerProfileRecord.guild_name,
+                    )
+                )
+            )
+
+    def get_server_profile(
+        self, profile_id: str, owner_id: str
+    ) -> DiscordServerProfileRecord | None:
+        with self.database.session() as session:
+            record = session.get(DiscordServerProfileRecord, profile_id)
+            if record is None or record.owner_id != owner_id:
+                return None
+            return record
+
+    def update_server_profile(
+        self,
+        profile_id: str,
+        owner_id: str,
+        *,
+        name: str | None = None,
+        guild_name: str | None = None,
+        excluded_channel_ids: list[str] | None = None,
+        excluded_category_ids: list[str] | None = None,
+        thread_policy: str | None = None,
+    ) -> DiscordServerProfileRecord | None:
+        with self.database.session() as session:
+            record = session.get(DiscordServerProfileRecord, profile_id)
+            if record is None or record.owner_id != owner_id:
+                return None
+            if name is not None:
+                record.name = name
+            if guild_name is not None:
+                record.guild_name = guild_name
+            if excluded_channel_ids is not None:
+                record.excluded_channel_ids_json = _encode_ids(excluded_channel_ids)
+            if excluded_category_ids is not None:
+                record.excluded_category_ids_json = _encode_ids(excluded_category_ids)
+            if thread_policy is not None:
+                record.thread_policy = thread_policy
+            session.commit()
+            session.refresh(record)
+            return record
+
+    def delete_server_profile(self, profile_id: str, owner_id: str) -> bool:
+        with self.database.session() as session:
+            record = session.get(DiscordServerProfileRecord, profile_id)
+            if record is None or record.owner_id != owner_id:
+                return False
+            used = session.scalar(
+                select(DiscordDeploymentScopeRecord.deployment_id)
+                .where(DiscordDeploymentScopeRecord.server_profile_id == profile_id)
+                .limit(1)
+            )
+            if used is not None:
+                raise DeploymentConflict(
+                    "Remove or convert deployments using this server profile first."
+                )
             session.delete(record)
             session.commit()
             return True
@@ -161,6 +397,9 @@ class DeploymentRepository:
         version_label: str,
         sticker_count: int,
         status: str,
+        server_profile_id: str = "",
+        excluded_channel_ids: list[str] | None = None,
+        excluded_category_ids: list[str] | None = None,
     ) -> CharacterDeploymentRecord:
         with self.database.session() as session:
             character = session.get(CharacterCardRecord, character_card_id)
@@ -169,6 +408,31 @@ class DeploymentRepository:
             connection = session.get(PlatformConnectionRecord, connection_id)
             if connection is None or connection.owner_id != owner_id:
                 raise KeyError("connection")
+
+            profile: DiscordServerProfileRecord | None = None
+            if server_profile_id:
+                profile = session.get(DiscordServerProfileRecord, server_profile_id)
+                if (
+                    profile is None
+                    or profile.owner_id != owner_id
+                    or profile.connection_id != connection_id
+                ):
+                    raise KeyError("server profile")
+                if connection.platform != "discord":
+                    raise DeploymentConflict(
+                        "Discord server profiles can only be used with Discord connections."
+                    )
+                workspace_id = profile.guild_id
+                workspace_name = profile.guild_name
+                channel_id = f"@server:{profile.id}"
+                channel_name = "All available channels"
+                thread_id = ""
+                thread_name = ""
+            elif not channel_id or not channel_name:
+                raise DeploymentConflict(
+                    "A channel is required when no Discord server profile is selected."
+                )
+
             record = CharacterDeploymentRecord(
                 id=str(uuid4()),
                 owner_id=owner_id,
@@ -188,12 +452,23 @@ class DeploymentRepository:
                 status=status,
             )
             session.add(record)
+            if profile is not None:
+                session.add(
+                    DiscordDeploymentScopeRecord(
+                        deployment_id=record.id,
+                        owner_id=owner_id,
+                        server_profile_id=profile.id,
+                        channel_scope_mode="all_except",
+                        excluded_channel_ids_json=_encode_ids(excluded_channel_ids),
+                        excluded_category_ids_json=_encode_ids(excluded_category_ids),
+                    )
+                )
             try:
                 session.commit()
             except IntegrityError as exc:
                 session.rollback()
                 raise DeploymentConflict(
-                    "This character is already deployed to the selected channel or thread."
+                    "This character is already deployed to the selected destination."
                 ) from exc
             session.refresh(record)
             return record
@@ -269,6 +544,65 @@ class DeploymentRepository:
                 return None
             return record
 
+    def get_deployment_scope(
+        self, deployment_id: str
+    ) -> DiscordDeploymentScopeRecord | None:
+        with self.database.session() as session:
+            return session.get(DiscordDeploymentScopeRecord, deployment_id)
+
+    def get_server_profile_for_deployment(
+        self, deployment_id: str
+    ) -> DiscordServerProfileRecord | None:
+        with self.database.session() as session:
+            scope = session.get(DiscordDeploymentScopeRecord, deployment_id)
+            if scope is None:
+                return None
+            return session.get(DiscordServerProfileRecord, scope.server_profile_id)
+
+    def deployment_matches_discord_destination(
+        self,
+        deployment_id: str,
+        *,
+        connection_id: str,
+        guild_id: str,
+        channel_id: str,
+        thread_id: str,
+        category_id: str = "",
+    ) -> CharacterDeploymentRecord | None:
+        with self.database.session() as session:
+            deployment = session.get(CharacterDeploymentRecord, deployment_id)
+            if (
+                deployment is None
+                or deployment.connection_id != connection_id
+                or deployment.platform != "discord"
+                or deployment.status != "active"
+            ):
+                return None
+            scope = session.get(DiscordDeploymentScopeRecord, deployment_id)
+            if scope is None:
+                if (
+                    deployment.channel_id == channel_id
+                    and deployment.thread_id == thread_id
+                ):
+                    return deployment
+                return None
+            profile = session.get(DiscordServerProfileRecord, scope.server_profile_id)
+            if profile is None or profile.guild_id != guild_id:
+                return None
+            if channel_id in decode_ids(profile.excluded_channel_ids_json):
+                return None
+            if category_id and category_id in decode_ids(
+                profile.excluded_category_ids_json
+            ):
+                return None
+            if channel_id in decode_ids(scope.excluded_channel_ids_json):
+                return None
+            if category_id and category_id in decode_ids(
+                scope.excluded_category_ids_json
+            ):
+                return None
+            return deployment
+
     def update_deployment(
         self,
         deployment_id: str,
@@ -286,11 +620,59 @@ class DeploymentRepository:
         sticker_count: int | None = None,
         status: str | None = None,
         last_error: str | None = None,
+        server_profile_id: str | None = None,
+        excluded_channel_ids: list[str] | None = None,
+        excluded_category_ids: list[str] | None = None,
     ) -> CharacterDeploymentRecord | None:
         with self.database.session() as session:
             record = session.get(CharacterDeploymentRecord, deployment_id)
             if record is None or record.owner_id != owner_id:
                 return None
+
+            scope = session.get(DiscordDeploymentScopeRecord, deployment_id)
+            if server_profile_id is not None:
+                if server_profile_id:
+                    profile = session.get(DiscordServerProfileRecord, server_profile_id)
+                    if (
+                        profile is None
+                        or profile.owner_id != owner_id
+                        or profile.connection_id != record.connection_id
+                    ):
+                        raise KeyError("server profile")
+                    if record.platform != "discord":
+                        raise DeploymentConflict(
+                            "Discord server profiles can only be used with Discord deployments."
+                        )
+                    record.workspace_id = profile.guild_id
+                    record.workspace_name = profile.guild_name
+                    record.channel_id = f"@server:{profile.id}"
+                    record.channel_name = "All available channels"
+                    record.thread_id = ""
+                    record.thread_name = ""
+                    if scope is None:
+                        scope = DiscordDeploymentScopeRecord(
+                            deployment_id=record.id,
+                            owner_id=owner_id,
+                            server_profile_id=profile.id,
+                            channel_scope_mode="all_except",
+                            excluded_channel_ids_json="[]",
+                            excluded_category_ids_json="[]",
+                        )
+                        session.add(scope)
+                    else:
+                        scope.server_profile_id = profile.id
+                elif scope is not None:
+                    session.delete(scope)
+                    scope = None
+
+            if scope is not None:
+                if excluded_channel_ids is not None:
+                    scope.excluded_channel_ids_json = _encode_ids(excluded_channel_ids)
+                if excluded_category_ids is not None:
+                    scope.excluded_category_ids_json = _encode_ids(
+                        excluded_category_ids
+                    )
+
             values: dict[str, object] = {
                 "workspace_id": workspace_id,
                 "workspace_name": workspace_name,
@@ -305,15 +687,26 @@ class DeploymentRepository:
                 "status": status,
                 "last_error": last_error,
             }
+            profile_selected = scope is not None
             for field, value in values.items():
-                if value is not None:
-                    setattr(record, field, value)
+                if value is None:
+                    continue
+                if profile_selected and field in {
+                    "workspace_id",
+                    "workspace_name",
+                    "channel_id",
+                    "channel_name",
+                    "thread_id",
+                    "thread_name",
+                }:
+                    continue
+                setattr(record, field, value)
             try:
                 session.commit()
             except IntegrityError as exc:
                 session.rollback()
                 raise DeploymentConflict(
-                    "This character is already deployed to the selected channel or thread."
+                    "This character is already deployed to the selected destination."
                 ) from exc
             session.refresh(record)
             return record
@@ -342,6 +735,9 @@ class DeploymentRepository:
             record = session.get(CharacterDeploymentRecord, deployment_id)
             if record is None or record.owner_id != owner_id:
                 return False
+            scope = session.get(DiscordDeploymentScopeRecord, deployment_id)
+            if scope is not None:
+                session.delete(scope)
             session.delete(record)
             session.commit()
             return True
@@ -349,9 +745,24 @@ class DeploymentRepository:
     def delete_owner(self, owner_id: str) -> dict[str, int]:
         """Delete all connector configuration owned by an account."""
         with self.database.session() as session:
+            scope_result = session.execute(
+                delete(DiscordDeploymentScopeRecord).where(
+                    DiscordDeploymentScopeRecord.owner_id == owner_id
+                )
+            )
             deployment_result = session.execute(
                 delete(CharacterDeploymentRecord).where(
                     CharacterDeploymentRecord.owner_id == owner_id
+                )
+            )
+            profile_result = session.execute(
+                delete(DiscordServerProfileRecord).where(
+                    DiscordServerProfileRecord.owner_id == owner_id
+                )
+            )
+            catalog_result = session.execute(
+                delete(DiscordServerCatalogRecord).where(
+                    DiscordServerCatalogRecord.owner_id == owner_id
                 )
             )
             connection_result = session.execute(
@@ -361,7 +772,10 @@ class DeploymentRepository:
             )
             session.commit()
         return {
+            "deployment_scopes": int(getattr(scope_result, "rowcount", 0) or 0),
             "deployments": int(getattr(deployment_result, "rowcount", 0) or 0),
+            "server_profiles": int(getattr(profile_result, "rowcount", 0) or 0),
+            "server_catalogs": int(getattr(catalog_result, "rowcount", 0) or 0),
             "connections": int(getattr(connection_result, "rowcount", 0) or 0),
         }
 
@@ -373,13 +787,31 @@ class DeploymentRepository:
                 .where(PlatformConnectionRecord.owner_id == source_owner_id)
                 .values(owner_id=target_owner_id)
             )
+            catalog_result = session.execute(
+                update(DiscordServerCatalogRecord)
+                .where(DiscordServerCatalogRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
+            profile_result = session.execute(
+                update(DiscordServerProfileRecord)
+                .where(DiscordServerProfileRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
             deployment_result = session.execute(
                 update(CharacterDeploymentRecord)
                 .where(CharacterDeploymentRecord.owner_id == source_owner_id)
                 .values(owner_id=target_owner_id)
             )
+            scope_result = session.execute(
+                update(DiscordDeploymentScopeRecord)
+                .where(DiscordDeploymentScopeRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
             session.commit()
         return {
             "connections": int(getattr(connection_result, "rowcount", 0) or 0),
+            "server_catalogs": int(getattr(catalog_result, "rowcount", 0) or 0),
+            "server_profiles": int(getattr(profile_result, "rowcount", 0) or 0),
             "deployments": int(getattr(deployment_result, "rowcount", 0) or 0),
+            "deployment_scopes": int(getattr(scope_result, "rowcount", 0) or 0),
         }
