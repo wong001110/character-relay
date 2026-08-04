@@ -5,7 +5,7 @@ import {
   deploymentsFor,
   destinationKey,
   findDeployment,
-  selectDeployment,
+  resolveAudience,
   shouldSubmitMessage,
   splitDiscordMessage
 } from "./routing.js";
@@ -63,17 +63,21 @@ describe("Discord deployment routing", () => {
       .toEqual(["Ann", "宁"]);
   });
 
-  it("selects a character by leading display name and removes the selector", () => {
+  it("selects one character by leading display name and removes the selector", () => {
     const ann = deployment("mention_and_reply", "", "Ann");
     const ning = deployment("mention_and_reply", "", "宁");
 
-    const english = selectDeployment([ann, ning], "Ann, what do you think?");
-    expect(english.deployment?.deployment_id).toBe(ann.deployment_id);
+    const english = resolveAudience([ann, ning], "Ann, what do you think?");
+    expect(english.deployments.map((item) => item.deployment_id)).toEqual([
+      ann.deployment_id
+    ]);
     expect(english.text).toBe("what do you think?");
     expect(english.reason).toBe("selected_alias");
 
-    const chinese = selectDeployment([ann, ning], "宁：你同意吗？");
-    expect(chinese.deployment?.deployment_id).toBe(ning.deployment_id);
+    const chinese = resolveAudience([ann, ning], "宁：你同意吗？");
+    expect(chinese.deployments.map((item) => item.deployment_id)).toEqual([
+      ning.deployment_id
+    ]);
     expect(chinese.text).toBe("你同意吗？");
   });
 
@@ -81,45 +85,88 @@ describe("Discord deployment routing", () => {
     const ann = deployment("mention_and_reply", "", "Ann");
     const ning = deployment("mention_and_reply", "", "宁 · Ning");
 
-    const chinese = selectDeployment([ann, ning], "宁，你在吗？");
-    expect(chinese.deployment?.deployment_id).toBe(ning.deployment_id);
+    const chinese = resolveAudience([ann, ning], "宁，你在吗？");
+    expect(chinese.deployments[0]?.deployment_id).toBe(ning.deployment_id);
     expect(chinese.text).toBe("你在吗？");
-    expect(chinese.reason).toBe("selected_alias");
 
-    const english = selectDeployment([ann, ning], "Ning, are you there?");
-    expect(english.deployment?.deployment_id).toBe(ning.deployment_id);
+    const english = resolveAudience([ann, ning], "Ning, are you there?");
+    expect(english.deployments[0]?.deployment_id).toBe(ning.deployment_id);
     expect(english.text).toBe("are you there?");
   });
 
-  it("derives aliases from parenthesized bilingual names", () => {
+  it("selects multiple named characters in one mention", () => {
     const ann = deployment("mention_and_reply", "", "Ann");
-    const ning = deployment("mention_and_reply", "", "宁（Ning）");
+    const ning = deployment("mention_and_reply", "", "宁 · Ning");
 
-    expect(selectDeployment([ann, ning], "宁：你好").deployment?.deployment_id)
-      .toBe(ning.deployment_id);
-    expect(selectDeployment([ann, ning], "Ning: hello").deployment?.deployment_id)
-      .toBe(ning.deployment_id);
+    const chinese = resolveAudience([ann, ning], "Ann 和 宁，你们好呀");
+    expect(chinese.reason).toBe("selected_multiple");
+    expect(chinese.deployments.map((item) => item.deployment_id)).toEqual([
+      ann.deployment_id,
+      ning.deployment_id
+    ]);
+    expect(chinese.text).toBe("你们好呀");
+
+    const english = resolveAudience([ann, ning], "Ann and Ning, hello");
+    expect(english.deployments.map((item) => item.deployment_id)).toEqual([
+      ann.deployment_id,
+      ning.deployment_id
+    ]);
+    expect(english.text).toBe("hello");
   });
 
-  it("routes replies by the persisted deployment id before parsing aliases", () => {
+  it("routes explicit group addresses to every character", () => {
+    const ann = deployment("mention_and_reply", "", "Ann");
+    const ning = deployment("mention_and_reply", "", "宁 · Ning");
+
+    const chinese = resolveAudience([ann, ning], "你们好呀");
+    expect(chinese.reason).toBe("selected_all");
+    expect(chinese.deployments).toHaveLength(2);
+    expect(chinese.text).toBe("好呀");
+
+    const english = resolveAudience([ann, ning], "both of you, are you there?");
+    expect(english.reason).toBe("selected_all");
+    expect(english.deployments).toHaveLength(2);
+    expect(english.text).toBe("are you there?");
+
+    const languageNeutral = resolveAudience([ann, ning], "*: hello");
+    expect(languageNeutral.reason).toBe("selected_all");
+    expect(languageNeutral.text).toBe("hello");
+  });
+
+  it("accepts custom group address aliases without changing routing code", () => {
     const ann = deployment("mention_and_reply", "", "Ann");
     const ning = deployment("mention_and_reply", "", "宁");
-    const selected = selectDeployment(
+    const selected = resolveAudience(
       [ann, ning],
-      "Why?",
+      "companions, hello",
+      null,
+      ["companions"]
+    );
+
+    expect(selected.reason).toBe("selected_all");
+    expect(selected.deployments).toHaveLength(2);
+    expect(selected.text).toBe("hello");
+  });
+
+  it("routes replies by persisted deployment id before parsing aliases", () => {
+    const ann = deployment("mention_and_reply", "", "Ann");
+    const ning = deployment("mention_and_reply", "", "宁");
+    const selected = resolveAudience(
+      [ann, ning],
+      "Ann, what do you think?",
       ning.deployment_id
     );
 
-    expect(selected.deployment?.deployment_id).toBe(ning.deployment_id);
+    expect(selected.deployments[0]?.deployment_id).toBe(ning.deployment_id);
     expect(selected.reason).toBe("selected_reply");
   });
 
-  it("requires disambiguation when multiple characters have no selector", () => {
+  it("requires disambiguation when multiple characters have no audience signal", () => {
     const ann = deployment("mention_and_reply", "", "Ann");
     const ning = deployment("mention_and_reply", "", "宁");
-    const selected = selectDeployment([ann, ning], "What does everyone think?");
+    const selected = resolveAudience([ann, ning], "今天频道很安静");
 
-    expect(selected.deployment).toBeUndefined();
+    expect(selected.deployments).toEqual([]);
     expect(selected.reason).toBe("ambiguous");
     expect(selected.options).toEqual(["Ann", "宁"]);
   });
