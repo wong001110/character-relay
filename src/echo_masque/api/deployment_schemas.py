@@ -296,3 +296,13 @@ class CharacterDeploymentView(BaseModel):
             created_at=record.created_at,
             updated_at=record.updated_at,
         )
+
+class CharacterDeploymentPage(BaseModel):
+    items: list[CharacterDeploymentView]
+    page: int
+    page_size: int
+    total: int
+    pages: int
+    active: int
+    paused: int
+    attention: int

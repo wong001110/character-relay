@@ -73,3 +73,8 @@ class ProviderTraceView(BaseModel):
 
 class ProviderTraceClearResult(BaseModel):
     deleted_count: int
+
+class ProviderTracePage(BaseModel):
+    items: list[ProviderTraceView]
+    next_cursor: str | None
+    has_more: bool

@@ -9,9 +9,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal, cast
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 
 from echo_masque.auth import SYSTEM_RUNTIME_USER_ID
+from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence import AuthRepository, Database
 from echo_masque.persistence.models import (
     AuditEventRecord,
@@ -167,6 +168,43 @@ class AccountLifecycleService:
                     .limit(limit)
                 )
             )
+
+    def list_audit_events_page(
+        self,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> tuple[list[AuditEventRecord], str | None]:
+        bounded_limit = max(1, min(limit, 100))
+        with self.database.session() as session:
+            query = select(AuditEventRecord)
+            if cursor:
+                created_at, identifier = decode_time_cursor(cursor)
+                query = query.where(
+                    or_(
+                        AuditEventRecord.created_at < created_at,
+                        and_(
+                            AuditEventRecord.created_at == created_at,
+                            AuditEventRecord.id < identifier,
+                        ),
+                    )
+                )
+            records = list(
+                session.scalars(
+                    query.order_by(
+                        AuditEventRecord.created_at.desc(),
+                        AuditEventRecord.id.desc(),
+                    ).limit(bounded_limit + 1)
+                )
+            )
+            has_more = len(records) > bounded_limit
+            items = records[:bounded_limit]
+            next_cursor = (
+                encode_time_cursor(items[-1].created_at, items[-1].id)
+                if has_more and items
+                else None
+            )
+            return items, next_cursor
 
     def claim_local_workspace(self, *, actor_user_id: str) -> dict[str, int]:
         with self.database.session() as session:

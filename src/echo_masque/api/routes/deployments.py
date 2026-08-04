@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from echo_masque.api.dependencies import CurrentUserDependency
 from echo_masque.api.deployment_schemas import (
     CharacterDeploymentCreate,
+    CharacterDeploymentPage,
     CharacterDeploymentStatusUpdate,
     CharacterDeploymentUpdate,
     CharacterDeploymentView,
@@ -225,6 +226,45 @@ def list_deployments(
         deployment_view(request, owner_id=user.id, record=record)
         for record in records
     ]
+
+
+@router.get("/deployments/page", response_model=CharacterDeploymentPage)
+def paginate_deployments(
+    request: Request,
+    user: CurrentUserDependency,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    character_card_id: str | None = Query(default=None),
+    platform: str | None = Query(default=None, max_length=24),
+    deployment_status: str | None = Query(
+        default=None,
+        alias="status",
+        max_length=24,
+    ),
+) -> CharacterDeploymentPage:
+    records, safe_page, total, pages, counts = deployment_repository(
+        request
+    ).list_deployments_page(
+        user.id,
+        page=page,
+        page_size=page_size,
+        character_card_id=character_card_id,
+        platform=platform,
+        status=deployment_status,
+    )
+    return CharacterDeploymentPage(
+        items=[
+            deployment_view(request, owner_id=user.id, record=record)
+            for record in records
+        ],
+        page=safe_page,
+        page_size=page_size,
+        total=total,
+        pages=pages,
+        active=counts["active"],
+        paused=counts["paused"],
+        attention=counts["attention"],
+    )
 
 
 @router.post(

@@ -322,3 +322,38 @@ def test_matrix_json_export_is_secret_free(tmp_path: Path) -> None:
     serialized = json.dumps(parsed).casefold()
     assert "api_key" not in serialized
     assert "temporary-subject-key" not in serialized
+
+def test_matrix_task_page_supports_status_filters(tmp_path: Path) -> None:
+    client = TestClient(create_app(settings(tmp_path / "matrix-pagination.db")))
+    card, pack = create_workspace(client)
+    definition = matrix_definition(
+        str(card["id"]),
+        str(pack["id"]),
+        repeat_count=6,
+    )
+    matrix = client.post(
+        "/api/matrices",
+        json={"name": "Paged Matrix", "description": "", "definition": definition},
+    ).json()
+    launched = client.post(
+        f"/api/matrices/{matrix['id']}/launch",
+        json={"confirmed_task_count": 6},
+    )
+    assert launched.status_code == 202
+
+    first = client.get(
+        f"/api/matrices/{matrix['id']}/tasks/page",
+        params={"page": 1, "page_size": 2},
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["total"] == 6
+    assert first.json()["pages"] == 3
+    assert [item["ordinal"] for item in first.json()["items"]] == [1, 2]
+
+    completed = client.get(
+        f"/api/matrices/{matrix['id']}/tasks/page",
+        params={"page": 2, "page_size": 2, "status": "completed"},
+    )
+    assert completed.status_code == 200
+    assert completed.json()["page"] == 2
+    assert all(item["status"] == "completed" for item in completed.json()["items"])

@@ -29,6 +29,8 @@ from echo_masque.matrix import (
     MatrixLaunch,
     MatrixListPage,
     MatrixPreview,
+    MatrixTaskListPage,
+    MatrixTaskStatus,
     MatrixTaskView,
     MatrixUpdate,
     MatrixView,
@@ -263,6 +265,33 @@ def matrix_tasks(
     if items is None:
         raise HTTPException(status_code=404, detail="Experiment Matrix not found.")
     return items
+
+
+@router.get(
+    "/api/matrices/{matrix_id}/tasks/page",
+    response_model=MatrixTaskListPage,
+)
+def matrix_tasks_page(
+    matrix_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    task_status: MatrixTaskStatus | None = Query(default=None, alias="status"),
+) -> MatrixTaskListPage:
+    result = matrix_repository(request).list_tasks_page(
+        matrix_id,
+        user.id,
+        page=page,
+        page_size=page_size,
+        status=task_status,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Experiment Matrix not found.",
+        )
+    return result
 
 
 @router.get("/api/matrices/{matrix_id}/analytics", response_model=MatrixAnalytics)

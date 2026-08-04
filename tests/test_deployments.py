@@ -205,3 +205,60 @@ def test_deployment_rejects_missing_owned_resources(tmp_path: Path) -> None:
         },
     )
     assert response.status_code == 404
+
+def test_deployment_page_filters_and_reports_global_counts(tmp_path: Path) -> None:
+    client = TestClient(create_app(settings(tmp_path / "deployment-pagination.db")))
+    login(client)
+    character = create_character(client)
+    connection = client.post(
+        "/api/connections",
+        json={
+            "platform": "discord",
+            "display_name": "Pagination Discord",
+            "connection_mode": "managed",
+            "external_account_id": "bot-pagination",
+            "status": "connected",
+            "metadata": {},
+        },
+    ).json()
+    for index in range(5):
+        created = client.post(
+            "/api/deployments",
+            json={
+                "character_card_id": character["id"],
+                "connection_id": connection["id"],
+                "workspace_id": "guild-pagination",
+                "workspace_name": "Pagination Guild",
+                "channel_id": f"channel-{index}",
+                "channel_name": f"#channel-{index}",
+                "thread_id": "",
+                "thread_name": "",
+                "participation_mode": "mention_and_reply",
+                "memory_scope": "channel_isolated",
+                "version_label": "Current",
+                "sticker_count": 0,
+                "status": "active" if index < 3 else "paused",
+            },
+        )
+        assert created.status_code == 201, created.text
+
+    first = client.get(
+        "/api/deployments/page",
+        params={"page": 1, "page_size": 2},
+    )
+    assert first.status_code == 200, first.text
+    payload = first.json()
+    assert payload["total"] == 5
+    assert payload["pages"] == 3
+    assert len(payload["items"]) == 2
+    assert payload["active"] == 3
+    assert payload["paused"] == 2
+    assert payload["attention"] == 0
+
+    paused = client.get(
+        "/api/deployments/page",
+        params={"page_size": 10, "status": "paused"},
+    )
+    assert paused.status_code == 200
+    assert paused.json()["total"] == 2
+    assert all(item["status"] == "paused" for item in paused.json()["items"])

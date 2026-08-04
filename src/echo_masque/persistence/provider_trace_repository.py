@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
+from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.provider_trace_models import ProviderTraceRecord
 
@@ -97,6 +98,56 @@ class ProviderTraceRepository:
                 query = query.where(ProviderTraceRecord.trace_id == trace_id)
             query = query.order_by(ProviderTraceRecord.created_at.desc()).limit(bounded_limit)
             return list(session.scalars(query))
+
+    def list_traces_page(
+        self,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+        status: str | None = None,
+        model: str | None = None,
+        trace_id: str | None = None,
+    ) -> tuple[list[ProviderTraceRecord], str | None]:
+        bounded_limit = max(1, min(limit, 100))
+        with self.database.session() as session:
+            query = select(ProviderTraceRecord)
+            if status:
+                query = query.where(ProviderTraceRecord.status == status)
+            if model:
+                query = query.where(
+                    func.lower(ProviderTraceRecord.request_model).contains(
+                        model.casefold()
+                    )
+                )
+            if trace_id:
+                query = query.where(ProviderTraceRecord.trace_id == trace_id)
+            if cursor:
+                created_at, identifier = decode_time_cursor(cursor)
+                query = query.where(
+                    or_(
+                        ProviderTraceRecord.created_at < created_at,
+                        and_(
+                            ProviderTraceRecord.created_at == created_at,
+                            ProviderTraceRecord.trace_id < identifier,
+                        ),
+                    )
+                )
+            records = list(
+                session.scalars(
+                    query.order_by(
+                        ProviderTraceRecord.created_at.desc(),
+                        ProviderTraceRecord.trace_id.desc(),
+                    ).limit(bounded_limit + 1)
+                )
+            )
+            has_more = len(records) > bounded_limit
+            items = records[:bounded_limit]
+            next_cursor = (
+                encode_time_cursor(items[-1].created_at, items[-1].trace_id)
+                if has_more and items
+                else None
+            )
+            return items, next_cursor
 
     def clear(self) -> int:
         with self.database.session() as session:

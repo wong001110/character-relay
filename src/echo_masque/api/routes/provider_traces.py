@@ -2,11 +2,12 @@
 
 from typing import Literal, cast
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from echo_masque.api.dependencies import SuperAdminUserDependency
 from echo_masque.api.provider_trace_schemas import (
     ProviderTraceClearResult,
+    ProviderTracePage,
     ProviderTraceView,
 )
 from echo_masque.persistence import AuthRepository, ProviderTraceRepository
@@ -42,6 +43,37 @@ def list_provider_traces(
         trace_id=trace_id.strip() if trace_id else None,
     )
     return [ProviderTraceView.from_record(item) for item in records]
+
+
+@router.get("/page", response_model=ProviderTracePage)
+def paginate_provider_traces(
+    request: Request,
+    user: SuperAdminUserDependency,
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None, max_length=1000),
+    status_filter: Literal["pending", "succeeded", "error"] | None = Query(
+        default=None,
+        alias="status",
+    ),
+    model: str | None = Query(default=None, max_length=200),
+    trace_id: str | None = Query(default=None, max_length=64),
+) -> ProviderTracePage:
+    del user
+    try:
+        records, next_cursor = trace_repository(request).list_traces_page(
+            limit=limit,
+            cursor=cursor,
+            status=status_filter,
+            model=model.strip() if model else None,
+            trace_id=trace_id.strip() if trace_id else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return ProviderTracePage(
+        items=[ProviderTraceView.from_record(item) for item in records],
+        next_cursor=next_cursor,
+        has_more=next_cursor is not None,
+    )
 
 
 @router.delete("", response_model=ProviderTraceClearResult)
