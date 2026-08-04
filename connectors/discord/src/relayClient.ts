@@ -8,6 +8,22 @@ import type {
   DiscordWebhookStatusReport
 } from "./types.js";
 
+const RETRY_DELAYS_MS = [0, 1_000, 2_000, 4_000, 8_000, 15_000];
+const TRANSIENT_STATUS_CODES = new Set([502, 503, 504]);
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function errorDetail(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause = error.cause;
+  if (cause instanceof Error && cause.message) {
+    return `${error.message}: ${cause.message}`;
+  }
+  return error.message;
+}
+
 export class RelayClient {
   constructor(
     private readonly baseUrl: string,
@@ -58,15 +74,48 @@ export class RelayClient {
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      ...init,
-      signal: AbortSignal.timeout(45_000),
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        "Content-Type": "application/json",
-        ...(init?.headers ?? {})
+    const url = `${this.baseUrl}${path}`;
+    let response: Response | undefined;
+    let lastNetworkError: unknown;
+
+    for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt += 1) {
+      const wait = RETRY_DELAYS_MS[attempt];
+      if (wait) await delay(wait);
+
+      try {
+        response = await fetch(url, {
+          ...init,
+          signal: AbortSignal.timeout(45_000),
+          headers: {
+            Authorization: `Bearer ${this.token}`,
+            "Content-Type": "application/json",
+            ...(init?.headers ?? {})
+          }
+        });
+      } catch (error) {
+        lastNetworkError = error;
+        if (attempt < RETRY_DELAYS_MS.length - 1) continue;
+        throw new Error(
+          `Unable to reach Character Relay at ${url}: ${errorDetail(error)}`,
+          { cause: error }
+        );
       }
-    });
+
+      if (
+        TRANSIENT_STATUS_CODES.has(response.status) &&
+        attempt < RETRY_DELAYS_MS.length - 1
+      ) {
+        continue;
+      }
+      break;
+    }
+
+    if (!response) {
+      throw new Error(
+        `Unable to reach Character Relay at ${url}: ${errorDetail(lastNetworkError)}`,
+        { cause: lastNetworkError }
+      );
+    }
     if (!response.ok) {
       const body = await response.text();
       let detail = body;
@@ -76,7 +125,9 @@ export class RelayClient {
       } catch {
         // Preserve the raw body.
       }
-      throw new Error(`Character Relay returned HTTP ${response.status}: ${detail}`);
+      throw new Error(
+        `Character Relay returned HTTP ${response.status} from ${url}: ${detail}`
+      );
     }
     if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
