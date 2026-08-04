@@ -1,0 +1,280 @@
+import { useEffect, useMemo, useState } from "react";
+
+import {
+  providerTraceApi,
+  type ProviderTraceStatus,
+  type ProviderTraceView
+} from "./providerTraceApi";
+import { useI18n } from "./i18n";
+
+export function ProviderTraceAccessButton({ onOpen }: { onOpen: () => void }) {
+  const { language } = useI18n();
+  const [allowed, setAllowed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void providerTraceApi
+      .list({ limit: 1 })
+      .then(() => {
+        if (active) setAllowed(true);
+      })
+      .catch(() => {
+        if (active) setAllowed(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!allowed) return null;
+  return (
+    <button type="button" className="paper-button" onClick={onOpen}>
+      {language === "zh-CN" ? "Provider Trace" : "Provider traces"}
+    </button>
+  );
+}
+
+export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
+  const { language } = useI18n();
+  const zh = language === "zh-CN";
+  const [traces, setTraces] = useState<ProviderTraceView[]>([]);
+  const [status, setStatus] = useState<ProviderTraceStatus | "all">("all");
+  const [model, setModel] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      setLoading(true);
+      const next = await providerTraceApi.list({ limit: 200, status, model });
+      setTraces(next);
+      setSelectedId((current) =>
+        current && next.some((item) => item.trace_id === current)
+          ? current
+          : next[0]?.trace_id ?? null
+      );
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+  }, [status]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const timer = window.setInterval(() => void load(), 5000);
+    return () => window.clearInterval(timer);
+  }, [autoRefresh, status, model]);
+
+  const selected = useMemo(
+    () => traces.find((item) => item.trace_id === selectedId) ?? null,
+    [selectedId, traces]
+  );
+
+  async function clearAll() {
+    const confirmed = window.confirm(
+      zh
+        ? "清除全部 Provider Trace？此操作无法撤销。"
+        : "Clear every provider trace? This cannot be undone."
+    );
+    if (!confirmed) return;
+    try {
+      const result = await providerTraceApi.clear();
+      setMessage(
+        zh
+          ? `已清除 ${result.deleted_count} 条 Trace。`
+          : `Cleared ${result.deleted_count} traces.`
+      );
+      setTraces([]);
+      setSelectedId(null);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }
+
+  return (
+    <main className="provider-trace-page">
+      <header className="provider-trace-header">
+        <div>
+          <p className="kicker">CHARACTER RELAY / SUPER ADMIN</p>
+          <h1>{zh ? "Provider 请求与响应" : "Provider requests and responses"}</h1>
+          <p>
+            {zh
+              ? "私密 Trace 只保存在 Character Relay 数据库，并由 Super Admin Session 读取。API Key 与 Authorization Header 不会被保存。"
+              : "Private traces are stored only in the Character Relay database and require a Super Admin session. API keys and Authorization headers are never stored."}
+          </p>
+        </div>
+        <div className="provider-trace-header-actions">
+          <button type="button" className="paper-button" onClick={() => void load()}>
+            {loading ? (zh ? "读取中…" : "Loading…") : zh ? "刷新" : "Refresh"}
+          </button>
+          <button type="button" className="paper-button danger-text" onClick={() => void clearAll()}>
+            {zh ? "清除全部" : "Clear all"}
+          </button>
+          <button type="button" className="ink-button" onClick={onClose}>
+            {zh ? "返回 Portal" : "Back to Portal"}
+          </button>
+        </div>
+      </header>
+
+      <section className="paper-sheet provider-trace-controls">
+        <label>
+          {zh ? "状态" : "Status"}
+          <select
+            value={status}
+            onChange={(event) =>
+              setStatus(event.currentTarget.value as ProviderTraceStatus | "all")
+            }
+          >
+            <option value="all">{zh ? "全部" : "All"}</option>
+            <option value="pending">Pending</option>
+            <option value="succeeded">Succeeded</option>
+            <option value="error">Error</option>
+          </select>
+        </label>
+        <label>
+          {zh ? "Model 搜索" : "Model search"}
+          <input
+            value={model}
+            onChange={(event) => setModel(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void load();
+            }}
+            placeholder="deepseek-v4-flash"
+          />
+        </label>
+        <button type="button" className="paper-button" onClick={() => void load()}>
+          {zh ? "套用筛选" : "Apply filters"}
+        </button>
+        <label className="provider-trace-auto-refresh">
+          <input
+            type="checkbox"
+            checked={autoRefresh}
+            onChange={(event) => setAutoRefresh(event.currentTarget.checked)}
+          />
+          {zh ? "每 5 秒自动刷新" : "Refresh every 5 seconds"}
+        </label>
+        <span className="provider-trace-count">
+          {traces.length} {zh ? "条" : "traces"}
+        </span>
+      </section>
+
+      {error && <p className="error-note provider-trace-message">{error}</p>}
+      {message && <p className="success-note provider-trace-message">{message}</p>}
+
+      <section className="provider-trace-layout">
+        <aside className="paper-sheet provider-trace-list">
+          {loading && traces.length === 0 ? (
+            <p>{zh ? "正在读取 Trace…" : "Loading traces…"}</p>
+          ) : traces.length === 0 ? (
+            <div className="provider-trace-empty">
+              <strong>{zh ? "还没有 Provider Trace" : "No provider traces yet"}</strong>
+              <p>
+                {zh
+                  ? "下一次模型调用后会出现在这里。"
+                  : "The next model call will appear here."}
+              </p>
+            </div>
+          ) : (
+            traces.map((trace) => (
+              <button
+                type="button"
+                key={trace.trace_id}
+                className={`provider-trace-list-item ${
+                  selectedId === trace.trace_id ? "is-active" : ""
+                }`}
+                onClick={() => setSelectedId(trace.trace_id)}
+              >
+                <span className={`provider-trace-status trace-${trace.status}`}>
+                  {trace.status}
+                </span>
+                <strong>{trace.request_model || "unknown model"}</strong>
+                <small>{new Date(trace.created_at).toLocaleString()}</small>
+                <small>
+                  {trace.latency_ms ?? "—"} ms · {trace.input_tokens ?? "—"} /{" "}
+                  {trace.output_tokens ?? "—"} tokens
+                </small>
+                <code>{trace.trace_id.slice(0, 12)}</code>
+              </button>
+            ))
+          )}
+        </aside>
+
+        <section className="paper-sheet provider-trace-detail">
+          {!selected ? (
+            <div className="provider-trace-empty">
+              <strong>{zh ? "选择一条 Trace" : "Select a trace"}</strong>
+            </div>
+          ) : (
+            <>
+              <div className="provider-trace-detail-heading">
+                <div>
+                  <p className="tape-label">TRACE DETAIL</p>
+                  <h2>{selected.request_model || "Provider call"}</h2>
+                  <code>{selected.trace_id}</code>
+                </div>
+                <span className={`provider-trace-status trace-${selected.status}`}>
+                  {selected.status}
+                </span>
+              </div>
+
+              <dl className="provider-trace-meta">
+                <div><dt>Endpoint</dt><dd>{selected.endpoint}</dd></div>
+                <div><dt>Trace mode</dt><dd>{selected.trace_mode}</dd></div>
+                <div><dt>Status code</dt><dd>{selected.status_code ?? "—"}</dd></div>
+                <div><dt>Latency</dt><dd>{selected.latency_ms ?? "—"} ms</dd></div>
+                <div><dt>Input tokens</dt><dd>{selected.input_tokens ?? "—"}</dd></div>
+                <div><dt>Output tokens</dt><dd>{selected.output_tokens ?? "—"}</dd></div>
+                <div><dt>Response model</dt><dd>{selected.response_model || "—"}</dd></div>
+                <div><dt>Created</dt><dd>{new Date(selected.created_at).toLocaleString()}</dd></div>
+              </dl>
+
+              <TraceJson title={zh ? "发送给 Provider 的 Request" : "Request sent to provider"} value={selected.request} />
+              {selected.retries.length > 0 && (
+                <TraceJson title={zh ? "重试记录" : "Retries"} value={selected.retries} />
+              )}
+              {Object.keys(selected.response).length > 0 && (
+                <TraceJson title={zh ? "Provider Response" : "Provider response"} value={selected.response} />
+              )}
+              {Object.keys(selected.error).length > 0 && (
+                <TraceJson title={zh ? "Provider Error" : "Provider error"} value={selected.error} />
+              )}
+            </>
+          )}
+        </section>
+      </section>
+    </main>
+  );
+}
+
+function TraceJson({ title, value }: { title: string; value: unknown }) {
+  const [copied, setCopied] = useState(false);
+  const text = JSON.stringify(value, null, 2);
+
+  async function copy() {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }
+
+  return (
+    <section className="provider-trace-json-section">
+      <div>
+        <h3>{title}</h3>
+        <button type="button" className="paper-button" onClick={() => void copy()}>
+          {copied ? "Copied" : "Copy JSON"}
+        </button>
+      </div>
+      <pre><code>{text}</code></pre>
+    </section>
+  );
+}
