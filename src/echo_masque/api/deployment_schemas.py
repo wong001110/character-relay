@@ -41,6 +41,8 @@ class PlatformConnectionCreate(BaseModel):
 
 class PlatformConnectionUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=120)
+    connection_mode: ConnectionMode | None = None
+    external_account_id: str | None = Field(default=None, max_length=200)
     status: ConnectionStatus | None = None
     metadata: dict[str, object] | None = None
 
