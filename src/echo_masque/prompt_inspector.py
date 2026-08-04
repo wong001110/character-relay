@@ -8,10 +8,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from echo_masque.character_prompts import CharacterPromptProfile, compile_character_prompt
 from echo_masque.persistence import MatrixRepository, Repository
 from echo_masque.targets import PromptModelConfig
 
-PromptExportFormat = Literal["text", "markdown", "json", "openai"]
+PromptExportFormat = Literal["raw", "text", "markdown", "json", "openai"]
 
 
 class PromptMessageView(BaseModel):
@@ -32,8 +33,12 @@ class CharacterPromptView(BaseModel):
     base_url: str
     model: str
     temperature: float
+    raw_system_prompt: str
+    compiled_system_prompt: str
     system_prompt: str
     messages: list[PromptMessageView]
+    compiler_version: str
+    compiled_prompt_hash: str
     prompt_version_id: str | None
     prompt_version: int | None
     prompt_version_label: str | None
@@ -66,6 +71,10 @@ class CharacterPromptInspector:
                 "Provider System Prompt."
             )
         config = PromptModelConfig.model_validate_json(target.config_json)
+        compiled = compile_character_prompt(
+            config.system_prompt,
+            CharacterPromptProfile.from_record(card),
+        )
         versions = self.matrix_repository.list_prompt_versions(owner_id, card_id) or []
         active = next((item for item in versions if item.is_active), None)
         return CharacterPromptView(
@@ -76,8 +85,12 @@ class CharacterPromptInspector:
             base_url=config.base_url,
             model=config.model,
             temperature=config.temperature,
-            system_prompt=config.system_prompt,
-            messages=[PromptMessageView(content=config.system_prompt)],
+            raw_system_prompt=compiled.raw_system_prompt,
+            compiled_system_prompt=compiled.compiled_system_prompt,
+            system_prompt=compiled.compiled_system_prompt,
+            messages=[PromptMessageView(content=compiled.compiled_system_prompt)],
+            compiler_version=compiled.compiler_version,
+            compiled_prompt_hash=compiled.compiled_prompt_hash,
             prompt_version_id=active.id if active is not None else None,
             prompt_version=active.version if active is not None else None,
             prompt_version_label=active.label if active is not None else None,
@@ -91,24 +104,42 @@ def render_prompt_export(
 ) -> tuple[str, str, str]:
     """Return body, media type, and extension for a secret-free Prompt export."""
 
+    if export_format == "raw":
+        return (
+            prompt.raw_system_prompt.rstrip() + "\n",
+            "text/plain; charset=utf-8",
+            "raw.txt",
+        )
     if export_format == "text":
-        return prompt.system_prompt.rstrip() + "\n", "text/plain; charset=utf-8", "txt"
+        return (
+            prompt.compiled_system_prompt.rstrip() + "\n",
+            "text/plain; charset=utf-8",
+            "compiled.txt",
+        )
     if export_format == "markdown":
         body = "\n".join(
             (
-                f"# {prompt.display_name} — Runtime System Prompt",
+                f"# {prompt.display_name} — Character Prompt Pipeline",
                 "",
                 f"- Provider: `{prompt.provider}`",
                 f"- Model: `{prompt.model}`",
                 f"- Temperature: `{prompt.temperature}`",
                 f"- Target ID: `{prompt.target_id}`",
                 f"- Prompt version: `{prompt.prompt_version or 'unversioned'}`",
-                f"- Config hash: `{prompt.config_hash or 'unavailable'}`",
+                f"- Prompt config hash: `{prompt.config_hash or 'unavailable'}`",
+                f"- Compiler: `{prompt.compiler_version}`",
+                f"- Compiled prompt hash: `{prompt.compiled_prompt_hash}`",
                 "",
-                "## Exact System Message",
+                "## Raw Prompt",
                 "",
                 "````text",
-                prompt.system_prompt.rstrip(),
+                prompt.raw_system_prompt.rstrip(),
+                "````",
+                "",
+                "## Compiled Character Prompt",
+                "",
+                "````text",
+                prompt.compiled_system_prompt.rstrip(),
                 "````",
                 "",
             )
@@ -135,7 +166,7 @@ def prompt_export_filename(
 ) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", prompt.display_name.casefold()).strip("-")
     safe_slug = slug or "character"
-    return f"{safe_slug}-runtime-prompt.{extension}"
+    return f"{safe_slug}-character-prompt.{extension}"
 
 
 __all__ = [
