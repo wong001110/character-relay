@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from echo_masque.api import create_app
+from echo_masque.character_prompts import CharacterPromptProfile, compile_character_prompt
 from echo_masque.config import Settings
 from echo_masque.providers import ChatMessage, ProviderCompletion
 from echo_masque.targets import PromptModelConfig, PromptModelTarget
@@ -87,7 +88,7 @@ def create_prompt_character(client: TestClient) -> dict[str, object]:
     return response.json()
 
 
-def test_prompt_inspector_matches_the_runtime_system_message(tmp_path: Path) -> None:
+def test_prompt_inspector_matches_compiled_runtime_message(tmp_path: Path) -> None:
     app = create_app(settings(tmp_path / "prompt.db"))
     client = TestClient(app)
     login(client, ADMIN_EMAIL)
@@ -96,8 +97,18 @@ def test_prompt_inspector_matches_the_runtime_system_message(tmp_path: Path) -> 
     response = client.get(f"/api/characters/{card['id']}/prompt")
     assert response.status_code == 200
     prompt = response.json()
-    assert prompt["system_prompt"] == SYSTEM_PROMPT
-    assert prompt["messages"] == [{"role": "system", "content": SYSTEM_PROMPT}]
+    compiled = prompt["compiled_system_prompt"]
+    assert prompt["raw_system_prompt"] == SYSTEM_PROMPT
+    assert prompt["system_prompt"] == compiled
+    assert prompt["messages"] == [{"role": "system", "content": compiled}]
+    assert SYSTEM_PROMPT in compiled
+    assert "Name: Ann Prompt Fixture" in compiled
+    assert "Traits: calm, careful" in compiled
+    assert "Expected tone: Warm and precise" in compiled
+    assert "Memory boundary: Only confirmed memories are valid." in compiled
+    assert "- inventing memories" in compiled
+    assert prompt["compiler_version"] == "character-relay-compiler-v1"
+    assert len(prompt["compiled_prompt_hash"]) == 64
     assert prompt["provider"] == "deepseek"
     assert prompt["model"] == "prompt-fixture-model"
     assert prompt["temperature"] == 0.35
@@ -108,18 +119,48 @@ def test_prompt_inspector_matches_the_runtime_system_message(tmp_path: Path) -> 
     record = app.state.repository.get_target(str(card["target_id"]))
     assert record is not None
     config = PromptModelConfig.model_validate_json(record.config_json)
-    runtime = PromptModelTarget(config=config, provider=NeverProvider())
+    runtime = PromptModelTarget(
+        config=config,
+        provider=NeverProvider(),
+        runtime_system_prompt=compiled,
+    )
     asyncio.run(runtime.reset())
-    assert runtime.history == (ChatMessage(role="system", content=SYSTEM_PROMPT),)
-    assert runtime.history[0].content == prompt["system_prompt"]
+    assert runtime.history == (ChatMessage(role="system", content=compiled),)
+
+
+def test_compiler_is_deterministic_and_profile_sensitive() -> None:
+    profile = CharacterPromptProfile(
+        display_name="Ann",
+        subject_type="companion",
+        persona_summary="Calm and observant.",
+        traits=["calm"],
+        expected_tone="Gentle",
+        forbidden_behaviors=["inventing memories"],
+        memory_summary="Use confirmed memories only.",
+    )
+    first = compile_character_prompt(SYSTEM_PROMPT, profile)
+    second = compile_character_prompt(SYSTEM_PROMPT, profile)
+    changed = compile_character_prompt(
+        SYSTEM_PROMPT,
+        profile.model_copy(update={"expected_tone": "Direct"}),
+    )
+
+    assert first == second
+    assert first.compiled_prompt_hash == second.compiled_prompt_hash
+    assert first.compiled_prompt_hash != changed.compiled_prompt_hash
+    assert first.raw_system_prompt == SYSTEM_PROMPT
+    assert first.compiled_system_prompt != first.raw_system_prompt
 
 
 def test_prompt_exports_are_secret_free_and_useful(tmp_path: Path) -> None:
     client = TestClient(create_app(settings(tmp_path / "exports.db")))
     login(client, ADMIN_EMAIL)
     card = create_prompt_character(client)
+    inspected = client.get(f"/api/characters/{card['id']}/prompt").json()
+    compiled = inspected["compiled_system_prompt"]
 
     expected = {
+        "raw": "text/plain",
         "text": "text/plain",
         "markdown": "text/markdown",
         "json": "application/json",
@@ -135,7 +176,18 @@ def test_prompt_exports_are_secret_free_and_useful(tmp_path: Path) -> None:
         assert "attachment; filename=" in response.headers["content-disposition"]
         assert SYSTEM_PROMPT in response.text
         assert API_KEY not in response.text
-        assert "encrypted_value" not in response.text
+
+    raw = client.get(
+        f"/api/characters/{card['id']}/prompt/export",
+        params={"format": "raw"},
+    )
+    assert raw.text.strip() == SYSTEM_PROMPT
+
+    compiled_text = client.get(
+        f"/api/characters/{card['id']}/prompt/export",
+        params={"format": "text"},
+    )
+    assert compiled_text.text.strip() == compiled
 
     openai = client.get(
         f"/api/characters/{card['id']}/prompt/export",
@@ -144,7 +196,7 @@ def test_prompt_exports_are_secret_free_and_useful(tmp_path: Path) -> None:
     assert openai == {
         "model": "prompt-fixture-model",
         "temperature": 0.35,
-        "messages": [{"role": "system", "content": SYSTEM_PROMPT}],
+        "messages": [{"role": "system", "content": compiled}],
     }
 
 
