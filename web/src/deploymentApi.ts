@@ -13,6 +13,7 @@ export type DeploymentStatus =
   | "offline"
   | "error"
   | "disconnected";
+export type ChannelScopeMode = "exact" | "all_except";
 
 export interface PlatformConnection {
   id: string;
@@ -44,12 +45,65 @@ export interface PlatformConnectionUpdate {
   metadata?: Record<string, unknown>;
 }
 
+export interface DiscordCatalogChannel {
+  id: string;
+  name: string;
+  category_id: string;
+  category_name: string;
+  type: string;
+}
+
+export interface DiscordServerCatalog {
+  connection_id: string;
+  guild_id: string;
+  guild_name: string;
+  channels: DiscordCatalogChannel[];
+  synced_at: string;
+}
+
+export interface DiscordServerProfile {
+  id: string;
+  connection_id: string;
+  name: string;
+  guild_id: string;
+  guild_name: string;
+  channel_scope_mode: "all_except";
+  excluded_channel_ids: string[];
+  excluded_category_ids: string[];
+  thread_policy: "inherit_parent";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DiscordServerProfileCreate {
+  connection_id: string;
+  name: string;
+  guild_id: string;
+  guild_name: string;
+  excluded_channel_ids: string[];
+  excluded_category_ids: string[];
+  thread_policy: "inherit_parent";
+}
+
+export interface DiscordServerProfileUpdate {
+  name?: string;
+  guild_name?: string;
+  excluded_channel_ids?: string[];
+  excluded_category_ids?: string[];
+  thread_policy?: "inherit_parent";
+}
+
 export interface CharacterDeployment {
   id: string;
   character_card_id: string;
   character_display_name: string;
   connection_id: string;
   platform: PlatformId;
+  server_profile_id: string;
+  server_profile_name: string;
+  channel_scope_mode: ChannelScopeMode;
+  excluded_channel_ids: string[];
+  excluded_category_ids: string[];
   workspace_id: string;
   workspace_name: string;
   channel_id: string;
@@ -70,12 +124,15 @@ export interface CharacterDeployment {
 export interface CharacterDeploymentCreate {
   character_card_id: string;
   connection_id: string;
+  server_profile_id: string;
   workspace_id: string;
   workspace_name: string;
   channel_id: string;
   channel_name: string;
   thread_id: string;
   thread_name: string;
+  excluded_channel_ids: string[];
+  excluded_category_ids: string[];
   participation_mode: ParticipationMode;
   memory_scope: MemoryScope;
   version_label: string;
@@ -122,6 +179,29 @@ export const deploymentApi = {
     }),
   deleteConnection: (connectionId: string) =>
     request<void>(`/api/connections/${connectionId}`, { method: "DELETE" }),
+  listDiscordServerCatalog: (connectionId?: string) =>
+    request<DiscordServerCatalog[]>(
+      connectionId
+        ? `/api/discord/server-catalog?connection_id=${encodeURIComponent(connectionId)}`
+        : "/api/discord/server-catalog"
+    ),
+  listDiscordServerProfiles: () =>
+    request<DiscordServerProfile[]>("/api/discord/server-profiles"),
+  createDiscordServerProfile: (payload: DiscordServerProfileCreate) =>
+    request<DiscordServerProfile>("/api/discord/server-profiles", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  updateDiscordServerProfile: (
+    profileId: string,
+    payload: DiscordServerProfileUpdate
+  ) =>
+    request<DiscordServerProfile>(`/api/discord/server-profiles/${profileId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    }),
+  deleteDiscordServerProfile: (profileId: string) =>
+    request<void>(`/api/discord/server-profiles/${profileId}`, { method: "DELETE" }),
   listDeployments: (characterCardId?: string) =>
     request<CharacterDeployment[]>(
       characterCardId
