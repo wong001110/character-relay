@@ -343,7 +343,7 @@ def test_same_channel_characters_are_selected_by_exact_deployment_id(
             connection,
             ning_deployment,
             message_id="message-ning",
-            text="你怎么看？",
+            text="你怎么看?",
             mentioned_bot=True,
         ),
     )
