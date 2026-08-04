@@ -12,6 +12,7 @@ from echo_masque.providers.errors import (
     ProviderProtocolError,
     ProviderTimeoutError,
 )
+from echo_masque.providers.trace import ProviderTrace
 
 
 class OpenAICompatibleProvider:
@@ -60,6 +61,12 @@ class OpenAICompatibleProvider:
         }
         last_timeout: Exception | None = None
         started = perf_counter()
+        trace = ProviderTrace.start(
+            endpoint=self.endpoint,
+            model=model,
+            temperature=temperature,
+            messages=messages,
+        )
 
         async with httpx.AsyncClient(
             timeout=self._timeout,
@@ -71,16 +78,32 @@ class OpenAICompatibleProvider:
                 except httpx.TimeoutException as exc:
                     last_timeout = exc
                     if attempt >= self._max_retries:
+                        trace.error(reason="timeout")
                         raise ProviderTimeoutError("Model provider timed out.") from exc
+                    trace.retry(attempt=attempt + 1, reason="timeout")
                     await asyncio.sleep(0)
                     continue
 
                 if response.status_code in {401, 403}:
+                    trace.error(
+                        reason="authentication_rejected",
+                        status_code=response.status_code,
+                    )
                     raise ProviderAuthenticationError("Model provider rejected the credential.")
                 if response.status_code >= 500 and attempt < self._max_retries:
+                    trace.retry(
+                        attempt=attempt + 1,
+                        reason="server_error",
+                        status_code=response.status_code,
+                    )
                     await asyncio.sleep(0)
                     continue
                 if response.is_error:
+                    trace.error(
+                        reason="http_error",
+                        status_code=response.status_code,
+                        response_body=response.text,
+                    )
                     raise ProviderProtocolError(
                         f"Model provider returned HTTP {response.status_code}."
                     )
@@ -91,17 +114,36 @@ class OpenAICompatibleProvider:
                     text = choice["message"]["content"]
                     usage = body.get("usage", {})
                 except (KeyError, IndexError, TypeError, ValueError) as exc:
+                    trace.error(
+                        reason="invalid_response_payload",
+                        status_code=response.status_code,
+                        response_body=response.text,
+                    )
                     raise ProviderProtocolError(
                         "Model provider returned an invalid chat-completion payload."
                     ) from exc
 
+                response_model = str(body.get("model", model))
+                response_text = str(text)
+                input_tokens = usage.get("prompt_tokens")
+                output_tokens = usage.get("completion_tokens")
+                finish_reason = choice.get("finish_reason")
+                trace.response(
+                    status_code=response.status_code,
+                    response_model=response_model,
+                    text=response_text,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    finish_reason=finish_reason,
+                )
                 return ProviderCompletion(
-                    text=str(text),
-                    model=str(body.get("model", model)),
+                    text=response_text,
+                    model=response_model,
                     latency_ms=round((perf_counter() - started) * 1000),
-                    input_tokens=usage.get("prompt_tokens"),
-                    output_tokens=usage.get("completion_tokens"),
-                    finish_reason=choice.get("finish_reason"),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    finish_reason=finish_reason,
                 )
 
+        trace.error(reason="timeout")
         raise ProviderTimeoutError("Model provider timed out.") from last_timeout
