@@ -18,6 +18,7 @@ jobs:
           fetch-depth: 0
       - name: Delete merged branch and remove cleanup files
         run: |
+          # This workflow removes itself after deleting the merged feature branch.
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           if git ls-remote --exit-code origin refs/heads/feature/paginate-portal-lists >/dev/null 2>&1; then
