@@ -16,7 +16,7 @@ import {
   deploymentsFor,
   destinationKey,
   flattenDeployments,
-  selectDeployment,
+  resolveAudience,
   shouldSubmitMessage,
   splitDiscordMessage,
   type DeploymentIndex
@@ -251,11 +251,13 @@ async function sendSelectionHelp(
   options: string[]
 ): Promise<void> {
   const names = options.map((item) => `**${item}**`).join("、");
+  const botName = client.user?.username ?? "CharacterRelayBot";
   await source.reply({
     content:
       `这个位置有多个角色：${names}。` +
-      `请使用 \`@${client.user?.username ?? "CharacterRelayBot"} 角色名 消息\`，` +
-      "或直接回复目标角色发出的消息。",
+      `可以使用 \`@${botName} 角色名 消息\`、` +
+      `\`@${botName} 角色名 和 角色名 消息\`、` +
+      `\`@${botName} 你们 消息\`，或直接回复目标角色发出的消息。`,
     allowedMentions: { parse: [], repliedUser: false }
   });
 }
@@ -350,7 +352,8 @@ async function processMessage(message: Message): Promise<void> {
   if (processedMessages.has(message.id)) return;
   processedMessages.set(message.id, Date.now());
 
-  const location = channelLocation(message);
+  const guildMessage = message;
+  const location = channelLocation(guildMessage);
   if (!location.channelId) return;
   const candidates = deploymentsFor(
     deployments,
@@ -359,105 +362,125 @@ async function processMessage(message: Message): Promise<void> {
   );
   if (!candidates.length) return;
 
-  const originalText = normalizedText(message, botUser.id);
-  const mentionedBot = message.mentions.users.has(botUser.id);
-  const replyTarget = await resolveReplyTarget(message, candidates, botUser.id);
-  const selection = selectDeployment(
-    candidates,
-    originalText,
-    replyTarget.deploymentId
-  );
-  if (!selection.deployment) {
-    if (
-      selection.reason === "ambiguous" &&
-      (mentionedBot || replyTarget.characterMessage)
-    ) {
-      await sendSelectionHelp(message, selection.options);
-    }
-    return;
-  }
-  const deployment = selection.deployment;
-  const isReplyToCharacter = selection.reason === "selected_reply";
-  const shouldSubmit = shouldSubmitMessage(
-    deployment,
-    {
-      mentionedBot,
-      repliedToBot: isReplyToCharacter,
-      hasReadableText: Boolean(selection.text)
-    },
-    config.smartParticipationEnabled
-  );
-
+  const originalText = normalizedText(guildMessage, botUser.id);
+  const mentionedBot = guildMessage.mentions.users.has(botUser.id);
   const key = destinationKey(location.channelId, location.threadId);
   const authorDisplayName =
-    message.member?.displayName ??
-    message.author.globalName ??
-    message.author.username;
+    guildMessage.member?.displayName ??
+    guildMessage.author.globalName ??
+    guildMessage.author.username;
   const contextMessage: DiscordContextMessage = {
-    message_id: message.id,
-    author_id: message.author.id,
+    message_id: guildMessage.id,
+    author_id: guildMessage.author.id,
     author_display_name: authorDisplayName,
     text: originalText,
-    created_at: message.createdAt.toISOString(),
+    created_at: guildMessage.createdAt.toISOString(),
     is_bot: false
   };
-  context.push(key, contextMessage);
-  if (!shouldSubmit) return;
 
   enqueue(key, async () => {
-    await message.channel.sendTyping();
-    const reply = await relay.processMessage({
-      deployment_id: deployment.deployment_id,
-      message_id: message.id,
-      guild_id: message.guildId,
-      guild_name: message.guild.name,
-      channel_id: location.channelId,
-      channel_name: location.channelName,
-      thread_id: location.threadId,
-      thread_name: location.threadName,
-      author_id: message.author.id,
-      author_display_name: authorDisplayName,
-      text:
-        selection.text ||
-        "The user addressed the character without additional readable text.",
-      mentioned_bot: mentionedBot,
-      replied_to_bot: isReplyToCharacter,
-      smart_candidate:
-        deployment.participation_mode === "smart" &&
-        config.smartParticipationEnabled,
-      recent_messages: context.get(key)
-    });
-    if (reply.action !== "reply" || !reply.text) return;
+    // Observe every readable human message before routing. Mention and Reply remain
+    // the only response triggers while Smart Participation is disabled.
+    context.push(key, contextMessage);
 
-    const sentMessageIds = await sendCharacterReply(
-      message,
-      deployment,
-      reply.text,
+    const replyTarget = await resolveReplyTarget(
+      guildMessage,
+      candidates,
       botUser.id
     );
-    await rememberSentMessages(deployment, sentMessageIds, message.guildId);
-    context.push(key, {
-      message_id: sentMessageIds[0] ?? `relay-${Date.now()}`,
-      author_id: botUser.id,
-      author_display_name:
-        deployment.identity_display_name || deployment.character_display_name,
-      text: reply.text,
-      created_at: new Date().toISOString(),
-      is_bot: true
-    });
-    log("Character reply sent to Discord.", {
-      deploymentId: reply.deployment_id,
-      characterId: deployment.character_card_id,
-      selectionReason: selection.reason,
-      identityMode: deployment.identity_mode,
-      webhookStatus: deployment.webhook_status,
-      guildId: message.guildId,
-      channelId: location.channelId,
-      threadId: location.threadId || null,
-      sourceMessageId: message.id,
-      sentMessageIds,
-      latencyMs: reply.latency_ms ?? null
-    });
+    const audience = resolveAudience(
+      candidates,
+      originalText,
+      replyTarget.deploymentId,
+      config.groupAddressAliases
+    );
+    if (!audience.deployments.length) {
+      if (
+        audience.reason === "ambiguous" &&
+        (mentionedBot || replyTarget.characterMessage)
+      ) {
+        await sendSelectionHelp(guildMessage, audience.options);
+      }
+      return;
+    }
+
+    const isReplyToCharacter = audience.reason === "selected_reply";
+    const eligibleDeployments = audience.deployments.filter((deployment) =>
+      shouldSubmitMessage(
+        deployment,
+        {
+          mentionedBot,
+          repliedToBot: isReplyToCharacter,
+          hasReadableText: Boolean(audience.text || originalText)
+        },
+        config.smartParticipationEnabled
+      )
+    );
+    if (!eligibleDeployments.length) return;
+
+    const addressedToMultiple = audience.deployments.length > 1;
+    for (const [responseIndex, deployment] of eligibleDeployments.entries()) {
+      await guildMessage.channel.sendTyping();
+      const reply = await relay.processMessage({
+        deployment_id: deployment.deployment_id,
+        message_id: guildMessage.id,
+        guild_id: guildMessage.guildId,
+        guild_name: guildMessage.guild.name,
+        channel_id: location.channelId,
+        channel_name: location.channelName,
+        thread_id: location.threadId,
+        thread_name: location.threadName,
+        author_id: guildMessage.author.id,
+        author_display_name: authorDisplayName,
+        text:
+          (addressedToMultiple ? originalText : audience.text) ||
+          "The user addressed the character without additional readable text.",
+        mentioned_bot: mentionedBot,
+        replied_to_bot: isReplyToCharacter,
+        smart_candidate:
+          deployment.participation_mode === "smart" &&
+          config.smartParticipationEnabled,
+        recent_messages: context.get(key)
+      });
+      if (reply.action !== "reply" || !reply.text) continue;
+
+      const sentMessageIds = await sendCharacterReply(
+        guildMessage,
+        deployment,
+        reply.text,
+        botUser.id
+      );
+      await rememberSentMessages(
+        deployment,
+        sentMessageIds,
+        guildMessage.guildId
+      );
+      context.push(key, {
+        message_id: sentMessageIds[0] ?? `relay-${Date.now()}`,
+        author_id: botUser.id,
+        author_display_name:
+          deployment.identity_display_name || deployment.character_display_name,
+        text: reply.text,
+        created_at: new Date().toISOString(),
+        is_bot: true
+      });
+      log("Character reply sent to Discord.", {
+        deploymentId: reply.deployment_id,
+        characterId: deployment.character_card_id,
+        audienceReason: audience.reason,
+        audienceSize: audience.deployments.length,
+        responseIndex: responseIndex + 1,
+        responseCount: eligibleDeployments.length,
+        identityMode: deployment.identity_mode,
+        webhookStatus: deployment.webhook_status,
+        guildId: guildMessage.guildId,
+        channelId: location.channelId,
+        threadId: location.threadId || null,
+        sourceMessageId: guildMessage.id,
+        sentMessageIds,
+        latencyMs: reply.latency_ms ?? null
+      });
+    }
   });
 }
 
@@ -493,6 +516,7 @@ const healthServer = createServer((request, response) => {
       ).length,
       message_content_intent: config.messageContentIntent,
       smart_participation_enabled: config.smartParticipationEnabled,
+      custom_group_address_aliases: config.groupAddressAliases.length,
       last_deployment_sync_at: lastDeploymentSyncAt,
       last_error: lastError
     })

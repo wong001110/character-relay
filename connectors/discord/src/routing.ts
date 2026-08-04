@@ -1,3 +1,4 @@
+import { groupAddressAliases } from "./audienceAliases.js";
 import type { DiscordDeployment } from "./types.js";
 
 export type DeploymentIndex = Map<string, DiscordDeployment[]>;
@@ -40,15 +41,19 @@ export function flattenDeployments(index: DeploymentIndex): DiscordDeployment[] 
   return [...index.values()].flat();
 }
 
-export interface DeploymentSelection {
-  deployment?: DiscordDeployment;
+export type AudienceReason =
+  | "selected_reply"
+  | "selected_alias"
+  | "selected_multiple"
+  | "selected_all"
+  | "selected_single"
+  | "ambiguous"
+  | "not_found";
+
+export interface AudienceResolution {
+  deployments: DiscordDeployment[];
   text: string;
-  reason:
-    | "selected_reply"
-    | "selected_alias"
-    | "selected_single"
-    | "ambiguous"
-    | "not_found";
+  reason: AudienceReason;
   options: string[];
 }
 
@@ -75,34 +80,168 @@ function nameAliases(value: string): string[] {
 }
 
 function aliases(deployment: DiscordDeployment): string[] {
-  return [...new Set([
-    ...nameAliases(deployment.identity_display_name),
-    ...nameAliases(deployment.character_display_name)
-  ])].sort((left, right) => right.length - left.length);
+  return [
+    ...new Set([
+      ...nameAliases(deployment.identity_display_name),
+      ...nameAliases(deployment.character_display_name)
+    ])
+  ].sort((left, right) => right.length - left.length);
 }
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function withoutAlias(value: string, alias: string): string | null {
-  const pattern = new RegExp(
-    `^${escapeRegex(alias)}(?=$|[\\s:：,，、.。?？!！\\-—])[\\s:：,，、.。?？!！\\-—]*`,
-    "iu"
-  );
-  const match = value.trim().match(pattern);
-  if (!match) return null;
-  return value.trim().slice(match[0].length).trim();
+function stripLeadingPunctuation(value: string): string {
+  return value.replace(/^[\s:：,，、.。?？!！\-—–/／+]+/u, "").trimStart();
 }
 
-export function selectDeployment(
+function stripLeadingNameConnector(value: string): string {
+  return value
+    .replace(
+      /^(?:and|plus|和|与|與|跟|及|以及|还有|還有|&|＆)\s+/iu,
+      ""
+    )
+    .trimStart();
+}
+
+function withoutNameAlias(value: string, alias: string): string | null {
+  const pattern = new RegExp(
+    `^${escapeRegex(alias)}(?=$|[\\s:：,，、.。?？!！\\-—–&＆/／+和与與跟及])`,
+    "iu"
+  );
+  const trimmed = value.trimStart();
+  const match = trimmed.match(pattern);
+  if (!match) return null;
+  return trimmed.slice(match[0].length);
+}
+
+interface NameMatch {
+  deployments: DiscordDeployment[];
+  remainder: string;
+}
+
+function matchNamePrefix(
+  candidates: DiscordDeployment[],
+  value: string
+): NameMatch | null {
+  const matches = candidates.flatMap((deployment) =>
+    aliases(deployment).flatMap((alias) => {
+      const remainder = withoutNameAlias(value, alias);
+      return remainder === null ? [] : [{ deployment, alias, remainder }];
+    })
+  );
+  if (!matches.length) return null;
+
+  const longest = Math.max(...matches.map((item) => item.alias.length));
+  const top = matches.filter((item) => item.alias.length === longest);
+  const deployments = [
+    ...new Map(top.map((item) => [item.deployment.deployment_id, item.deployment])).values()
+  ];
+  return {
+    deployments,
+    remainder: top[0]?.remainder ?? value
+  };
+}
+
+function requiresAsciiBoundary(alias: string): boolean {
+  return /[A-Za-z0-9]$/u.test(alias);
+}
+
+function stripGroupAddress(
+  value: string,
+  additionalAliases: string[]
+): string | null {
+  const trimmed = value.trimStart();
+  const explicitAll = trimmed.match(/^\*(?:\s*[:：,，-])?\s*/u);
+  if (explicitAll) return trimmed.slice(explicitAll[0].length).trimStart();
+
+  for (const alias of groupAddressAliases(additionalAliases)) {
+    const lowerValue = trimmed.toLocaleLowerCase();
+    const lowerAlias = alias.toLocaleLowerCase();
+    if (!lowerValue.startsWith(lowerAlias)) continue;
+
+    const remainder = trimmed.slice(alias.length);
+    if (
+      requiresAsciiBoundary(alias) &&
+      remainder &&
+      !/^[\s:：,，、.。?？!！\-—–/／+]/u.test(remainder)
+    ) {
+      continue;
+    }
+    return stripLeadingPunctuation(remainder);
+  }
+  return null;
+}
+
+function namedAudience(
   candidates: DiscordDeployment[],
   text: string,
-  replyDeploymentId?: string | null
-): DeploymentSelection {
+  options: string[]
+): AudienceResolution | null {
+  const selected = new Map<string, DiscordDeployment>();
+  let remaining = text.trim();
+
+  while (remaining) {
+    const match = matchNamePrefix(candidates, remaining);
+    if (!match) break;
+    if (match.deployments.length !== 1) {
+      return {
+        deployments: [],
+        text: text.trim(),
+        reason: "ambiguous",
+        options
+      };
+    }
+
+    const deployment = match.deployments[0];
+    if (!deployment) break;
+    selected.set(deployment.deployment_id, deployment);
+
+    const afterPunctuation = stripLeadingPunctuation(match.remainder);
+    const directNext = matchNamePrefix(candidates, afterPunctuation);
+    if (directNext) {
+      remaining = afterPunctuation;
+      continue;
+    }
+
+    const afterConnector = stripLeadingNameConnector(afterPunctuation);
+    if (
+      afterConnector !== afterPunctuation &&
+      matchNamePrefix(candidates, afterConnector)
+    ) {
+      remaining = afterConnector;
+      continue;
+    }
+
+    remaining = afterPunctuation;
+    break;
+  }
+
+  const deployments = [...selected.values()];
+  if (!deployments.length) return null;
+  return {
+    deployments,
+    text: remaining,
+    reason: deployments.length > 1 ? "selected_multiple" : "selected_alias",
+    options
+  };
+}
+
+export function resolveAudience(
+  candidates: DiscordDeployment[],
+  text: string,
+  replyDeploymentId?: string | null,
+  additionalGroupAliases: string[] = []
+): AudienceResolution {
   const options = [...new Set(candidates.map(displayName))];
   if (!candidates.length) {
-    return { text, reason: "not_found", options };
+    return {
+      deployments: [],
+      text,
+      reason: "not_found",
+      options
+    };
   }
 
   if (replyDeploymentId) {
@@ -111,7 +250,7 @@ export function selectDeployment(
     );
     if (replyTarget) {
       return {
-        deployment: replyTarget,
+        deployments: [replyTarget],
         text: text.trim(),
         reason: "selected_reply",
         options
@@ -119,40 +258,34 @@ export function selectDeployment(
     }
   }
 
-  const matched = candidates.flatMap((deployment) =>
-    aliases(deployment).flatMap((alias) => {
-      const remaining = withoutAlias(text, alias);
-      return remaining === null ? [] : [{ deployment, remaining }];
-    })
-  );
-  const uniqueMatches = new Map(
-    matched.map((item) => [item.deployment.deployment_id, item])
-  );
-  if (uniqueMatches.size === 1) {
-    const selected = [...uniqueMatches.values()][0];
-    if (selected) {
-      return {
-        deployment: selected.deployment,
-        text: selected.remaining,
-        reason: "selected_alias",
-        options
-      };
-    }
+  const groupText = stripGroupAddress(text, additionalGroupAliases);
+  if (groupText !== null) {
+    return {
+      deployments: [...candidates],
+      text: groupText,
+      reason: "selected_all",
+      options
+    };
   }
-  if (uniqueMatches.size > 1) {
-    return { text: text.trim(), reason: "ambiguous", options };
-  }
+
+  const named = namedAudience(candidates, text, options);
+  if (named) return named;
 
   const only = candidates[0];
   if (candidates.length === 1 && only) {
     return {
-      deployment: only,
+      deployments: [only],
       text: text.trim(),
       reason: "selected_single",
       options
     };
   }
-  return { text: text.trim(), reason: "ambiguous", options };
+  return {
+    deployments: [],
+    text: text.trim(),
+    reason: "ambiguous",
+    options
+  };
 }
 
 export interface TriggerState {
