@@ -5,12 +5,22 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
+from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from echo_masque.persistence.models import CharacterCardRecord
-
 CHARACTER_PROMPT_COMPILER_VERSION = "character-relay-compiler-v1"
+
+
+class CharacterPromptRecord(Protocol):
+    display_name: str
+    subtitle: str
+    subject_type: str
+    persona_summary: str
+    traits_json: str
+    expected_tone: str | None
+    forbidden_behaviors_json: str
+    memory_summary: str | None
 
 
 class CharacterPromptProfile(BaseModel):
@@ -28,7 +38,7 @@ class CharacterPromptProfile(BaseModel):
     memory_summary: str | None = None
 
     @classmethod
-    def from_record(cls, record: CharacterCardRecord) -> "CharacterPromptProfile":
+    def from_record(cls, record: CharacterPromptRecord) -> "CharacterPromptProfile":
         return cls(
             display_name=record.display_name,
             subtitle=record.subtitle,
