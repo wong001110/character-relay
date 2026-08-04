@@ -125,9 +125,10 @@ export function selectDeployment(
     return { text: text.trim(), reason: "ambiguous", options };
   }
 
-  if (candidates.length === 1) {
+  const only = candidates[0];
+  if (candidates.length === 1 && only) {
     return {
-      deployment: candidates[0],
+      deployment: only,
       text: text.trim(),
       reason: "selected_single",
       options
