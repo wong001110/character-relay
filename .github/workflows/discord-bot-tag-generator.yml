@@ -1,0 +1,44 @@
+name: Discord Bot Tag PR generator
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    if: github.event.pull_request.head.ref == 'feature/discord-bot-tag-conversations'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/discord-bot-tag-conversations
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Apply Bot Tag conversation implementation
+        run: |
+          if [ ! -f scripts/apply_discord_bot_tag_conversations.py ]; then
+            echo 'No pending Bot Tag generator.'
+            exit 0
+          fi
+          python scripts/apply_discord_bot_tag_conversations.py
+          python -m compileall -q src tests
+          cd connectors/discord
+          npm install
+          npm run typecheck
+          npm test
+          npm run build
+          cd ../..
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: add bounded Discord Bot Tag conversations'
+          git push origin HEAD:feature/discord-bot-tag-conversations
