@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
-from typing import cast
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.orm import Session
 
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.provider_trace_models import ProviderTraceRecord
@@ -104,21 +104,20 @@ class ProviderTraceRepository:
             session.commit()
             return int(getattr(result, "rowcount", 0) or 0)
 
-    def _prune(self, session: object, *, now: datetime) -> None:
-        typed_session = cast("object", session)
+    def _prune(self, session: Session, *, now: datetime) -> None:
         cutoff = now - timedelta(days=self.retention_days)
-        typed_session.execute(  # type: ignore[attr-defined]
+        session.execute(
             delete(ProviderTraceRecord).where(ProviderTraceRecord.created_at < cutoff)
         )
         excess_ids = list(
-            typed_session.scalars(  # type: ignore[attr-defined]
+            session.scalars(
                 select(ProviderTraceRecord.trace_id)
                 .order_by(ProviderTraceRecord.created_at.desc())
                 .offset(self.maximum_records)
             )
         )
         if excess_ids:
-            typed_session.execute(  # type: ignore[attr-defined]
+            session.execute(
                 delete(ProviderTraceRecord).where(
                     ProviderTraceRecord.trace_id.in_(excess_ids)
                 )
