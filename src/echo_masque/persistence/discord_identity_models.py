@@ -1,4 +1,4 @@
-"""Persistence models for per-deployment Discord identity and channel webhooks."""
+"""Persistence models for Discord identities, webhooks, and reply routing."""
 
 from datetime import datetime
 
@@ -56,3 +56,20 @@ class DiscordWebhookBindingRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class DiscordMessageRouteRecord(Base):
+    """Persist which Character Deployment authored one outgoing Discord message."""
+
+    __tablename__ = "discord_message_routes"
+
+    message_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    connection_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    deployment_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    character_card_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    channel_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    webhook_id: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
