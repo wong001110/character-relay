@@ -133,6 +133,55 @@ def test_connection_and_deployment_lifecycle(tmp_path: Path) -> None:
     assert client.get("/api/deployments").json() == []
 
 
+def test_platform_account_is_editable_and_keeps_user_label_after_heartbeat(
+    tmp_path: Path,
+) -> None:
+    app = create_app(settings(tmp_path / "connection-edit.db"))
+    client = TestClient(app)
+    login(client)
+    created = client.post(
+        "/api/connections",
+        json={
+            "platform": "discord",
+            "display_name": "Original label",
+            "connection_mode": "managed",
+            "external_account_id": "",
+            "status": "disconnected",
+            "metadata": {},
+        },
+    )
+    assert created.status_code == 201, created.text
+    connection_id = created.json()["id"]
+
+    updated = client.patch(
+        f"/api/connections/{connection_id}",
+        json={
+            "display_name": "My Companion Server Bot",
+            "connection_mode": "local",
+            "external_account_id": "manual-bot-id",
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["display_name"] == "My Companion Server Bot"
+    assert updated.json()["connection_mode"] == "local"
+    assert updated.json()["external_account_id"] == "manual-bot-id"
+
+    assert app.state.deployment_repository.heartbeat_connection(
+        connection_id=connection_id,
+        platform="discord",
+        external_account_id="live-bot-id",
+        display_name="CharacterRelayBot#1234",
+        status="connected",
+        last_error="",
+    )
+    listed = client.get("/api/connections")
+    assert listed.status_code == 200
+    account = listed.json()[0]
+    assert account["display_name"] == "My Companion Server Bot"
+    assert account["external_account_id"] == "live-bot-id"
+    assert account["metadata"]["connector_display_name"] == "CharacterRelayBot#1234"
+
+
 def test_deployment_rejects_missing_owned_resources(tmp_path: Path) -> None:
     client = TestClient(create_app(settings(tmp_path / "deployment-ownership.db")))
     login(client)
