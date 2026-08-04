@@ -16,9 +16,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          if git ls-remote --exit-code "$remote" refs/heads/feature/discord-server-profiles >/dev/null 2>&1; then
-            git push "$remote" --delete feature/discord-server-profiles
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/feature/discord-server-profiles" >/dev/null 2>&1; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/feature/discord-server-profiles"
           else
             echo "Feature branch is already absent."
           fi
