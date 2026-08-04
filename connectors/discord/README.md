@@ -7,12 +7,15 @@ This worker connects one official Discord Bot account to Character Relay deploym
 - Discord Gateway connection through `discord.js`.
 - Active deployment routing by Discord Server, Channel, and optional Thread.
 - Multiple Character Cards can share one Channel or Thread.
-- Explicit character selection through `@CharacterRelayBot CharacterName message`.
-- Replies to character-authored messages return to the same Character Deployment.
+- Specific character selection through `@CharacterRelayBot CharacterName message`.
+- Multiple named characters can be addressed in one message.
+- Explicit group addresses route to every character in the destination.
+- Replies to character-authored messages return to the exact Character Deployment.
 - Persistent `Discord message_id -> deployment_id` routing survives Connector restarts.
 - Mention-only, reply-only, mention-plus-reply, and opt-in Smart Participation modes.
+- Ordered per-destination processing so group replies see earlier character replies.
 - Small in-memory per-destination context buffer.
-- Per-destination serial processing to prevent overlapping character replies.
+- Ordinary human messages are observed for context even when Mention + Reply stays silent.
 - Duplicate-message protection.
 - Character Relay heartbeat and deployment refresh.
 - Railway-compatible health endpoint and container.
@@ -39,7 +42,7 @@ Enable the privileged Message Content Intent in the Developer Portal and set:
 DISCORD_MESSAGE_CONTENT_INTENT=true
 ```
 
-This is required for reliable reply routing and ordinary message text. Smart Participation also requires it.
+This is required for reliable reply routing and ordinary message context. Smart Participation also requires it.
 
 ## Character Relay setup
 
@@ -58,7 +61,7 @@ CHARACTER_RELAY_CONNECTOR_TOKEN=<same secret>
 
 Each deployment uses the Discord parent Channel ID. For a Thread deployment, also set the exact Thread ID. Multiple characters may use the same Channel or Thread because each Character Deployment remains independent.
 
-## Addressing characters
+## Mention and Reply addressing
 
 When one character is deployed to a destination, the normal forms continue to work:
 
@@ -67,16 +70,62 @@ When one character is deployed to a destination, the normal forms continue to wo
 Reply to the character's message
 ```
 
-When multiple characters share the destination, select one by its Character Card or Discord identity display name:
+When multiple characters share a destination, address one character by its Character Card name or Discord identity name:
 
 ```text
 @CharacterRelayBot Ann what do you think?
 @CharacterRelayBot 宁：你同意吗？
+@CharacterRelayBot Ning, are you there?
 ```
+
+Bilingual display names such as `宁 · Ning` automatically expose both `宁` and `Ning` as selectors.
+
+Address multiple named characters:
+
+```text
+@CharacterRelayBot Ann 和 宁，你们怎么看？
+@CharacterRelayBot Ann and Ning, what do you think?
+```
+
+Address every active character in the Channel or Thread:
+
+```text
+@CharacterRelayBot 你们好呀
+@CharacterRelayBot both of you, are you there?
+@CharacterRelayBot *: hello
+```
+
+Group responses run sequentially in the destination queue. The first character reply is added to shared Channel context before the next character generates a response, reducing duplicate or contradictory replies.
 
 After a character replies, users may reply directly to that message. Character Relay persists the outgoing Discord message ID and resolves the reply back to the original Character Deployment, even when multiple characters share the same webhook.
 
-If a user mentions the Bot without selecting a character in a multi-character destination, the Connector returns a short disambiguation prompt instead of guessing.
+If a user mentions the Bot without a character name or recognized group address in a multi-character destination, the Connector returns a short disambiguation prompt instead of guessing.
+
+### Group address aliases
+
+Common Chinese, English, Japanese, Korean, Malay, and Indonesian group expressions are bundled in one locale pack rather than scattered through routing logic. Language-neutral `*` is also supported.
+
+Additional Server-specific or language-specific expressions can be added without changing code:
+
+```text
+DISCORD_GROUP_ADDRESS_ALIASES=companions,team,semua kawan
+```
+
+The value accepts comma-separated or newline-separated aliases. Custom aliases extend the built-in pack.
+
+## Context behavior
+
+Mention + Reply observes all readable human messages in an active destination before deciding whether to respond. This allows a later explicit Mention or Reply to include the preceding conversation.
+
+Context is currently:
+
+- isolated by Channel or Thread;
+- shared by every deployed character in that destination;
+- processed serially in Discord message order;
+- limited by `MAX_CONTEXT_MESSAGES`, defaulting to 20;
+- stored in Connector memory and cleared when the Connector restarts.
+
+Persistent reply routing is separate from conversation context. Discord message routes survive restarts, while recent transcript content does not yet persist.
 
 ## Local development
 
@@ -117,9 +166,10 @@ CHARACTER_RELAY_CONNECTOR_TOKEN=<shared secret>
 CHARACTER_RELAY_CONNECTION_ID=<Connection ID from Deployment Center>
 DISCORD_MESSAGE_CONTENT_INTENT=true
 DISCORD_SMART_PARTICIPATION_ENABLED=false
+DISCORD_GROUP_ADDRESS_ALIASES=
 ```
 
-The worker exposes `/health` and reports active deployments, destinations, multi-character destinations, cached reply routes, webhook readiness, the last deployment refresh, and the last Connector error.
+The worker exposes `/health` and reports active deployments, destinations, multi-character destinations, cached reply routes, webhook readiness, custom group-alias count, the last deployment refresh, and the last Connector error.
 
 ## Trigger behavior
 
@@ -131,11 +181,11 @@ reply_only
   Reply only when a member replies to a routed character message.
 
 mention_and_reply
-  Accept either explicit trigger.
+  Accept either explicit trigger, including specific, multiple, and group audiences.
 
 smart
   Behaves like mention_and_reply by default.
   Full-channel submission requires DISCORD_SMART_PARTICIPATION_ENABLED=true.
 ```
 
-For multiple characters in one destination, unaddressed Smart Participation remains silent until a later Social Participation Engine can choose a character intentionally.
+Smart Participation remains experimental. Multi-character autonomous participation is not enabled by this Mention + Reply work.
