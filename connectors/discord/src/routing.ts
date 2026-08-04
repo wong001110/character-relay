@@ -56,11 +56,29 @@ function displayName(deployment: DiscordDeployment): string {
   return deployment.identity_display_name || deployment.character_display_name;
 }
 
+function nameAliases(value: string): string[] {
+  const full = value.trim();
+  if (!full) return [];
+
+  const aliases = new Set([full]);
+  const normalized = full
+    .replaceAll(/[（(]/gu, " · ")
+    .replaceAll(/[）)]/gu, "");
+  const parts = normalized.split(
+    /\s*(?:·|•|・|／|\/|\||｜)\s*|\s+(?:-|—|–)\s+/u
+  );
+  for (const part of parts) {
+    const alias = part.trim();
+    if (alias) aliases.add(alias);
+  }
+  return [...aliases];
+}
+
 function aliases(deployment: DiscordDeployment): string[] {
   return [...new Set([
-    deployment.identity_display_name.trim(),
-    deployment.character_display_name.trim()
-  ].filter(Boolean))].sort((left, right) => right.length - left.length);
+    ...nameAliases(deployment.identity_display_name),
+    ...nameAliases(deployment.character_display_name)
+  ])].sort((left, right) => right.length - left.length);
 }
 
 function escapeRegex(value: string): string {
@@ -69,7 +87,7 @@ function escapeRegex(value: string): string {
 
 function withoutAlias(value: string, alias: string): string | null {
   const pattern = new RegExp(
-    `^${escapeRegex(alias)}(?=$|[\\s:：,，\\-—])[\\s:：,，\\-—]*`,
+    `^${escapeRegex(alias)}(?=$|[\\s:：,，、.。?？!！\\-—])[\\s:：,，、.。?？!！\\-—]*`,
     "iu"
   );
   const match = value.trim().match(pattern);

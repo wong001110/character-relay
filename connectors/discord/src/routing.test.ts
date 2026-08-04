@@ -77,6 +77,30 @@ describe("Discord deployment routing", () => {
     expect(chinese.text).toBe("你同意吗？");
   });
 
+  it("derives Chinese and English aliases from a composite character name", () => {
+    const ann = deployment("mention_and_reply", "", "Ann");
+    const ning = deployment("mention_and_reply", "", "宁 · Ning");
+
+    const chinese = selectDeployment([ann, ning], "宁，你在吗？");
+    expect(chinese.deployment?.deployment_id).toBe(ning.deployment_id);
+    expect(chinese.text).toBe("你在吗？");
+    expect(chinese.reason).toBe("selected_alias");
+
+    const english = selectDeployment([ann, ning], "Ning, are you there?");
+    expect(english.deployment?.deployment_id).toBe(ning.deployment_id);
+    expect(english.text).toBe("are you there?");
+  });
+
+  it("derives aliases from parenthesized bilingual names", () => {
+    const ann = deployment("mention_and_reply", "", "Ann");
+    const ning = deployment("mention_and_reply", "", "宁（Ning）");
+
+    expect(selectDeployment([ann, ning], "宁：你好").deployment?.deployment_id)
+      .toBe(ning.deployment_id);
+    expect(selectDeployment([ann, ning], "Ning: hello").deployment?.deployment_id)
+      .toBe(ning.deployment_id);
+  });
+
   it("routes replies by the persisted deployment id before parsing aliases", () => {
     const ann = deployment("mention_and_reply", "", "Ann");
     const ning = deployment("mention_and_reply", "", "宁");
