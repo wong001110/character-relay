@@ -1,0 +1,31 @@
+name: Cleanup pagination feature branch
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.event.head_commit.message == 'chore: trigger pagination branch cleanup'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Delete merged branch and remove cleanup files
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git ls-remote --exit-code origin refs/heads/feature/paginate-portal-lists >/dev/null 2>&1; then
+            git push origin --delete feature/paginate-portal-lists
+          else
+            echo 'Feature branch is already absent.'
+          fi
+          git rm .github/workflows/cleanup-pagination-branch.yml
+          git rm .github/pagination-branch-cleanup-trigger
+          git commit -m 'chore: finish pagination branch cleanup'
+          git push origin HEAD:main
