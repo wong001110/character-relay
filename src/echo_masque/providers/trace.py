@@ -1,10 +1,9 @@
-"""Structured, secret-free model provider request and response tracing."""
+"""Bounded model-provider tracing routed to a private persistence sink."""
 
 from __future__ import annotations
 
-import json
-import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Literal
@@ -13,9 +12,17 @@ from uuid import uuid4
 from echo_masque.providers.base import ChatMessage
 
 ProviderTraceMode = Literal["off", "metadata", "summary", "content"]
+ProviderTraceSink = Callable[[dict[str, object]], None]
 _DEFAULT_TRACE_MODE: ProviderTraceMode = "summary"
 _DEFAULT_MAX_CHARS = 4000
-_LOGGER = logging.getLogger("uvicorn.error")
+_TRACE_SINK: ProviderTraceSink | None = None
+
+
+def configure_provider_trace_sink(sink: ProviderTraceSink | None) -> None:
+    """Install the process-level private trace sink used by provider adapters."""
+
+    global _TRACE_SINK
+    _TRACE_SINK = sink
 
 
 def _trace_mode() -> ProviderTraceMode:
@@ -79,7 +86,15 @@ def _message_content(
 
 
 def _emit(payload: dict[str, object]) -> None:
-    _LOGGER.info(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    sink = _TRACE_SINK
+    if sink is None:
+        return
+    try:
+        sink(payload)
+    except Exception:
+        # Observability must never break a provider request. Persistence failures stay
+        # silent here rather than leaking private trace content to process logs.
+        return
 
 
 @dataclass(frozen=True)
@@ -143,6 +158,7 @@ class ProviderTrace:
                 "attempt": attempt,
                 "reason": reason,
                 "status_code": status_code,
+                "trace_mode": self.mode,
             }
         )
 
@@ -200,4 +216,9 @@ class ProviderTrace:
         _emit(event)
 
 
-__all__ = ["ProviderTrace", "ProviderTraceMode"]
+__all__ = [
+    "ProviderTrace",
+    "ProviderTraceMode",
+    "ProviderTraceSink",
+    "configure_provider_trace_sink",
+]
