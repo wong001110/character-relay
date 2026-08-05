@@ -10,6 +10,16 @@ text = text.replace(
 )
 models.write_text(text, encoding="utf-8")
 
+retrieval = Path("src/echo_masque/expression_retrieval.py")
+text = retrieval.read_text(encoding="utf-8")
+text = text.replace(
+    '    format_type: str\n\n\n@dataclass(frozen=True, slots=True)\nclass ExpressionCandidate:',
+    '    format_type: str\n'
+    '    semantic_source: str = "unknown"\n\n\n'
+    '@dataclass(frozen=True, slots=True)\nclass ExpressionCandidate:',
+)
+retrieval.write_text(text, encoding="utf-8")
+
 repository = Path("src/echo_masque/persistence/expression_repository.py")
 text = repository.read_text(encoding="utf-8")
 text = text.replace("from datetime import datetime\n", "")
@@ -21,6 +31,30 @@ text = text.replace(
     "    description: str,\n"
     "    tags: list[str],\n"
     ") -> tuple[str, str, float]:\n",
+)
+text = text.replace(
+    '            format_type=record.format_type,\n        )\n',
+    '            format_type=record.format_type,\n'
+    '            semantic_source=record.semantic_source,\n'
+    '        )\n',
+    1,
+)
+text = text.replace(
+    '            "available": resource.available,\n'
+    '            "allowed_actions": list(resource.allowed_actions),\n',
+    '            "available": resource.available,\n'
+    '            "enabled": resource.enabled,\n'
+    '            "allowed_actions": list(resource.allowed_actions),\n',
+    1,
+)
+text = text.replace(
+    '            "semantic_description": resource.semantic_description,\n'
+    '            "asset_url": resource.asset_url,\n',
+    '            "semantic_description": resource.semantic_description,\n'
+    '            "semantic_source": resource.semantic_source,\n'
+    '            "semantic_confidence": resource.semantic_confidence,\n'
+    '            "asset_url": resource.asset_url,\n',
+    1,
 )
 text = text.replace(
     '                    "candidate_scores": [float(item["score"]) for item in candidates],\n',
