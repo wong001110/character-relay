@@ -21,7 +21,38 @@ jobs:
 
       - name: Restore supplied PNG assets
         run: |
-          sha256sum .tmp-brand/*.b64
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          path = Path(".tmp-brand/wordmark_01.b64")
+          expected = "fe7dde0c85957d4e7d4969e5d38e51f915faaab858399cffaf3d3d3326d8617c"
+          value = path.read_text(encoding="utf-8")
+          if hashlib.sha256(value.encode()).hexdigest() != expected:
+              alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+              repaired = None
+              for index in range(len(value) + 1):
+                  prefix = value[:index]
+                  suffix = value[index:]
+                  for character in alphabet:
+                      candidate = prefix + character + suffix
+                      if hashlib.sha256(candidate.encode()).hexdigest() == expected:
+                          repaired = candidate
+                          print(f"Repaired one missing Base64 character at index {index}.")
+                          break
+                  if repaired is not None:
+                      break
+              if repaired is None:
+                  raise SystemExit("Unable to repair staged wordmark chunk from expected checksum.")
+              path.write_text(repaired, encoding="utf-8")
+          PY
+          printf '%s  %s\n' \
+            'c139840a77d2da23a9bb885c86b81a98bb5f5f2d2846dc8516e7f4112de73ae4' '.tmp-brand/favicon_00.b64' \
+            'd708be98a5976cbec3f4314cc64783d440a427b780ba46efcdcf1e7ff45ccb6f' '.tmp-brand/mark_00.b64' \
+            '93201a794bf76094aad42452a2b1d856a327c167ecaaaaed3a76133bd7d9da6e' '.tmp-brand/mark_01.b64' \
+            '77c3a87bf3f2bbaa9b9a97a610f15e9e4d39c2826f0772d298250806c3a1a1f4' '.tmp-brand/wordmark_00.b64' \
+            'fe7dde0c85957d4e7d4969e5d38e51f915faaab858399cffaf3d3d3326d8617c' '.tmp-brand/wordmark_01.b64' \
+            '8ef7e9d673722f7ac6c73ef18bf5981e0fe4c70490f88cf91c5faa7375a96169' '.tmp-brand/wordmark_02.b64' | sha256sum -c -
           python - <<'PY'
           import base64
           from pathlib import Path
@@ -29,8 +60,6 @@ jobs:
           root = Path(".tmp-brand")
           output = Path("web/public/assets/brand")
           output.mkdir(parents=True, exist_ok=True)
-          allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
-
           assets = {
               "wordmark": sorted(root.glob("wordmark_*.b64")),
               "mark": sorted(root.glob("mark_*.b64")),
@@ -38,9 +67,7 @@ jobs:
           }
           for name, chunks in assets.items():
               staged = "".join(path.read_text(encoding="utf-8") for path in chunks)
-              cleaned = "".join(char for char in staged if char in allowed)
-              print(name, "chunks=", len(chunks), "staged=", len(staged), "cleaned=", len(cleaned))
-              decoded = base64.b64decode(cleaned, validate=True)
+              decoded = base64.b64decode(staged, validate=True)
               (output / f"character-relay-{name}.png").write_bytes(decoded)
           PY
           printf '%s  %s\n' \
