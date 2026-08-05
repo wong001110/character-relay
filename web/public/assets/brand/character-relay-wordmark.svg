@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 250" role="img" aria-labelledby="title desc">
+  <title id="title">Character Relay</title>
+  <desc id="desc">Cute notebook-style Character Relay logo with two cat speech bubbles.</desc>
+  <rect width="760" height="250" rx="30" fill="#fbf7ed"/>
+  <g transform="translate(18 20)">
+    <g fill="none" stroke="#6f5bb7" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+      <path fill="#fffdf8" d="M12 58c0-19 15-34 34-34h31c19 0 34 15 34 34v24c0 19-15 34-34 34H53l-18 15 2-19C22 105 12 92 12 77V58Z"/>
+      <path fill="#fffdf8" d="M96 107c0-19 15-34 34-34h30c19 0 34 15 34 34v24c0 19-15 34-34 34h-23l-18 14 2-18c-15-7-25-20-25-35v-19Z"/>
+      <path d="m28 39 11-12 12 12M70 39l12-12 11 12M111 90c16-13 31-16 48-10"/>
+      <path d="m151 69 14 9-11 12"/>
+      <path d="M57 73c4 4 8 4 12 0M137 122c4 4 8 4 12 0"/>
+    </g>
+    <g fill="#6f5bb7">
+      <circle cx="46" cy="67" r="4"/><circle cx="78" cy="67" r="4"/>
+      <circle cx="126" cy="116" r="4"/><circle cx="158" cy="116" r="4"/>
+    </g>
+    <path d="m96 58 5 10 11 2-8 7 2 11-10-5-10 5 2-11-8-7 11-2 5-10Z" fill="#f2c96f" stroke="#6f5bb7" stroke-width="3"/>
+  </g>
+  <g fill="#342b3c">
+    <text x="236" y="112" font-family="Trebuchet MS, Arial Rounded MT Bold, sans-serif" font-size="62" font-weight="800" letter-spacing="-2">Character</text>
+  </g>
+  <g fill="#7a63c7">
+    <text x="235" y="178" font-family="Trebuchet MS, Arial Rounded MT Bold, sans-serif" font-size="68" font-weight="900" letter-spacing="-2">Relay</text>
+    <path d="M239 193c76 13 151 11 223 1" fill="none" stroke="#7a63c7" stroke-width="6" stroke-linecap="round"/>
+  </g>
+  <g fill="#d9c7f0">
+    <circle cx="688" cy="58" r="5"/><circle cx="713" cy="78" r="4"/>
+    <path d="m681 104 6 12 13 2-10 9 3 13-12-6-12 6 3-13-10-9 13-2 6-12Z"/>
+  </g>
+</svg>
