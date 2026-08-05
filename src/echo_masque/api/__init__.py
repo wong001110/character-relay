@@ -24,6 +24,7 @@ from echo_masque.api.routes import (
     discord_identities_router,
     evaluations_router,
     health_router,
+    interactions_router,
     matrices_router,
     prompt_inspector_router,
     provider_traces_router,
@@ -53,6 +54,7 @@ from echo_masque.persistence import (
     DeploymentRepository,
     DiscordIdentityRepository,
     EvaluationRepository,
+    InteractionRepository,
     MatrixRepository,
     ProviderTraceRepository,
     Repository,
@@ -94,6 +96,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     repository = Repository(database)
     deployment_repository = DeploymentRepository(database)
     discord_identity_repository = DiscordIdentityRepository(database)
+    interaction_repository = InteractionRepository(database)
     provider_trace_repository = ProviderTraceRepository(
         database,
         retention_days=resolved.provider_trace_retention_days,
@@ -155,6 +158,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         evaluation_repository,
         deployment_repository,
         discord_identity_repository,
+        interaction_repository,
     )
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
@@ -223,6 +227,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.repository = repository
     app.state.deployment_repository = deployment_repository
     app.state.discord_identity_repository = discord_identity_repository
+    app.state.interaction_repository = interaction_repository
     app.state.provider_trace_repository = provider_trace_repository
     app.state.discord_connector_runtime = discord_connector_runtime
     app.state.workspace_repository = workspace_repository
@@ -259,6 +264,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(characters_router)
     app.include_router(deployments_router)
     app.include_router(discord_identities_router)
+    app.include_router(interactions_router)
     app.include_router(connectors_router)
     app.include_router(prompt_inspector_router)
     app.include_router(targets_router)
@@ -273,11 +279,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if web_dist.exists():
         app.mount("/", StaticFiles(directory=web_dist, html=True), name="web")
     else:
+
         @app.get("/", include_in_schema=False)
         def root() -> JSONResponse:
             return JSONResponse(
                 {"name": resolved.app_name, "ui": "Run `cd web && npm install && npm run dev`."}
             )
+
     return app
 
 

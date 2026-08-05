@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hmac
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from pydantic import SecretStr
@@ -14,11 +14,17 @@ from echo_masque.api.connector_schemas import (
     DiscordConnectorReplyView,
     DiscordIdentityMode,
     DiscordInboundMessage,
+    DiscordInteractionClaimRequest,
+    DiscordInteractionClaimView,
+    DiscordInteractionRunComplete,
+    DiscordInteractionSessionConnectorView,
     DiscordMessageRouteLookup,
     DiscordMessageRouteRegistration,
     DiscordMessageRouteView,
     DiscordParticipationMode,
     DiscordServerCatalogSync,
+    DiscordStickerContent,
+    DiscordStickerObservation,
     DiscordWebhookRegistration,
     DiscordWebhookRegistrationView,
     DiscordWebhookStatus,
@@ -30,6 +36,7 @@ from echo_masque.credentials import CredentialVault
 from echo_masque.persistence import (
     DeploymentRepository,
     DiscordIdentityRepository,
+    InteractionRepository,
     Repository,
 )
 from echo_masque.persistence.deployment_repository import decode_ids
@@ -67,6 +74,10 @@ def deployment_repository(request: Request) -> DeploymentRepository:
 
 def identity_repository(request: Request) -> DiscordIdentityRepository:
     return cast(DiscordIdentityRepository, request.app.state.discord_identity_repository)
+
+
+def interaction_repository(request: Request) -> InteractionRepository:
+    return cast(InteractionRepository, request.app.state.interaction_repository)
 
 
 def character_repository(request: Request) -> Repository:
@@ -344,6 +355,82 @@ def connector_heartbeat(
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Discord connection not found.")
+
+
+@router.post("/stickers/resolve", response_model=DiscordStickerContent)
+def resolve_discord_sticker(
+    payload: DiscordStickerObservation,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> DiscordStickerContent:
+    _authorize_connector(request, authorization)
+    try:
+        record = interaction_repository(request).resolve_sticker(**payload.model_dump())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Discord connection not found.") from exc
+    return DiscordStickerContent(
+        sticker_id=record.sticker_id,
+        name=record.name,
+        description=record.description,
+        tags=interaction_repository(request).sticker_tags(record),
+        format_type=record.format_type,
+        asset_url=record.asset_url,
+        semantic_intent=record.semantic_intent,
+        semantic_emotion=record.semantic_emotion,
+        semantic_description=record.semantic_description,
+        semantic_source=cast(
+            Literal["manual", "discord_metadata", "unknown"],
+            record.semantic_source,
+        ),
+        semantic_confidence=record.semantic_confidence,
+    )
+
+
+@router.post("/interaction-sessions/claim", response_model=DiscordInteractionClaimView)
+def claim_interaction_session(
+    payload: DiscordInteractionClaimRequest,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> DiscordInteractionClaimView:
+    _authorize_connector(request, authorization)
+    interaction, run, claimed = interaction_repository(request).claim_session(
+        **payload.model_dump()
+    )
+    if interaction is None or run is None:
+        return DiscordInteractionClaimView()
+    return DiscordInteractionClaimView(
+        claimed=claimed,
+        run_id=run.id,
+        session=DiscordInteractionSessionConnectorView(
+            id=interaction.id,
+            participant_deployment_ids=interaction_repository(request).participant_ids(interaction),
+            rounds_per_trigger=interaction.rounds_per_trigger,
+            intensity=cast(
+                Literal["light", "playful", "sharp"],
+                interaction.intensity,
+            ),
+            target_user_id=interaction.target_user_id,
+            target_display_name=interaction.target_display_name,
+        ),
+    )
+
+
+@router.post(
+    "/interaction-sessions/runs/{run_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def complete_interaction_run(
+    run_id: str,
+    payload: DiscordInteractionRunComplete,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    _authorize_connector(request, authorization)
+    if not interaction_repository(request).complete_run(
+        run_id=run_id,
+        **payload.model_dump(),
+    ):
+        raise HTTPException(status_code=404, detail="Interaction run not found.")
 
 
 @router.post("/messages", response_model=DiscordConnectorReplyView)

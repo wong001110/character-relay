@@ -22,6 +22,7 @@ import {
 import { DiscordServerProfilesPanel } from "./DiscordServerProfilesPanel";
 import { Pagination } from "./Pagination";
 import { useI18n } from "./i18n";
+import { InteractionSessionsPanel } from "./InteractionSessionsPanel";
 
 interface Props {
   cards: CharacterCard[];
@@ -1354,6 +1355,7 @@ export function DeploymentCenter({
           </section>
         </section>
       </section>
+      <InteractionSessionsPanel demoMode={demoMode} zh={zh} />
     </main>
   );
 }
