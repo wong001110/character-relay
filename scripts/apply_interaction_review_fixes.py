@@ -98,6 +98,51 @@ css_text += '''
 '''
 css.write_text(css_text, encoding="utf-8")
 
+tests = Path("tests/test_interaction_sessions_and_stickers.py")
+test_text = tests.read_text(encoding="utf-8")
+test_text += '''
+
+
+def test_social_prompt_keeps_prior_sticker_only_messages() -> None:
+    sticker = {
+        "sticker_id": "sticker-prior",
+        "name": "quiet_wave",
+        "description": "",
+        "tags": ["hello"],
+        "format_type": "png",
+        "asset_url": "",
+        "semantic_intent": "greeting",
+        "semantic_emotion": "friendly",
+        "semantic_description": "The member is quietly saying hello.",
+        "semantic_source": "manual",
+        "semantic_confidence": 1.0,
+    }
+    payload = DiscordInboundMessage(
+        connection_id="connection-1",
+        deployment_id="deployment-ann",
+        message_id="message-current",
+        guild_id="guild-1",
+        guild_name="Guild",
+        channel_id="channel-1",
+        channel_name="general",
+        author_id="user-1",
+        author_display_name="Target",
+        text="Did you notice my earlier Sticker?",
+        recent_messages=[
+            DiscordContextMessage(
+                message_id="message-prior",
+                author_id="user-1",
+                author_display_name="Target",
+                stickers=[sticker],
+            )
+        ],
+    )
+    prompt = DiscordConnectorRuntime._social_prompt(character_name="Ann", payload=payload)
+    recent_section = prompt.split("Latest triggering message:", maxsplit=1)[0]
+    assert "quietly saying hello" in recent_section
+'''
+tests.write_text(test_text, encoding="utf-8")
+
 # Temporary generation workflows are not product files.
 for temporary in (
     Path(".github/workflows/interaction-sticker-generator.yml"),
