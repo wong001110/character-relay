@@ -1,0 +1,499 @@
+name: Organize deployment UI
+
+on:
+  push:
+    branches: [agent/organize-deployment-ui]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/organize-deployment-ui
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Apply UI organization patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"Patch anchor not found in {path}: {old[:160]!r}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              "web/src/DeploymentCenter.tsx",
+              '''interface ChannelGroup {
+            id: string;
+            name: string;
+            channels: DiscordCatalogChannel[];
+          }
+
+          const platformLabels''',
+              '''interface ChannelGroup {
+            id: string;
+            name: string;
+            channels: DiscordCatalogChannel[];
+          }
+
+          type DeploymentSection = "deployments" | "interactions" | "diagnostics";
+
+          function initialDeploymentSection(demoMode: boolean): DeploymentSection {
+            const requested = new URLSearchParams(window.location.search).get("view");
+            if (requested === "interactions") return "interactions";
+            if (requested === "diagnostics" && !demoMode) return "diagnostics";
+            return "deployments";
+          }
+
+          const platformLabels''',
+          )
+
+          replace_once(
+              "web/src/DeploymentCenter.tsx",
+              '''  const [statusFilter, setStatusFilter] = useState<"all" | DeploymentStatus>("all");
+            const [characterFilter, setCharacterFilter] = useState(initialCharacterId ?? "all");''',
+              '''  const [statusFilter, setStatusFilter] = useState<"all" | DeploymentStatus>("all");
+            const [characterFilter, setCharacterFilter] = useState(initialCharacterId ?? "all");
+            const [activeSection, setActiveSection] = useState<DeploymentSection>(() =>
+              initialDeploymentSection(demoMode)
+            );''',
+          )
+
+          replace_once(
+              "web/src/DeploymentCenter.tsx",
+              '''  useEffect(() => {
+            if (!initialCharacterId) return;
+            setCharacterFilter(initialCharacterId);''',
+              '''  useEffect(() => {
+            const url = new URL(window.location.href);
+            if (activeSection === "deployments") url.searchParams.delete("view");
+            else url.searchParams.set("view", activeSection);
+            window.history.replaceState({}, "", url);
+          }, [activeSection]);
+
+          useEffect(() => {
+            if (!initialCharacterId) return;
+            setCharacterFilter(initialCharacterId);''',
+          )
+
+          replace_once(
+              "web/src/DeploymentCenter.tsx",
+              '              onClick={openNewDeployment}',
+              '''              onClick={() => {
+                setActiveSection("deployments");
+                openNewDeployment();
+              }}''',
+          )
+
+          replace_once(
+              "web/src/DeploymentCenter.tsx",
+              '''      </header>
+
+            <DiscordServerProfilesPanel''',
+              '''      </header>
+
+            <nav
+              className="deployment-workspace-nav"
+              aria-label={zh ? "部署中心页面" : "Deployment center sections"}
+            >
+              <div className="deployment-workspace-tabs" role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeSection === "deployments"}
+                  className={`deployment-workspace-tab${
+                    activeSection === "deployments" ? " is-active" : ""
+                  }`}
+                  onClick={() => setActiveSection("deployments")}
+                >
+                  <span>{zh ? "部署管理" : "Deployments"}</span>
+                  <small>{deploymentTotal}</small>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeSection === "interactions"}
+                  className={`deployment-workspace-tab${
+                    activeSection === "interactions" ? " is-active" : ""
+                  }`}
+                  onClick={() => setActiveSection("interactions")}
+                >
+                  <span>{zh ? "互动场景" : "Interactions"}</span>
+                  <small>{selectedWorkspaceProfile ? selectedWorkspaceProfile.guild_name : "—"}</small>
+                </button>
+                {!demoMode && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeSection === "diagnostics"}
+                    className={`deployment-workspace-tab${
+                      activeSection === "diagnostics" ? " is-active" : ""
+                    }`}
+                    onClick={() => setActiveSection("diagnostics")}
+                  >
+                    <span>{zh ? "运行诊断" : "Diagnostics"}</span>
+                    <small>
+                      {deploymentCounts.attention
+                        ? zh
+                          ? `${deploymentCounts.attention} 项需处理`
+                          : `${deploymentCounts.attention} need attention`
+                        : zh
+                          ? "状态与日志"
+                          : "Status and logs"}
+                    </small>
+                  </button>
+                )}
+              </div>
+
+              <label className="deployment-server-switcher">
+                <span>{zh ? "当前 Server" : "Current server"}</span>
+                <select
+                  value={selectedServerProfileId}
+                  onChange={(event) => setSelectedServerProfileId(event.currentTarget.value)}
+                  disabled={!serverProfiles.length}
+                >
+                  {!serverProfiles.length && (
+                    <option value="">{zh ? "尚未配置 Server" : "No server configured"}</option>
+                  )}
+                  {serverProfiles.map((profile) => (
+                    <option value={profile.id} key={profile.id}>
+                      {profile.guild_name} · {profile.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </nav>
+
+            {activeSection === "deployments" && (
+              <>
+                <DiscordServerProfilesPanel''',
+          )
+
+          replace_once(
+              "web/src/DeploymentCenter.tsx",
+              '''      </section>
+            {selectedWorkspaceProfile && (
+              <InteractionSessionsPanel''',
+              '''      </section>
+              </>
+            )}
+            {activeSection === "interactions" && selectedWorkspaceProfile && (
+              <InteractionSessionsPanel''',
+          )
+
+          replace_once(
+              "web/src/DeploymentCenter.tsx",
+              '''      )}
+            {!demoMode && (
+              <DiscordEventLogPanel''',
+              '''      )}
+            {activeSection === "interactions" && !selectedWorkspaceProfile && (
+              <section className="paper-sheet deployment-section-empty">
+                <p className="tape-label">INTERACTIONS</p>
+                <h2>{zh ? "请先选择 Discord Server" : "Select a Discord server first"}</h2>
+                <p>
+                  {zh
+                    ? "互动场景会绑定当前 Server。请在上方选择或建立一个 Server Profile。"
+                    : "Interaction sessions are scoped to the current server. Select or create a Server Profile above."}
+                </p>
+                <button
+                  type="button"
+                  className="paper-button"
+                  onClick={() => setActiveSection("deployments")}
+                >
+                  {zh ? "前往部署管理" : "Open deployment management"}
+                </button>
+              </section>
+            )}
+            {!demoMode && activeSection === "diagnostics" && (
+              <DiscordEventLogPanel''',
+          )
+
+          replace_once(
+              "web/src/DiscordEventLogPanel.tsx",
+              '''                <p>{statusDiagnosis(item.state, zh)}</p>
+                    <dl className="discord-server-status-details">''',
+              '''                <p>{statusDiagnosis(item.state, zh)}</p>
+                    <div className="discord-server-status-quick">
+                      <span>
+                        <small>Gateway</small>
+                        <strong>{booleanValue(item.gatewayReady, zh)}</strong>
+                      </span>
+                      <span>
+                        <small>{zh ? "部署同步" : "State sync"}</small>
+                        <strong>{booleanValue(item.stateSynchronized, zh)}</strong>
+                      </span>
+                      <span>
+                        <small>{zh ? "可见 Server" : "Visible servers"}</small>
+                        <strong>{item.visibleServerCount ?? "—"}</strong>
+                      </span>
+                      <span>
+                        <small>{zh ? "待上传日志" : "Pending logs"}</small>
+                        <strong>{item.eventLogPendingCount ?? "—"}</strong>
+                      </span>
+                    </div>
+                    <details className="discord-server-status-diagnostics">
+                      <summary>{zh ? "技术详情" : "Technical details"}</summary>
+                      <dl className="discord-server-status-details">''',
+          )
+
+          replace_once(
+              "web/src/DiscordEventLogPanel.tsx",
+              '''                {item.lastError && (
+                      <p className="discord-server-last-error">
+                        <strong>{zh ? "Last error：" : "Last error: "}</strong>
+                        {item.lastError}
+                      </p>
+                    )}
+                  </article>''',
+              '''                {item.lastError && (
+                      <p className="discord-server-last-error">
+                        <strong>{zh ? "Last error：" : "Last error: "}</strong>
+                        {item.lastError}
+                      </p>
+                    )}
+                    </details>
+                  </article>''',
+          )
+
+          deployment_css = Path("web/src/deployments.css")
+          deployment_css.write_text(
+              deployment_css.read_text(encoding="utf-8")
+              + '''
+
+          .deployment-workspace-nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            max-width: 1440px;
+            margin: 0 auto 22px;
+            padding: 10px;
+            border: 1px solid rgba(41, 35, 48, 0.13);
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.58);
+            box-shadow: 0 12px 30px rgba(47, 38, 54, 0.06);
+            backdrop-filter: blur(12px);
+          }
+
+          .deployment-workspace-tabs {
+            display: flex;
+            align-items: stretch;
+            gap: 6px;
+            min-width: 0;
+          }
+
+          .deployment-workspace-tab {
+            display: grid;
+            gap: 3px;
+            min-width: 148px;
+            padding: 11px 14px;
+            border: 1px solid transparent;
+            border-radius: 11px;
+            background: transparent;
+            color: rgba(41, 35, 48, 0.68);
+            text-align: left;
+            font: inherit;
+            cursor: pointer;
+          }
+
+          .deployment-workspace-tab span {
+            color: var(--ink, #292330);
+            font-weight: 800;
+          }
+
+          .deployment-workspace-tab small {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 0.72rem;
+          }
+
+          .deployment-workspace-tab:hover {
+            background: rgba(112, 86, 158, 0.07);
+          }
+
+          .deployment-workspace-tab.is-active {
+            border-color: rgba(112, 86, 158, 0.22);
+            background: rgba(112, 86, 158, 0.12);
+            box-shadow: inset 0 -2px 0 rgba(112, 86, 158, 0.5);
+          }
+
+          .deployment-server-switcher {
+            display: grid;
+            gap: 5px;
+            width: min(340px, 34vw);
+            flex: 0 0 auto;
+            font-size: 0.7rem;
+            font-weight: 800;
+            color: rgba(41, 35, 48, 0.62);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+          }
+
+          .deployment-server-switcher select {
+            width: 100%;
+            min-height: 42px;
+            padding: 8px 11px;
+            border: 1px solid rgba(41, 35, 48, 0.16);
+            border-radius: 9px;
+            background: rgba(255, 255, 255, 0.8);
+            color: var(--ink, #292330);
+            font: inherit;
+            font-weight: 700;
+            text-transform: none;
+            letter-spacing: normal;
+          }
+
+          .deployment-section-empty {
+            display: grid;
+            place-items: start;
+            gap: 10px;
+            max-width: 1440px;
+            min-height: 260px;
+            margin: 0 auto;
+            padding: 30px;
+          }
+
+          .deployment-section-empty h2,
+          .deployment-section-empty p {
+            margin: 0;
+          }
+
+          .deployment-section-empty p:not(.tape-label) {
+            max-width: 620px;
+            line-height: 1.65;
+            color: rgba(41, 35, 48, 0.68);
+          }
+
+          @media (max-width: 860px) {
+            .deployment-workspace-nav {
+              display: grid;
+            }
+
+            .deployment-workspace-tabs {
+              overflow-x: auto;
+              padding-bottom: 3px;
+            }
+
+            .deployment-workspace-tab {
+              min-width: 132px;
+            }
+
+            .deployment-server-switcher {
+              width: 100%;
+            }
+          }
+
+          @media (max-width: 520px) {
+            .deployment-workspace-nav {
+              padding: 8px;
+            }
+
+            .deployment-workspace-tab {
+              min-width: 118px;
+              padding: 10px;
+            }
+          }
+          ''',
+              encoding="utf-8",
+          )
+
+          event_css = Path("web/src/discordEventLog.css")
+          event_css.write_text(
+              event_css.read_text(encoding="utf-8")
+              + '''
+
+          .discord-server-status-quick {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 14px;
+          }
+
+          .discord-server-status-quick span {
+            display: grid;
+            gap: 3px;
+            padding: 10px;
+            border: 1px solid rgba(41, 35, 48, 0.1);
+            border-radius: 9px;
+            background: rgba(255, 255, 255, 0.46);
+          }
+
+          .discord-server-status-quick small {
+            color: rgba(41, 35, 48, 0.58);
+            font-size: 0.67rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+          }
+
+          .discord-server-status-quick strong {
+            overflow-wrap: anywhere;
+            font-size: 0.86rem;
+          }
+
+          .discord-server-status-diagnostics {
+            margin-top: 12px;
+            border-top: 1px dashed rgba(41, 35, 48, 0.16);
+            padding-top: 10px;
+          }
+
+          .discord-server-status-diagnostics > summary {
+            width: fit-content;
+            color: rgba(41, 35, 48, 0.7);
+            font-size: 0.78rem;
+            font-weight: 800;
+            cursor: pointer;
+          }
+
+          .discord-server-status-diagnostics[open] > summary {
+            margin-bottom: 12px;
+          }
+
+          @media (max-width: 720px) {
+            .discord-server-status-quick {
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+          }
+          ''',
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Validate Portal
+        working-directory: web
+        env:
+          TZ: Asia/Kuala_Lumpur
+        run: |
+          npm install
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Remove temporary and generated files
+        run: |
+          rm -f .github/workflows/organize-deployment-ui.yml
+          rm -rf web/dist
+          git checkout -- web/package-lock.json 2>/dev/null || true
+
+      - name: Commit validated UI
+        run: |
+          git config user.name "Wong Juen An"
+          git config user.email "62807108+wong001110@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+            exit 1
+          fi
+          git commit -m "feat: organize deployment center navigation"
+          git push origin HEAD:agent/organize-deployment-ui
