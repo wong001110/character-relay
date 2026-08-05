@@ -15,6 +15,7 @@ interface Props {
   onClose: () => void;
   onLogout: () => Promise<void>;
   onDeleted: () => void;
+  embedded?: boolean;
 }
 
 type Tab = "sessions" | "data" | "admin";
@@ -98,7 +99,13 @@ const copy = {
   }
 } as const;
 
-export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
+export function AccountPanel({
+  user,
+  onClose,
+  onLogout,
+  onDeleted,
+  embedded = false
+}: Props) {
   const { language } = useI18n();
   const t = copy[language];
   const [tab, setTab] = useState<Tab>("sessions");
@@ -229,18 +236,19 @@ export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
     });
   }
 
-  return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+  const content = (
       <section
-        className="account-sheet paper-sheet"
+        className={`account-sheet paper-sheet${embedded ? " account-sheet-embedded" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="account-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button className="close-button" onClick={onClose} aria-label={t.close}>
-          ×
-        </button>
+        {!embedded && (
+          <button className="close-button" onClick={onClose} aria-label={t.close}>
+            ×
+          </button>
+        )}
         <p className="tape-label">{user.role === "admin" ? "ADMIN" : "ACCOUNT"}</p>
         <h2 id="account-title">{t.title}</h2>
         <p className="account-identity">
@@ -497,6 +505,11 @@ export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {
 
         {working && <p className="working-note">{t.working}</p>}
       </section>
+  );
+  if (embedded) return content;
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      {content}
     </div>
   );
 }

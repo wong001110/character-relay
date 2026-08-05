@@ -1,6 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
 
-import { AccountPanel } from "./AccountPanel";
 import { AdminSettings } from "./AdminSettings";
 import {
   api,
@@ -22,11 +21,8 @@ import { EvaluationLab } from "./EvaluationLab";
 import { useI18n } from "./i18n";
 import { MatrixWorkspace } from "./MatrixWorkspace";
 import { PackRunLauncher } from "./PackRunLauncher";
+import { PortalToolbox } from "./PortalToolbox";
 import { PromptInspector } from "./PromptInspector";
-import {
-  ProviderTraceAccessButton,
-  ProviderTraceViewer
-} from "./ProviderTraceViewer";
 import { isPublicDemoUser } from "./publicDemo";
 import { TemplateLab } from "./TemplateLab";
 import { TestRoom } from "./TestRoom";
@@ -36,6 +32,7 @@ import "./polish.css";
 import "./auth-account.css";
 import "./deployments.css";
 import "./provider-traces.css";
+import "./notebook-ui.css";
 
 const SHOW_ADVANCED_LABS = false;
 
@@ -53,12 +50,10 @@ export default function App() {
   const [editingCard, setEditingCard] = useState<CharacterCard | null>(null);
   const [promptCard, setPromptCard] = useState<CharacterCard | null>(null);
   const [adminOpen, setAdminOpen] = useState(false);
-  const [accountOpen, setAccountOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [matrixOpen, setMatrixOpen] = useState(false);
   const [deploymentsOpen, setDeploymentsOpen] = useState(false);
   const [deploymentCharacterId, setDeploymentCharacterId] = useState<string | null>(null);
-  const [providerTracesOpen, setProviderTracesOpen] = useState(false);
   const [authoringOpen, setAuthoringOpen] = useState(false);
   const [calibrationOpen, setCalibrationOpen] = useState(false);
   const [evaluationOpen, setEvaluationOpen] = useState(false);
@@ -133,12 +128,10 @@ export default function App() {
     setEditingCard(null);
     setPromptCard(null);
     setAdminOpen(false);
-    setAccountOpen(false);
     setWorkspaceOpen(false);
     setMatrixOpen(false);
     setDeploymentsOpen(false);
     setDeploymentCharacterId(null);
-    setProviderTracesOpen(false);
     setAuthoringOpen(false);
     setCalibrationOpen(false);
     setEvaluationOpen(false);
@@ -189,10 +182,6 @@ export default function App() {
       setAdminOpen(true);
       return;
     }
-    if (user) {
-      setAccountOpen(true);
-      return;
-    }
     setError(language === "zh-CN" ? "需要管理员账户。" : "An Admin account is required.");
   }
 
@@ -206,81 +195,15 @@ export default function App() {
       <>
         {content}
         {user && (
-          <div
-            style={{
-              position: "fixed",
-              top: 16,
-              right: 16,
-              zIndex: 40,
-              display: "flex",
-              gap: 8,
-              flexWrap: "wrap",
-              justifyContent: "flex-end"
-            }}
-          >
-            {SHOW_ADVANCED_LABS && (
-              <>
-                <button
-                  type="button"
-                  className="paper-button"
-                  onClick={() => setAuthoringOpen(true)}
-                >
-                  {language === "zh-CN" ? "评测编写" : "Authoring Lab"}
-                </button>
-                <button
-                  type="button"
-                  className="paper-button"
-                  onClick={() => setCalibrationOpen(true)}
-                >
-                  {language === "zh-CN" ? "校准数据" : "Calibration Lab"}
-                </button>
-                <button
-                  type="button"
-                  className="paper-button"
-                  onClick={() => setEvaluationOpen(true)}
-                >
-                  {language === "zh-CN" ? "Judge 分析" : "Judge Analytics"}
-                </button>
-                <button
-                  type="button"
-                  className="paper-button"
-                  onClick={() => setCoverageOpen(true)}
-                >
-                  {language === "zh-CN" ? "覆盖分析" : "Coverage Lab"}
-                </button>
-                <button
-                  type="button"
-                  className="paper-button"
-                  onClick={() => setTemplateOpen(true)}
-                >
-                  {language === "zh-CN" ? "模板与分享" : "Templates & Sharing"}
-                </button>
-              </>
-            )}
-            {user.role === "admin" && !publicDemo && (
-              <ProviderTraceAccessButton onOpen={() => setProviderTracesOpen(true)} />
-            )}
-            {publicDemo ? (
-              <button type="button" className="paper-button" onClick={() => void logout()}>
-                {language === "zh-CN" ? "退出 Demo" : "Sign out of Demo"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="paper-button"
-                onClick={() => setAccountOpen(true)}
-              >
-                {language === "zh-CN" ? "账户与安全" : "Account & security"}
-              </button>
-            )}
-          </div>
-        )}
-        {accountOpen && user && !publicDemo && (
-          <AccountPanel
+          <PortalToolbox
             user={user}
-            onClose={() => setAccountOpen(false)}
+            publicDemo={publicDemo}
+            onDeployments={() => openDeployments()}
+            onWorkspace={() => setWorkspaceOpen(true)}
+            onMatrix={() => setMatrixOpen(true)}
+            onAdmin={openAdmin}
             onLogout={logout}
-            onDeleted={accountDeleted}
+            onAccountDeleted={accountDeleted}
           />
         )}
         {adminOpen && user?.role === "admin" && (
@@ -329,10 +252,6 @@ export default function App() {
         }}
       />
     );
-  }
-
-  if (providerTracesOpen) {
-    return <ProviderTraceViewer onClose={() => setProviderTracesOpen(false)} />;
   }
 
   if (SHOW_ADVANCED_LABS && templateOpen && user) {
@@ -474,10 +393,6 @@ export default function App() {
         onPrompt={setPromptCard}
         onEnter={setActiveCard}
         onDeploy={(card) => openDeployments(card.id)}
-        onDeployments={() => openDeployments()}
-        onAdmin={openAdmin}
-        onWorkspace={() => setWorkspaceOpen(true)}
-        onMatrix={() => setMatrixOpen(true)}
       />
       {creatorOpen && !publicDemo && (
         <CharacterCreator

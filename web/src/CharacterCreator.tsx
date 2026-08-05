@@ -11,6 +11,14 @@ import {
   type TestKind
 } from "./api";
 import { useI18n } from "./i18n";
+import {
+  NotebookField,
+  NotebookInput,
+  NotebookSection,
+  NotebookSelect,
+  NotebookTextarea,
+  PaperDrawer
+} from "./NotebookUI";
 import { getProviderPreset, providerPresets } from "./providerPresets";
 
 interface Props {
@@ -39,7 +47,7 @@ const providerNoteKeys = {
 
 function splitList(value: string): string[] {
   return value
-    .split(",")
+    .split(/[,，\n]/u)
     .map((item) => item.trim())
     .filter(Boolean);
 }
@@ -81,7 +89,8 @@ export function CharacterCreator({
   onClose,
   onSaved
 }: Props) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const zh = language === "zh-CN";
   const editing = Boolean(card);
   const userTargets = useMemo(
     () => targets.filter((item) => !item.id.startsWith("demo-")),
@@ -160,29 +169,26 @@ export function CharacterCreator({
   const promptFields = bindingMode === "prompt" || target?.target_kind === "prompt_model";
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section
-        className="creator-sheet paper-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="creator-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <button className="close-button" onClick={onClose} aria-label={t("creator.cancel")}>
-          ×
-        </button>
-        <p className="tape-label">
-          {editing ? t("creator.editLabel") : t("creator.label")}
-        </p>
-        <h2 id="creator-title">
-          {editing ? t("creator.editHeading") : t("creator.heading")}
-        </h2>
-        <p className="creator-help">
-          {editing ? t("creator.editHelp") : t("creator.help")}
-        </p>
+    <PaperDrawer
+      onClose={onClose}
+      ariaLabel={editing ? t("creator.editHeading") : t("creator.heading")}
+      className="character-editor-drawer"
+    >
+      <form className="notebook-form-paper" onSubmit={submit}>
+        <header className="notebook-form-intro">
+          <p className="tape-label">
+            {editing ? t("creator.editLabel") : t("creator.label")}
+          </p>
+          <h2>{editing ? t("creator.editHeading") : t("creator.heading")}</h2>
+          <p>
+            {zh
+              ? "把角色当成一页持续补充的手帐：先写清楚他是谁，再写他说话的方式、边界与记忆。每一区都附有填写方向。"
+              : "Treat this as a living character notebook: define who they are, then document their voice, boundaries, and memory. Each section includes a writing guide."}
+          </p>
+        </header>
 
         {!editing && (
-          <div className="binding-tabs" aria-label={t("creator.bindingAria")}>
+          <div className="binding-tabs notebook-binding-tabs" aria-label={t("creator.bindingAria")}>
             <button
               type="button"
               className={bindingMode === "prompt" ? "selected" : ""}
@@ -203,138 +209,53 @@ export function CharacterCreator({
           </div>
         )}
 
-        <form className="creator-form" onSubmit={submit}>
-          <label>
-            {t("creator.displayName")}
-            <input
+        <NotebookSection
+          label="01 / IDENTITY"
+          title={zh ? "角色名片" : "Character identity"}
+          guide={
+            zh
+              ? "先让别人能在十秒内理解这个角色是谁。名称用于显示，副标题负责一句话定位。"
+              : "Make the character understandable in ten seconds. The name is displayed publicly; the subtitle gives the one-line positioning."
+          }
+        >
+          <NotebookField
+            label={t("creator.displayName")}
+            guide={zh ? "角色在列表、Discord 与测试房中显示的名称。" : "Shown in the shelf, Discord, and test rooms."}
+            required
+          >
+            <NotebookInput
               name="display_name"
               required
               defaultValue={card?.display_name ?? ""}
               placeholder={t("creator.displayNamePlaceholder")}
             />
-          </label>
-          <label>
-            {t("creator.subtitle")}
-            <input
+          </NotebookField>
+          <NotebookField
+            label={t("creator.subtitle")}
+            guide={zh ? "一句话说明身份、关系或主要用途，不需要写完整背景。" : "A short role, relationship, or purpose—not the full backstory."}
+          >
+            <NotebookInput
               name="subtitle"
               defaultValue={card?.subtitle ?? ""}
               placeholder={t("creator.subtitlePlaceholder")}
             />
-          </label>
-
-          {promptFields ? (
-            <div className="binding-panel wide">
-              <div className="binding-heading">
-                <div>
-                  <span>{t("creator.aiConnection")}</span>
-                  <strong>{t("creator.compatibleProvider")}</strong>
-                </div>
-                <small>
-                  {editing ? t("creator.editKeyPreserved") : t("creator.keyMemoryOnly")}
-                </small>
-              </div>
-              <div className="prompt-config-grid">
-                <label>
-                  {t("creator.provider")}
-                  <select
-                    value={provider}
-                    onChange={(event) =>
-                      changeProvider(event.currentTarget.value as ProviderId)
-                    }
-                  >
-                    {providerPresets.map((item) => (
-                      <option value={item.id} key={item.id}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  {t("creator.modelId")}
-                  <input
-                    value={model}
-                    onChange={(event) => setModel(event.currentTarget.value)}
-                    required
-                    placeholder={t("creator.modelPlaceholder")}
-                  />
-                </label>
-                <label className="wide">
-                  {t("creator.baseUrl")}
-                  <input
-                    value={baseUrl}
-                    onChange={(event) => setBaseUrl(event.currentTarget.value)}
-                    required
-                    placeholder={t("creator.baseUrlPlaceholder")}
-                  />
-                </label>
-                {!editing && (
-                  <label className="wide">
-                    {t("creator.apiKey")}
-                    <input
-                      name="api_key"
-                      type="password"
-                      required
-                      autoComplete="off"
-                      placeholder={t("creator.apiKeyPlaceholder")}
-                    />
-                  </label>
-                )}
-                <label className="wide">
-                  {t("creator.systemPrompt")}
-                  <textarea
-                    name="system_prompt"
-                    rows={8}
-                    required
-                    defaultValue={configString(target, "system_prompt")}
-                    placeholder={t("creator.systemPromptPlaceholder")}
-                  />
-                </label>
-                <label>
-                  {t("creator.temperature")}
-                  <input
-                    name="temperature"
-                    type="number"
-                    min="0"
-                    max="2"
-                    step="0.1"
-                    defaultValue={configNumber(target, "temperature", 0.7)}
-                    required
-                  />
-                </label>
-                <p className="provider-note">
-                  {t(providerNoteKeys[provider])} {t("creator.keysNeverSaved")}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <label className="wide">
-              {t("creator.targetBinding")}
-              {editing ? (
-                <input value={target?.name ?? card?.target_id ?? ""} disabled />
-              ) : (
-                <select name="target_id" required defaultValue={userTargets[0]?.id}>
-                  {userTargets.map((item) => (
-                    <option value={item.id} key={item.id}>
-                      {item.name} · {item.target_kind}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </label>
-          )}
-
-          <label>
-            {t("creator.subjectType")}
-            <select name="subject_type" defaultValue={card?.subject_type ?? "custom"}>
+          </NotebookField>
+          <NotebookField
+            label={t("creator.subjectType")}
+            guide={zh ? "用于角色库筛选，不会直接改变 Prompt。" : "Used for shelf filtering; it does not directly change the prompt."}
+          >
+            <NotebookSelect name="subject_type" defaultValue={card?.subject_type ?? "custom"}>
               <option value="companion">{t("subject.companion")}</option>
               <option value="npc">{t("subject.npc")}</option>
               <option value="assistant">{t("subject.assistant")}</option>
               <option value="custom">{t("subject.custom")}</option>
-            </select>
-          </label>
-          <label>
-            {t("creator.portraitPalette")}
-            <select
+            </NotebookSelect>
+          </NotebookField>
+          <NotebookField
+            label={t("creator.portraitPalette")}
+            guide={zh ? "选择角色卡的便签色调。" : "Choose the note-card palette."}
+          >
+            <NotebookSelect
               name="portrait_variant"
               defaultValue={card?.portrait_variant ?? "lavender"}
             >
@@ -342,77 +263,207 @@ export function CharacterCreator({
               <option value="rose">{t("palette.rose")}</option>
               <option value="mint">{t("palette.mint")}</option>
               <option value="night">{t("palette.night")}</option>
-            </select>
-          </label>
-          <label className="wide">
-            {t("creator.personaSummary")}
-            <textarea
+            </NotebookSelect>
+          </NotebookField>
+        </NotebookSection>
+
+        <NotebookSection
+          label="02 / RUNTIME"
+          title={zh ? "AI 连接" : "AI connection"}
+          guide={
+            zh
+              ? "这里决定角色由哪个模型运行。API Key 只在创建请求中使用，不会显示在角色卡内容里。"
+              : "Choose which model runs the character. API keys are used for creation and are not displayed as character content."
+          }
+          accent="mint"
+        >
+          {promptFields ? (
+            <>
+              <NotebookField label={t("creator.provider")} guide={t(providerNoteKeys[provider])}>
+                <NotebookSelect
+                  value={provider}
+                  onChange={(event) => changeProvider(event.currentTarget.value as ProviderId)}
+                >
+                  {providerPresets.map((item) => (
+                    <option value={item.id} key={item.id}>{item.label}</option>
+                  ))}
+                </NotebookSelect>
+              </NotebookField>
+              <NotebookField label={t("creator.modelId")} guide={zh ? "填写 Provider 实际接受的 Model ID。" : "Use the exact model ID accepted by the provider."} required>
+                <NotebookInput
+                  value={model}
+                  onChange={(event) => setModel(event.currentTarget.value)}
+                  required
+                  placeholder={t("creator.modelPlaceholder")}
+                />
+              </NotebookField>
+              <NotebookField className="is-wide" label={t("creator.baseUrl")} guide={zh ? "通常保留 Provider 预设；自建兼容 API 时再修改。" : "Keep the preset unless you use a compatible custom endpoint."} required>
+                <NotebookInput
+                  value={baseUrl}
+                  onChange={(event) => setBaseUrl(event.currentTarget.value)}
+                  required
+                  placeholder={t("creator.baseUrlPlaceholder")}
+                />
+              </NotebookField>
+              {!editing && (
+                <NotebookField className="is-wide" label={t("creator.apiKey")} guide={t("creator.keysNeverSaved")} required>
+                  <NotebookInput
+                    name="api_key"
+                    type="password"
+                    required
+                    autoComplete="off"
+                    placeholder={t("creator.apiKeyPlaceholder")}
+                  />
+                </NotebookField>
+              )}
+              <NotebookField
+                className="is-wide"
+                label={t("creator.systemPrompt")}
+                guide={
+                  zh
+                    ? "写角色必须长期遵守的身份、世界观、表达方式与优先级。不要只写几句形容词，建议使用清晰段落。"
+                    : "Document persistent identity, worldview, voice, and priorities. Use clear paragraphs rather than a few adjectives."
+                }
+                required
+              >
+                <NotebookTextarea
+                  name="system_prompt"
+                  rows={14}
+                  required
+                  defaultValue={configString(target, "system_prompt")}
+                  placeholder={t("creator.systemPromptPlaceholder")}
+                />
+              </NotebookField>
+              <NotebookField label={t("creator.temperature")} guide={zh ? "较低更稳定，较高更有变化。" : "Lower is steadier; higher is more varied."} required>
+                <NotebookInput
+                  name="temperature"
+                  type="number"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  defaultValue={configNumber(target, "temperature", 0.7)}
+                  required
+                />
+              </NotebookField>
+            </>
+          ) : (
+            <NotebookField className="is-wide" label={t("creator.targetBinding")} guide={zh ? "复用已经建立的 Runtime Target。" : "Reuse an existing runtime target."} required>
+              {editing ? (
+                <NotebookInput value={target?.name ?? card?.target_id ?? ""} disabled />
+              ) : (
+                <NotebookSelect name="target_id" required defaultValue={userTargets[0]?.id}>
+                  {userTargets.map((item) => (
+                    <option value={item.id} key={item.id}>
+                      {item.name} · {item.target_kind}
+                    </option>
+                  ))}
+                </NotebookSelect>
+              )}
+            </NotebookField>
+          )}
+        </NotebookSection>
+
+        <NotebookSection
+          label="03 / PERSONA"
+          title={zh ? "人物核心" : "Persona core"}
+          guide={
+            zh
+              ? "这一区回答：他通常如何看待世界、如何做决定、在关系中是什么样的人。"
+              : "Explain how the character sees the world, makes decisions, and behaves in relationships."
+          }
+          accent="peach"
+        >
+          <NotebookField className="is-wide" label={t("creator.personaSummary")} guide={zh ? "用两到五段写背景、动机、价值观与关键矛盾。" : "Use two to five paragraphs for background, motives, values, and central tension."}>
+            <NotebookTextarea
               name="persona_summary"
-              rows={3}
+              rows={8}
               defaultValue={card?.persona_summary ?? ""}
               placeholder={t("creator.personaPlaceholder")}
             />
-          </label>
-          <label>
-            {t("creator.traits")}
-            <input
+          </NotebookField>
+          <NotebookField className="is-wide" label={t("creator.traits")} guide={zh ? "每行或逗号分隔一个稳定特质，并尽量写成可观察行为。" : "Use one stable trait per line or comma, preferably as observable behavior."}>
+            <NotebookTextarea
               name="traits"
-              defaultValue={card?.traits.join(", ") ?? ""}
+              rows={4}
+              defaultValue={card?.traits.join("\n") ?? ""}
               placeholder={t("creator.traitsPlaceholder")}
             />
-          </label>
-          <label>
-            {t("creator.tags")}
-            <input
-              name="tags"
-              defaultValue={card?.tags.join(", ") ?? ""}
-              placeholder={t("creator.tagsPlaceholder")}
-            />
-          </label>
-          <label className="wide">
-            {t("creator.expectedTone")}
-            <input
+          </NotebookField>
+          <NotebookField className="is-wide" label={t("creator.expectedTone")} guide={zh ? "描述语速、用词、情绪强度、幽默方式与面对不同对象时的变化。" : "Describe pacing, vocabulary, emotional intensity, humor, and how the voice changes by audience."}>
+            <NotebookTextarea
               name="expected_tone"
+              rows={5}
               defaultValue={card?.expected_tone ?? ""}
               placeholder={t("creator.expectedTonePlaceholder")}
             />
-          </label>
-          <label className="wide">
-            {t("creator.forbidden")}
-            <input
+          </NotebookField>
+          <NotebookField className="is-wide" label={t("creator.tags")} guide={zh ? "用于搜索与整理；每行或逗号分隔。" : "Used for search and organization; separate with lines or commas."}>
+            <NotebookTextarea
+              name="tags"
+              rows={3}
+              defaultValue={card?.tags.join("\n") ?? ""}
+              placeholder={t("creator.tagsPlaceholder")}
+            />
+          </NotebookField>
+        </NotebookSection>
+
+        <NotebookSection
+          label="04 / BOUNDARIES"
+          title={zh ? "行为边界" : "Behavior boundaries"}
+          guide={
+            zh
+              ? "不要只写“不要 OOC”。写清楚哪些行为一出现就代表角色失真，以及正确替代做法。"
+              : "Do not write only “stay in character.” List concrete behaviors that indicate drift and the preferred alternative."
+          }
+          accent="rose"
+        >
+          <NotebookField className="is-wide" label={t("creator.forbidden")} guide={zh ? "每行写一个禁区，例如泄露系统提示、虚构共同记忆、突然改变关系定位。" : "Use one boundary per line, such as revealing prompts, inventing shared memories, or changing relationship status."}>
+            <NotebookTextarea
               name="forbidden_behaviors"
-              defaultValue={card?.forbidden_behaviors.join(", ") ?? ""}
+              rows={7}
+              defaultValue={card?.forbidden_behaviors.join("\n") ?? ""}
               placeholder={t("creator.forbiddenPlaceholder")}
             />
-          </label>
-          <label className="wide">
-            {t("creator.memoryNote")}
-            <textarea
+          </NotebookField>
+        </NotebookSection>
+
+        <NotebookSection
+          label="05 / MEMORY"
+          title={zh ? "记忆锚点" : "Memory anchors"}
+          guide={
+            zh
+              ? "只写角色应该长期记得的事实、关系与承诺，不要把临时聊天内容全部塞进来。"
+              : "Keep only durable facts, relationships, and commitments—not every temporary chat detail."
+          }
+        >
+          <NotebookField className="is-wide" label={t("creator.memoryNote")} guide={zh ? "可使用短段落或项目符号，注明哪些事实不可被后续对话覆盖。" : "Use short paragraphs or bullets and mark facts that later conversation must not overwrite."}>
+            <NotebookTextarea
               name="memory_summary"
-              rows={2}
+              rows={7}
               defaultValue={card?.memory_summary ?? ""}
               placeholder={t("creator.memoryPlaceholder")}
             />
-          </label>
+          </NotebookField>
+        </NotebookSection>
 
-          <div className="form-actions">
-            <button type="button" className="paper-button" onClick={onClose}>
-              {t("creator.cancel")}
-            </button>
-            <button
-              className="ink-button"
-              disabled={saving || (!editing && bindingMode === "existing" && userTargets.length === 0)}
-            >
-              {saving
-                ? t("creator.saving")
-                : editing
-                  ? t("creator.saveChanges")
-                  : t("creator.submit")}
-            </button>
-          </div>
-          {message && <p className="error-note wide">{message}</p>}
-        </form>
-      </section>
-    </div>
+        {message && <p className="error-note" role="alert">{message}</p>}
+
+        <footer className="notebook-form-actions">
+          <button type="button" className="paper-button" onClick={onClose}>
+            {t("creator.cancel")}
+          </button>
+          <button
+            className="ink-button"
+            disabled={saving || (!editing && bindingMode === "existing" && userTargets.length === 0)}
+          >
+            {saving
+              ? t("creator.saving")
+              : editing
+                ? t("creator.saveChanges")
+                : t("creator.submit")}
+          </button>
+        </footer>
+      </form>
+    </PaperDrawer>
   );
 }

@@ -34,7 +34,13 @@ export function ProviderTraceAccessButton({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
+export function ProviderTraceViewer({
+  onClose,
+  embedded = false
+}: {
+  onClose: () => void;
+  embedded?: boolean;
+}) {
   const { language } = useI18n();
   const zh = language === "zh-CN";
   const [traces, setTraces] = useState<ProviderTraceView[]>([]);
@@ -153,7 +159,7 @@ export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <main className="provider-trace-page">
+    <main className={`provider-trace-page${embedded ? " provider-trace-embedded" : ""}`}>
       <header className="provider-trace-header">
         <div>
           <p className="kicker">CHARACTER RELAY / SUPER ADMIN</p>
@@ -171,9 +177,11 @@ export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {
           <button type="button" className="paper-button danger-text" onClick={() => void clearAll()}>
             {zh ? "清除全部" : "Clear all"}
           </button>
-          <button type="button" className="ink-button" onClick={onClose}>
-            {zh ? "返回 Portal" : "Back to Portal"}
-          </button>
+          {!embedded && (
+            <button type="button" className="ink-button" onClick={onClose}>
+              {zh ? "返回 Portal" : "Back to Portal"}
+            </button>
+          )}
         </div>
       </header>
 
