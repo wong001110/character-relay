@@ -6,6 +6,7 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, Field
 
+from echo_masque.persistence.deployment_log_models import DeploymentLogRecord
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
     DiscordDeploymentScopeRecord,
@@ -297,3 +298,41 @@ class CharacterDeploymentPage(BaseModel):
     active: int
     paused: int
     attention: int
+
+class DeploymentLogView(BaseModel):
+    id: str
+    connection_id: str
+    deployment_id: str
+    platform: PlatformId
+    level: Literal["debug", "info", "warning", "error"]
+    event_type: str
+    message: str
+    workspace_id: str
+    channel_id: str
+    thread_id: str
+    source_message_id: str
+    details: dict[str, object]
+    created_at: datetime
+
+    @classmethod
+    def from_record(cls, record: DeploymentLogRecord) -> "DeploymentLogView":
+        try:
+            raw = json.loads(record.details_json)
+        except json.JSONDecodeError:
+            raw = {}
+        details = raw if isinstance(raw, dict) else {}
+        return cls(
+            id=record.id,
+            connection_id=record.connection_id,
+            deployment_id=record.deployment_id,
+            platform=cast(PlatformId, record.platform),
+            level=cast(Literal["debug", "info", "warning", "error"], record.level),
+            event_type=record.event_type,
+            message=record.message,
+            workspace_id=record.workspace_id,
+            channel_id=record.channel_id,
+            thread_id=record.thread_id,
+            source_message_id=record.source_message_id,
+            details=cast(dict[str, object], details),
+            created_at=record.created_at,
+        )
