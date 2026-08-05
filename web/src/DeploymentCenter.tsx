@@ -21,6 +21,7 @@ import {
 } from "./discordIdentityApi";
 import { DiscordEventLogPanel } from "./DiscordEventLogPanel";
 import { DiscordServerProfilesPanel } from "./DiscordServerProfilesPanel";
+import { PaperDrawer } from "./NotebookUI";
 import { Pagination } from "./Pagination";
 import { useI18n } from "./i18n";
 import { InteractionSessionsPanel } from "./InteractionSessionsPanel";
@@ -669,6 +670,17 @@ export function DeploymentCenter({
             </div>
 
             {connectionOpen && !demoMode && (
+              <PaperDrawer
+                onClose={closeConnectionForm}
+                ariaLabel={editingConnection
+                  ? zh
+                    ? "编辑平台账户"
+                    : "Edit platform account"
+                  : zh
+                    ? "添加平台账户"
+                    : "Add platform account"}
+                className="connection-editor-drawer"
+              >
               <form
                 className="connection-form"
                 onSubmit={saveConnection}
@@ -753,6 +765,7 @@ export function DeploymentCenter({
                         : "Save connection"}
                 </button>
               </form>
+              </PaperDrawer>
             )}
 
             <div className="connection-list">
@@ -810,6 +823,17 @@ export function DeploymentCenter({
 
         <section className="deployment-main">
           {deploymentOpen && !demoMode && (
+            <PaperDrawer
+              onClose={closeDeploymentForm}
+              ariaLabel={editingDeployment
+                ? zh
+                  ? "编辑角色部署"
+                  : "Edit character deployment"
+                : zh
+                  ? "新建角色部署"
+                  : "New character deployment"}
+              className="deployment-editor-drawer"
+            >
             <section className="paper-sheet deployment-form-sheet">
               <div className="panel-heading-row">
                 <div>
@@ -1221,6 +1245,7 @@ export function DeploymentCenter({
                 </button>
               </form>
             </section>
+            </PaperDrawer>
           )}
 
           <section className="paper-sheet deployment-list-sheet">

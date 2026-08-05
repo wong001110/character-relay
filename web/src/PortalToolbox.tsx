@@ -47,7 +47,7 @@ export function PortalToolbox({
         onClick={() => setOpen(true)}
         aria-label={zh ? "打开 Portal 工具箱" : "Open Portal toolbox"}
       >
-        <img src="/assets/brand/character-relay-mark.webp" alt="" />
+        <img src="/assets/brand/character-relay-mark.svg" alt="" />
         <span>{zh ? "工具箱" : "Tools"}</span>
       </button>
 
@@ -128,7 +128,7 @@ export function PortalToolbox({
                   </small>
                 </button>
               )}
-              {!publicDemo && (
+              {user.role === "admin" && !publicDemo && (
                 <button type="button" onClick={() => run(onAdmin)}>
                   <span className="toolbox-sticker sticker-rose">ADMIN</span>
                   <strong>{zh ? "管理员设置" : "Admin settings"}</strong>

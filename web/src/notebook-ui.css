@@ -621,3 +621,78 @@
     animation-duration: 1ms !important;
   }
 }
+
+
+.paper-drawer-panel .server-drawer {
+  position: static !important;
+  width: auto !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.server-profile-drawer .drawer-close-button {
+  display: none !important;
+}
+
+.connection-editor-drawer .connection-form,
+.deployment-editor-drawer .deployment-form-sheet {
+  margin: 0 !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.connection-editor-drawer .connection-form {
+  padding: 4px 0 24px !important;
+}
+
+.deployment-editor-drawer .deployment-form-sheet {
+  padding: 4px 0 28px !important;
+}
+
+.shelf-primary-actions {
+  position: static !important;
+}
+
+.journal-header,
+.shelf-intro,
+.library-toolbar,
+.card-grid,
+.character-card,
+.blank-card,
+.portal-toolbox-modal,
+.account-sheet,
+.provider-trace-controls,
+.provider-trace-list,
+.provider-trace-detail,
+.server-workspace-panel,
+.connection-panel,
+.deployment-summary-card,
+.deployment-list-sheet,
+.interaction-session-panel {
+  background-image: none !important;
+  backdrop-filter: none !important;
+}
+
+.ink-button,
+.paper-button,
+.enter-room,
+.binding-tabs button,
+.account-tabs button,
+.server-drawer-tabs button {
+  background-image: none !important;
+  box-shadow: none;
+}
+
+.ink-button {
+  background: #7861bd !important;
+}
+
+.paper-button,
+.enter-room {
+  background: #fffaf2 !important;
+}

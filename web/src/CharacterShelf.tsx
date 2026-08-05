@@ -92,7 +92,7 @@ export function CharacterShelf({
         <div className="brand-lockup">
           <img
             className="brand-wordmark"
-            src="/assets/brand/character-relay-wordmark.webp"
+            src="/assets/brand/character-relay-wordmark.svg"
             alt="Character Relay"
           />
           <div>
@@ -180,7 +180,7 @@ export function CharacterShelf({
 
       {cards.length === 0 ? (
         <section className="empty-library paper-sheet">
-          <img src="/assets/brand/character-relay-mark.webp" alt="" />
+          <img src="/assets/brand/character-relay-mark.svg" alt="" />
           <h2>{t("shelf.emptyTitle")}</h2>
           <p>{t("shelf.emptyHelp")}</p>
           {!demoMode && <button className="ink-button" onClick={onCreate}>{t("shelf.newCard")}</button>}

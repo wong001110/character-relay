@@ -7,6 +7,7 @@ import {
   type DiscordServerProfile,
   type PlatformConnection
 } from "./deploymentApi";
+import { PaperDrawer } from "./NotebookUI";
 import { ServerStickerDictionary } from "./ServerStickerDictionary";
 
 interface Props {
@@ -286,10 +287,18 @@ export function DiscordServerProfilesPanel({
       </section>
 
       {drawerOpen && !demoMode && (
-        <div className="server-drawer-backdrop" role="presentation" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) closeDrawer();
-        }}>
-          <aside className="server-drawer" role="dialog" aria-modal="true">
+        <PaperDrawer
+          onClose={closeDrawer}
+          ariaLabel={editing
+            ? zh
+              ? `编辑 ${editing.guild_name}`
+              : `Edit ${editing.guild_name}`
+            : zh
+              ? "添加 Discord Server"
+              : "Add Discord Server"}
+          className="server-profile-drawer"
+        >
+          <div className="server-drawer">
             <header className="server-drawer-header">
               <div>
                 <p className="tape-label">{editing ? "EDIT SERVER" : "NEW SERVER"}</p>
@@ -474,8 +483,8 @@ export function DiscordServerProfilesPanel({
                 onError={onError}
               />
             )}
-          </aside>
-        </div>
+          </div>
+        </PaperDrawer>
       )}
     </>
   );

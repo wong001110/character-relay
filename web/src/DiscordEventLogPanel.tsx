@@ -35,6 +35,8 @@ const EVENT_TYPES = [
   "handler_error"
 ] as const;
 
+const SHOW_SERVER_CONNECTION_STATUS = false;
+
 const EVENT_LABELS: Record<string, { en: string; zh: string }> = {
   message_received: { en: "Gateway message received", zh: "Gateway 收到消息" },
   mention_received: { en: "Bot mention received", zh: "收到 Bot Tag" },
@@ -184,6 +186,7 @@ export function DiscordEventLogPanel({
   }, [load]);
 
   useEffect(() => {
+    if (!SHOW_SERVER_CONNECTION_STATUS) return;
     setStatusLoading(true);
     void loadStatus();
     const timer = window.setInterval(() => void loadStatus(), 10_000);
@@ -203,6 +206,7 @@ export function DiscordEventLogPanel({
 
   return (
     <section className="paper-sheet discord-event-log-panel">
+      {SHOW_SERVER_CONNECTION_STATUS && (
       <section className="discord-server-status-section">
         <div className="panel-heading-row discord-server-status-heading">
           <div>
@@ -351,6 +355,7 @@ export function DiscordEventLogPanel({
           {zh ? "状态每 10 秒自动更新。超过 2 分钟未更新会标记为过期。" : "Status refreshes every 10 seconds. Data older than two minutes is marked stale."}
         </small>
       </section>
+      )}
 
       <div className="panel-heading-row discord-event-log-heading">
         <div>
