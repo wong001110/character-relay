@@ -42,8 +42,49 @@ const relay = new RelayClient(
   config.relayConnectionId
 );
 const webhookManager = new DiscordWebhookManager(config.discordBotToken, relay);
-const eventReporter = new DiscordEventReporter((events) => relay.reportEvents(events));
+const eventReporter = new DiscordEventReporter(async (events) => {
+  const eventTypes = [...new Set(events.map((item) => item.event_type))];
+  const guildIds = [...new Set(events.map((item) => item.guild_id).filter(Boolean))];
+  log("Uploading Discord event batch to Portal.", {
+    level: "info",
+    connectionId: config.relayConnectionId,
+    eventCount: events.length,
+    eventTypes,
+    guildIds,
+    firstOccurredAt: events[0]?.occurred_at ?? null,
+    lastOccurredAt: events.at(-1)?.occurred_at ?? null
+  });
+  try {
+    await relay.reportEvents(events);
+    log("Discord event batch uploaded to Portal.", {
+      level: "info",
+      connectionId: config.relayConnectionId,
+      eventCount: events.length,
+      eventTypes,
+      guildIds
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log("Discord event batch upload failed.", {
+      level: "error",
+      connectionId: config.relayConnectionId,
+      eventCount: events.length,
+      eventTypes,
+      guildIds,
+      error: message
+    });
+    throw error;
+  }
+});
 eventReporter.start();
+log("Discord event reporter started.", {
+  level: "info",
+  connectionId: config.relayConnectionId,
+  portalEventsEndpoint: `${config.relayApiUrl}/api/connectors/discord/events`,
+  railwayReplicaRegion: process.env.RAILWAY_REPLICA_REGION ?? null,
+  railwayReplicaId: process.env.RAILWAY_REPLICA_ID ?? null,
+  railwayCommitSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null
+});
 const intents = [
   GatewayIntentBits.Guilds,
   GatewayIntentBits.GuildMessages,
@@ -121,6 +162,17 @@ function reportDiscordEvent(input: {
     deployment_id: input.deploymentId ?? "",
     character_name: input.characterName ?? "",
     details: input.details ?? {}
+  });
+  log("Discord event queued for Portal.", {
+    level: input.level,
+    eventType: input.eventType,
+    connectionId: config.relayConnectionId,
+    guildId: input.guildId ?? null,
+    channelId: input.channelId ?? null,
+    threadId: input.threadId || null,
+    sourceMessageId: input.sourceMessageId ?? null,
+    deploymentId: input.deploymentId || null,
+    pendingPortalLogs: eventReporter.pendingCount
   });
 }
 
@@ -898,9 +950,26 @@ async function processMessage(message: Message): Promise<void> {
     guildMessage.guildId,
     location.categoryId
   );
-  reportDiscordEvent({
-    level: "info",
-    eventType: "message_received",
+  log("Discord Gateway message received.", {
+  level: "info",
+  connectionId: config.relayConnectionId,
+  guildId: guildMessage.guildId,
+  guildName: guildMessage.guild.name,
+  channelId: location.channelId,
+  channelName: location.channelName,
+  threadId: location.threadId || null,
+  sourceMessageId: guildMessage.id,
+  authorId: guildMessage.author.id,
+  mentionedBot,
+  candidateCount: candidates.length,
+  hasReadableText: Boolean(originalText),
+  stickerCount: guildMessage.stickers.size,
+  railwayReplicaRegion: process.env.RAILWAY_REPLICA_REGION ?? null,
+  railwayReplicaId: process.env.RAILWAY_REPLICA_ID ?? null
+});
+reportDiscordEvent({
+  level: "info",
+  eventType: "message_received",
     message: "A Discord message reached the Gateway message handler.",
     guildId: guildMessage.guildId,
     guildName: guildMessage.guild.name,
