@@ -61,7 +61,7 @@ jobs:
           npm test
           npm run build
           cd ../../web
-          npm ci
+          npm install --no-package-lock
           npm run typecheck
           npm test
           npm run build
