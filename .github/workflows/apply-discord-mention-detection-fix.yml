@@ -1,0 +1,147 @@
+name: Apply Discord mention detection fix
+
+on:
+  push:
+    branches: [agent/fix-discord-mention-detection]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-discord-mention-detection
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Apply source patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("connectors/discord/src/index.ts")
+          text = path.read_text(encoding="utf-8")
+
+          def replace_once(old: str, new: str) -> None:
+              global text
+              if old not in text:
+                  raise SystemExit(f"Patch anchor not found: {old[:140]!r}")
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              'import { ContextBuffer } from "./contextBuffer.js";\n',
+              'import { ContextBuffer } from "./contextBuffer.js";\nimport { detectBotMention, stripBotMentionTokens } from "./mentionDetection.js";\n',
+          )
+
+          replace_once(
+              '''function normalizedText(message: Message<true>, botUserId: string): string {
+            return message.content
+              .trim()
+              .replaceAll(new RegExp(`<@!?${botUserId}>`, "g"), "")
+              .trim();
+          }''',
+              '''function normalizedText(
+            message: Message<true>,
+            botUserId: string,
+            managedBotRoleIds: string[]
+          ): string {
+            return stripBotMentionTokens(message.content, botUserId, managedBotRoleIds);
+          }''',
+          )
+
+          replace_once(
+              '''  const originalText = normalizedText(guildMessage, botUser.id);
+            const mentionedBot = guildMessage.mentions.users.has(botUser.id);''',
+              '''  const mentionedUserIds = [...guildMessage.mentions.users.keys()];
+            const mentionedRoleIds = [...guildMessage.mentions.roles.keys()];
+            const managedBotRoleIds = [...guildMessage.mentions.roles.values()]
+              .filter((role) => role.tags?.botId === botUser.id)
+              .map((role) => role.id);
+            const mentionDetection = detectBotMention({
+              content: guildMessage.content,
+              botUserId: botUser.id,
+              structuredUserMention: guildMessage.mentions.users.has(botUser.id),
+              mentionedUserIds,
+              mentionedRoleIds,
+              managedBotRoleIds
+            });
+            const mentionedBot = mentionDetection.mentionedBot;
+            const originalText = normalizedText(
+              guildMessage,
+              botUser.id,
+              mentionDetection.managedBotRoleIds
+            );''',
+          )
+
+          replace_once(
+              '''  mentionedBot,
+            candidateCount: candidates.length,''',
+              '''  mentionedBot,
+            mentionSource: mentionDetection.source,
+            structuredUserMention: mentionDetection.structuredUserMention,
+            rawUserMention: mentionDetection.rawUserMention,
+            managedBotRoleMention: mentionDetection.managedBotRoleMention,
+            mentionedUserIds: mentionDetection.mentionedUserIds,
+            mentionedRoleIds: mentionDetection.mentionedRoleIds,
+            managedBotRoleIds: mentionDetection.managedBotRoleIds,
+            candidateCount: candidates.length,''',
+          )
+
+          replace_once(
+              '''      mentioned_bot: mentionedBot,
+                  candidate_count: candidates.length,''',
+              '''      mentioned_bot: mentionedBot,
+                  mention_source: mentionDetection.source,
+                  structured_user_mention: mentionDetection.structuredUserMention,
+                  raw_user_mention: mentionDetection.rawUserMention,
+                  managed_bot_role_mention: mentionDetection.managedBotRoleMention,
+                  mentioned_user_ids: mentionDetection.mentionedUserIds,
+                  mentioned_role_ids: mentionDetection.mentionedRoleIds,
+                  managed_bot_role_ids: mentionDetection.managedBotRoleIds,
+                  candidate_count: candidates.length,''',
+          )
+
+          replace_once(
+              '''        candidate_count: candidates.length,
+                    state_synchronized: stateSynchronized,''',
+              '''        candidate_count: candidates.length,
+                    mention_source: mentionDetection.source,
+                    structured_user_mention: mentionDetection.structuredUserMention,
+                    raw_user_mention: mentionDetection.rawUserMention,
+                    managed_bot_role_mention: mentionDetection.managedBotRoleMention,
+                    mentioned_user_ids: mentionDetection.mentionedUserIds,
+                    mentioned_role_ids: mentionDetection.mentionedRoleIds,
+                    managed_bot_role_ids: mentionDetection.managedBotRoleIds,
+                    state_synchronized: stateSynchronized,''',
+          )
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Validate Discord Connector
+        working-directory: connectors/discord
+        run: |
+          npm install
+          npm run typecheck
+          npm test
+          npm run build
+          docker build -t character-relay-discord:mention-fix .
+
+      - name: Remove temporary files
+        run: |
+          rm -f .github/workflows/apply-discord-mention-detection-fix.yml
+          rm -rf connectors/discord/dist
+          git checkout -- connectors/discord/package-lock.json 2>/dev/null || rm -f connectors/discord/package-lock.json
+
+      - name: Commit validated source
+        run: |
+          git config user.name "Wong Juen An"
+          git config user.email "62807108+wong001110@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: detect Discord Bot user and managed role mentions"
+          git push origin HEAD:agent/fix-discord-mention-detection
