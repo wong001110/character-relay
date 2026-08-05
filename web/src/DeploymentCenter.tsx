@@ -81,6 +81,7 @@ function defaultIdentity(deployment: CharacterDeployment): DeploymentMessageIden
     mode: webhook ? "webhook" : "bot",
     display_name: deployment.character_display_name,
     avatar_url: "",
+    address_aliases: inferredAddressAliases(deployment.character_display_name),
     webhook_status: webhook ? "pending" : "not_required",
     last_error: "",
     updated_at: deployment.updated_at
@@ -90,6 +91,29 @@ function defaultIdentity(deployment: CharacterDeployment): DeploymentMessageIden
 function connectorDisplayName(connection: PlatformConnection): string {
   const value = connection.metadata.connector_display_name;
   return typeof value === "string" ? value : "";
+}
+
+function inferredAddressAliases(...values: string[]): string[] {
+  const aliases: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const full = value.trim();
+    if (!full) continue;
+    const normalized = full
+      .replaceAll(/[（(]/gu, " · ")
+      .replaceAll(/[）)]/gu, "");
+    for (const candidate of [
+      full,
+      ...normalized.split(/\s*(?:·|•|・|／|\/|\||｜)\s*|\s+(?:-|—|–)\s+/u)
+    ]) {
+      const alias = candidate.trim();
+      const key = alias.toLocaleLowerCase();
+      if (!alias || seen.has(key)) continue;
+      seen.add(key);
+      aliases.push(alias);
+    }
+  }
+  return aliases.slice(0, 20);
 }
 
 function channelGroups(server: DiscordServerCatalog | undefined): ChannelGroup[] {
@@ -432,10 +456,15 @@ export function DeploymentCenter({
           String(data.get("identity_display_name") ?? "").trim() ||
           saved.character_display_name;
         const avatarUrl = String(data.get("identity_avatar_url") ?? "").trim();
+        const addressAliases = String(data.get("identity_address_aliases") ?? "")
+          .split(/\r?\n|,/u)
+          .map((item) => item.trim())
+          .filter(Boolean);
         await discordIdentityApi.update(saved.id, {
           mode,
           display_name: displayName,
-          avatar_url: avatarUrl || null
+          avatar_url: avatarUrl || null,
+          address_aliases: addressAliases
         });
       }
       closeDeploymentForm();
@@ -1082,6 +1111,26 @@ export function DeploymentCenter({
                           "Character"
                         }
                       />
+                    </label>
+                    <label className="deployment-form-wide">
+                      {zh ? "角色称呼 Alias" : "Character address aliases"}
+                      <input
+                        name="identity_address_aliases"
+                        defaultValue={(
+                          formIdentity?.address_aliases.length
+                            ? formIdentity.address_aliases
+                            : inferredAddressAliases(
+                                formIdentity?.display_name ?? "",
+                                cards.find((card) => card.id === draftCharacterId)?.display_name ?? ""
+                              )
+                        ).join(", ")}
+                        placeholder={zh ? "安, Ann" : "Ann, 安"}
+                      />
+                      <small>
+                        {zh
+                          ? "用逗号分隔。路由会优先使用这些明确称呼，不再依赖显示名称格式。"
+                          : "Comma-separated explicit routing names, independent of display-name formatting."}
+                      </small>
                     </label>
                     <label className="deployment-form-wide">
                       {zh ? "头像公开 URL（可选）" : "Public avatar URL (optional)"}

@@ -175,9 +175,7 @@ class DiscordConnectorRuntime:
             if environment_key:
                 credential = SecretStr(environment_key)
         if credential is None:
-            raise ConnectorRuntimeError(
-                "The deployed Character Card needs a provider credential."
-            )
+            raise ConnectorRuntimeError("The deployed Character Card needs a provider credential.")
         compiled = compile_character_prompt(config.system_prompt, character_profile)
         return PromptModelTarget(
             config=config,
@@ -223,14 +221,17 @@ class DiscordConnectorRuntime:
         )
         tag_guidance: tuple[str, ...] = ()
         if peers:
+            example = f"@{peers[0]}"
+            if len(peers) > 1:
+                example = f"{example} and @{peers[1]}"
             tag_guidance = (
-                f"Other active characters at this location: {', '.join(peers)}.",
+                f"Other active character Tags at this location: {', '.join(peers)}.",
                 "To intentionally invite another character to answer, begin your "
-                "reply with @ followed by that character's displayed name or a clear "
-                "bilingual alias. Tag each intended character separately, for example "
-                "@Ning or @Ning and @Zhi.",
-                "Use character tags sparingly and only when their response adds value. "
-                "Never tag yourself. A leading tag may cause another provider call.",
+                "reply with @ followed by one of the listed character Tags. Tag each "
+                f"intended character separately, for example {example}.",
+                "The examples name other active characters, never you. Use character "
+                "tags sparingly and only when their response adds value. Never tag "
+                "yourself. A leading tag may cause another provider call.",
             )
         source_guidance = (
             "The latest triggering message was written by another deployed character."

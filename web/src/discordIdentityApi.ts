@@ -10,6 +10,7 @@ export interface DeploymentMessageIdentity {
   mode: DeploymentIdentityMode;
   display_name: string;
   avatar_url: string;
+  address_aliases: string[];
   webhook_status: DeploymentWebhookStatus;
   last_error: string;
   updated_at: string;
@@ -19,6 +20,7 @@ export interface DeploymentMessageIdentityUpdate {
   mode: DeploymentIdentityMode;
   display_name: string;
   avatar_url: string | null;
+  address_aliases: string[];
 }
 
 async function errorMessage(response: Response): Promise<string> {

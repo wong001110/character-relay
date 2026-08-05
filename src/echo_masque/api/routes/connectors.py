@@ -103,9 +103,7 @@ def list_connector_deployments(
             continue
         scope = deployments.get_deployment_scope(record.id)
         profile = (
-            deployments.get_server_profile_for_deployment(record.id)
-            if scope is not None
-            else None
+            deployments.get_server_profile_for_deployment(record.id) if scope is not None else None
         )
         if scope is not None and profile is None:
             continue
@@ -114,9 +112,7 @@ def list_connector_deployments(
             DiscordIdentityMode,
             identity.mode if identity is not None else "webhook",
         )
-        identity_name = (
-            identity.display_name if identity is not None else card.display_name
-        )
+        identity_name = identity.display_name if identity is not None else card.display_name
         identity_avatar = identity.avatar_url if identity is not None else ""
         webhook_status = cast(
             DiscordWebhookStatus,
@@ -177,6 +173,7 @@ def list_connector_deployments(
                 identity_mode=identity_mode,
                 identity_display_name=identity_name,
                 identity_avatar_url=identity_avatar,
+                address_aliases=identities.get_address_aliases(record.id, record.owner_id),
                 webhook_status=webhook_status,
                 webhook_id=binding.webhook_id if binding is not None else None,
                 webhook_token=webhook_token,

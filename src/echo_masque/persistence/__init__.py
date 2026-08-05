@@ -29,6 +29,7 @@ from echo_masque.persistence.deployment_repository import (
     DeploymentRepository,
 )
 from echo_masque.persistence.discord_identity_models import (
+    DeploymentMessageAliasRecord,
     DeploymentMessageIdentityRecord,
     DiscordMessageRouteRecord,
     DiscordWebhookBindingRecord,
@@ -78,6 +79,7 @@ __all__ = [
     "CharacterDeploymentRecord",
     "Database",
     "DeploymentConflict",
+    "DeploymentMessageAliasRecord",
     "DeploymentMessageIdentityRecord",
     "DeploymentRepository",
     "DiscordDeploymentScopeRecord",

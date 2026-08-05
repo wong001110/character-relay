@@ -126,6 +126,7 @@ def expected_connector_deployment(
     webhook_token: str | None = None,
     identity_name: str | None = None,
     avatar_url: str = "",
+    address_aliases: list[str] | None = None,
 ) -> dict[str, object]:
     return {
         "deployment_id": deployment["id"],
@@ -149,6 +150,7 @@ def expected_connector_deployment(
         "identity_mode": "webhook",
         "identity_display_name": identity_name or character_name,
         "identity_avatar_url": avatar_url,
+        "address_aliases": address_aliases or [],
         "webhook_status": webhook_status,
         "webhook_id": webhook_id,
         "webhook_token": webhook_token,
@@ -217,6 +219,7 @@ def test_discord_webhook_identity_is_editable_and_encrypted(tmp_path: Path) -> N
             "mode": "webhook",
             "display_name": "Ann in Discord",
             "avatar_url": "https://example.com/ann.png",
+            "address_aliases": ["安", "Ann"],
         },
     )
     assert updated_identity.status_code == 200, updated_identity.text
@@ -252,6 +255,7 @@ def test_discord_webhook_identity_is_editable_and_encrypted(tmp_path: Path) -> N
             webhook_token="super-secret-webhook-token",
             identity_name="Ann in Discord",
             avatar_url="https://example.com/ann.png",
+            address_aliases=["安", "Ann"],
         )
     ]
 
@@ -259,12 +263,11 @@ def test_discord_webhook_identity_is_editable_and_encrypted(tmp_path: Path) -> N
     assert public_identities.status_code == 200
     public_payload = public_identities.json()[0]
     assert public_payload["display_name"] == "Ann in Discord"
+    assert public_payload["address_aliases"] == ["安", "Ann"]
     assert "webhook_token" not in public_payload
 
     credentials = app.state.auth_repository.list_credentials()
-    webhook_credentials = [
-        item for item in credentials if item.scope_kind == "discord_webhook"
-    ]
+    webhook_credentials = [item for item in credentials if item.scope_kind == "discord_webhook"]
     assert len(webhook_credentials) == 1
     assert "super-secret-webhook-token" not in webhook_credentials[0].encrypted_value
 

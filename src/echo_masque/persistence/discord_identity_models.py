@@ -18,10 +18,22 @@ class DeploymentMessageIdentityRecord(Base):
     mode: Mapped[str] = mapped_column(String(24), default="webhook", nullable=False)
     display_name: Mapped[str] = mapped_column(String(80), nullable=False)
     avatar_url: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    webhook_status: Mapped[str] = mapped_column(
-        String(24), default="pending", nullable=False
-    )
+    webhook_status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
     last_error: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class DeploymentMessageAliasRecord(Base):
+    """Explicit names that may address one deployed character."""
+
+    __tablename__ = "deployment_message_aliases"
+
+    deployment_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    aliases_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

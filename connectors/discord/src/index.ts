@@ -17,6 +17,7 @@ import {
   deploymentsFor,
   destinationKey,
   flattenDeployments,
+  normalizeBotTagReply,
   resolveAudience,
   resolveBotTagAudience,
   shouldSubmitMessage,
@@ -241,6 +242,10 @@ function normalizedText(message: Message<true>, botUserId: string): string {
 
 function deploymentDisplayName(deployment: DiscordDeployment): string {
   return deployment.identity_display_name || deployment.character_display_name;
+}
+
+function deploymentAddressAlias(deployment: DiscordDeployment): string {
+  return deployment.address_aliases?.[0] ?? deploymentDisplayName(deployment);
 }
 
 function knownWebhookIds(): Set<string> {
@@ -538,15 +543,29 @@ async function continueBotTagConversation(
       author_is_bot: true,
       available_characters: candidates
         .filter((item) => item.deployment_id !== deployment.deployment_id)
-        .map(deploymentDisplayName),
+        .map(deploymentAddressAlias),
       recent_messages: context.get(key)
     });
     if (reply.action !== "reply" || !reply.text) continue;
+    const normalizedReply = normalizeBotTagReply(
+      candidates,
+      reply.text,
+      deployment.deployment_id,
+      config.groupAddressAliases
+    );
+    const outgoingText = normalizedReply.displayText.trim();
+    if (!outgoingText) {
+      log("Suppressed an empty character reply after removing a self Tag.", {
+        deploymentId: deployment.deployment_id,
+        sourceDeploymentId: sourceDeployment.deployment_id
+      });
+      continue;
+    }
 
     const sentMessageIds = await sendCharacterReply(
       sourceMessage,
       deployment,
-      reply.text,
+      outgoingText,
       botUserId
     );
     await rememberSentMessages(deployment, sentMessageIds, sourceMessage.guildId);
@@ -554,11 +573,11 @@ async function continueBotTagConversation(
       message_id: sentMessageIds[0] ?? `relay-bot-tag-${Date.now()}`,
       author_id: `character:${deployment.character_card_id}`,
       author_display_name: deploymentDisplayName(deployment),
-      text: reply.text,
+      text: outgoingText,
       created_at: new Date().toISOString(),
       is_bot: true
     });
-    nextTurns.push({ deployment, text: reply.text, sentMessageIds });
+    nextTurns.push({ deployment, text: outgoingText, sentMessageIds });
     log("Character tag reply sent to Discord.", {
       deploymentId: deployment.deployment_id,
       characterId: deployment.character_card_id,
@@ -696,15 +715,29 @@ async function processMessage(message: Message): Promise<void> {
         author_is_bot: false,
         available_characters: candidates
           .filter((item) => item.deployment_id !== deployment.deployment_id)
-          .map(deploymentDisplayName),
+          .map(deploymentAddressAlias),
         recent_messages: context.get(key)
       });
       if (reply.action !== "reply" || !reply.text) continue;
+      const normalizedReply = normalizeBotTagReply(
+        candidates,
+        reply.text,
+        deployment.deployment_id,
+        config.groupAddressAliases
+      );
+      const outgoingText = normalizedReply.displayText.trim();
+      if (!outgoingText) {
+        log("Suppressed an empty character reply after removing a self Tag.", {
+          deploymentId: deployment.deployment_id,
+          sourceMessageId: guildMessage.id
+        });
+        continue;
+      }
 
       const sentMessageIds = await sendCharacterReply(
         guildMessage,
         deployment,
-        reply.text,
+        outgoingText,
         botUser.id
       );
       await rememberSentMessages(
@@ -716,7 +749,7 @@ async function processMessage(message: Message): Promise<void> {
         message_id: sentMessageIds[0] ?? `relay-${Date.now()}`,
         author_id: `character:${deployment.character_card_id}`,
         author_display_name: deploymentDisplayName(deployment),
-        text: reply.text,
+        text: outgoingText,
         created_at: new Date().toISOString(),
         is_bot: true
       });
@@ -741,7 +774,7 @@ async function processMessage(message: Message): Promise<void> {
       await continueBotTagConversation(
         guildMessage,
         deployment,
-        reply.text,
+        outgoingText,
         sentMessageIds,
         candidates,
         location,

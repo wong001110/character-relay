@@ -23,9 +23,13 @@ def list_identities(
     request: Request,
     user: CurrentUserDependency,
 ) -> list[DeploymentMessageIdentityView]:
+    repository = identity_repository(request)
     return [
-        DeploymentMessageIdentityView.from_record(item)
-        for item in identity_repository(request).list_identities(user.id)
+        DeploymentMessageIdentityView.from_record(
+            item,
+            address_aliases=repository.get_address_aliases(item.deployment_id, user.id),
+        )
+        for item in repository.list_identities(user.id)
     ]
 
 
@@ -46,10 +50,17 @@ def update_identity(
             mode=payload.mode,
             display_name=payload.display_name,
             avatar_url=str(payload.avatar_url) if payload.avatar_url is not None else "",
+            address_aliases=payload.address_aliases,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Deployment not found.") from exc
-    return DeploymentMessageIdentityView.from_record(record)
+    return DeploymentMessageIdentityView.from_record(
+        record,
+        address_aliases=identity_repository(request).get_address_aliases(
+            deployment_id,
+            user.id,
+        ),
+    )
 
 
 @router.delete("/{deployment_id}", status_code=status.HTTP_204_NO_CONTENT)

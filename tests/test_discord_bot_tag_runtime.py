@@ -38,7 +38,9 @@ def test_social_prompt_exposes_bounded_character_tag_contract() -> None:
         payload=payload(author_is_bot=True),
     )
 
-    assert "Other active characters at this location: Ann, 织 · Zhi." in prompt
+    assert "Other active character Tags at this location: Ann, 织 · Zhi." in prompt
+    assert "for example @Ann and @织 · Zhi." in prompt
+    assert "@Ning or @Ning" not in prompt
     assert "begin your reply with @" in prompt
     assert "Use character tags sparingly" in prompt
     assert "Never tag yourself" in prompt

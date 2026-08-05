@@ -39,6 +39,7 @@ class DiscordConnectorDeploymentView(BaseModel):
     identity_mode: DiscordIdentityMode = "webhook"
     identity_display_name: str
     identity_avatar_url: str = ""
+    address_aliases: list[str] = Field(default_factory=list, max_length=20)
     webhook_status: DiscordWebhookStatus = "pending"
     webhook_id: str | None = None
     webhook_token: str | None = None
