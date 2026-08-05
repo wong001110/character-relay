@@ -28,6 +28,7 @@ jobs:
           python scripts/repair_expression_connector_patch.py
           python scripts/apply_expression_connector.py
           python scripts/repair_expression_typescript.py
+          python scripts/apply_expression_webhook_asset.py
           python scripts/apply_expression_web.py
           python scripts/repair_expression_python.py
 
@@ -65,6 +66,7 @@ jobs:
           rm -f scripts/repair_expression_connector_patch.py
           rm -f scripts/repair_expression_python.py
           rm -f scripts/repair_expression_typescript.py
+          rm -f scripts/apply_expression_webhook_asset.py
           rm -rf web/dist connectors/discord/dist
           rm -f web/package-lock.json web/tsconfig.tsbuildinfo
           rm -f connectors/discord/package-lock.json connectors/discord/tsconfig.tsbuildinfo
