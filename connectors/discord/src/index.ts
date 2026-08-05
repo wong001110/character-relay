@@ -11,6 +11,7 @@ import {
 
 import { loadConfig } from "./config.js";
 import { ContextBuffer } from "./contextBuffer.js";
+import { detectBotMention, stripBotMentionTokens } from "./mentionDetection.js";
 import { DiscordEventReporter } from "./eventReporter.js";
 import { RelayClient } from "./relayClient.js";
 import { RecoveryLoop } from "./recoveryLoop.js";
@@ -369,11 +370,12 @@ function channelLocation(message: Message<true>): {
   };
 }
 
-function normalizedText(message: Message<true>, botUserId: string): string {
-  return message.content
-    .trim()
-    .replaceAll(new RegExp(`<@!?${botUserId}>`, "g"), "")
-    .trim();
+function normalizedText(
+  message: Message<true>,
+  botUserId: string,
+  managedBotRoleIds: string[]
+): string {
+  return stripBotMentionTokens(message.content, botUserId, managedBotRoleIds);
 }
 
 async function resolveMessageStickers(
@@ -938,8 +940,25 @@ async function processMessage(message: Message): Promise<void> {
   const guildMessage = message;
   const location = channelLocation(guildMessage);
   if (!location.channelId) return;
-  const originalText = normalizedText(guildMessage, botUser.id);
-  const mentionedBot = guildMessage.mentions.users.has(botUser.id);
+  const mentionedUserIds = [...guildMessage.mentions.users.keys()];
+  const mentionedRoleIds = [...guildMessage.mentions.roles.keys()];
+  const managedBotRoleIds = [...guildMessage.mentions.roles.values()]
+    .filter((role) => role.tags?.botId === botUser.id)
+    .map((role) => role.id);
+  const mentionDetection = detectBotMention({
+    content: guildMessage.content,
+    botUserId: botUser.id,
+    structuredUserMention: guildMessage.mentions.users.has(botUser.id),
+    mentionedUserIds,
+    mentionedRoleIds,
+    managedBotRoleIds
+  });
+  const mentionedBot = mentionDetection.mentionedBot;
+  const originalText = normalizedText(
+    guildMessage,
+    botUser.id,
+    mentionDetection.managedBotRoleIds
+  );
   lastGatewayMessageAt = new Date().toISOString();
   lastGatewayMessageId = guildMessage.id;
   lastGatewayMentionedBot = mentionedBot;
@@ -961,6 +980,13 @@ async function processMessage(message: Message): Promise<void> {
   sourceMessageId: guildMessage.id,
   authorId: guildMessage.author.id,
   mentionedBot,
+  mentionSource: mentionDetection.source,
+  structuredUserMention: mentionDetection.structuredUserMention,
+  rawUserMention: mentionDetection.rawUserMention,
+  managedBotRoleMention: mentionDetection.managedBotRoleMention,
+  mentionedUserIds: mentionDetection.mentionedUserIds,
+  mentionedRoleIds: mentionDetection.mentionedRoleIds,
+  managedBotRoleIds: mentionDetection.managedBotRoleIds,
   candidateCount: candidates.length,
   hasReadableText: Boolean(originalText),
   stickerCount: guildMessage.stickers.size,
