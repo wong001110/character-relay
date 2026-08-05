@@ -34,9 +34,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
-          ruff check src tests
-          mypy src/echo_masque
-          pytest
+          python -m ruff check .
+          python -m mypy src
+          python -m pytest
 
       - name: Validate Discord Connector
         working-directory: connectors/discord
