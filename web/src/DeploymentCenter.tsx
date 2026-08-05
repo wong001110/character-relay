@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import type { CharacterCard } from "./api";
 import {
@@ -171,6 +171,7 @@ export function DeploymentCenter({
   const [selectedServerProfileId, setSelectedServerProfileId] = useState(() =>
     new URLSearchParams(window.location.search).get("server_profile") ?? ""
   );
+  const serverSelectionInitialized = useRef(false);
 
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<PlatformConnection | null>(null);
@@ -253,8 +254,11 @@ export function DeploymentCenter({
     if (selectedServerProfileId) url.searchParams.set("server_profile", selectedServerProfileId);
     else url.searchParams.delete("server_profile");
     window.history.replaceState({}, "", url);
-    setDeploymentOpen(false);
-    setEditingDeployment(null);
+    if (serverSelectionInitialized.current) {
+      setDeploymentOpen(false);
+      setEditingDeployment(null);
+    }
+    if (selectedServerProfileId) serverSelectionInitialized.current = true;
     setDeploymentPage(1);
   }, [selectedServerProfileId]);
 
@@ -302,6 +306,17 @@ export function DeploymentCenter({
           server.guild_id === selectedWorkspaceProfile.guild_id
       )
     : undefined;
+
+  useEffect(() => {
+    if (!selectedWorkspaceProfile || editingDeployment) return;
+    setDraftConnectionId(selectedWorkspaceProfile.connection_id);
+    setDraftServerProfileId(selectedWorkspaceProfile.id);
+  }, [
+    editingDeployment,
+    selectedWorkspaceProfile?.connection_id,
+    selectedWorkspaceProfile?.id
+  ]);
+
   const selectedConnection = connections.find((item) => item.id === draftConnectionId);
   const connectionProfiles = serverProfiles.filter(
     (profile) => profile.connection_id === draftConnectionId
