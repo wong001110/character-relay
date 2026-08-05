@@ -36,8 +36,22 @@ jobs:
           rm -f scripts/patch_interaction_generator.py scripts/fix_generated_interaction_code.py
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]'
-          python -m ruff check src tests --fix
-          python -m ruff format src tests
+          PY_FILES=(
+            src/echo_masque/api/__init__.py
+            src/echo_masque/api/connector_schemas.py
+            src/echo_masque/api/interaction_schemas.py
+            src/echo_masque/api/routes/__init__.py
+            src/echo_masque/api/routes/connectors.py
+            src/echo_masque/api/routes/interactions.py
+            src/echo_masque/connector_runtime.py
+            src/echo_masque/evaluation_lifecycle.py
+            src/echo_masque/persistence/__init__.py
+            src/echo_masque/persistence/interaction_models.py
+            src/echo_masque/persistence/interaction_repository.py
+            tests/test_interaction_sessions_and_stickers.py
+          )
+          python -m ruff check "${PY_FILES[@]}" --fix
+          python -m ruff format "${PY_FILES[@]}"
           python -m ruff check src tests
           python -m mypy src
           python -m pytest -q tests/test_interaction_sessions_and_stickers.py tests/test_discord_connector.py tests/test_discord_bot_tag_runtime.py
@@ -47,7 +61,7 @@ jobs:
           npm test
           npm run build
           cd ../../web
-          npm install
+          npm ci
           npm run typecheck
           npm test
           npm run build
