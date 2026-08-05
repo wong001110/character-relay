@@ -29,6 +29,7 @@ jobs:
             echo 'No pending generator.'
             exit 0
           fi
+          grep -q '^## Runtime behavior$' connectors/discord/README.md || printf '\n## Runtime behavior\n' >> connectors/discord/README.md
           python scripts/apply_interaction_sessions_and_stickers.py
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]'
