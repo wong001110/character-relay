@@ -202,6 +202,10 @@ export interface ConnectorHeartbeat {
   bot_display_name: string;
   status: "connected" | "offline" | "error";
   last_error: string;
+  replica_region: string;
+  gateway_ready: boolean;
+  state_synchronized: boolean;
+  visible_server_count: number;
 }
 
 export interface DiscordWebhookRegistration {

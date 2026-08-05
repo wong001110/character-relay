@@ -126,6 +126,10 @@ class DiscordConnectorHeartbeat(BaseModel):
     bot_display_name: str = Field(min_length=1, max_length=120)
     status: DiscordConnectionStatus = "connected"
     last_error: str = Field(default="", max_length=2000)
+    replica_region: str = Field(default="", max_length=120)
+    gateway_ready: bool = False
+    state_synchronized: bool = False
+    visible_server_count: int = Field(default=0, ge=0, le=10000)
 
 
 class DiscordConnectorEventItem(BaseModel):
