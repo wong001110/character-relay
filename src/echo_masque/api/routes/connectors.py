@@ -10,6 +10,7 @@ from pydantic import SecretStr
 
 from echo_masque.api.connector_schemas import (
     DiscordConnectorDeploymentView,
+    DiscordConnectorEventBatch,
     DiscordConnectorHeartbeat,
     DiscordConnectorReplyView,
     DiscordIdentityMode,
@@ -361,6 +362,24 @@ def connector_heartbeat(
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Discord connection not found.")
+
+
+@router.post("/events", status_code=status.HTTP_204_NO_CONTENT)
+def record_connector_events(
+    payload: DiscordConnectorEventBatch,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    _authorize_connector(request, authorization)
+    try:
+        deployment_repository(request).record_discord_events(
+            connection_id=payload.connection_id,
+            events=[item.model_dump() for item in payload.events],
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Discord connection not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/stickers/resolve", response_model=DiscordStickerContent)

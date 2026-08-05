@@ -19,6 +19,7 @@ import {
   type DeploymentIdentityMode,
   type DeploymentMessageIdentity
 } from "./discordIdentityApi";
+import { DiscordEventLogPanel } from "./DiscordEventLogPanel";
 import { DiscordServerProfilesPanel } from "./DiscordServerProfilesPanel";
 import { Pagination } from "./Pagination";
 import { useI18n } from "./i18n";
@@ -1404,6 +1405,13 @@ export function DeploymentCenter({
           zh={zh}
           serverProfile={selectedWorkspaceProfile}
           serverCatalog={selectedWorkspaceCatalog}
+        />
+      )}
+      {!demoMode && (
+        <DiscordEventLogPanel
+          profiles={serverProfiles}
+          selectedServerProfileId={selectedServerProfileId}
+          zh={zh}
         />
       )}
     </main>

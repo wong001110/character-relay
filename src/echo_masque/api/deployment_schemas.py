@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
+    DiscordConnectorEventRecord,
     DiscordDeploymentScopeRecord,
     DiscordServerCatalogRecord,
     DiscordServerProfileRecord,
@@ -297,3 +298,55 @@ class CharacterDeploymentPage(BaseModel):
     active: int
     paused: int
     attention: int
+
+class DiscordConnectorLogView(BaseModel):
+    id: str
+    connection_id: str
+    level: Literal["info", "warning", "error"]
+    event_type: str
+    message: str
+    guild_id: str
+    guild_name: str
+    channel_id: str
+    channel_name: str
+    thread_id: str
+    thread_name: str
+    source_message_id: str
+    deployment_id: str
+    character_name: str
+    details: dict[str, object]
+    occurred_at: datetime
+
+    @classmethod
+    def from_record(cls, record: DiscordConnectorEventRecord) -> "DiscordConnectorLogView":
+        try:
+            raw = json.loads(record.details_json)
+        except json.JSONDecodeError:
+            raw = {}
+        details = raw if isinstance(raw, dict) else {}
+        return cls(
+            id=record.id,
+            connection_id=record.connection_id,
+            level=cast(Literal["info", "warning", "error"], record.level),
+            event_type=record.event_type,
+            message=record.message,
+            guild_id=record.guild_id,
+            guild_name=record.guild_name,
+            channel_id=record.channel_id,
+            channel_name=record.channel_name,
+            thread_id=record.thread_id,
+            thread_name=record.thread_name,
+            source_message_id=record.source_message_id,
+            deployment_id=record.deployment_id,
+            character_name=record.character_name,
+            details=cast(dict[str, object], details),
+            occurred_at=record.occurred_at,
+        )
+
+
+class DiscordConnectorLogPage(BaseModel):
+    items: list[DiscordConnectorLogView]
+    page: int
+    page_size: int
+    total: int
+    pages: int
