@@ -9,6 +9,10 @@ from echo_masque.api.interaction_schemas import (
     InteractionSessionCreate,
     InteractionSessionStatusUpdate,
     InteractionSessionView,
+    InteractionTemplateApply,
+    InteractionTemplateCreate,
+    InteractionTemplateUpdate,
+    InteractionTemplateView,
     StickerSemanticCreate,
     StickerSemanticView,
 )
@@ -20,6 +24,7 @@ from echo_masque.persistence import (
 )
 from echo_masque.persistence.interaction_models import (
     DiscordInteractionSessionRecord,
+    DiscordInteractionTemplateRecord,
     DiscordStickerSemanticRecord,
 )
 
@@ -36,6 +41,33 @@ def deployment_repository(request: Request) -> DeploymentRepository:
 
 def character_repository(request: Request) -> Repository:
     return cast(Repository, request.app.state.repository)
+
+
+def template_view(
+    request: Request,
+    record: DiscordInteractionTemplateRecord,
+) -> InteractionTemplateView:
+    ids = interaction_repository(request).template_character_ids(record)
+    characters = character_repository(request)
+    names: list[str] = []
+    for character_id in ids:
+        card = characters.get_character_card(character_id, record.owner_id)
+        names.append(card.display_name if card is not None else "Archived character")
+    return InteractionTemplateView(
+        id=record.id,
+        server_profile_id=record.server_profile_id,
+        name=record.name,
+        participant_character_card_ids=ids,
+        participant_names=names,
+        rounds_per_trigger=record.rounds_per_trigger,
+        maximum_triggers=record.maximum_triggers,
+        maximum_replies_per_trigger=record.rounds_per_trigger * len(ids),
+        cooldown_seconds=record.cooldown_seconds,
+        duration_seconds=record.duration_seconds,
+        intensity=record.intensity,  # type: ignore[arg-type]
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
 
 
 def session_view(
@@ -106,14 +138,117 @@ def sticker_view(
     )
 
 
+@router.get("/interaction-templates", response_model=list[InteractionTemplateView])
+def list_interaction_templates(
+    request: Request,
+    user: CurrentUserDependency,
+    server_profile_id: str = Query(min_length=1, max_length=64),
+) -> list[InteractionTemplateView]:
+    return [
+        template_view(request, item)
+        for item in interaction_repository(request).list_templates(
+            user.id,
+            server_profile_id=server_profile_id,
+        )
+    ]
+
+
+@router.post(
+    "/interaction-templates",
+    response_model=InteractionTemplateView,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_interaction_template(
+    payload: InteractionTemplateCreate,
+    request: Request,
+    user: CurrentUserDependency,
+) -> InteractionTemplateView:
+    try:
+        record = interaction_repository(request).create_template(
+            owner_id=user.id,
+            **payload.model_dump(),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Discord Server not found.") from exc
+    except InteractionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return template_view(request, record)
+
+
+@router.put(
+    "/interaction-templates/{template_id}",
+    response_model=InteractionTemplateView,
+)
+def update_interaction_template(
+    template_id: str,
+    payload: InteractionTemplateUpdate,
+    request: Request,
+    user: CurrentUserDependency,
+) -> InteractionTemplateView:
+    try:
+        record = interaction_repository(request).update_template(
+            template_id,
+            user.id,
+            **payload.model_dump(exclude_unset=True),
+        )
+    except InteractionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if record is None:
+        raise HTTPException(status_code=404, detail="Interaction Template not found.")
+    return template_view(request, record)
+
+
+@router.post(
+    "/interaction-templates/{template_id}/apply",
+    response_model=InteractionSessionView,
+    status_code=status.HTTP_201_CREATED,
+)
+def apply_interaction_template(
+    template_id: str,
+    payload: InteractionTemplateApply,
+    request: Request,
+    user: CurrentUserDependency,
+) -> InteractionSessionView:
+    try:
+        record = interaction_repository(request).apply_template(
+            template_id=template_id,
+            owner_id=user.id,
+            **payload.model_dump(),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Interaction Template not found.") from exc
+    except InteractionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return session_view(request, record)
+
+
+@router.delete(
+    "/interaction-templates/{template_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_interaction_template(
+    template_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+) -> None:
+    if not interaction_repository(request).delete_template(template_id, user.id):
+        raise HTTPException(status_code=404, detail="Interaction Template not found.")
+
+
 @router.get("/interaction-sessions", response_model=list[InteractionSessionView])
 def list_interaction_sessions(
     request: Request,
     user: CurrentUserDependency,
+    connection_id: str | None = Query(default=None, max_length=64),
+    guild_id: str | None = Query(default=None, max_length=200),
 ) -> list[InteractionSessionView]:
     return [
         session_view(request, item)
-        for item in interaction_repository(request).list_sessions(user.id)
+        for item in interaction_repository(request).list_sessions(
+            user.id,
+            connection_id=connection_id,
+            guild_id=guild_id,
+        )
     ]
 
 

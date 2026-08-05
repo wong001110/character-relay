@@ -9,6 +9,53 @@ InteractionStatus = Literal["active", "paused", "stopped", "completed"]
 InteractionIntensity = Literal["light", "playful", "sharp"]
 
 
+class InteractionTemplateCreate(BaseModel):
+    server_profile_id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=120)
+    participant_character_card_ids: list[str] = Field(min_length=2, max_length=2)
+    rounds_per_trigger: int = Field(default=1, ge=1, le=3)
+    maximum_triggers: int = Field(default=1, ge=1, le=5)
+    cooldown_seconds: int = Field(default=60, ge=0, le=3600)
+    duration_seconds: int = Field(default=600, ge=60, le=86400)
+    intensity: InteractionIntensity = "playful"
+
+
+class InteractionTemplateUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    participant_character_card_ids: list[str] | None = Field(
+        default=None, min_length=2, max_length=2
+    )
+    rounds_per_trigger: int | None = Field(default=None, ge=1, le=3)
+    maximum_triggers: int | None = Field(default=None, ge=1, le=5)
+    cooldown_seconds: int | None = Field(default=None, ge=0, le=3600)
+    duration_seconds: int | None = Field(default=None, ge=60, le=86400)
+    intensity: InteractionIntensity | None = None
+
+
+class InteractionTemplateView(BaseModel):
+    id: str
+    server_profile_id: str
+    name: str
+    template_type: Literal["roast"] = "roast"
+    participant_character_card_ids: list[str]
+    participant_names: list[str]
+    rounds_per_trigger: int
+    maximum_triggers: int
+    maximum_replies_per_trigger: int
+    cooldown_seconds: int
+    duration_seconds: int
+    intensity: InteractionIntensity
+    created_at: datetime
+    updated_at: datetime
+
+
+class InteractionTemplateApply(BaseModel):
+    channel_id: str = Field(min_length=1, max_length=200)
+    target_user_id: str = Field(min_length=2, max_length=200)
+    target_display_name: str = Field(default="", max_length=160)
+    status: Literal["active", "paused"] = "paused"
+
+
 class InteractionSessionCreate(BaseModel):
     connection_id: str = Field(min_length=1, max_length=64)
     guild_id: str = Field(min_length=1, max_length=200)

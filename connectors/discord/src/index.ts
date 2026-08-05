@@ -40,7 +40,11 @@ const relay = new RelayClient(
   config.relayConnectionId
 );
 const webhookManager = new DiscordWebhookManager(config.discordBotToken, relay);
-const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
+const intents = [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.GuildExpressions
+];
 if (config.messageContentIntent) intents.push(GatewayIntentBits.MessageContent);
 const client = new Client({
   intents,
@@ -118,17 +122,41 @@ async function syncServerCatalog(): Promise<void> {
           `${right.category_name}/${right.name}`
         )
       );
+    let stickers: DiscordCatalogServer["stickers"] = [];
+    try {
+      const fetchedStickers = await guild.stickers.fetch();
+      stickers = [...fetchedStickers.values()]
+        .map((sticker) => ({
+          sticker_id: sticker.id,
+          name: sticker.name || "Sticker",
+          description: sticker.description ?? "",
+          tags: (sticker.tags ?? "")
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean),
+          format_type: String(sticker.format),
+          asset_url: sticker.url
+        }))
+        .sort((left, right) => left.name.localeCompare(right.name));
+    } catch (error) {
+      log("Unable to synchronize Discord Guild Stickers.", {
+        guildId: guild.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
     servers.push({
       guild_id: guild.id,
       guild_name: guild.name,
-      channels
+      channels,
+      stickers
     });
   }
   await relay.syncServerCatalog({ servers });
   lastCatalogSyncAt = new Date().toISOString();
   log("Discord server catalog synchronized.", {
     servers: servers.length,
-    channels: servers.reduce((total, server) => total + server.channels.length, 0)
+    channels: servers.reduce((total, server) => total + server.channels.length, 0),
+    stickers: servers.reduce((total, server) => total + server.stickers.length, 0)
   });
 }
 

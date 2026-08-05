@@ -53,10 +53,20 @@ class DiscordCatalogChannel(BaseModel):
     type: str = Field(default="text", max_length=40)
 
 
+class DiscordCatalogSticker(BaseModel):
+    sticker_id: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=1000)
+    tags: list[str] = Field(default_factory=list, max_length=30)
+    format_type: str = Field(default="unknown", max_length=40)
+    asset_url: str = Field(default="", max_length=2000)
+
+
 class DiscordCatalogServer(BaseModel):
     guild_id: str = Field(min_length=1, max_length=200)
     guild_name: str = Field(min_length=1, max_length=160)
     channels: list[DiscordCatalogChannel] = Field(default_factory=list, max_length=1000)
+    stickers: list[DiscordCatalogSticker] = Field(default_factory=list, max_length=1000)
 
 
 class DiscordServerCatalogSync(BaseModel):

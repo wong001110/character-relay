@@ -1,6 +1,43 @@
 export type InteractionStatus = "active" | "paused" | "stopped" | "completed";
 export type InteractionIntensity = "light" | "playful" | "sharp";
 
+export interface InteractionTemplate {
+  id: string;
+  server_profile_id: string;
+  name: string;
+  template_type: "roast";
+  participant_character_card_ids: string[];
+  participant_names: string[];
+  rounds_per_trigger: number;
+  maximum_triggers: number;
+  maximum_replies_per_trigger: number;
+  cooldown_seconds: number;
+  duration_seconds: number;
+  intensity: InteractionIntensity;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InteractionTemplateCreate {
+  server_profile_id: string;
+  name: string;
+  participant_character_card_ids: string[];
+  rounds_per_trigger: number;
+  maximum_triggers: number;
+  cooldown_seconds: number;
+  duration_seconds: number;
+  intensity: InteractionIntensity;
+}
+
+export type InteractionTemplateUpdate = Partial<Omit<InteractionTemplateCreate, "server_profile_id">>;
+
+export interface InteractionTemplateApply {
+  channel_id: string;
+  target_user_id: string;
+  target_display_name: string;
+  status: "active" | "paused";
+}
+
 export interface InteractionSession {
   id: string;
   connection_id: string;
@@ -107,7 +144,34 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const interactionApi = {
-  listSessions: () => request<InteractionSession[]>("/api/interaction-sessions"),
+  listTemplates: (serverProfileId: string) =>
+    request<InteractionTemplate[]>(
+      `/api/interaction-templates?server_profile_id=${encodeURIComponent(serverProfileId)}`
+    ),
+  createTemplate: (payload: InteractionTemplateCreate) =>
+    request<InteractionTemplate>("/api/interaction-templates", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  updateTemplate: (templateId: string, payload: InteractionTemplateUpdate) =>
+    request<InteractionTemplate>(`/api/interaction-templates/${templateId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    }),
+  applyTemplate: (templateId: string, payload: InteractionTemplateApply) =>
+    request<InteractionSession>(`/api/interaction-templates/${templateId}/apply`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  deleteTemplate: (templateId: string) =>
+    request<void>(`/api/interaction-templates/${templateId}`, { method: "DELETE" }),
+  listSessions: (options: { connectionId?: string; guildId?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (options.connectionId) query.set("connection_id", options.connectionId);
+    if (options.guildId) query.set("guild_id", options.guildId);
+    const suffix = query.size ? `?${query.toString()}` : "";
+    return request<InteractionSession[]>(`/api/interaction-sessions${suffix}`);
+  },
   createSession: (payload: InteractionSessionCreate) =>
     request<InteractionSession>("/api/interaction-sessions", {
       method: "POST",
@@ -120,8 +184,13 @@ export const interactionApi = {
     }),
   deleteSession: (sessionId: string) =>
     request<void>(`/api/interaction-sessions/${sessionId}`, { method: "DELETE" }),
-  listStickers: () =>
-    request<StickerSemantic[]>("/api/discord/sticker-dictionary"),
+  listStickers: (connectionId?: string, guildId?: string) => {
+    const query = new URLSearchParams();
+    if (connectionId) query.set("connection_id", connectionId);
+    if (guildId) query.set("guild_id", guildId);
+    const suffix = query.size ? `?${query.toString()}` : "";
+    return request<StickerSemantic[]>(`/api/discord/sticker-dictionary${suffix}`);
+  },
   saveSticker: (payload: StickerSemanticCreate) =>
     request<StickerSemantic>("/api/discord/sticker-dictionary", {
       method: "PUT",
