@@ -1,0 +1,390 @@
+name: Apply notebook UI refresh
+
+on:
+  push:
+    branches: [agent/notebook-ui-refresh]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/notebook-ui-refresh
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Apply remaining UI integration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"Patch anchor not found in {path}: {old[:180]!r}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          # Use the SVG logo variants created from the supplied cat logo direction.
+          for path in ["web/src/CharacterShelf.tsx", "web/src/PortalToolbox.tsx"]:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              text = text.replace(
+                  "/assets/brand/character-relay-wordmark.webp",
+                  "/assets/brand/character-relay-wordmark.svg",
+              )
+              text = text.replace(
+                  "/assets/brand/character-relay-mark.webp",
+                  "/assets/brand/character-relay-mark.svg",
+              )
+              file.write_text(text, encoding="utf-8")
+
+          # Only show Admin settings to Admin users in the toolbox.
+          replace_once(
+              "web/src/PortalToolbox.tsx",
+              '''              {!publicDemo && (
+                <button type="button" onClick={() => run(onAdmin)}>
+                  <span className="toolbox-sticker sticker-rose">ADMIN</span>''',
+              '''              {user.role === "admin" && !publicDemo && (
+                <button type="button" onClick={() => run(onAdmin)}>
+                  <span className="toolbox-sticker sticker-rose">ADMIN</span>''',
+          )
+
+          # Account panel can render as a section inside the shared paper toolbox modal.
+          replace_once(
+              "web/src/AccountPanel.tsx",
+              '''  onDeleted: () => void;
+}''',
+              '''  onDeleted: () => void;
+  embedded?: boolean;
+}''',
+          )
+          replace_once(
+              "web/src/AccountPanel.tsx",
+              '''export function AccountPanel({ user, onClose, onLogout, onDeleted }: Props) {''',
+              '''export function AccountPanel({
+  user,
+  onClose,
+  onLogout,
+  onDeleted,
+  embedded = false
+}: Props) {''',
+          )
+          replace_once(
+              "web/src/AccountPanel.tsx",
+              '''  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="account-sheet paper-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="account-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >''',
+              '''  const content = (
+      <section
+        className={`account-sheet paper-sheet${embedded ? " account-sheet-embedded" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="account-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >''',
+          )
+          replace_once(
+              "web/src/AccountPanel.tsx",
+              '''        <button className="close-button" onClick={onClose} aria-label={t.close}>
+          ×
+        </button>''',
+              '''        {!embedded && (
+          <button className="close-button" onClick={onClose} aria-label={t.close}>
+            ×
+          </button>
+        )}''',
+          )
+          replace_once(
+              "web/src/AccountPanel.tsx",
+              '''      </section>
+    </div>
+  );
+}''',
+              '''      </section>
+  );
+  if (embedded) return content;
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      {content}
+    </div>
+  );
+}''',
+          )
+
+          # Provider Trace can render inside the toolbox instead of replacing the whole app.
+          replace_once(
+              "web/src/ProviderTraceViewer.tsx",
+              '''export function ProviderTraceViewer({ onClose }: { onClose: () => void }) {''',
+              '''export function ProviderTraceViewer({
+  onClose,
+  embedded = false
+}: {
+  onClose: () => void;
+  embedded?: boolean;
+}) {''',
+          )
+          replace_once(
+              "web/src/ProviderTraceViewer.tsx",
+              '''    <main className="provider-trace-page">''',
+              '''    <main className={`provider-trace-page${embedded ? " provider-trace-embedded" : ""}`}>''',
+          )
+          replace_once(
+              "web/src/ProviderTraceViewer.tsx",
+              '''          <button type="button" className="ink-button" onClick={onClose}>
+            {zh ? "返回 Portal" : "Back to Portal"}
+          </button>''',
+              '''          {!embedded && (
+            <button type="button" className="ink-button" onClick={onClose}>
+              {zh ? "返回 Portal" : "Back to Portal"}
+            </button>
+          )}''',
+          )
+
+          # Convert platform-account and deployment create/edit forms into animated right drawers.
+          replace_once(
+              "web/src/DeploymentCenter.tsx",
+              '''import { Pagination } from "./Pagination";''',
+              '''import { PaperDrawer } from "./NotebookUI";
+import { Pagination } from "./Pagination";''',
+          )
+          deployment_file = Path("web/src/DeploymentCenter.tsx")
+          text = deployment_file.read_text(encoding="utf-8")
+
+          connection_start = '''            {connectionOpen && !demoMode && (
+              <form'''
+          connection_new = '''            {connectionOpen && !demoMode && (
+              <PaperDrawer
+                onClose={closeConnectionForm}
+                ariaLabel={editingConnection
+                  ? zh
+                    ? "编辑平台账户"
+                    : "Edit platform account"
+                  : zh
+                    ? "添加平台账户"
+                    : "Add platform account"}
+                className="connection-editor-drawer"
+              >
+              <form'''
+          if connection_start not in text:
+              raise SystemExit("Connection drawer start anchor not found")
+          text = text.replace(connection_start, connection_new, 1)
+          connection_end = text.index('''              </form>
+            )}''', text.index(connection_new))
+          text = (
+              text[:connection_end]
+              + '''              </form>
+              </PaperDrawer>
+            )}'''
+              + text[connection_end + len('''              </form>
+            )}'''):]
+          )
+
+          deployment_start = '''          {deploymentOpen && !demoMode && (
+            <section className="paper-sheet deployment-form-sheet">'''
+          deployment_new = '''          {deploymentOpen && !demoMode && (
+            <PaperDrawer
+              onClose={closeDeploymentForm}
+              ariaLabel={editingDeployment
+                ? zh
+                  ? "编辑角色部署"
+                  : "Edit character deployment"
+                : zh
+                  ? "新建角色部署"
+                  : "New character deployment"}
+              className="deployment-editor-drawer"
+            >
+            <section className="paper-sheet deployment-form-sheet">'''
+          if deployment_start not in text:
+              raise SystemExit("Deployment drawer start anchor not found")
+          text = text.replace(deployment_start, deployment_new, 1)
+          list_marker = text.index('''          <section className="paper-sheet deployment-list-sheet">''')
+          deployment_close = text.rfind('''            </section>
+          )}''', text.index(deployment_new), list_marker)
+          if deployment_close < 0:
+              raise SystemExit("Deployment drawer close anchor not found")
+          text = (
+              text[:deployment_close]
+              + '''            </section>
+            </PaperDrawer>
+          )}'''
+              + text[deployment_close + len('''            </section>
+          )}'''):]
+          )
+          deployment_file.write_text(text, encoding="utf-8")
+
+          # Reuse the same animated paper drawer for Server Profile create/edit.
+          replace_once(
+              "web/src/DiscordServerProfilesPanel.tsx",
+              '''import { ServerStickerDictionary } from "./ServerStickerDictionary";''',
+              '''import { PaperDrawer } from "./NotebookUI";
+import { ServerStickerDictionary } from "./ServerStickerDictionary";''',
+          )
+          replace_once(
+              "web/src/DiscordServerProfilesPanel.tsx",
+              '''      {drawerOpen && !demoMode && (
+        <div className="server-drawer-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) closeDrawer();
+        }}>
+          <aside className="server-drawer" role="dialog" aria-modal="true">''',
+              '''      {drawerOpen && !demoMode && (
+        <PaperDrawer
+          onClose={closeDrawer}
+          ariaLabel={editing
+            ? zh
+              ? `编辑 ${editing.guild_name}`
+              : `Edit ${editing.guild_name}`
+            : zh
+              ? "添加 Discord Server"
+              : "Add Discord Server"}
+          className="server-profile-drawer"
+        >
+          <div className="server-drawer">''',
+          )
+          replace_once(
+              "web/src/DiscordServerProfilesPanel.tsx",
+              '''          </aside>
+        </div>
+      )}''',
+              '''          </div>
+        </PaperDrawer>
+      )}''',
+          )
+
+          # Remove the Discord Server connection-status UI and its background polling.
+          replace_once(
+              "web/src/DiscordEventLogPanel.tsx",
+              '''] as const;
+
+const EVENT_LABELS''',
+              '''] as const;
+
+const SHOW_SERVER_CONNECTION_STATUS = false;
+
+const EVENT_LABELS''',
+          )
+          replace_once(
+              "web/src/DiscordEventLogPanel.tsx",
+              '''  useEffect(() => {
+    setStatusLoading(true);
+    void loadStatus();
+    const timer = window.setInterval(() => void loadStatus(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [loadStatus]);''',
+              '''  useEffect(() => {
+    if (!SHOW_SERVER_CONNECTION_STATUS) return;
+    setStatusLoading(true);
+    void loadStatus();
+    const timer = window.setInterval(() => void loadStatus(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [loadStatus]);''',
+          )
+          replace_once(
+              "web/src/DiscordEventLogPanel.tsx",
+              '''      <section className="discord-server-status-section">''',
+              '''      {SHOW_SERVER_CONNECTION_STATUS && (
+      <section className="discord-server-status-section">''',
+          )
+          replace_once(
+              "web/src/DiscordEventLogPanel.tsx",
+              '''      </section>
+
+      <div className="panel-heading-row discord-event-log-heading">''',
+              '''      </section>
+      )}
+
+      <div className="panel-heading-row discord-event-log-heading">''',
+          )
+
+          # Favicon and browser color follow the paper-style brand.
+          replace_once(
+              "web/index.html",
+              '''    <meta name="theme-color" content="#17131d" />''',
+              '''    <meta name="theme-color" content="#f4ecdd" />
+    <link rel="icon" type="image/svg+xml" href="/assets/brand/character-relay-mark.svg" />''',
+          )
+
+          # Small compatibility overrides for legacy drawer internals.
+          css = Path("web/src/notebook-ui.css")
+          css.write_text(
+              css.read_text(encoding="utf-8")
+              + '''
+
+.paper-drawer-panel .server-drawer {
+  position: static !important;
+  width: auto !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.server-profile-drawer .drawer-close-button {
+  display: none !important;
+}
+
+.connection-editor-drawer .connection-form,
+.deployment-editor-drawer .deployment-form-sheet {
+  margin: 0 !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.connection-editor-drawer .connection-form {
+  padding: 4px 0 24px !important;
+}
+
+.deployment-editor-drawer .deployment-form-sheet {
+  padding: 4px 0 28px !important;
+}
+
+.shelf-primary-actions {
+  position: static !important;
+}
+''',
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Validate Portal
+        working-directory: web
+        env:
+          TZ: Asia/Kuala_Lumpur
+        run: |
+          npm install
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Remove temporary and generated files
+        run: |
+          rm -f .github/workflows/apply-notebook-ui-refresh.yml
+          rm -rf web/dist
+          git checkout -- web/package-lock.json 2>/dev/null || true
+
+      - name: Commit validated refresh
+        run: |
+          git config user.name "Wong Juen An"
+          git config user.email "62807108+wong001110@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+            exit 1
+          fi
+          git commit -m "feat: refresh portal with cute notebook UI"
+          git push origin HEAD:agent/notebook-ui-refresh
