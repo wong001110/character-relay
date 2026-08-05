@@ -1,0 +1,87 @@
+name: Restore supplied PNG branding
+
+on:
+  push:
+    branches: [agent/restore-png-logo]
+
+permissions:
+  contents: write
+
+jobs:
+  restore-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/restore-png-logo
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.17.0"
+
+      - name: Restore supplied PNG assets
+        run: |
+          mkdir -p web/public/assets/brand
+          cat .tmp-brand/wordmark_*.b64 | base64 -d > web/public/assets/brand/character-relay-wordmark.png
+          cat .tmp-brand/mark_*.b64 | base64 -d > web/public/assets/brand/character-relay-mark.png
+          cat .tmp-brand/favicon_*.b64 | base64 -d > web/public/assets/brand/character-relay-favicon.png
+          printf '%s  %s\n' \
+            '1b2a5c558af261e9da3682e085998b9cb5920b68ef44d33dc6e553ec8fc8b055' \
+            'web/public/assets/brand/character-relay-wordmark.png' \
+            'e9a1fef009fef2c854a5a4bafca63077dfcbdbf9333e07c06669da0e7f0df588' \
+            'web/public/assets/brand/character-relay-mark.png' \
+            '4a114a5e4d4542bfc7a1347ea5041566cbebf470be7e24c4047dd8463421dc3c' \
+            'web/public/assets/brand/character-relay-favicon.png' | sha256sum -c -
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              "web/src/CharacterShelf.tsx": (
+                  "/assets/brand/character-relay-wordmark.svg",
+                  "/assets/brand/character-relay-wordmark.png",
+              ),
+              "web/src/PortalToolbox.tsx": (
+                  "/assets/brand/character-relay-mark.svg",
+                  "/assets/brand/character-relay-mark.png",
+              ),
+              "web/index.html": (
+                  '<link rel="icon" type="image/svg+xml" href="/assets/brand/character-relay-mark.svg" />',
+                  '<link rel="icon" type="image/png" sizes="48x48" href="/assets/brand/character-relay-favicon.png" />',
+              ),
+              "web/src/notebook-ui.css": (
+                  "width: clamp(210px, 25vw, 380px);",
+                  "width: clamp(210px, 25vw, 300px);",
+              ),
+          }
+          for path, (old, new) in replacements.items():
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"Missing branding anchor in {path}: {old}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+          rm -f web/public/assets/brand/character-relay-mark.svg
+          rm -f web/public/assets/brand/character-relay-wordmark.svg
+
+      - name: Validate Portal
+        working-directory: web
+        run: |
+          npm install
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Remove temporary and generated files
+        run: |
+          rm -rf .tmp-brand
+          rm -f .github/workflows/restore-png-branding.yml
+          rm -f web/package-lock.json web/tsconfig.tsbuildinfo
+          rm -rf web/dist
+
+      - name: Commit validated PNG branding
+        run: |
+          git config user.name "Wong Juen An"
+          git config user.email "62807108+wong001110@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: restore supplied PNG branding"
+          git push origin HEAD:agent/restore-png-logo
