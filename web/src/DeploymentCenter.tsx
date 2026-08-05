@@ -168,6 +168,9 @@ export function DeploymentCenter({
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedServerProfileId, setSelectedServerProfileId] = useState(() =>
+    new URLSearchParams(window.location.search).get("server_profile") ?? ""
+  );
 
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<PlatformConnection | null>(null);
@@ -206,13 +209,19 @@ export function DeploymentCenter({
           pageSize: 20,
           characterCardId: characterFilter,
           platform: platformFilter,
-          status: statusFilter
+          status: statusFilter,
+          serverProfileId: selectedServerProfileId || "__no_server_selected__"
         }),
         discordIdentityApi.list()
       ]);
       setConnections(nextConnections);
       setServerProfiles(nextProfiles);
       setServerCatalog(nextCatalog);
+      setSelectedServerProfileId((current) =>
+        current && nextProfiles.some((item) => item.id === current)
+          ? current
+          : nextProfiles[0]?.id ?? ""
+      );
       setDeployments(nextDeployments.items);
       setDeploymentPage(nextDeployments.page);
       setDeploymentPages(nextDeployments.pages);
@@ -238,7 +247,17 @@ export function DeploymentCenter({
 
   useEffect(() => {
     void load(1);
-  }, [characterFilter, platformFilter, statusFilter]);
+  }, [characterFilter, platformFilter, selectedServerProfileId, statusFilter]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (selectedServerProfileId) url.searchParams.set("server_profile", selectedServerProfileId);
+    else url.searchParams.delete("server_profile");
+    window.history.replaceState({}, "", url);
+    setDeploymentOpen(false);
+    setEditingDeployment(null);
+    setDeploymentPage(1);
+  }, [selectedServerProfileId]);
 
   useEffect(() => {
     if (!initialCharacterId) return;
@@ -276,6 +295,14 @@ export function DeploymentCenter({
     [serverProfiles]
   );
 
+  const selectedWorkspaceProfile = profileMap.get(selectedServerProfileId);
+  const selectedWorkspaceCatalog = selectedWorkspaceProfile
+    ? serverCatalog.find(
+        (server) =>
+          server.connection_id === selectedWorkspaceProfile.connection_id &&
+          server.guild_id === selectedWorkspaceProfile.guild_id
+      )
+    : undefined;
   const selectedConnection = connections.find((item) => item.id === draftConnectionId);
   const connectionProfiles = serverProfiles.filter(
     (profile) => profile.connection_id === draftConnectionId
@@ -367,13 +394,12 @@ export function DeploymentCenter({
   }
 
   function openNewDeployment() {
-    const connectionId = connections[0]?.id ?? "";
+    const connectionId = selectedWorkspaceProfile?.connection_id ?? "";
+    if (!selectedWorkspaceProfile) return;
     setEditingDeployment(null);
     setDraftCharacterId(initialCharacterId ?? cards[0]?.id ?? "");
     setDraftConnectionId(connectionId);
-    setDraftServerProfileId(
-      serverProfiles.find((profile) => profile.connection_id === connectionId)?.id ?? ""
-    );
+    setDraftServerProfileId(selectedWorkspaceProfile.id);
     setExcludedChannels(new Set());
     setExcludedCategories(new Set());
     setDeploymentOpen(true);
@@ -532,7 +558,7 @@ export function DeploymentCenter({
   }
 
   const canSaveDeployment =
-    Boolean(draftCharacterId && draftConnectionId) &&
+    Boolean(selectedWorkspaceProfile && draftCharacterId && draftConnectionId) &&
     (formConnection?.platform !== "discord" ||
       Boolean(draftServerProfileId) ||
       Boolean(isLegacyExactDiscord));
@@ -554,7 +580,7 @@ export function DeploymentCenter({
             <button
               className="ink-button"
               onClick={openNewDeployment}
-              disabled={!cards.length || !connections.length}
+              disabled={!cards.length || !selectedWorkspaceProfile}
             >
               {zh ? "+ 新部署" : "+ New deployment"}
             </button>
@@ -564,6 +590,18 @@ export function DeploymentCenter({
           </button>
         </div>
       </header>
+
+      <DiscordServerProfilesPanel
+        connections={connections}
+        profiles={serverProfiles}
+        catalog={serverCatalog}
+        selectedProfileId={selectedServerProfileId}
+        demoMode={demoMode}
+        zh={zh}
+        onSelectProfile={setSelectedServerProfileId}
+        onChanged={load}
+        onError={(message) => setError(message || null)}
+      />
 
       <section className="deployment-summary-grid">
         <article className="paper-sheet deployment-summary-card">
@@ -747,15 +785,6 @@ export function DeploymentCenter({
             </div>
           </section>
 
-          <DiscordServerProfilesPanel
-            connections={connections}
-            profiles={serverProfiles}
-            catalog={serverCatalog}
-            demoMode={demoMode}
-            zh={zh}
-            onChanged={load}
-            onError={(message) => setError(message || null)}
-          />
         </aside>
 
         <section className="deployment-main">
@@ -780,6 +809,13 @@ export function DeploymentCenter({
                   {zh ? "关闭" : "Close"}
                 </button>
               </div>
+              {selectedWorkspaceProfile && (
+                <div className="deployment-server-context">
+                  <span>{zh ? "当前 Server" : "Current Server"}</span>
+                  <strong>{selectedWorkspaceProfile.guild_name}</strong>
+                  <small>{selectedWorkspaceProfile.name} · ID {selectedWorkspaceProfile.guild_id}</small>
+                </div>
+              )}
               <p className="deployment-foundation-note">
                 {discordIdentityEnabled
                   ? zh
@@ -799,7 +835,7 @@ export function DeploymentCenter({
                   <select
                     value={draftCharacterId}
                     onChange={(event) => setDraftCharacterId(event.currentTarget.value)}
-                    disabled={Boolean(editingDeployment)}
+                    disabled={Boolean(editingDeployment) || Boolean(selectedWorkspaceProfile)}
                     required
                   >
                     {cards.map((card) => (
@@ -832,6 +868,7 @@ export function DeploymentCenter({
                       <select
                         value={draftServerProfileId}
                         onChange={(event) => changeServerProfile(event.currentTarget.value)}
+                        disabled={Boolean(selectedWorkspaceProfile)}
                         required={!isLegacyExactDiscord}
                       >
                         {isLegacyExactDiscord && (
@@ -1355,7 +1392,14 @@ export function DeploymentCenter({
           </section>
         </section>
       </section>
-      <InteractionSessionsPanel demoMode={demoMode} zh={zh} />
+      {selectedWorkspaceProfile && (
+        <InteractionSessionsPanel
+          demoMode={demoMode}
+          zh={zh}
+          serverProfile={selectedWorkspaceProfile}
+          serverCatalog={selectedWorkspaceCatalog}
+        />
+      )}
     </main>
   );
 }

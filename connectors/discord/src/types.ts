@@ -44,10 +44,20 @@ export interface DiscordCatalogChannel {
   type: string;
 }
 
+export interface DiscordCatalogSticker {
+  sticker_id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  format_type: string;
+  asset_url: string;
+}
+
 export interface DiscordCatalogServer {
   guild_id: string;
   guild_name: string;
   channels: DiscordCatalogChannel[];
+  stickers: DiscordCatalogSticker[];
 }
 
 export interface DiscordServerCatalogSync {

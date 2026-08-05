@@ -217,15 +217,14 @@ def list_deployments(
     request: Request,
     user: CurrentUserDependency,
     character_card_id: str | None = Query(default=None),
+    server_profile_id: str | None = Query(default=None, max_length=64),
 ) -> list[CharacterDeploymentView]:
     records = deployment_repository(request).list_deployments(
         user.id,
         character_card_id=character_card_id,
+        server_profile_id=server_profile_id,
     )
-    return [
-        deployment_view(request, owner_id=user.id, record=record)
-        for record in records
-    ]
+    return [deployment_view(request, owner_id=user.id, record=record) for record in records]
 
 
 @router.get("/deployments/page", response_model=CharacterDeploymentPage)
@@ -241,22 +240,19 @@ def paginate_deployments(
         alias="status",
         max_length=24,
     ),
+    server_profile_id: str | None = Query(default=None, max_length=64),
 ) -> CharacterDeploymentPage:
-    records, safe_page, total, pages, counts = deployment_repository(
-        request
-    ).list_deployments_page(
+    records, safe_page, total, pages, counts = deployment_repository(request).list_deployments_page(
         user.id,
         page=page,
         page_size=page_size,
         character_card_id=character_card_id,
         platform=platform,
         status=deployment_status,
+        server_profile_id=server_profile_id,
     )
     return CharacterDeploymentPage(
-        items=[
-            deployment_view(request, owner_id=user.id, record=record)
-            for record in records
-        ],
+        items=[deployment_view(request, owner_id=user.id, record=record) for record in records],
         page=safe_page,
         page_size=page_size,
         total=total,

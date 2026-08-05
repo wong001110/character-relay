@@ -43,9 +43,7 @@ def _string_list(value: str) -> list[str]:
     if not isinstance(decoded, list):
         return []
     return list(
-        dict.fromkeys(
-            item.strip() for item in decoded if isinstance(item, str) and item.strip()
-        )
+        dict.fromkeys(item.strip() for item in decoded if isinstance(item, str) and item.strip())
     )
 
 
@@ -112,9 +110,7 @@ class DiscordServerCatalogView(BaseModel):
     synced_at: datetime
 
     @classmethod
-    def from_record(
-        cls, record: DiscordServerCatalogRecord
-    ) -> "DiscordServerCatalogView":
+    def from_record(cls, record: DiscordServerCatalogRecord) -> "DiscordServerCatalogView":
         try:
             raw = json.loads(record.channels_json)
         except json.JSONDecodeError:
@@ -165,9 +161,7 @@ class DiscordServerProfileView(BaseModel):
     updated_at: datetime
 
     @classmethod
-    def from_record(
-        cls, record: DiscordServerProfileRecord
-    ) -> "DiscordServerProfileView":
+    def from_record(cls, record: DiscordServerProfileRecord) -> "DiscordServerProfileView":
         return cls(
             id=record.id,
             connection_id=record.connection_id,
@@ -271,14 +265,10 @@ class CharacterDeploymentView(BaseModel):
             server_profile_name=server_profile_name,
             channel_scope_mode="all_except" if scope is not None else "exact",
             excluded_channel_ids=(
-                _string_list(scope.excluded_channel_ids_json)
-                if scope is not None
-                else []
+                _string_list(scope.excluded_channel_ids_json) if scope is not None else []
             ),
             excluded_category_ids=(
-                _string_list(scope.excluded_category_ids_json)
-                if scope is not None
-                else []
+                _string_list(scope.excluded_category_ids_json) if scope is not None else []
             ),
             workspace_id=record.workspace_id,
             workspace_name=record.workspace_name,
@@ -296,6 +286,7 @@ class CharacterDeploymentView(BaseModel):
             created_at=record.created_at,
             updated_at=record.updated_at,
         )
+
 
 class CharacterDeploymentPage(BaseModel):
     items: list[CharacterDeploymentView]

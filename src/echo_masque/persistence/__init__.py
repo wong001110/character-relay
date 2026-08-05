@@ -43,6 +43,7 @@ from echo_masque.persistence.evaluation_repository import EvaluationRepository
 from echo_masque.persistence.interaction_models import (
     DiscordInteractionRunRecord,
     DiscordInteractionSessionRecord,
+    DiscordInteractionTemplateRecord,
     DiscordStickerSemanticRecord,
 )
 from echo_masque.persistence.interaction_repository import (
@@ -95,6 +96,7 @@ __all__ = [
     "DiscordIdentityRepository",
     "DiscordInteractionRunRecord",
     "DiscordInteractionSessionRecord",
+    "DiscordInteractionTemplateRecord",
     "DiscordMessageRouteRecord",
     "DiscordServerCatalogRecord",
     "DiscordServerProfileRecord",

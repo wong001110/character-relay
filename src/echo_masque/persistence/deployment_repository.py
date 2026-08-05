@@ -94,9 +94,7 @@ class DeploymentRepository:
             )
             return list(session.scalars(query))
 
-    def get_connection(
-        self, connection_id: str, owner_id: str
-    ) -> PlatformConnectionRecord | None:
+    def get_connection(self, connection_id: str, owner_id: str) -> PlatformConnectionRecord | None:
         with self.database.session() as session:
             record = session.get(PlatformConnectionRecord, connection_id)
             if record is None or record.owner_id != owner_id:
@@ -260,9 +258,7 @@ class DeploymentRepository:
                 DiscordServerCatalogRecord.owner_id == owner_id
             )
             if connection_id is not None:
-                query = query.where(
-                    DiscordServerCatalogRecord.connection_id == connection_id
-                )
+                query = query.where(DiscordServerCatalogRecord.connection_id == connection_id)
             query = query.order_by(
                 DiscordServerCatalogRecord.guild_name,
                 DiscordServerCatalogRecord.guild_id,
@@ -479,14 +475,23 @@ class DeploymentRepository:
         owner_id: str,
         *,
         character_card_id: str | None = None,
+        server_profile_id: str | None = None,
     ) -> list[CharacterDeploymentRecord]:
         with self.database.session() as session:
-            query = select(CharacterDeploymentRecord).where(
-                CharacterDeploymentRecord.owner_id == owner_id
-            )
+            query = select(CharacterDeploymentRecord)
+            if server_profile_id is not None:
+                query = query.join(
+                    DiscordDeploymentScopeRecord,
+                    DiscordDeploymentScopeRecord.deployment_id == CharacterDeploymentRecord.id,
+                )
+            query = query.where(CharacterDeploymentRecord.owner_id == owner_id)
             if character_card_id is not None:
                 query = query.where(
                     CharacterDeploymentRecord.character_card_id == character_card_id
+                )
+            if server_profile_id is not None:
+                query = query.where(
+                    DiscordDeploymentScopeRecord.server_profile_id == server_profile_id
                 )
             query = query.order_by(
                 CharacterDeploymentRecord.platform,
@@ -505,6 +510,7 @@ class DeploymentRepository:
         character_card_id: str | None = None,
         platform: str | None = None,
         status: str | None = None,
+        server_profile_id: str | None = None,
     ) -> tuple[
         list[CharacterDeploymentRecord],
         int,
@@ -514,28 +520,33 @@ class DeploymentRepository:
     ]:
         with self.database.session() as session:
             conditions = [CharacterDeploymentRecord.owner_id == owner_id]
-            if character_card_id is not None:
+            if server_profile_id is not None:
                 conditions.append(
-                    CharacterDeploymentRecord.character_card_id == character_card_id
+                    DiscordDeploymentScopeRecord.server_profile_id == server_profile_id
                 )
+            if character_card_id is not None:
+                conditions.append(CharacterDeploymentRecord.character_card_id == character_card_id)
             if platform is not None:
                 conditions.append(CharacterDeploymentRecord.platform == platform)
             if status is not None:
                 conditions.append(CharacterDeploymentRecord.status == status)
-            total = int(
-                session.scalar(
-                    select(func.count())
-                    .select_from(CharacterDeploymentRecord)
-                    .where(*conditions)
+            count_query = select(func.count()).select_from(CharacterDeploymentRecord)
+            records_query = select(CharacterDeploymentRecord)
+            if server_profile_id is not None:
+                count_query = count_query.join(
+                    DiscordDeploymentScopeRecord,
+                    DiscordDeploymentScopeRecord.deployment_id == CharacterDeploymentRecord.id,
                 )
-                or 0
-            )
+                records_query = records_query.join(
+                    DiscordDeploymentScopeRecord,
+                    DiscordDeploymentScopeRecord.deployment_id == CharacterDeploymentRecord.id,
+                )
+            total = int(session.scalar(count_query.where(*conditions)) or 0)
             pages = max(1, math.ceil(total / page_size))
             safe_page = min(max(1, page), pages)
             records = list(
                 session.scalars(
-                    select(CharacterDeploymentRecord)
-                    .where(*conditions)
+                    records_query.where(*conditions)
                     .order_by(
                         CharacterDeploymentRecord.updated_at.desc(),
                         CharacterDeploymentRecord.id.desc(),
@@ -544,40 +555,27 @@ class DeploymentRepository:
                     .limit(page_size)
                 )
             )
+
+            def scoped_status_count(statuses: tuple[str, ...]) -> int:
+                query = select(func.count()).select_from(CharacterDeploymentRecord)
+                count_conditions = [
+                    CharacterDeploymentRecord.owner_id == owner_id,
+                    CharacterDeploymentRecord.status.in_(statuses),
+                ]
+                if server_profile_id is not None:
+                    query = query.join(
+                        DiscordDeploymentScopeRecord,
+                        DiscordDeploymentScopeRecord.deployment_id == CharacterDeploymentRecord.id,
+                    )
+                    count_conditions.append(
+                        DiscordDeploymentScopeRecord.server_profile_id == server_profile_id
+                    )
+                return int(session.scalar(query.where(*count_conditions)) or 0)
+
             counts = {
-                "active": int(
-                    session.scalar(
-                        select(func.count())
-                        .select_from(CharacterDeploymentRecord)
-                        .where(
-                            CharacterDeploymentRecord.owner_id == owner_id,
-                            CharacterDeploymentRecord.status == "active",
-                        )
-                    )
-                    or 0
-                ),
-                "paused": int(
-                    session.scalar(
-                        select(func.count())
-                        .select_from(CharacterDeploymentRecord)
-                        .where(
-                            CharacterDeploymentRecord.owner_id == owner_id,
-                            CharacterDeploymentRecord.status == "paused",
-                        )
-                    )
-                    or 0
-                ),
-                "attention": int(
-                    session.scalar(
-                        select(func.count())
-                        .select_from(CharacterDeploymentRecord)
-                        .where(
-                            CharacterDeploymentRecord.owner_id == owner_id,
-                            CharacterDeploymentRecord.status.in_(("error", "offline")),
-                        )
-                    )
-                    or 0
-                ),
+                "active": scoped_status_count(("active",)),
+                "paused": scoped_status_count(("paused",)),
+                "attention": scoped_status_count(("error", "offline")),
             }
             return records, safe_page, total, pages, counts
 
@@ -621,18 +619,14 @@ class DeploymentRepository:
             )
             return session.scalar(query)
 
-    def get_deployment(
-        self, deployment_id: str, owner_id: str
-    ) -> CharacterDeploymentRecord | None:
+    def get_deployment(self, deployment_id: str, owner_id: str) -> CharacterDeploymentRecord | None:
         with self.database.session() as session:
             record = session.get(CharacterDeploymentRecord, deployment_id)
             if record is None or record.owner_id != owner_id:
                 return None
             return record
 
-    def get_deployment_scope(
-        self, deployment_id: str
-    ) -> DiscordDeploymentScopeRecord | None:
+    def get_deployment_scope(self, deployment_id: str) -> DiscordDeploymentScopeRecord | None:
         with self.database.session() as session:
             return session.get(DiscordDeploymentScopeRecord, deployment_id)
 
@@ -666,10 +660,7 @@ class DeploymentRepository:
                 return None
             scope = session.get(DiscordDeploymentScopeRecord, deployment_id)
             if scope is None:
-                if (
-                    deployment.channel_id == channel_id
-                    and deployment.thread_id == thread_id
-                ):
+                if deployment.channel_id == channel_id and deployment.thread_id == thread_id:
                     return deployment
                 return None
             profile = session.get(DiscordServerProfileRecord, scope.server_profile_id)
@@ -677,15 +668,11 @@ class DeploymentRepository:
                 return None
             if channel_id in decode_ids(profile.excluded_channel_ids_json):
                 return None
-            if category_id and category_id in decode_ids(
-                profile.excluded_category_ids_json
-            ):
+            if category_id and category_id in decode_ids(profile.excluded_category_ids_json):
                 return None
             if channel_id in decode_ids(scope.excluded_channel_ids_json):
                 return None
-            if category_id and category_id in decode_ids(
-                scope.excluded_category_ids_json
-            ):
+            if category_id and category_id in decode_ids(scope.excluded_category_ids_json):
                 return None
             return deployment
 
@@ -755,9 +742,7 @@ class DeploymentRepository:
                 if excluded_channel_ids is not None:
                     scope.excluded_channel_ids_json = _encode_ids(excluded_channel_ids)
                 if excluded_category_ids is not None:
-                    scope.excluded_category_ids_json = _encode_ids(
-                        excluded_category_ids
-                    )
+                    scope.excluded_category_ids_json = _encode_ids(excluded_category_ids)
 
             values: dict[str, object] = {
                 "workspace_id": workspace_id,

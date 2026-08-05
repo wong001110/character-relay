@@ -219,12 +219,17 @@ export const deploymentApi = {
         ? `/api/deployments?character_card_id=${encodeURIComponent(characterCardId)}`
         : "/api/deployments"
     ),
+  listDeploymentsForServer: (serverProfileId: string) =>
+    request<CharacterDeployment[]>(
+      `/api/deployments?server_profile_id=${encodeURIComponent(serverProfileId)}`
+    ),
   listDeploymentsPage: (options: {
     page?: number;
     pageSize?: number;
     characterCardId?: string;
     platform?: PlatformId | "all";
     status?: DeploymentStatus | "all";
+    serverProfileId?: string;
   } = {}) => {
     const query = new URLSearchParams({
       page: String(options.page ?? 1),
@@ -238,6 +243,9 @@ export const deploymentApi = {
     }
     if (options.status && options.status !== "all") {
       query.set("status", options.status);
+    }
+    if (options.serverProfileId) {
+      query.set("server_profile_id", options.serverProfileId);
     }
     return request<CharacterDeploymentPage>(
       `/api/deployments/page?${query.toString()}`

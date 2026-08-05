@@ -7,13 +7,16 @@ import {
   type DiscordServerProfile,
   type PlatformConnection
 } from "./deploymentApi";
+import { ServerStickerDictionary } from "./ServerStickerDictionary";
 
 interface Props {
   connections: PlatformConnection[];
   profiles: DiscordServerProfile[];
   catalog: DiscordServerCatalog[];
+  selectedProfileId: string;
   demoMode: boolean;
   zh: boolean;
+  onSelectProfile: (profileId: string) => void;
   onChanged: () => Promise<void>;
   onError: (message: string) => void;
 }
@@ -23,6 +26,8 @@ interface ChannelGroup {
   name: string;
   channels: DiscordCatalogChannel[];
 }
+
+type DrawerTab = "settings" | "stickers";
 
 function groupsFor(server: DiscordServerCatalog | undefined): ChannelGroup[] {
   if (!server) return [];
@@ -44,14 +49,18 @@ export function DiscordServerProfilesPanel({
   connections,
   profiles,
   catalog,
+  selectedProfileId,
   demoMode,
   zh,
+  onSelectProfile,
   onChanged,
   onError
 }: Props) {
   const discordConnections = connections.filter((item) => item.platform === "discord");
-  const [open, setOpen] = useState(false);
+  const selectedProfile = profiles.find((item) => item.id === selectedProfileId) ?? null;
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<DiscordServerProfile | null>(null);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>("settings");
   const [working, setWorking] = useState(false);
   const [connectionId, setConnectionId] = useState(discordConnections[0]?.id ?? "");
   const [guildId, setGuildId] = useState("");
@@ -65,6 +74,9 @@ export function DiscordServerProfilesPanel({
   );
   const selectedServer = availableServers.find((server) => server.guild_id === guildId);
   const groups = useMemo(() => groupsFor(selectedServer), [selectedServer]);
+  const selectedConnection = connections.find(
+    (item) => item.id === selectedProfile?.connection_id
+  );
 
   function resetForm() {
     const nextConnection = discordConnections[0]?.id ?? "";
@@ -75,11 +87,12 @@ export function DiscordServerProfilesPanel({
     setProfileName(nextServer?.guild_name ?? "");
     setExcludedChannels(new Set());
     setExcludedCategories(new Set());
+    setDrawerTab("settings");
   }
 
   function openNew() {
     resetForm();
-    setOpen(true);
+    setDrawerOpen(true);
   }
 
   function openEdit(profile: DiscordServerProfile) {
@@ -89,12 +102,14 @@ export function DiscordServerProfilesPanel({
     setProfileName(profile.name);
     setExcludedChannels(new Set(profile.excluded_channel_ids));
     setExcludedCategories(new Set(profile.excluded_category_ids));
-    setOpen(true);
+    setDrawerTab("settings");
+    setDrawerOpen(true);
   }
 
-  function close() {
-    setOpen(false);
+  function closeDrawer() {
+    setDrawerOpen(false);
     setEditing(null);
+    setDrawerTab("settings");
   }
 
   function changeConnection(nextConnectionId: string) {
@@ -131,26 +146,25 @@ export function DiscordServerProfilesPanel({
     try {
       setWorking(true);
       onError("");
-      if (editing) {
-        await deploymentApi.updateDiscordServerProfile(editing.id, {
-          name: profileName.trim(),
-          guild_name: selectedServer.guild_name,
-          excluded_channel_ids: [...excludedChannels],
-          excluded_category_ids: [...excludedCategories],
-          thread_policy: "inherit_parent"
-        });
-      } else {
-        await deploymentApi.createDiscordServerProfile({
-          connection_id: connectionId,
-          name: profileName.trim(),
-          guild_id: selectedServer.guild_id,
-          guild_name: selectedServer.guild_name,
-          excluded_channel_ids: [...excludedChannels],
-          excluded_category_ids: [...excludedCategories],
-          thread_policy: "inherit_parent"
-        });
-      }
-      close();
+      const saved = editing
+        ? await deploymentApi.updateDiscordServerProfile(editing.id, {
+            name: profileName.trim(),
+            guild_name: selectedServer.guild_name,
+            excluded_channel_ids: [...excludedChannels],
+            excluded_category_ids: [...excludedCategories],
+            thread_policy: "inherit_parent"
+          })
+        : await deploymentApi.createDiscordServerProfile({
+            connection_id: connectionId,
+            name: profileName.trim(),
+            guild_id: selectedServer.guild_id,
+            guild_name: selectedServer.guild_name,
+            excluded_channel_ids: [...excludedChannels],
+            excluded_category_ids: [...excludedCategories],
+            thread_policy: "inherit_parent"
+          });
+      closeDrawer();
+      onSelectProfile(saved.id);
       await onChanged();
     } catch (reason) {
       onError(reason instanceof Error ? reason.message : String(reason));
@@ -170,6 +184,8 @@ export function DiscordServerProfilesPanel({
       setWorking(true);
       onError("");
       await deploymentApi.deleteDiscordServerProfile(profile.id);
+      if (selectedProfileId === profile.id) onSelectProfile("");
+      closeDrawer();
       await onChanged();
     } catch (reason) {
       onError(reason instanceof Error ? reason.message : String(reason));
@@ -179,195 +195,286 @@ export function DiscordServerProfilesPanel({
   }
 
   return (
-    <section className="paper-sheet connection-panel server-profile-panel">
-      <div className="panel-heading-row">
-        <div>
-          <p className="tape-label">DISCORD SERVERS</p>
-          <h2>{zh ? "Server 配置" : "Server profiles"}</h2>
+    <>
+      <section className="paper-sheet server-workspace-panel">
+        <div className="server-workspace-heading">
+          <div>
+            <p className="tape-label">SERVER WORKSPACE</p>
+            <h2>{zh ? "先选择要管理的 Discord Server" : "Choose the Discord Server to manage"}</h2>
+            <p>
+              {zh
+                ? "Deployment、Interaction、Session 与 Sticker 都会自动限制在当前 Server。"
+                : "Deployments, interactions, sessions, and Stickers are scoped automatically to this Server."}
+            </p>
+          </div>
+          {!demoMode && (
+            <div className="server-workspace-actions">
+              {selectedProfile && (
+                <button className="paper-button" onClick={() => openEdit(selectedProfile)}>
+                  {zh ? "编辑 Server" : "Edit Server"}
+                </button>
+              )}
+              <button
+                className="ink-button"
+                onClick={openNew}
+                disabled={!discordConnections.length || !catalog.length}
+              >
+                {zh ? "+ 添加 Server" : "+ Add Server"}
+              </button>
+            </div>
+          )}
         </div>
-        {!demoMode && !open && (
-          <button
-            className="paper-button"
-            onClick={openNew}
-            disabled={!discordConnections.length || !catalog.length}
-          >
-            {zh ? "+ 添加" : "+ Add"}
-          </button>
-        )}
-      </div>
 
-      <p className="connection-note">
-        {zh
-          ? "Connector 会同步 Bot 可见的 Server 与 Channel。配置默认覆盖全部 Channel，只需排除不应让角色进入的位置。"
-          : "The connector syncs visible servers and channels. Profiles cover every channel by default; exclude only the places characters should not enter."}
-      </p>
-
-      {open && !demoMode && (
-        <form className="connection-form server-profile-form" onSubmit={save}>
-          <div className="panel-heading-row">
-            <strong>
-              {editing
-                ? zh
-                  ? "编辑 Server 配置"
-                  : "Edit server profile"
-                : zh
-                  ? "添加 Server 配置"
-                  : "Add server profile"}
-            </strong>
-            <button type="button" className="text-button" onClick={close}>
-              {zh ? "取消" : "Cancel"}
-            </button>
-          </div>
-          <label>
-            {zh ? "Discord 平台账户" : "Discord platform account"}
-            <select
-              value={connectionId}
-              onChange={(event) => changeConnection(event.currentTarget.value)}
-              disabled={Boolean(editing)}
-              required
-            >
-              {discordConnections.map((connection) => (
-                <option key={connection.id} value={connection.id}>
-                  {connection.display_name}
+        {profiles.length ? (
+          <div className="server-workspace-selector-row">
+            <label>
+              {zh ? "当前 Server" : "Current Server"}
+              <select
+                value={selectedProfile?.id ?? ""}
+                onChange={(event) => onSelectProfile(event.currentTarget.value)}
+              >
+                <option value="" disabled>
+                  {zh ? "选择 Server…" : "Choose a Server…"}
                 </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            {zh ? "Discord Server" : "Discord server"}
-            <select
-              value={guildId}
-              onChange={(event) => changeGuild(event.currentTarget.value)}
-              disabled={Boolean(editing)}
-              required
-            >
-              {availableServers.map((server) => (
-                <option key={server.guild_id} value={server.guild_id}>
-                  {server.guild_name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            {zh ? "配置名称" : "Profile name"}
-            <input
-              value={profileName}
-              onChange={(event) => setProfileName(event.currentTarget.value)}
-              required
-              maxLength={120}
-              placeholder={zh ? "例如：私人 Companion Server" : "e.g. Private companion server"}
-            />
-          </label>
-
-          <div className="server-channel-picker">
-            <div>
-              <strong>{zh ? "全局排除 Channel" : "Global channel exclusions"}</strong>
-              <small>
-                {zh
-                  ? "未勾选的位置默认允许所有使用此配置的角色。"
-                  : "Unchecked destinations remain available to every character using this profile."}
-              </small>
-            </div>
-            {groups.map((group) => (
-              <fieldset key={group.id || "uncategorized"}>
-                <legend>
-                  {group.id && (
-                    <input
-                      type="checkbox"
-                      checked={excludedCategories.has(group.id)}
-                      onChange={() =>
-                        toggle(excludedCategories, group.id, setExcludedCategories)
-                      }
-                    />
-                  )}
-                  {group.name}
-                </legend>
-                {group.channels.map((channel) => (
-                  <label key={channel.id} className="server-channel-option">
-                    <input
-                      type="checkbox"
-                      checked={excludedChannels.has(channel.id)}
-                      onChange={() =>
-                        toggle(excludedChannels, channel.id, setExcludedChannels)
-                      }
-                    />
-                    <span>#{channel.name}</span>
-                    <small>{channel.type}</small>
-                  </label>
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.guild_name} · {profile.name}
+                  </option>
                 ))}
-              </fieldset>
-            ))}
-            {selectedServer && groups.length === 0 && (
-              <small>
-                {zh
-                  ? "Connector 当前没有同步到可用文字 Channel。"
-                  : "The connector has not reported any readable text channels."}
-              </small>
-            )}
-          </div>
-
-          <button className="ink-button" disabled={working || !selectedServer}>
-            {working
-              ? zh
-                ? "保存中…"
-                : "Saving…"
-              : editing
-                ? zh
-                  ? "保存配置"
-                  : "Save profile"
-                : zh
-                  ? "建立配置"
-                  : "Create profile"}
-          </button>
-        </form>
-      )}
-
-      <div className="server-profile-list">
-        {profiles.map((profile) => (
-          <article className="server-profile-card" key={profile.id}>
-            <div>
-              <strong>{profile.name}</strong>
-              <span>{profile.guild_name}</span>
-              <small>
-                {zh ? "全部 Channel，排除" : "All channels, excluding"}{" "}
-                {profile.excluded_channel_ids.length + profile.excluded_category_ids.length}
-              </small>
-            </div>
-            {!demoMode && (
-              <div className="server-profile-actions">
-                <button
-                  className="text-button"
-                  onClick={() => openEdit(profile)}
-                  disabled={working}
-                >
-                  {zh ? "编辑" : "Edit"}
-                </button>
-                <button
-                  className="text-button danger-text"
-                  onClick={() => void remove(profile)}
-                  disabled={working}
-                >
-                  {zh ? "删除" : "Delete"}
-                </button>
+              </select>
+            </label>
+            {selectedProfile ? (
+              <div className="server-workspace-current-card">
+                <div className="server-workspace-icon" aria-hidden="true">#</div>
+                <div>
+                  <strong>{selectedProfile.guild_name}</strong>
+                  <span>{selectedProfile.name}</span>
+                  <small>
+                    {selectedConnection?.display_name ?? "Discord"} · ID {selectedProfile.guild_id}
+                  </small>
+                </div>
+                <div className="server-workspace-stat">
+                  <strong>
+                    {selectedProfile.excluded_channel_ids.length +
+                      selectedProfile.excluded_category_ids.length}
+                  </strong>
+                  <span>{zh ? "排除位置" : "exclusions"}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="server-workspace-placeholder">
+                {zh ? "选择 Server 后才会显示运行配置。" : "Select a Server to open its runtime workspace."}
               </div>
             )}
-          </article>
-        ))}
-        {!profiles.length && (
-          <div className="deployment-empty compact-empty">
-            <strong>{zh ? "还没有 Server 配置" : "No server profiles yet"}</strong>
+          </div>
+        ) : (
+          <div className="server-workspace-placeholder large">
+            <strong>{zh ? "还没有 Server 配置" : "No Server profiles yet"}</strong>
             <p>
               {!catalog.length
                 ? zh
-                  ? "Discord Connector 上线并完成同步后，可直接选择 Server。"
-                  : "Bring the Discord connector online so its servers can be selected."
+                  ? "等待 Discord Connector 上线并同步可见 Server。"
+                  : "Bring the Discord Connector online so visible Servers can be synchronized."
                 : zh
-                  ? "建立一次配置，之后部署角色时直接选择。"
-                  : "Create it once, then select it when deploying characters."}
+                  ? "添加一个已同步 Server，之后所有功能都会以它为范围。"
+                  : "Add a synchronized Server; it becomes the scope for every runtime feature."}
             </p>
           </div>
         )}
-      </div>
-    </section>
+      </section>
+
+      {drawerOpen && !demoMode && (
+        <div className="server-drawer-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) closeDrawer();
+        }}>
+          <aside className="server-drawer" role="dialog" aria-modal="true">
+            <header className="server-drawer-header">
+              <div>
+                <p className="tape-label">{editing ? "EDIT SERVER" : "NEW SERVER"}</p>
+                <h2>
+                  {editing
+                    ? zh
+                      ? `管理 ${editing.guild_name}`
+                      : `Manage ${editing.guild_name}`
+                    : zh
+                      ? "建立 Server Workspace"
+                      : "Create Server Workspace"}
+                </h2>
+                <p>
+                  {editing
+                    ? zh
+                      ? "Server 身份由 Connector 同步；这里只调整名称、Channel 范围与 Sticker 语义。"
+                      : "The Connector owns Server identity; edit only its label, Channel scope, and Sticker meanings."
+                    : zh
+                      ? "选择 Connector 已同步的 Server，不需要手动填写 Server ID。"
+                      : "Choose a Server already synchronized by the Connector; no manual Server ID is required."}
+                </p>
+              </div>
+              <button className="drawer-close-button" type="button" onClick={closeDrawer}>
+                {zh ? "关闭" : "Close"}
+              </button>
+            </header>
+
+            {editing && (
+              <nav className="server-drawer-tabs" aria-label="Server settings">
+                <button
+                  type="button"
+                  className={drawerTab === "settings" ? "active" : ""}
+                  onClick={() => setDrawerTab("settings")}
+                >
+                  {zh ? "Server 设置" : "Server settings"}
+                </button>
+                <button
+                  type="button"
+                  className={drawerTab === "stickers" ? "active" : ""}
+                  onClick={() => setDrawerTab("stickers")}
+                >
+                  Sticker Dictionary
+                </button>
+              </nav>
+            )}
+
+            {drawerTab === "settings" && (
+              <form className="server-drawer-form" onSubmit={save}>
+                {editing ? (
+                  <div className="server-readonly-identity drawer-form-wide">
+                    <div className="server-workspace-icon" aria-hidden="true">#</div>
+                    <div>
+                      <strong>{editing.guild_name}</strong>
+                      <span>ID {editing.guild_id}</span>
+                    </div>
+                    <small>{connections.find((item) => item.id === editing.connection_id)?.display_name}</small>
+                  </div>
+                ) : (
+                  <>
+                    <label>
+                      {zh ? "Discord Connector" : "Discord Connector"}
+                      <select
+                        value={connectionId}
+                        onChange={(event) => changeConnection(event.currentTarget.value)}
+                        required
+                      >
+                        {discordConnections.map((connection) => (
+                          <option key={connection.id} value={connection.id}>
+                            {connection.display_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      {zh ? "已同步 Server" : "Synchronized Server"}
+                      <select
+                        value={guildId}
+                        onChange={(event) => changeGuild(event.currentTarget.value)}
+                        required
+                      >
+                        {availableServers.map((server) => (
+                          <option key={server.guild_id} value={server.guild_id}>
+                            {server.guild_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </>
+                )}
+
+                <label className={editing ? "drawer-form-wide" : ""}>
+                  {zh ? "Workspace 名称" : "Workspace name"}
+                  <input
+                    value={profileName}
+                    onChange={(event) => setProfileName(event.currentTarget.value)}
+                    required
+                    maxLength={120}
+                    placeholder={zh ? "例如：私人 Companion Server" : "e.g. Private companion server"}
+                  />
+                </label>
+
+                <section className="server-channel-picker drawer-form-wide">
+                  <div>
+                    <strong>{zh ? "全局排除 Channel" : "Global Channel exclusions"}</strong>
+                    <small>
+                      {zh
+                        ? "未勾选的位置默认允许当前 Server 中的全部角色。"
+                        : "Unchecked destinations remain available to every character in this Server."}
+                    </small>
+                  </div>
+                  {groups.map((group) => (
+                    <fieldset key={group.id || "uncategorized"}>
+                      <legend>
+                        {group.id && (
+                          <input
+                            type="checkbox"
+                            checked={excludedCategories.has(group.id)}
+                            onChange={() =>
+                              toggle(excludedCategories, group.id, setExcludedCategories)
+                            }
+                          />
+                        )}
+                        {group.name}
+                      </legend>
+                      {group.channels.map((channel) => (
+                        <label key={channel.id} className="server-channel-option">
+                          <input
+                            type="checkbox"
+                            checked={excludedChannels.has(channel.id)}
+                            onChange={() =>
+                              toggle(excludedChannels, channel.id, setExcludedChannels)
+                            }
+                          />
+                          <span>#{channel.name}</span>
+                          <small>{channel.type}</small>
+                        </label>
+                      ))}
+                    </fieldset>
+                  ))}
+                  {selectedServer && groups.length === 0 && (
+                    <small>
+                      {zh
+                        ? "Connector 当前没有同步到可用文字 Channel。"
+                        : "The Connector has not reported any readable text Channels."}
+                    </small>
+                  )}
+                </section>
+
+                <div className="server-drawer-footer drawer-form-wide">
+                  {editing && (
+                    <button
+                      type="button"
+                      className="text-button danger-text"
+                      onClick={() => void remove(editing)}
+                      disabled={working}
+                    >
+                      {zh ? "删除 Server 配置" : "Delete Server profile"}
+                    </button>
+                  )}
+                  <button className="ink-button" disabled={working || !selectedServer}>
+                    {working
+                      ? zh
+                        ? "保存中…"
+                        : "Saving…"
+                      : editing
+                        ? zh
+                          ? "保存 Server 设置"
+                          : "Save Server settings"
+                        : zh
+                          ? "建立 Server Workspace"
+                          : "Create Server Workspace"}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {drawerTab === "stickers" && editing && (
+              <ServerStickerDictionary
+                profile={editing}
+                demoMode={demoMode}
+                zh={zh}
+                onError={onError}
+              />
+            )}
+          </aside>
+        </div>
+      )}
+    </>
   );
 }

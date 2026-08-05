@@ -212,6 +212,12 @@ def sync_server_catalog(
                 for server in payload.servers
             ],
         )
+        for server in payload.servers:
+            interaction_repository(request).sync_sticker_catalog(
+                connection_id=payload.connection_id,
+                guild_id=server.guild_id,
+                stickers=[item.model_dump() for item in server.stickers],
+            )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Discord connection not found.") from exc
 

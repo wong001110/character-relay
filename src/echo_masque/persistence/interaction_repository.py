@@ -12,15 +12,17 @@ from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
     DiscordDeploymentScopeRecord,
+    DiscordServerCatalogRecord,
     DiscordServerProfileRecord,
     PlatformConnectionRecord,
 )
 from echo_masque.persistence.interaction_models import (
     DiscordInteractionRunRecord,
     DiscordInteractionSessionRecord,
+    DiscordInteractionTemplateRecord,
     DiscordStickerSemanticRecord,
 )
-from echo_masque.persistence.models import utcnow
+from echo_masque.persistence.models import CharacterCardRecord, utcnow
 
 
 class InteractionConflict(RuntimeError):
@@ -72,9 +74,296 @@ def _metadata_semantics(
     )
 
 
+def _decode_catalog_channels(value: str) -> list[dict[str, object]]:
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(decoded, list):
+        return []
+    return [item for item in decoded if isinstance(item, dict)]
+
+
 class InteractionRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
+
+    @staticmethod
+    def template_character_ids(record: DiscordInteractionTemplateRecord) -> list[str]:
+        return _decode(record.participant_character_card_ids_json)
+
+    def _resolve_template_deployments(
+        self,
+        session: object,
+        *,
+        owner_id: str,
+        server_profile_id: str,
+        character_card_ids: list[str],
+    ) -> list[str]:
+        if len(character_card_ids) != 2 or len(set(character_card_ids)) != 2:
+            raise InteractionConflict("Interaction Templates require two different characters.")
+        deployment_ids: list[str] = []
+        for character_card_id in character_card_ids:
+            character = session.get(CharacterCardRecord, character_card_id)  # type: ignore[attr-defined]
+            if character is None or character.owner_id != owner_id:
+                raise InteractionConflict("Every template character must belong to this account.")
+            deployment = session.scalar(  # type: ignore[attr-defined]
+                select(CharacterDeploymentRecord)
+                .join(
+                    DiscordDeploymentScopeRecord,
+                    DiscordDeploymentScopeRecord.deployment_id == CharacterDeploymentRecord.id,
+                )
+                .where(
+                    CharacterDeploymentRecord.owner_id == owner_id,
+                    CharacterDeploymentRecord.character_card_id == character_card_id,
+                    CharacterDeploymentRecord.platform == "discord",
+                    CharacterDeploymentRecord.status == "active",
+                    DiscordDeploymentScopeRecord.server_profile_id == server_profile_id,
+                )
+                .limit(1)
+            )
+            if deployment is None:
+                raise InteractionConflict(
+                    "Every template character needs an active deployment in this Discord Server."
+                )
+            deployment_ids.append(deployment.id)
+        return deployment_ids
+
+    def create_template(
+        self,
+        *,
+        owner_id: str,
+        server_profile_id: str,
+        name: str,
+        participant_character_card_ids: list[str],
+        rounds_per_trigger: int,
+        maximum_triggers: int,
+        cooldown_seconds: int,
+        duration_seconds: int,
+        intensity: str,
+    ) -> DiscordInteractionTemplateRecord:
+        with self.database.session() as session:
+            profile = session.get(DiscordServerProfileRecord, server_profile_id)
+            if profile is None or profile.owner_id != owner_id:
+                raise KeyError("server profile")
+            self._resolve_template_deployments(
+                session,
+                owner_id=owner_id,
+                server_profile_id=server_profile_id,
+                character_card_ids=participant_character_card_ids,
+            )
+            record = DiscordInteractionTemplateRecord(
+                id=str(uuid4()),
+                owner_id=owner_id,
+                server_profile_id=server_profile_id,
+                name=name,
+                template_type="roast",
+                participant_character_card_ids_json=_encode(participant_character_card_ids),
+                rounds_per_trigger=rounds_per_trigger,
+                maximum_triggers=maximum_triggers,
+                cooldown_seconds=cooldown_seconds,
+                duration_seconds=duration_seconds,
+                intensity=intensity,
+            )
+            session.add(record)
+            session.commit()
+            session.refresh(record)
+            return record
+
+    def list_templates(
+        self,
+        owner_id: str,
+        *,
+        server_profile_id: str,
+    ) -> list[DiscordInteractionTemplateRecord]:
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(DiscordInteractionTemplateRecord)
+                    .where(
+                        DiscordInteractionTemplateRecord.owner_id == owner_id,
+                        DiscordInteractionTemplateRecord.server_profile_id == server_profile_id,
+                    )
+                    .order_by(
+                        DiscordInteractionTemplateRecord.updated_at.desc(),
+                        DiscordInteractionTemplateRecord.name,
+                    )
+                )
+            )
+
+    def get_template(
+        self,
+        template_id: str,
+        owner_id: str,
+    ) -> DiscordInteractionTemplateRecord | None:
+        with self.database.session() as session:
+            record = session.get(DiscordInteractionTemplateRecord, template_id)
+            if record is None or record.owner_id != owner_id:
+                return None
+            return record
+
+    def update_template(
+        self,
+        template_id: str,
+        owner_id: str,
+        *,
+        name: str | None = None,
+        participant_character_card_ids: list[str] | None = None,
+        rounds_per_trigger: int | None = None,
+        maximum_triggers: int | None = None,
+        cooldown_seconds: int | None = None,
+        duration_seconds: int | None = None,
+        intensity: str | None = None,
+    ) -> DiscordInteractionTemplateRecord | None:
+        with self.database.session() as session:
+            record = session.get(DiscordInteractionTemplateRecord, template_id)
+            if record is None or record.owner_id != owner_id:
+                return None
+            if participant_character_card_ids is not None:
+                self._resolve_template_deployments(
+                    session,
+                    owner_id=owner_id,
+                    server_profile_id=record.server_profile_id,
+                    character_card_ids=participant_character_card_ids,
+                )
+                record.participant_character_card_ids_json = _encode(participant_character_card_ids)
+            if name is not None:
+                record.name = name
+            if rounds_per_trigger is not None:
+                record.rounds_per_trigger = rounds_per_trigger
+            if maximum_triggers is not None:
+                record.maximum_triggers = maximum_triggers
+            if cooldown_seconds is not None:
+                record.cooldown_seconds = cooldown_seconds
+            if duration_seconds is not None:
+                record.duration_seconds = duration_seconds
+            if intensity is not None:
+                record.intensity = intensity
+            session.commit()
+            session.refresh(record)
+            return record
+
+    def delete_template(self, template_id: str, owner_id: str) -> bool:
+        with self.database.session() as session:
+            record = session.get(DiscordInteractionTemplateRecord, template_id)
+            if record is None or record.owner_id != owner_id:
+                return False
+            session.delete(record)
+            session.commit()
+            return True
+
+    def apply_template(
+        self,
+        *,
+        template_id: str,
+        owner_id: str,
+        channel_id: str,
+        target_user_id: str,
+        target_display_name: str,
+        status: str,
+    ) -> DiscordInteractionSessionRecord:
+        with self.database.session() as session:
+            template = session.get(DiscordInteractionTemplateRecord, template_id)
+            if template is None or template.owner_id != owner_id:
+                raise KeyError("interaction template")
+            profile = session.get(DiscordServerProfileRecord, template.server_profile_id)
+            if profile is None or profile.owner_id != owner_id:
+                raise KeyError("server profile")
+            participant_ids = self._resolve_template_deployments(
+                session,
+                owner_id=owner_id,
+                server_profile_id=profile.id,
+                character_card_ids=self.template_character_ids(template),
+            )
+            catalog = session.scalar(
+                select(DiscordServerCatalogRecord).where(
+                    DiscordServerCatalogRecord.owner_id == owner_id,
+                    DiscordServerCatalogRecord.connection_id == profile.connection_id,
+                    DiscordServerCatalogRecord.guild_id == profile.guild_id,
+                )
+            )
+            if catalog is None:
+                raise InteractionConflict(
+                    "The Connector has not synchronized this Discord Server yet."
+                )
+            channel = next(
+                (
+                    item
+                    for item in _decode_catalog_channels(catalog.channels_json)
+                    if item.get("id") == channel_id
+                ),
+                None,
+            )
+            if channel is None:
+                raise InteractionConflict(
+                    "The selected Channel is not present in the current Server catalog."
+                )
+            category_id = str(channel.get("category_id") or "")
+            if channel_id in _decode(profile.excluded_channel_ids_json) or (
+                category_id and category_id in _decode(profile.excluded_category_ids_json)
+            ):
+                raise InteractionConflict(
+                    "The selected Channel is excluded by this Server configuration."
+                )
+            connection_id = profile.connection_id
+            guild_id = profile.guild_id
+            guild_name = profile.guild_name
+            channel_name = str(channel.get("name") or channel_id)
+            rounds_per_trigger = template.rounds_per_trigger
+            maximum_triggers = template.maximum_triggers
+            cooldown_seconds = template.cooldown_seconds
+            duration_seconds = template.duration_seconds
+            intensity = template.intensity
+        return self.create_session(
+            owner_id=owner_id,
+            connection_id=connection_id,
+            guild_id=guild_id,
+            guild_name=guild_name,
+            channel_id=channel_id,
+            channel_name=channel_name,
+            category_id=category_id,
+            target_user_id=target_user_id,
+            target_display_name=target_display_name,
+            participant_deployment_ids=participant_ids,
+            rounds_per_trigger=rounds_per_trigger,
+            maximum_triggers=maximum_triggers,
+            cooldown_seconds=cooldown_seconds,
+            duration_seconds=duration_seconds,
+            intensity=intensity,
+            status=status,
+        )
+
+    def sync_sticker_catalog(
+        self,
+        *,
+        connection_id: str,
+        guild_id: str,
+        stickers: list[dict[str, object]],
+    ) -> int:
+        synchronized = 0
+        for item in stickers:
+            sticker_id = str(item.get("sticker_id") or "").strip()
+            name = str(item.get("name") or "Sticker").strip()
+            if not sticker_id or not name:
+                continue
+            raw_tags = item.get("tags")
+            tags = (
+                [str(value).strip() for value in raw_tags if str(value).strip()]
+                if isinstance(raw_tags, list)
+                else []
+            )
+            self.resolve_sticker(
+                connection_id=connection_id,
+                guild_id=guild_id,
+                sticker_id=sticker_id,
+                name=name,
+                description=str(item.get("description") or ""),
+                tags=tags,
+                format_type=str(item.get("format_type") or "unknown"),
+                asset_url=str(item.get("asset_url") or ""),
+            )
+            synchronized += 1
+        return synchronized
 
     @staticmethod
     def participant_ids(record: DiscordInteractionSessionRecord) -> list[str]:
@@ -204,12 +493,23 @@ class InteractionRepository:
             session.refresh(record)
             return record
 
-    def list_sessions(self, owner_id: str) -> list[DiscordInteractionSessionRecord]:
+    def list_sessions(
+        self,
+        owner_id: str,
+        *,
+        connection_id: str | None = None,
+        guild_id: str | None = None,
+    ) -> list[DiscordInteractionSessionRecord]:
         with self.database.session() as session:
+            conditions = [DiscordInteractionSessionRecord.owner_id == owner_id]
+            if connection_id is not None:
+                conditions.append(DiscordInteractionSessionRecord.connection_id == connection_id)
+            if guild_id is not None:
+                conditions.append(DiscordInteractionSessionRecord.guild_id == guild_id)
             return list(
                 session.scalars(
                     select(DiscordInteractionSessionRecord)
-                    .where(DiscordInteractionSessionRecord.owner_id == owner_id)
+                    .where(*conditions)
                     .order_by(
                         DiscordInteractionSessionRecord.updated_at.desc(),
                         DiscordInteractionSessionRecord.id.desc(),
@@ -508,6 +808,11 @@ class InteractionRepository:
 
     def delete_owner(self, owner_id: str) -> dict[str, int]:
         with self.database.session() as session:
+            template_result = session.execute(
+                delete(DiscordInteractionTemplateRecord).where(
+                    DiscordInteractionTemplateRecord.owner_id == owner_id
+                )
+            )
             run_result = session.execute(
                 delete(DiscordInteractionRunRecord).where(
                     DiscordInteractionRunRecord.owner_id == owner_id
@@ -525,6 +830,7 @@ class InteractionRepository:
             )
             session.commit()
         return {
+            "discord_interaction_templates": int(getattr(template_result, "rowcount", 0) or 0),
             "discord_interaction_runs": int(getattr(run_result, "rowcount", 0) or 0),
             "discord_interaction_sessions": int(getattr(session_result, "rowcount", 0) or 0),
             "discord_sticker_semantics": int(getattr(sticker_result, "rowcount", 0) or 0),
@@ -532,6 +838,11 @@ class InteractionRepository:
 
     def claim_owner(self, source_owner_id: str, target_owner_id: str) -> dict[str, int]:
         with self.database.session() as session:
+            template_result = session.execute(
+                update(DiscordInteractionTemplateRecord)
+                .where(DiscordInteractionTemplateRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
             run_result = session.execute(
                 update(DiscordInteractionRunRecord)
                 .where(DiscordInteractionRunRecord.owner_id == source_owner_id)
@@ -549,6 +860,7 @@ class InteractionRepository:
             )
             session.commit()
         return {
+            "discord_interaction_templates": int(getattr(template_result, "rowcount", 0) or 0),
             "discord_interaction_runs": int(getattr(run_result, "rowcount", 0) or 0),
             "discord_interaction_sessions": int(getattr(session_result, "rowcount", 0) or 0),
             "discord_sticker_semantics": int(getattr(sticker_result, "rowcount", 0) or 0),
