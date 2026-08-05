@@ -1,5 +1,8 @@
 import type {
   ConnectorHeartbeat,
+  DiscordInteractionClaim,
+  DiscordInteractionClaimRequest,
+  DiscordInteractionRunComplete,
   DiscordDeployment,
   DiscordInboundMessage,
   DiscordMessageRouteLookup,
@@ -7,6 +10,8 @@ import type {
   DiscordMessageRouteView,
   DiscordReply,
   DiscordServerCatalogSync,
+  DiscordStickerContent,
+  DiscordStickerObservation,
   DiscordWebhookRegistration,
   DiscordWebhookRegistrationResult,
   DiscordWebhookStatusReport
@@ -95,6 +100,40 @@ export class RelayClient {
       method: "POST",
       body: JSON.stringify({ connection_id: this.connectionId, ...payload })
     });
+  }
+
+  async resolveSticker(
+    payload: DiscordStickerObservation
+  ): Promise<DiscordStickerContent> {
+    return this.request<DiscordStickerContent>("/api/connectors/discord/stickers/resolve", {
+      method: "POST",
+      body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+    });
+  }
+
+  async claimInteraction(
+    payload: DiscordInteractionClaimRequest
+  ): Promise<DiscordInteractionClaim> {
+    return this.request<DiscordInteractionClaim>(
+      "/api/connectors/discord/interaction-sessions/claim",
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
+  }
+
+  async completeInteractionRun(
+    runId: string,
+    payload: DiscordInteractionRunComplete
+  ): Promise<void> {
+    await this.request<void>(
+      `/api/connectors/discord/interaction-sessions/runs/${runId}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
   }
 
   async processMessage(

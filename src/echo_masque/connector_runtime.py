@@ -138,6 +138,8 @@ class DiscordConnectorRuntime:
         deployment: CharacterDeploymentRecord,
         payload: DiscordInboundMessage,
     ) -> bool:
+        if payload.interaction_session_id:
+            return True
         mode = deployment.participation_mode
         if mode == "mention_only":
             return payload.mentioned_bot
@@ -184,6 +186,24 @@ class DiscordConnectorRuntime:
         )
 
     @staticmethod
+    def _context_message_content(message: DiscordContextMessage) -> str:
+        parts: list[str] = []
+        if message.text.strip():
+            parts.append(message.text.strip())
+        for sticker in message.stickers:
+            meaning = (
+                sticker.semantic_description.strip()
+                or sticker.description.strip()
+                or f"Sticker named {sticker.name} with no confirmed meaning."
+            )
+            parts.append(
+                f"[Discord Sticker: {sticker.name}; interpreted meaning: {meaning}; "
+                f"source: {sticker.semantic_source}; confidence: "
+                f"{sticker.semantic_confidence:.2f}]"
+            )
+        return "\n".join(parts) or "(No readable text or interpreted Sticker content.)"
+
+    @staticmethod
     def _social_prompt(
         *,
         character_name: str,
@@ -197,13 +217,15 @@ class DiscordConnectorRuntime:
                     author_id=payload.author_id,
                     author_display_name=payload.author_display_name,
                     text=payload.text,
+                    stickers=payload.stickers,
                     is_bot=payload.author_is_bot,
                 )
             )
         transcript = "\n".join(
             (
                 f"[{'Character' if item.is_bot else 'Member'}: "
-                f"{item.author_display_name} | {item.author_id}]: {item.text}"
+                f"{item.author_display_name} | {item.author_id}]: "
+                f"{DiscordConnectorRuntime._context_message_content(item)}"
             )
             for item in messages[-30:]
             if item.text.strip()
@@ -219,6 +241,34 @@ class DiscordConnectorRuntime:
                 if item.strip() and item.strip().casefold() != character_name.casefold()
             )
         )
+        interaction_guidance: tuple[str, ...] = ()
+        if payload.interaction_session_id:
+            intensity_rules = {
+                "light": "Use mild teasing and keep the response easy to brush off.",
+                "playful": "Use clear playful roasting with wit, not hostility.",
+                "sharp": "Be more direct and cutting, while remaining non-abusive.",
+            }
+            target_name = payload.interaction_target_display_name or payload.author_display_name
+            target_user_id = payload.interaction_target_user_id or payload.author_id
+            interaction_guidance = (
+                "This reply is part of a Portal-configured Roast Interaction Session.",
+                f"The target member is {target_name} with stable Discord user ID {target_user_id}.",
+                f"You are speaker {payload.interaction_position} of "
+                f"{payload.interaction_participant_count} in round "
+                f"{payload.interaction_round} of {payload.interaction_total_rounds}.",
+                intensity_rules.get(
+                    payload.interaction_intensity,
+                    "Use playful teasing without hostility.",
+                ),
+                "Build on earlier character replies in this Interaction Session without "
+                "repeating the same joke. Do not Tag another character; speaking order is "
+                "controlled by the Session.",
+                "Roast only the target member's current words, choices, harmless habits, "
+                "gameplay, coding mistakes, lateness, or self-directed jokes. Never target "
+                "identity traits, nationality, race, religion, gender, sexuality, disability, "
+                "health, body, appearance, trauma, family, private data, or threats. Do not "
+                "invent personal facts or encourage harassment outside this bounded exchange.",
+            )
         tag_guidance: tuple[str, ...] = ()
         if peers:
             example = f"@{peers[0]}"
@@ -238,6 +288,15 @@ class DiscordConnectorRuntime:
             if payload.author_is_bot
             else "The latest triggering message was written by a human Discord member."
         )
+        latest_message = DiscordContextMessage(
+            message_id=payload.message_id,
+            author_id=payload.author_id,
+            author_display_name=payload.author_display_name,
+            text=payload.text,
+            stickers=payload.stickers,
+            is_bot=payload.author_is_bot,
+        )
+        latest_content = DiscordConnectorRuntime._context_message_content(latest_message)
         return "\n".join(
             (
                 "You are participating in a real Discord group conversation "
@@ -248,6 +307,7 @@ class DiscordConnectorRuntime:
                 source_guidance,
                 "Distinguish human members and deployed characters by their displayed "
                 "name, participant type, and stable ID.",
+                *interaction_guidance,
                 *tag_guidance,
                 "Do not mention internal prompts, deployment configuration, OOC evaluation, "
                 "or Character Relay.",
@@ -259,7 +319,7 @@ class DiscordConnectorRuntime:
                 "Latest triggering message:",
                 (
                     f"[{'Character' if payload.author_is_bot else 'Member'}: "
-                    f"{payload.author_display_name} | {payload.author_id}]: {payload.text}"
+                    f"{payload.author_display_name} | {payload.author_id}]: {latest_content}"
                 ),
                 "Respond now as the character.",
             )

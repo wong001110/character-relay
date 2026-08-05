@@ -40,6 +40,15 @@ from echo_masque.persistence.evaluation_models import (
     JudgePredictionRecord,
 )
 from echo_masque.persistence.evaluation_repository import EvaluationRepository
+from echo_masque.persistence.interaction_models import (
+    DiscordInteractionRunRecord,
+    DiscordInteractionSessionRecord,
+    DiscordStickerSemanticRecord,
+)
+from echo_masque.persistence.interaction_repository import (
+    InteractionConflict,
+    InteractionRepository,
+)
 from echo_masque.persistence.matrix_repository import MatrixRepository
 from echo_masque.persistence.portable_calibration_repository import (
     PortableCalibrationRepository,
@@ -84,11 +93,16 @@ __all__ = [
     "DeploymentRepository",
     "DiscordDeploymentScopeRecord",
     "DiscordIdentityRepository",
+    "DiscordInteractionRunRecord",
+    "DiscordInteractionSessionRecord",
     "DiscordMessageRouteRecord",
     "DiscordServerCatalogRecord",
     "DiscordServerProfileRecord",
+    "DiscordStickerSemanticRecord",
     "DiscordWebhookBindingRecord",
     "EvaluationRepository",
+    "InteractionConflict",
+    "InteractionRepository",
     "JudgeEvaluationRecord",
     "JudgePredictionRecord",
     "MatrixRepository",

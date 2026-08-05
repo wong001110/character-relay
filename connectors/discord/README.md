@@ -225,3 +225,19 @@ smart
 ```
 
 Smart Participation remains experimental. Bot Tag conversations are explicit and bounded; they do not enable unrestricted autonomous channel participation.
+
+## Interaction Sessions and Sticker understanding
+
+The Portal includes a bounded `Interaction Sessions` module. The initial Session type is
+`roast`, with exactly two active Discord character deployments, a fixed speaking order,
+1-3 rounds per trigger, a target Discord user ID, trigger limit, cooldown, duration, and
+light/playful/sharp intensity. One round means each configured character receives one turn.
+The Connector claims each target message idempotently and reports the completed run.
+
+Incoming Discord Stickers are resolved through `/api/connectors/discord/stickers/resolve`.
+Observed metadata is cached in the Portal's Sticker Dictionary. Owner-confirmed meanings are
+marked `manual` and always override subsequent Discord name/description/tag metadata. Sticker
+semantics are stored in shared channel context, so Sticker-only messages can be understood by
+characters and by Interaction Sessions.
+
+## Runtime behavior

@@ -55,11 +55,64 @@ export interface DiscordServerCatalogSync {
   servers: DiscordCatalogServer[];
 }
 
+export interface DiscordStickerContent {
+  sticker_id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  format_type: string;
+  asset_url: string;
+  semantic_intent: string;
+  semantic_emotion: string;
+  semantic_description: string;
+  semantic_source: "manual" | "discord_metadata" | "unknown";
+  semantic_confidence: number;
+}
+
+export interface DiscordStickerObservation {
+  guild_id: string;
+  sticker_id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  format_type: string;
+  asset_url: string;
+}
+
+export interface DiscordInteractionSession {
+  id: string;
+  participant_deployment_ids: string[];
+  rounds_per_trigger: number;
+  intensity: "light" | "playful" | "sharp";
+  target_user_id: string;
+  target_display_name: string;
+}
+
+export interface DiscordInteractionClaim {
+  claimed: boolean;
+  run_id: string | null;
+  session: DiscordInteractionSession | null;
+}
+
+export interface DiscordInteractionClaimRequest {
+  guild_id: string;
+  channel_id: string;
+  target_user_id: string;
+  source_message_id: string;
+}
+
+export interface DiscordInteractionRunComplete {
+  status: "completed" | "failed";
+  reply_count: number;
+  stop_reason: string;
+}
+
 export interface DiscordContextMessage {
   message_id: string;
   author_id: string;
   author_display_name: string;
   text: string;
+  stickers: DiscordStickerContent[];
   created_at?: string;
   is_bot: boolean;
 }
@@ -82,8 +135,18 @@ export interface DiscordInboundMessage {
   replied_to_bot: boolean;
   smart_candidate: boolean;
   author_is_bot: boolean;
+  stickers: DiscordStickerContent[];
   available_characters: string[];
   recent_messages: DiscordContextMessage[];
+  interaction_session_id: string;
+  interaction_type: string;
+  interaction_intensity: string;
+  interaction_round: number;
+  interaction_total_rounds: number;
+  interaction_position: number;
+  interaction_participant_count: number;
+  interaction_target_user_id: string;
+  interaction_target_display_name: string;
 }
 
 export interface DiscordReply {

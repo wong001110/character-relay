@@ -27,7 +27,9 @@ import {
 import type {
   DiscordCatalogServer,
   DiscordContextMessage,
-  DiscordDeployment
+  DiscordDeployment,
+  DiscordInteractionClaim,
+  DiscordStickerContent
 } from "./types.js";
 import { DiscordWebhookManager } from "./webhookManager.js";
 
@@ -238,6 +240,43 @@ function normalizedText(message: Message<true>, botUserId: string): string {
     .trim()
     .replaceAll(new RegExp(`<@!?${botUserId}>`, "g"), "")
     .trim();
+}
+
+async function resolveMessageStickers(
+  message: Message<true>
+): Promise<DiscordStickerContent[]> {
+  const resolved: DiscordStickerContent[] = [];
+  for (const sticker of message.stickers.values()) {
+    const observation = {
+      guild_id: message.guildId,
+      sticker_id: sticker.id,
+      name: sticker.name || "Sticker",
+      description: sticker.description ?? "",
+      tags: (sticker.tags ?? "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+      format_type: String(sticker.format),
+      asset_url: sticker.url
+    };
+    try {
+      resolved.push(await relay.resolveSticker(observation));
+    } catch (error) {
+      log("Unable to resolve Discord Sticker semantics.", {
+        stickerId: sticker.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      resolved.push({
+        ...observation,
+        semantic_intent: "sticker_reaction",
+        semantic_emotion: "",
+        semantic_description: `Sticker named ${observation.name}; meaning is not configured.`,
+        semantic_source: "unknown",
+        semantic_confidence: 0
+      });
+    }
+  }
+  return resolved;
 }
 
 function deploymentDisplayName(deployment: DiscordDeployment): string {
@@ -541,6 +580,16 @@ async function continueBotTagConversation(
       replied_to_bot: false,
       smart_candidate: false,
       author_is_bot: true,
+      stickers: [],
+      interaction_session_id: "",
+      interaction_type: "",
+      interaction_intensity: "",
+      interaction_round: 0,
+      interaction_total_rounds: 0,
+      interaction_position: 0,
+      interaction_participant_count: 0,
+      interaction_target_user_id: "",
+      interaction_target_display_name: "",
       available_characters: candidates
         .filter((item) => item.deployment_id !== deployment.deployment_id)
         .map(deploymentAddressAlias),
@@ -574,6 +623,7 @@ async function continueBotTagConversation(
       author_id: `character:${deployment.character_card_id}`,
       author_display_name: deploymentDisplayName(deployment),
       text: outgoingText,
+      stickers: [],
       created_at: new Date().toISOString(),
       is_bot: true
     });
@@ -611,6 +661,136 @@ async function continueBotTagConversation(
   }
 }
 
+
+async function processInteractionSession(
+  sourceMessage: Message<true>,
+  claim: DiscordInteractionClaim,
+  candidates: DiscordDeployment[],
+  location: ReturnType<typeof channelLocation>,
+  key: string,
+  botUserId: string,
+  authorDisplayName: string,
+  originalText: string,
+  stickers: DiscordStickerContent[]
+): Promise<boolean> {
+  const session = claim.session;
+  const runId = claim.run_id;
+  if (!claim.claimed || !session || !runId) return false;
+
+  const ordered = session.participant_deployment_ids.map((deploymentId) =>
+    candidates.find((item) => item.deployment_id === deploymentId)
+  );
+  if (ordered.some((item) => !item)) {
+    await relay.completeInteractionRun(runId, {
+      status: "failed",
+      reply_count: 0,
+      stop_reason: "One or more Session participants are not active in this channel."
+    });
+    log("Interaction Session could not resolve all participants.", {
+      sessionId: session.id,
+      runId,
+      participantDeploymentIds: session.participant_deployment_ids
+    });
+    return true;
+  }
+
+  let replyCount = 0;
+  try {
+    for (let round = 1; round <= session.rounds_per_trigger; round += 1) {
+      for (const [participantIndex, baseDeployment] of ordered.entries()) {
+        if (!baseDeployment) continue;
+        const deployment = resolveDeploymentLocation(baseDeployment, location);
+        await sourceMessage.channel.sendTyping();
+        const reply = await relay.processMessage({
+          deployment_id: deployment.deployment_id,
+          message_id: sourceMessage.id,
+          guild_id: sourceMessage.guildId,
+          guild_name: sourceMessage.guild.name,
+          channel_id: location.channelId,
+          channel_name: location.channelName,
+          category_id: location.categoryId,
+          thread_id: location.threadId,
+          thread_name: location.threadName,
+          author_id: sourceMessage.author.id,
+          author_display_name: authorDisplayName,
+          text:
+            originalText ||
+            "The target member sent interpreted Discord Sticker content without text.",
+          mentioned_bot: false,
+          replied_to_bot: false,
+          smart_candidate: false,
+          author_is_bot: false,
+          stickers,
+          available_characters: [],
+          recent_messages: context.get(key),
+          interaction_session_id: session.id,
+          interaction_type: "roast",
+          interaction_intensity: session.intensity,
+          interaction_round: round,
+          interaction_total_rounds: session.rounds_per_trigger,
+          interaction_position: participantIndex + 1,
+          interaction_participant_count: ordered.length,
+          interaction_target_user_id: session.target_user_id,
+          interaction_target_display_name:
+            session.target_display_name || authorDisplayName
+        });
+        if (reply.action !== "reply" || !reply.text) continue;
+        const normalizedReply = normalizeBotTagReply(
+          candidates,
+          reply.text,
+          deployment.deployment_id,
+          config.groupAddressAliases
+        );
+        const outgoingText = normalizedReply.displayText.trim();
+        if (!outgoingText) continue;
+        const sentMessageIds = await sendCharacterReply(
+          sourceMessage,
+          deployment,
+          outgoingText,
+          botUserId
+        );
+        await rememberSentMessages(deployment, sentMessageIds, sourceMessage.guildId);
+        context.push(key, {
+          message_id: sentMessageIds[0] ?? `relay-interaction-${Date.now()}`,
+          author_id: `character:${deployment.character_card_id}`,
+          author_display_name: deploymentDisplayName(deployment),
+          text: outgoingText,
+          stickers: [],
+          created_at: new Date().toISOString(),
+          is_bot: true
+        });
+        replyCount += 1;
+        log("Interaction Session character reply sent to Discord.", {
+          sessionId: session.id,
+          runId,
+          deploymentId: deployment.deployment_id,
+          round,
+          participantPosition: participantIndex + 1,
+          replyCount,
+          sourceMessageId: sourceMessage.id,
+          sentMessageIds,
+          latencyMs: reply.latency_ms ?? null
+        });
+      }
+    }
+    await relay.completeInteractionRun(runId, {
+      status: "completed",
+      reply_count: replyCount,
+      stop_reason: replyCount ? "rounds_completed" : "no_character_replies"
+    });
+  } catch (error) {
+    await relay
+      .completeInteractionRun(runId, {
+        status: "failed",
+        reply_count: replyCount,
+        stop_reason: error instanceof Error ? error.message : String(error)
+      })
+      .catch(() => undefined);
+    throw error;
+  }
+  return true;
+}
+
 async function processMessage(message: Message): Promise<void> {
   const botUser = client.user;
   if (!message.inGuild() || message.author.bot || !botUser) return;
@@ -636,17 +816,40 @@ async function processMessage(message: Message): Promise<void> {
     guildMessage.member?.displayName ??
     guildMessage.author.globalName ??
     guildMessage.author.username;
-  const contextMessage: DiscordContextMessage = {
-    message_id: guildMessage.id,
-    author_id: guildMessage.author.id,
-    author_display_name: authorDisplayName,
-    text: originalText,
-    created_at: guildMessage.createdAt.toISOString(),
-    is_bot: false
-  };
-
   enqueue(key, async () => {
+    const stickers = await resolveMessageStickers(guildMessage);
+    const contextMessage: DiscordContextMessage = {
+      message_id: guildMessage.id,
+      author_id: guildMessage.author.id,
+      author_display_name: authorDisplayName,
+      text: originalText,
+      stickers,
+      created_at: guildMessage.createdAt.toISOString(),
+      is_bot: false
+    };
     context.push(key, contextMessage);
+
+    const interactionClaim = await relay.claimInteraction({
+      guild_id: guildMessage.guildId,
+      channel_id: location.channelId,
+      target_user_id: guildMessage.author.id,
+      source_message_id: guildMessage.id
+    });
+    if (
+      await processInteractionSession(
+        guildMessage,
+        interactionClaim,
+        candidates,
+        location,
+        key,
+        botUser.id,
+        authorDisplayName,
+        originalText,
+        stickers
+      )
+    ) {
+      return;
+    }
 
     const replyTarget = await resolveReplyTarget(
       guildMessage,
@@ -678,7 +881,7 @@ async function processMessage(message: Message): Promise<void> {
         {
           mentionedBot,
           repliedToBot: isReplyToCharacter,
-          hasReadableText: Boolean(audience.text || originalText)
+          hasReadableText: Boolean(audience.text || originalText || stickers.length)
         },
         config.smartParticipationEnabled
       )
@@ -706,13 +909,25 @@ async function processMessage(message: Message): Promise<void> {
         author_display_name: authorDisplayName,
         text:
           (addressedToMultiple ? originalText : audience.text) ||
-          "The user addressed the character without additional readable text.",
+          (stickers.length
+            ? "The user addressed the character with interpreted Sticker content and no text."
+            : "The user addressed the character without additional readable text."),
         mentioned_bot: mentionedBot,
         replied_to_bot: isReplyToCharacter,
         smart_candidate:
           deployment.participation_mode === "smart" &&
           config.smartParticipationEnabled,
         author_is_bot: false,
+        stickers,
+        interaction_session_id: "",
+        interaction_type: "",
+        interaction_intensity: "",
+        interaction_round: 0,
+        interaction_total_rounds: 0,
+        interaction_position: 0,
+        interaction_participant_count: 0,
+        interaction_target_user_id: "",
+        interaction_target_display_name: "",
         available_characters: candidates
           .filter((item) => item.deployment_id !== deployment.deployment_id)
           .map(deploymentAddressAlias),
@@ -750,6 +965,7 @@ async function processMessage(message: Message): Promise<void> {
         author_id: `character:${deployment.character_card_id}`,
         author_display_name: deploymentDisplayName(deployment),
         text: outgoingText,
+        stickers: [],
         created_at: new Date().toISOString(),
         is_bot: true
       });
@@ -827,6 +1043,8 @@ const healthServer = createServer((request, response) => {
       bot_tag_max_depth: config.botTagMaxDepth,
       bot_tag_max_responses: config.botTagMaxResponses,
       custom_group_address_aliases: config.groupAddressAliases.length,
+      interaction_sessions_enabled: true,
+      sticker_understanding_enabled: true,
       last_catalog_sync_at: lastCatalogSyncAt,
       last_deployment_sync_at: lastDeploymentSyncAt,
       last_error: lastError

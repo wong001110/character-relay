@@ -118,11 +118,67 @@ class DiscordConnectorHeartbeat(BaseModel):
     last_error: str = Field(default="", max_length=2000)
 
 
+class DiscordStickerContent(BaseModel):
+    sticker_id: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=1000)
+    tags: list[str] = Field(default_factory=list, max_length=30)
+    format_type: str = Field(default="unknown", max_length=40)
+    asset_url: str = Field(default="", max_length=2000)
+    semantic_intent: str = Field(default="sticker_reaction", max_length=80)
+    semantic_emotion: str = Field(default="", max_length=80)
+    semantic_description: str = Field(default="", max_length=2000)
+    semantic_source: Literal["manual", "discord_metadata", "unknown"] = "unknown"
+    semantic_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class DiscordStickerObservation(BaseModel):
+    connection_id: str = Field(min_length=1, max_length=64)
+    guild_id: str = Field(min_length=1, max_length=200)
+    sticker_id: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=1000)
+    tags: list[str] = Field(default_factory=list, max_length=30)
+    format_type: str = Field(default="unknown", max_length=40)
+    asset_url: str = Field(default="", max_length=2000)
+
+
+class DiscordInteractionSessionConnectorView(BaseModel):
+    id: str
+    participant_deployment_ids: list[str] = Field(min_length=2, max_length=2)
+    rounds_per_trigger: int = Field(ge=1, le=3)
+    intensity: Literal["light", "playful", "sharp"]
+    target_user_id: str
+    target_display_name: str
+
+
+class DiscordInteractionClaimRequest(BaseModel):
+    connection_id: str = Field(min_length=1, max_length=64)
+    guild_id: str = Field(min_length=1, max_length=200)
+    channel_id: str = Field(min_length=1, max_length=200)
+    target_user_id: str = Field(min_length=1, max_length=200)
+    source_message_id: str = Field(min_length=1, max_length=200)
+
+
+class DiscordInteractionClaimView(BaseModel):
+    claimed: bool = False
+    run_id: str | None = None
+    session: DiscordInteractionSessionConnectorView | None = None
+
+
+class DiscordInteractionRunComplete(BaseModel):
+    connection_id: str = Field(min_length=1, max_length=64)
+    status: Literal["completed", "failed"]
+    reply_count: int = Field(default=0, ge=0, le=30)
+    stop_reason: str = Field(default="", max_length=2000)
+
+
 class DiscordContextMessage(BaseModel):
     message_id: str = Field(min_length=1, max_length=200)
     author_id: str = Field(min_length=1, max_length=200)
     author_display_name: str = Field(min_length=1, max_length=160)
     text: str = Field(default="", max_length=10000)
+    stickers: list[DiscordStickerContent] = Field(default_factory=list, max_length=3)
     created_at: datetime | None = None
     is_bot: bool = False
 
@@ -145,8 +201,18 @@ class DiscordInboundMessage(BaseModel):
     replied_to_bot: bool = False
     smart_candidate: bool = False
     author_is_bot: bool = False
+    stickers: list[DiscordStickerContent] = Field(default_factory=list, max_length=3)
     available_characters: list[str] = Field(default_factory=list, max_length=30)
     recent_messages: list[DiscordContextMessage] = Field(default_factory=list, max_length=30)
+    interaction_session_id: str = Field(default="", max_length=64)
+    interaction_type: str = Field(default="", max_length=32)
+    interaction_intensity: str = Field(default="", max_length=24)
+    interaction_round: int = Field(default=0, ge=0, le=10)
+    interaction_total_rounds: int = Field(default=0, ge=0, le=10)
+    interaction_position: int = Field(default=0, ge=0, le=10)
+    interaction_participant_count: int = Field(default=0, ge=0, le=10)
+    interaction_target_user_id: str = Field(default="", max_length=200)
+    interaction_target_display_name: str = Field(default="", max_length=160)
 
 
 class DiscordConnectorReplyView(BaseModel):
