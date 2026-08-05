@@ -5,6 +5,7 @@ import {
   deploymentsFor,
   destinationKey,
   findDeployment,
+  normalizeBotTagReply,
   resolveAudience,
   resolveBotTagAudience,
   shouldSubmitMessage,
@@ -40,6 +41,7 @@ function deployment(
     identity_mode: "webhook",
     identity_display_name: name,
     identity_avatar_url: `https://example.com/${name}.png`,
+    address_aliases: [],
     webhook_status: "pending",
     webhook_id: null,
     webhook_token: null,
@@ -253,6 +255,48 @@ it("routes explicit character tags while ignoring self tags", () => {
   );
   expect(self.deployments).toEqual([]);
   expect(self.reason).toBe("not_found");
+});
+
+it("uses explicit aliases independently of the Discord display name", () => {
+  const ann = deployment("mention_and_reply", "", "安", {
+    address_aliases: ["安", "Ann"]
+  });
+  const ning = deployment("mention_and_reply", "", "宁", {
+    address_aliases: ["宁", "Ning"]
+  });
+
+  const selected = resolveAudience([ann, ning], "Ann ping");
+  expect(selected.deployments[0]?.deployment_id).toBe(ann.deployment_id);
+  expect(selected.text).toBe("ping");
+});
+
+it("removes self Tags before display and preserves other tagged characters", () => {
+  const ann = deployment("mention_and_reply", "", "安・Ann", {
+    address_aliases: ["安", "Ann"]
+  });
+  const ning = deployment("mention_and_reply", "", "宁・Ning", {
+    address_aliases: ["宁", "Ning"]
+  });
+
+  const selfOnly = normalizeBotTagReply(
+    [ann, ning],
+    "@Ning 刚才的话题没有需要补充的。",
+    ning.deployment_id
+  );
+  expect(selfOnly.displayText).toBe("刚才的话题没有需要补充的。");
+  expect(selfOnly.audience.deployments).toEqual([]);
+  expect(selfOnly.removedSelfTag).toBe(true);
+
+  const mixed = normalizeBotTagReply(
+    [ann, ning],
+    "@Ning and @Ann 这部分交给你。",
+    ning.deployment_id
+  );
+  expect(mixed.displayText).toBe("@Ann 这部分交给你。");
+  expect(mixed.audience.deployments.map((item) => item.deployment_id)).toEqual([
+    ann.deployment_id
+  ]);
+  expect(mixed.audience.text).toBe("这部分交给你。");
 });
 
 it("routes tagged group aliases to every other character", () => {

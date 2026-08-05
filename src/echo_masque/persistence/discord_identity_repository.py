@@ -15,6 +15,7 @@ from echo_masque.persistence.deployment_models import (
     PlatformConnectionRecord,
 )
 from echo_masque.persistence.discord_identity_models import (
+    DeploymentMessageAliasRecord,
     DeploymentMessageIdentityRecord,
     DiscordMessageRouteRecord,
     DiscordWebhookBindingRecord,
@@ -33,6 +34,31 @@ def _ids(value: str) -> set[str]:
     return {item.strip() for item in decoded if isinstance(item, str) and item.strip()}
 
 
+def _decode_aliases(value: str) -> list[str]:
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(decoded, list):
+        return []
+    return [item for item in decoded if isinstance(item, str) and item.strip()]
+
+
+def _normalize_aliases(values: list[str]) -> list[str]:
+    aliases: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        alias = value.strip()[:80]
+        normalized = alias.casefold()
+        if not alias or normalized in seen:
+            continue
+        seen.add(normalized)
+        aliases.append(alias)
+        if len(aliases) >= 20:
+            break
+    return aliases
+
+
 def _matches_destination(
     session: Session,
     deployment: CharacterDeploymentRecord,
@@ -47,9 +73,8 @@ def _matches_destination(
     profile = session.get(DiscordServerProfileRecord, scope.server_profile_id)
     if profile is None or profile.guild_id != workspace_id:
         return False
-    return (
-        channel_id not in _ids(profile.excluded_channel_ids_json)
-        and channel_id not in _ids(scope.excluded_channel_ids_json)
+    return channel_id not in _ids(profile.excluded_channel_ids_json) and channel_id not in _ids(
+        scope.excluded_channel_ids_json
     )
 
 
@@ -78,6 +103,13 @@ class DiscordIdentityRepository:
                 return None
             return record
 
+    def get_address_aliases(self, deployment_id: str, owner_id: str) -> list[str]:
+        with self.database.session() as session:
+            record = session.get(DeploymentMessageAliasRecord, deployment_id)
+            if record is None or record.owner_id != owner_id:
+                return []
+            return _decode_aliases(record.aliases_json)
+
     def upsert_identity(
         self,
         *,
@@ -86,6 +118,7 @@ class DiscordIdentityRepository:
         mode: str,
         display_name: str,
         avatar_url: str,
+        address_aliases: list[str] | None = None,
     ) -> DeploymentMessageIdentityRecord:
         with self.database.session() as session:
             deployment = session.get(CharacterDeploymentRecord, deployment_id)
@@ -111,6 +144,24 @@ class DiscordIdentityRepository:
                     record.last_error = ""
                 elif record.webhook_status == "not_required":
                     record.webhook_status = "pending"
+            if address_aliases is not None:
+                aliases = _normalize_aliases(address_aliases)
+                alias_record = session.get(DeploymentMessageAliasRecord, deployment_id)
+                if aliases:
+                    if alias_record is None:
+                        alias_record = DeploymentMessageAliasRecord(
+                            deployment_id=deployment_id,
+                            owner_id=owner_id,
+                            aliases_json=json.dumps(aliases, ensure_ascii=False),
+                        )
+                        session.add(alias_record)
+                    else:
+                        alias_record.aliases_json = json.dumps(
+                            aliases,
+                            ensure_ascii=False,
+                        )
+                elif alias_record is not None:
+                    session.delete(alias_record)
             session.commit()
             session.refresh(record)
             return record
@@ -124,6 +175,12 @@ class DiscordIdentityRepository:
                 delete(DiscordMessageRouteRecord).where(
                     DiscordMessageRouteRecord.owner_id == owner_id,
                     DiscordMessageRouteRecord.deployment_id == deployment_id,
+                )
+            )
+            session.execute(
+                delete(DeploymentMessageAliasRecord).where(
+                    DeploymentMessageAliasRecord.owner_id == owner_id,
+                    DeploymentMessageAliasRecord.deployment_id == deployment_id,
                 )
             )
             session.delete(record)
@@ -363,6 +420,11 @@ class DiscordIdentityRepository:
                     DeploymentMessageIdentityRecord.owner_id == owner_id
                 )
             )
+            alias_result = session.execute(
+                delete(DeploymentMessageAliasRecord).where(
+                    DeploymentMessageAliasRecord.owner_id == owner_id
+                )
+            )
             binding_result = session.execute(
                 delete(DiscordWebhookBindingRecord).where(
                     DiscordWebhookBindingRecord.owner_id == owner_id
@@ -371,9 +433,8 @@ class DiscordIdentityRepository:
             session.commit()
         return {
             "discord_message_routes": int(getattr(route_result, "rowcount", 0) or 0),
-            "deployment_identities": int(
-                getattr(identity_result, "rowcount", 0) or 0
-            ),
+            "deployment_identities": int(getattr(identity_result, "rowcount", 0) or 0),
+            "deployment_aliases": int(getattr(alias_result, "rowcount", 0) or 0),
             "discord_webhooks": int(getattr(binding_result, "rowcount", 0) or 0),
         }
 
@@ -389,6 +450,11 @@ class DiscordIdentityRepository:
                 .where(DeploymentMessageIdentityRecord.owner_id == source_owner_id)
                 .values(owner_id=target_owner_id)
             )
+            alias_result = session.execute(
+                update(DeploymentMessageAliasRecord)
+                .where(DeploymentMessageAliasRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
             binding_result = session.execute(
                 update(DiscordWebhookBindingRecord)
                 .where(DiscordWebhookBindingRecord.owner_id == source_owner_id)
@@ -397,8 +463,7 @@ class DiscordIdentityRepository:
             session.commit()
         return {
             "discord_message_routes": int(getattr(route_result, "rowcount", 0) or 0),
-            "deployment_identities": int(
-                getattr(identity_result, "rowcount", 0) or 0
-            ),
+            "deployment_identities": int(getattr(identity_result, "rowcount", 0) or 0),
+            "deployment_aliases": int(getattr(alias_result, "rowcount", 0) or 0),
             "discord_webhooks": int(getattr(binding_result, "rowcount", 0) or 0),
         }

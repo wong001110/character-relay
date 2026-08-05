@@ -114,6 +114,7 @@ function nameAliases(value: string): string[] {
 function aliases(deployment: DiscordDeployment): string[] {
   return [
     ...new Set([
+      ...(deployment.address_aliases ?? []).flatMap(nameAliases),
       ...nameAliases(deployment.identity_display_name),
       ...nameAliases(deployment.character_display_name)
     ])
@@ -158,6 +159,7 @@ function withoutNameAlias(
 }
 
 interface NameMatch {
+  matches: Array<{ deployment: DiscordDeployment; alias: string }>;
   deployments: DiscordDeployment[];
   remainder: string;
 }
@@ -177,11 +179,22 @@ function matchNamePrefix(
 
   const longest = Math.max(...matches.map((item) => item.alias.length));
   const top = matches.filter((item) => item.alias.length === longest);
-  const deployments = [
-    ...new Map(top.map((item) => [item.deployment.deployment_id, item.deployment])).values()
-  ];
+  const uniqueMatches = new Map<
+    string,
+    { deployment: DiscordDeployment; alias: string }
+  >();
+  for (const item of top) {
+    if (!uniqueMatches.has(item.deployment.deployment_id)) {
+      uniqueMatches.set(item.deployment.deployment_id, {
+        deployment: item.deployment,
+        alias: item.alias
+      });
+    }
+  }
+  const selected = [...uniqueMatches.values()];
   return {
-    deployments,
+    matches: selected,
+    deployments: selected.map((item) => item.deployment),
     remainder: top[0]?.remainder ?? value
   };
 }
@@ -341,38 +354,153 @@ export function resolveAudience(
   };
 }
 
+interface TaggedNameSequence {
+  matches: Array<{ deployment: DiscordDeployment; alias: string }>;
+  remainder: string;
+  ambiguous: boolean;
+}
+
+function taggedNameSequence(
+  candidates: DiscordDeployment[],
+  text: string
+): TaggedNameSequence {
+  const selected = new Map<
+    string,
+    { deployment: DiscordDeployment; alias: string }
+  >();
+  let remaining = text.trim();
+
+  while (remaining) {
+    const match = matchNamePrefix(candidates, remaining, true);
+    if (!match) break;
+    if (match.matches.length !== 1) {
+      return { matches: [], remainder: text.trim(), ambiguous: true };
+    }
+    const selectedMatch = match.matches[0];
+    if (!selectedMatch) break;
+    selected.set(selectedMatch.deployment.deployment_id, selectedMatch);
+
+    const afterPunctuation = stripLeadingPunctuation(match.remainder);
+    if (matchNamePrefix(candidates, afterPunctuation, true)) {
+      remaining = afterPunctuation;
+      continue;
+    }
+    const afterConnector = stripLeadingNameConnector(afterPunctuation);
+    if (
+      afterConnector !== afterPunctuation &&
+      matchNamePrefix(candidates, afterConnector, true)
+    ) {
+      remaining = afterConnector;
+      continue;
+    }
+    remaining = afterPunctuation;
+    break;
+  }
+
+  return {
+    matches: [...selected.values()],
+    remainder: remaining.trim(),
+    ambiguous: false
+  };
+}
+
+export interface BotTagNormalization {
+  displayText: string;
+  audience: AudienceResolution;
+  removedSelfTag: boolean;
+}
+
+export function normalizeBotTagReply(
+  candidates: DiscordDeployment[],
+  text: string,
+  sourceDeploymentId: string,
+  additionalGroupAliases: string[] = []
+): BotTagNormalization {
+  const available = candidates.filter(
+    (item) => item.deployment_id !== sourceDeploymentId
+  );
+  const options = [...new Set(available.map(displayName))];
+  const original = text.trim();
+
+  const groupText = stripTaggedGroupAddress(original, additionalGroupAliases);
+  if (groupText !== null) {
+    return {
+      displayText: original,
+      audience: {
+        deployments: available,
+        text: groupText,
+        reason: available.length ? "selected_all" : "not_found",
+        options
+      },
+      removedSelfTag: false
+    };
+  }
+
+  const sequence = taggedNameSequence(candidates, original);
+  if (sequence.ambiguous) {
+    return {
+      displayText: original,
+      audience: {
+        deployments: [],
+        text: original,
+        reason: "ambiguous",
+        options
+      },
+      removedSelfTag: false
+    };
+  }
+  if (!sequence.matches.length) {
+    return {
+      displayText: original,
+      audience: {
+        deployments: [],
+        text: original,
+        reason: "not_found",
+        options
+      },
+      removedSelfTag: false
+    };
+  }
+
+  const removedSelfTag = sequence.matches.some(
+    (item) => item.deployment.deployment_id === sourceDeploymentId
+  );
+  const targetMatches = sequence.matches.filter(
+    (item) => item.deployment.deployment_id !== sourceDeploymentId
+  );
+  const targetDeployments = targetMatches.map((item) => item.deployment);
+  const visibleTags = targetMatches.map((item) => `@${item.alias}`).join(" and ");
+  const displayText = [visibleTags, sequence.remainder].filter(Boolean).join(" ").trim();
+
+  return {
+    displayText,
+    audience: {
+      deployments: targetDeployments,
+      text: sequence.remainder,
+      reason:
+        targetDeployments.length > 1
+          ? "selected_multiple"
+          : targetDeployments.length === 1
+            ? "selected_alias"
+            : "not_found",
+      options
+    },
+    removedSelfTag
+  };
+}
+
 export function resolveBotTagAudience(
   candidates: DiscordDeployment[],
   text: string,
   sourceDeploymentId: string,
   additionalGroupAliases: string[] = []
 ): AudienceResolution {
-  const available = candidates.filter(
-    (item) => item.deployment_id !== sourceDeploymentId
-  );
-  const options = [...new Set(available.map(displayName))];
-  if (!available.length) {
-    return { deployments: [], text: text.trim(), reason: "not_found", options };
-  }
-
-  const groupText = stripTaggedGroupAddress(text, additionalGroupAliases);
-  if (groupText !== null) {
-    return {
-      deployments: available,
-      text: groupText,
-      reason: "selected_all",
-      options
-    };
-  }
-
-  const named = namedAudience(available, text, options, true);
-  if (named) return named;
-  return {
-    deployments: [],
-    text: text.trim(),
-    reason: "not_found",
-    options
-  };
+  return normalizeBotTagReply(
+    candidates,
+    text,
+    sourceDeploymentId,
+    additionalGroupAliases
+  ).audience;
 }
 
 export interface TriggerState {

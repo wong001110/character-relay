@@ -30,6 +30,7 @@ export interface DiscordDeployment {
   identity_mode: IdentityMode;
   identity_display_name: string;
   identity_avatar_url: string;
+  address_aliases?: string[];
   webhook_status: WebhookStatus;
   webhook_id?: string | null;
   webhook_token?: string | null;
