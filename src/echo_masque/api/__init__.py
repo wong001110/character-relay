@@ -51,6 +51,7 @@ from echo_masque.persistence import (
     AuthRepository,
     CalibrationRepository,
     Database,
+    DeploymentLogRepository,
     DeploymentRepository,
     DiscordIdentityRepository,
     EvaluationRepository,
@@ -95,6 +96,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     repository = Repository(database)
     deployment_repository = DeploymentRepository(database)
+    deployment_log_repository = DeploymentLogRepository(database)
     discord_identity_repository = DiscordIdentityRepository(database)
     interaction_repository = InteractionRepository(database)
     provider_trace_repository = ProviderTraceRepository(
@@ -157,6 +159,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         calibration_repository,
         evaluation_repository,
         deployment_repository,
+        deployment_log_repository,
         discord_identity_repository,
         interaction_repository,
     )
@@ -226,6 +229,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.auth_service = auth_service
     app.state.repository = repository
     app.state.deployment_repository = deployment_repository
+    app.state.deployment_log_repository = deployment_log_repository
     app.state.discord_identity_repository = discord_identity_repository
     app.state.interaction_repository = interaction_repository
     app.state.provider_trace_repository = provider_trace_repository

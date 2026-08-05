@@ -17,6 +17,8 @@ from echo_masque.persistence.calibration_repository import (
     CalibrationRepository as BaseCalibrationRepository,
 )
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.deployment_log_models import DeploymentLogRecord
+from echo_masque.persistence.deployment_log_repository import DeploymentLogRepository
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
     DiscordDeploymentScopeRecord,
@@ -89,6 +91,8 @@ __all__ = [
     "CharacterDeploymentRecord",
     "Database",
     "DeploymentConflict",
+    "DeploymentLogRecord",
+    "DeploymentLogRepository",
     "DeploymentMessageAliasRecord",
     "DeploymentMessageIdentityRecord",
     "DeploymentRepository",

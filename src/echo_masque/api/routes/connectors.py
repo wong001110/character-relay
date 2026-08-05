@@ -34,6 +34,7 @@ from echo_masque.config import Settings
 from echo_masque.connector_runtime import ConnectorRuntimeError, DiscordConnectorRuntime
 from echo_masque.credentials import CredentialVault
 from echo_masque.persistence import (
+    DeploymentLogRepository,
     DeploymentRepository,
     DiscordIdentityRepository,
     InteractionRepository,
@@ -70,6 +71,10 @@ def _authorize_connector(
 
 def deployment_repository(request: Request) -> DeploymentRepository:
     return cast(DeploymentRepository, request.app.state.deployment_repository)
+
+
+def deployment_log_repository(request: Request) -> DeploymentLogRepository:
+    return cast(DeploymentLogRepository, request.app.state.deployment_log_repository)
 
 
 def identity_repository(request: Request) -> DiscordIdentityRepository:
@@ -190,6 +195,24 @@ def list_connector_deployments(
                 webhook_token=webhook_token,
             )
         )
+    deployment_log_repository(request).record(
+        connection_id=connection_id,
+        platform="discord",
+        level="info",
+        event_type="deployment_sync",
+        message=f"Connector loaded {len(views)} active Discord deployment(s).",
+        details={
+            "deployment_ids": [item.deployment_id for item in views],
+            "server_wide_count": sum(
+                item.channel_scope_mode == "all_except" for item in views
+            ),
+            "pending_webhook_count": sum(
+                item.identity_mode == "webhook" and item.webhook_status == "pending"
+                for item in views
+            ),
+        },
+        dedupe_seconds=120,
+    )
     return views
 
 
@@ -220,6 +243,25 @@ def sync_server_catalog(
             )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Discord connection not found.") from exc
+    deployment_log_repository(request).record(
+        connection_id=payload.connection_id,
+        platform="discord",
+        level="info",
+        event_type="server_catalog_sync",
+        message=f"Connector synchronized {len(payload.servers)} Discord server(s).",
+        details={
+            "servers": [
+                {
+                    "guild_id": item.guild_id,
+                    "guild_name": item.guild_name,
+                    "channel_count": len(item.channels),
+                    "sticker_count": len(item.stickers),
+                }
+                for item in payload.servers
+            ]
+        },
+        dedupe_seconds=120,
+    )
 
 
 @router.put("/webhooks", response_model=DiscordWebhookRegistrationView)
@@ -274,6 +316,18 @@ def register_webhook(
     identities.set_identity_status(
         deployment_id=payload.deployment_id,
         status="active",
+    )
+    deployment_log_repository(request).record(
+        connection_id=payload.connection_id,
+        platform="discord",
+        level="info",
+        event_type="webhook_ready",
+        message="Discord Webhook identity is ready for this Channel.",
+        deployment_id=payload.deployment_id,
+        workspace_id=payload.workspace_id,
+        channel_id=payload.channel_id,
+        thread_id=payload.thread_id,
+        details={"webhook_id": payload.webhook_id},
     )
     return DiscordWebhookRegistrationView(
         binding_id=binding.id,
@@ -361,6 +415,19 @@ def connector_heartbeat(
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Discord connection not found.")
+    deployment_log_repository(request).record(
+        connection_id=payload.connection_id,
+        platform="discord",
+        level="error" if payload.status == "error" else "info",
+        event_type="connector_heartbeat",
+        message=f"Discord Connector reported {payload.status}.",
+        details={
+            "bot_user_id": payload.bot_user_id,
+            "bot_display_name": payload.bot_display_name,
+            "last_error": payload.last_error,
+        },
+        dedupe_seconds=120,
+    )
 
 
 @router.post("/stickers/resolve", response_model=DiscordStickerContent)
@@ -446,11 +513,85 @@ async def process_discord_message(
     authorization: Annotated[str | None, Header()] = None,
 ) -> DiscordConnectorReplyView:
     _authorize_connector(request, authorization)
+    logs = deployment_log_repository(request)
+    logs.record(
+        connection_id=payload.connection_id,
+        platform="discord",
+        level="info",
+        event_type="runtime_message_received",
+        message="Discord message reached the Character Runtime.",
+        deployment_id=payload.deployment_id,
+        workspace_id=payload.guild_id,
+        channel_id=payload.channel_id,
+        thread_id=payload.thread_id,
+        source_message_id=payload.message_id,
+        details={
+            "guild_name": payload.guild_name,
+            "channel_name": payload.channel_name,
+            "thread_name": payload.thread_name,
+            "mentioned_bot": payload.mentioned_bot,
+            "replied_to_bot": payload.replied_to_bot,
+            "smart_candidate": payload.smart_candidate,
+            "author_is_bot": payload.author_is_bot,
+            "sticker_count": len(payload.stickers),
+            "recent_context_count": len(payload.recent_messages),
+            "has_readable_text": bool(payload.text.strip()),
+        },
+    )
     try:
-        return await connector_runtime(request).respond(payload)
+        reply = await connector_runtime(request).respond(payload)
+        logs.record(
+            connection_id=payload.connection_id,
+            platform="discord",
+            level="info",
+            event_type="runtime_reply" if reply.action == "reply" else "runtime_silent",
+            message=(
+                "Character Runtime generated a reply."
+                if reply.action == "reply"
+                else "Character Runtime intentionally stayed silent."
+            ),
+            deployment_id=payload.deployment_id,
+            workspace_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+            source_message_id=payload.message_id,
+            details={
+                "action": reply.action,
+                "reason": reply.reason,
+                "latency_ms": reply.latency_ms,
+                "input_tokens": reply.input_tokens,
+                "output_tokens": reply.output_tokens,
+                "has_reply_text": bool(reply.text),
+            },
+        )
+        return reply
     except ConnectorRuntimeError as exc:
+        logs.record(
+            connection_id=payload.connection_id,
+            platform="discord",
+            level="warning",
+            event_type="runtime_rejected",
+            message=str(exc),
+            deployment_id=payload.deployment_id,
+            workspace_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+            source_message_id=payload.message_id,
+        )
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
+        logs.record(
+            connection_id=payload.connection_id,
+            platform="discord",
+            level="error",
+            event_type="runtime_error",
+            message=f"Character provider failed: {exc}",
+            deployment_id=payload.deployment_id,
+            workspace_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+            source_message_id=payload.message_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Character provider failed: {exc}",

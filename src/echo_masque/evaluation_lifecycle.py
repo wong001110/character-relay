@@ -9,6 +9,7 @@ from echo_masque.persistence import (
     AuthRepository,
     CalibrationRepository,
     Database,
+    DeploymentLogRepository,
     DeploymentRepository,
     DiscordIdentityRepository,
     EvaluationRepository,
@@ -25,6 +26,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         calibration_repository: CalibrationRepository,
         evaluation_repository: EvaluationRepository,
         deployment_repository: DeploymentRepository | None = None,
+        deployment_log_repository: DeploymentLogRepository | None = None,
         discord_identity_repository: DiscordIdentityRepository | None = None,
         interaction_repository: InteractionRepository | None = None,
     ) -> None:
@@ -36,6 +38,9 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         )
         self.evaluation_repository = evaluation_repository
         self.deployment_repository = deployment_repository or DeploymentRepository(database)
+        self.deployment_log_repository = (
+            deployment_log_repository or DeploymentLogRepository(database)
+        )
         self.discord_identity_repository = discord_identity_repository or DiscordIdentityRepository(
             database
         )
@@ -45,11 +50,13 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         evaluation_counts = self.evaluation_repository.delete_owner(user_id)
         interaction_counts = self.interaction_repository.delete_owner(user_id)
         identity_counts = self.discord_identity_repository.delete_owner(user_id)
+        deployment_log_counts = self.deployment_log_repository.delete_owner(user_id)
         deployment_counts = self.deployment_repository.delete_owner(user_id)
         deleted = super().delete_account(user_id, email=email)
         return {
             **deleted,
             **evaluation_counts,
+            **deployment_log_counts,
             **interaction_counts,
             **identity_counts,
             **deployment_counts,
@@ -64,6 +71,10 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             base_error = exc
 
         evaluation_counts = self.evaluation_repository.claim_owner(
+            "local-user",
+            actor_user_id,
+        )
+        deployment_log_counts = self.deployment_log_repository.claim_owner(
             "local-user",
             actor_user_id,
         )
@@ -82,6 +93,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         combined = {
             **base_counts,
             **evaluation_counts,
+            **deployment_log_counts,
             **deployment_counts,
             **identity_counts,
             **interaction_counts,
