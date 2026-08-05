@@ -99,7 +99,7 @@ export function CharacterShelf({
             <p className="kicker">
               {zh ? "AI 角色创建、测试与跨平台部署" : "AI character creation, testing, and deployment"}
             </p>
-            <h1>Character Relay</h1>
+            <h1 className="brand-accessible-title">Character Relay</h1>
             <p>
               {zh
                 ? "创建一次，验证角色，再把稳定版本带进真实群聊。"
