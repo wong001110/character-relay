@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy import delete, select, update
+from sqlalchemy.orm import Session
 
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
@@ -94,7 +95,7 @@ class InteractionRepository:
 
     def _resolve_template_deployments(
         self,
-        session: object,
+        session: Session,
         *,
         owner_id: str,
         server_profile_id: str,
@@ -104,10 +105,10 @@ class InteractionRepository:
             raise InteractionConflict("Interaction Templates require two different characters.")
         deployment_ids: list[str] = []
         for character_card_id in character_card_ids:
-            character = session.get(CharacterCardRecord, character_card_id)  # type: ignore[attr-defined]
+            character = session.get(CharacterCardRecord, character_card_id)
             if character is None or character.owner_id != owner_id:
                 raise InteractionConflict("Every template character must belong to this account.")
-            deployment = session.scalar(  # type: ignore[attr-defined]
+            deployment = session.scalar(
                 select(CharacterDeploymentRecord)
                 .join(
                     DiscordDeploymentScopeRecord,
@@ -242,6 +243,105 @@ class InteractionRepository:
             session.commit()
             session.refresh(record)
             return record
+
+    def delete_server_scope(
+        self,
+        *,
+        owner_id: str,
+        server_profile_id: str,
+        connection_id: str,
+        guild_id: str,
+    ) -> dict[str, int]:
+        with self.database.session() as session:
+            session_ids = list(
+                session.scalars(
+                    select(DiscordInteractionSessionRecord.id).where(
+                        DiscordInteractionSessionRecord.owner_id == owner_id,
+                        DiscordInteractionSessionRecord.connection_id == connection_id,
+                        DiscordInteractionSessionRecord.guild_id == guild_id,
+                    )
+                )
+            )
+            run_count = 0
+            if session_ids:
+                result = session.execute(
+                    delete(DiscordInteractionRunRecord).where(
+                        DiscordInteractionRunRecord.session_id.in_(session_ids)
+                    )
+                )
+                run_count = int(getattr(result, "rowcount", 0) or 0)
+            session_result = session.execute(
+                delete(DiscordInteractionSessionRecord).where(
+                    DiscordInteractionSessionRecord.owner_id == owner_id,
+                    DiscordInteractionSessionRecord.connection_id == connection_id,
+                    DiscordInteractionSessionRecord.guild_id == guild_id,
+                )
+            )
+            template_result = session.execute(
+                delete(DiscordInteractionTemplateRecord).where(
+                    DiscordInteractionTemplateRecord.owner_id == owner_id,
+                    DiscordInteractionTemplateRecord.server_profile_id == server_profile_id,
+                )
+            )
+            session.commit()
+        return {
+            "discord_interaction_runs": run_count,
+            "discord_interaction_sessions": int(getattr(session_result, "rowcount", 0) or 0),
+            "discord_interaction_templates": int(getattr(template_result, "rowcount", 0) or 0),
+        }
+
+    def delete_connection_scope(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        server_profile_ids: list[str],
+    ) -> dict[str, int]:
+        with self.database.session() as session:
+            session_ids = list(
+                session.scalars(
+                    select(DiscordInteractionSessionRecord.id).where(
+                        DiscordInteractionSessionRecord.owner_id == owner_id,
+                        DiscordInteractionSessionRecord.connection_id == connection_id,
+                    )
+                )
+            )
+            run_count = 0
+            if session_ids:
+                result = session.execute(
+                    delete(DiscordInteractionRunRecord).where(
+                        DiscordInteractionRunRecord.session_id.in_(session_ids)
+                    )
+                )
+                run_count = int(getattr(result, "rowcount", 0) or 0)
+            session_result = session.execute(
+                delete(DiscordInteractionSessionRecord).where(
+                    DiscordInteractionSessionRecord.owner_id == owner_id,
+                    DiscordInteractionSessionRecord.connection_id == connection_id,
+                )
+            )
+            sticker_result = session.execute(
+                delete(DiscordStickerSemanticRecord).where(
+                    DiscordStickerSemanticRecord.owner_id == owner_id,
+                    DiscordStickerSemanticRecord.connection_id == connection_id,
+                )
+            )
+            template_count = 0
+            if server_profile_ids:
+                result = session.execute(
+                    delete(DiscordInteractionTemplateRecord).where(
+                        DiscordInteractionTemplateRecord.owner_id == owner_id,
+                        DiscordInteractionTemplateRecord.server_profile_id.in_(server_profile_ids),
+                    )
+                )
+                template_count = int(getattr(result, "rowcount", 0) or 0)
+            session.commit()
+        return {
+            "discord_interaction_runs": run_count,
+            "discord_interaction_sessions": int(getattr(session_result, "rowcount", 0) or 0),
+            "discord_interaction_templates": template_count,
+            "discord_sticker_semantics": int(getattr(sticker_result, "rowcount", 0) or 0),
+        }
 
     def delete_template(self, template_id: str, owner_id: str) -> bool:
         with self.database.session() as session:

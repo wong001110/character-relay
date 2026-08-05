@@ -142,14 +142,16 @@ export function DiscordServerProfilesPanel({
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedServer || !profileName.trim()) return;
+    if (!profileName.trim() || (!editing && !selectedServer)) return;
+    const guildName = selectedServer?.guild_name ?? editing?.guild_name ?? "";
+    const serverGuildId = selectedServer?.guild_id ?? editing?.guild_id ?? "";
     try {
       setWorking(true);
       onError("");
       const saved = editing
         ? await deploymentApi.updateDiscordServerProfile(editing.id, {
             name: profileName.trim(),
-            guild_name: selectedServer.guild_name,
+            guild_name: guildName,
             excluded_channel_ids: [...excludedChannels],
             excluded_category_ids: [...excludedCategories],
             thread_policy: "inherit_parent"
@@ -157,8 +159,8 @@ export function DiscordServerProfilesPanel({
         : await deploymentApi.createDiscordServerProfile({
             connection_id: connectionId,
             name: profileName.trim(),
-            guild_id: selectedServer.guild_id,
-            guild_name: selectedServer.guild_name,
+            guild_id: serverGuildId,
+            guild_name: guildName,
             excluded_channel_ids: [...excludedChannels],
             excluded_category_ids: [...excludedCategories],
             thread_policy: "inherit_parent"
@@ -447,7 +449,7 @@ export function DiscordServerProfilesPanel({
                       {zh ? "删除 Server 配置" : "Delete Server profile"}
                     </button>
                   )}
-                  <button className="ink-button" disabled={working || !selectedServer}>
+                  <button className="ink-button" disabled={working || (!editing && !selectedServer)}>
                     {working
                       ? zh
                         ? "保存中…"

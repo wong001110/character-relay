@@ -187,7 +187,6 @@ export function DeploymentCenter({
   const [excludedChannels, setExcludedChannels] = useState<Set<string>>(new Set());
   const [excludedCategories, setExcludedCategories] = useState<Set<string>>(new Set());
 
-  const [platformFilter, setPlatformFilter] = useState<"all" | PlatformId>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | DeploymentStatus>("all");
   const [characterFilter, setCharacterFilter] = useState(initialCharacterId ?? "all");
 
@@ -208,7 +207,7 @@ export function DeploymentCenter({
           page,
           pageSize: 20,
           characterCardId: characterFilter,
-          platform: platformFilter,
+          platform: "discord",
           status: statusFilter,
           serverProfileId: selectedServerProfileId || "__no_server_selected__"
         }),
@@ -247,7 +246,7 @@ export function DeploymentCenter({
 
   useEffect(() => {
     void load(1);
-  }, [characterFilter, platformFilter, selectedServerProfileId, statusFilter]);
+  }, [characterFilter, selectedServerProfileId, statusFilter]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -615,9 +614,15 @@ export function DeploymentCenter({
           <small>{zh ? "Connector 正在读取的部署" : "Read by the connector"}</small>
         </article>
         <article className="paper-sheet deployment-summary-card">
-          <span>{zh ? "Server 配置" : "Server profiles"}</span>
-          <strong>{serverProfiles.length}</strong>
-          <small>{zh ? "可供多个角色复用" : "Reusable across characters"}</small>
+          <span>{zh ? "同步 Channel" : "Synced Channels"}</span>
+          <strong>{selectedWorkspaceCatalog?.channels.length ?? 0}</strong>
+          <small>
+            {selectedWorkspaceProfile
+              ? selectedWorkspaceProfile.guild_name
+              : zh
+                ? "尚未选择 Server"
+                : "No Server selected"}
+          </small>
         </article>
         <article className="paper-sheet deployment-summary-card">
           <span>{zh ? "需要处理" : "Needs attention"}</span>
@@ -835,7 +840,7 @@ export function DeploymentCenter({
                   <select
                     value={draftCharacterId}
                     onChange={(event) => setDraftCharacterId(event.currentTarget.value)}
-                    disabled={Boolean(editingDeployment) || Boolean(selectedWorkspaceProfile)}
+                    disabled={Boolean(editingDeployment)}
                     required
                   >
                     {cards.map((card) => (
@@ -850,7 +855,7 @@ export function DeploymentCenter({
                   <select
                     value={draftConnectionId}
                     onChange={(event) => changeDeploymentConnection(event.currentTarget.value)}
-                    disabled={Boolean(editingDeployment)}
+                    disabled={Boolean(editingDeployment) || Boolean(selectedWorkspaceProfile)}
                     required
                   >
                     {connections.map((item) => (
@@ -1226,20 +1231,6 @@ export function DeploymentCenter({
                       {card.display_name}
                     </option>
                   ))}
-                </select>
-              </label>
-              <label>
-                {zh ? "平台" : "Platform"}
-                <select
-                  value={platformFilter}
-                  onChange={(event) =>
-                    setPlatformFilter(event.currentTarget.value as "all" | PlatformId)
-                  }
-                >
-                  <option value="all">{zh ? "全部平台" : "All platforms"}</option>
-                  <option value="discord">Discord</option>
-                  <option value="whatsapp">WhatsApp</option>
-                  <option value="telegram">Telegram</option>
                 </select>
               </label>
               <label>

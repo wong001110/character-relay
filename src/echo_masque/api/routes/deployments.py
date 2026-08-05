@@ -19,7 +19,12 @@ from echo_masque.api.deployment_schemas import (
     PlatformConnectionUpdate,
     PlatformConnectionView,
 )
-from echo_masque.persistence import DeploymentConflict, DeploymentRepository, Repository
+from echo_masque.persistence import (
+    DeploymentConflict,
+    DeploymentRepository,
+    InteractionRepository,
+    Repository,
+)
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 
 router = APIRouter(prefix="/api", tags=["deployments"])
@@ -31,6 +36,10 @@ def deployment_repository(request: Request) -> DeploymentRepository:
 
 def character_repository(request: Request) -> Repository:
     return cast(Repository, request.app.state.repository)
+
+
+def interaction_repository(request: Request) -> InteractionRepository:
+    return cast(InteractionRepository, request.app.state.interaction_repository)
 
 
 def deployment_view(
@@ -111,7 +120,21 @@ def delete_connection(
     request: Request,
     user: CurrentUserDependency,
 ) -> None:
-    if not deployment_repository(request).delete_connection(connection_id, user.id):
+    deployments = deployment_repository(request)
+    connection = deployments.get_connection(connection_id, user.id)
+    if connection is None:
+        raise HTTPException(status_code=404, detail="Platform connection not found.")
+    profile_ids = [
+        item.id
+        for item in deployments.list_server_profiles(user.id)
+        if item.connection_id == connection_id
+    ]
+    interaction_repository(request).delete_connection_scope(
+        owner_id=user.id,
+        connection_id=connection_id,
+        server_profile_ids=profile_ids,
+    )
+    if not deployments.delete_connection(connection_id, user.id):
         raise HTTPException(status_code=404, detail="Platform connection not found.")
 
 
@@ -204,12 +227,22 @@ def delete_discord_server_profile(
     request: Request,
     user: CurrentUserDependency,
 ) -> None:
+    deployments = deployment_repository(request)
+    profile = deployments.get_server_profile(profile_id, user.id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Discord server profile not found.")
     try:
-        deleted = deployment_repository(request).delete_server_profile(profile_id, user.id)
+        deleted = deployments.delete_server_profile(profile_id, user.id)
     except DeploymentConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not deleted:
         raise HTTPException(status_code=404, detail="Discord server profile not found.")
+    interaction_repository(request).delete_server_scope(
+        owner_id=user.id,
+        server_profile_id=profile.id,
+        connection_id=profile.connection_id,
+        guild_id=profile.guild_id,
+    )
 
 
 @router.get("/deployments", response_model=list[CharacterDeploymentView])

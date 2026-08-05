@@ -216,3 +216,49 @@ def test_guild_sticker_catalog_populates_dictionary_without_message(tmp_path: Pa
     assert len(stickers.json()) == 1
     assert stickers.json()[0]["name"] == "side_eye_cat"
     assert stickers.json()[0]["semantic_source"] == "discord_metadata"
+
+
+def test_server_profile_deletion_cleans_templates_and_sessions(tmp_path: Path) -> None:
+    client = TestClient(create_app(settings(tmp_path / "server-cleanup.db")))
+    _, profile, deployments = seed_server(client)
+    template = client.post(
+        "/api/interaction-templates",
+        json={
+            "server_profile_id": profile["id"],
+            "name": "Disposable template",
+            "participant_character_card_ids": [
+                deployments[0]["character_card_id"],
+                deployments[1]["character_card_id"],
+            ],
+            "rounds_per_trigger": 1,
+            "maximum_triggers": 1,
+            "cooldown_seconds": 0,
+            "duration_seconds": 600,
+            "intensity": "light",
+        },
+    )
+    assert template.status_code == 201, template.text
+    applied = client.post(
+        f"/api/interaction-templates/{template.json()['id']}/apply",
+        json={
+            "channel_id": "channel-1",
+            "target_user_id": "user-1",
+            "target_display_name": "Target",
+            "status": "paused",
+        },
+    )
+    assert applied.status_code == 201, applied.text
+    for deployment in deployments:
+        deleted = client.delete(f"/api/deployments/{deployment['id']}")
+        assert deleted.status_code == 204, deleted.text
+    deleted_profile = client.delete(f"/api/discord/server-profiles/{profile['id']}")
+    assert deleted_profile.status_code == 204, deleted_profile.text
+    templates = client.get(
+        "/api/interaction-templates",
+        params={"server_profile_id": profile["id"]},
+    )
+    assert templates.status_code == 200
+    assert templates.json() == []
+    sessions = client.get("/api/interaction-sessions")
+    assert sessions.status_code == 200
+    assert sessions.json() == []
