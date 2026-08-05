@@ -158,3 +158,29 @@ class DiscordDeploymentScopeRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+class DiscordConnectorEventRecord(Base):
+    """Privacy-safe event emitted by the Discord Gateway connector."""
+
+    __tablename__ = "discord_connector_events"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    connection_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    level: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    guild_id: Mapped[str] = mapped_column(String(200), index=True, default="", nullable=False)
+    guild_name: Mapped[str] = mapped_column(String(160), default="", nullable=False)
+    channel_id: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    channel_name: Mapped[str] = mapped_column(String(160), default="", nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    thread_name: Mapped[str] = mapped_column(String(160), default="", nullable=False)
+    source_message_id: Mapped[str] = mapped_column(
+        String(200), index=True, default="", nullable=False
+    )
+    deployment_id: Mapped[str] = mapped_column(String(64), index=True, default="", nullable=False)
+    character_name: Mapped[str] = mapped_column(String(160), default="", nullable=False)
+    details_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

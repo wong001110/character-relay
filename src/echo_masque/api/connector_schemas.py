@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 DiscordParticipationMode = Literal[
     "mention_only",
@@ -126,6 +126,33 @@ class DiscordConnectorHeartbeat(BaseModel):
     bot_display_name: str = Field(min_length=1, max_length=120)
     status: DiscordConnectionStatus = "connected"
     last_error: str = Field(default="", max_length=2000)
+
+
+class DiscordConnectorEventItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=64)
+    occurred_at: datetime
+    level: Literal["info", "warning", "error"]
+    event_type: str = Field(min_length=1, max_length=80)
+    message: str = Field(min_length=1, max_length=300)
+    guild_id: str = Field(default="", max_length=200)
+    guild_name: str = Field(default="", max_length=160)
+    channel_id: str = Field(default="", max_length=200)
+    channel_name: str = Field(default="", max_length=160)
+    thread_id: str = Field(default="", max_length=200)
+    thread_name: str = Field(default="", max_length=160)
+    source_message_id: str = Field(default="", max_length=200)
+    deployment_id: str = Field(default="", max_length=64)
+    character_name: str = Field(default="", max_length=160)
+    details: dict[str, object] = Field(default_factory=dict, max_length=40)
+
+
+class DiscordConnectorEventBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    connection_id: str = Field(min_length=1, max_length=64)
+    events: list[DiscordConnectorEventItem] = Field(min_length=1, max_length=100)
 
 
 class DiscordStickerContent(BaseModel):

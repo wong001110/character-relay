@@ -11,6 +11,8 @@ from echo_masque.api.deployment_schemas import (
     CharacterDeploymentStatusUpdate,
     CharacterDeploymentUpdate,
     CharacterDeploymentView,
+    DiscordConnectorLogPage,
+    DiscordConnectorLogView,
     DiscordServerCatalogView,
     DiscordServerProfileCreate,
     DiscordServerProfileUpdate,
@@ -242,6 +244,51 @@ def delete_discord_server_profile(
         server_profile_id=profile.id,
         connection_id=profile.connection_id,
         guild_id=profile.guild_id,
+    )
+
+
+@router.get("/discord/logs", response_model=DiscordConnectorLogPage)
+def list_discord_logs(
+    request: Request,
+    user: CurrentUserDependency,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    server_profile_id: str | None = Query(default=None, max_length=64),
+    connection_id: str | None = Query(default=None, max_length=64),
+    level: str | None = Query(default=None, pattern="^(info|warning|error)$"),
+    event_type: str | None = Query(default=None, max_length=80),
+) -> DiscordConnectorLogPage:
+    repo = deployment_repository(request)
+    guild_id: str | None = None
+    resolved_connection_id = connection_id
+    if server_profile_id is not None:
+        profile = repo.get_server_profile(server_profile_id, user.id)
+        if profile is None:
+            raise HTTPException(status_code=404, detail="Discord server profile not found.")
+        if connection_id is not None and connection_id != profile.connection_id:
+            raise HTTPException(status_code=409, detail="Server and connection filters conflict.")
+        resolved_connection_id = profile.connection_id
+        guild_id = profile.guild_id
+    elif connection_id is not None:
+        connection = repo.get_connection(connection_id, user.id)
+        if connection is None or connection.platform != "discord":
+            raise HTTPException(status_code=404, detail="Discord connection not found.")
+
+    records, safe_page, total, pages = repo.list_discord_events(
+        user.id,
+        page=page,
+        page_size=page_size,
+        connection_id=resolved_connection_id,
+        guild_id=guild_id,
+        level=level,
+        event_type=event_type,
+    )
+    return DiscordConnectorLogPage(
+        items=[DiscordConnectorLogView.from_record(item) for item in records],
+        page=safe_page,
+        page_size=page_size,
+        total=total,
+        pages=pages,
     )
 
 

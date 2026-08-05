@@ -11,6 +11,7 @@ import {
 
 import { loadConfig } from "./config.js";
 import { ContextBuffer } from "./contextBuffer.js";
+import { DiscordEventReporter } from "./eventReporter.js";
 import { RelayClient } from "./relayClient.js";
 import { RecoveryLoop } from "./recoveryLoop.js";
 import {
@@ -41,6 +42,8 @@ const relay = new RelayClient(
   config.relayConnectionId
 );
 const webhookManager = new DiscordWebhookManager(config.discordBotToken, relay);
+const eventReporter = new DiscordEventReporter((events) => relay.reportEvents(events));
+eventReporter.start();
 const intents = [
   GatewayIntentBits.Guilds,
   GatewayIntentBits.GuildMessages,
@@ -84,6 +87,38 @@ function log(message: string, metadata?: Record<string, unknown>): void {
       ...(metadata ?? {})
     })
   );
+}
+
+function reportDiscordEvent(input: {
+  level: "info" | "warning" | "error";
+  eventType: string;
+  message: string;
+  guildId?: string;
+  guildName?: string;
+  channelId?: string;
+  channelName?: string;
+  threadId?: string;
+  threadName?: string;
+  sourceMessageId?: string;
+  deploymentId?: string;
+  characterName?: string;
+  details?: Record<string, unknown>;
+}): void {
+  eventReporter.record({
+    level: input.level,
+    event_type: input.eventType,
+    message: input.message,
+    guild_id: input.guildId ?? "",
+    guild_name: input.guildName ?? "",
+    channel_id: input.channelId ?? "",
+    channel_name: input.channelName ?? "",
+    thread_id: input.threadId ?? "",
+    thread_name: input.threadName ?? "",
+    source_message_id: input.sourceMessageId ?? "",
+    deployment_id: input.deploymentId ?? "",
+    character_name: input.characterName ?? "",
+    details: input.details ?? {}
+  });
 }
 
 async function syncServerCatalog(): Promise<void> {
@@ -834,6 +869,8 @@ async function processMessage(message: Message): Promise<void> {
   const guildMessage = message;
   const location = channelLocation(guildMessage);
   if (!location.channelId) return;
+  const originalText = normalizedText(guildMessage, botUser.id);
+  const mentionedBot = guildMessage.mentions.users.has(botUser.id);
   const candidates = deploymentsFor(
     deployments,
     location.channelId,
@@ -841,10 +878,44 @@ async function processMessage(message: Message): Promise<void> {
     guildMessage.guildId,
     location.categoryId
   );
-  if (!candidates.length) return;
-
-  const originalText = normalizedText(guildMessage, botUser.id);
-  const mentionedBot = guildMessage.mentions.users.has(botUser.id);
+  if (mentionedBot) {
+    reportDiscordEvent({
+      level: "info",
+      eventType: "mention_received",
+      message: "Bot mention reached the Discord Gateway.",
+      guildId: guildMessage.guildId,
+      guildName: guildMessage.guild.name,
+      channelId: location.channelId,
+      channelName: location.channelName,
+      threadId: location.threadId,
+      threadName: location.threadName,
+      sourceMessageId: guildMessage.id,
+      details: {
+        candidate_count: candidates.length,
+        state_synchronized: stateSynchronized,
+        has_readable_text: Boolean(originalText),
+        sticker_count: guildMessage.stickers.size
+      }
+    });
+  }
+  if (!candidates.length) {
+    if (mentionedBot) {
+      reportDiscordEvent({
+        level: "warning",
+        eventType: "ignored_no_deployment",
+        message: "The Tag was ignored because no active deployment matched this Server and Channel.",
+        guildId: guildMessage.guildId,
+        guildName: guildMessage.guild.name,
+        channelId: location.channelId,
+        channelName: location.channelName,
+        threadId: location.threadId,
+        threadName: location.threadName,
+        sourceMessageId: guildMessage.id,
+        details: { state_synchronized: stateSynchronized }
+      });
+    }
+    return;
+  }
   const key = destinationKey(location.channelId, location.threadId);
   const authorDisplayName =
     guildMessage.member?.displayName ??
@@ -906,6 +977,22 @@ async function processMessage(message: Message): Promise<void> {
       location.channelId,
       location.threadId
     );
+    if (replyTarget.characterMessage) {
+      reportDiscordEvent({
+        level: "info",
+        eventType: "reply_received",
+        message: "A reply to a Character Relay message reached the Discord Gateway.",
+        guildId: guildMessage.guildId,
+        guildName: guildMessage.guild.name,
+        channelId: location.channelId,
+        channelName: location.channelName,
+        threadId: location.threadId,
+        threadName: location.threadName,
+        sourceMessageId: guildMessage.id,
+        deploymentId: replyTarget.deploymentId ?? "",
+        details: { candidate_count: candidates.length }
+      });
+    }
     const audience = resolveAudience(
       candidates,
       originalText,
@@ -913,6 +1000,29 @@ async function processMessage(message: Message): Promise<void> {
       config.groupAddressAliases
     );
     if (!audience.deployments.length) {
+      if (mentionedBot || replyTarget.characterMessage) {
+        reportDiscordEvent({
+          level: "warning",
+          eventType:
+            audience.reason === "ambiguous" ? "audience_ambiguous" : "audience_not_found",
+          message:
+            audience.reason === "ambiguous"
+              ? "The Tag reached the Connector, but multiple characters require explicit selection."
+              : "The Tag reached the Connector, but no addressed character was found.",
+          guildId: guildMessage.guildId,
+          guildName: guildMessage.guild.name,
+          channelId: location.channelId,
+          channelName: location.channelName,
+          threadId: location.threadId,
+          threadName: location.threadName,
+          sourceMessageId: guildMessage.id,
+          details: {
+            audience_reason: audience.reason,
+            candidate_count: candidates.length,
+            options: audience.options
+          }
+        });
+      }
       if (
         audience.reason === "ambiguous" &&
         (mentionedBot || replyTarget.characterMessage)
@@ -934,7 +1044,30 @@ async function processMessage(message: Message): Promise<void> {
         config.smartParticipationEnabled
       )
     );
-    if (!eligibleDeployments.length) return;
+    if (!eligibleDeployments.length) {
+      if (mentionedBot || isReplyToCharacter) {
+        reportDiscordEvent({
+          level: "warning",
+          eventType: "ignored_participation_mode",
+          message: "The Tag matched a character, but its participation mode did not allow this trigger.",
+          guildId: guildMessage.guildId,
+          guildName: guildMessage.guild.name,
+          channelId: location.channelId,
+          channelName: location.channelName,
+          threadId: location.threadId,
+          threadName: location.threadName,
+          sourceMessageId: guildMessage.id,
+          details: {
+            mentioned_bot: mentionedBot,
+            replied_to_character: isReplyToCharacter,
+            participation_modes: audience.deployments.map(
+              (deployment) => deployment.participation_mode
+            )
+          }
+        });
+      }
+      return;
+    }
 
     const addressedToMultiple = audience.deployments.length > 1;
     const botConversationBudget: BotConversationBudget = {
@@ -942,6 +1075,25 @@ async function processMessage(message: Message): Promise<void> {
     };
     for (const [responseIndex, baseDeployment] of eligibleDeployments.entries()) {
       const deployment = resolveDeploymentLocation(baseDeployment, location);
+      reportDiscordEvent({
+        level: "info",
+        eventType: "runtime_started",
+        message: "The Discord trigger matched a deployment and is entering Character Runtime.",
+        guildId: guildMessage.guildId,
+        guildName: guildMessage.guild.name,
+        channelId: location.channelId,
+        channelName: location.channelName,
+        threadId: location.threadId,
+        threadName: location.threadName,
+        sourceMessageId: guildMessage.id,
+        deploymentId: deployment.deployment_id,
+        characterName: deploymentDisplayName(deployment),
+        details: {
+          audience_reason: audience.reason,
+          response_index: responseIndex + 1,
+          response_count: eligibleDeployments.length
+        }
+      });
       await guildMessage.channel.sendTyping();
       const reply = await relay.processMessage({
         deployment_id: deployment.deployment_id,
@@ -981,7 +1133,29 @@ async function processMessage(message: Message): Promise<void> {
           .map(deploymentAddressAlias),
         recent_messages: context.get(key)
       });
-      if (reply.action !== "reply" || !reply.text) continue;
+      if (reply.action !== "reply" || !reply.text) {
+        reportDiscordEvent({
+          level: "info",
+          eventType: "runtime_silent",
+          message: "Character Runtime intentionally returned no Discord reply.",
+          guildId: guildMessage.guildId,
+          guildName: guildMessage.guild.name,
+          channelId: location.channelId,
+          channelName: location.channelName,
+          threadId: location.threadId,
+          threadName: location.threadName,
+          sourceMessageId: guildMessage.id,
+          deploymentId: deployment.deployment_id,
+          characterName: deploymentDisplayName(deployment),
+          details: {
+            reason: reply.reason,
+            latency_ms: reply.latency_ms ?? null,
+            input_tokens: reply.input_tokens ?? null,
+            output_tokens: reply.output_tokens ?? null
+          }
+        });
+        continue;
+      }
       const normalizedReply = normalizeBotTagReply(
         candidates,
         reply.text,
@@ -997,12 +1171,32 @@ async function processMessage(message: Message): Promise<void> {
         continue;
       }
 
-      const sentMessageIds = await sendCharacterReply(
-        guildMessage,
-        deployment,
-        outgoingText,
-        botUser.id
-      );
+      let sentMessageIds: string[];
+      try {
+        sentMessageIds = await sendCharacterReply(
+          guildMessage,
+          deployment,
+          outgoingText,
+          botUser.id
+        );
+      } catch (error) {
+        reportDiscordEvent({
+          level: "error",
+          eventType: "delivery_error",
+          message: "Character Runtime replied, but Discord delivery failed.",
+          guildId: guildMessage.guildId,
+          guildName: guildMessage.guild.name,
+          channelId: location.channelId,
+          channelName: location.channelName,
+          threadId: location.threadId,
+          threadName: location.threadName,
+          sourceMessageId: guildMessage.id,
+          deploymentId: deployment.deployment_id,
+          characterName: deploymentDisplayName(deployment),
+          details: { error: error instanceof Error ? error.message : String(error) }
+        });
+        throw error;
+      }
       await rememberSentMessages(
         deployment,
         sentMessageIds,
@@ -1016,6 +1210,26 @@ async function processMessage(message: Message): Promise<void> {
         stickers: [],
         created_at: new Date().toISOString(),
         is_bot: true
+      });
+      reportDiscordEvent({
+        level: "info",
+        eventType: "delivery_success",
+        message: "Character reply was delivered to Discord.",
+        guildId: guildMessage.guildId,
+        guildName: guildMessage.guild.name,
+        channelId: location.channelId,
+        channelName: location.channelName,
+        threadId: location.threadId,
+        threadName: location.threadName,
+        sourceMessageId: guildMessage.id,
+        deploymentId: deployment.deployment_id,
+        characterName: deploymentDisplayName(deployment),
+        details: {
+          sent_message_ids: sentMessageIds,
+          latency_ms: reply.latency_ms ?? null,
+          identity_mode: deployment.identity_mode,
+          webhook_status: deployment.webhook_status
+        }
       });
       log("Character reply sent to Discord.", {
         deploymentId: reply.deployment_id,
@@ -1098,7 +1312,9 @@ const healthServer = createServer((request, response) => {
       sticker_understanding_enabled: true,
       last_catalog_sync_at: lastCatalogSyncAt,
       last_deployment_sync_at: lastDeploymentSyncAt,
-      last_error: lastError
+      last_error: lastError,
+      pending_portal_logs: eventReporter.pendingCount,
+      portal_log_last_error: eventReporter.lastError
     })
   );
 });
@@ -1158,6 +1374,22 @@ client.once(Events.ClientReady, (readyClient) => {
 client.on(Events.MessageCreate, (message) => {
   void processMessage(message).catch((error: unknown) => {
     lastError = error instanceof Error ? error.message : String(error);
+    if (message.inGuild()) {
+      const location = channelLocation(message);
+      reportDiscordEvent({
+        level: "error",
+        eventType: "handler_error",
+        message: "Discord message processing failed before a reply could be delivered.",
+        guildId: message.guildId,
+        guildName: message.guild.name,
+        channelId: location.channelId,
+        channelName: location.channelName,
+        threadId: location.threadId,
+        threadName: location.threadName,
+        sourceMessageId: message.id,
+        details: { error: lastError }
+      });
+    }
     log("Discord message handler failed.", {
       messageId: message.id,
       error: lastError
@@ -1198,6 +1430,7 @@ async function shutdown(signal: string): Promise<void> {
   ready = false;
   stateSynchronized = false;
   recoveryLoop?.stop();
+  await eventReporter.stop();
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   if (dedupeTimer) clearInterval(dedupeTimer);
   await sendHeartbeat("offline", `Connector stopped by ${signal}.`).catch(

@@ -14,6 +14,7 @@ export type DeploymentStatus =
   | "error"
   | "disconnected";
 export type ChannelScopeMode = "exact" | "all_except";
+export type DiscordConnectorLogLevel = "info" | "warning" | "error";
 
 export interface PlatformConnection {
   id: string;
@@ -91,6 +92,33 @@ export interface DiscordServerProfileUpdate {
   excluded_channel_ids?: string[];
   excluded_category_ids?: string[];
   thread_policy?: "inherit_parent";
+}
+
+export interface DiscordConnectorLog {
+  id: string;
+  connection_id: string;
+  level: DiscordConnectorLogLevel;
+  event_type: string;
+  message: string;
+  guild_id: string;
+  guild_name: string;
+  channel_id: string;
+  channel_name: string;
+  thread_id: string;
+  thread_name: string;
+  source_message_id: string;
+  deployment_id: string;
+  character_name: string;
+  details: Record<string, unknown>;
+  occurred_at: string;
+}
+
+export interface DiscordConnectorLogPage {
+  items: DiscordConnectorLog[];
+  page: number;
+  page_size: number;
+  total: number;
+  pages: number;
 }
 
 export interface CharacterDeployment {
@@ -213,6 +241,26 @@ export const deploymentApi = {
     }),
   deleteDiscordServerProfile: (profileId: string) =>
     request<void>(`/api/discord/server-profiles/${profileId}`, { method: "DELETE" }),
+  listDiscordLogs: (options: {
+    page?: number;
+    pageSize?: number;
+    serverProfileId?: string;
+    connectionId?: string;
+    level?: DiscordConnectorLogLevel | "all";
+    eventType?: string;
+  } = {}) => {
+    const query = new URLSearchParams({
+      page: String(options.page ?? 1),
+      page_size: String(options.pageSize ?? 50)
+    });
+    if (options.serverProfileId) query.set("server_profile_id", options.serverProfileId);
+    if (options.connectionId) query.set("connection_id", options.connectionId);
+    if (options.level && options.level !== "all") query.set("level", options.level);
+    if (options.eventType && options.eventType !== "all") {
+      query.set("event_type", options.eventType);
+    }
+    return request<DiscordConnectorLogPage>(`/api/discord/logs?${query.toString()}`);
+  },
   listDeployments: (characterCardId?: string) =>
     request<CharacterDeployment[]>(
       characterCardId

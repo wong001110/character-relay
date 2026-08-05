@@ -1,5 +1,6 @@
 import type {
   ConnectorHeartbeat,
+  DiscordConnectorEvent,
   DiscordInteractionClaim,
   DiscordInteractionClaimRequest,
   DiscordInteractionRunComplete,
@@ -93,6 +94,14 @@ export class RelayClient {
       `/api/connectors/discord/message-routes?${query.toString()}`
     );
     return result.route;
+  }
+
+  async reportEvents(events: DiscordConnectorEvent[]): Promise<void> {
+    if (!events.length) return;
+    await this.request<void>("/api/connectors/discord/events", {
+      method: "POST",
+      body: JSON.stringify({ connection_id: this.connectionId, events })
+    });
   }
 
   async heartbeat(payload: Omit<ConnectorHeartbeat, "connection_id">): Promise<void> {

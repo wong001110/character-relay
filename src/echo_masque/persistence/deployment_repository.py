@@ -2,6 +2,7 @@
 
 import json
 import math
+from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import delete, func, select, update
@@ -10,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
+    DiscordConnectorEventRecord,
     DiscordDeploymentScopeRecord,
     DiscordServerCatalogRecord,
     DiscordServerProfileRecord,
@@ -21,6 +23,9 @@ from echo_masque.security import redact
 
 class DeploymentConflict(RuntimeError):
     """Raised when a deployment or reusable server profile conflicts."""
+
+
+_MAX_DISCORD_EVENTS_PER_CONNECTION = 5_000
 
 
 def _normalized_ids(values: list[str] | None) -> list[str]:
@@ -196,9 +201,143 @@ class DeploymentRepository:
                     DiscordServerCatalogRecord.connection_id == connection_id,
                 )
             )
+            session.execute(
+                delete(DiscordConnectorEventRecord).where(
+                    DiscordConnectorEventRecord.owner_id == owner_id,
+                    DiscordConnectorEventRecord.connection_id == connection_id,
+                )
+            )
             session.delete(record)
             session.commit()
             return True
+
+    def record_discord_events(
+        self,
+        *,
+        connection_id: str,
+        events: list[dict[str, object]],
+    ) -> int:
+        with self.database.session() as session:
+            connection = session.get(PlatformConnectionRecord, connection_id)
+            if connection is None or connection.platform != "discord":
+                raise KeyError("connection")
+
+            requested_deployment_ids = {
+                str(item.get("deployment_id", "")).strip()
+                for item in events
+                if str(item.get("deployment_id", "")).strip()
+            }
+            valid_deployment_ids = set(
+                session.scalars(
+                    select(CharacterDeploymentRecord.id).where(
+                        CharacterDeploymentRecord.connection_id == connection_id,
+                        CharacterDeploymentRecord.id.in_(requested_deployment_ids),
+                    )
+                )
+            )
+            invalid = requested_deployment_ids - valid_deployment_ids
+            if invalid:
+                raise ValueError("One or more Discord event deployment IDs are invalid.")
+
+            inserted = 0
+            for item in events:
+                event_id = str(item["id"])
+                if session.get(DiscordConnectorEventRecord, event_id) is not None:
+                    continue
+                occurred_at = item["occurred_at"]
+                if not isinstance(occurred_at, datetime):
+                    raise ValueError("Discord event occurred_at must be a datetime.")
+                details = item.get("details", {})
+                safe_details = details if isinstance(details, dict) else {}
+                session.add(
+                    DiscordConnectorEventRecord(
+                        id=event_id,
+                        owner_id=connection.owner_id,
+                        connection_id=connection_id,
+                        level=str(item["level"])[:16],
+                        event_type=str(item["event_type"])[:80],
+                        message=str(item["message"])[:300],
+                        guild_id=str(item.get("guild_id", ""))[:200],
+                        guild_name=str(item.get("guild_name", ""))[:160],
+                        channel_id=str(item.get("channel_id", ""))[:200],
+                        channel_name=str(item.get("channel_name", ""))[:160],
+                        thread_id=str(item.get("thread_id", ""))[:200],
+                        thread_name=str(item.get("thread_name", ""))[:160],
+                        source_message_id=str(item.get("source_message_id", ""))[:200],
+                        deployment_id=str(item.get("deployment_id", ""))[:64],
+                        character_name=str(item.get("character_name", ""))[:160],
+                        details_json=json.dumps(redact(safe_details), ensure_ascii=False),
+                        occurred_at=occurred_at,
+                    )
+                )
+                inserted += 1
+
+            session.flush()
+            overflow_ids = list(
+                session.scalars(
+                    select(DiscordConnectorEventRecord.id)
+                    .where(DiscordConnectorEventRecord.connection_id == connection_id)
+                    .order_by(
+                        DiscordConnectorEventRecord.occurred_at.desc(),
+                        DiscordConnectorEventRecord.id.desc(),
+                    )
+                    .offset(_MAX_DISCORD_EVENTS_PER_CONNECTION)
+                )
+            )
+            if overflow_ids:
+                session.execute(
+                    delete(DiscordConnectorEventRecord).where(
+                        DiscordConnectorEventRecord.id.in_(overflow_ids)
+                    )
+                )
+            session.commit()
+            return inserted
+
+    def list_discord_events(
+        self,
+        owner_id: str,
+        *,
+        page: int = 1,
+        page_size: int = 50,
+        connection_id: str | None = None,
+        guild_id: str | None = None,
+        level: str | None = None,
+        event_type: str | None = None,
+    ) -> tuple[list[DiscordConnectorEventRecord], int, int, int]:
+        with self.database.session() as session:
+            conditions = [DiscordConnectorEventRecord.owner_id == owner_id]
+            if connection_id is not None:
+                conditions.append(DiscordConnectorEventRecord.connection_id == connection_id)
+            if guild_id is not None:
+                conditions.append(DiscordConnectorEventRecord.guild_id == guild_id)
+            if level is not None:
+                conditions.append(DiscordConnectorEventRecord.level == level)
+            if event_type is not None:
+                conditions.append(DiscordConnectorEventRecord.event_type == event_type)
+
+            total = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(DiscordConnectorEventRecord)
+                    .where(*conditions)
+                )
+                or 0
+            )
+            pages = max(1, math.ceil(total / page_size))
+            safe_page = min(max(page, 1), pages)
+            records = list(
+                session.scalars(
+                    select(DiscordConnectorEventRecord)
+                    .where(*conditions)
+                    .order_by(
+                        DiscordConnectorEventRecord.occurred_at.desc(),
+                        DiscordConnectorEventRecord.id.desc(),
+                    )
+                    .offset((safe_page - 1) * page_size)
+                    .limit(page_size)
+                )
+            )
+            return records, safe_page, total, pages
 
     def sync_discord_server_catalog(
         self,
@@ -816,6 +955,11 @@ class DeploymentRepository:
     def delete_owner(self, owner_id: str) -> dict[str, int]:
         """Delete all connector configuration owned by an account."""
         with self.database.session() as session:
+            event_result = session.execute(
+                delete(DiscordConnectorEventRecord).where(
+                    DiscordConnectorEventRecord.owner_id == owner_id
+                )
+            )
             scope_result = session.execute(
                 delete(DiscordDeploymentScopeRecord).where(
                     DiscordDeploymentScopeRecord.owner_id == owner_id
@@ -843,6 +987,9 @@ class DeploymentRepository:
             )
             session.commit()
         return {
+            "discord_connector_events": int(
+                getattr(event_result, "rowcount", 0) or 0
+            ),
             "deployment_scopes": int(getattr(scope_result, "rowcount", 0) or 0),
             "deployments": int(getattr(deployment_result, "rowcount", 0) or 0),
             "server_profiles": int(getattr(profile_result, "rowcount", 0) or 0),
@@ -853,6 +1000,11 @@ class DeploymentRepository:
     def claim_owner(self, source_owner_id: str, target_owner_id: str) -> dict[str, int]:
         """Move legacy local connector configuration into an authenticated workspace."""
         with self.database.session() as session:
+            event_result = session.execute(
+                update(DiscordConnectorEventRecord)
+                .where(DiscordConnectorEventRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
             connection_result = session.execute(
                 update(PlatformConnectionRecord)
                 .where(PlatformConnectionRecord.owner_id == source_owner_id)
@@ -880,6 +1032,9 @@ class DeploymentRepository:
             )
             session.commit()
         return {
+            "discord_connector_events": int(
+                getattr(event_result, "rowcount", 0) or 0
+            ),
             "connections": int(getattr(connection_result, "rowcount", 0) or 0),
             "server_catalogs": int(getattr(catalog_result, "rowcount", 0) or 0),
             "server_profiles": int(getattr(profile_result, "rowcount", 0) or 0),

@@ -171,6 +171,31 @@ export interface DiscordReply {
   output_tokens?: number | null;
 }
 
+export type DiscordConnectorEventLevel = "info" | "warning" | "error";
+
+export interface DiscordConnectorEvent {
+  id: string;
+  occurred_at: string;
+  level: DiscordConnectorEventLevel;
+  event_type: string;
+  message: string;
+  guild_id: string;
+  guild_name: string;
+  channel_id: string;
+  channel_name: string;
+  thread_id: string;
+  thread_name: string;
+  source_message_id: string;
+  deployment_id: string;
+  character_name: string;
+  details: Record<string, unknown>;
+}
+
+export interface DiscordConnectorEventBatch {
+  connection_id: string;
+  events: DiscordConnectorEvent[];
+}
+
 export interface ConnectorHeartbeat {
   connection_id: string;
   bot_user_id: string;
