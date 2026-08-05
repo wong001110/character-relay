@@ -132,3 +132,128 @@
     margin-left: 0;
   }
 }
+
+
+.discord-server-status-section {
+  display: grid;
+  gap: 14px;
+  padding-bottom: 20px;
+  border-bottom: 1px dashed rgb(69 78 86 / 24%);
+}
+
+.discord-server-status-heading p {
+  margin: 5px 0 0;
+  max-width: 780px;
+}
+
+.discord-server-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
+  gap: 12px;
+}
+
+.discord-server-status-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgb(69 78 86 / 18%);
+  border-left-width: 5px;
+  border-radius: 12px;
+  background: rgb(255 254 249 / 90%);
+}
+
+.discord-server-status-card.server-link-connected {
+  border-left-color: #527c62;
+}
+
+.discord-server-status-card.server-link-stale,
+.discord-server-status-card.server-link-server_not_seen {
+  border-left-color: #a77a28;
+}
+
+.discord-server-status-card.server-link-connector_error,
+.discord-server-status-card.server-link-connector_offline {
+  border-left-color: #a34e4e;
+}
+
+.discord-server-status-card.is-selected {
+  box-shadow: 0 0 0 2px rgb(82 124 134 / 18%);
+}
+
+.discord-server-status-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.discord-server-status-title div {
+  display: grid;
+  gap: 3px;
+}
+
+.server-link-badge {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgb(76 87 96 / 10%);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.discord-server-status-card > p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.discord-server-status-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.discord-server-status-details div {
+  min-width: 0;
+}
+
+.discord-server-status-details dt {
+  color: var(--muted-ink, #65717a);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.discord-server-status-details dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.discord-server-last-error {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgb(163 78 78 / 9%);
+  overflow-wrap: anywhere;
+}
+
+.discord-server-status-refresh-note {
+  justify-self: end;
+}
+
+@media (max-width: 520px) {
+  .discord-server-status-title {
+    display: grid;
+  }
+
+  .server-link-badge {
+    justify-self: start;
+  }
+
+  .discord-server-status-details {
+    grid-template-columns: 1fr;
+  }
+}

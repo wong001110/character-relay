@@ -144,6 +144,10 @@ class DeploymentRepository:
         display_name: str,
         status: str,
         last_error: str,
+        replica_region: str,
+        gateway_ready: bool,
+        state_synchronized: bool,
+        visible_server_count: int,
     ) -> bool:
         with self.database.session() as session:
             record = session.get(PlatformConnectionRecord, connection_id)
@@ -157,6 +161,10 @@ class DeploymentRepository:
             metadata["last_error"] = last_error
             metadata["heartbeat_source"] = f"{platform}_connector"
             metadata["connector_display_name"] = display_name
+            metadata["replica_region"] = replica_region
+            metadata["gateway_ready"] = gateway_ready
+            metadata["state_synchronized"] = state_synchronized
+            metadata["visible_server_count"] = visible_server_count
             record.external_account_id = external_account_id
             record.status = status
             record.last_seen_at = utcnow()

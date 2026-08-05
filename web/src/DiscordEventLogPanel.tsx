@@ -1,11 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   deploymentApi,
   type DiscordConnectorLog,
   type DiscordConnectorLogLevel,
-  type DiscordServerProfile
+  type DiscordServerCatalog,
+  type DiscordServerProfile,
+  type PlatformConnection
 } from "./deploymentApi";
+import {
+  buildDiscordServerStatuses,
+  type DiscordServerLinkState
+} from "./discordServerStatus";
 import { Pagination } from "./Pagination";
 
 interface Props {
@@ -42,19 +48,62 @@ const EVENT_LABELS: Record<string, { en: string; zh: string }> = {
   handler_error: { en: "Message handler failed", zh: "消息处理失败" }
 };
 
-function formatTime(value: string): string {
+const LINK_LABELS: Record<DiscordServerLinkState, { en: string; zh: string }> = {
+  connected: { en: "Connected", zh: "已连接" },
+  stale: { en: "Status stale", zh: "状态已过期" },
+  connector_error: { en: "Connector error", zh: "Connector 错误" },
+  connector_offline: { en: "Connector offline", zh: "Connector 离线" },
+  server_not_seen: { en: "Server not seen", zh: "未发现该 Server" }
+};
+
+function formatTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "—";
   return new Intl.DateTimeFormat(undefined, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit"
-  }).format(new Date(value));
+  }).format(parsed);
 }
 
 function labelEvent(value: string, zh: boolean): string {
   const label = EVENT_LABELS[value];
   return label ? (zh ? label.zh : label.en) : value.replaceAll("_", " ");
+}
+
+function statusDiagnosis(state: DiscordServerLinkState, zh: boolean): string {
+  const messages: Record<DiscordServerLinkState, { en: string; zh: string }> = {
+    connected: {
+      en: "The Gateway heartbeat and this Server catalog are both current.",
+      zh: "Gateway 心跳与该 Server Catalog 都在持续更新。"
+    },
+    stale: {
+      en: "No current heartbeat or Server catalog update was received within two minutes.",
+      zh: "两分钟内没有收到新的心跳或 Server Catalog 更新。"
+    },
+    connector_error: {
+      en: "The Connector reported an error. Check the last error below.",
+      zh: "Connector 主动报告了错误，请查看下方 Last error。"
+    },
+    connector_offline: {
+      en: "The Portal is not receiving Connector heartbeats.",
+      zh: "Portal 没有收到 Connector 心跳。"
+    },
+    server_not_seen: {
+      en: "The Connector is alive, but the Bot did not report this Server. The Bot may have been removed or lacks View Channels permission.",
+      zh: "Connector 在线，但 Bot 没有上报该 Server。Bot 可能未加入、已被移除，或缺少 View Channels 权限。"
+    }
+  };
+  return zh ? messages[state].zh : messages[state].en;
+}
+
+function booleanValue(value: boolean | null, zh: boolean): string {
+  if (value === null) return zh ? "未上报" : "Not reported";
+  if (value) return zh ? "是" : "Yes";
+  return zh ? "否" : "No";
 }
 
 export function DiscordEventLogPanel({
@@ -72,6 +121,10 @@ export function DiscordEventLogPanel({
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [connections, setConnections] = useState<PlatformConnection[]>([]);
+  const [catalog, setCatalog] = useState<DiscordServerCatalog[]>([]);
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   useEffect(() => {
     if (selectedServerProfileId) setServerProfileId(selectedServerProfileId);
@@ -98,10 +151,42 @@ export function DiscordEventLogPanel({
     }
   }, [eventType, level, page, serverProfileId]);
 
+  const loadStatus = useCallback(async () => {
+    try {
+      const [nextConnections, nextCatalog] = await Promise.all([
+        deploymentApi.listConnections(),
+        deploymentApi.listDiscordServerCatalog()
+      ]);
+      setConnections(nextConnections);
+      setCatalog(nextCatalog);
+      setStatusError(null);
+    } catch (reason) {
+      setStatusError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setStatusLoading(false);
+    }
+  }, []);
+
+  const serverStatuses = useMemo(() => {
+    const statuses = buildDiscordServerStatuses(profiles, connections, catalog);
+    return statuses.sort((left, right) => {
+      if (left.profile.id === selectedServerProfileId) return -1;
+      if (right.profile.id === selectedServerProfileId) return 1;
+      return left.profile.guild_name.localeCompare(right.profile.guild_name);
+    });
+  }, [catalog, connections, profiles, selectedServerProfileId]);
+
   useEffect(() => {
     setLoading(true);
     void load();
   }, [load]);
+
+  useEffect(() => {
+    setStatusLoading(true);
+    void loadStatus();
+    const timer = window.setInterval(() => void loadStatus(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [loadStatus]);
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -116,6 +201,118 @@ export function DiscordEventLogPanel({
 
   return (
     <section className="paper-sheet discord-event-log-panel">
+      <section className="discord-server-status-section">
+        <div className="panel-heading-row discord-server-status-heading">
+          <div>
+            <p className="tape-label">SERVER CONNECTION STATUS</p>
+            <h2>{zh ? "Discord Server 连接状态" : "Discord server connection status"}</h2>
+            <p>
+              {zh
+                ? "独立检查 Connector 心跳、Discord Gateway、Singapore Replica 与 Bot 实际看到的 Server Catalog。"
+                : "Independently checks Connector heartbeat, Discord Gateway, Railway replica region, and the Server catalog actually visible to the Bot."}
+            </p>
+          </div>
+          <button
+            className="paper-button"
+            onClick={() => void loadStatus()}
+            disabled={statusLoading}
+          >
+            {statusLoading ? (zh ? "检查中…" : "Checking…") : zh ? "检查连接" : "Check status"}
+          </button>
+        </div>
+
+        {statusError && <p className="error-note">{statusError}</p>}
+
+        <div className="discord-server-status-grid">
+          {serverStatuses.map((item) => {
+            const selected = item.profile.id === selectedServerProfileId;
+            const connection = item.connection;
+            return (
+              <article
+                className={`discord-server-status-card server-link-${item.state}${
+                  selected ? " is-selected" : ""
+                }`}
+                key={item.profile.id}
+              >
+                <div className="discord-server-status-title">
+                  <div>
+                    <strong>{item.profile.guild_name}</strong>
+                    <small>{item.profile.name}</small>
+                  </div>
+                  <span className={`server-link-badge server-link-${item.state}`}>
+                    {zh ? LINK_LABELS[item.state].zh : LINK_LABELS[item.state].en}
+                  </span>
+                </div>
+                <p>{statusDiagnosis(item.state, zh)}</p>
+                <dl className="discord-server-status-details">
+                  <div>
+                    <dt>{zh ? "Connector" : "Connector"}</dt>
+                    <dd>
+                      {item.connectorDisplayName || connection?.display_name || "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "Bot ID" : "Bot ID"}</dt>
+                    <dd>{connection?.external_account_id || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "Replica Region" : "Replica region"}</dt>
+                    <dd>{item.replicaRegion || (zh ? "未上报" : "Not reported")}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "Gateway Ready" : "Gateway ready"}</dt>
+                    <dd>{booleanValue(item.gatewayReady, zh)}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "部署同步" : "State synchronized"}</dt>
+                    <dd>{booleanValue(item.stateSynchronized, zh)}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "Connector 看到的 Server" : "Servers visible to Connector"}</dt>
+                    <dd>{item.visibleServerCount ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "最后心跳" : "Last heartbeat"}</dt>
+                    <dd>{formatTime(connection?.last_seen_at)}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "最后 Server 同步" : "Last Server sync"}</dt>
+                    <dd>{formatTime(item.catalog?.synced_at)}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "可见 Channel" : "Visible channels"}</dt>
+                    <dd>{item.catalog?.channels.length ?? 0}</dd>
+                  </div>
+                  <div>
+                    <dt>Server ID</dt>
+                    <dd>{item.profile.guild_id}</dd>
+                  </div>
+                </dl>
+                {item.lastError && (
+                  <p className="discord-server-last-error">
+                    <strong>{zh ? "Last error：" : "Last error: "}</strong>
+                    {item.lastError}
+                  </p>
+                )}
+              </article>
+            );
+          })}
+          {!statusLoading && serverStatuses.length === 0 && (
+            <div className="deployment-empty compact-empty">
+              <strong>{zh ? "还没有 Discord Server 配置" : "No Discord server profiles"}</strong>
+              <p>
+                {zh
+                  ? "先建立 Server Profile，Connector 同步后这里会显示连接状态。"
+                  : "Create a Server Profile. Its connection status appears here after Connector sync."}
+              </p>
+            </div>
+          )}
+        </div>
+        <small className="discord-server-status-refresh-note">
+          {zh ? "状态每 10 秒自动更新。超过 2 分钟未更新会标记为过期。" : "Status refreshes every 10 seconds. Data older than two minutes is marked stale."}
+        </small>
+      </section>
+
       <div className="panel-heading-row discord-event-log-heading">
         <div>
           <p className="tape-label">DISCORD EVENT LOG</p>
@@ -198,8 +395,8 @@ export function DiscordEventLogPanel({
             <strong>{zh ? "没有符合条件的日志" : "No matching log events"}</strong>
             <p>
               {zh
-                ? "在 Discord 中直接 Tag Bot 后，这里应先出现“收到 Bot Tag”，即使没有命中任何角色。"
-                : "Mention the Bot in Discord. A “Bot mention received” event should appear even when no character deployment matches."}
+                ? "先检查上方 Server 连接状态。在 Discord 中直接 Tag Bot 后，这里应出现“收到 Bot Tag”。"
+                : "Check Server connection status above first. Mention the Bot in Discord and a “Bot mention received” event should appear."}
             </p>
           </div>
         )}

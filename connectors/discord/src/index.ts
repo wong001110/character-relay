@@ -268,7 +268,11 @@ async function sendHeartbeat(
     bot_user_id: user.id,
     bot_display_name: user.tag,
     status,
-    last_error: error
+    last_error: error,
+    replica_region: process.env.RAILWAY_REPLICA_REGION ?? "",
+    gateway_ready: ready,
+    state_synchronized: stateSynchronized,
+    visible_server_count: client.guilds.cache.size
   });
 }
 

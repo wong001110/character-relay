@@ -562,3 +562,40 @@ def test_discord_message_route_persists_reply_character_ownership(tmp_path: Path
     )
     assert missing.status_code == 200
     assert missing.json() == {"route": None}
+
+
+
+def test_connector_heartbeat_persists_runtime_diagnostics(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "discord-heartbeat-diagnostics.db"))
+    client = TestClient(app)
+    login(client)
+    connection = create_connection(client)
+
+    response = client.post(
+        "/api/connectors/discord/heartbeat",
+        headers=connector_headers(),
+        json={
+            "connection_id": connection["id"],
+            "bot_user_id": "bot-123",
+            "bot_display_name": "CharacterRelayBot#0001",
+            "status": "connected",
+            "last_error": "",
+            "replica_region": "asia-southeast1-eqsg3a",
+            "gateway_ready": True,
+            "state_synchronized": True,
+            "visible_server_count": 2,
+        },
+    )
+    assert response.status_code == 204, response.text
+
+    listed = client.get("/api/connections")
+    assert listed.status_code == 200, listed.text
+    updated = listed.json()[0]
+    assert updated["status"] == "connected"
+    assert updated["last_seen_at"] is not None
+    assert updated["external_account_id"] == "bot-123"
+    assert updated["metadata"]["connector_display_name"] == "CharacterRelayBot#0001"
+    assert updated["metadata"]["replica_region"] == "asia-southeast1-eqsg3a"
+    assert updated["metadata"]["gateway_ready"] is True
+    assert updated["metadata"]["state_synchronized"] is True
+    assert updated["metadata"]["visible_server_count"] == 2
