@@ -1,0 +1,34 @@
+name: Cleanup Discord character Tag fix branches
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.event.pull_request.head.ref == 'chore/discord-character-tag-fix-cleanup'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Delete merged branches and remove cleanup files
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for branch in feature/fix-discord-character-tags chore/discord-character-tag-fix-cleanup; do
+            if git ls-remote --exit-code origin "refs/heads/${branch}" >/dev/null 2>&1; then
+              git push origin --delete "${branch}"
+            else
+              echo "${branch} is already absent."
+            fi
+          done
+          git rm .github/workflows/cleanup-discord-character-tag-fix.yml
+          git rm .github/discord-character-tag-fix-cleanup-trigger
+          git commit -m 'chore: finish Discord character Tag fix cleanup'
+          git push origin HEAD:main
