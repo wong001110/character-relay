@@ -92,7 +92,7 @@ export function CharacterShelf({
         <div className="brand-lockup">
           <img
             className="brand-wordmark"
-            src="/assets/brand/character-relay-wordmark.svg"
+            src="/assets/brand/character-relay-wordmark.png"
             alt="Character Relay"
           />
           <div>

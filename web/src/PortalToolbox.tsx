@@ -47,7 +47,7 @@ export function PortalToolbox({
         onClick={() => setOpen(true)}
         aria-label={zh ? "打开 Portal 工具箱" : "Open Portal toolbox"}
       >
-        <img src="/assets/brand/character-relay-mark.svg" alt="" />
+        <img src="/assets/brand/character-relay-mark.png" alt="" />
         <span>{zh ? "工具箱" : "Tools"}</span>
       </button>
 
