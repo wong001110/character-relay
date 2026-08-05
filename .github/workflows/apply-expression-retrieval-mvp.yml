@@ -25,6 +25,7 @@ jobs:
       - name: Apply Expression integrations
         run: |
           python scripts/apply_expression_backend.py
+          python scripts/repair_expression_connector_patch.py
           python scripts/apply_expression_connector.py
           python scripts/apply_expression_web.py
 
@@ -59,6 +60,7 @@ jobs:
           rm -f scripts/apply_expression_backend.py
           rm -f scripts/apply_expression_connector.py
           rm -f scripts/apply_expression_web.py
+          rm -f scripts/repair_expression_connector_patch.py
           rm -rf web/dist connectors/discord/dist
           rm -f web/package-lock.json web/tsconfig.tsbuildinfo
           rm -f connectors/discord/package-lock.json connectors/discord/tsconfig.tsbuildinfo
