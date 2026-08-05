@@ -12,6 +12,7 @@ import {
 import { loadConfig } from "./config.js";
 import { ContextBuffer } from "./contextBuffer.js";
 import { RelayClient } from "./relayClient.js";
+import { RecoveryLoop } from "./recoveryLoop.js";
 import {
   buildDeploymentIndex,
   deploymentsFor,
@@ -63,7 +64,8 @@ let lastDeploymentSyncAt: string | null = null;
 let lastCatalogSyncAt: string | null = null;
 let lastError: string | null = null;
 let ready = false;
-let refreshTimer: NodeJS.Timeout | undefined;
+let stateSynchronized = false;
+let recoveryLoop: RecoveryLoop | undefined;
 let heartbeatTimer: NodeJS.Timeout | undefined;
 let dedupeTimer: NodeJS.Timeout | undefined;
 
@@ -1063,7 +1065,10 @@ const healthServer = createServer((request, response) => {
   response.end(
     JSON.stringify({
       name: "Character Relay Discord Connector",
-      status: ready ? "ready" : "starting",
+      status: ready ? (stateSynchronized ? "ready" : "degraded") : "starting",
+      gateway_ready: ready,
+      state_synchronized: stateSynchronized,
+      railway_replica_region: process.env.RAILWAY_REPLICA_REGION ?? null,
       discord_user: client.user?.tag ?? null,
       connection_id: config.relayConnectionId,
       active_deployments: activeDeployments.length,
@@ -1098,35 +1103,56 @@ const healthServer = createServer((request, response) => {
   );
 });
 
-client.once(Events.ClientReady, async (readyClient) => {
-  try {
-    await refreshConnectorState();
-    await sendHeartbeat("connected");
-    ready = true;
-    lastError = null;
-    log("Discord connector ready.", {
-      discordUser: readyClient.user.tag,
-      connectionId: config.relayConnectionId,
-      activeDeployments: flattenDeployments(deployments).length,
-      activeDestinations: deployments.size
+client.once(Events.ClientReady, (readyClient) => {
+  ready = true;
+  log("Discord Gateway connected.", {
+    discordUser: readyClient.user.tag,
+    connectionId: config.relayConnectionId,
+    railwayReplicaRegion: process.env.RAILWAY_REPLICA_REGION ?? null
+  });
+
+  recoveryLoop = new RecoveryLoop(config.deploymentRefreshSeconds * 1000, {
+    execute: refreshConnectorState,
+    succeeded: async () => {
+      const recovered = !stateSynchronized || Boolean(lastError);
+      stateSynchronized = true;
+      lastError = null;
+      await sendHeartbeat("connected").catch((error: unknown) => {
+        lastError = error instanceof Error ? error.message : String(error);
+        log("Connector heartbeat failed after state synchronization.", {
+          error: lastError
+        });
+      });
+      if (recovered) {
+        log("Discord connector state synchronized.", {
+          discordUser: readyClient.user.tag,
+          connectionId: config.relayConnectionId,
+          activeDeployments: flattenDeployments(deployments).length,
+          activeDestinations: deployments.size
+        });
+      }
+    },
+    failed: async (error: unknown) => {
+      lastError = error instanceof Error ? error.message : String(error);
+      log("Connector state synchronization failed; retry scheduled.", {
+        error: lastError,
+        retrySeconds: config.deploymentRefreshSeconds
+      });
+      await sendHeartbeat("error", lastError).catch(() => undefined);
+    }
+  });
+  recoveryLoop.start();
+
+  heartbeatTimer = setInterval(() => {
+    const status = stateSynchronized ? "connected" : "error";
+    const error = stateSynchronized
+      ? ""
+      : (lastError ?? "Waiting for initial Character Relay synchronization.");
+    void sendHeartbeat(status, error).catch((reason: unknown) => {
+      lastError = reason instanceof Error ? reason.message : String(reason);
+      log("Connector heartbeat failed.", { error: lastError });
     });
-    refreshTimer = setInterval(() => {
-      void refreshConnectorState().catch((error: unknown) => {
-        lastError = error instanceof Error ? error.message : String(error);
-        log("Connector state refresh failed.", { error: lastError });
-      });
-    }, config.deploymentRefreshSeconds * 1000);
-    heartbeatTimer = setInterval(() => {
-      void sendHeartbeat("connected").catch((error: unknown) => {
-        lastError = error instanceof Error ? error.message : String(error);
-        log("Connector heartbeat failed.", { error: lastError });
-      });
-    }, config.heartbeatSeconds * 1000);
-  } catch (error) {
-    lastError = error instanceof Error ? error.message : String(error);
-    log("Discord connector failed during startup.", { error: lastError });
-    await sendHeartbeat("error", lastError).catch(() => undefined);
-  }
+  }, config.heartbeatSeconds * 1000);
 });
 
 client.on(Events.MessageCreate, (message) => {
@@ -1170,7 +1196,8 @@ dedupeTimer = setInterval(() => {
 
 async function shutdown(signal: string): Promise<void> {
   ready = false;
-  if (refreshTimer) clearInterval(refreshTimer);
+  stateSynchronized = false;
+  recoveryLoop?.stop();
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   if (dedupeTimer) clearInterval(dedupeTimer);
   await sendHeartbeat("offline", `Connector stopped by ${signal}.`).catch(
