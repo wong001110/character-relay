@@ -77,7 +77,9 @@ class DiscordExpressionRunRecord(Base):
     deployment_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     character_card_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     status: Mapped[str] = mapped_column(String(24), default="running", nullable=False)
-    current_node: Mapped[str] = mapped_column(String(80), default="filter_resources", nullable=False)
+    current_node: Mapped[str] = mapped_column(
+        String(80), default="filter_resources", nullable=False
+    )
     attempt_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     selected_action: Mapped[str] = mapped_column(String(24), default="none", nullable=False)
     selected_resource_key: Mapped[str] = mapped_column(String(240), default="", nullable=False)

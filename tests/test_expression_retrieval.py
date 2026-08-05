@@ -126,7 +126,7 @@ def resource(
 
 def test_hybrid_retrieval_filters_unavailable_and_penalizes_repetition() -> None:
     resources = [
-        resource("emoji:peek", meaning="好奇地偷偷观察，等待后续", tags=("好奇", "期待")),
+        resource("emoji:peek", meaning="好奇地偷偷观察,等待后续", tags=("好奇", "期待")),
         resource("emoji:wave", meaning="友好地打招呼", tags=("问候",)),
         resource(
             "emoji:missing",
@@ -137,16 +137,16 @@ def test_hybrid_retrieval_filters_unavailable_and_penalizes_repetition() -> None
     ]
     ranked = rank_expression_resources(
         resources,
-        query="我很好奇，想偷偷看看后续",
+        query="我很好奇,想偷偷看看后续",
         allowed_actions={"reaction"},
         top_k=3,
     )
-    assert [item.resource.key for item in ranked][0] == "emoji:peek"
+    assert next(item.resource.key for item in ranked) == "emoji:peek"
     assert all(item.resource.key != "emoji:missing" for item in ranked)
 
     repeated = rank_expression_resources(
         resources,
-        query="我很好奇，想偷偷看看后续",
+        query="我很好奇,想偷偷看看后续",
         allowed_actions={"reaction"},
         recent_resource_keys={"emoji:peek"},
         top_k=3,
@@ -238,7 +238,7 @@ def test_expression_dictionary_retrieval_and_nodes_are_owner_scoped(tmp_path: Pa
             "enabled": True,
             "semantic_intent": "curious_peek",
             "semantic_emotion": "curious",
-            "semantic_description": "好奇地偷偷观察，也期待对方继续说。",
+            "semantic_description": "好奇地偷偷观察,也期待对方继续说。",
             "aliases": ["peek", "偷看"],
             "situations": ["等待后续", "轻微吃瓜"],
             "avoid_when": ["正式道歉"],
@@ -257,7 +257,7 @@ def test_expression_dictionary_retrieval_and_nodes_are_owner_scoped(tmp_path: Pa
             "channel_id": "channel-expression",
             "source_message_id": "message-expression",
             "deployment_id": deployment["id"],
-            "query": "我有一点好奇，想偷偷看看接下来会发生什么",
+            "query": "我有一点好奇,想偷偷看看接下来会发生什么",
             "allowed_actions": ["inline", "reaction", "sticker"],
             "excluded_resource_keys": [],
             "top_k": 6,

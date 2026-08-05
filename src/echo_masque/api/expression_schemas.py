@@ -11,6 +11,10 @@ ExpressionNodeStatus = Literal["running", "completed", "failed", "skipped"]
 ExpressionRunStatus = Literal["running", "completed", "failed", "skipped"]
 
 
+def default_expression_actions() -> list[Literal["inline", "reaction", "sticker"]]:
+    return ["inline", "reaction", "sticker"]
+
+
 class DiscordCatalogEmoji(BaseModel):
     emoji_id: str = Field(min_length=1, max_length=200)
     name: str = Field(min_length=1, max_length=160)
@@ -96,7 +100,7 @@ class ExpressionRetrieveRequest(BaseModel):
     deployment_id: str = Field(min_length=1, max_length=64)
     query: str = Field(default="", max_length=4000)
     allowed_actions: list[Literal["inline", "reaction", "sticker"]] = Field(
-        default_factory=lambda: ["inline", "reaction", "sticker"],
+        default_factory=default_expression_actions,
         min_length=1,
         max_length=3,
     )

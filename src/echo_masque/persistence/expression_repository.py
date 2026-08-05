@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from typing import cast
 from uuid import uuid4
 
@@ -60,7 +59,12 @@ def _default_actions(resource_type: str) -> list[str]:
     return ["inline", "reaction"] if resource_type == "emoji" else ["sticker"]
 
 
-def _metadata_semantics(resource_type: str, name: str, description: str, tags: list[str]) -> tuple[str, str, float]:
+def _metadata_semantics(
+    resource_type: str,
+    name: str,
+    description: str,
+    tags: list[str],
+) -> tuple[str, str, float]:
     details = [item for item in (description.strip(), ", ".join(tags)) if item]
     noun = "Emoji" if resource_type == "emoji" else "Sticker"
     if details:
@@ -203,10 +207,12 @@ class ExpressionRepository:
             seen: dict[str, set[str]] = {"emoji": set(), "sticker": set()}
             for resource_type, items in (("emoji", emojis), ("sticker", stickers)):
                 for item in items:
-                    resource_id = str(
-                        item.get("emoji_id") if resource_type == "emoji" else item.get("sticker_id")
-                        or ""
-                    ).strip()
+                    raw_resource_id = (
+                        item.get("emoji_id")
+                        if resource_type == "emoji"
+                        else item.get("sticker_id")
+                    )
+                    resource_id = str(raw_resource_id or "").strip()
                     name = str(item.get("name") or resource_type.title()).strip()
                     if not resource_id or not name:
                         continue
@@ -389,6 +395,7 @@ class ExpressionRepository:
             semantic_confidence=record.semantic_confidence,
             asset_url=record.asset_url,
             format_type=record.format_type,
+            semantic_source=record.semantic_source,
         )
 
     @staticmethod
@@ -401,10 +408,13 @@ class ExpressionRepository:
             "name": resource.name,
             "animated": resource.animated,
             "available": resource.available,
+            "enabled": resource.enabled,
             "allowed_actions": list(resource.allowed_actions),
             "semantic_intent": resource.semantic_intent,
             "semantic_emotion": resource.semantic_emotion,
             "semantic_description": resource.semantic_description,
+            "semantic_source": resource.semantic_source,
+            "semantic_confidence": resource.semantic_confidence,
             "asset_url": resource.asset_url,
             "format_type": resource.format_type,
             "score": candidate.score,
@@ -556,7 +566,7 @@ class ExpressionRepository:
                 output_summary={
                     "candidate_count": len(candidates),
                     "candidate_keys": [str(item["resource_key"]) for item in candidates],
-                    "candidate_scores": [float(item["score"]) for item in candidates],
+                    "candidate_scores": [item["score"] for item in candidates],
                 },
             )
             state = self.run_state(run)

@@ -5,6 +5,11 @@ import type {
   DiscordInteractionClaimRequest,
   DiscordInteractionRunComplete,
   DiscordDeployment,
+  DiscordExpressionContent,
+  DiscordExpressionNodeReport,
+  DiscordExpressionResolveRequest,
+  DiscordExpressionRetrieval,
+  DiscordExpressionRetrieveRequest,
   DiscordInboundMessage,
   DiscordMessageRouteLookup,
   DiscordMessageRouteRegistration,
@@ -109,6 +114,43 @@ export class RelayClient {
       method: "POST",
       body: JSON.stringify({ connection_id: this.connectionId, ...payload })
     });
+  }
+
+  async resolveExpression(
+    payload: DiscordExpressionResolveRequest
+  ): Promise<DiscordExpressionContent> {
+    return this.request<DiscordExpressionContent>(
+      "/api/connectors/discord/expressions/resolve",
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
+  }
+
+  async retrieveExpressions(
+    payload: DiscordExpressionRetrieveRequest
+  ): Promise<DiscordExpressionRetrieval> {
+    return this.request<DiscordExpressionRetrieval>(
+      "/api/connectors/discord/expressions/retrieve",
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
+  }
+
+  async reportExpressionNode(
+    runId: string,
+    payload: DiscordExpressionNodeReport
+  ): Promise<void> {
+    await this.request<void>(
+      `/api/connectors/discord/expressions/runs/${runId}/nodes`,
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
   }
 
   async resolveSticker(

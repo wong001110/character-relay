@@ -5,6 +5,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from echo_masque.api.expression_schemas import (
+    DiscordCatalogEmoji,
+    ExpressionCandidate,
+    ExpressionContent,
+    ExpressionDecision,
+)
+
 DiscordParticipationMode = Literal[
     "mention_only",
     "reply_only",
@@ -66,6 +73,7 @@ class DiscordCatalogServer(BaseModel):
     guild_id: str = Field(min_length=1, max_length=200)
     guild_name: str = Field(min_length=1, max_length=160)
     channels: list[DiscordCatalogChannel] = Field(default_factory=list, max_length=1000)
+    emojis: list[DiscordCatalogEmoji] = Field(default_factory=list, max_length=1000)
     stickers: list[DiscordCatalogSticker] = Field(default_factory=list, max_length=1000)
 
 
@@ -229,6 +237,7 @@ class DiscordContextMessage(BaseModel):
     author_id: str = Field(min_length=1, max_length=200)
     author_display_name: str = Field(min_length=1, max_length=160)
     text: str = Field(default="", max_length=10000)
+    emojis: list[ExpressionContent] = Field(default_factory=list, max_length=20)
     stickers: list[DiscordStickerContent] = Field(default_factory=list, max_length=3)
     created_at: datetime | None = None
     is_bot: bool = False
@@ -248,6 +257,7 @@ class DiscordInboundMessage(BaseModel):
     author_id: str = Field(min_length=1, max_length=200)
     author_display_name: str = Field(min_length=1, max_length=160)
     text: str = Field(default="", max_length=10000)
+    emojis: list[ExpressionContent] = Field(default_factory=list, max_length=20)
     mentioned_bot: bool = False
     replied_to_bot: bool = False
     smart_candidate: bool = False
@@ -264,10 +274,12 @@ class DiscordInboundMessage(BaseModel):
     interaction_participant_count: int = Field(default=0, ge=0, le=10)
     interaction_target_user_id: str = Field(default="", max_length=200)
     interaction_target_display_name: str = Field(default="", max_length=160)
+    expression_run_id: str = Field(default="", max_length=64)
+    expression_candidates: list[ExpressionCandidate] = Field(default_factory=list, max_length=10)
 
 
 class DiscordConnectorReplyView(BaseModel):
-    action: Literal["silent", "reply"]
+    action: Literal["silent", "reply", "expression"]
     reason: str
     deployment_id: str | None = None
     character_display_name: str | None = None
@@ -276,3 +288,4 @@ class DiscordConnectorReplyView(BaseModel):
     latency_ms: int | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    expression: ExpressionDecision = Field(default_factory=ExpressionDecision)

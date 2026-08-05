@@ -40,6 +40,7 @@ class ExpressionResource:
     semantic_confidence: float
     asset_url: str
     format_type: str
+    semantic_source: str = "unknown"
 
 
 @dataclass(frozen=True, slots=True)

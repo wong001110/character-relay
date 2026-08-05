@@ -50,12 +50,13 @@ export function fallbackExpressionCandidate(
   decision: DiscordExpressionDecision,
   excludedResourceKeys: Set<string>
 ): DiscordExpressionCandidate | null {
-  if (decision.action === "none") return null;
+  const action = decision.action;
+  if (action === "none") return null;
   return (
     candidates.find(
       (item) =>
         !excludedResourceKeys.has(item.resource_key) &&
-        item.allowed_actions.includes(decision.action)
+        item.allowed_actions.includes(action)
     ) ?? null
   );
 }

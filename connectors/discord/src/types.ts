@@ -44,6 +44,14 @@ export interface DiscordCatalogChannel {
   type: string;
 }
 
+export interface DiscordCatalogEmoji {
+  emoji_id: string;
+  name: string;
+  animated: boolean;
+  available: boolean;
+  asset_url: string;
+}
+
 export interface DiscordCatalogSticker {
   sticker_id: string;
   name: string;
@@ -57,6 +65,7 @@ export interface DiscordCatalogServer {
   guild_id: string;
   guild_name: string;
   channels: DiscordCatalogChannel[];
+  emojis: DiscordCatalogEmoji[];
   stickers: DiscordCatalogSticker[];
 }
 
@@ -77,6 +86,77 @@ export interface DiscordStickerContent {
   semantic_description: string;
   semantic_source: "manual" | "discord_metadata" | "unknown";
   semantic_confidence: number;
+}
+
+export type DiscordExpressionAction = "none" | "inline" | "reaction" | "sticker";
+
+export interface DiscordExpressionContent {
+  resource_key: string;
+  resource_type: "emoji" | "sticker";
+  resource_id: string;
+  name: string;
+  animated: boolean;
+  available: boolean;
+  enabled: boolean;
+  allowed_actions: Array<"inline" | "reaction" | "sticker">;
+  semantic_intent: string;
+  semantic_emotion: string;
+  semantic_description: string;
+  semantic_source: "manual" | "discord_metadata" | "unknown";
+  semantic_confidence: number;
+  asset_url: string;
+  format_type: string;
+}
+
+export interface DiscordExpressionCandidate extends DiscordExpressionContent {
+  score: number;
+  signals: Record<string, number>;
+}
+
+export interface DiscordExpressionDecision {
+  action: DiscordExpressionAction;
+  resource_key?: string | null;
+  reason: string;
+}
+
+export interface DiscordExpressionResolveRequest {
+  guild_id: string;
+  resource_type: "emoji" | "sticker";
+  resource_id: string;
+  name: string;
+  animated: boolean;
+  available: boolean;
+  asset_url: string;
+}
+
+export interface DiscordExpressionRetrieveRequest {
+  guild_id: string;
+  channel_id: string;
+  source_message_id: string;
+  deployment_id: string;
+  query: string;
+  allowed_actions: Array<"inline" | "reaction" | "sticker">;
+  excluded_resource_keys: string[];
+  top_k: number;
+  run_id?: string | null;
+}
+
+export interface DiscordExpressionRetrieval {
+  run_id: string;
+  attempt: number;
+  retrieval_backend: "hybrid_sparse_v1";
+  candidates: DiscordExpressionCandidate[];
+}
+
+export interface DiscordExpressionNodeReport {
+  node_name: string;
+  status: "running" | "completed" | "failed" | "skipped";
+  input_summary: Record<string, unknown>;
+  output_summary: Record<string, unknown>;
+  error: string;
+  selected_action?: DiscordExpressionAction | null;
+  selected_resource_key?: string | null;
+  final_status?: "running" | "completed" | "failed" | "skipped" | null;
 }
 
 export interface DiscordStickerObservation {
@@ -122,6 +202,7 @@ export interface DiscordContextMessage {
   author_id: string;
   author_display_name: string;
   text: string;
+  emojis: DiscordExpressionContent[];
   stickers: DiscordStickerContent[];
   created_at?: string;
   is_bot: boolean;
@@ -141,6 +222,7 @@ export interface DiscordInboundMessage {
   author_id: string;
   author_display_name: string;
   text: string;
+  emojis: DiscordExpressionContent[];
   mentioned_bot: boolean;
   replied_to_bot: boolean;
   smart_candidate: boolean;
@@ -157,10 +239,12 @@ export interface DiscordInboundMessage {
   interaction_participant_count: number;
   interaction_target_user_id: string;
   interaction_target_display_name: string;
+  expression_run_id: string;
+  expression_candidates: DiscordExpressionCandidate[];
 }
 
 export interface DiscordReply {
-  action: "silent" | "reply";
+  action: "silent" | "reply" | "expression";
   reason: string;
   deployment_id?: string | null;
   character_display_name?: string | null;
@@ -169,6 +253,7 @@ export interface DiscordReply {
   latency_ms?: number | null;
   input_tokens?: number | null;
   output_tokens?: number | null;
+  expression: DiscordExpressionDecision;
 }
 
 export type DiscordConnectorEventLevel = "info" | "warning" | "error";
