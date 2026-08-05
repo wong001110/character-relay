@@ -741,7 +741,11 @@ async function processInteractionSession(
           deployment.deployment_id,
           config.groupAddressAliases
         );
-        const outgoingText = normalizedReply.displayText.trim();
+        const outgoingText = (
+          normalizedReply.audience.reason === "not_found"
+            ? normalizedReply.displayText
+            : normalizedReply.audience.text
+        ).trim();
         if (!outgoingText) continue;
         const sentMessageIds = await sendCharacterReply(
           sourceMessage,
@@ -829,12 +833,26 @@ async function processMessage(message: Message): Promise<void> {
     };
     context.push(key, contextMessage);
 
-    const interactionClaim = await relay.claimInteraction({
-      guild_id: guildMessage.guildId,
-      channel_id: location.channelId,
-      target_user_id: guildMessage.author.id,
-      source_message_id: guildMessage.id
-    });
+    let interactionClaim: DiscordInteractionClaim = {
+      claimed: false,
+      run_id: null,
+      session: null
+    };
+    try {
+      interactionClaim = await relay.claimInteraction({
+        guild_id: guildMessage.guildId,
+        channel_id: location.channelId,
+        target_user_id: guildMessage.author.id,
+        source_message_id: guildMessage.id
+      });
+    } catch (error) {
+      log("Unable to check Interaction Sessions; continuing normal routing.", {
+        guildId: guildMessage.guildId,
+        channelId: location.channelId,
+        sourceMessageId: guildMessage.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
     if (
       await processInteractionSession(
         guildMessage,

@@ -250,6 +250,11 @@ export function InteractionSessionsPanel({ demoMode, zh }: Props) {
                 ? "Roast Session 只在指定 Channel、指定用户与固定轮次内运行。每一轮代表两个角色各回复一次。"
                 : "Roast Sessions run only for one target member in one channel. Each round gives both characters one turn."}
             </p>
+            <small className="interaction-consent-note">
+              {zh
+                ? "仅用于已明确同意参与的测试成员或你自己的测试账号；Session 可随时暂停或停止。"
+                : "Use only with a consenting test member or your own test account. Sessions can be paused or stopped at any time."}
+            </small>
           </div>
           {!demoMode && (
             <button className="ink-button" onClick={() => setSessionFormOpen((value) => !value)}>

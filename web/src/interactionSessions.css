@@ -146,3 +146,10 @@
     grid-template-columns: 1fr;
   }
 }
+
+.interaction-consent-note {
+  display: block;
+  max-width: 760px;
+  margin-top: 8px;
+  color: var(--ink-soft, #6f685f);
+}

@@ -228,7 +228,7 @@ class DiscordConnectorRuntime:
                 f"{DiscordConnectorRuntime._context_message_content(item)}"
             )
             for item in messages[-30:]
-            if item.text.strip()
+            if item.text.strip() or item.stickers
         )
         location = payload.channel_name or payload.channel_id
         if payload.thread_id:
