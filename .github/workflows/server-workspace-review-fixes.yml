@@ -1,0 +1,63 @@
+name: Server Workspace review fixes
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  review-fixes:
+    if: github.event.pull_request.head.ref == 'feature/server-scoped-deployment-workspace'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/server-scoped-deployment-workspace
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Apply and validate review fixes
+        run: |
+          if [ ! -f scripts/apply_server_workspace_review_fixes.py ]; then
+            echo 'No pending review fixes.'
+            exit 0
+          fi
+          python scripts/apply_server_workspace_review_fixes.py
+          rm -f scripts/apply_server_workspace_review_fixes.py
+          rm -f .github/workflows/server-workspace-review-fixes.yml
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+          PY_FILES=(
+            src/echo_masque/api/routes/deployments.py
+            src/echo_masque/persistence/interaction_repository.py
+            tests/test_server_scoped_workspace.py
+          )
+          python -m ruff check "${PY_FILES[@]}" --fix
+          python -m ruff format "${PY_FILES[@]}"
+          python -m ruff check src tests
+          python -m mypy src
+          python -m pytest -q tests/test_server_scoped_workspace.py tests/test_interaction_sessions_and_stickers.py tests/test_discord_connector.py
+          cd connectors/discord
+          npm install --no-package-lock
+          npm run typecheck
+          npm test
+          npm run build
+          cd ../../web
+          npm install --no-package-lock
+          npm run typecheck
+          npm test
+          npm run build
+          rm -f tsconfig.tsbuildinfo
+          cd ..
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: harden Server Workspace lifecycle and forms'
+          git push origin HEAD:feature/server-scoped-deployment-workspace
