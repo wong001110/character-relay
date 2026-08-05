@@ -63,5 +63,6 @@ def test_missing_or_invalid_control_defaults_to_none() -> None:
         "Reply\n[[CR_EXPRESSION not-json]]",
         [],
     )
-    assert invalid_text == "Reply\n[[CR_EXPRESSION not-json]]"
+    assert invalid_text == "Reply"
     assert invalid.action == "none"
+    assert invalid.reason == "invalid_expression_control"

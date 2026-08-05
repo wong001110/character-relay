@@ -146,7 +146,7 @@ class DiscordConnectorRuntime:
         text: str,
         candidates: list[ExpressionCandidate],
     ) -> tuple[str, ExpressionDecision]:
-        marker = re.search(r"\[\[CR_EXPRESSION\s+(\{.*?\})\s*\]\]\s*$", text, re.DOTALL)
+        marker = re.search(r"\[\[CR_EXPRESSION\s+(.*?)\s*\]\]\s*$", text, re.DOTALL)
         if marker is None:
             return text.strip(), ExpressionDecision(reason="model_omitted_expression_control")
         clean_text = text[: marker.start()].rstrip()

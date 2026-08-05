@@ -916,9 +916,15 @@ async function executeCharacterOutput(
       }
     } else if (decision.action === "sticker" && candidate.resource_type === "sticker") {
       let webhookAssetError: unknown = null;
-      if (deployment.identity_mode === "webhook" && candidate.asset_url) {
+      const normalizedFormat = candidate.format_type.toLowerCase();
+      const webhookRenderable = !["3", "lottie"].includes(normalizedFormat);
+      if (
+        deployment.identity_mode === "webhook" &&
+        candidate.asset_url &&
+        webhookRenderable
+      ) {
         try {
-          const extension = candidate.format_type === "gif" ? "gif" : "png";
+          const extension = ["4", "gif"].includes(normalizedFormat) ? "gif" : "png";
           sentMessageIds = await webhookManager.sendAsset(
             deployment,
             visibleText,
@@ -977,6 +983,10 @@ async function executeCharacterOutput(
     throw error;
   }
 
+  const expressionApplied = ![
+    "invalid_action_to_text",
+    "sticker_to_text"
+  ].includes(fallback);
   await reportExpressionNode(retrieval.run_id, {
     node_name: "execute_delivery",
     status: "completed",
@@ -987,7 +997,7 @@ async function executeCharacterOutput(
     output_summary: {
       sent_message_ids: sentMessageIds,
       fallback,
-      expression_applied: fallback !== "invalid_action_to_text"
+      expression_applied: expressionApplied
     },
     error: "",
     selected_action: decision.action,
@@ -999,7 +1009,7 @@ async function executeCharacterOutput(
     outgoingText,
     action: decision.action,
     resourceKey: candidate.resource_key,
-    applied: fallback !== "invalid_action_to_text",
+    applied: expressionApplied,
     fallback
   };
 }
@@ -1384,7 +1394,10 @@ reportDiscordEvent({
     details: {
       mentioned_bot: mentionedBot,
       candidate_count: candidates.length,
-      has_readable_text: Boolean(originalText),
+      has_readable_text: Boolean(
+        originalText || parseCustomEmojiTokens(guildMessage.content).length
+      ),
+      custom_emoji_count: parseCustomEmojiTokens(guildMessage.content).length,
       sticker_count: guildMessage.stickers.size
     }
   });
