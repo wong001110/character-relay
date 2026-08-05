@@ -1,0 +1,134 @@
+.discord-event-log-panel {
+  margin-top: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.discord-event-log-heading p {
+  margin: 5px 0 0;
+  max-width: 760px;
+}
+
+.discord-event-log-filters {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.discord-event-log-filters label {
+  display: grid;
+  gap: 5px;
+  min-width: 150px;
+}
+
+.discord-event-log-filters label:first-child {
+  min-width: min(320px, 100%);
+}
+
+.discord-event-log-auto-refresh {
+  grid-auto-flow: column;
+  align-items: center;
+  align-self: center;
+  min-width: auto !important;
+}
+
+.discord-event-log-auto-refresh input {
+  width: auto;
+}
+
+.discord-event-log-count {
+  margin-left: auto;
+  align-self: center;
+  font-size: 0.9rem;
+}
+
+.discord-event-log-list {
+  display: grid;
+  gap: 10px;
+}
+
+.discord-event-log-item {
+  border: 1px solid rgb(69 78 86 / 18%);
+  border-left-width: 5px;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: rgb(255 254 249 / 90%);
+}
+
+.discord-event-log-item.log-info {
+  border-left-color: #527c86;
+}
+
+.discord-event-log-item.log-warning {
+  border-left-color: #a77a28;
+}
+
+.discord-event-log-item.log-error {
+  border-left-color: #a34e4e;
+}
+
+.discord-event-log-meta {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.discord-event-log-level {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgb(76 87 96 / 10%);
+}
+
+.discord-event-log-item p {
+  margin: 8px 0 5px;
+}
+
+.discord-event-log-item small {
+  overflow-wrap: anywhere;
+}
+
+.discord-event-log-item details {
+  margin-top: 9px;
+}
+
+.discord-event-log-item summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.discord-event-log-item pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgb(33 37 41 / 7%);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 720px) {
+  .discord-event-log-filters {
+    align-items: stretch;
+  }
+
+  .discord-event-log-filters label,
+  .discord-event-log-filters label:first-child {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .discord-event-log-auto-refresh {
+    width: auto !important;
+  }
+
+  .discord-event-log-count {
+    margin-left: 0;
+  }
+}
