@@ -30,7 +30,9 @@ jobs:
             exit 0
           fi
           grep -q '^## Runtime behavior$' connectors/discord/README.md || printf '\n## Runtime behavior\n' >> connectors/discord/README.md
+          python scripts/patch_interaction_generator.py
           python scripts/apply_interaction_sessions_and_stickers.py
+          rm -f scripts/patch_interaction_generator.py
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]'
           python -m ruff format src tests
