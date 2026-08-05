@@ -1,0 +1,71 @@
+from pathlib import Path
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    file = Path(path)
+    text = file.read_text(encoding="utf-8")
+    if old not in text:
+        raise SystemExit(f"Patch anchor not found in {path}: {old[:180]!r}")
+    file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+replace_once(
+    "connectors/discord/src/expressionFlow.ts",
+    '''  if (decision.action === "none") return null;
+  return (
+    candidates.find(
+      (item) =>
+        !excludedResourceKeys.has(item.resource_key) &&
+        item.allowed_actions.includes(decision.action)
+    ) ?? null
+  );''',
+    '''  const action = decision.action;
+  if (action === "none") return null;
+  return (
+    candidates.find(
+      (item) =>
+        !excludedResourceKeys.has(item.resource_key) &&
+        item.allowed_actions.includes(action)
+    ) ?? null
+  );''',
+)
+
+replace_once(
+    "connectors/discord/src/index.ts",
+    '''        const sent = await source.reply({
+          content: visibleText || undefined,
+          stickers: [candidate.resource_id],
+          allowedMentions: { parse: [], repliedUser: false }
+        });''',
+    '''        const sent = await source.reply({
+          ...(visibleText ? { content: visibleText } : {}),
+          stickers: [candidate.resource_id],
+          allowedMentions: { parse: [], repliedUser: false }
+        });''',
+)
+
+replace_once(
+    "connectors/discord/src/index.ts",
+    '''  authorDisplayName: string,
+  originalText: string,
+  stickers: DiscordStickerContent[]
+): Promise<boolean> {''',
+    '''  authorDisplayName: string,
+  originalText: string,
+  emojis: DiscordExpressionContent[],
+  stickers: DiscordStickerContent[]
+): Promise<boolean> {''',
+)
+
+replace_once(
+    "connectors/discord/src/index.ts",
+    '''        authorDisplayName,
+        originalText,
+        stickers
+      )''',
+    '''        authorDisplayName,
+        originalText,
+        emojis,
+        stickers
+      )''',
+)
