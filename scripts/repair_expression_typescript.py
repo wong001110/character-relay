@@ -69,3 +69,29 @@ replace_once(
         stickers
       )''',
 )
+
+replace_once(
+    "connectors/discord/src/index.ts",
+    '''          hasReadableText: Boolean(audience.text || originalText || stickers.length)''',
+    '''          hasReadableText: Boolean(
+            audience.text || originalText || emojis.length || stickers.length
+          )''',
+)
+
+replace_once(
+    "connectors/discord/src/index.ts",
+    '''          (stickers.length
+            ? "The user addressed the character with interpreted Sticker content and no text."
+            : "The user addressed the character without additional readable text."),''',
+    '''          (emojis.length || stickers.length
+            ? "The user addressed the character with interpreted Discord expression content and no text."
+            : "The user addressed the character without additional readable text."),''',
+)
+
+replace_once(
+    "connectors/discord/src/index.ts",
+    '''            originalText ||
+            "The target member sent interpreted Discord Sticker content without text.",''',
+    '''            originalText ||
+            "The target member sent interpreted Discord expression content without text.",''',
+)
