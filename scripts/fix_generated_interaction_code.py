@@ -40,3 +40,25 @@ repository_text = repository_text.replace(
 ''',
 )
 repository.write_text(repository_text, encoding="utf-8")
+
+connectors = Path("src/echo_masque/api/routes/connectors.py")
+connectors_text = connectors.read_text(encoding="utf-8")
+connectors_text = connectors_text.replace(
+    "from typing import Annotated, cast",
+    "from typing import Annotated, Literal, cast",
+)
+connectors_text = connectors_text.replace(
+    "semantic_source=record.semantic_source,",
+    '''semantic_source=cast(
+            Literal["manual", "discord_metadata", "unknown"],
+            record.semantic_source,
+        ),''',
+)
+connectors_text = connectors_text.replace(
+    "intensity=interaction.intensity,",
+    '''intensity=cast(
+                Literal["light", "playful", "sharp"],
+                interaction.intensity,
+            ),''',
+)
+connectors.write_text(connectors_text, encoding="utf-8")
