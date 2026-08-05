@@ -1,0 +1,182 @@
+name: Apply focused Discord logging repair
+
+on:
+  push:
+    branches: [agent/fix-discord-logging-runtime]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-discord-logging-runtime
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Apply focused source patch
+        run: |
+          cat > /tmp/apply_patch.py <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"Patch anchor not found in {path}: {old[:100]!r}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          def regex_once(path: str, pattern: str, replacement: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
+              if count != 1:
+                  raise SystemExit(f"Regex patch matched {count} times in {path}: {pattern[:100]!r}")
+              file.write_text(updated, encoding="utf-8")
+
+          replace_once(
+              "connectors/discord/railway.toml",
+              'multiRegionConfig = { "us-west1" = { numReplicas = 0 }, "asia-southeast1-eqsg3a" = { numReplicas = 1 } }',
+              'multiRegionConfig = { "asia-southeast1-eqsg3a" = { numReplicas = 1 } }',
+          )
+
+          replace_once(
+              "connectors/discord/src/index.ts",
+              'const eventReporter = new DiscordEventReporter((events) => relay.reportEvents(events));\neventReporter.start();',
+              '''const eventReporter = new DiscordEventReporter(async (events) => {
+            const eventTypes = [...new Set(events.map((item) => item.event_type))];
+            const guildIds = [...new Set(events.map((item) => item.guild_id).filter(Boolean))];
+            log("Uploading Discord event batch to Portal.", {
+              level: "info",
+              connectionId: config.relayConnectionId,
+              eventCount: events.length,
+              eventTypes,
+              guildIds,
+              firstOccurredAt: events[0]?.occurred_at ?? null,
+              lastOccurredAt: events.at(-1)?.occurred_at ?? null
+            });
+            try {
+              await relay.reportEvents(events);
+              log("Discord event batch uploaded to Portal.", {
+                level: "info",
+                connectionId: config.relayConnectionId,
+                eventCount: events.length,
+                eventTypes,
+                guildIds
+              });
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              log("Discord event batch upload failed.", {
+                level: "error",
+                connectionId: config.relayConnectionId,
+                eventCount: events.length,
+                eventTypes,
+                guildIds,
+                error: message
+              });
+              throw error;
+            }
+          });
+          eventReporter.start();
+          log("Discord event reporter started.", {
+            level: "info",
+            connectionId: config.relayConnectionId,
+            portalEventsEndpoint: `${config.relayApiUrl}/api/connectors/discord/events`,
+            railwayReplicaRegion: process.env.RAILWAY_REPLICA_REGION ?? null,
+            railwayReplicaId: process.env.RAILWAY_REPLICA_ID ?? null,
+            railwayCommitSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? null
+          });''',
+          )
+
+          replace_once(
+              "connectors/discord/src/index.ts",
+              '''    details: input.details ?? {}
+            });
+          }''',
+              '''    details: input.details ?? {}
+            });
+            log("Discord event queued for Portal.", {
+              level: input.level,
+              eventType: input.eventType,
+              connectionId: config.relayConnectionId,
+              guildId: input.guildId ?? null,
+              channelId: input.channelId ?? null,
+              threadId: input.threadId || null,
+              sourceMessageId: input.sourceMessageId ?? null,
+              deploymentId: input.deploymentId || null,
+              pendingPortalLogs: eventReporter.pendingCount
+            });
+          }''',
+          )
+
+          regex_once(
+              "connectors/discord/src/index.ts",
+              r'(?m)^  reportDiscordEvent\(\{\n    level: "info",\n    eventType: "message_received",',
+              '''  log("Discord Gateway message received.", {
+            level: "info",
+            connectionId: config.relayConnectionId,
+            guildId: guildMessage.guildId,
+            guildName: guildMessage.guild.name,
+            channelId: location.channelId,
+            channelName: location.channelName,
+            threadId: location.threadId || null,
+            sourceMessageId: guildMessage.id,
+            authorId: guildMessage.author.id,
+            mentionedBot,
+            candidateCount: candidates.length,
+            hasReadableText: Boolean(originalText),
+            stickerCount: guildMessage.stickers.size,
+            railwayReplicaRegion: process.env.RAILWAY_REPLICA_REGION ?? null,
+            railwayReplicaId: process.env.RAILWAY_REPLICA_ID ?? null
+          });
+          reportDiscordEvent({
+            level: "info",
+            eventType: "message_received",''',
+          )
+          PY
+          python /tmp/apply_patch.py
+
+      - name: Validate Railway config
+        run: |
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          config = tomllib.loads(Path("connectors/discord/railway.toml").read_text())
+          assert config["deploy"]["multiRegionConfig"] == {
+              "asia-southeast1-eqsg3a": {"numReplicas": 1}
+          }
+          PY
+
+      - name: Validate Discord Connector
+        working-directory: connectors/discord
+        run: |
+          npm install
+          npm run typecheck
+          npm test
+          npm run build
+          docker build -t character-relay-discord:logging-fix .
+
+      - name: Remove temporary workflows and generated files
+        run: |
+          rm -f .github/workflows/apply-discord-logging-runtime-fix.yml
+          rm -f .github/workflows/apply-discord-logging-runtime-fix-v2.yml
+          rm -f .github/workflows/apply-discord-logging-runtime-fix-v3.yml
+          rm -rf connectors/discord/dist
+          git checkout -- connectors/discord/package-lock.json 2>/dev/null || true
+
+      - name: Commit validated source
+        run: |
+          git config user.name "Wong Juen An"
+          git config user.email "62807108+wong001110@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: restore Discord logs with visible diagnostics"
+          git push origin HEAD:agent/fix-discord-logging-runtime
