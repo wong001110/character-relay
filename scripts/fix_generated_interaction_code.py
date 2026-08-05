@@ -23,6 +23,16 @@ runtime.write_text(runtime_text, encoding="utf-8")
 repository = Path("src/echo_masque/persistence/interaction_repository.py")
 repository_text = repository.read_text(encoding="utf-8")
 repository_text = repository_text.replace(
+    '''def _metadata_semantics(name: str, description: str, tags: list[str]) -> tuple[str, str, str, float]:
+''',
+    '''def _metadata_semantics(
+    name: str,
+    description: str,
+    tags: list[str],
+) -> tuple[str, str, str, float]:
+''',
+)
+repository_text = repository_text.replace(
     '''                        "Every Interaction Session participant must be an active Discord deployment."
 ''',
     '''                        "Every Interaction Session participant must be an active "
