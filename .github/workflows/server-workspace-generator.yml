@@ -29,9 +29,10 @@ jobs:
             echo 'No pending generator.'
             exit 0
           fi
+          python scripts/patch_server_workspace_generator.py
           python scripts/apply_server_workspace_backend.py
           python scripts/apply_server_workspace_web.py
-          rm -f scripts/apply_server_workspace_backend.py scripts/apply_server_workspace_web.py
+          rm -f scripts/apply_server_workspace_backend.py scripts/apply_server_workspace_web.py scripts/patch_server_workspace_generator.py
           rm -f .github/workflows/server-workspace-generator.yml
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]'
