@@ -16,6 +16,10 @@ export class DiscordEventReporter {
   private timer: NodeJS.Timeout | undefined;
   private flushing = false;
   private lastFailure: string | null = null;
+  private lastSuccessfulFlushAt: string | null = null;
+  private lastRecordedEventAt: string | null = null;
+  private lastRecordedEventType: string | null = null;
+  private sentEvents = 0;
 
   constructor(
     private readonly sink: DiscordConnectorEventSink,
@@ -33,11 +37,14 @@ export class DiscordEventReporter {
 
   record(event: DiscordConnectorEventInput): void {
     if (this.queue.length >= this.maximumPending) this.queue.shift();
+    const occurredAt = new Date().toISOString();
     this.queue.push({
       id: randomUUID(),
-      occurred_at: new Date().toISOString(),
+      occurred_at: occurredAt,
       ...event
     });
+    this.lastRecordedEventAt = occurredAt;
+    this.lastRecordedEventType = event.event_type;
     if (this.queue.length >= this.batchSize) void this.flush();
   }
 
@@ -49,6 +56,8 @@ export class DiscordEventReporter {
       await this.sink(batch);
       this.queue.splice(0, batch.length);
       this.lastFailure = null;
+      this.lastSuccessfulFlushAt = new Date().toISOString();
+      this.sentEvents += batch.length;
     } catch (error) {
       this.lastFailure = error instanceof Error ? error.message : String(error);
     } finally {
@@ -68,5 +77,21 @@ export class DiscordEventReporter {
 
   get lastError(): string | null {
     return this.lastFailure;
+  }
+
+  get lastSuccessAt(): string | null {
+    return this.lastSuccessfulFlushAt;
+  }
+
+  get lastRecordedAt(): string | null {
+    return this.lastRecordedEventAt;
+  }
+
+  get lastRecordedType(): string | null {
+    return this.lastRecordedEventType;
+  }
+
+  get sentCount(): number {
+    return this.sentEvents;
   }
 }

@@ -21,6 +21,7 @@ interface Props {
 }
 
 const EVENT_TYPES = [
+  "message_received",
   "mention_received",
   "reply_received",
   "ignored_no_deployment",
@@ -35,6 +36,7 @@ const EVENT_TYPES = [
 ] as const;
 
 const EVENT_LABELS: Record<string, { en: string; zh: string }> = {
+  message_received: { en: "Gateway message received", zh: "Gateway 收到消息" },
   mention_received: { en: "Bot mention received", zh: "收到 Bot Tag" },
   reply_received: { en: "Character reply received", zh: "收到角色回复触发" },
   ignored_no_deployment: { en: "No matching deployment", zh: "没有命中部署" },
@@ -260,6 +262,10 @@ export function DiscordEventLogPanel({
                     <dd>{item.replicaRegion || (zh ? "未上报" : "Not reported")}</dd>
                   </div>
                   <div>
+                    <dt>{zh ? "Replica ID" : "Replica ID"}</dt>
+                    <dd>{item.replicaId || (zh ? "未上报" : "Not reported")}</dd>
+                  </div>
+                  <div>
                     <dt>{zh ? "Gateway Ready" : "Gateway ready"}</dt>
                     <dd>{booleanValue(item.gatewayReady, zh)}</dd>
                   </div>
@@ -284,10 +290,43 @@ export function DiscordEventLogPanel({
                     <dd>{item.catalog?.channels.length ?? 0}</dd>
                   </div>
                   <div>
+                    <dt>{zh ? "最后 Gateway 消息" : "Last Gateway message"}</dt>
+                    <dd>{formatTime(item.lastGatewayMessageAt)}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "最后消息有 Tag Bot" : "Last message mentioned Bot"}</dt>
+                    <dd>{booleanValue(item.lastGatewayMentionedBot, zh)}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "Reporter 待上传" : "Reporter pending"}</dt>
+                    <dd>{item.eventLogPendingCount ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "Reporter 最后捕获" : "Reporter last captured"}</dt>
+                    <dd>
+                      {formatTime(item.eventLogLastRecordedAt)}
+                      {item.eventLogLastRecordedType && ` · ${item.eventLogLastRecordedType}`}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "Reporter 最后上传成功" : "Reporter last upload"}</dt>
+                    <dd>{formatTime(item.eventLogLastSuccessAt)}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "Reporter 已上传" : "Reporter sent"}</dt>
+                    <dd>{item.eventLogSentCount ?? "—"}</dd>
+                  </div>
+                  <div>
                     <dt>Server ID</dt>
                     <dd>{item.profile.guild_id}</dd>
                   </div>
                 </dl>
+                {item.eventLogLastError && (
+                  <p className="discord-server-last-error">
+                    <strong>{zh ? "Event Log error：" : "Event Log error: "}</strong>
+                    {item.eventLogLastError}
+                  </p>
+                )}
                 {item.lastError && (
                   <p className="discord-server-last-error">
                     <strong>{zh ? "Last error：" : "Last error: "}</strong>

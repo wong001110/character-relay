@@ -127,9 +127,19 @@ class DiscordConnectorHeartbeat(BaseModel):
     status: DiscordConnectionStatus = "connected"
     last_error: str = Field(default="", max_length=2000)
     replica_region: str = Field(default="", max_length=120)
+    replica_id: str = Field(default="", max_length=200)
     gateway_ready: bool = False
     state_synchronized: bool = False
     visible_server_count: int = Field(default=0, ge=0, le=10000)
+    event_log_pending_count: int = Field(default=0, ge=0, le=10000)
+    event_log_last_error: str = Field(default="", max_length=2000)
+    event_log_last_success_at: str = Field(default="", max_length=64)
+    event_log_last_recorded_at: str = Field(default="", max_length=64)
+    event_log_last_recorded_type: str = Field(default="", max_length=80)
+    event_log_sent_count: int = Field(default=0, ge=0)
+    last_gateway_message_at: str = Field(default="", max_length=64)
+    last_gateway_message_id: str = Field(default="", max_length=200)
+    last_gateway_mentioned_bot: bool = False
 
 
 class DiscordConnectorEventItem(BaseModel):

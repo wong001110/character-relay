@@ -581,9 +581,19 @@ def test_connector_heartbeat_persists_runtime_diagnostics(tmp_path: Path) -> Non
             "status": "connected",
             "last_error": "",
             "replica_region": "asia-southeast1-eqsg3a",
+            "replica_id": "replica-singapore-1",
             "gateway_ready": True,
             "state_synchronized": True,
             "visible_server_count": 2,
+            "event_log_pending_count": 3,
+            "event_log_last_error": "HTTP 422 from /events",
+            "event_log_last_success_at": "2026-08-05T13:00:00.000Z",
+            "event_log_last_recorded_at": "2026-08-05T13:00:20.000Z",
+            "event_log_last_recorded_type": "mention_received",
+            "event_log_sent_count": 12,
+            "last_gateway_message_at": "2026-08-05T13:00:20.000Z",
+            "last_gateway_message_id": "discord-message-123",
+            "last_gateway_mentioned_bot": True,
         },
     )
     assert response.status_code == 204, response.text
@@ -596,6 +606,16 @@ def test_connector_heartbeat_persists_runtime_diagnostics(tmp_path: Path) -> Non
     assert updated["external_account_id"] == "bot-123"
     assert updated["metadata"]["connector_display_name"] == "CharacterRelayBot#0001"
     assert updated["metadata"]["replica_region"] == "asia-southeast1-eqsg3a"
+    assert updated["metadata"]["replica_id"] == "replica-singapore-1"
     assert updated["metadata"]["gateway_ready"] is True
     assert updated["metadata"]["state_synchronized"] is True
     assert updated["metadata"]["visible_server_count"] == 2
+    assert updated["metadata"]["event_log_pending_count"] == 3
+    assert updated["metadata"]["event_log_last_error"] == "HTTP 422 from /events"
+    assert updated["metadata"]["event_log_last_success_at"] == "2026-08-05T13:00:00.000Z"
+    assert updated["metadata"]["event_log_last_recorded_at"] == "2026-08-05T13:00:20.000Z"
+    assert updated["metadata"]["event_log_last_recorded_type"] == "mention_received"
+    assert updated["metadata"]["event_log_sent_count"] == 12
+    assert updated["metadata"]["last_gateway_message_at"] == "2026-08-05T13:00:20.000Z"
+    assert updated["metadata"]["last_gateway_message_id"] == "discord-message-123"
+    assert updated["metadata"]["last_gateway_mentioned_bot"] is True

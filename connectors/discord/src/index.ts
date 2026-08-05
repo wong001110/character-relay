@@ -71,6 +71,9 @@ let stateSynchronized = false;
 let recoveryLoop: RecoveryLoop | undefined;
 let heartbeatTimer: NodeJS.Timeout | undefined;
 let dedupeTimer: NodeJS.Timeout | undefined;
+let lastGatewayMessageAt: string | null = null;
+let lastGatewayMessageId: string | null = null;
+let lastGatewayMentionedBot = false;
 
 const catalogChannelTypes = new Set<ChannelType>([
   ChannelType.GuildText,
@@ -270,9 +273,19 @@ async function sendHeartbeat(
     status,
     last_error: error,
     replica_region: process.env.RAILWAY_REPLICA_REGION ?? "",
+    replica_id: process.env.RAILWAY_REPLICA_ID ?? "",
     gateway_ready: ready,
     state_synchronized: stateSynchronized,
-    visible_server_count: client.guilds.cache.size
+    visible_server_count: client.guilds.cache.size,
+    event_log_pending_count: eventReporter.pendingCount,
+    event_log_last_error: eventReporter.lastError ?? "",
+    event_log_last_success_at: eventReporter.lastSuccessAt ?? "",
+    event_log_last_recorded_at: eventReporter.lastRecordedAt ?? "",
+    event_log_last_recorded_type: eventReporter.lastRecordedType ?? "",
+    event_log_sent_count: eventReporter.sentCount,
+    last_gateway_message_at: lastGatewayMessageAt ?? "",
+    last_gateway_message_id: lastGatewayMessageId ?? "",
+    last_gateway_mentioned_bot: lastGatewayMentionedBot
   });
 }
 
@@ -875,6 +888,9 @@ async function processMessage(message: Message): Promise<void> {
   if (!location.channelId) return;
   const originalText = normalizedText(guildMessage, botUser.id);
   const mentionedBot = guildMessage.mentions.users.has(botUser.id);
+  lastGatewayMessageAt = new Date().toISOString();
+  lastGatewayMessageId = guildMessage.id;
+  lastGatewayMentionedBot = mentionedBot;
   const candidates = deploymentsFor(
     deployments,
     location.channelId,
@@ -882,6 +898,24 @@ async function processMessage(message: Message): Promise<void> {
     guildMessage.guildId,
     location.categoryId
   );
+  reportDiscordEvent({
+    level: "info",
+    eventType: "message_received",
+    message: "A Discord message reached the Gateway message handler.",
+    guildId: guildMessage.guildId,
+    guildName: guildMessage.guild.name,
+    channelId: location.channelId,
+    channelName: location.channelName,
+    threadId: location.threadId,
+    threadName: location.threadName,
+    sourceMessageId: guildMessage.id,
+    details: {
+      mentioned_bot: mentionedBot,
+      candidate_count: candidates.length,
+      has_readable_text: Boolean(originalText),
+      sticker_count: guildMessage.stickers.size
+    }
+  });
   if (mentionedBot) {
     reportDiscordEvent({
       level: "info",

@@ -145,9 +145,19 @@ class DeploymentRepository:
         status: str,
         last_error: str,
         replica_region: str = "",
+        replica_id: str = "",
         gateway_ready: bool = False,
         state_synchronized: bool = False,
         visible_server_count: int = 0,
+        event_log_pending_count: int = 0,
+        event_log_last_error: str = "",
+        event_log_last_success_at: str = "",
+        event_log_last_recorded_at: str = "",
+        event_log_last_recorded_type: str = "",
+        event_log_sent_count: int = 0,
+        last_gateway_message_at: str = "",
+        last_gateway_message_id: str = "",
+        last_gateway_mentioned_bot: bool = False,
     ) -> bool:
         with self.database.session() as session:
             record = session.get(PlatformConnectionRecord, connection_id)
@@ -162,9 +172,19 @@ class DeploymentRepository:
             metadata["heartbeat_source"] = f"{platform}_connector"
             metadata["connector_display_name"] = display_name
             metadata["replica_region"] = replica_region
+            metadata["replica_id"] = replica_id
             metadata["gateway_ready"] = gateway_ready
             metadata["state_synchronized"] = state_synchronized
             metadata["visible_server_count"] = visible_server_count
+            metadata["event_log_pending_count"] = event_log_pending_count
+            metadata["event_log_last_error"] = event_log_last_error
+            metadata["event_log_last_success_at"] = event_log_last_success_at
+            metadata["event_log_last_recorded_at"] = event_log_last_recorded_at
+            metadata["event_log_last_recorded_type"] = event_log_last_recorded_type
+            metadata["event_log_sent_count"] = event_log_sent_count
+            metadata["last_gateway_message_at"] = last_gateway_message_at
+            metadata["last_gateway_message_id"] = last_gateway_message_id
+            metadata["last_gateway_mentioned_bot"] = last_gateway_mentioned_bot
             record.external_account_id = external_account_id
             record.status = status
             record.last_seen_at = utcnow()

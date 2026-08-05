@@ -203,9 +203,19 @@ export interface ConnectorHeartbeat {
   status: "connected" | "offline" | "error";
   last_error: string;
   replica_region: string;
+  replica_id: string;
   gateway_ready: boolean;
   state_synchronized: boolean;
   visible_server_count: number;
+  event_log_pending_count: number;
+  event_log_last_error: string;
+  event_log_last_success_at: string;
+  event_log_last_recorded_at: string;
+  event_log_last_recorded_type: string;
+  event_log_sent_count: number;
+  last_gateway_message_at: string;
+  last_gateway_message_id: string;
+  last_gateway_mentioned_bot: boolean;
 }
 
 export interface DiscordWebhookRegistration {

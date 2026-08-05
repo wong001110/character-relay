@@ -360,9 +360,19 @@ def connector_heartbeat(
         status=payload.status,
         last_error=payload.last_error,
         replica_region=payload.replica_region,
+        replica_id=payload.replica_id,
         gateway_ready=payload.gateway_ready,
         state_synchronized=payload.state_synchronized,
         visible_server_count=payload.visible_server_count,
+        event_log_pending_count=payload.event_log_pending_count,
+        event_log_last_error=payload.event_log_last_error,
+        event_log_last_success_at=payload.event_log_last_success_at,
+        event_log_last_recorded_at=payload.event_log_last_recorded_at,
+        event_log_last_recorded_type=payload.event_log_last_recorded_type,
+        event_log_sent_count=payload.event_log_sent_count,
+        last_gateway_message_at=payload.last_gateway_message_at,
+        last_gateway_message_id=payload.last_gateway_message_id,
+        last_gateway_mentioned_bot=payload.last_gateway_mentioned_bot,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Discord connection not found.")
