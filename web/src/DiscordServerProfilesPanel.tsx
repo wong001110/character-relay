@@ -340,7 +340,7 @@ export function DiscordServerProfilesPanel({
                   className={drawerTab === "stickers" ? "active" : ""}
                   onClick={() => setDrawerTab("stickers")}
                 >
-                  Sticker Dictionary
+                  Expression Dictionary
                 </button>
               </nav>
             )}

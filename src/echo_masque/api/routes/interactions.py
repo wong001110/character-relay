@@ -5,6 +5,13 @@ from typing import cast
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from echo_masque.api.dependencies import CurrentUserDependency
+from echo_masque.api.expression_schemas import (
+    ExpressionNodeView,
+    ExpressionRunDetail,
+    ExpressionRunView,
+    ExpressionSemanticCreate,
+    ExpressionSemanticView,
+)
 from echo_masque.api.interaction_schemas import (
     InteractionSessionCreate,
     InteractionSessionStatusUpdate,
@@ -18,10 +25,17 @@ from echo_masque.api.interaction_schemas import (
 )
 from echo_masque.persistence import (
     DeploymentRepository,
+    ExpressionRepository,
     InteractionConflict,
     InteractionRepository,
     Repository,
 )
+from echo_masque.persistence.expression_models import (
+    DiscordExpressionNodeRecord,
+    DiscordExpressionRunRecord,
+    DiscordExpressionSemanticRecord,
+)
+from echo_masque.persistence.expression_repository import expression_key
 from echo_masque.persistence.interaction_models import (
     DiscordInteractionSessionRecord,
     DiscordInteractionTemplateRecord,
@@ -37,6 +51,10 @@ def interaction_repository(request: Request) -> InteractionRepository:
 
 def deployment_repository(request: Request) -> DeploymentRepository:
     return cast(DeploymentRepository, request.app.state.deployment_repository)
+
+
+def expression_repository(request: Request) -> ExpressionRepository:
+    return cast(ExpressionRepository, request.app.state.expression_repository)
 
 
 def character_repository(request: Request) -> Repository:
@@ -357,3 +375,168 @@ def delete_sticker_dictionary_entry(
 ) -> None:
     if not interaction_repository(request).delete_sticker(record_id, user.id):
         raise HTTPException(status_code=404, detail="Sticker Dictionary entry not found.")
+
+
+
+def expression_view(
+    request: Request,
+    record: DiscordExpressionSemanticRecord,
+) -> ExpressionSemanticView:
+    expressions = expression_repository(request)
+    return ExpressionSemanticView(
+        id=record.id,
+        resource_key=expression_key(record.resource_type, record.resource_id),
+        connection_id=record.connection_id,
+        guild_id=record.guild_id,
+        resource_type=record.resource_type,  # type: ignore[arg-type]
+        resource_id=record.resource_id,
+        name=record.name,
+        description=record.description,
+        tags=expressions.tags(record),
+        format_type=record.format_type,
+        asset_url=record.asset_url,
+        animated=record.animated,
+        available=record.available,
+        enabled=record.enabled,
+        semantic_intent=record.semantic_intent,
+        semantic_emotion=record.semantic_emotion,
+        semantic_description=record.semantic_description,
+        aliases=expressions.aliases(record),
+        situations=expressions.situations(record),
+        avoid_when=expressions.avoid_when(record),
+        allowed_actions=expressions.allowed_actions(record),  # type: ignore[arg-type]
+        semantic_source=record.semantic_source,  # type: ignore[arg-type]
+        semantic_confidence=record.semantic_confidence,
+        last_seen_at=record.last_seen_at,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
+
+
+def expression_node_view(
+    request: Request,
+    record: DiscordExpressionNodeRecord,
+) -> ExpressionNodeView:
+    expressions = expression_repository(request)
+    return ExpressionNodeView(
+        id=record.id,
+        node_name=record.node_name,
+        node_index=record.node_index,
+        attempt=record.attempt,
+        status=record.status,  # type: ignore[arg-type]
+        input_summary=expressions.node_input(record),
+        output_summary=expressions.node_output(record),
+        error=record.error,
+        started_at=record.started_at,
+        completed_at=record.completed_at,
+    )
+
+
+def expression_run_view(
+    request: Request,
+    record: DiscordExpressionRunRecord,
+) -> ExpressionRunView:
+    return ExpressionRunView(
+        id=record.id,
+        connection_id=record.connection_id,
+        guild_id=record.guild_id,
+        channel_id=record.channel_id,
+        source_message_id=record.source_message_id,
+        deployment_id=record.deployment_id,
+        character_card_id=record.character_card_id,
+        status=record.status,  # type: ignore[arg-type]
+        current_node=record.current_node,
+        attempt_count=record.attempt_count,
+        selected_action=record.selected_action,  # type: ignore[arg-type]
+        selected_resource_key=record.selected_resource_key,
+        state=expression_repository(request).run_state(record),
+        last_error=record.last_error,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        completed_at=record.completed_at,
+    )
+
+
+@router.get(
+    "/discord/expression-dictionary",
+    response_model=list[ExpressionSemanticView],
+)
+def list_expression_dictionary(
+    request: Request,
+    user: CurrentUserDependency,
+    connection_id: str | None = Query(default=None, max_length=64),
+    guild_id: str | None = Query(default=None, max_length=200),
+    resource_type: str | None = Query(default=None, pattern="^(emoji|sticker)$"),
+) -> list[ExpressionSemanticView]:
+    return [
+        expression_view(request, item)
+        for item in expression_repository(request).list_resources(
+            user.id,
+            connection_id=connection_id,
+            guild_id=guild_id,
+            resource_type=resource_type,
+        )
+    ]
+
+
+@router.put(
+    "/discord/expression-dictionary",
+    response_model=ExpressionSemanticView,
+)
+def save_expression_dictionary_entry(
+    payload: ExpressionSemanticCreate,
+    request: Request,
+    user: CurrentUserDependency,
+) -> ExpressionSemanticView:
+    try:
+        record = expression_repository(request).upsert_manual_resource(
+            owner_id=user.id,
+            **payload.model_dump(),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Discord connection not found.") from exc
+    return expression_view(request, record)
+
+
+@router.get(
+    "/discord/expression-runs",
+    response_model=list[ExpressionRunView],
+)
+def list_expression_runs(
+    request: Request,
+    user: CurrentUserDependency,
+    connection_id: str | None = Query(default=None, max_length=64),
+    guild_id: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[ExpressionRunView]:
+    return [
+        expression_run_view(request, item)
+        for item in expression_repository(request).list_runs(
+            user.id,
+            connection_id=connection_id,
+            guild_id=guild_id,
+            limit=limit,
+        )
+    ]
+
+
+@router.get(
+    "/discord/expression-runs/{run_id}",
+    response_model=ExpressionRunDetail,
+)
+def get_expression_run(
+    run_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+) -> ExpressionRunDetail:
+    record = expression_repository(request).get_run(run_id, user.id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Expression run not found.")
+    base = expression_run_view(request, record)
+    return ExpressionRunDetail(
+        **base.model_dump(),
+        nodes=[
+            expression_node_view(request, item)
+            for item in expression_repository(request).list_nodes(run_id, user.id)
+        ],
+    )

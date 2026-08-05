@@ -31,16 +31,27 @@ from echo_masque.api.connector_schemas import (
     DiscordWebhookStatus,
     DiscordWebhookStatusReport,
 )
+from echo_masque.api.expression_schemas import (
+    ExpressionCandidate,
+    ExpressionContent,
+    ExpressionNodeReport,
+    ExpressionResolveRequest,
+    ExpressionRetrievalView,
+    ExpressionRetrieveRequest,
+)
 from echo_masque.config import Settings
 from echo_masque.connector_runtime import ConnectorRuntimeError, DiscordConnectorRuntime
 from echo_masque.credentials import CredentialVault
 from echo_masque.persistence import (
     DeploymentRepository,
     DiscordIdentityRepository,
+    ExpressionRepository,
     InteractionRepository,
     Repository,
 )
 from echo_masque.persistence.deployment_repository import decode_ids
+from echo_masque.persistence.expression_models import DiscordExpressionSemanticRecord
+from echo_masque.persistence.expression_repository import expression_key
 
 router = APIRouter(prefix="/api/connectors/discord", tags=["connectors"])
 _WEBHOOK_SCOPE = "discord_webhook"
@@ -79,6 +90,10 @@ def identity_repository(request: Request) -> DiscordIdentityRepository:
 
 def interaction_repository(request: Request) -> InteractionRepository:
     return cast(InteractionRepository, request.app.state.interaction_repository)
+
+
+def expression_repository(request: Request) -> ExpressionRepository:
+    return cast(ExpressionRepository, request.app.state.expression_repository)
 
 
 def character_repository(request: Request) -> Repository:
@@ -217,6 +232,12 @@ def sync_server_catalog(
             interaction_repository(request).sync_sticker_catalog(
                 connection_id=payload.connection_id,
                 guild_id=server.guild_id,
+                stickers=[item.model_dump() for item in server.stickers],
+            )
+            expression_repository(request).sync_server_resources(
+                connection_id=payload.connection_id,
+                guild_id=server.guild_id,
+                emojis=[item.model_dump() for item in server.emojis],
                 stickers=[item.model_dump() for item in server.stickers],
             )
     except KeyError as exc:
@@ -423,6 +444,80 @@ def resolve_discord_sticker(
         ),
         semantic_confidence=record.semantic_confidence,
     )
+
+
+
+
+
+def expression_content(request: Request, record: object) -> ExpressionContent:
+    item = cast("DiscordExpressionSemanticRecord", record)
+    expressions = expression_repository(request)
+    return ExpressionContent(
+        resource_key=expression_key(item.resource_type, item.resource_id),
+        resource_type=item.resource_type,  # type: ignore[arg-type]
+        resource_id=item.resource_id,
+        name=item.name,
+        animated=item.animated,
+        available=item.available,
+        enabled=item.enabled,
+        allowed_actions=expressions.allowed_actions(item),  # type: ignore[arg-type]
+        semantic_intent=item.semantic_intent,
+        semantic_emotion=item.semantic_emotion,
+        semantic_description=item.semantic_description,
+        semantic_source=item.semantic_source,  # type: ignore[arg-type]
+        semantic_confidence=item.semantic_confidence,
+        asset_url=item.asset_url,
+        format_type=item.format_type,
+    )
+
+
+@router.post("/expressions/resolve", response_model=ExpressionContent)
+def resolve_discord_expression(
+    payload: ExpressionResolveRequest,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> ExpressionContent:
+    _authorize_connector(request, authorization)
+    try:
+        record = expression_repository(request).resolve_resource(**payload.model_dump())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Discord connection not found.") from exc
+    return expression_content(request, record)
+
+
+@router.post("/expressions/retrieve", response_model=ExpressionRetrievalView)
+def retrieve_discord_expressions(
+    payload: ExpressionRetrieveRequest,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> ExpressionRetrievalView:
+    _authorize_connector(request, authorization)
+    try:
+        run, candidates = expression_repository(request).retrieve(**payload.model_dump())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Expression workflow scope not found.") from exc
+    return ExpressionRetrievalView(
+        run_id=run.id,
+        attempt=run.attempt_count,
+        candidates=[ExpressionCandidate.model_validate(item) for item in candidates],
+    )
+
+
+@router.post(
+    "/expressions/runs/{run_id}/nodes",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def record_expression_node(
+    run_id: str,
+    payload: ExpressionNodeReport,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    _authorize_connector(request, authorization)
+    try:
+        expression_repository(request).record_node(run_id=run_id, **payload.model_dump())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Expression run not found.") from exc
 
 
 @router.post("/interaction-sessions/claim", response_model=DiscordInteractionClaimView)

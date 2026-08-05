@@ -54,6 +54,7 @@ from echo_masque.persistence import (
     DeploymentRepository,
     DiscordIdentityRepository,
     EvaluationRepository,
+    ExpressionRepository,
     InteractionRepository,
     MatrixRepository,
     ProviderTraceRepository,
@@ -97,6 +98,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     deployment_repository = DeploymentRepository(database)
     discord_identity_repository = DiscordIdentityRepository(database)
     interaction_repository = InteractionRepository(database)
+    expression_repository = ExpressionRepository(database)
     provider_trace_repository = ProviderTraceRepository(
         database,
         retention_days=resolved.provider_trace_retention_days,
@@ -159,6 +161,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         deployment_repository,
         discord_identity_repository,
         interaction_repository,
+        expression_repository,
     )
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
@@ -228,6 +231,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.deployment_repository = deployment_repository
     app.state.discord_identity_repository = discord_identity_repository
     app.state.interaction_repository = interaction_repository
+    app.state.expression_repository = expression_repository
     app.state.provider_trace_repository = provider_trace_repository
     app.state.discord_connector_runtime = discord_connector_runtime
     app.state.workspace_repository = workspace_repository

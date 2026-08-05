@@ -30,6 +30,10 @@ const EVENT_TYPES = [
   "ignored_participation_mode",
   "runtime_started",
   "runtime_silent",
+  "expression_candidates",
+  "expression_execution_success",
+  "expression_skipped",
+  "expression_execution_error",
   "delivery_success",
   "delivery_error",
   "handler_error"
@@ -47,6 +51,10 @@ const EVENT_LABELS: Record<string, { en: string; zh: string }> = {
   ignored_participation_mode: { en: "Blocked by participation mode", zh: "参与模式未允许" },
   runtime_started: { en: "Runtime request started", zh: "开始调用角色 Runtime" },
   runtime_silent: { en: "Runtime stayed silent", zh: "Runtime 决定不回复" },
+  expression_candidates: { en: "Expression candidates retrieved", zh: "已检索表达候选" },
+  expression_execution_success: { en: "Expression applied", zh: "表达执行成功" },
+  expression_skipped: { en: "Expression skipped", zh: "未使用 Server 表达" },
+  expression_execution_error: { en: "Expression failed", zh: "表达执行失败" },
   delivery_success: { en: "Reply delivered", zh: "回复发送成功" },
   delivery_error: { en: "Reply delivery failed", zh: "回复发送失败" },
   handler_error: { en: "Message handler failed", zh: "消息处理失败" }

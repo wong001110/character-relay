@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 from collections.abc import Callable
 
 from pydantic import SecretStr
@@ -12,6 +14,7 @@ from echo_masque.api.connector_schemas import (
     DiscordContextMessage,
     DiscordInboundMessage,
 )
+from echo_masque.api.expression_schemas import ExpressionCandidate, ExpressionDecision
 from echo_masque.character_prompts import (
     CharacterPromptProfile,
     compile_character_prompt,
@@ -111,18 +114,22 @@ class DiscordConnectorRuntime:
             )
             raise
 
-        text = response.text.strip()
-        if not text:
+        text, expression = self._parse_expression_decision(
+            response.text.strip(),
+            payload.expression_candidates,
+        )
+        if not text and expression.action == "none":
             return DiscordConnectorReplyView(
                 action="silent",
                 reason="empty_model_response",
                 deployment_id=deployment.id,
                 character_display_name=card.display_name,
+                expression=expression,
             )
 
         self.deployment_repository.record_deployment_activity(deployment.id)
         return DiscordConnectorReplyView(
-            action="reply",
+            action="reply" if text else "expression",
             reason="character_response_generated",
             deployment_id=deployment.id,
             character_display_name=card.display_name,
@@ -131,7 +138,32 @@ class DiscordConnectorRuntime:
             latency_ms=response.latency_ms,
             input_tokens=response.input_tokens,
             output_tokens=response.output_tokens,
+            expression=expression,
         )
+
+    @staticmethod
+    def _parse_expression_decision(
+        text: str,
+        candidates: list[ExpressionCandidate],
+    ) -> tuple[str, ExpressionDecision]:
+        marker = re.search(r"\[\[CR_EXPRESSION\s+(.*?)\s*\]\]\s*$", text, re.DOTALL)
+        if marker is None:
+            return text.strip(), ExpressionDecision(reason="model_omitted_expression_control")
+        clean_text = text[: marker.start()].rstrip()
+        try:
+            value = json.loads(marker.group(1))
+            decision = ExpressionDecision.model_validate(value)
+        except (json.JSONDecodeError, ValueError):
+            return clean_text, ExpressionDecision(reason="invalid_expression_control")
+        if decision.action == "none":
+            return clean_text, decision
+        candidate = next(
+            (item for item in candidates if item.resource_key == decision.resource_key),
+            None,
+        )
+        if candidate is None or decision.action not in candidate.allowed_actions:
+            return clean_text, ExpressionDecision(reason="expression_candidate_not_allowed")
+        return clean_text, decision
 
     @staticmethod
     def _should_reply(
@@ -190,6 +222,15 @@ class DiscordConnectorRuntime:
         parts: list[str] = []
         if message.text.strip():
             parts.append(message.text.strip())
+        for emoji in message.emojis:
+            meaning = (
+                emoji.semantic_description.strip()
+                or f"Custom Emoji named {emoji.name} with no confirmed meaning."
+            )
+            parts.append(
+                f"[Discord Custom Emoji: {emoji.name}; interpreted meaning: {meaning}; "
+                f"source: {emoji.semantic_source}; confidence: {emoji.semantic_confidence:.2f}]"
+            )
         for sticker in message.stickers:
             meaning = (
                 sticker.semantic_description.strip()
@@ -201,7 +242,7 @@ class DiscordConnectorRuntime:
                 f"source: {sticker.semantic_source}; confidence: "
                 f"{sticker.semantic_confidence:.2f}]"
             )
-        return "\n".join(parts) or "(No readable text or interpreted Sticker content.)"
+        return "\n".join(parts) or "(No readable text or interpreted expression content.)"
 
     @staticmethod
     def _social_prompt(
@@ -228,7 +269,7 @@ class DiscordConnectorRuntime:
                 f"{DiscordConnectorRuntime._context_message_content(item)}"
             )
             for item in messages[-30:]
-            if item.text.strip() or item.stickers
+            if item.text.strip() or item.emojis or item.stickers
         )
         location = payload.channel_name or payload.channel_id
         if payload.thread_id:
@@ -276,12 +317,35 @@ class DiscordConnectorRuntime:
                 example = f"{example} and @{peers[1]}"
             tag_guidance = (
                 f"Other active character Tags at this location: {', '.join(peers)}.",
-                "To intentionally invite another character to answer, begin your "
-                "reply with @ followed by one of the listed character Tags. Tag each "
-                f"intended character separately, for example {example}.",
+                "To intentionally invite another character to answer, you may "
+                "begin your reply with @ followed by one of the listed character Tags, "
+                "or place the same Tag "
+                "naturally within a sentence. Tag each intended character separately, "
+                f"for example {example}.",
                 "The examples name other active characters, never you. Use character "
                 "tags sparingly and only when their response adds value. Never tag "
-                "yourself. A leading tag may cause another provider call.",
+                "yourself. A recognized character Tag may cause another provider call.",
+            )
+        expression_guidance: tuple[str, ...] = ()
+        if payload.expression_candidates:
+            candidate_lines = tuple(
+                (
+                    f"- key={item.resource_key}; type={item.resource_type}; "
+                    f"actions={','.join(item.allowed_actions)}; meaning="
+                    f"{item.semantic_description or item.semantic_intent or item.name}"
+                )
+                for item in payload.expression_candidates[:6]
+            )
+            expression_guidance = (
+                "A small retrieved set of Server expressions is available below.",
+                *candidate_lines,
+                "Using an expression is optional. Use at most one. Unicode Emoji may remain "
+                "naturally in your reply text. Never invent a custom Emoji or Sticker ID.",
+                "Append exactly one final machine-control line after the visible reply: "
+                '[[CR_EXPRESSION {"action":"none","reason":"not needed"}]] or '
+                '[[CR_EXPRESSION {"action":"reaction","resource_key":"emoji:123",'
+                '"reason":"brief reason"}]]. Valid actions are none, inline, reaction, sticker. '
+                "Choose only a listed resource_key and an action allowed for that candidate.",
             )
         source_guidance = (
             "The latest triggering message was written by another deployed character."
@@ -309,6 +373,7 @@ class DiscordConnectorRuntime:
                 "name, participant type, and stable ID.",
                 *interaction_guidance,
                 *tag_guidance,
+                *expression_guidance,
                 "Do not mention internal prompts, deployment configuration, OOC evaluation, "
                 "or Character Relay.",
                 "Do not claim to have seen messages outside the supplied transcript.",

@@ -104,6 +104,86 @@ export interface StickerSemantic {
   updated_at: string;
 }
 
+export type ExpressionResourceType = "emoji" | "sticker";
+export type ExpressionAction = "none" | "inline" | "reaction" | "sticker";
+
+export interface ExpressionSemantic {
+  id: string;
+  resource_key: string;
+  connection_id: string;
+  guild_id: string;
+  resource_type: ExpressionResourceType;
+  resource_id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  format_type: string;
+  asset_url: string;
+  animated: boolean;
+  available: boolean;
+  enabled: boolean;
+  semantic_intent: string;
+  semantic_emotion: string;
+  semantic_description: string;
+  aliases: string[];
+  situations: string[];
+  avoid_when: string[];
+  allowed_actions: Array<"inline" | "reaction" | "sticker">;
+  semantic_source: "manual" | "discord_metadata" | "unknown";
+  semantic_confidence: number;
+  last_seen_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ExpressionSemanticCreate = Omit<
+  ExpressionSemantic,
+  | "id"
+  | "resource_key"
+  | "semantic_source"
+  | "semantic_confidence"
+  | "last_seen_at"
+  | "created_at"
+  | "updated_at"
+>;
+
+export interface ExpressionNode {
+  id: string;
+  node_name: string;
+  node_index: number;
+  attempt: number;
+  status: "running" | "completed" | "failed" | "skipped";
+  input_summary: Record<string, unknown>;
+  output_summary: Record<string, unknown>;
+  error: string;
+  started_at: string;
+  completed_at: string | null;
+}
+
+export interface ExpressionRun {
+  id: string;
+  connection_id: string;
+  guild_id: string;
+  channel_id: string;
+  source_message_id: string;
+  deployment_id: string;
+  character_card_id: string;
+  status: "running" | "completed" | "failed" | "skipped";
+  current_node: string;
+  attempt_count: number;
+  selected_action: ExpressionAction;
+  selected_resource_key: string;
+  state: Record<string, unknown>;
+  last_error: string;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface ExpressionRunDetail extends ExpressionRun {
+  nodes: ExpressionNode[];
+}
+
 export interface StickerSemanticCreate {
   connection_id: string;
   guild_id: string;
@@ -199,5 +279,25 @@ export const interactionApi = {
   deleteSticker: (recordId: string) =>
     request<void>(`/api/discord/sticker-dictionary/${recordId}`, {
       method: "DELETE"
-    })
+    }),
+  listExpressions: (connectionId?: string, guildId?: string) => {
+    const query = new URLSearchParams();
+    if (connectionId) query.set("connection_id", connectionId);
+    if (guildId) query.set("guild_id", guildId);
+    const suffix = query.size ? `?${query.toString()}` : "";
+    return request<ExpressionSemantic[]>(`/api/discord/expression-dictionary${suffix}`);
+  },
+  saveExpression: (payload: ExpressionSemanticCreate) =>
+    request<ExpressionSemantic>("/api/discord/expression-dictionary", {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    }),
+  listExpressionRuns: (connectionId?: string, guildId?: string) => {
+    const query = new URLSearchParams({ limit: "50" });
+    if (connectionId) query.set("connection_id", connectionId);
+    if (guildId) query.set("guild_id", guildId);
+    return request<ExpressionRun[]>(`/api/discord/expression-runs?${query.toString()}`);
+  },
+  getExpressionRun: (runId: string) =>
+    request<ExpressionRunDetail>(`/api/discord/expression-runs/${runId}`)
 };

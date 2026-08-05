@@ -12,6 +12,14 @@ import {
 import { loadConfig } from "./config.js";
 import { ContextBuffer } from "./contextBuffer.js";
 import { detectBotMention, stripBotMentionTokens } from "./mentionDetection.js";
+import {
+  expressionCandidate,
+  expressionQuery,
+  fallbackExpressionCandidate,
+  parseCustomEmojiTokens,
+  renderCustomEmoji,
+  stripCustomEmojiTokens
+} from "./expressionFlow.js";
 import { DiscordEventReporter } from "./eventReporter.js";
 import { RelayClient } from "./relayClient.js";
 import { RecoveryLoop } from "./recoveryLoop.js";
@@ -31,6 +39,10 @@ import type {
   DiscordCatalogServer,
   DiscordContextMessage,
   DiscordDeployment,
+  DiscordExpressionCandidate,
+  DiscordExpressionContent,
+  DiscordExpressionDecision,
+  DiscordExpressionRetrieval,
   DiscordInteractionClaim,
   DiscordStickerContent
 } from "./types.js";
@@ -215,6 +227,24 @@ async function syncServerCatalog(): Promise<void> {
           `${right.category_name}/${right.name}`
         )
       );
+    let emojis: DiscordCatalogServer["emojis"] = [];
+    try {
+      const fetchedEmojis = await guild.emojis.fetch();
+      emojis = [...fetchedEmojis.values()]
+        .map((emoji) => ({
+          emoji_id: emoji.id,
+          name: emoji.name || "emoji",
+          animated: Boolean(emoji.animated),
+          available: emoji.available !== false,
+          asset_url: emoji.imageURL({ extension: emoji.animated ? "gif" : "png", size: 128 })
+        }))
+        .sort((left, right) => left.name.localeCompare(right.name));
+    } catch (error) {
+      log("Unable to synchronize Discord Guild Emojis.", {
+        guildId: guild.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
     let stickers: DiscordCatalogServer["stickers"] = [];
     try {
       const fetchedStickers = await guild.stickers.fetch();
@@ -241,6 +271,7 @@ async function syncServerCatalog(): Promise<void> {
       guild_id: guild.id,
       guild_name: guild.name,
       channels,
+      emojis,
       stickers
     });
   }
@@ -249,6 +280,7 @@ async function syncServerCatalog(): Promise<void> {
   log("Discord server catalog synchronized.", {
     servers: servers.length,
     channels: servers.reduce((total, server) => total + server.channels.length, 0),
+    emojis: servers.reduce((total, server) => total + server.emojis.length, 0),
     stickers: servers.reduce((total, server) => total + server.stickers.length, 0)
   });
 }
@@ -375,7 +407,38 @@ function normalizedText(
   botUserId: string,
   managedBotRoleIds: string[]
 ): string {
-  return stripBotMentionTokens(message.content, botUserId, managedBotRoleIds);
+  return stripCustomEmojiTokens(
+    stripBotMentionTokens(message.content, botUserId, managedBotRoleIds)
+  );
+}
+
+async function resolveMessageEmojis(
+  message: Message<true>
+): Promise<DiscordExpressionContent[]> {
+  const resolved: DiscordExpressionContent[] = [];
+  for (const emoji of parseCustomEmojiTokens(message.content)) {
+    try {
+      resolved.push(
+        await relay.resolveExpression({
+          guild_id: message.guildId,
+          resource_type: "emoji",
+          resource_id: emoji.resource_id,
+          name: emoji.name,
+          animated: emoji.animated,
+          available: true,
+          asset_url: `https://cdn.discordapp.com/emojis/${emoji.resource_id}.${
+            emoji.animated ? "gif" : "png"
+          }`
+        })
+      );
+    } catch (error) {
+      log("Unable to resolve Discord custom Emoji semantics.", {
+        emojiId: emoji.resource_id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+  return resolved;
 }
 
 async function resolveMessageStickers(
@@ -637,6 +700,320 @@ function resolveDeploymentLocation(
   };
 }
 
+
+interface PreparedExpression {
+  retrieval: DiscordExpressionRetrieval | null;
+  query: string;
+}
+
+interface ExpressionExecutionResult {
+  sentMessageIds: string[];
+  outgoingText: string;
+  action: DiscordExpressionDecision["action"];
+  resourceKey: string;
+  applied: boolean;
+  fallback: string;
+}
+
+async function prepareExpression(
+  source: Message<true>,
+  deployment: DiscordDeployment,
+  text: string,
+  stickers: DiscordStickerContent[],
+  emojis: DiscordExpressionContent[],
+  recentMessages: DiscordContextMessage[]
+): Promise<PreparedExpression> {
+  const query = expressionQuery({
+    text,
+    stickerMeanings: stickers.map((item) => item.semantic_description),
+    emojiMeanings: emojis.map((item) => item.semantic_description),
+    recentText: recentMessages.map((item) => item.text)
+  });
+  try {
+    const retrieval = await relay.retrieveExpressions({
+      guild_id: source.guildId,
+      channel_id: deployment.channel_id,
+      source_message_id: source.id,
+      deployment_id: deployment.deployment_id,
+      query,
+      allowed_actions: ["inline", "reaction", "sticker"],
+      excluded_resource_keys: [],
+      top_k: 6
+    });
+    reportDiscordEvent({
+      level: "info",
+      eventType: "expression_candidates",
+      message: "Server expressions were retrieved for an optional character expression.",
+      guildId: source.guildId,
+      guildName: source.guild.name,
+      channelId: deployment.channel_id,
+      channelName: deployment.channel_name,
+      threadId: deployment.thread_id,
+      threadName: deployment.thread_name,
+      sourceMessageId: source.id,
+      deploymentId: deployment.deployment_id,
+      characterName: deploymentDisplayName(deployment),
+      details: {
+        run_id: retrieval.run_id,
+        retrieval_backend: retrieval.retrieval_backend,
+        candidate_count: retrieval.candidates.length,
+        candidate_keys: retrieval.candidates.map((item) => item.resource_key)
+      }
+    });
+    return { retrieval, query };
+  } catch (error) {
+    log("Expression retrieval failed; continuing without a custom expression.", {
+      deploymentId: deployment.deployment_id,
+      sourceMessageId: source.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return { retrieval: null, query };
+  }
+}
+
+async function reportExpressionNode(
+  runId: string,
+  payload: Parameters<RelayClient["reportExpressionNode"]>[1]
+): Promise<void> {
+  await relay.reportExpressionNode(runId, payload).catch((error: unknown) => {
+    log("Unable to persist Expression workflow node.", {
+      runId,
+      nodeName: payload.node_name,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  });
+}
+
+async function validateExpressionResource(
+  source: Message<true>,
+  candidate: DiscordExpressionCandidate
+): Promise<boolean> {
+  try {
+    if (candidate.resource_type === "emoji") {
+      const emoji = await source.guild.emojis.fetch(candidate.resource_id);
+      return Boolean(emoji && emoji.available !== false);
+    }
+    const sticker = await source.guild.stickers.fetch(candidate.resource_id);
+    return Boolean(sticker);
+  } catch {
+    return false;
+  }
+}
+
+async function executeCharacterOutput(
+  source: Message<true>,
+  deployment: DiscordDeployment,
+  visibleText: string,
+  decision: DiscordExpressionDecision,
+  prepared: PreparedExpression,
+  botUserId: string
+): Promise<ExpressionExecutionResult> {
+  const retrieval = prepared.retrieval;
+  if (!retrieval || decision.action === "none") {
+    const sentMessageIds = visibleText
+      ? await sendCharacterReply(source, deployment, visibleText, botUserId)
+      : [];
+    return {
+      sentMessageIds,
+      outgoingText: visibleText,
+      action: "none",
+      resourceKey: "",
+      applied: false,
+      fallback: "none"
+    };
+  }
+
+  let candidates = retrieval.candidates;
+  let candidate = expressionCandidate(candidates, decision.resource_key);
+  const excluded = new Set<string>();
+  if (candidate && !(await validateExpressionResource(source, candidate))) {
+    excluded.add(candidate.resource_key);
+    await reportExpressionNode(retrieval.run_id, {
+      node_name: "validate_resource",
+      status: "failed",
+      input_summary: { resource_key: candidate.resource_key },
+      output_summary: { available: false },
+      error: "The selected Discord expression resource is no longer available."
+    });
+    try {
+      const retried = await relay.retrieveExpressions({
+        guild_id: source.guildId,
+        channel_id: deployment.channel_id,
+        source_message_id: source.id,
+        deployment_id: deployment.deployment_id,
+        query: prepared.query,
+        allowed_actions: ["inline", "reaction", "sticker"],
+        excluded_resource_keys: [...excluded],
+        top_k: 6,
+        run_id: retrieval.run_id
+      });
+      candidates = retried.candidates;
+      candidate = fallbackExpressionCandidate(candidates, decision, excluded);
+    } catch (error) {
+      candidate = null;
+      log("Expression re-retrieval failed.", {
+        runId: retrieval.run_id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  if (!candidate) {
+    const sentMessageIds = visibleText
+      ? await sendCharacterReply(source, deployment, visibleText, botUserId)
+      : [];
+    await reportExpressionNode(retrieval.run_id, {
+      node_name: "execute_delivery",
+      status: "skipped",
+      input_summary: { requested_action: decision.action },
+      output_summary: { fallback: "text_only" },
+      error: "",
+      selected_action: "none",
+      selected_resource_key: "",
+      final_status: "skipped"
+    });
+    return {
+      sentMessageIds,
+      outgoingText: visibleText,
+      action: "none",
+      resourceKey: "",
+      applied: false,
+      fallback: "text_only"
+    };
+  }
+
+  await reportExpressionNode(retrieval.run_id, {
+    node_name: "validate_resource",
+    status: "completed",
+    input_summary: { resource_key: candidate.resource_key },
+    output_summary: { available: true, allowed_actions: candidate.allowed_actions },
+    error: "",
+    selected_action: decision.action,
+    selected_resource_key: candidate.resource_key
+  });
+
+  let sentMessageIds: string[] = [];
+  let outgoingText = visibleText;
+  let fallback = "none";
+  try {
+    if (decision.action === "inline" && candidate.resource_type === "emoji") {
+      outgoingText = [visibleText, renderCustomEmoji(candidate)].filter(Boolean).join(" ");
+      sentMessageIds = await sendCharacterReply(source, deployment, outgoingText, botUserId);
+    } else if (decision.action === "reaction" && candidate.resource_type === "emoji") {
+      try {
+        await source.react(`${candidate.name}:${candidate.resource_id}`);
+        if (visibleText) {
+          sentMessageIds = await sendCharacterReply(source, deployment, visibleText, botUserId);
+        }
+      } catch {
+        fallback = "reaction_to_inline";
+        outgoingText = [visibleText, renderCustomEmoji(candidate)].filter(Boolean).join(" ");
+        if (outgoingText) {
+          sentMessageIds = await sendCharacterReply(source, deployment, outgoingText, botUserId);
+        } else {
+          throw new Error("Reaction failed and no visible text was available for inline fallback.");
+        }
+      }
+    } else if (decision.action === "sticker" && candidate.resource_type === "sticker") {
+      let webhookAssetError: unknown = null;
+      const normalizedFormat = candidate.format_type.toLowerCase();
+      const webhookRenderable = !["3", "lottie"].includes(normalizedFormat);
+      if (
+        deployment.identity_mode === "webhook" &&
+        candidate.asset_url &&
+        webhookRenderable
+      ) {
+        try {
+          const extension = ["4", "gif"].includes(normalizedFormat) ? "gif" : "png";
+          sentMessageIds = await webhookManager.sendAsset(
+            deployment,
+            visibleText,
+            candidate.asset_url,
+            `${candidate.name || "expression"}.${extension}`,
+            botUserId
+          );
+          fallback = "webhook_attachment";
+        } catch (error) {
+          webhookAssetError = error;
+          fallback = "webhook_attachment_to_native_sticker";
+          log("Webhook Sticker-like attachment failed; trying native Bot Sticker.", {
+            deploymentId: deployment.deployment_id,
+            resourceKey: candidate.resource_key,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+      if (!sentMessageIds.length) {
+        try {
+          const sent = await source.reply({
+            ...(visibleText ? { content: visibleText } : {}),
+            stickers: [candidate.resource_id],
+            allowedMentions: { parse: [], repliedUser: false }
+          });
+          sentMessageIds = [sent.id];
+          if (!fallback || fallback === "none") fallback = "native_bot_sticker";
+        } catch (nativeStickerError) {
+          fallback = "sticker_to_text";
+          if (!visibleText) {
+            throw webhookAssetError ?? nativeStickerError;
+          }
+          sentMessageIds = await sendCharacterReply(source, deployment, visibleText, botUserId);
+        }
+      }
+    } else {
+      fallback = "invalid_action_to_text";
+      sentMessageIds = visibleText
+        ? await sendCharacterReply(source, deployment, visibleText, botUserId)
+        : [];
+    }
+  } catch (error) {
+    await reportExpressionNode(retrieval.run_id, {
+      node_name: "execute_delivery",
+      status: "failed",
+      input_summary: {
+        action: decision.action,
+        resource_key: candidate.resource_key
+      },
+      output_summary: { fallback },
+      error: error instanceof Error ? error.message : String(error),
+      selected_action: decision.action,
+      selected_resource_key: candidate.resource_key,
+      final_status: "failed"
+    });
+    throw error;
+  }
+
+  const expressionApplied = ![
+    "invalid_action_to_text",
+    "sticker_to_text"
+  ].includes(fallback);
+  await reportExpressionNode(retrieval.run_id, {
+    node_name: "execute_delivery",
+    status: "completed",
+    input_summary: {
+      action: decision.action,
+      resource_key: candidate.resource_key
+    },
+    output_summary: {
+      sent_message_ids: sentMessageIds,
+      fallback,
+      expression_applied: expressionApplied
+    },
+    error: "",
+    selected_action: decision.action,
+    selected_resource_key: candidate.resource_key,
+    final_status: "completed"
+  });
+  return {
+    sentMessageIds,
+    outgoingText,
+    action: decision.action,
+    resourceKey: candidate.resource_key,
+    applied: expressionApplied,
+    fallback
+  };
+}
+
 interface BotConversationBudget {
   remainingResponses: number;
 }
@@ -716,6 +1093,7 @@ async function continueBotTagConversation(
       replied_to_bot: false,
       smart_candidate: false,
       author_is_bot: true,
+      emojis: [],
       stickers: [],
       interaction_session_id: "",
       interaction_type: "",
@@ -726,6 +1104,8 @@ async function continueBotTagConversation(
       interaction_participant_count: 0,
       interaction_target_user_id: "",
       interaction_target_display_name: "",
+      expression_run_id: "",
+      expression_candidates: [],
       available_characters: candidates
         .filter((item) => item.deployment_id !== deployment.deployment_id)
         .map(deploymentAddressAlias),
@@ -759,6 +1139,7 @@ async function continueBotTagConversation(
       author_id: `character:${deployment.character_card_id}`,
       author_display_name: deploymentDisplayName(deployment),
       text: outgoingText,
+      emojis: [],
       stickers: [],
       created_at: new Date().toISOString(),
       is_bot: true
@@ -807,6 +1188,7 @@ async function processInteractionSession(
   botUserId: string,
   authorDisplayName: string,
   originalText: string,
+  emojis: DiscordExpressionContent[],
   stickers: DiscordStickerContent[]
 ): Promise<boolean> {
   const session = claim.session;
@@ -851,11 +1233,12 @@ async function processInteractionSession(
           author_display_name: authorDisplayName,
           text:
             originalText ||
-            "The target member sent interpreted Discord Sticker content without text.",
+            "The target member sent interpreted Discord expression content without text.",
           mentioned_bot: false,
           replied_to_bot: false,
           smart_candidate: false,
           author_is_bot: false,
+          emojis,
           stickers,
           available_characters: [],
           recent_messages: context.get(key),
@@ -868,7 +1251,9 @@ async function processInteractionSession(
           interaction_participant_count: ordered.length,
           interaction_target_user_id: session.target_user_id,
           interaction_target_display_name:
-            session.target_display_name || authorDisplayName
+            session.target_display_name || authorDisplayName,
+          expression_run_id: "",
+          expression_candidates: []
         });
         if (reply.action !== "reply" || !reply.text) continue;
         const normalizedReply = normalizeBotTagReply(
@@ -895,6 +1280,7 @@ async function processInteractionSession(
           author_id: `character:${deployment.character_card_id}`,
           author_display_name: deploymentDisplayName(deployment),
           text: outgoingText,
+          emojis: [],
           stickers: [],
           created_at: new Date().toISOString(),
           is_bot: true
@@ -988,7 +1374,8 @@ async function processMessage(message: Message): Promise<void> {
   mentionedRoleIds: mentionDetection.mentionedRoleIds,
   managedBotRoleIds: mentionDetection.managedBotRoleIds,
   candidateCount: candidates.length,
-  hasReadableText: Boolean(originalText),
+  hasReadableText: Boolean(originalText || parseCustomEmojiTokens(guildMessage.content).length),
+  customEmojiCount: parseCustomEmojiTokens(guildMessage.content).length,
   stickerCount: guildMessage.stickers.size,
   railwayReplicaRegion: process.env.RAILWAY_REPLICA_REGION ?? null,
   railwayReplicaId: process.env.RAILWAY_REPLICA_ID ?? null
@@ -1007,7 +1394,10 @@ reportDiscordEvent({
     details: {
       mentioned_bot: mentionedBot,
       candidate_count: candidates.length,
-      has_readable_text: Boolean(originalText),
+      has_readable_text: Boolean(
+        originalText || parseCustomEmojiTokens(guildMessage.content).length
+      ),
+      custom_emoji_count: parseCustomEmojiTokens(guildMessage.content).length,
       sticker_count: guildMessage.stickers.size
     }
   });
@@ -1055,12 +1445,16 @@ reportDiscordEvent({
     guildMessage.author.globalName ??
     guildMessage.author.username;
   enqueue(key, async () => {
-    const stickers = await resolveMessageStickers(guildMessage);
+    const [emojis, stickers] = await Promise.all([
+      resolveMessageEmojis(guildMessage),
+      resolveMessageStickers(guildMessage)
+    ]);
     const contextMessage: DiscordContextMessage = {
       message_id: guildMessage.id,
       author_id: guildMessage.author.id,
       author_display_name: authorDisplayName,
       text: originalText,
+      emojis,
       stickers,
       created_at: guildMessage.createdAt.toISOString(),
       is_bot: false
@@ -1097,6 +1491,7 @@ reportDiscordEvent({
         botUser.id,
         authorDisplayName,
         originalText,
+        emojis,
         stickers
       )
     ) {
@@ -1172,7 +1567,9 @@ reportDiscordEvent({
         {
           mentionedBot,
           repliedToBot: isReplyToCharacter,
-          hasReadableText: Boolean(audience.text || originalText || stickers.length)
+          hasReadableText: Boolean(
+            audience.text || originalText || emojis.length || stickers.length
+          )
         },
         config.smartParticipationEnabled
       )
@@ -1206,6 +1603,7 @@ reportDiscordEvent({
     const botConversationBudget: BotConversationBudget = {
       remainingResponses: config.botTagMaxResponses
     };
+    let expressionBudget = 1;
     for (const [responseIndex, baseDeployment] of eligibleDeployments.entries()) {
       const deployment = resolveDeploymentLocation(baseDeployment, location);
       reportDiscordEvent({
@@ -1227,6 +1625,16 @@ reportDiscordEvent({
           response_count: eligibleDeployments.length
         }
       });
+      const preparedExpression = expressionBudget > 0
+        ? await prepareExpression(
+            guildMessage,
+            deployment,
+            (addressedToMultiple ? originalText : audience.text) || originalText,
+            stickers,
+            emojis,
+            context.get(key)
+          )
+        : { retrieval: null, query: "" };
       await guildMessage.channel.sendTyping();
       const reply = await relay.processMessage({
         deployment_id: deployment.deployment_id,
@@ -1242,8 +1650,8 @@ reportDiscordEvent({
         author_display_name: authorDisplayName,
         text:
           (addressedToMultiple ? originalText : audience.text) ||
-          (stickers.length
-            ? "The user addressed the character with interpreted Sticker content and no text."
+          (emojis.length || stickers.length
+            ? "The user addressed the character with interpreted Discord expression content and no text."
             : "The user addressed the character without additional readable text."),
         mentioned_bot: mentionedBot,
         replied_to_bot: isReplyToCharacter,
@@ -1251,6 +1659,7 @@ reportDiscordEvent({
           deployment.participation_mode === "smart" &&
           config.smartParticipationEnabled,
         author_is_bot: false,
+        emojis,
         stickers,
         interaction_session_id: "",
         interaction_type: "",
@@ -1261,12 +1670,43 @@ reportDiscordEvent({
         interaction_participant_count: 0,
         interaction_target_user_id: "",
         interaction_target_display_name: "",
+        expression_run_id: preparedExpression.retrieval?.run_id ?? "",
+        expression_candidates: preparedExpression.retrieval?.candidates ?? [],
         available_characters: candidates
           .filter((item) => item.deployment_id !== deployment.deployment_id)
           .map(deploymentAddressAlias),
         recent_messages: context.get(key)
       });
-      if (reply.action !== "reply" || !reply.text) {
+      if (preparedExpression.retrieval) {
+        await reportExpressionNode(preparedExpression.retrieval.run_id, {
+          node_name: "model_select",
+          status: "completed",
+          input_summary: {
+            candidate_count: preparedExpression.retrieval.candidates.length
+          },
+          output_summary: {
+            action: reply.expression.action,
+            resource_key: reply.expression.resource_key ?? "",
+            reason: reply.expression.reason
+          },
+          error: "",
+          selected_action: reply.expression.action,
+          selected_resource_key: reply.expression.resource_key ?? ""
+        });
+      }
+      if (reply.action === "silent" || (!reply.text && reply.expression.action === "none")) {
+        if (preparedExpression.retrieval) {
+          await reportExpressionNode(preparedExpression.retrieval.run_id, {
+            node_name: "execute_delivery",
+            status: "skipped",
+            input_summary: { action: "none" },
+            output_summary: { reason: reply.reason },
+            error: "",
+            selected_action: "none",
+            selected_resource_key: "",
+            final_status: "skipped"
+          });
+        }
         reportDiscordEvent({
           level: "info",
           eventType: "runtime_silent",
@@ -1289,27 +1729,23 @@ reportDiscordEvent({
         });
         continue;
       }
-      const normalizedReply = normalizeBotTagReply(
-        candidates,
-        reply.text,
-        deployment.deployment_id,
-        config.groupAddressAliases
-      );
-      const outgoingText = normalizedReply.displayText.trim();
-      if (!outgoingText) {
-        log("Suppressed an empty character reply after removing a self Tag.", {
-          deploymentId: deployment.deployment_id,
-          sourceMessageId: guildMessage.id
-        });
-        continue;
-      }
-
-      let sentMessageIds: string[];
+      const normalizedReply = reply.text
+        ? normalizeBotTagReply(
+            candidates,
+            reply.text,
+            deployment.deployment_id,
+            config.groupAddressAliases
+          )
+        : { displayText: "" };
+      const visibleText = normalizedReply.displayText.trim();
+      let execution: ExpressionExecutionResult;
       try {
-        sentMessageIds = await sendCharacterReply(
+        execution = await executeCharacterOutput(
           guildMessage,
           deployment,
-          outgoingText,
+          visibleText,
+          reply.expression,
+          preparedExpression,
           botUser.id
         );
       } catch (error) {
@@ -1330,19 +1766,47 @@ reportDiscordEvent({
         });
         throw error;
       }
+      const sentMessageIds = execution.sentMessageIds;
+      const outgoingText = execution.outgoingText;
       await rememberSentMessages(
         deployment,
         sentMessageIds,
         guildMessage.guildId
       );
-      context.push(key, {
-        message_id: sentMessageIds[0] ?? `relay-${Date.now()}`,
-        author_id: `character:${deployment.character_card_id}`,
-        author_display_name: deploymentDisplayName(deployment),
-        text: outgoingText,
-        stickers: [],
-        created_at: new Date().toISOString(),
-        is_bot: true
+      if (outgoingText || sentMessageIds.length) {
+        context.push(key, {
+          message_id: sentMessageIds[0] ?? `relay-expression-${Date.now()}`,
+          author_id: `character:${deployment.character_card_id}`,
+          author_display_name: deploymentDisplayName(deployment),
+          text: outgoingText,
+          emojis: [],
+          stickers: [],
+          created_at: new Date().toISOString(),
+          is_bot: true
+        });
+      }
+      if (execution.applied) expressionBudget -= 1;
+      reportDiscordEvent({
+        level: execution.applied ? "info" : "warning",
+        eventType: execution.applied ? "expression_execution_success" : "expression_skipped",
+        message: execution.applied
+          ? "A retrieved Server expression was applied to the character response."
+          : "The character response completed without a Server expression.",
+        guildId: guildMessage.guildId,
+        guildName: guildMessage.guild.name,
+        channelId: location.channelId,
+        channelName: location.channelName,
+        threadId: location.threadId,
+        threadName: location.threadName,
+        sourceMessageId: guildMessage.id,
+        deploymentId: deployment.deployment_id,
+        characterName: deploymentDisplayName(deployment),
+        details: {
+          expression_run_id: preparedExpression.retrieval?.run_id ?? null,
+          action: execution.action,
+          resource_key: execution.resourceKey || null,
+          fallback: execution.fallback
+        }
       });
       reportDiscordEvent({
         level: "info",
@@ -1359,6 +1823,9 @@ reportDiscordEvent({
         characterName: deploymentDisplayName(deployment),
         details: {
           sent_message_ids: sentMessageIds,
+          expression_action: execution.action,
+          expression_resource_key: execution.resourceKey || null,
+          expression_fallback: execution.fallback,
           latency_ms: reply.latency_ms ?? null,
           identity_mode: deployment.identity_mode,
           webhook_status: deployment.webhook_status
@@ -1443,6 +1910,10 @@ const healthServer = createServer((request, response) => {
       custom_group_address_aliases: config.groupAddressAliases.length,
       interaction_sessions_enabled: true,
       sticker_understanding_enabled: true,
+      expression_retrieval_enabled: true,
+      expression_retrieval_backend: "hybrid_sparse_v1",
+      expression_max_candidates: 6,
+      expression_max_per_trigger: 1,
       last_catalog_sync_at: lastCatalogSyncAt,
       last_deployment_sync_at: lastDeploymentSyncAt,
       last_error: lastError,

@@ -59,6 +59,64 @@ export class DiscordWebhookManager {
     };
   }
 
+  async sendAsset(
+    deployment: DiscordDeployment,
+    content: string,
+    assetUrl: string,
+    filename: string,
+    botUserId: string
+  ): Promise<string[]> {
+    try {
+      let binding = await this.ensure(deployment, botUserId);
+      let response = await this.executeWebhookAsset(
+        binding,
+        deployment,
+        content,
+        assetUrl,
+        filename
+      );
+      if (response.status === 401 || response.status === 404) {
+        deployment.webhook_id = null;
+        deployment.webhook_token = null;
+        deployment.webhook_status = "pending";
+        binding = await this.ensure(deployment, botUserId);
+        response = await this.executeWebhookAsset(
+          binding,
+          deployment,
+          content,
+          assetUrl,
+          filename
+        );
+      }
+      if (!response.ok) {
+        throw new Error(
+          `Discord webhook attachment returned HTTP ${response.status}: ${await response.text()}`
+        );
+      }
+      const message = (await response.json()) as DiscordApiMessage;
+      deployment.webhook_status = "active";
+      await this.relay
+        .reportWebhookStatus({
+          deployment_id: deployment.deployment_id,
+          status: "active",
+          last_error: ""
+        })
+        .catch(() => undefined);
+      return [message.id];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      deployment.webhook_status = "error";
+      await this.relay
+        .reportWebhookStatus({
+          deployment_id: deployment.deployment_id,
+          status: "error",
+          last_error: message
+        })
+        .catch(() => undefined);
+      throw error;
+    }
+  }
+
   async send(
     deployment: DiscordDeployment,
     chunks: string[],
@@ -118,6 +176,50 @@ export class DiscordWebhookManager {
       })
       .catch(() => undefined);
     return messageIds;
+  }
+
+  private async executeWebhookAsset(
+    binding: { id: string; token: string },
+    deployment: DiscordDeployment,
+    content: string,
+    assetUrl: string,
+    filename: string
+  ): Promise<Response> {
+    const asset = await fetch(assetUrl, {
+      signal: AbortSignal.timeout(30_000)
+    });
+    if (!asset.ok) {
+      throw new Error(
+        `Unable to download Discord expression asset (HTTP ${asset.status}).`
+      );
+    }
+    const bytes = await asset.arrayBuffer();
+    const mediaType = asset.headers.get("content-type") || "application/octet-stream";
+    const form = new FormData();
+    form.append(
+      "payload_json",
+      JSON.stringify({
+        ...(content ? { content } : {}),
+        username: deployment.identity_display_name.slice(0, 80),
+        ...(deployment.identity_avatar_url
+          ? { avatar_url: deployment.identity_avatar_url }
+          : {}),
+        allowed_mentions: { parse: [] },
+        attachments: [{ id: 0, filename }]
+      })
+    );
+    form.append("files[0]", new Blob([bytes], { type: mediaType }), filename);
+
+    const url = new URL(`${DISCORD_API}/webhooks/${binding.id}/${binding.token}`);
+    url.searchParams.set("wait", "true");
+    if (deployment.thread_id) {
+      url.searchParams.set("thread_id", deployment.thread_id);
+    }
+    return fetch(url, {
+      method: "POST",
+      signal: AbortSignal.timeout(30_000),
+      body: form
+    });
   }
 
   private executeWebhook(

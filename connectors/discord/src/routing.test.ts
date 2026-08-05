@@ -326,6 +326,65 @@ it("routes tagged group aliases to every other character", () => {
   expect(custom.text).toBe("hello");
 });
 
+it("routes character tags that appear naturally inside a sentence", () => {
+  const lili = deployment("mention_and_reply", "", "莉莉 · Lili");
+  const mengmeng = deployment("mention_and_reply", "", "梦梦 · Mengmeng", {
+    address_aliases: ["梦梦", "Mengmeng"]
+  });
+
+  const direct = resolveBotTagAudience(
+    [lili, mengmeng],
+    "你这个想法听起来很不错，@梦梦，你要不要试试把这些功能加进去？",
+    lili.deployment_id
+  );
+  expect(direct.deployments.map((item) => item.deployment_id)).toEqual([
+    mengmeng.deployment_id
+  ]);
+  expect(direct.text).toBe("你要不要试试把这些功能加进去？");
+
+  const sharedBotName = resolveBotTagAudience(
+    [lili, mengmeng],
+    "这个方向可行，@CharacterRelayBot 梦梦，你怎么看？",
+    lili.deployment_id
+  );
+  expect(sharedBotName.deployments[0]?.deployment_id).toBe(mengmeng.deployment_id);
+  expect(sharedBotName.text).toBe("你怎么看？");
+
+  const rawDiscordMention = resolveBotTagAudience(
+    [lili, mengmeng],
+    "我先整理方案，<@123456789012345678> 梦梦，接下来交给你。",
+    lili.deployment_id
+  );
+  expect(rawDiscordMention.deployments[0]?.deployment_id).toBe(
+    mengmeng.deployment_id
+  );
+  expect(rawDiscordMention.text).toBe("接下来交给你。");
+});
+
+it("routes multiple inline character tags once and still ignores inline self tags", () => {
+  const ann = deployment("mention_and_reply", "", "安 · Ann");
+  const ning = deployment("mention_and_reply", "", "宁 · Ning");
+  const zhi = deployment("mention_and_reply", "", "织 · Zhi");
+
+  const multiple = resolveBotTagAudience(
+    [ann, ning, zhi],
+    "我先给结论，@宁 负责复核，@织 负责整理。",
+    ann.deployment_id
+  );
+  expect(multiple.deployments.map((item) => item.deployment_id)).toEqual([
+    ning.deployment_id,
+    zhi.deployment_id
+  ]);
+
+  const selfOnly = resolveBotTagAudience(
+    [ann, ning],
+    "这部分由 @Ann 我自己继续处理。",
+    ann.deployment_id
+  );
+  expect(selfOnly.deployments).toEqual([]);
+  expect(selfOnly.reason).toBe("not_found");
+});
+
 it("does not treat untagged character names as bot conversation triggers", () => {
   const ann = deployment("mention_and_reply", "", "Ann");
   const ning = deployment("mention_and_reply", "", "Ning");
