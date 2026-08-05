@@ -1,0 +1,43 @@
+name: Final notebook UI polish
+
+on:
+  push:
+    branches: [agent/notebook-ui-refresh]
+
+permissions:
+  contents: write
+
+jobs:
+  polish-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/notebook-ui-refresh
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Apply final brand polish
+        run: python scripts/remove_duplicate_brand_title.py
+      - name: Validate Portal
+        working-directory: web
+        run: |
+          npm install
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Remove temporary and generated files
+        run: |
+          rm -f .github/workflows/final-notebook-ui-polish.yml
+          rm -f scripts/remove_duplicate_brand_title.py
+          rm -f web/package-lock.json
+          rm -f web/tsconfig.tsbuildinfo
+          rm -rf web/dist
+      - name: Commit final polish
+        run: |
+          git config user.name "Wong Juen An"
+          git config user.email "62807108+wong001110@users.noreply.github.com"
+          git add -A
+          git commit -m "style: simplify Character Relay shelf branding"
+          git push origin HEAD:agent/notebook-ui-refresh
