@@ -211,9 +211,9 @@ old_guidance = '''                "To intentionally invite another character to 
                 "tags sparingly and only when their response adds value. Never tag "
                 "yourself. A leading tag may cause another provider call.",
 '''
-new_guidance = '''                "To intentionally invite another character to answer, use @ followed "
-                "by one of the listed character Tags. The Tag may appear naturally at "
-                "the start or within a sentence. Tag each intended character separately, "
+new_guidance = '''                "To intentionally invite another character to answer, you may begin your reply with @ "
+                "followed by one of the listed character Tags, or place the same Tag "
+                "naturally within a sentence. Tag each intended character separately, "
                 f"for example {example}.",
                 "The examples name other active characters, never you. Use character "
                 "tags sparingly and only when their response adds value. Never tag "
