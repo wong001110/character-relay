@@ -11,7 +11,6 @@ from echo_masque.api.deployment_schemas import (
     CharacterDeploymentStatusUpdate,
     CharacterDeploymentUpdate,
     CharacterDeploymentView,
-    DeploymentLogView,
     DiscordServerCatalogView,
     DiscordServerProfileCreate,
     DiscordServerProfileUpdate,
@@ -22,7 +21,6 @@ from echo_masque.api.deployment_schemas import (
 )
 from echo_masque.persistence import (
     DeploymentConflict,
-    DeploymentLogRepository,
     DeploymentRepository,
     InteractionRepository,
     Repository,
@@ -34,10 +32,6 @@ router = APIRouter(prefix="/api", tags=["deployments"])
 
 def deployment_repository(request: Request) -> DeploymentRepository:
     return cast(DeploymentRepository, request.app.state.deployment_repository)
-
-
-def deployment_log_repository(request: Request) -> DeploymentLogRepository:
-    return cast(DeploymentLogRepository, request.app.state.deployment_log_repository)
 
 
 def character_repository(request: Request) -> Repository:
@@ -135,7 +129,6 @@ def delete_connection(
         for item in deployments.list_server_profiles(user.id)
         if item.connection_id == connection_id
     ]
-    deployment_log_repository(request).delete_connection_scope(connection_id)
     interaction_repository(request).delete_connection_scope(
         owner_id=user.id,
         connection_id=connection_id,
@@ -250,32 +243,6 @@ def delete_discord_server_profile(
         connection_id=profile.connection_id,
         guild_id=profile.guild_id,
     )
-
-
-@router.get("/deployment-logs", response_model=list[DeploymentLogView])
-def list_deployment_logs(
-    request: Request,
-    user: CurrentUserDependency,
-    connection_id: str | None = Query(default=None, max_length=64),
-    deployment_id: str | None = Query(default=None, max_length=64),
-    level: str | None = Query(
-        default=None,
-        pattern="^(debug|info|warning|error)$",
-    ),
-    limit: int = Query(default=100, ge=1, le=500),
-) -> list[DeploymentLogView]:
-    if connection_id is not None:
-        connection = deployment_repository(request).get_connection(connection_id, user.id)
-        if connection is None:
-            raise HTTPException(status_code=404, detail="Platform connection not found.")
-    records = deployment_log_repository(request).list_events(
-        user.id,
-        connection_id=connection_id,
-        deployment_id=deployment_id,
-        level=level,
-        limit=limit,
-    )
-    return [DeploymentLogView.from_record(item) for item in records]
 
 
 @router.get("/deployments", response_model=list[CharacterDeploymentView])

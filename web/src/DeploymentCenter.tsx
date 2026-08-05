@@ -19,7 +19,6 @@ import {
   type DeploymentIdentityMode,
   type DeploymentMessageIdentity
 } from "./discordIdentityApi";
-import { DeploymentLogsPanel } from "./DeploymentLogsPanel";
 import { DiscordServerProfilesPanel } from "./DiscordServerProfilesPanel";
 import { Pagination } from "./Pagination";
 import { useI18n } from "./i18n";
@@ -61,21 +60,6 @@ const platformNotes: Record<PlatformId, { en: string; zh: string }> = {
 
 function statusLabel(status: string): string {
   return status.replaceAll("_", " ");
-}
-
-function identityStatusLabel(
-  deployment: CharacterDeployment,
-  identity: DeploymentMessageIdentity,
-  zh: boolean
-): string {
-  if (
-    deployment.channel_scope_mode === "all_except" &&
-    identity.mode === "webhook" &&
-    identity.webhook_status === "pending"
-  ) {
-    return zh ? "首次回复时建立" : "created on first reply";
-  }
-  return statusLabel(identity.webhook_status);
 }
 
 function destination(deployment: CharacterDeployment, zh: boolean): string {
@@ -184,7 +168,6 @@ export function DeploymentCenter({
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [logDeployment, setLogDeployment] = useState<CharacterDeployment | null>(null);
   const [selectedServerProfileId, setSelectedServerProfileId] = useState(() =>
     new URLSearchParams(window.location.search).get("server_profile") ?? ""
   );
@@ -1348,7 +1331,7 @@ export function DeploymentCenter({
                         {item.platform === "discord" && (
                           <span className="deployment-identity-line">
                             {identity.mode === "webhook" ? "Webhook" : "Bot"} ·{" "}
-                            {identity.display_name} · {identityStatusLabel(item, identity, zh)}
+                            {identity.display_name} · {statusLabel(identity.webhook_status)}
                           </span>
                         )}
                         {identity.last_error && (
@@ -1364,12 +1347,6 @@ export function DeploymentCenter({
                         )}
                       </div>
                       <div className="deployment-actions">
-                        <button
-                          className="paper-button"
-                          onClick={() => setLogDeployment(item)}
-                        >
-                          {zh ? "日志" : "Logs"}
-                        </button>
                         {!demoMode && (
                           <>
                             <button
@@ -1427,13 +1404,6 @@ export function DeploymentCenter({
           zh={zh}
           serverProfile={selectedWorkspaceProfile}
           serverCatalog={selectedWorkspaceCatalog}
-        />
-      )}
-      {logDeployment && (
-        <DeploymentLogsPanel
-          deployment={logDeployment}
-          zh={zh}
-          onClose={() => setLogDeployment(null)}
         />
       )}
     </main>

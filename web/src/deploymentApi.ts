@@ -151,24 +151,6 @@ export interface CharacterDeploymentCreate {
   status: DeploymentStatus;
 }
 
-export type DeploymentLogLevel = "debug" | "info" | "warning" | "error";
-
-export interface DeploymentLog {
-  id: string;
-  connection_id: string;
-  deployment_id: string;
-  platform: PlatformId;
-  level: DeploymentLogLevel;
-  event_type: string;
-  message: string;
-  workspace_id: string;
-  channel_id: string;
-  thread_id: string;
-  source_message_id: string;
-  details: Record<string, unknown>;
-  created_at: string;
-}
-
 async function errorMessage(response: Response): Promise<string> {
   const raw = await response.text();
   try {
@@ -268,18 +250,6 @@ export const deploymentApi = {
     return request<CharacterDeploymentPage>(
       `/api/deployments/page?${query.toString()}`
     );
-  },
-  listDeploymentLogs: (options: {
-    connectionId?: string;
-    deploymentId?: string;
-    level?: DeploymentLogLevel | "all";
-    limit?: number;
-  } = {}) => {
-    const query = new URLSearchParams({ limit: String(options.limit ?? 100) });
-    if (options.connectionId) query.set("connection_id", options.connectionId);
-    if (options.deploymentId) query.set("deployment_id", options.deploymentId);
-    if (options.level && options.level !== "all") query.set("level", options.level);
-    return request<DeploymentLog[]>(`/api/deployment-logs?${query.toString()}`);
   },
   createDeployment: (payload: CharacterDeploymentCreate) =>
     request<CharacterDeployment>("/api/deployments", {

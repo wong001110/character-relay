@@ -2,7 +2,6 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./discordServerProfiles.css";
-import "./deploymentLogs.css";
 import "./interactionSessions.css";
 import { I18nProvider } from "./i18n";
 
