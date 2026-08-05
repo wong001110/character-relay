@@ -144,10 +144,10 @@ class DeploymentRepository:
         display_name: str,
         status: str,
         last_error: str,
-        replica_region: str,
-        gateway_ready: bool,
-        state_synchronized: bool,
-        visible_server_count: int,
+        replica_region: str = "",
+        gateway_ready: bool = False,
+        state_synchronized: bool = False,
+        visible_server_count: int = 0,
     ) -> bool:
         with self.database.session() as session:
             record = session.get(PlatformConnectionRecord, connection_id)
