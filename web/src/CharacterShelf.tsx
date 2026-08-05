@@ -3,6 +3,11 @@ import { useEffect, useMemo, useState } from "react";
 import type { CharacterCard } from "./api";
 import { useI18n } from "./i18n";
 import { LanguageSwitcher } from "./LanguageSwitcher";
+import {
+  NotebookField,
+  NotebookInput,
+  NotebookSelect
+} from "./NotebookUI";
 
 interface Props {
   cards: CharacterCard[];
@@ -13,10 +18,6 @@ interface Props {
   onPrompt: (card: CharacterCard) => void;
   onEnter: (card: CharacterCard) => void;
   onDeploy: (card: CharacterCard) => void;
-  onDeployments: () => void;
-  onAdmin: () => void;
-  onWorkspace: () => void;
-  onMatrix: () => void;
 }
 
 const PAGE_SIZE = 8;
@@ -36,11 +37,7 @@ export function CharacterShelf({
   onEdit,
   onPrompt,
   onEnter,
-  onDeploy,
-  onDeployments,
-  onAdmin,
-  onWorkspace,
-  onMatrix
+  onDeploy
 }: Props) {
   const { language, t } = useI18n();
   const zh = language === "zh-CN";
@@ -93,7 +90,11 @@ export function CharacterShelf({
     <main className="notebook-shell">
       <header className="journal-header">
         <div className="brand-lockup">
-          <img src="/assets/masque-mark.svg" alt="" />
+          <img
+            className="brand-wordmark"
+            src="/assets/brand/character-relay-wordmark.webp"
+            alt="Character Relay"
+          />
           <div>
             <p className="kicker">
               {zh ? "AI 角色创建、测试与跨平台部署" : "AI character creation, testing, and deployment"}
@@ -106,25 +107,9 @@ export function CharacterShelf({
             </p>
           </div>
         </div>
-        <div className="header-actions">
+        <div className="header-actions shelf-primary-actions">
           <LanguageSwitcher />
           {demoMode && <span className="status-chip pass">PUBLIC DEMO</span>}
-          <button className="paper-button" onClick={onDeployments}>
-            {zh ? "部署中心" : "Deployments"}
-          </button>
-          {!demoMode && (
-            <button className="paper-button" onClick={onMatrix}>
-              {zh ? "Echo Masque 矩阵" : "Echo Masque Matrix"}
-            </button>
-          )}
-          <button className="paper-button" onClick={onWorkspace}>
-            {zh ? "Echo Masque 测试" : "Echo Masque Lab"}
-          </button>
-          {!demoMode && (
-            <button className="paper-button" onClick={onAdmin}>
-              {t("shelf.admin")}
-            </button>
-          )}
           {!demoMode && (
             <button className="ink-button" onClick={onCreate}>
               {t("shelf.newCard")}
@@ -147,8 +132,8 @@ export function CharacterShelf({
                 ? "共享测试账户已预载角色卡、测试场景与测试包。可以查看 Prompt、进入 Echo Masque 测试房并查看部署结构，但不能修改共享内容。"
                 : "This shared account includes Character Cards, Scenarios, and Test Packs. You can inspect prompts, enter the Echo Masque test room, and view deployment structure, but shared content cannot be changed."
               : zh
-                ? "在角色库管理人物设定与模型连接，在 Echo Masque 中进行压力测试，再从部署中心查看角色目前进入了哪些 Server、Channel、Thread 或群组。"
-                : "Manage personas and model bindings here, pressure-test them in Echo Masque, then use the Deployment Center to see every server, channel, thread, or group where they run."}
+                ? "角色库只保留创作与角色级操作。部署、测试、账户和诊断工具集中在右下角的猫咪工具箱。"
+                : "The shelf stays focused on character work. Deployment, testing, account, and diagnostic tools are collected in the cat toolbox at the bottom right."}
           </p>
         </div>
         <div className="shelf-count">
@@ -158,48 +143,44 @@ export function CharacterShelf({
       </section>
 
       <section className="library-toolbar paper-sheet" aria-label={t("shelf.filters")}>
-        <label className="library-search">
-          <span>{t("shelf.search")}</span>
-          <input
+        <NotebookField className="library-search" label={t("shelf.search")}>
+          <NotebookInput
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
             placeholder={t("shelf.searchPlaceholder")}
           />
-        </label>
-        <label>
-          <span>{t("shelf.subjectFilter")}</span>
-          <select value={subject} onChange={(event) => setSubject(event.currentTarget.value)}>
+        </NotebookField>
+        <NotebookField label={t("shelf.subjectFilter")}>
+          <NotebookSelect value={subject} onChange={(event) => setSubject(event.currentTarget.value)}>
             <option value="all">{t("shelf.allSubjects")}</option>
             <option value="companion">{t("subject.companion")}</option>
             <option value="npc">{t("subject.npc")}</option>
             <option value="assistant">{t("subject.assistant")}</option>
             <option value="custom">{t("subject.custom")}</option>
-          </select>
-        </label>
-        <label>
-          <span>{t("shelf.tagFilter")}</span>
-          <select value={tag} onChange={(event) => setTag(event.currentTarget.value)}>
+          </NotebookSelect>
+        </NotebookField>
+        <NotebookField label={t("shelf.tagFilter")}>
+          <NotebookSelect value={tag} onChange={(event) => setTag(event.currentTarget.value)}>
             <option value="all">{t("shelf.allTags")}</option>
             {tags.map((item) => (
               <option value={item} key={item}>{item}</option>
             ))}
-          </select>
-        </label>
-        <label>
-          <span>{t("shelf.sort")}</span>
-          <select value={sort} onChange={(event) => setSort(event.currentTarget.value)}>
+          </NotebookSelect>
+        </NotebookField>
+        <NotebookField label={t("shelf.sort")}>
+          <NotebookSelect value={sort} onChange={(event) => setSort(event.currentTarget.value)}>
             <option value="newest">{t("shelf.newest")}</option>
             <option value="oldest">{t("shelf.oldest")}</option>
             <option value="name">{t("shelf.nameSort")}</option>
-          </select>
-        </label>
+          </NotebookSelect>
+        </NotebookField>
       </section>
 
       {error && <p className="error-note">{error}</p>}
 
       {cards.length === 0 ? (
         <section className="empty-library paper-sheet">
-          <img src="/assets/masque-mark.svg" alt="" />
+          <img src="/assets/brand/character-relay-mark.webp" alt="" />
           <h2>{t("shelf.emptyTitle")}</h2>
           <p>{t("shelf.emptyHelp")}</p>
           {!demoMode && <button className="ink-button" onClick={onCreate}>{t("shelf.newCard")}</button>}
