@@ -22,7 +22,24 @@ text = text.replace(
     "    tags: list[str],\n"
     ") -> tuple[str, str, float]:\n",
 )
+text = text.replace(
+    '                    "candidate_scores": [float(item["score"]) for item in candidates],\n',
+    '                    "candidate_scores": [item["score"] for item in candidates],\n',
+)
 repository.write_text(text, encoding="utf-8")
+
+schemas = Path("src/echo_masque/api/expression_schemas.py")
+text = schemas.read_text(encoding="utf-8")
+text = text.replace(
+    'ExpressionRunStatus = Literal["running", "completed", "failed", "skipped"]\n\n\nclass DiscordCatalogEmoji',
+    'ExpressionRunStatus = Literal["running", "completed", "failed", "skipped"]\n\n\ndef default_expression_actions() -> list[Literal["inline", "reaction", "sticker"]]:\n'
+    '    return ["inline", "reaction", "sticker"]\n\n\nclass DiscordCatalogEmoji',
+)
+text = text.replace(
+    '        default_factory=lambda: ["inline", "reaction", "sticker"],\n',
+    '        default_factory=default_expression_actions,\n',
+)
+schemas.write_text(text, encoding="utf-8")
 
 tests = Path("tests/test_expression_retrieval.py")
 text = tests.read_text(encoding="utf-8")
