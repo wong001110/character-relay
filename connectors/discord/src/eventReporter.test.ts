@@ -41,6 +41,10 @@ describe("DiscordEventReporter", () => {
     await reporter.flush();
     expect(reporter.pendingCount).toBe(0);
     expect(reporter.lastError).toBeNull();
+    expect(reporter.lastSuccessAt).not.toBeNull();
+    expect(reporter.lastRecordedAt).not.toBeNull();
+    expect(reporter.lastRecordedType).toBe("ignored_no_deployment");
+    expect(reporter.sentCount).toBe(2);
     expect(delivered).toHaveLength(2);
     expect(delivered[1]?.map((item) => item.id)).toEqual(
       delivered[0]?.map((item) => item.id)

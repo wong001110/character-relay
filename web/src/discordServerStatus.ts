@@ -19,11 +19,21 @@ export interface DiscordServerLinkStatus {
   heartbeatFresh: boolean;
   catalogFresh: boolean;
   replicaRegion: string;
+  replicaId: string;
   connectorDisplayName: string;
   lastError: string;
   gatewayReady: boolean | null;
   stateSynchronized: boolean | null;
   visibleServerCount: number | null;
+  eventLogPendingCount: number | null;
+  eventLogLastError: string;
+  eventLogLastSuccessAt: string;
+  eventLogLastRecordedAt: string;
+  eventLogLastRecordedType: string;
+  eventLogSentCount: number | null;
+  lastGatewayMessageAt: string;
+  lastGatewayMessageId: string;
+  lastGatewayMentionedBot: boolean | null;
 }
 
 export const SERVER_LINK_FRESHNESS_MS = 120_000;
@@ -104,11 +114,21 @@ export function buildDiscordServerStatuses(
       heartbeatFresh,
       catalogFresh,
       replicaRegion: metadataString(connection, "replica_region"),
+      replicaId: metadataString(connection, "replica_id"),
       connectorDisplayName: metadataString(connection, "connector_display_name"),
       lastError: metadataString(connection, "last_error"),
       gatewayReady: metadataBoolean(connection, "gateway_ready"),
       stateSynchronized: metadataBoolean(connection, "state_synchronized"),
-      visibleServerCount: metadataNumber(connection, "visible_server_count")
+      visibleServerCount: metadataNumber(connection, "visible_server_count"),
+      eventLogPendingCount: metadataNumber(connection, "event_log_pending_count"),
+      eventLogLastError: metadataString(connection, "event_log_last_error"),
+      eventLogLastSuccessAt: metadataString(connection, "event_log_last_success_at"),
+      eventLogLastRecordedAt: metadataString(connection, "event_log_last_recorded_at"),
+      eventLogLastRecordedType: metadataString(connection, "event_log_last_recorded_type"),
+      eventLogSentCount: metadataNumber(connection, "event_log_sent_count"),
+      lastGatewayMessageAt: metadataString(connection, "last_gateway_message_at"),
+      lastGatewayMessageId: metadataString(connection, "last_gateway_message_id"),
+      lastGatewayMentionedBot: metadataBoolean(connection, "last_gateway_mentioned_bot")
     };
   });
 }

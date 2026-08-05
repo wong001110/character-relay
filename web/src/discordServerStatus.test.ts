@@ -23,9 +23,19 @@ function connection(
     metadata: {
       connector_display_name: "CharacterRelayBot#0001",
       replica_region: "asia-southeast1-eqsg3a",
+      replica_id: "replica-sg-1",
       gateway_ready: true,
       state_synchronized: true,
-      visible_server_count: 2
+      visible_server_count: 2,
+      event_log_pending_count: 1,
+      event_log_last_error: "HTTP 422",
+      event_log_last_success_at: "2026-08-05T12:59:10Z",
+      event_log_last_recorded_at: "2026-08-05T12:59:20Z",
+      event_log_last_recorded_type: "mention_received",
+      event_log_sent_count: 7,
+      last_gateway_message_at: "2026-08-05T12:59:20Z",
+      last_gateway_message_id: "message-1",
+      last_gateway_mentioned_bot: true
     },
     last_seen_at: lastSeenAt,
     created_at: "2026-08-05T12:00:00Z",
@@ -65,6 +75,11 @@ describe("buildDiscordServerStatuses", () => {
     );
     expect(result?.state).toBe("connected");
     expect(result?.replicaRegion).toBe("asia-southeast1-eqsg3a");
+    expect(result?.replicaId).toBe("replica-sg-1");
+    expect(result?.eventLogPendingCount).toBe(1);
+    expect(result?.eventLogLastError).toBe("HTTP 422");
+    expect(result?.eventLogLastRecordedType).toBe("mention_received");
+    expect(result?.lastGatewayMentionedBot).toBe(true);
   });
 
   it("reports a live connector that cannot see a configured server", () => {
