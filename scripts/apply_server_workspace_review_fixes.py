@@ -98,6 +98,7 @@ replace(
     '''    event.preventDefault();
     if (!profileName.trim() || (!editing && !selectedServer)) return;
     const guildName = selectedServer?.guild_name ?? editing?.guild_name ?? "";
+    const serverGuildId = selectedServer?.guild_id ?? editing?.guild_id ?? "";
     try {
 ''',
 )
@@ -106,6 +107,11 @@ replace(
     '            guild_name: selectedServer.guild_name,\n',
     '            guild_name: guildName,\n',
     count=2,
+)
+replace(
+    "web/src/DiscordServerProfilesPanel.tsx",
+    '            guild_id: selectedServer.guild_id,\n',
+    '            guild_id: serverGuildId,\n',
 )
 replace(
     "web/src/DiscordServerProfilesPanel.tsx",
