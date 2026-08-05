@@ -489,18 +489,107 @@ export function normalizeBotTagReply(
   };
 }
 
+interface InlineCharacterTagMatch {
+  deployment: DiscordDeployment;
+  alias: string;
+  start: number;
+  end: number;
+}
+
+const INLINE_TAG_LEFT_BOUNDARY =
+  String.raw`(^|[\s:：,，、.。?？!！;；\-—–&＆/／+(（\[【])`;
+const INLINE_TAG_RIGHT_BOUNDARY =
+  String.raw`(?=$|[\s:：,，、.。?？!！;；\-—–&＆/／+)）\]】])`;
+const SHARED_BOT_TAG_NAME =
+  String.raw`[^\s:：,，、.。?？!！;；\-—–&＆/／+()（）\[\]【】<>]+`;
+
+function inlineTagPosition(
+  value: string,
+  alias: string
+): { start: number; end: number } | null {
+  const escapedAlias = escapeRegex(alias);
+  const direct = new RegExp(
+    `${INLINE_TAG_LEFT_BOUNDARY}[@＠]\\s*${escapedAlias}${INLINE_TAG_RIGHT_BOUNDARY}`,
+    "iu"
+  );
+  const sharedBot = new RegExp(
+    `${INLINE_TAG_LEFT_BOUNDARY}(?:<@!?\\d+>|[@＠]${SHARED_BOT_TAG_NAME})` +
+      `\\s+${escapedAlias}${INLINE_TAG_RIGHT_BOUNDARY}`,
+    "iu"
+  );
+  const matches = [direct.exec(value), sharedBot.exec(value)]
+    .filter((item): item is RegExpExecArray => item !== null)
+    .map((item) => ({
+      start: item.index + (item[1]?.length ?? 0),
+      end: item.index + item[0].length
+    }))
+    .sort((left, right) => left.start - right.start || right.end - left.end);
+  return matches[0] ?? null;
+}
+
+function inlineTaggedAudience(
+  candidates: DiscordDeployment[],
+  text: string,
+  sourceDeploymentId: string
+): AudienceResolution | null {
+  const options = [
+    ...new Set(
+      candidates
+        .filter((item) => item.deployment_id !== sourceDeploymentId)
+        .map(displayName)
+    )
+  ];
+  const matches: InlineCharacterTagMatch[] = [];
+  for (const deployment of candidates) {
+    if (deployment.deployment_id === sourceDeploymentId) continue;
+    for (const alias of aliases(deployment)) {
+      const position = inlineTagPosition(text, alias);
+      if (!position) continue;
+      matches.push({ deployment, alias, ...position });
+    }
+  }
+  if (!matches.length) return null;
+
+  matches.sort(
+    (left, right) =>
+      left.start - right.start ||
+      right.end - left.end ||
+      right.alias.length - left.alias.length
+  );
+  const selected = new Map<string, InlineCharacterTagMatch>();
+  for (const match of matches) {
+    if (!selected.has(match.deployment.deployment_id)) {
+      selected.set(match.deployment.deployment_id, match);
+    }
+  }
+  const uniqueMatches = [...selected.values()].sort(
+    (left, right) => left.start - right.start
+  );
+  const deployments = uniqueMatches.map((item) => item.deployment);
+  const firstTagEnd = uniqueMatches[0]?.end ?? text.length;
+  const remainder = stripLeadingPunctuation(text.slice(firstTagEnd));
+  return {
+    deployments,
+    text: remainder || text.trim(),
+    reason: deployments.length > 1 ? "selected_multiple" : "selected_alias",
+    options
+  };
+}
+
 export function resolveBotTagAudience(
   candidates: DiscordDeployment[],
   text: string,
   sourceDeploymentId: string,
   additionalGroupAliases: string[] = []
 ): AudienceResolution {
-  return normalizeBotTagReply(
+  const leading = normalizeBotTagReply(
     candidates,
     text,
     sourceDeploymentId,
     additionalGroupAliases
   ).audience;
+  if (leading.reason !== "not_found") return leading;
+  return inlineTaggedAudience(candidates, text, sourceDeploymentId) ?? leading;
 }
 
 export interface TriggerState {

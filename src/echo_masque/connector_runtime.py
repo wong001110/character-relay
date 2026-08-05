@@ -317,12 +317,14 @@ class DiscordConnectorRuntime:
                 example = f"{example} and @{peers[1]}"
             tag_guidance = (
                 f"Other active character Tags at this location: {', '.join(peers)}.",
-                "To intentionally invite another character to answer, begin your "
-                "reply with @ followed by one of the listed character Tags. Tag each "
-                f"intended character separately, for example {example}.",
+                "To intentionally invite another character to answer, you may "
+                "begin your reply with @ followed by one of the listed character Tags, "
+                "or place the same Tag "
+                "naturally within a sentence. Tag each intended character separately, "
+                f"for example {example}.",
                 "The examples name other active characters, never you. Use character "
                 "tags sparingly and only when their response adds value. Never tag "
-                "yourself. A leading tag may cause another provider call.",
+                "yourself. A recognized character Tag may cause another provider call.",
             )
         expression_guidance: tuple[str, ...] = ()
         if payload.expression_candidates:
