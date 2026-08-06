@@ -1,6 +1,5 @@
+import asyncio
 from types import SimpleNamespace
-
-import pytest
 
 from echo_masque.expression_assistant import (
     ExpressionAssistantService,
@@ -37,16 +36,17 @@ class FakeRuntime:
         return self.fake_provider
 
 
-@pytest.mark.asyncio
-async def test_expression_assistant_returns_reviewable_structured_draft() -> None:
+def test_expression_assistant_returns_reviewable_structured_draft() -> None:
     service = ExpressionAssistantService(FakeRuntime())  # type: ignore[arg-type]
-    result = await service.suggest(
-        ExpressionSuggestionRequest(
-            resource_type="emoji",
-            resource_id="123",
-            name="peek",
-            usage_context="playful curiosity while waiting for more",
-            language="en",
+    result = asyncio.run(
+        service.suggest(
+            ExpressionSuggestionRequest(
+                resource_type="emoji",
+                resource_id="123",
+                name="peek",
+                usage_context="playful curiosity while waiting for more",
+                language="en",
+            )
         )
     )
 
