@@ -19,6 +19,12 @@ from echo_masque.api.schemas import (
     CredentialStatus,
     PromptCharacterCreate,
 )
+from echo_masque.character_assistant import (
+    CharacterAssistantService,
+    CharacterAssistantUnavailable,
+    CharacterSuggestionRequest,
+    CharacterSuggestionResult,
+)
 from echo_masque.character_prompts import CharacterPromptProfile
 from echo_masque.credentials import (
     CredentialStore,
@@ -27,6 +33,7 @@ from echo_masque.credentials import (
 )
 from echo_masque.persistence import MatrixRepository, Repository, TargetAccessRepository
 from echo_masque.persistence.models import CharacterCardRecord
+from echo_masque.providers import ProviderError
 from echo_masque.security_controls import QuotaExceeded
 from echo_masque.targets import PromptModelConfig
 
@@ -173,6 +180,33 @@ def list_characters(
     for item in records:
         _sync_prompt_profile(repo, item)
     return [CharacterCardView.from_record(item) for item in records]
+
+
+@router.post("/suggest", response_model=CharacterSuggestionResult)
+async def suggest_character_card(
+    payload: CharacterSuggestionRequest,
+    request: Request,
+    user: CurrentUserDependency,
+) -> CharacterSuggestionResult:
+    try:
+        quota_service(request).consume_authoring_generation(user.id)
+        return await CharacterAssistantService(
+            request.app.state.authoring_runtime_service
+        ).suggest(payload)
+    except QuotaExceeded as exc:
+        raise quota_http_exception(exc) from exc
+    except CharacterAssistantUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except ProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("", response_model=CharacterCardView, status_code=status.HTTP_201_CREATED)

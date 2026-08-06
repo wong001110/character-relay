@@ -76,6 +76,11 @@ export interface DiscordServerProfile {
   updated_at: string;
 }
 
+export interface DiscordServerClaimCreate {
+  guild_id: string;
+  name: string;
+}
+
 export interface DiscordServerProfileCreate {
   connection_id: string;
   name: string;
@@ -226,6 +231,11 @@ export const deploymentApi = {
     ),
   listDiscordServerProfiles: () =>
     request<DiscordServerProfile[]>("/api/discord/server-profiles"),
+  claimDiscordServerProfile: (payload: DiscordServerClaimCreate) =>
+    request<DiscordServerProfile>("/api/discord/server-profiles/claim", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   createDiscordServerProfile: (payload: DiscordServerProfileCreate) =>
     request<DiscordServerProfile>("/api/discord/server-profiles", {
       method: "POST",
