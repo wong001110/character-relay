@@ -10,7 +10,7 @@ from echo_masque.providers import ProviderCompletion
 
 
 class FakeProvider:
-    async def complete(self, *, messages, model: str, temperature: float):  # noqa: ANN001
+    async def complete(self, *, messages, model: str, temperature: float):
         assert messages[-1].role == "user"
         assert "playful curiosity" in messages[-1].content
         return ProviderCompletion(
@@ -30,10 +30,10 @@ class FakeRuntime:
     def __init__(self) -> None:
         self.fake_provider = FakeProvider()
 
-    def config(self):  # noqa: ANN201
+    def config(self):
         return SimpleNamespace(enabled=True, model="test-model", temperature=0.35)
 
-    def provider(self):  # noqa: ANN201
+    def provider(self):
         return self.fake_provider
 
 
