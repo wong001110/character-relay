@@ -13,7 +13,6 @@ from echo_masque.persistence.deployment_models import (
     DiscordServerProfileRecord,
     PlatformConnectionRecord,
 )
-from echo_masque.persistence.expression_models import DiscordExpressionSemanticRecord
 
 
 class DiscordInventoryService:
@@ -23,12 +22,12 @@ class DiscordInventoryService:
         self.database = database
 
     def centralize(self, super_admin_id: str) -> dict[str, int]:
-        """Move managed Discord inventory without breaking user-owned workspace profiles.
+        """Move managed Discord inventory without breaking user-owned workspaces.
 
-        Platform connections, synchronized catalogs, connector events, and the canonical
-        expression catalog become Super Admin-owned. Existing user Server Profiles and
-        Character Deployments remain user-owned claims so deployed characters continue
-        to work. A Super Admin profile is created for each synchronized Server.
+        Platform connections, synchronized catalogs, and connector events become Super
+        Admin-owned. Existing user Server Profiles, Character Deployments, and manual
+        Expression definitions remain user-owned claims. A Super Admin profile is created
+        for every synchronized Server so the complete inventory is visible there.
         """
 
         with self.database.session() as session:
@@ -44,7 +43,6 @@ class DiscordInventoryService:
                     "connections": 0,
                     "catalogs": 0,
                     "events": 0,
-                    "expressions": 0,
                     "super_admin_profiles": 0,
                 }
 
@@ -61,22 +59,6 @@ class DiscordInventoryService:
             event_result = session.execute(
                 update(DiscordConnectorEventRecord)
                 .where(DiscordConnectorEventRecord.connection_id.in_(connection_ids))
-                .values(owner_id=super_admin_id)
-            )
-
-            expression_result = session.execute(
-                update(DiscordExpressionSemanticRecord)
-                .where(
-                    DiscordExpressionSemanticRecord.connection_id.in_(connection_ids),
-                    DiscordExpressionSemanticRecord.owner_id.not_in(
-                        select(DiscordServerProfileRecord.owner_id).where(
-                            DiscordServerProfileRecord.connection_id
-                            == DiscordExpressionSemanticRecord.connection_id,
-                            DiscordServerProfileRecord.guild_id
-                            == DiscordExpressionSemanticRecord.guild_id,
-                        )
-                    ),
-                )
                 .values(owner_id=super_admin_id)
             )
 
@@ -119,6 +101,5 @@ class DiscordInventoryService:
                 "connections": int(getattr(connection_result, "rowcount", 0) or 0),
                 "catalogs": int(getattr(catalog_result, "rowcount", 0) or 0),
                 "events": int(getattr(event_result, "rowcount", 0) or 0),
-                "expressions": int(getattr(expression_result, "rowcount", 0) or 0),
                 "super_admin_profiles": created_profiles,
             }
