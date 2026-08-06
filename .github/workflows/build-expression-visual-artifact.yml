@@ -1,0 +1,31 @@
+name: Build Expression visual review artifact
+
+on:
+  push:
+    branches: [agent/expression-visual-analysis-assets]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/expression-visual-analysis-assets
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Prepare script
+        run: |
+          sed -i 's/: false/: False/g; s/: true/: True/g' scripts/build_expression_contact_sheets.py
+          python -m pip install --upgrade pip
+          python -m pip install requests pillow
+      - name: Download assets and build contact sheets
+        run: python scripts/build_expression_contact_sheets.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: expression-visual-review
+          path: expression-analysis
+          retention-days: 1
