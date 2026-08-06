@@ -1,0 +1,71 @@
+name: Apply Super Admin claims and Character AI
+
+on:
+  push:
+    branches: [agent/superadmin-server-claims-character-ai]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/superadmin-server-claims-character-ai
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Apply integrations
+        run: python scripts/apply_superadmin_claims_character_ai.py
+
+      - name: Validate Python
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m ruff check src tests --fix
+          python -m ruff check src tests
+          python -m mypy src
+          python -m pytest
+
+      - name: Validate Discord Connector
+        working-directory: connectors/discord
+        run: |
+          npm install
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Validate Portal
+        working-directory: web
+        run: |
+          npm install
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Remove temporary and generated files
+        run: |
+          rm -f .github/workflows/apply-superadmin-claims-character-ai.yml
+          rm -f scripts/apply_superadmin_claims_character_ai.py
+          rm -f web/package-lock.json web/tsconfig.tsbuildinfo
+          rm -f connectors/discord/package-lock.json connectors/discord/tsconfig.tsbuildinfo
+          rm -rf web/dist connectors/discord/dist
+
+      - name: Commit validated feature
+        run: |
+          git config user.name "Wong Juen An"
+          git config user.email "62807108+wong001110@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+            exit 1
+          fi
+          git commit -m "feat: centralize Discord Servers and add Character AI drafting"
+          git push origin HEAD:agent/superadmin-server-claims-character-ai
