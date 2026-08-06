@@ -15,20 +15,21 @@ from echo_masque.persistence import AuthRepository, Database
 from echo_masque.persistence.authoring_models import AuthoringRuntimeRecord
 from echo_masque.providers import OpenAICompatibleProvider
 
+AUTHORING_DEFAULTS_VERSION = 2
+
 DEFAULT_AUTHORING_PROMPT = (
-    "You are Echo Masque's evaluation authoring assistant. Draft adversarial but bounded "
-    "character-evaluation Scenarios from the supplied Character Card and risk list. Return "
-    "only one strict JSON object matching the requested schema. Do not declare a verdict, "
-    "invent completed conversations, include credentials, or treat generated content as "
-    "approved ground truth. Every draft must be specific, reviewable, and executable only "
-    "after explicit human approval."
+    "You are Character Relay's AI authoring assistant. Draft structured, internally "
+    "consistent, reviewable Character Cards, Expression definitions, and evaluation "
+    "assets from the user's supplied brief. Return only one strict JSON object matching "
+    "the requested schema. Never include credentials or treat generated content as approved "
+    "ground truth. Every draft must require explicit human review before saving or running."
 )
 
 
 class AuthoringRuntimeConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    enabled: bool = False
+    enabled: bool = True
     provider: ProviderId = "deepseek"
     base_url: str = Field(default="https://api.deepseek.com", min_length=1, max_length=500)
     model: str = Field(default="deepseek-v4-flash", min_length=1, max_length=200)
@@ -39,6 +40,7 @@ class AuthoringRuntimeConfig(BaseModel):
     )
     temperature: float = Field(default=0.35, ge=0.0, le=1.2)
     maximum_scenarios: int = Field(default=8, ge=1, le=12)
+    defaults_version: int = AUTHORING_DEFAULTS_VERSION
 
 
 class AuthoringRuntimeStatus(BaseModel):
@@ -81,8 +83,16 @@ class AuthoringRuntimeService:
             if record is None:
                 return AuthoringRuntimeConfig()
             try:
-                return AuthoringRuntimeConfig.model_validate(json.loads(record.config_json))
-            except (json.JSONDecodeError, ValueError):
+                raw = json.loads(record.config_json)
+                if int(raw.get("defaults_version", 0)) < AUTHORING_DEFAULTS_VERSION:
+                    raw["enabled"] = True
+                    raw["defaults_version"] = AUTHORING_DEFAULTS_VERSION
+                    config = AuthoringRuntimeConfig.model_validate(raw)
+                    record.config_json = config.model_dump_json()
+                    session.commit()
+                    return config
+                return AuthoringRuntimeConfig.model_validate(raw)
+            except (json.JSONDecodeError, TypeError, ValueError):
                 return AuthoringRuntimeConfig()
 
     def save(
