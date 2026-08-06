@@ -529,21 +529,23 @@ class DeploymentRepository:
                     "This Discord Server is already in your account."
                 )
 
-            claimed_elsewhere = session.scalar(
-                select(DiscordServerProfileRecord.id)
-                .where(
-                    DiscordServerProfileRecord.connection_id == catalog.connection_id,
-                    DiscordServerProfileRecord.guild_id == guild_id,
-                    DiscordServerProfileRecord.owner_id.not_in(
-                        (catalog_owner_id, owner_id)
-                    ),
+            if owner_id != catalog_owner_id:
+                claimed_elsewhere = session.scalar(
+                    select(DiscordServerProfileRecord.id)
+                    .where(
+                        DiscordServerProfileRecord.connection_id
+                        == catalog.connection_id,
+                        DiscordServerProfileRecord.guild_id == guild_id,
+                        DiscordServerProfileRecord.owner_id.not_in(
+                            (catalog_owner_id, owner_id)
+                        ),
+                    )
+                    .limit(1)
                 )
-                .limit(1)
-            )
-            if claimed_elsewhere is not None:
-                raise DeploymentConflict(
-                    "This Discord Server has already been claimed by another account."
-                )
+                if claimed_elsewhere is not None:
+                    raise DeploymentConflict(
+                        "This Discord Server has already been claimed by another account."
+                    )
 
             record = DiscordServerProfileRecord(
                 id=str(uuid4()),
