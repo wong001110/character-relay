@@ -1,4 +1,9 @@
 import { groupAddressAliases } from "./audienceAliases.js";
+import {
+  consumeSmartSelection,
+  evaluateSmartParticipation,
+  markExplicitSmartSelections
+} from "./smartParticipation.js";
 import type { DiscordDeployment } from "./types.js";
 
 export type DeploymentIndex = Map<string, DiscordDeployment[]>;
@@ -79,6 +84,7 @@ export type AudienceReason =
   | "selected_multiple"
   | "selected_all"
   | "selected_single"
+  | "selected_smart"
   | "ambiguous"
   | "not_found";
 
@@ -97,7 +103,7 @@ function nameAliases(value: string): string[] {
   const full = value.trim();
   if (!full) return [];
 
-  const aliases = new Set([full]);
+  const values = new Set([full]);
   const normalized = full
     .replaceAll(/[（(]/gu, " · ")
     .replaceAll(/[）)]/gu, "");
@@ -106,9 +112,9 @@ function nameAliases(value: string): string[] {
   );
   for (const part of parts) {
     const alias = part.trim();
-    if (alias) aliases.add(alias);
+    if (alias) values.add(alias);
   }
-  return [...aliases];
+  return [...values];
 }
 
 function aliases(deployment: DiscordDeployment): string[] {
@@ -131,10 +137,7 @@ function stripLeadingPunctuation(value: string): string {
 
 function stripLeadingNameConnector(value: string): string {
   return value
-    .replace(
-      /^(?:and|plus|和|与|與|跟|及|以及|还有|還有|&|＆)\s+/iu,
-      ""
-    )
+    .replace(/^(?:and|plus|和|与|與|跟|及|以及|还有|還有|&|＆)\s+/iu, "")
     .trimStart();
 }
 
@@ -315,6 +318,7 @@ export function resolveAudience(
       (item) => item.deployment_id === replyDeploymentId
     );
     if (replyTarget) {
+      markExplicitSmartSelections([replyTarget]);
       return {
         deployments: [replyTarget],
         text: text.trim(),
@@ -326,6 +330,7 @@ export function resolveAudience(
 
   const groupText = stripGroupAddress(text, additionalGroupAliases);
   if (groupText !== null) {
+    markExplicitSmartSelections(candidates);
     return {
       deployments: [...candidates],
       text: groupText,
@@ -335,7 +340,20 @@ export function resolveAudience(
   }
 
   const named = namedAudience(candidates, text, options);
-  if (named) return named;
+  if (named) {
+    markExplicitSmartSelections(named.deployments);
+    return named;
+  }
+
+  const smartDecision = evaluateSmartParticipation(candidates, text);
+  if (smartDecision.selectedDeployment) {
+    return {
+      deployments: [smartDecision.selectedDeployment],
+      text: text.trim(),
+      reason: "selected_smart",
+      options
+    };
+  }
 
   const only = candidates[0];
   if (candidates.length === 1 && only) {
@@ -613,12 +631,14 @@ export function shouldSubmitMessage(
       return trigger.repliedToBot;
     case "mention_and_reply":
       return trigger.mentionedBot || trigger.repliedToBot;
-    case "smart":
+    case "smart": {
+      const selected = consumeSmartSelection(deployment.deployment_id);
       return (
         trigger.mentionedBot ||
         trigger.repliedToBot ||
-        (smartParticipationEnabled && trigger.hasReadableText)
+        (smartParticipationEnabled && trigger.hasReadableText && selected)
       );
+    }
   }
 }
 
