@@ -1,0 +1,46 @@
+name: Apply Expression export image links
+
+on:
+  push:
+    branches: [agent/expression-export-image-links]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/expression-export-image-links
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Apply export upgrade
+        run: python scripts/apply_expression_export_asset_links.py
+      - name: Validate Portal
+        working-directory: web
+        run: |
+          npm install
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Remove temporary and generated files
+        run: |
+          rm -f .github/workflows/apply-expression-export-image-links.yml
+          rm -f scripts/apply_expression_export_asset_links.py
+          rm -f web/package-lock.json web/tsconfig.tsbuildinfo
+          rm -rf web/dist
+      - name: Commit validated upgrade
+        run: |
+          git config user.name "Wong Juen An"
+          git config user.email "62807108+wong001110@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+            exit 1
+          fi
+          git commit -m "fix: include image links in Expression exports"
+          git push origin HEAD:agent/expression-export-image-links
