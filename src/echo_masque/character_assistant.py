@@ -148,13 +148,24 @@ class CharacterAssistantService:
             "display_name": "public character name",
             "subtitle": "one-line role or relationship positioning",
             "subject_type": "companion | npc | assistant | custom",
-            "persona_summary": "2-5 concise paragraphs covering background, motives, values, and tension",
+            "persona_summary": (
+                "2-5 concise paragraphs covering background, motives, values, and tension"
+            ),
             "traits": ["stable observable trait"],
             "tags": ["short retrieval tag"],
-            "expected_tone": "voice, pacing, vocabulary, emotional intensity, and audience changes",
-            "forbidden_behaviors": ["concrete behavior that would break the character"],
-            "memory_summary": "durable facts, relationships, promises, and non-overwritable anchors",
-            "system_prompt": "complete runtime instruction with identity, worldview, voice, boundaries, and priorities",
+            "expected_tone": (
+                "voice, pacing, vocabulary, emotional intensity, and audience changes"
+            ),
+            "forbidden_behaviors": [
+                "concrete behavior that would break the character"
+            ],
+            "memory_summary": (
+                "durable facts, relationships, promises, and non-overwritable anchors"
+            ),
+            "system_prompt": (
+                "complete runtime instruction with identity, worldview, voice, "
+                "boundaries, and priorities"
+            ),
         }
         context = {
             "concept": request.concept,
