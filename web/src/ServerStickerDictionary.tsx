@@ -273,8 +273,38 @@ export function ServerStickerDictionary({ profile, demoMode, zh, onError }: Prop
 
   function exportJson() {
     const document = {
-      version: 1,
+      version: 2,
       kind: "character-relay-expression-dictionary",
+      agent_guidance: {
+        purpose:
+          "Review each Discord Emoji or Sticker visually, then draft semantic fields for Character Relay.",
+        visual_analysis:
+          "Open each asset_url with a vision-capable tool before deciding its meaning. Animated assets may require viewing the full animation.",
+        editable_fields: [
+          "enabled",
+          "semantic_intent",
+          "semantic_emotion",
+          "semantic_description",
+          "aliases",
+          "situations",
+          "avoid_when",
+          "allowed_actions"
+        ],
+        readonly_fields: [
+          "resource_key",
+          "resource_type",
+          "resource_id",
+          "name",
+          "description",
+          "tags",
+          "asset_url",
+          "format_type",
+          "animated",
+          "available"
+        ],
+        uncertainty_rule:
+          "When the visual meaning is unclear, keep the semantic fields empty or mark the uncertainty for human review. Do not infer meaning from the filename alone."
+      },
       server: {
         profile_id: profile.id,
         guild_id: profile.guild_id,
@@ -287,6 +317,12 @@ export function ServerStickerDictionary({ profile, demoMode, zh, onError }: Prop
         resource_type: item.resource_type,
         resource_id: item.resource_id,
         name: item.name,
+        description: item.description,
+        tags: item.tags,
+        asset_url: item.asset_url,
+        format_type: item.format_type,
+        animated: item.animated,
+        available: item.available,
         enabled: item.enabled,
         semantic_intent: item.semantic_intent,
         semantic_emotion: item.semantic_emotion,
@@ -307,7 +343,11 @@ export function ServerStickerDictionary({ profile, demoMode, zh, onError }: Prop
     link.download = `character-relay-${safeName || profile.guild_id}-expressions.json`;
     link.click();
     URL.revokeObjectURL(url);
-    setNotice(zh ? "已导出当前 Server 的 Expression JSON。" : "Exported this Server's Expression JSON.");
+    setNotice(
+      zh
+        ? "已导出包含 Emoji／Sticker 图片链接与 AI Agent 指引的 Expression JSON。"
+        : "Exported Expression JSON with Emoji/Sticker image links and AI-agent guidance."
+    );
   }
 
   async function readImportFile(event: ChangeEvent<HTMLInputElement>) {
@@ -593,7 +633,7 @@ export function ServerStickerDictionary({ profile, demoMode, zh, onError }: Prop
         </p>
         <div>
           <button className="paper-button" type="button" onClick={exportJson} disabled={!resources.length}>
-            {zh ? "导出 JSON" : "Export JSON"}
+            {zh ? "导出 JSON + 图片链接" : "Export JSON + image links"}
           </button>
           {!demoMode && (
             <button
