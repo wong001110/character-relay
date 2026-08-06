@@ -4,7 +4,11 @@ from typing import cast
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
-from echo_masque.api.dependencies import CurrentUserDependency
+from echo_masque.api.dependencies import (
+    CurrentUserDependency,
+    quota_http_exception,
+    quota_service,
+)
 from echo_masque.api.expression_schemas import (
     ExpressionNodeView,
     ExpressionRunDetail,
@@ -22,6 +26,12 @@ from echo_masque.api.interaction_schemas import (
     InteractionTemplateView,
     StickerSemanticCreate,
     StickerSemanticView,
+)
+from echo_masque.expression_assistant import (
+    ExpressionAssistantService,
+    ExpressionAssistantUnavailable,
+    ExpressionSuggestionRequest,
+    ExpressionSuggestionResult,
 )
 from echo_masque.persistence import (
     DeploymentRepository,
@@ -41,6 +51,8 @@ from echo_masque.persistence.interaction_models import (
     DiscordInteractionTemplateRecord,
     DiscordStickerSemanticRecord,
 )
+from echo_masque.providers import ProviderError
+from echo_masque.security_controls import QuotaExceeded
 
 router = APIRouter(prefix="/api", tags=["interactions"])
 
@@ -496,6 +508,35 @@ def save_expression_dictionary_entry(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Discord connection not found.") from exc
     return expression_view(request, record)
+
+
+@router.post(
+    "/discord/expression-dictionary/suggest",
+    response_model=ExpressionSuggestionResult,
+)
+async def suggest_expression_dictionary_entry(
+    payload: ExpressionSuggestionRequest,
+    request: Request,
+    user: CurrentUserDependency,
+) -> ExpressionSuggestionResult:
+    runtime = request.app.state.authoring_runtime_service
+    try:
+        quota_service(request).consume_authoring_generation(user.id)
+        return await ExpressionAssistantService(runtime).suggest(payload)
+    except QuotaExceeded as exc:
+        raise quota_http_exception(exc) from exc
+    except ExpressionAssistantUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except ProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get(

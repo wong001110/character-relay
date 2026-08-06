@@ -184,6 +184,29 @@ export interface ExpressionRunDetail extends ExpressionRun {
   nodes: ExpressionNode[];
 }
 
+export interface ExpressionSuggestionRequest {
+  resource_type: ExpressionResourceType;
+  resource_id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  animated: boolean;
+  asset_url: string;
+  usage_context: string;
+  language: "en" | "zh-CN";
+}
+
+export interface ExpressionSuggestionResult {
+  semantic_intent: string;
+  semantic_emotion: string;
+  semantic_description: string;
+  aliases: string[];
+  situations: string[];
+  avoid_when: string[];
+  provider_model: string;
+  correction_used: boolean;
+}
+
 export interface StickerSemanticCreate {
   connection_id: string;
   guild_id: string;
@@ -292,6 +315,14 @@ export const interactionApi = {
       method: "PUT",
       body: JSON.stringify(payload)
     }),
+  suggestExpression: (payload: ExpressionSuggestionRequest) =>
+    request<ExpressionSuggestionResult>(
+      "/api/discord/expression-dictionary/suggest",
+      {
+        method: "POST",
+        body: JSON.stringify(payload)
+      }
+    ),
   listExpressionRuns: (connectionId?: string, guildId?: string) => {
     const query = new URLSearchParams({ limit: "50" });
     if (connectionId) query.set("connection_id", connectionId);

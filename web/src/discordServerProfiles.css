@@ -818,3 +818,144 @@
     animation-duration: 1ms;
   }
 }
+
+
+/* Expression JSON import and AI assistance */
+.expression-dictionary-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border: 1px dashed rgba(112, 86, 158, 0.2);
+  border-radius: 10px;
+  background: #fffaf2;
+}
+
+.expression-dictionary-toolbar > div {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.expression-dictionary-notice {
+  margin: 0;
+  color: rgba(41, 35, 48, 0.68);
+  font-size: 0.76rem;
+}
+
+.expression-ai-assistant {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 14px;
+  border: 1px dashed rgba(112, 86, 158, 0.24);
+  border-radius: 10px;
+  background: rgba(233, 225, 250, 0.42);
+}
+
+.expression-ai-assistant .notebook-field {
+  min-width: 0;
+}
+
+.expression-ai-assistant .paper-button {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.expression-ai-result-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #5f4b77;
+  font-size: 0.74rem;
+}
+
+.expression-import-modal {
+  width: min(940px, 96vw) !important;
+}
+
+.expression-import-summary {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.expression-import-summary span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #e9e1fa;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.expression-import-list {
+  display: grid;
+  gap: 8px;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding-right: 5px;
+}
+
+.expression-import-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(112, 86, 158, 0.15);
+  border-radius: 9px;
+  background: #fffaf2;
+}
+
+.expression-import-item img {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
+
+.expression-import-item > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.expression-import-item small {
+  overflow-wrap: anywhere;
+  color: rgba(41, 35, 48, 0.62);
+}
+
+.expression-import-state {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #dff0e8;
+  color: #35685a;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.expression-import-item.is-invalid .expression-import-state {
+  background: #f4dfe5;
+  color: #844f62;
+}
+
+.expression-import-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 15px;
+}
+
+@media (max-width: 760px) {
+  .expression-ai-assistant,
+  .expression-import-item {
+    grid-template-columns: 1fr;
+  }
+
+  .expression-ai-assistant .paper-button {
+    width: 100%;
+  }
+}
