@@ -66,6 +66,7 @@ export function DiscordServerProfilesPanel({
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("settings");
   const [working, setWorking] = useState(false);
   const [connectionId, setConnectionId] = useState(discordConnections[0]?.id ?? "");
+  const [claimGuildId, setClaimGuildId] = useState("");
   const [guildId, setGuildId] = useState("");
   const [profileName, setProfileName] = useState("");
   const [excludedChannels, setExcludedChannels] = useState<Set<string>>(new Set());
@@ -94,7 +95,8 @@ export function DiscordServerProfilesPanel({
     setEditing(null);
     setConnectionId(nextConnection);
     setGuildId(nextServer?.guild_id ?? "");
-    setProfileName(nextServer?.guild_name ?? "");
+    setClaimGuildId("");
+    setProfileName("");
     setExcludedChannels(new Set());
     setExcludedCategories(new Set());
     setDrawerTab("settings");
@@ -152,7 +154,8 @@ export function DiscordServerProfilesPanel({
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!profileName.trim() || (!editing && !selectedServer)) return;
+    if (editing && !profileName.trim()) return;
+    if (!editing && !claimGuildId.trim()) return;
     const guildName = selectedServer?.guild_name ?? editing?.guild_name ?? "";
     const serverGuildId = selectedServer?.guild_id ?? editing?.guild_id ?? "";
     try {
@@ -166,14 +169,9 @@ export function DiscordServerProfilesPanel({
             excluded_category_ids: [...excludedCategories],
             thread_policy: "inherit_parent"
           })
-        : await deploymentApi.createDiscordServerProfile({
-            connection_id: connectionId,
-            name: profileName.trim(),
-            guild_id: serverGuildId,
-            guild_name: guildName,
-            excluded_channel_ids: [...excludedChannels],
-            excluded_category_ids: [...excludedCategories],
-            thread_policy: "inherit_parent"
+        : await deploymentApi.claimDiscordServerProfile({
+            guild_id: claimGuildId.trim(),
+            name: profileName.trim()
           });
       closeDrawer();
       onSelectProfile(saved.id);
@@ -246,7 +244,6 @@ export function DiscordServerProfilesPanel({
               <button
                 className="ink-button"
                 onClick={openNew}
-                disabled={!discordConnections.length || !catalog.length}
               >
                 {zh ? "+ 添加 Server" : "+ Add Server"}
               </button>
@@ -349,8 +346,8 @@ export function DiscordServerProfilesPanel({
                       ? "Server 身份由 Connector 同步；这里只调整名称、Channel 范围与 Sticker 语义。"
                       : "The Connector owns Server identity; edit only its label, Channel scope, and Sticker meanings."
                     : zh
-                      ? "选择 Connector 已同步的 Server，不需要手动填写 Server ID。"
-                      : "Choose a Server already synchronized by the Connector; no manual Server ID is required."}
+                      ? "先把 Character Relay Bot 加入 Discord Server，再输入该 Server ID 认领到当前账号。"
+                      : "Add the Character Relay Bot to Discord first, then enter the Server ID to claim it for this account."}
                 </p>
               </div>
               <button className="drawer-close-button" type="button" onClick={closeDrawer}>
@@ -390,33 +387,24 @@ export function DiscordServerProfilesPanel({
                   </div>
                 ) : (
                   <>
-                    <label>
-                      {zh ? "Discord Connector" : "Discord Connector"}
-                      <select
-                        value={connectionId}
-                        onChange={(event) => changeConnection(event.currentTarget.value)}
+                    <label className="drawer-form-wide">
+                      {zh ? "Discord Server ID" : "Discord Server ID"}
+                      <input
+                        value={claimGuildId}
+                        onChange={(event) =>
+                          setClaimGuildId(event.currentTarget.value.replace(/\D+/gu, ""))
+                        }
                         required
-                      >
-                        {discordConnections.map((connection) => (
-                          <option key={connection.id} value={connection.id}>
-                            {connection.display_name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      {zh ? "已同步 Server" : "Synchronized Server"}
-                      <select
-                        value={guildId}
-                        onChange={(event) => changeGuild(event.currentTarget.value)}
-                        required
-                      >
-                        {availableServers.map((server) => (
-                          <option key={server.guild_id} value={server.guild_id}>
-                            {server.guild_name}
-                          </option>
-                        ))}
-                      </select>
+                        inputMode="numeric"
+                        pattern="[0-9]+"
+                        maxLength={200}
+                        placeholder="123456789012345678"
+                      />
+                      <small>
+                        {zh
+                          ? "只会精确查找这个 ID。其他账号无法看到 Super Admin 的完整 Server 清单。"
+                          : "Only this exact ID is checked. Other accounts cannot browse the Super Admin Server catalog."}
+                      </small>
                     </label>
                   </>
                 )}

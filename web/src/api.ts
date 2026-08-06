@@ -148,6 +148,30 @@ export interface CharacterCardUpdate
   temperature?: number;
 }
 
+export interface CharacterSuggestionRequest {
+  concept: string;
+  name_hint: string;
+  relationship_context: string;
+  writing_constraints: string;
+  subject_type_hint: CharacterCard["subject_type"];
+  language: "en" | "zh-CN";
+}
+
+export interface CharacterSuggestionResult {
+  display_name: string;
+  subtitle: string;
+  subject_type: CharacterCard["subject_type"];
+  persona_summary: string;
+  traits: string[];
+  tags: string[];
+  expected_tone: string;
+  forbidden_behaviors: string[];
+  memory_summary: string;
+  system_prompt: string;
+  provider_model: string;
+  correction_used: boolean;
+}
+
 export interface CredentialStatus {
   required: boolean;
   configured: boolean;
@@ -422,6 +446,11 @@ export const api = {
     ),
   listTargets: () => request<TargetView[]>("/api/targets"),
   listCharacters: () => request<CharacterCard[]>("/api/characters"),
+  suggestCharacter: (payload: CharacterSuggestionRequest) =>
+    request<CharacterSuggestionResult>("/api/characters/suggest", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   createCharacter: (payload: CharacterCardCreate) =>
     request<CharacterCard>("/api/characters", {
       method: "POST",

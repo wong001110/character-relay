@@ -432,6 +432,144 @@ class DeploymentRepository:
             )
             return list(session.scalars(query))
 
+    def list_shared_connections_for_profiles(
+        self,
+        owner_id: str,
+    ) -> list[PlatformConnectionRecord]:
+        """Return managed Discord connections referenced by this owner's claims."""
+
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(PlatformConnectionRecord)
+                    .join(
+                        DiscordServerProfileRecord,
+                        DiscordServerProfileRecord.connection_id
+                        == PlatformConnectionRecord.id,
+                    )
+                    .where(
+                        DiscordServerProfileRecord.owner_id == owner_id,
+                        PlatformConnectionRecord.owner_id != owner_id,
+                        PlatformConnectionRecord.platform == "discord",
+                    )
+                    .distinct()
+                    .order_by(PlatformConnectionRecord.created_at)
+                )
+            )
+
+    def list_claimed_discord_server_catalog(
+        self,
+        owner_id: str,
+    ) -> list[DiscordServerCatalogRecord]:
+        """Return only catalog rows represented by this owner's Server Profiles."""
+
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(DiscordServerCatalogRecord)
+                    .join(
+                        DiscordServerProfileRecord,
+                        (
+                            DiscordServerProfileRecord.connection_id
+                            == DiscordServerCatalogRecord.connection_id
+                        )
+                        & (
+                            DiscordServerProfileRecord.guild_id
+                            == DiscordServerCatalogRecord.guild_id
+                        ),
+                    )
+                    .where(DiscordServerProfileRecord.owner_id == owner_id)
+                    .distinct()
+                    .order_by(
+                        DiscordServerCatalogRecord.guild_name,
+                        DiscordServerCatalogRecord.guild_id,
+                    )
+                )
+            )
+
+    def claim_server_profile(
+        self,
+        *,
+        owner_id: str,
+        catalog_owner_id: str,
+        guild_id: str,
+        name: str,
+    ) -> DiscordServerProfileRecord:
+        """Claim one exact Super Admin-managed Discord Server for an account."""
+
+        with self.database.session() as session:
+            catalog = session.scalar(
+                select(DiscordServerCatalogRecord)
+                .where(
+                    DiscordServerCatalogRecord.owner_id == catalog_owner_id,
+                    DiscordServerCatalogRecord.guild_id == guild_id,
+                )
+                .order_by(DiscordServerCatalogRecord.synced_at.desc())
+                .limit(1)
+            )
+            if catalog is None:
+                raise KeyError("server catalog")
+            connection = session.get(PlatformConnectionRecord, catalog.connection_id)
+            if (
+                connection is None
+                or connection.platform != "discord"
+                or connection.owner_id != catalog_owner_id
+            ):
+                raise KeyError("connection")
+
+            existing = session.scalar(
+                select(DiscordServerProfileRecord).where(
+                    DiscordServerProfileRecord.owner_id == owner_id,
+                    DiscordServerProfileRecord.connection_id == catalog.connection_id,
+                    DiscordServerProfileRecord.guild_id == guild_id,
+                )
+            )
+            if existing is not None:
+                raise DeploymentConflict(
+                    "This Discord Server is already in your account."
+                )
+
+            if owner_id != catalog_owner_id:
+                claimed_elsewhere = session.scalar(
+                    select(DiscordServerProfileRecord.id)
+                    .where(
+                        DiscordServerProfileRecord.connection_id
+                        == catalog.connection_id,
+                        DiscordServerProfileRecord.guild_id == guild_id,
+                        DiscordServerProfileRecord.owner_id.not_in(
+                            (catalog_owner_id, owner_id)
+                        ),
+                    )
+                    .limit(1)
+                )
+                if claimed_elsewhere is not None:
+                    raise DeploymentConflict(
+                        "This Discord Server has already been claimed by another account."
+                    )
+
+            record = DiscordServerProfileRecord(
+                id=str(uuid4()),
+                owner_id=owner_id,
+                connection_id=catalog.connection_id,
+                name=name.strip() or catalog.guild_name,
+                guild_id=catalog.guild_id,
+                guild_name=catalog.guild_name,
+                channel_scope_mode="all_except",
+                excluded_channel_ids_json="[]",
+                excluded_category_ids_json="[]",
+                thread_policy="inherit_parent",
+            )
+            session.add(record)
+            try:
+                session.commit()
+            except IntegrityError as exc:
+                session.rollback()
+                raise DeploymentConflict(
+                    "This Discord Server is already in your account."
+                ) from exc
+            session.refresh(record)
+            return record
+
     def create_server_profile(
         self,
         *,
@@ -570,7 +708,7 @@ class DeploymentRepository:
             if character is None or character.owner_id != owner_id:
                 raise KeyError("character")
             connection = session.get(PlatformConnectionRecord, connection_id)
-            if connection is None or connection.owner_id != owner_id:
+            if connection is None:
                 raise KeyError("connection")
 
             profile: DiscordServerProfileRecord | None = None
@@ -592,6 +730,8 @@ class DeploymentRepository:
                 channel_name = "All available channels"
                 thread_id = ""
                 thread_name = ""
+            elif connection.owner_id != owner_id:
+                raise KeyError("connection")
             elif not channel_id or not channel_name:
                 raise DeploymentConflict(
                     "A channel is required when no Discord server profile is selected."

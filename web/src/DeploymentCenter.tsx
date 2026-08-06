@@ -786,11 +786,18 @@ export function DeploymentCenter({
                         <small>{zh ? "Connector 身份" : "Connector identity"}: {runtimeName}</small>
                       )}
                       {item.external_account_id && <small>ID: {item.external_account_id}</small>}
+                      {item.metadata.shared_connection === true && (
+                        <small>
+                          {zh
+                            ? "由 Super Admin 管理；当前账号只使用已认领 Server"
+                            : "Managed by the Super Admin; this account only uses claimed Servers"}
+                        </small>
+                      )}
                     </div>
                     <span className={`deployment-status status-${item.status}`}>
                       {statusLabel(item.status)}
                     </span>
-                    {!demoMode && (
+                    {!demoMode && item.metadata.shared_connection !== true && (
                       <div className="connection-card-actions">
                         <button
                           className="text-button"

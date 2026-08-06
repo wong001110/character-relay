@@ -18,6 +18,7 @@ from echo_masque.expression_retrieval import (
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
+    DiscordServerProfileRecord,
     PlatformConnectionRecord,
 )
 from echo_masque.persistence.expression_models import (
@@ -203,6 +204,15 @@ class ExpressionRepository:
     ) -> dict[str, int]:
         with self.database.session() as session:
             connection = self._connection(session, connection_id)
+            owner_ids = {
+                connection.owner_id,
+                *session.scalars(
+                    select(DiscordServerProfileRecord.owner_id).where(
+                        DiscordServerProfileRecord.connection_id == connection_id,
+                        DiscordServerProfileRecord.guild_id == guild_id,
+                    )
+                ),
+            }
             counts = {"emoji": 0, "sticker": 0}
             seen: dict[str, set[str]] = {"emoji": set(), "sticker": set()}
             for resource_type, items in (("emoji", emojis), ("sticker", stickers)):
@@ -222,39 +232,106 @@ class ExpressionRepository:
                         if isinstance(raw_tags, list)
                         else []
                     )
-                    self._upsert_catalog_resource(
-                        session,
-                        owner_id=connection.owner_id,
-                        connection_id=connection_id,
-                        guild_id=guild_id,
-                        resource_type=resource_type,
-                        resource_id=resource_id,
-                        name=name,
-                        description=str(item.get("description") or ""),
-                        tags=tags,
-                        format_type=str(item.get("format_type") or resource_type),
-                        asset_url=str(item.get("asset_url") or ""),
-                        animated=bool(item.get("animated", False)),
-                        available=bool(item.get("available", True)),
-                    )
+                    for owner_id in owner_ids:
+                        self._upsert_catalog_resource(
+                            session,
+                            owner_id=owner_id,
+                            connection_id=connection_id,
+                            guild_id=guild_id,
+                            resource_type=resource_type,
+                            resource_id=resource_id,
+                            name=name,
+                            description=str(item.get("description") or ""),
+                            tags=tags,
+                            format_type=str(item.get("format_type") or resource_type),
+                            asset_url=str(item.get("asset_url") or ""),
+                            animated=bool(item.get("animated", False)),
+                            available=bool(item.get("available", True)),
+                        )
                     seen[resource_type].add(resource_id)
                     counts[resource_type] += 1
-            for resource_type, resource_ids in seen.items():
-                records = list(
-                    session.scalars(
-                        select(DiscordExpressionSemanticRecord).where(
-                            DiscordExpressionSemanticRecord.owner_id == connection.owner_id,
-                            DiscordExpressionSemanticRecord.connection_id == connection_id,
-                            DiscordExpressionSemanticRecord.guild_id == guild_id,
-                            DiscordExpressionSemanticRecord.resource_type == resource_type,
+            for owner_id in owner_ids:
+                for resource_type, resource_ids in seen.items():
+                    records = list(
+                        session.scalars(
+                            select(DiscordExpressionSemanticRecord).where(
+                                DiscordExpressionSemanticRecord.owner_id == owner_id,
+                                DiscordExpressionSemanticRecord.connection_id == connection_id,
+                                DiscordExpressionSemanticRecord.guild_id == guild_id,
+                                DiscordExpressionSemanticRecord.resource_type == resource_type,
+                            )
                         )
                     )
-                )
-                for record in records:
-                    if record.resource_id not in resource_ids:
-                        record.available = False
+                    for record in records:
+                        if record.resource_id not in resource_ids:
+                            record.available = False
             session.commit()
             return counts
+
+    def clone_server_resources(
+        self,
+        *,
+        source_owner_id: str,
+        target_owner_id: str,
+        connection_id: str,
+        guild_id: str,
+    ) -> int:
+        """Seed one new claim with the current canonical resource metadata."""
+
+        with self.database.session() as session:
+            source = list(
+                session.scalars(
+                    select(DiscordExpressionSemanticRecord).where(
+                        DiscordExpressionSemanticRecord.owner_id == source_owner_id,
+                        DiscordExpressionSemanticRecord.connection_id == connection_id,
+                        DiscordExpressionSemanticRecord.guild_id == guild_id,
+                    )
+                )
+            )
+            created = 0
+            for item in source:
+                existing = session.scalar(
+                    select(DiscordExpressionSemanticRecord.id).where(
+                        DiscordExpressionSemanticRecord.owner_id == target_owner_id,
+                        DiscordExpressionSemanticRecord.connection_id == connection_id,
+                        DiscordExpressionSemanticRecord.guild_id == guild_id,
+                        DiscordExpressionSemanticRecord.resource_type == item.resource_type,
+                        DiscordExpressionSemanticRecord.resource_id == item.resource_id,
+                    )
+                )
+                if existing is not None:
+                    continue
+                session.add(
+                    DiscordExpressionSemanticRecord(
+                        id=str(uuid4()),
+                        owner_id=target_owner_id,
+                        connection_id=connection_id,
+                        guild_id=guild_id,
+                        resource_type=item.resource_type,
+                        resource_id=item.resource_id,
+                        name=item.name,
+                        description=item.description,
+                        tags_json=item.tags_json,
+                        format_type=item.format_type,
+                        asset_url=item.asset_url,
+                        animated=item.animated,
+                        available=item.available,
+                        enabled=item.enabled,
+                        semantic_intent=item.semantic_intent,
+                        semantic_emotion=item.semantic_emotion,
+                        semantic_description=item.semantic_description,
+                        aliases_json=item.aliases_json,
+                        situations_json=item.situations_json,
+                        avoid_when_json=item.avoid_when_json,
+                        allowed_actions_json=item.allowed_actions_json,
+                        semantic_source=item.semantic_source,
+                        semantic_confidence=item.semantic_confidence,
+                        last_seen_at=item.last_seen_at,
+                    )
+                )
+                created += 1
+            session.commit()
+            return created
 
     def list_resources(
         self,
@@ -311,7 +388,15 @@ class ExpressionRepository:
         with self.database.session() as session:
             connection = self._connection(session, connection_id)
             if connection.owner_id != owner_id:
-                raise KeyError("connection")
+                claim = session.scalar(
+                    select(DiscordServerProfileRecord.id).where(
+                        DiscordServerProfileRecord.owner_id == owner_id,
+                        DiscordServerProfileRecord.connection_id == connection_id,
+                        DiscordServerProfileRecord.guild_id == guild_id,
+                    )
+                )
+                if claim is None:
+                    raise KeyError("connection")
             record = self._upsert_catalog_resource(
                 session,
                 owner_id=owner_id,

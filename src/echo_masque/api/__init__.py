@@ -44,6 +44,7 @@ from echo_masque.config import Settings, get_settings
 from echo_masque.connector_runtime import DiscordConnectorRuntime
 from echo_masque.coverage_analytics import CoverageAnalyticsService
 from echo_masque.credentials import CredentialVault
+from echo_masque.discord_inventory import DiscordInventoryService
 from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
 from echo_masque.judge_evaluation import JudgeEvaluationService
 from echo_masque.persistence import (
@@ -92,13 +93,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     auth_service = AuthService(auth_repository, resolved)
     auth_service.ensure_development_user()
     auth_service.ensure_system_runtime_user()
-    auth_service.ensure_bootstrap_admin()
+    bootstrap_admin = auth_service.ensure_bootstrap_admin()
 
     repository = Repository(database)
     deployment_repository = DeploymentRepository(database)
     discord_identity_repository = DiscordIdentityRepository(database)
     interaction_repository = InteractionRepository(database)
     expression_repository = ExpressionRepository(database)
+    if bootstrap_admin is not None:
+        centralized = DiscordInventoryService(database).centralize(bootstrap_admin.id)
+        if any(centralized.values()):
+            logger.info("Centralized Discord inventory: %s", centralized)
     provider_trace_repository = ProviderTraceRepository(
         database,
         retention_days=resolved.provider_trace_retention_days,

@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 
 import {
   api,
@@ -111,6 +111,71 @@ export function CharacterCreator({
   );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(!editing);
+  const [assistantBrief, setAssistantBrief] = useState("");
+  const [assistantRelationship, setAssistantRelationship] = useState("");
+  const [assistantConstraints, setAssistantConstraints] = useState("");
+  const [assistantWorking, setAssistantWorking] = useState(false);
+  const [assistantMessage, setAssistantMessage] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
+
+  function setFormValue(name: string, value: string) {
+    const element = formRef.current?.elements.namedItem(name);
+    if (
+      element instanceof HTMLInputElement ||
+      element instanceof HTMLTextAreaElement ||
+      element instanceof HTMLSelectElement
+    ) {
+      element.value = value;
+    }
+  }
+
+  async function generateCharacterDraft() {
+    const concept = assistantBrief.trim();
+    if (concept.length < 10) {
+      setAssistantMessage(
+        zh ? "先用至少十个字描述角色定位与核心想法。" : "Describe the character concept in at least ten characters."
+      );
+      return;
+    }
+    try {
+      setAssistantWorking(true);
+      setAssistantMessage(null);
+      const suggestion = await api.suggestCharacter({
+        concept,
+        name_hint: String(
+          (formRef.current?.elements.namedItem("display_name") as HTMLInputElement | null)
+            ?.value ?? ""
+        ),
+        relationship_context: assistantRelationship.trim(),
+        writing_constraints: assistantConstraints.trim(),
+        subject_type_hint: String(
+          (formRef.current?.elements.namedItem("subject_type") as HTMLSelectElement | null)
+            ?.value ?? "custom"
+        ) as CharacterCard["subject_type"],
+        language: zh ? "zh-CN" : "en"
+      });
+      setFormValue("display_name", suggestion.display_name);
+      setFormValue("subtitle", suggestion.subtitle);
+      setFormValue("subject_type", suggestion.subject_type);
+      setFormValue("persona_summary", suggestion.persona_summary);
+      setFormValue("traits", suggestion.traits.join("\n"));
+      setFormValue("tags", suggestion.tags.join("\n"));
+      setFormValue("expected_tone", suggestion.expected_tone);
+      setFormValue("forbidden_behaviors", suggestion.forbidden_behaviors.join("\n"));
+      setFormValue("memory_summary", suggestion.memory_summary);
+      if (promptFields) setFormValue("system_prompt", suggestion.system_prompt);
+      setAssistantMessage(
+        zh
+          ? `已使用 ${suggestion.provider_model} 填入角色草稿。请逐区审核后再保存。`
+          : `Drafted with ${suggestion.provider_model}. Review every section before saving.`
+      );
+    } catch (reason) {
+      setAssistantMessage(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setAssistantWorking(false);
+    }
+  }
 
   function changeProvider(nextProvider: ProviderId) {
     const preset = getProviderPreset(nextProvider);
@@ -174,7 +239,7 @@ export function CharacterCreator({
       ariaLabel={editing ? t("creator.editHeading") : t("creator.heading")}
       className="character-editor-drawer"
     >
-      <form className="notebook-form-paper" onSubmit={submit}>
+      <form ref={formRef} className="notebook-form-paper" onSubmit={submit}>
         <header className="notebook-form-intro">
           <p className="tape-label">
             {editing ? t("creator.editLabel") : t("creator.label")}
@@ -186,6 +251,85 @@ export function CharacterCreator({
               : "Treat this as a living character notebook: define who they are, then document their voice, boundaries, and memory. Each section includes a writing guide."}
           </p>
         </header>
+
+        <section className={`character-ai-drafter${assistantOpen ? " is-open" : ""}`}>
+          <button
+            className="character-ai-drafter-toggle"
+            type="button"
+            onClick={() => setAssistantOpen((current) => !current)}
+            aria-expanded={assistantOpen}
+          >
+            <span className="toolbox-sticker sticker-lavender">AI DRAFT</span>
+            <span>
+              <strong>{zh ? "让 AI 帮你起草角色卡" : "Draft the Character Card with AI"}</strong>
+              <small>
+                {zh
+                  ? "描述一次，回填 Persona、Traits、Tone、边界、记忆与 System Prompt。"
+                  : "Describe once, then review Persona, Traits, Tone, boundaries, memory, and System Prompt."}
+              </small>
+            </span>
+            <b aria-hidden="true">{assistantOpen ? "−" : "+"}</b>
+          </button>
+          {assistantOpen && (
+            <div className="character-ai-drafter-body">
+              <NotebookField
+                className="is-wide"
+                label={zh ? "角色概念与核心定位" : "Character concept and core positioning"}
+                guide={zh ? "写身份、性格方向、主要关系、世界观或用途。" : "Describe identity, personality direction, relationships, world, or purpose."}
+                required
+              >
+                <NotebookTextarea
+                  rows={5}
+                  value={assistantBrief}
+                  onChange={(event) => setAssistantBrief(event.currentTarget.value)}
+                  placeholder={
+                    zh
+                      ? "例如：一位擅长把混乱需求整理成产品路线图的 AI 产品制作人，务实、好奇，但容易同时开太多项目。"
+                      : "Example: an AI product producer who turns vague ideas into executable roadmaps; practical and curious, but prone to starting too many projects."
+                  }
+                />
+              </NotebookField>
+              <NotebookField label={zh ? "关系与互动背景" : "Relationship and interaction context"}>
+                <NotebookTextarea
+                  rows={3}
+                  value={assistantRelationship}
+                  onChange={(event) => setAssistantRelationship(event.currentTarget.value)}
+                  placeholder={zh ? "角色与用户或其他角色是什么关系？" : "How does the character relate to the user or other characters?"}
+                />
+              </NotebookField>
+              <NotebookField label={zh ? "额外限制" : "Additional constraints"}>
+                <NotebookTextarea
+                  rows={3}
+                  value={assistantConstraints}
+                  onChange={(event) => setAssistantConstraints(event.currentTarget.value)}
+                  placeholder={zh ? "不要使用的语气、必须保留的设定、语言偏好等。" : "Voice to avoid, required canon, language preferences, and other constraints."}
+                />
+              </NotebookField>
+              <div className="character-ai-drafter-actions">
+                <button
+                  className="ink-button"
+                  type="button"
+                  onClick={() => void generateCharacterDraft()}
+                  disabled={assistantWorking || saving}
+                >
+                  {assistantWorking
+                    ? zh
+                      ? "生成中…"
+                      : "Generating…"
+                    : zh
+                      ? "生成并填入草稿"
+                      : "Generate and fill draft"}
+                </button>
+                <small>
+                  {zh
+                    ? "AI 不会自动保存，也不会改动 API Key 或 Provider 设置。"
+                    : "AI never saves automatically and does not change Provider credentials."}
+                </small>
+              </div>
+              {assistantMessage && <p className="character-ai-drafter-message">{assistantMessage}</p>}
+            </div>
+          )}
+        </section>
 
         {!editing && (
           <div className="binding-tabs notebook-binding-tabs" aria-label={t("creator.bindingAria")}>

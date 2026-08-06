@@ -4,7 +4,7 @@ from typing import cast
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
-from echo_masque.api.dependencies import CurrentUserDependency
+from echo_masque.api.dependencies import CurrentUserDependency, is_super_admin
 from echo_masque.api.deployment_schemas import (
     CharacterDeploymentCreate,
     CharacterDeploymentPage,
@@ -14,6 +14,7 @@ from echo_masque.api.deployment_schemas import (
     DiscordConnectorLogPage,
     DiscordConnectorLogView,
     DiscordServerCatalogView,
+    DiscordServerClaimCreate,
     DiscordServerProfileCreate,
     DiscordServerProfileUpdate,
     DiscordServerProfileView,
@@ -22,8 +23,10 @@ from echo_masque.api.deployment_schemas import (
     PlatformConnectionView,
 )
 from echo_masque.persistence import (
+    AuthRepository,
     DeploymentConflict,
     DeploymentRepository,
+    ExpressionRepository,
     InteractionRepository,
     Repository,
 )
@@ -42,6 +45,30 @@ def character_repository(request: Request) -> Repository:
 
 def interaction_repository(request: Request) -> InteractionRepository:
     return cast(InteractionRepository, request.app.state.interaction_repository)
+
+
+def expression_repository(request: Request) -> ExpressionRepository:
+    return cast(ExpressionRepository, request.app.state.expression_repository)
+
+
+def auth_repository(request: Request) -> AuthRepository:
+    return cast(AuthRepository, request.app.state.auth_repository)
+
+
+def super_admin_id(request: Request) -> str:
+    email = request.app.state.settings.bootstrap_admin_email
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Bootstrap Super Admin is not configured.",
+        )
+    record = auth_repository(request).get_user_by_email(email.casefold().strip())
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Bootstrap Super Admin is not available.",
+        )
+    return record.id
 
 
 def deployment_view(
@@ -67,10 +94,23 @@ def list_connections(
     request: Request,
     user: CurrentUserDependency,
 ) -> list[PlatformConnectionView]:
-    return [
-        PlatformConnectionView.from_record(item)
-        for item in deployment_repository(request).list_connections(user.id)
-    ]
+    repo = deployment_repository(request)
+    own = repo.list_connections(user.id)
+    shared = repo.list_shared_connections_for_profiles(user.id)
+    views = [PlatformConnectionView.from_record(item) for item in own]
+    known = {item.id for item in own}
+    for item in shared:
+        if item.id in known:
+            continue
+        view = PlatformConnectionView.from_record(item)
+        view.display_name = "Character Relay Discord Bot"
+        view.external_account_id = ""
+        view.metadata = {
+            "shared_connection": True,
+            "connector_display_name": "Character Relay Discord Bot",
+        }
+        views.append(view)
+    return views
 
 
 @router.post(
@@ -83,6 +123,14 @@ def create_connection(
     request: Request,
     user: CurrentUserDependency,
 ) -> PlatformConnectionView:
+    if payload.platform == "discord" and not is_super_admin(user, request.app.state.settings):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "The managed Discord Bot is controlled by the Super Admin. "
+                "Claim a Server by ID instead."
+            ),
+        )
     record = deployment_repository(request).create_connection(
         owner_id=user.id,
         platform=payload.platform,
@@ -149,13 +197,17 @@ def list_discord_server_catalog(
     user: CurrentUserDependency,
     connection_id: str | None = Query(default=None, max_length=64),
 ) -> list[DiscordServerCatalogView]:
-    return [
-        DiscordServerCatalogView.from_record(item)
-        for item in deployment_repository(request).list_discord_server_catalog(
-            user.id,
+    repo = deployment_repository(request)
+    if is_super_admin(user, request.app.state.settings):
+        records = repo.list_discord_server_catalog(
+            super_admin_id(request),
             connection_id=connection_id,
         )
-    ]
+    else:
+        records = repo.list_claimed_discord_server_catalog(user.id)
+        if connection_id is not None:
+            records = [item for item in records if item.connection_id == connection_id]
+    return [DiscordServerCatalogView.from_record(item) for item in records]
 
 
 @router.get(
@@ -170,6 +222,43 @@ def list_discord_server_profiles(
         DiscordServerProfileView.from_record(item)
         for item in deployment_repository(request).list_server_profiles(user.id)
     ]
+
+
+@router.post(
+    "/discord/server-profiles/claim",
+    response_model=DiscordServerProfileView,
+    status_code=status.HTTP_201_CREATED,
+)
+def claim_discord_server_profile(
+    payload: DiscordServerClaimCreate,
+    request: Request,
+    user: CurrentUserDependency,
+) -> DiscordServerProfileView:
+    catalog_owner_id = super_admin_id(request)
+    try:
+        record = deployment_repository(request).claim_server_profile(
+            owner_id=user.id,
+            catalog_owner_id=catalog_owner_id,
+            guild_id=payload.guild_id.strip(),
+            name=payload.name,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Server ID was not found. Add the Character Relay Bot to that Discord "
+                "Server and wait for the next catalog sync before trying again."
+            ),
+        ) from exc
+    except DeploymentConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    expression_repository(request).clone_server_resources(
+        source_owner_id=catalog_owner_id,
+        target_owner_id=user.id,
+        connection_id=record.connection_id,
+        guild_id=record.guild_id,
+    )
+    return DiscordServerProfileView.from_record(record)
 
 
 @router.post(
@@ -274,8 +363,19 @@ def list_discord_logs(
         if connection is None or connection.platform != "discord":
             raise HTTPException(status_code=404, detail="Discord connection not found.")
 
+    event_owner_id = user.id
+    if resolved_connection_id is not None:
+        connection = repo.get_connection(resolved_connection_id, user.id)
+        if connection is None:
+            shared = {
+                item.id: item for item in repo.list_shared_connections_for_profiles(user.id)
+            }
+            connection = shared.get(resolved_connection_id)
+        if connection is not None:
+            event_owner_id = connection.owner_id
+
     records, safe_page, total, pages = repo.list_discord_events(
-        user.id,
+        event_owner_id,
         page=page,
         page_size=page_size,
         connection_id=resolved_connection_id,
