@@ -1,0 +1,262 @@
+import { beforeEach, describe, expect, it } from "vitest";
+
+import {
+  configureSmartParticipation,
+  consumeSmartSelection,
+  evaluateSmartParticipation,
+  markExplicitSmartSelections,
+  parseSmartParticipationProfiles,
+  resetSmartParticipationState
+} from "./smartParticipation.js";
+import type { DiscordDeployment } from "./types.js";
+
+function deployment(
+  id: string,
+  name: string,
+  characterCardId: string,
+  overrides: Partial<DiscordDeployment> = {}
+): DiscordDeployment {
+  return {
+    deployment_id: id,
+    connection_id: "connection-1",
+    character_card_id: characterCardId,
+    character_display_name: name,
+    workspace_id: "guild-1",
+    workspace_name: "Guild",
+    channel_id: "channel-1",
+    channel_name: "general",
+    thread_id: "",
+    thread_name: "",
+    category_id: "category-1",
+    server_profile_id: "",
+    channel_scope_mode: "exact",
+    excluded_channel_ids: [],
+    excluded_category_ids: [],
+    participation_mode: "smart",
+    version_label: "Current",
+    status: "active",
+    identity_mode: "webhook",
+    identity_display_name: name,
+    identity_avatar_url: "",
+    address_aliases: [],
+    webhook_status: "pending",
+    webhook_id: null,
+    webhook_token: null,
+    ...overrides
+  };
+}
+
+const zhi = deployment("deploy-zhi", "织 · Zhi", "character-zhi", {
+  address_aliases: ["织", "Zhi"]
+});
+const ann = deployment("deploy-ann", "安 · Ann", "character-ann", {
+  address_aliases: ["安", "Ann"]
+});
+
+function configure(overrides: Parameters<typeof configureSmartParticipation>[0] = {}): void {
+  configureSmartParticipation({
+    enabled: true,
+    profiles: {
+      "character-zhi": {
+        topics: ["discord deployment", "software development", "rag"],
+        keywords: ["discord", "deploy", "deployment", "api", "bug"],
+        trigger_phrases: ["why", "怎么", "为什么", "有人知道"],
+        avoid_phrases: ["不用回答", "just documenting"],
+        initiative: 0.5,
+        minimum_score: 5,
+        cooldown_seconds: 120
+      },
+      "character-ann": {
+        topics: ["daily life", "emotional support"],
+        keywords: ["tired", "sad", "累", "难过"],
+        initiative: 0.3,
+        minimum_score: 5,
+        cooldown_seconds: 120
+      }
+    },
+    minimumMargin: 2,
+    channelCooldownSeconds: 45,
+    windowSeconds: 600,
+    maxRepliesPerWindow: 3,
+    ...overrides
+  });
+}
+
+describe("deterministic Smart Participation", () => {
+  beforeEach(() => {
+    resetSmartParticipationState();
+  });
+
+  it("parses connector profile JSON", () => {
+    expect(
+      parseSmartParticipationProfiles(
+        JSON.stringify({
+          "character-zhi": {
+            topics: ["RAG", "Discord"],
+            initiative: 0.5,
+            minimum_score: 5
+          }
+        })
+      )
+    ).toEqual({
+      "character-zhi": {
+        topics: ["RAG", "Discord"],
+        keywords: undefined,
+        trigger_phrases: undefined,
+        avoid_phrases: undefined,
+        initiative: 0.5,
+        minimum_score: 5,
+        cooldown_seconds: undefined
+      }
+    });
+  });
+
+  it("rejects malformed profile JSON", () => {
+    expect(() => parseSmartParticipationProfiles("[]")).toThrow(
+      "must be a JSON object"
+    );
+    expect(() =>
+      parseSmartParticipationProfiles(
+        JSON.stringify({ "character-zhi": { topics: "RAG" } })
+      )
+    ).toThrow("topics must be an array of strings");
+  });
+
+  it("selects the strongest relevant character and exposes scoring signals", () => {
+    configure();
+    const result = evaluateSmartParticipation(
+      [ann, zhi],
+      "有人知道为什么 Discord deployment 没反应吗？",
+      1_000_000
+    );
+
+    expect(result.reason).toBe("selected");
+    expect(result.selectedDeployment?.deployment_id).toBe(zhi.deployment_id);
+    expect(result.candidates[0]?.signals.question).toBe(2);
+    expect(result.candidates[0]?.signals.help_request).toBe(2);
+    expect(result.candidates[0]?.matchedKeywords).toContain("discord");
+    expect(consumeSmartSelection(zhi.deployment_id)).toBe(true);
+    expect(consumeSmartSelection(zhi.deployment_id)).toBe(false);
+  });
+
+  it("stays silent for low-information acknowledgements", () => {
+    configure();
+    const result = evaluateSmartParticipation([ann, zhi], "好的", 1_000_000);
+
+    expect(result.reason).toBe("low_information_message");
+    expect(result.selectedDeployment).toBeNull();
+  });
+
+  it("stays silent when every candidate is below its threshold", () => {
+    configure();
+    const result = evaluateSmartParticipation(
+      [ann, zhi],
+      "今天频道很安静。",
+      1_000_000
+    );
+
+    expect(result.reason).toBe("below_threshold");
+    expect(result.selectedDeployment).toBeNull();
+  });
+
+  it("stays silent when the leading characters are too close", () => {
+    configure({
+      profiles: {
+        "character-zhi": {
+          topics: ["project"],
+          minimum_score: 2,
+          cooldown_seconds: 0
+        },
+        "character-ann": {
+          topics: ["project"],
+          minimum_score: 2,
+          cooldown_seconds: 0
+        }
+      },
+      minimumMargin: 2
+    });
+    const result = evaluateSmartParticipation(
+      [ann, zhi],
+      "这个 project 应该怎么继续？",
+      1_000_000
+    );
+
+    expect(result.reason).toBe("ambiguous_margin");
+    expect(result.selectedDeployment).toBeNull();
+  });
+
+  it("respects avoid phrases before scoring", () => {
+    configure();
+    const result = evaluateSmartParticipation(
+      [zhi],
+      "Discord deployment 还是没反应，不过不用回答，我只是记录一下。",
+      1_000_000
+    );
+
+    expect(result.reason).toBe("below_threshold");
+    expect(result.candidates[0]?.eligible).toBe(false);
+    expect(result.candidates[0]?.signals.avoid_phrase_blocked).toBe(1);
+  });
+
+  it("enforces channel cooldown after a proactive selection", () => {
+    configure();
+    const first = evaluateSmartParticipation(
+      [zhi],
+      "为什么 Discord deployment 没反应？",
+      1_000_000
+    );
+    const second = evaluateSmartParticipation(
+      [zhi],
+      "另一个 Discord bug 怎么解决？",
+      1_010_000
+    );
+
+    expect(first.reason).toBe("selected");
+    expect(second.reason).toBe("channel_cooldown");
+  });
+
+  it("enforces a per-channel reply limit", () => {
+    configure({
+      channelCooldownSeconds: 0,
+      windowSeconds: 600,
+      maxRepliesPerWindow: 2,
+      profiles: {
+        "character-zhi": {
+          keywords: ["discord"],
+          minimum_score: 2,
+          cooldown_seconds: 0
+        }
+      }
+    });
+
+    expect(
+      evaluateSmartParticipation([zhi], "Discord issue one?", 1_000_000).reason
+    ).toBe("selected");
+    expect(
+      evaluateSmartParticipation([zhi], "Discord issue two?", 1_001_000).reason
+    ).toBe("selected");
+    expect(
+      evaluateSmartParticipation([zhi], "Discord issue three?", 1_002_000).reason
+    ).toBe("channel_rate_limit");
+  });
+
+  it("marks explicitly addressed Smart deployments without counting a proactive decision", () => {
+    configure();
+    markExplicitSmartSelections([ann, zhi]);
+
+    expect(consumeSmartSelection(ann.deployment_id)).toBe(true);
+    expect(consumeSmartSelection(zhi.deployment_id)).toBe(true);
+  });
+
+  it("does not select candidates while the runtime is disabled", () => {
+    configureSmartParticipation({ enabled: false });
+    const result = evaluateSmartParticipation(
+      [zhi],
+      "为什么 Discord deployment 没反应？",
+      1_000_000
+    );
+
+    expect(result.reason).toBe("disabled");
+    expect(consumeSmartSelection(zhi.deployment_id)).toBe(false);
+  });
+});
