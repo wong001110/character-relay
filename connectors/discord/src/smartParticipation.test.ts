@@ -101,12 +101,8 @@ describe("deterministic Smart Participation", () => {
     ).toEqual({
       "character-zhi": {
         topics: ["RAG", "Discord"],
-        keywords: undefined,
-        trigger_phrases: undefined,
-        avoid_phrases: undefined,
         initiative: 0.5,
-        minimum_score: 5,
-        cooldown_seconds: undefined
+        minimum_score: 5
       }
     });
   });
