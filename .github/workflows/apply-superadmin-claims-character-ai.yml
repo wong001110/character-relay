@@ -23,7 +23,9 @@ jobs:
           node-version: "20"
 
       - name: Apply integrations
-        run: python scripts/apply_superadmin_claims_character_ai.py
+        run: |
+          python scripts/apply_superadmin_claims_character_ai.py
+          python scripts/repair_superadmin_claims_character_ai.py
 
       - name: Validate Python
         run: |
@@ -54,6 +56,7 @@ jobs:
         run: |
           rm -f .github/workflows/apply-superadmin-claims-character-ai.yml
           rm -f scripts/apply_superadmin_claims_character_ai.py
+          rm -f scripts/repair_superadmin_claims_character_ai.py
           rm -f web/package-lock.json web/tsconfig.tsbuildinfo
           rm -f connectors/discord/package-lock.json connectors/discord/tsconfig.tsbuildinfo
           rm -rf web/dist connectors/discord/dist
