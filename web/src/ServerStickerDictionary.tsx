@@ -1,4 +1,10 @@
-import { useEffect, useState, type FormEvent } from "react";
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent
+} from "react";
 
 import type { DiscordServerProfile } from "./deploymentApi";
 import {
@@ -37,6 +43,7 @@ export function ServerStickerDictionary({ profile, demoMode, zh, onError }: Prop
   const [tab, setTab] = useState<DictionaryTab>("emoji");
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
+  const editorRef = useRef<HTMLFormElement | null>(null);
 
   async function load() {
     try {
@@ -61,6 +68,17 @@ export function ServerStickerDictionary({ profile, demoMode, zh, onError }: Prop
     void load();
   }, [profile.connection_id, profile.guild_id]);
 
+  useEffect(() => {
+    if (!editing) return;
+    const timer = window.setTimeout(() => {
+      editorRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest"
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [editing?.id]);
+
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editing) return;
@@ -70,7 +88,7 @@ export function ServerStickerDictionary({ profile, demoMode, zh, onError }: Prop
     ) as Array<"inline" | "reaction" | "sticker">;
     try {
       setWorking(true);
-      await interactionApi.saveExpression({
+      const saved = await interactionApi.saveExpression({
         connection_id: editing.connection_id,
         guild_id: editing.guild_id,
         resource_type: editing.resource_type,
@@ -95,8 +113,11 @@ export function ServerStickerDictionary({ profile, demoMode, zh, onError }: Prop
             ? ["inline", "reaction"]
             : ["sticker"]
       });
+      setResources((current) =>
+        current.map((item) => (item.id === saved.id ? saved : item))
+      );
       setEditing(null);
-      await load();
+      onError("");
     } catch (reason) {
       onError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -113,6 +134,130 @@ export function ServerStickerDictionary({ profile, demoMode, zh, onError }: Prop
     } finally {
       setWorking(false);
     }
+  }
+
+  function selectTab(nextTab: DictionaryTab) {
+    setEditing(null);
+    setSelectedRun(null);
+    setTab(nextTab);
+  }
+
+  function toggleEditor(item: ExpressionSemantic) {
+    setEditing((current) => (current?.id === item.id ? null : item));
+  }
+
+  function editor(item: ExpressionSemantic) {
+    return (
+      <form
+        ref={editorRef}
+        className="sticker-meaning-editor expression-meaning-editor expression-inline-editor"
+        onSubmit={save}
+      >
+        <div className="sticker-editor-identity">
+          <div className="server-sticker-preview compact">
+            {item.asset_url ? <img src={item.asset_url} alt="" /> : <span>✦</span>}
+          </div>
+          <div>
+            <strong>{item.name}</strong>
+            <small>{profile.guild_name} · {item.resource_key}</small>
+          </div>
+          <button className="text-button" type="button" onClick={() => setEditing(null)}>
+            {zh ? "取消" : "Cancel"}
+          </button>
+        </div>
+        <div className="sticker-editor-fields expression-editor-fields">
+          <NotebookField label="Intent">
+            <NotebookInput name="semantic_intent" defaultValue={item.semantic_intent} />
+          </NotebookField>
+          <NotebookField label="Emotion">
+            <NotebookInput
+              name="semantic_emotion"
+              defaultValue={item.semantic_emotion}
+              placeholder="curious / amused / shy"
+            />
+          </NotebookField>
+          <NotebookField
+            className="drawer-form-wide"
+            label={zh ? "角色应理解的含义" : "Meaning supplied to characters"}
+          >
+            <NotebookTextarea
+              name="semantic_description"
+              rows={5}
+              required
+              defaultValue={item.semantic_description}
+            />
+          </NotebookField>
+          <NotebookField
+            label={zh ? "别名" : "Aliases"}
+            guide={zh ? "每行或逗号分隔。" : "One per line or comma."}
+          >
+            <NotebookTextarea name="aliases" rows={3} defaultValue={item.aliases.join("\n")} />
+          </NotebookField>
+          <NotebookField
+            label={zh ? "适用情境" : "Use when"}
+            guide={zh ? "描述适合出现的语境。" : "Describe suitable situations."}
+          >
+            <NotebookTextarea
+              name="situations"
+              rows={3}
+              defaultValue={item.situations.join("\n")}
+            />
+          </NotebookField>
+          <NotebookField className="drawer-form-wide" label={zh ? "避免情境" : "Avoid when"}>
+            <NotebookTextarea
+              name="avoid_when"
+              rows={3}
+              defaultValue={item.avoid_when.join("\n")}
+            />
+          </NotebookField>
+        </div>
+        <div className="expression-action-options">
+          <label>
+            <input type="checkbox" name="enabled" defaultChecked={item.enabled} />
+            {zh ? "启用资源" : "Enabled"}
+          </label>
+          {item.resource_type === "emoji" && (
+            <>
+              <label>
+                <input
+                  type="checkbox"
+                  name="allow_inline"
+                  defaultChecked={item.allowed_actions.includes("inline")}
+                />
+                Inline
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  name="allow_reaction"
+                  defaultChecked={item.allowed_actions.includes("reaction")}
+                />
+                Reaction
+              </label>
+            </>
+          )}
+          {item.resource_type === "sticker" && (
+            <label>
+              <input
+                type="checkbox"
+                name="allow_sticker"
+                defaultChecked={item.allowed_actions.includes("sticker")}
+              />
+              Sticker
+            </label>
+          )}
+        </div>
+        <button className="ink-button" disabled={working}>
+          {working
+            ? zh
+              ? "保存中…"
+              : "Saving…"
+            : zh
+              ? "保存 Expression 定义"
+              : "Save expression definition"}
+        </button>
+      </form>
+    );
   }
 
   const visibleResources = resources.filter((item) => item.resource_type === tab);
@@ -136,21 +281,21 @@ export function ServerStickerDictionary({ profile, demoMode, zh, onError }: Prop
         <button
           type="button"
           className={tab === "emoji" ? "active" : ""}
-          onClick={() => setTab("emoji")}
+          onClick={() => selectTab("emoji")}
         >
           Emoji · {resources.filter((item) => item.resource_type === "emoji").length}
         </button>
         <button
           type="button"
           className={tab === "sticker" ? "active" : ""}
-          onClick={() => setTab("sticker")}
+          onClick={() => selectTab("sticker")}
         >
           Sticker · {resources.filter((item) => item.resource_type === "sticker").length}
         </button>
         <button
           type="button"
           className={tab === "history" ? "active" : ""}
-          onClick={() => setTab("history")}
+          onClick={() => selectTab("history")}
         >
           {zh ? "决策记录" : "Decision runs"} · {runs.length}
         </button>
@@ -164,47 +309,71 @@ export function ServerStickerDictionary({ profile, demoMode, zh, onError }: Prop
             </div>
           ) : visibleResources.length ? (
             <div className="server-sticker-grid">
-              {visibleResources.map((item) => (
-                <article
-                  className={`server-sticker-card expression-resource-card${
-                    item.available && item.enabled ? "" : " is-muted"
-                  }`}
-                  key={item.id}
-                >
-                  <div className="server-sticker-preview">
-                    {item.asset_url ? (
-                      <img src={item.asset_url} alt="" loading="lazy" />
-                    ) : (
-                      <span aria-hidden="true">{item.resource_type === "emoji" ? "🙂" : "✦"}</span>
-                    )}
-                  </div>
-                  <div className="server-sticker-copy">
-                    <div className="server-sticker-title-row">
-                      <strong>{item.name}</strong>
-                      <span className={`sticker-source source-${item.semantic_source}`}>
-                        {item.semantic_source}
-                      </span>
-                      {!item.available && <span className="expression-resource-state">unavailable</span>}
-                      {!item.enabled && <span className="expression-resource-state">disabled</span>}
-                    </div>
-                    <small>{item.resource_key} · {item.allowed_actions.join(" / ")}</small>
-                    <p>
-                      {item.semantic_description ||
-                        (zh ? "尚未配置角色语义。" : "No character meaning configured yet.")}
-                    </p>
-                    <div className="server-sticker-meta">
-                      <span>{item.semantic_intent || "—"}</span>
-                      <span>{item.semantic_emotion || "—"}</span>
-                      <span>{Math.round(item.semantic_confidence * 100)}%</span>
-                    </div>
-                  </div>
-                  {!demoMode && (
-                    <button className="paper-button" type="button" onClick={() => setEditing(item)}>
-                      {zh ? "编辑定义" : "Edit definition"}
-                    </button>
-                  )}
-                </article>
-              ))}
+              {visibleResources.map((item) => {
+                const isEditing = editing?.id === item.id;
+                return (
+                  <Fragment key={item.id}>
+                    <article
+                      className={`server-sticker-card expression-resource-card${
+                        item.available && item.enabled ? "" : " is-muted"
+                      }${isEditing ? " is-editing" : ""}`}
+                    >
+                      <div className="server-sticker-preview">
+                        {item.asset_url ? (
+                          <img src={item.asset_url} alt="" loading="lazy" />
+                        ) : (
+                          <span aria-hidden="true">
+                            {item.resource_type === "emoji" ? "🙂" : "✦"}
+                          </span>
+                        )}
+                      </div>
+                      <div className="server-sticker-copy">
+                        <div className="server-sticker-title-row">
+                          <strong>{item.name}</strong>
+                          <span className={`sticker-source source-${item.semantic_source}`}>
+                            {item.semantic_source}
+                          </span>
+                          {!item.available && (
+                            <span className="expression-resource-state">unavailable</span>
+                          )}
+                          {!item.enabled && (
+                            <span className="expression-resource-state">disabled</span>
+                          )}
+                        </div>
+                        <small>{item.resource_key} · {item.allowed_actions.join(" / ")}</small>
+                        <p>
+                          {item.semantic_description ||
+                            (zh
+                              ? "尚未配置角色语义。"
+                              : "No character meaning configured yet.")}
+                        </p>
+                        <div className="server-sticker-meta">
+                          <span>{item.semantic_intent || "—"}</span>
+                          <span>{item.semantic_emotion || "—"}</span>
+                          <span>{Math.round(item.semantic_confidence * 100)}%</span>
+                        </div>
+                      </div>
+                      {!demoMode && (
+                        <button
+                          className="paper-button"
+                          type="button"
+                          aria-expanded={isEditing}
+                          onClick={() => toggleEditor(item)}
+                        >
+                          {isEditing
+                            ? zh
+                              ? "收起编辑"
+                              : "Close editor"
+                            : zh
+                              ? "编辑定义"
+                              : "Edit definition"}
+                        </button>
+                      )}
+                    </article>
+                    {isEditing && !demoMode && editor(item)}
+                  </Fragment>
+                );
+              })}
             </div>
           ) : (
             <div className="server-sticker-empty">
@@ -234,7 +403,9 @@ export function ServerStickerDictionary({ profile, demoMode, zh, onError }: Prop
                   key={run.id}
                   onClick={() => void openRun(run)}
                 >
-                  <span className={`expression-run-status status-${run.status}`}>{run.status}</span>
+                  <span className={`expression-run-status status-${run.status}`}>
+                    {run.status}
+                  </span>
                   <strong>{run.selected_action}</strong>
                   <small>{run.selected_resource_key || "no resource"}</small>
                   <small>{new Date(run.updated_at).toLocaleString()}</small>
@@ -242,7 +413,9 @@ export function ServerStickerDictionary({ profile, demoMode, zh, onError }: Prop
               ))
             ) : (
               <div className="server-sticker-empty">
-                {zh ? "角色使用 Expression 后会在这里显示节点记录。" : "Expression workflow nodes appear here after a character decision."}
+                {zh
+                  ? "角色使用 Expression 后会在这里显示节点记录。"
+                  : "Expression workflow nodes appear here after a character decision."}
               </div>
             )}
           </div>
@@ -259,10 +432,22 @@ export function ServerStickerDictionary({ profile, demoMode, zh, onError }: Prop
                   </span>
                 </header>
                 <dl>
-                  <div><dt>{zh ? "当前节点" : "Current node"}</dt><dd>{selectedRun.current_node}</dd></div>
-                  <div><dt>{zh ? "尝试次数" : "Attempts"}</dt><dd>{selectedRun.attempt_count}</dd></div>
-                  <div><dt>{zh ? "选择动作" : "Selected action"}</dt><dd>{selectedRun.selected_action}</dd></div>
-                  <div><dt>{zh ? "资源" : "Resource"}</dt><dd>{selectedRun.selected_resource_key || "—"}</dd></div>
+                  <div>
+                    <dt>{zh ? "当前节点" : "Current node"}</dt>
+                    <dd>{selectedRun.current_node}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "尝试次数" : "Attempts"}</dt>
+                    <dd>{selectedRun.attempt_count}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "选择动作" : "Selected action"}</dt>
+                    <dd>{selectedRun.selected_action}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "资源" : "Resource"}</dt>
+                    <dd>{selectedRun.selected_resource_key || "—"}</dd>
+                  </div>
                 </dl>
                 <div className="expression-node-list">
                   {selectedRun.nodes.map((node) => (
@@ -289,72 +474,13 @@ export function ServerStickerDictionary({ profile, demoMode, zh, onError }: Prop
               </>
             ) : (
               <div className="server-sticker-empty">
-                {zh ? "选择一条 Run 查看完整节点状态。" : "Select a run to inspect every persisted node."}
+                {zh
+                  ? "选择一条 Run 查看完整节点状态。"
+                  : "Select a run to inspect every persisted node."}
               </div>
             )}
           </div>
         </section>
-      )}
-
-      {editing && !demoMode && (
-        <form className="sticker-meaning-editor expression-meaning-editor" onSubmit={save} key={editing.id}>
-          <div className="sticker-editor-identity">
-            <div className="server-sticker-preview compact">
-              {editing.asset_url ? <img src={editing.asset_url} alt="" /> : <span>✦</span>}
-            </div>
-            <div>
-              <strong>{editing.name}</strong>
-              <small>{profile.guild_name} · {editing.resource_key}</small>
-            </div>
-            <button className="text-button" type="button" onClick={() => setEditing(null)}>
-              {zh ? "取消" : "Cancel"}
-            </button>
-          </div>
-          <div className="sticker-editor-fields expression-editor-fields">
-            <NotebookField label="Intent">
-              <NotebookInput name="semantic_intent" defaultValue={editing.semantic_intent} />
-            </NotebookField>
-            <NotebookField label="Emotion">
-              <NotebookInput
-                name="semantic_emotion"
-                defaultValue={editing.semantic_emotion}
-                placeholder="curious / amused / shy"
-              />
-            </NotebookField>
-            <NotebookField className="drawer-form-wide" label={zh ? "角色应理解的含义" : "Meaning supplied to characters"}>
-              <NotebookTextarea
-                name="semantic_description"
-                rows={5}
-                required
-                defaultValue={editing.semantic_description}
-              />
-            </NotebookField>
-            <NotebookField label={zh ? "别名" : "Aliases"} guide={zh ? "每行或逗号分隔。" : "One per line or comma."}>
-              <NotebookTextarea name="aliases" rows={3} defaultValue={editing.aliases.join("\n")} />
-            </NotebookField>
-            <NotebookField label={zh ? "适用情境" : "Use when"} guide={zh ? "描述适合出现的语境。" : "Describe suitable situations."}>
-              <NotebookTextarea name="situations" rows={3} defaultValue={editing.situations.join("\n")} />
-            </NotebookField>
-            <NotebookField className="drawer-form-wide" label={zh ? "避免情境" : "Avoid when"}>
-              <NotebookTextarea name="avoid_when" rows={3} defaultValue={editing.avoid_when.join("\n")} />
-            </NotebookField>
-          </div>
-          <div className="expression-action-options">
-            <label><input type="checkbox" name="enabled" defaultChecked={editing.enabled} /> {zh ? "启用资源" : "Enabled"}</label>
-            {editing.resource_type === "emoji" && (
-              <>
-                <label><input type="checkbox" name="allow_inline" defaultChecked={editing.allowed_actions.includes("inline")} /> Inline</label>
-                <label><input type="checkbox" name="allow_reaction" defaultChecked={editing.allowed_actions.includes("reaction")} /> Reaction</label>
-              </>
-            )}
-            {editing.resource_type === "sticker" && (
-              <label><input type="checkbox" name="allow_sticker" defaultChecked={editing.allowed_actions.includes("sticker")} /> Sticker</label>
-            )}
-          </div>
-          <button className="ink-button" disabled={working}>
-            {working ? (zh ? "保存中…" : "Saving…") : zh ? "保存 Expression 定义" : "Save expression definition"}
-          </button>
-        </form>
       )}
     </section>
   );
