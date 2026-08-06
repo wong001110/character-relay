@@ -7,6 +7,11 @@ import {
   type ProviderId,
   type RuntimeKind
 } from "./api";
+import {
+  authoringApi,
+  type AuthoringRuntimeConfig,
+  type AuthoringRuntimeView
+} from "./authoringApi";
 import { useI18n } from "./i18n";
 import { getProviderPreset, providerPresets } from "./providerPresets";
 
@@ -17,9 +22,12 @@ interface Props {
 
 export function AdminSettings({ onClose, onUpdated }: Props) {
   const { language, t } = useI18n();
+  const zh = language === "zh-CN";
   const [view, setView] = useState<AdminRuntimeView | null>(null);
+  const [authoringView, setAuthoringView] = useState<AuthoringRuntimeView | null>(null);
   const [adaptiveKey, setAdaptiveKey] = useState("");
   const [judgeKey, setJudgeKey] = useState("");
+  const [authoringKey, setAuthoringKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -31,9 +39,13 @@ export function AdminSettings({ onClose, onUpdated }: Props) {
     try {
       setSaving(true);
       setMessage(null);
-      const loaded = await api.getAdminRuntime();
-      setView(loaded);
-      onUpdated(loaded);
+      const [loadedRuntime, loadedAuthoring] = await Promise.all([
+        api.getAdminRuntime(),
+        authoringApi.getRuntime()
+      ]);
+      setView(loadedRuntime);
+      setAuthoringView(loadedAuthoring);
+      onUpdated(loadedRuntime);
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : t("admin.error"));
     } finally {
@@ -43,21 +55,33 @@ export function AdminSettings({ onClose, onUpdated }: Props) {
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!view) return;
+    if (!view || !authoringView) return;
     try {
       setSaving(true);
       setMessage(null);
-      let next = await api.updateAdminRuntime(view.config);
+
+      let nextRuntime = await api.updateAdminRuntime(view.config);
       if (adaptiveKey.trim()) {
-        next = await api.configureRuntimeCredential("adaptive", adaptiveKey.trim());
+        nextRuntime = await api.configureRuntimeCredential(
+          "adaptive",
+          adaptiveKey.trim()
+        );
       }
       if (judgeKey.trim()) {
-        next = await api.configureRuntimeCredential("judge", judgeKey.trim());
+        nextRuntime = await api.configureRuntimeCredential("judge", judgeKey.trim());
       }
+
+      let nextAuthoring = await authoringApi.updateRuntime(authoringView.config);
+      if (authoringKey.trim()) {
+        nextAuthoring = await authoringApi.configureCredential(authoringKey.trim());
+      }
+
       setAdaptiveKey("");
       setJudgeKey("");
-      setView(next);
-      onUpdated(next);
+      setAuthoringKey("");
+      setView(nextRuntime);
+      setAuthoringView(nextAuthoring);
+      onUpdated(nextRuntime);
       setMessage(t("admin.saved"));
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : t("admin.error"));
@@ -70,6 +94,10 @@ export function AdminSettings({ onClose, onUpdated }: Props) {
     setView((current) => (current ? { ...current, config } : current));
   }
 
+  function updateAuthoringConfig(config: AuthoringRuntimeConfig) {
+    setAuthoringView((current) => (current ? { ...current, config } : current));
+  }
+
   async function clearCredential(kind: RuntimeKind) {
     if (!view) return;
     try {
@@ -78,6 +106,19 @@ export function AdminSettings({ onClose, onUpdated }: Props) {
       const next = await api.clearRuntimeCredential(kind);
       setView(next);
       onUpdated(next);
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : t("admin.error"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clearAuthoringCredential() {
+    if (!authoringView) return;
+    try {
+      setSaving(true);
+      setMessage(null);
+      setAuthoringView(await authoringApi.clearCredential());
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : t("admin.error"));
     } finally {
@@ -99,14 +140,18 @@ export function AdminSettings({ onClose, onUpdated }: Props) {
         </button>
         <p className="tape-label">{t("admin.label")}</p>
         <h2 id="admin-title">{t("admin.heading")}</h2>
-        <p className="creator-help">{t("admin.help")}</p>
+        <p className="creator-help">
+          {zh
+            ? "在这里统一启用并配置 Adaptive Tester、Semantic Judge 与全部 AI 辅助生成功能。"
+            : "Enable and configure Adaptive Tester, Semantic Judge, and all AI-assisted drafting features here."}
+        </p>
 
-        {!view ? (
+        {!view || !authoringView ? (
           <div className="admin-login">
             <p>
-              {language === "zh-CN"
-                ? "管理员权限由当前登录 Session 验证，不再使用浏览器 Admin Token。"
-                : "Admin access is verified by the signed-in Session. Browser Admin tokens are no longer used."}
+              {zh
+                ? "管理员权限由当前登录 Session 验证。"
+                : "Admin access is verified by the signed-in Session."}
             </p>
             <button className="ink-button" disabled={saving} onClick={() => void load()}>
               {saving ? t("admin.connecting") : t("admin.connect")}
@@ -313,6 +358,97 @@ export function AdminSettings({ onClose, onUpdated }: Props) {
               />
             </section>
 
+            <section className="runtime-panel authoring-admin-runtime-panel">
+              <RuntimeHeader
+                title={zh ? "AI 辅助生成" : "AI Authoring"}
+                configured={authoringView.status.configured}
+                source={authoringView.status.credential_source}
+              />
+              <p className="section-help">
+                {zh
+                  ? "角色卡、Emoji／Sticker 定义与评测草稿共用这一套 Runtime。"
+                  : "Character Cards, Emoji/Sticker definitions, and evaluation drafts share this Runtime."}
+              </p>
+              <label className="runtime-toggle">
+                <input
+                  type="checkbox"
+                  checked={authoringView.config.enabled}
+                  onChange={(event) =>
+                    updateAuthoringConfig({
+                      ...authoringView.config,
+                      enabled: event.currentTarget.checked
+                    })
+                  }
+                />
+                {t("admin.enabled")}
+              </label>
+              <ProviderFields
+                provider={authoringView.config.provider}
+                baseUrl={authoringView.config.base_url}
+                model={authoringView.config.model}
+                onChange={(provider, baseUrl, model) =>
+                  updateAuthoringConfig({
+                    ...authoringView.config,
+                    provider,
+                    base_url: baseUrl,
+                    model
+                  })
+                }
+              />
+              <label className="wide">
+                {t("admin.systemPrompt")}
+                <textarea
+                  rows={6}
+                  value={authoringView.config.system_prompt}
+                  onChange={(event) =>
+                    updateAuthoringConfig({
+                      ...authoringView.config,
+                      system_prompt: event.currentTarget.value
+                    })
+                  }
+                />
+              </label>
+              <div className="runtime-number-grid">
+                <label>
+                  {t("admin.temperature")}
+                  <input
+                    type="number"
+                    min="0"
+                    max="1.2"
+                    step="0.05"
+                    value={authoringView.config.temperature}
+                    onChange={(event) =>
+                      updateAuthoringConfig({
+                        ...authoringView.config,
+                        temperature: Number(event.currentTarget.value)
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  {zh ? "最多生成数量" : "Maximum generated items"}
+                  <input
+                    type="number"
+                    min="1"
+                    max="12"
+                    value={authoringView.config.maximum_scenarios}
+                    onChange={(event) =>
+                      updateAuthoringConfig({
+                        ...authoringView.config,
+                        maximum_scenarios: Number(event.currentTarget.value)
+                      })
+                    }
+                  />
+                </label>
+              </div>
+              <CredentialField
+                value={authoringKey}
+                onChange={setAuthoringKey}
+                source={authoringView.status.credential_source}
+                onClear={() => void clearAuthoringCredential()}
+              />
+            </section>
+
             <label className="default-judge-mode">
               {t("admin.defaultJudge")}
               <select
@@ -332,9 +468,9 @@ export function AdminSettings({ onClose, onUpdated }: Props) {
             </label>
 
             <p className="admin-security-note">
-              {language === "zh-CN"
-                ? "Runtime API Key 会写入服务器端加密凭证库；浏览器不会保存原始 Key。"
-                : "Runtime API keys are written to the server-side encrypted vault. The browser does not retain raw keys."}
+              {zh
+                ? "三个 Runtime 默认启用。API Key 会写入服务器端加密 Vault；浏览器不会保存或回显原始 Key。没有 Key 时 Runtime 会保持 Missing，不会发起模型调用。"
+                : "All three Runtimes are enabled by default. API keys are stored in the encrypted server Vault and are never retained or revealed by the browser. Without a key, the Runtime remains Missing and makes no model calls."}
             </p>
             <div className="form-actions">
               <button type="button" className="paper-button" onClick={onClose}>
