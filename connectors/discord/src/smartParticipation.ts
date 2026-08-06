@@ -168,6 +168,7 @@ const HELP_PHRASES = [
 ];
 
 let runtimeConfig: SmartParticipationRuntimeConfig = { ...DEFAULT_CONFIG };
+let runtimeConfigured = false;
 const pendingSmartSelections = new Set<string>();
 let proactiveSelections: ProactiveSelection[] = [];
 
@@ -179,6 +180,7 @@ export function configureSmartParticipation(
     ...config,
     profiles: config.profiles ?? {}
   };
+  runtimeConfigured = true;
 }
 
 export function parseSmartParticipationProfiles(raw: string | undefined): SmartParticipationProfiles {
@@ -445,7 +447,7 @@ function decision(
   candidates: SmartParticipationCandidateScore[],
   messageLength: number
 ): SmartParticipationDecision {
-  const value = { reason, selectedDeployment, candidates };
+  const value: SmartParticipationDecision = { reason, selectedDeployment, candidates };
   if (runtimeConfig.enabled) logDecision(value, messageLength);
   return value;
 }
@@ -530,6 +532,7 @@ export function markExplicitSmartSelections(deployments: DiscordDeployment[]): v
 }
 
 export function consumeSmartSelection(deploymentId: string): boolean {
+  if (!runtimeConfigured) return true;
   const selected = pendingSmartSelections.has(deploymentId);
   pendingSmartSelections.delete(deploymentId);
   return selected;
@@ -537,6 +540,7 @@ export function consumeSmartSelection(deploymentId: string): boolean {
 
 export function resetSmartParticipationState(): void {
   runtimeConfig = { ...DEFAULT_CONFIG };
+  runtimeConfigured = false;
   pendingSmartSelections.clear();
   proactiveSelections = [];
 }
