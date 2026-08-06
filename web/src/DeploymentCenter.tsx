@@ -429,7 +429,6 @@ export function DeploymentCenter({
     setExcludedChannels(new Set(item.excluded_channel_ids));
     setExcludedCategories(new Set(item.excluded_category_ids));
     setDeploymentOpen(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function closeDeploymentForm() {
