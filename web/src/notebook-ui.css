@@ -709,3 +709,194 @@
   white-space: nowrap !important;
   border: 0 !important;
 }
+
+
+/* Server workspace and shelf UX refinements */
+html,
+body,
+#root {
+  min-height: 100%;
+  background: #f4ecdd !important;
+  background-image: none !important;
+}
+
+.notebook-shell {
+  width: 100% !important;
+  max-width: none !important;
+  padding-inline: clamp(20px, 4vw, 64px) !important;
+}
+
+.shelf-intro h2 {
+  max-width: 760px;
+  font-size: clamp(1.35rem, 2vw, 2rem) !important;
+  line-height: 1.18;
+}
+
+.card-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.card-actions .paper-button,
+.card-actions .enter-room {
+  min-height: 46px;
+  padding: 9px 12px !important;
+  border-radius: 14px !important;
+  font-size: 0.84rem;
+  line-height: 1.15;
+}
+
+.card-actions .enter-room {
+  grid-column: 1 / -1;
+  background: #7861bd !important;
+  color: #fffaf2 !important;
+  border: 1px solid #6c56ae !important;
+}
+
+.card-actions .enter-room:hover {
+  background: #6c56ae !important;
+}
+
+.character-editor-drawer {
+  padding-bottom: 0 !important;
+}
+
+.character-editor-drawer .notebook-form-paper {
+  min-height: calc(100vh - 66px);
+  padding-bottom: 0;
+}
+
+.character-editor-drawer .notebook-form-actions {
+  bottom: 0;
+  margin-top: auto;
+  padding: 14px 0 max(14px, env(safe-area-inset-bottom));
+  box-shadow: 0 -10px 20px rgba(68, 53, 79, 0.08);
+}
+
+.portal-toolbox-fab img {
+  object-fit: contain !important;
+  object-position: center !important;
+  border-radius: 0 !important;
+  padding: 2px;
+}
+
+.server-workspace-panel {
+  max-width: 1440px;
+  margin-inline: auto;
+  padding: 24px;
+}
+
+.server-workspace-heading {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start !important;
+}
+
+.server-workspace-heading h2 {
+  font-size: clamp(1.45rem, 2.4vw, 2.25rem);
+}
+
+.server-workspace-selector-row {
+  display: grid !important;
+  grid-template-columns: minmax(260px, 0.65fr) minmax(0, 1.35fr);
+  align-items: stretch !important;
+}
+
+.server-workspace-selector-row > label {
+  align-content: center;
+  min-width: 0 !important;
+  padding: 16px;
+  border: 1px dashed rgba(112, 86, 158, 0.22);
+  border-radius: 14px;
+  background: #fffaf2;
+}
+
+.server-workspace-current-card {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-width: 0 !important;
+  background: #fffaf2 !important;
+  background-image: none !important;
+}
+
+.server-workspace-stats {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-left: auto;
+}
+
+.server-workspace-stat {
+  min-width: 82px;
+  margin-left: 0 !important;
+}
+
+.server-log-launcher {
+  border-color: rgba(120, 97, 189, 0.38) !important;
+  color: #5f4b97 !important;
+}
+
+.server-log-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, 96vw) !important;
+  height: min(820px, 92vh);
+  overflow: hidden !important;
+}
+
+.server-log-modal .paper-modal-topline {
+  flex: 0 0 auto;
+}
+
+.discord-event-log-panel.is-embedded {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.discord-event-log-panel.is-embedded .discord-event-log-heading,
+.discord-event-log-panel.is-embedded .discord-event-log-filters,
+.discord-event-log-panel.is-embedded > .pagination {
+  flex: 0 0 auto;
+}
+
+.discord-event-log-list {
+  max-height: 480px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.discord-event-log-panel.is-embedded .discord-event-log-list {
+  flex: 1;
+  min-height: 220px;
+  max-height: none;
+  padding-right: 6px;
+}
+
+@media (max-width: 760px) {
+  .server-workspace-heading,
+  .server-workspace-selector-row,
+  .server-workspace-current-card {
+    grid-template-columns: 1fr !important;
+  }
+
+  .server-workspace-actions,
+  .server-workspace-stats {
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .server-workspace-stat {
+    text-align: left;
+  }
+
+  .server-log-modal {
+    width: 100% !important;
+    height: 97vh;
+  }
+}

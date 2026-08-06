@@ -17,6 +17,8 @@ import { Pagination } from "./Pagination";
 interface Props {
   profiles: DiscordServerProfile[];
   selectedServerProfileId: string;
+  lockedServerProfileId?: string;
+  embedded?: boolean;
   zh: boolean;
 }
 
@@ -121,9 +123,13 @@ function booleanValue(value: boolean | null, zh: boolean): string {
 export function DiscordEventLogPanel({
   profiles,
   selectedServerProfileId,
+  lockedServerProfileId = "",
+  embedded = false,
   zh
 }: Props) {
-  const [serverProfileId, setServerProfileId] = useState(selectedServerProfileId || "all");
+  const [serverProfileId, setServerProfileId] = useState(
+    lockedServerProfileId || selectedServerProfileId || "all"
+  );
   const [level, setLevel] = useState<"all" | DiscordConnectorLogLevel>("all");
   const [eventType, setEventType] = useState("all");
   const [page, setPage] = useState(1);
@@ -139,8 +145,12 @@ export function DiscordEventLogPanel({
   const [statusError, setStatusError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (selectedServerProfileId) setServerProfileId(selectedServerProfileId);
-  }, [selectedServerProfileId]);
+    const nextProfileId = lockedServerProfileId || selectedServerProfileId;
+    if (nextProfileId) {
+      setServerProfileId(nextProfileId);
+      setPage(1);
+    }
+  }, [lockedServerProfileId, selectedServerProfileId]);
 
   const load = useCallback(async () => {
     try {
@@ -179,6 +189,11 @@ export function DiscordEventLogPanel({
     }
   }, []);
 
+  const activeProfile = useMemo(
+    () => profiles.find((item) => item.id === serverProfileId) ?? null,
+    [profiles, serverProfileId]
+  );
+
   const serverStatuses = useMemo(() => {
     const statuses = buildDiscordServerStatuses(profiles, connections, catalog);
     return statuses.sort((left, right) => {
@@ -213,7 +228,9 @@ export function DiscordEventLogPanel({
   }
 
   return (
-    <section className="paper-sheet discord-event-log-panel">
+    <section
+      className={`paper-sheet discord-event-log-panel${embedded ? " is-embedded" : ""}`}
+    >
       {SHOW_SERVER_CONNECTION_STATUS && (
       <section className="discord-server-status-section">
         <div className="panel-heading-row discord-server-status-heading">
@@ -368,7 +385,15 @@ export function DiscordEventLogPanel({
       <div className="panel-heading-row discord-event-log-heading">
         <div>
           <p className="tape-label">DISCORD EVENT LOG</p>
-          <h2>{zh ? "Discord 触发与路由日志" : "Discord trigger and routing logs"}</h2>
+          <h2>
+            {activeProfile
+              ? zh
+                ? `${activeProfile.guild_name} · Server 日志`
+                : `${activeProfile.guild_name} · Server logs`
+              : zh
+                ? "Discord 触发与路由日志"
+                : "Discord trigger and routing logs"}
+          </h2>
           <p>
             {zh
               ? "查看 Tag 是否到达 Gateway、是否命中部署、Runtime 结果与发送状态。不会保存消息正文。"
@@ -381,20 +406,22 @@ export function DiscordEventLogPanel({
       </div>
 
       <div className="discord-event-log-filters">
-        <label>
-          {zh ? "Server" : "Server"}
-          <select
-            value={serverProfileId}
-            onChange={(event) => changeFilter(setServerProfileId, event.currentTarget.value)}
-          >
-            <option value="all">{zh ? "全部 Server" : "All servers"}</option>
-            {profiles.map((profile) => (
-              <option value={profile.id} key={profile.id}>
-                {profile.guild_name} · {profile.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {!lockedServerProfileId && (
+          <label>
+            {zh ? "Server" : "Server"}
+            <select
+              value={serverProfileId}
+              onChange={(event) => changeFilter(setServerProfileId, event.currentTarget.value)}
+            >
+              <option value="all">{zh ? "全部 Server" : "All servers"}</option>
+              {profiles.map((profile) => (
+                <option value={profile.id} key={profile.id}>
+                  {profile.guild_name} · {profile.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           {zh ? "等级" : "Level"}
           <select

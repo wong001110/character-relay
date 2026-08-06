@@ -180,7 +180,7 @@ export function CharacterShelf({
 
       {cards.length === 0 ? (
         <section className="empty-library paper-sheet">
-          <img src="/assets/brand/character-relay-mark.svg" alt="" />
+          <img src="/assets/brand/character-relay-mark.png" alt="" />
           <h2>{t("shelf.emptyTitle")}</h2>
           <p>{t("shelf.emptyHelp")}</p>
           {!demoMode && <button className="ink-button" onClick={onCreate}>{t("shelf.newCard")}</button>}
@@ -229,7 +229,7 @@ export function CharacterShelf({
                     {zh ? "部署" : "Deploy"}
                   </button>
                   <button className="enter-room" onClick={() => onEnter(card)}>
-                    {zh ? "进入 Echo Masque" : "Open Echo Masque"}
+                    {zh ? "测试角色" : "Test Character"}
                   </button>
                 </div>
               </article>

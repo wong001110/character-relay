@@ -20,6 +20,7 @@ interface Props {
   onSelectProfile: (profileId: string) => void;
   onChanged: () => Promise<void>;
   onError: (message: string) => void;
+  onOpenLogs: () => void;
 }
 
 interface ChannelGroup {
@@ -55,7 +56,8 @@ export function DiscordServerProfilesPanel({
   zh,
   onSelectProfile,
   onChanged,
-  onError
+  onError,
+  onOpenLogs
 }: Props) {
   const discordConnections = connections.filter((item) => item.platform === "discord");
   const selectedProfile = profiles.find((item) => item.id === selectedProfileId) ?? null;
@@ -78,6 +80,13 @@ export function DiscordServerProfilesPanel({
   const selectedConnection = connections.find(
     (item) => item.id === selectedProfile?.connection_id
   );
+  const selectedServerCatalog = selectedProfile
+    ? catalog.find(
+        (item) =>
+          item.connection_id === selectedProfile.connection_id &&
+          item.guild_id === selectedProfile.guild_id
+      )
+    : undefined;
 
   function resetForm() {
     const nextConnection = discordConnections[0]?.id ?? "";
@@ -203,7 +212,15 @@ export function DiscordServerProfilesPanel({
         <div className="server-workspace-heading">
           <div>
             <p className="tape-label">SERVER WORKSPACE</p>
-            <h2>{zh ? "先选择要管理的 Discord Server" : "Choose the Discord Server to manage"}</h2>
+            <h2>
+              {selectedProfile
+                ? zh
+                  ? `${selectedProfile.guild_name} 工作区`
+                  : `${selectedProfile.guild_name} workspace`
+                : zh
+                  ? "选择要管理的 Discord Server"
+                  : "Choose the Discord Server to manage"}
+            </h2>
             <p>
               {zh
                 ? "Deployment、Interaction、Session 与 Sticker 都会自动限制在当前 Server。"
@@ -213,9 +230,18 @@ export function DiscordServerProfilesPanel({
           {!demoMode && (
             <div className="server-workspace-actions">
               {selectedProfile && (
-                <button className="paper-button" onClick={() => openEdit(selectedProfile)}>
-                  {zh ? "编辑 Server" : "Edit Server"}
-                </button>
+                <>
+                  <button
+                    className="paper-button server-log-launcher"
+                    type="button"
+                    onClick={onOpenLogs}
+                  >
+                    {zh ? "查看 Server 日志" : "View Server logs"}
+                  </button>
+                  <button className="paper-button" onClick={() => openEdit(selectedProfile)}>
+                    {zh ? "编辑 Server" : "Edit Server"}
+                  </button>
+                </>
               )}
               <button
                 className="ink-button"
@@ -256,12 +282,18 @@ export function DiscordServerProfilesPanel({
                     {selectedConnection?.display_name ?? "Discord"} · ID {selectedProfile.guild_id}
                   </small>
                 </div>
-                <div className="server-workspace-stat">
-                  <strong>
-                    {selectedProfile.excluded_channel_ids.length +
-                      selectedProfile.excluded_category_ids.length}
-                  </strong>
-                  <span>{zh ? "排除位置" : "exclusions"}</span>
+                <div className="server-workspace-stats">
+                  <div className="server-workspace-stat">
+                    <strong>{selectedServerCatalog?.channels.length ?? 0}</strong>
+                    <span>{zh ? "可见 Channel" : "visible channels"}</span>
+                  </div>
+                  <div className="server-workspace-stat">
+                    <strong>
+                      {selectedProfile.excluded_channel_ids.length +
+                        selectedProfile.excluded_category_ids.length}
+                    </strong>
+                    <span>{zh ? "排除位置" : "exclusions"}</span>
+                  </div>
                 </div>
               </div>
             ) : (

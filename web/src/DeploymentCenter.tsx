@@ -21,7 +21,7 @@ import {
 } from "./discordIdentityApi";
 import { DiscordEventLogPanel } from "./DiscordEventLogPanel";
 import { DiscordServerProfilesPanel } from "./DiscordServerProfilesPanel";
-import { PaperDrawer } from "./NotebookUI";
+import { PaperDrawer, PaperModal } from "./NotebookUI";
 import { Pagination } from "./Pagination";
 import { useI18n } from "./i18n";
 import { InteractionSessionsPanel } from "./InteractionSessionsPanel";
@@ -181,6 +181,7 @@ export function DeploymentCenter({
   const [connectionMode, setConnectionMode] = useState<ConnectionMode>("managed");
 
   const [deploymentOpen, setDeploymentOpen] = useState(Boolean(initialCharacterId));
+  const [eventLogOpen, setEventLogOpen] = useState(false);
   const [editingDeployment, setEditingDeployment] = useState<CharacterDeployment | null>(null);
   const [draftCharacterId, setDraftCharacterId] = useState(
     initialCharacterId ?? cards[0]?.id ?? ""
@@ -616,6 +617,7 @@ export function DeploymentCenter({
         onSelectProfile={setSelectedServerProfileId}
         onChanged={load}
         onError={(message) => setError(message || null)}
+        onOpenLogs={() => setEventLogOpen(true)}
       />
 
       <section className="deployment-summary-grid">
@@ -1431,12 +1433,24 @@ export function DeploymentCenter({
           serverCatalog={selectedWorkspaceCatalog}
         />
       )}
-      {!demoMode && (
-        <DiscordEventLogPanel
-          profiles={serverProfiles}
-          selectedServerProfileId={selectedServerProfileId}
-          zh={zh}
-        />
+      {!demoMode && eventLogOpen && selectedWorkspaceProfile && (
+        <PaperModal
+          ariaLabel={
+            zh
+              ? `${selectedWorkspaceProfile.guild_name} Discord 日志`
+              : `${selectedWorkspaceProfile.guild_name} Discord logs`
+          }
+          onClose={() => setEventLogOpen(false)}
+          className="server-log-modal"
+        >
+          <DiscordEventLogPanel
+            profiles={[selectedWorkspaceProfile]}
+            selectedServerProfileId={selectedWorkspaceProfile.id}
+            lockedServerProfileId={selectedWorkspaceProfile.id}
+            embedded
+            zh={zh}
+          />
+        </PaperModal>
       )}
     </main>
   );
