@@ -203,19 +203,29 @@ export function parseSmartParticipationProfiles(raw: string | undefined): SmartP
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       throw new Error(`Smart Participation profile ${key} must be a JSON object.`);
     }
-    const profile = value as Record<string, unknown>;
-    profiles[key] = {
-      topics: stringArray(profile.topics, `${key}.topics`),
-      keywords: stringArray(profile.keywords, `${key}.keywords`),
-      trigger_phrases: stringArray(profile.trigger_phrases, `${key}.trigger_phrases`),
-      avoid_phrases: stringArray(profile.avoid_phrases, `${key}.avoid_phrases`),
-      initiative: optionalNumber(profile.initiative, `${key}.initiative`),
-      minimum_score: optionalNumber(profile.minimum_score, `${key}.minimum_score`),
-      cooldown_seconds: optionalNumber(
-        profile.cooldown_seconds,
-        `${key}.cooldown_seconds`
-      )
-    };
+    const input = value as Record<string, unknown>;
+    const profile: SmartParticipationProfileInput = {};
+    const topics = stringArray(input.topics, `${key}.topics`);
+    const keywords = stringArray(input.keywords, `${key}.keywords`);
+    const triggerPhrases = stringArray(
+      input.trigger_phrases,
+      `${key}.trigger_phrases`
+    );
+    const avoidPhrases = stringArray(input.avoid_phrases, `${key}.avoid_phrases`);
+    const initiative = optionalNumber(input.initiative, `${key}.initiative`);
+    const minimumScore = optionalNumber(input.minimum_score, `${key}.minimum_score`);
+    const cooldownSeconds = optionalNumber(
+      input.cooldown_seconds,
+      `${key}.cooldown_seconds`
+    );
+    if (topics !== undefined) profile.topics = topics;
+    if (keywords !== undefined) profile.keywords = keywords;
+    if (triggerPhrases !== undefined) profile.trigger_phrases = triggerPhrases;
+    if (avoidPhrases !== undefined) profile.avoid_phrases = avoidPhrases;
+    if (initiative !== undefined) profile.initiative = initiative;
+    if (minimumScore !== undefined) profile.minimum_score = minimumScore;
+    if (cooldownSeconds !== undefined) profile.cooldown_seconds = cooldownSeconds;
+    profiles[key] = profile;
   }
   return profiles;
 }
