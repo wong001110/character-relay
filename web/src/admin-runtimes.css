@@ -1,0 +1,49 @@
+.authoring-admin-runtime-panel {
+  grid-column: 1 / -1;
+  background: rgba(239, 246, 235, 0.78);
+}
+
+.runtime-credential-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.runtime-credential-row > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 1px;
+}
+
+.runtime-credential-row .paper-button {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.authoring-admin-runtime-panel .section-help {
+  margin: -4px 0 13px;
+}
+
+@media (max-width: 820px) {
+  .admin-runtime-form {
+    grid-template-columns: 1fr;
+  }
+
+  .authoring-admin-runtime-panel,
+  .default-judge-mode,
+  .admin-security-note,
+  .admin-runtime-form .form-actions {
+    grid-column: auto;
+  }
+
+  .runtime-credential-row {
+    grid-template-columns: 1fr;
+  }
+
+  .runtime-credential-row > div {
+    justify-content: space-between;
+  }
+}

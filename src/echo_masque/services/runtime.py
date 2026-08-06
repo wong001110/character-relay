@@ -9,6 +9,7 @@ from pydantic import SecretStr
 from sqlalchemy import func, select
 
 from echo_masque.admin_runtime import (
+    RUNTIME_DEFAULTS_VERSION,
     AdminRuntimeConfig,
     AgentRuntimeStatus,
     CredentialSource,
@@ -46,8 +47,21 @@ class RuntimeService:
         if record is None:
             return AdminRuntimeConfig()
         try:
-            return AdminRuntimeConfig.model_validate(json.loads(record.config_json))
-        except (json.JSONDecodeError, ValueError):
+            raw = json.loads(record.config_json)
+            if int(raw.get("defaults_version", 0)) < RUNTIME_DEFAULTS_VERSION:
+                adaptive = dict(raw.get("adaptive") or {})
+                judge = dict(raw.get("judge") or {})
+                adaptive["enabled"] = True
+                judge["enabled"] = True
+                raw["adaptive"] = adaptive
+                raw["judge"] = judge
+                raw["default_judge_mode"] = "hybrid"
+                raw["defaults_version"] = RUNTIME_DEFAULTS_VERSION
+                config = AdminRuntimeConfig.model_validate(raw)
+                self.repository.save_admin_runtime(config.model_dump(mode="json"))
+                return config
+            return AdminRuntimeConfig.model_validate(raw)
+        except (json.JSONDecodeError, TypeError, ValueError):
             return AdminRuntimeConfig()
 
     def save(

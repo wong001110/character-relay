@@ -33,6 +33,7 @@ import "./auth-account.css";
 import "./deployments.css";
 import "./provider-traces.css";
 import "./notebook-ui.css";
+import "./admin-runtimes.css";
 
 const SHOW_ADVANCED_LABS = false;
 

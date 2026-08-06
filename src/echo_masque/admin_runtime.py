@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 ProviderId = Literal["deepseek", "openai", "openrouter", "custom"]
 JudgeModeValue = Literal["rules", "semantic", "hybrid"]
 CredentialSource = Literal["vault", "memory", "environment", "missing"]
+RUNTIME_DEFAULTS_VERSION = 2
 
 DEFAULT_ADAPTIVE_PROMPT = (
     "You are an adversarial but bounded AI character tester. Generate exactly one "
@@ -28,7 +29,7 @@ DEFAULT_JUDGE_PROMPT = (
 class AdaptiveRuntimeProfile(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    enabled: bool = False
+    enabled: bool = True
     provider: ProviderId = "deepseek"
     base_url: str = "https://api.deepseek.com"
     model: str = "deepseek-v4-flash"
@@ -40,7 +41,7 @@ class AdaptiveRuntimeProfile(BaseModel):
 class JudgeRuntimeProfile(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    enabled: bool = False
+    enabled: bool = True
     provider: ProviderId = "deepseek"
     base_url: str = "https://api.deepseek.com"
     model: str = "deepseek-v4-flash"
@@ -54,7 +55,8 @@ class AdminRuntimeConfig(BaseModel):
 
     adaptive: AdaptiveRuntimeProfile = Field(default_factory=AdaptiveRuntimeProfile)
     judge: JudgeRuntimeProfile = Field(default_factory=JudgeRuntimeProfile)
-    default_judge_mode: JudgeModeValue = "rules"
+    default_judge_mode: JudgeModeValue = "hybrid"
+    defaults_version: int = RUNTIME_DEFAULTS_VERSION
 
 
 class AgentRuntimeStatus(BaseModel):
