@@ -784,6 +784,24 @@ async function reportExpressionNode(
   });
 }
 
+async function resolveExpressionSourceMessage(
+  fallback: Message<true>,
+  messageId: string
+): Promise<Message<true>> {
+  if (!messageId || messageId === fallback.id) return fallback;
+  try {
+    const fetched = await fallback.channel.messages.fetch(messageId);
+    return fetched.inGuild() ? fetched : fallback;
+  } catch (error) {
+    log("Unable to fetch the character message used as an Expression source.", {
+      messageId,
+      fallbackMessageId: fallback.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return fallback;
+  }
+}
+
 async function validateExpressionResource(
   source: Message<true>,
   candidate: DiscordExpressionCandidate
@@ -1073,6 +1091,18 @@ async function continueBotTagConversation(
     if (budget.remainingResponses <= 0) break;
     budget.remainingResponses -= 1;
     const deployment = resolveDeploymentLocation(baseDeployment, location);
+    const expressionSource = await resolveExpressionSourceMessage(
+      sourceMessage,
+      sourceDiscordMessageId
+    );
+    const preparedExpression = await prepareExpression(
+      expressionSource,
+      deployment,
+      audience.text || sourceText,
+      [],
+      [],
+      context.get(key)
+    );
     await sourceMessage.channel.sendTyping();
     const reply = await relay.processMessage({
       deployment_id: deployment.deployment_id,
@@ -1104,35 +1134,53 @@ async function continueBotTagConversation(
       interaction_participant_count: 0,
       interaction_target_user_id: "",
       interaction_target_display_name: "",
-      expression_run_id: "",
-      expression_candidates: [],
+      expression_run_id: preparedExpression.retrieval?.run_id ?? "",
+      expression_candidates: preparedExpression.retrieval?.candidates ?? [],
       available_characters: candidates
         .filter((item) => item.deployment_id !== deployment.deployment_id)
         .map(deploymentAddressAlias),
       recent_messages: context.get(key)
     });
-    if (reply.action !== "reply" || !reply.text) continue;
-    const normalizedReply = normalizeBotTagReply(
-      candidates,
-      reply.text,
-      deployment.deployment_id,
-      config.groupAddressAliases
-    );
-    const outgoingText = normalizedReply.displayText.trim();
-    if (!outgoingText) {
-      log("Suppressed an empty character reply after removing a self Tag.", {
-        deploymentId: deployment.deployment_id,
-        sourceDeploymentId: sourceDeployment.deployment_id
+    if (preparedExpression.retrieval) {
+      await reportExpressionNode(preparedExpression.retrieval.run_id, {
+        node_name: "model_select",
+        status: "completed",
+        input_summary: {
+          candidate_count: preparedExpression.retrieval.candidates.length
+        },
+        output_summary: {
+          action: reply.expression.action,
+          resource_key: reply.expression.resource_key ?? "",
+          reason: reply.expression.reason
+        },
+        error: "",
+        selected_action: reply.expression.action,
+        selected_resource_key: reply.expression.resource_key ?? ""
       });
+    }
+    if (reply.action === "silent" || (!reply.text && reply.expression.action === "none")) {
       continue;
     }
-
-    const sentMessageIds = await sendCharacterReply(
-      sourceMessage,
+    const normalizedReply = reply.text
+      ? normalizeBotTagReply(
+          candidates,
+          reply.text,
+          deployment.deployment_id,
+          config.groupAddressAliases
+        )
+      : { displayText: "" };
+    const visibleText = normalizedReply.displayText.trim();
+    const execution = await executeCharacterOutput(
+      expressionSource,
       deployment,
-      outgoingText,
+      visibleText,
+      reply.expression,
+      preparedExpression,
       botUserId
     );
+    const sentMessageIds = execution.sentMessageIds;
+    const outgoingText = execution.outgoingText;
+    if (!outgoingText && !sentMessageIds.length && !execution.applied) continue;
     await rememberSentMessages(deployment, sentMessageIds, sourceMessage.guildId);
     context.push(key, {
       message_id: sentMessageIds[0] ?? `relay-bot-tag-${Date.now()}`,
@@ -1144,7 +1192,9 @@ async function continueBotTagConversation(
       created_at: new Date().toISOString(),
       is_bot: true
     });
-    nextTurns.push({ deployment, text: outgoingText, sentMessageIds });
+    if (outgoingText) {
+      nextTurns.push({ deployment, text: outgoingText, sentMessageIds });
+    }
     log("Character tag reply sent to Discord.", {
       deploymentId: deployment.deployment_id,
       characterId: deployment.character_card_id,
@@ -1218,6 +1268,14 @@ async function processInteractionSession(
       for (const [participantIndex, baseDeployment] of ordered.entries()) {
         if (!baseDeployment) continue;
         const deployment = resolveDeploymentLocation(baseDeployment, location);
+        const preparedExpression = await prepareExpression(
+          sourceMessage,
+          deployment,
+          originalText,
+          stickers,
+          emojis,
+          context.get(key)
+        );
         await sourceMessage.channel.sendTyping();
         const reply = await relay.processMessage({
           deployment_id: deployment.deployment_id,
@@ -1252,28 +1310,54 @@ async function processInteractionSession(
           interaction_target_user_id: session.target_user_id,
           interaction_target_display_name:
             session.target_display_name || authorDisplayName,
-          expression_run_id: "",
-          expression_candidates: []
+          expression_run_id: preparedExpression.retrieval?.run_id ?? "",
+          expression_candidates: preparedExpression.retrieval?.candidates ?? []
         });
-        if (reply.action !== "reply" || !reply.text) continue;
-        const normalizedReply = normalizeBotTagReply(
-          candidates,
-          reply.text,
-          deployment.deployment_id,
-          config.groupAddressAliases
-        );
-        const outgoingText = (
-          normalizedReply.audience.reason === "not_found"
-            ? normalizedReply.displayText
-            : normalizedReply.audience.text
-        ).trim();
-        if (!outgoingText) continue;
-        const sentMessageIds = await sendCharacterReply(
+        if (preparedExpression.retrieval) {
+          await reportExpressionNode(preparedExpression.retrieval.run_id, {
+            node_name: "model_select",
+            status: "completed",
+            input_summary: {
+              candidate_count: preparedExpression.retrieval.candidates.length
+            },
+            output_summary: {
+              action: reply.expression.action,
+              resource_key: reply.expression.resource_key ?? "",
+              reason: reply.expression.reason
+            },
+            error: "",
+            selected_action: reply.expression.action,
+            selected_resource_key: reply.expression.resource_key ?? ""
+          });
+        }
+        if (reply.action === "silent" || (!reply.text && reply.expression.action === "none")) {
+          continue;
+        }
+        let visibleText = "";
+        if (reply.text) {
+          const normalizedReply = normalizeBotTagReply(
+            candidates,
+            reply.text,
+            deployment.deployment_id,
+            config.groupAddressAliases
+          );
+          visibleText = (
+            normalizedReply.audience.reason === "not_found"
+              ? normalizedReply.displayText
+              : normalizedReply.audience.text
+          ).trim();
+        }
+        const execution = await executeCharacterOutput(
           sourceMessage,
           deployment,
-          outgoingText,
+          visibleText,
+          reply.expression,
+          preparedExpression,
           botUserId
         );
+        const sentMessageIds = execution.sentMessageIds;
+        const outgoingText = execution.outgoingText;
+        if (!outgoingText && !sentMessageIds.length && !execution.applied) continue;
         await rememberSentMessages(deployment, sentMessageIds, sourceMessage.guildId);
         context.push(key, {
           message_id: sentMessageIds[0] ?? `relay-interaction-${Date.now()}`,
@@ -1603,7 +1687,6 @@ reportDiscordEvent({
     const botConversationBudget: BotConversationBudget = {
       remainingResponses: config.botTagMaxResponses
     };
-    let expressionBudget = 1;
     for (const [responseIndex, baseDeployment] of eligibleDeployments.entries()) {
       const deployment = resolveDeploymentLocation(baseDeployment, location);
       reportDiscordEvent({
@@ -1625,16 +1708,14 @@ reportDiscordEvent({
           response_count: eligibleDeployments.length
         }
       });
-      const preparedExpression = expressionBudget > 0
-        ? await prepareExpression(
-            guildMessage,
-            deployment,
-            (addressedToMultiple ? originalText : audience.text) || originalText,
-            stickers,
-            emojis,
-            context.get(key)
-          )
-        : { retrieval: null, query: "" };
+      const preparedExpression = await prepareExpression(
+        guildMessage,
+        deployment,
+        (addressedToMultiple ? originalText : audience.text) || originalText,
+        stickers,
+        emojis,
+        context.get(key)
+      );
       await guildMessage.channel.sendTyping();
       const reply = await relay.processMessage({
         deployment_id: deployment.deployment_id,
@@ -1785,7 +1866,6 @@ reportDiscordEvent({
           is_bot: true
         });
       }
-      if (execution.applied) expressionBudget -= 1;
       reportDiscordEvent({
         level: execution.applied ? "info" : "warning",
         eventType: execution.applied ? "expression_execution_success" : "expression_skipped",
@@ -1913,7 +1993,7 @@ const healthServer = createServer((request, response) => {
       expression_retrieval_enabled: true,
       expression_retrieval_backend: "hybrid_sparse_v1",
       expression_max_candidates: 6,
-      expression_max_per_trigger: 1,
+      expression_max_per_character_reply: 1,
       last_catalog_sync_at: lastCatalogSyncAt,
       last_deployment_sync_at: lastDeploymentSyncAt,
       last_error: lastError,
