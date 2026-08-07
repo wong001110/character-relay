@@ -5,15 +5,21 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 
-from echo_masque.api.dependencies import CurrentUserDependency
+from echo_masque.api.dependencies import (
+    CurrentUserDependency,
+    quota_http_exception,
+    quota_service,
+)
 from echo_masque.api.smart_participation_schemas import (
     SmartParticipationFeedbackCreate,
     SmartParticipationFeedbackView,
+    SmartParticipationGeneratedProfile,
     SmartParticipationPlaygroundRequest,
     SmartParticipationPlaygroundView,
     SmartParticipationProfileUpdate,
     SmartParticipationProfileView,
 )
+from echo_masque.authoring_generation import AuthoringRuntimeUnavailable
 from echo_masque.config import Settings
 from echo_masque.persistence import (
     DeploymentRepository,
@@ -21,7 +27,10 @@ from echo_masque.persistence import (
     SmartParticipationRepository,
 )
 from echo_masque.persistence.models import CharacterCardRecord
+from echo_masque.providers import ProviderError
+from echo_masque.security_controls import QuotaExceeded
 from echo_masque.smart_participation import ParticipationProfile, evaluate_participation
+from echo_masque.smart_participation_generation import SmartParticipationGenerationService
 
 router = APIRouter(prefix="/api/smart-participation", tags=["smart-participation"])
 
@@ -39,6 +48,13 @@ def character_repository(request: Request) -> Repository:
 
 def deployment_repository(request: Request) -> DeploymentRepository:
     return cast(DeploymentRepository, request.app.state.deployment_repository)
+
+
+def generation_service(request: Request) -> SmartParticipationGenerationService:
+    return cast(
+        SmartParticipationGenerationService,
+        request.app.state.smart_participation_generation_service,
+    )
 
 
 def _authorize_connector(
@@ -75,7 +91,9 @@ def _require_character(
     return card
 
 
-def _profile_value(view: SmartParticipationProfileView) -> ParticipationProfile:
+def _profile_value(
+    view: SmartParticipationProfileView | SmartParticipationProfileUpdate,
+) -> ParticipationProfile:
     return ParticipationProfile(
         enabled=view.enabled,
         style=view.style,
@@ -141,6 +159,40 @@ def update_profile(
     return SmartParticipationProfileView.from_record(record)
 
 
+@router.post(
+    "/profiles/{character_card_id}/generate",
+    response_model=SmartParticipationGeneratedProfile,
+)
+async def generate_profile(
+    character_card_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+) -> SmartParticipationGeneratedProfile:
+    """Generate a reviewable draft; never persist it automatically."""
+
+    _require_character(request, character_card_id, user.id)
+    try:
+        quota_service(request).consume_authoring_generation(user.id)
+        result = await generation_service(request).generate(user.id, character_card_id)
+        return SmartParticipationGeneratedProfile.model_validate(result.model_dump())
+    except QuotaExceeded as exc:
+        raise quota_http_exception(exc) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AuthoringRuntimeUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except ProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get(
     "/connector-profiles",
     response_model=dict[str, SmartParticipationProfileView],
@@ -178,12 +230,15 @@ def evaluate_playground(
 ) -> SmartParticipationPlaygroundView:
     card = _require_character(request, character_card_id, user.id)
     repo = smart_repository(request)
-    record = repo.get_profile(character_card_id, user.id)
-    profile_view = (
-        SmartParticipationProfileView.from_record(record)
-        if record is not None
-        else SmartParticipationProfileView.default(character_card_id)
-    )
+    if payload.profile_override is not None:
+        profile_value = payload.profile_override
+    else:
+        record = repo.get_profile(character_card_id, user.id)
+        profile_value = (
+            SmartParticipationProfileView.from_record(record)
+            if record is not None
+            else SmartParticipationProfileView.default(character_card_id)
+        )
 
     previous_is_primary = False
     previous_id = payload.previous_character_card_id.strip()
@@ -197,7 +252,7 @@ def evaluate_playground(
         )
 
     preview = evaluate_participation(
-        profile=_profile_value(profile_view),
+        profile=_profile_value(profile_value),
         message=payload.message,
         character_display_name=card.display_name,
         previous_character_card_id=previous_id,

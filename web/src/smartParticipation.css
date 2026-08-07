@@ -4,10 +4,23 @@
   min-width: min(1080px, 88vw);
 }
 
+.smart-participation-studio.is-embedded {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid rgba(65, 62, 58, 0.2);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.deployment-smart-participation {
+  margin: 4px 0 8px;
+}
+
 .smart-participation-header,
 .smart-section-heading,
 .smart-preview-head,
-.smart-feedback-row {
+.smart-feedback-row,
+.smart-ai-draft-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -15,12 +28,22 @@
 }
 
 .smart-participation-header h2,
-.smart-section-heading strong {
+.smart-section-heading strong,
+.smart-ai-draft-row strong {
   margin: 0;
 }
 
 .smart-participation-header p {
   max-width: 760px;
+}
+
+.smart-participation-studio.is-embedded .smart-participation-header h2 {
+  font-size: 1.2rem;
+}
+
+.smart-participation-studio.is-embedded .smart-participation-header p:last-child {
+  margin-bottom: 0;
+  font-size: 0.9rem;
 }
 
 .smart-participation-grid {
@@ -35,6 +58,11 @@
   display: grid;
   gap: 14px;
   padding: 20px;
+}
+
+.smart-participation-studio.is-embedded .smart-profile-panel,
+.smart-participation-studio.is-embedded .smart-playground-panel {
+  padding: 16px;
 }
 
 .smart-profile-panel label,
@@ -63,6 +91,46 @@
 
 .smart-section-heading small {
   opacity: 0.68;
+}
+
+.smart-ai-draft-row {
+  align-items: center;
+  padding: 12px;
+  border: 1px solid rgba(65, 62, 58, 0.16);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.smart-ai-draft-row > div {
+  display: grid;
+  gap: 4px;
+}
+
+.smart-ai-draft-row small,
+.smart-playground-note {
+  opacity: 0.7;
+  font-size: 0.84rem;
+}
+
+.smart-generation-note,
+.smart-generation-rationale {
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+}
+
+.smart-generation-note {
+  background: rgba(103, 126, 109, 0.1);
+  border: 1px solid rgba(103, 126, 109, 0.22);
+}
+
+.smart-generation-rationale {
+  background: rgba(65, 62, 58, 0.045);
+}
+
+.smart-playground-note {
+  margin: -4px 0 0;
 }
 
 .smart-toggle-row {
@@ -210,6 +278,12 @@
   opacity: 0.78;
 }
 
+@media (max-width: 1120px) {
+  .smart-participation-studio.is-embedded .smart-participation-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 920px) {
   .smart-participation-studio {
     min-width: 0;
@@ -220,5 +294,10 @@
   .smart-follow-up-fields,
   .smart-match-grid {
     grid-template-columns: 1fr;
+  }
+
+  .smart-ai-draft-row {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

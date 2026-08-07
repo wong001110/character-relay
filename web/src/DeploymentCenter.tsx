@@ -25,6 +25,7 @@ import { PaperDrawer, PaperModal } from "./NotebookUI";
 import { Pagination } from "./Pagination";
 import { useI18n } from "./i18n";
 import { InteractionSessionsPanel } from "./InteractionSessionsPanel";
+import { SmartParticipationStudio } from "./SmartParticipationStudio";
 
 interface Props {
   cards: CharacterCard[];
@@ -188,6 +189,8 @@ export function DeploymentCenter({
   );
   const [draftConnectionId, setDraftConnectionId] = useState("");
   const [draftServerProfileId, setDraftServerProfileId] = useState("");
+  const [draftParticipationMode, setDraftParticipationMode] =
+    useState<ParticipationMode>("mention_and_reply");
   const [excludedChannels, setExcludedChannels] = useState<Set<string>>(new Set());
   const [excludedCategories, setExcludedCategories] = useState<Set<string>>(new Set());
 
@@ -417,6 +420,7 @@ export function DeploymentCenter({
     setDraftCharacterId(initialCharacterId ?? cards[0]?.id ?? "");
     setDraftConnectionId(connectionId);
     setDraftServerProfileId(selectedWorkspaceProfile.id);
+    setDraftParticipationMode("mention_and_reply");
     setExcludedChannels(new Set());
     setExcludedCategories(new Set());
     setDeploymentOpen(true);
@@ -427,6 +431,7 @@ export function DeploymentCenter({
     setDraftCharacterId(item.character_card_id);
     setDraftConnectionId(item.connection_id);
     setDraftServerProfileId(item.server_profile_id);
+    setDraftParticipationMode(item.participation_mode);
     setExcludedChannels(new Set(item.excluded_channel_ids));
     setExcludedCategories(new Set(item.excluded_category_ids));
     setDeploymentOpen(true);
@@ -475,7 +480,7 @@ export function DeploymentCenter({
         : String(data.get("thread_name") ?? "").trim(),
       excluded_channel_ids: usesServerProfile ? [...excludedChannels] : [],
       excluded_category_ids: usesServerProfile ? [...excludedCategories] : [],
-      participation_mode: String(data.get("participation_mode")) as ParticipationMode,
+      participation_mode: draftParticipationMode,
       memory_scope: String(data.get("memory_scope")) as MemoryScope,
       version_label:
         String(data.get("version_label") ?? "Current").trim() || "Current",
@@ -1135,7 +1140,12 @@ export function DeploymentCenter({
                   {zh ? "参与模式" : "Participation mode"}
                   <select
                     name="participation_mode"
-                    defaultValue={editingDeployment?.participation_mode ?? "mention_and_reply"}
+                    value={draftParticipationMode}
+                    onChange={(event) =>
+                      setDraftParticipationMode(
+                        event.currentTarget.value as ParticipationMode
+                      )
+                    }
                   >
                     <option value="mention_only">Mention only</option>
                     <option value="reply_only">Reply only</option>
@@ -1154,6 +1164,18 @@ export function DeploymentCenter({
                     <option value="custom">Custom</option>
                   </select>
                 </label>
+
+                {discordIdentityEnabled && draftParticipationMode === "smart" && (
+                  <div className="deployment-form-wide deployment-smart-participation">
+                    <SmartParticipationStudio
+                      cards={cards}
+                      zh={zh}
+                      fixedCharacterId={draftCharacterId}
+                      embedded
+                    />
+                  </div>
+                )}
+
                 <label>
                   {zh ? "角色版本" : "Character version"}
                   <input

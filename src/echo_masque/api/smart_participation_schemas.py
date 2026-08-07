@@ -66,9 +66,17 @@ class SmartParticipationProfileView(SmartParticipationProfileUpdate):
         )
 
 
+class SmartParticipationGeneratedProfile(SmartParticipationProfileUpdate):
+    preferred_follow_up_character_name: str = ""
+    rationale: str = ""
+    provider_model: str
+    correction_used: bool = False
+
+
 class SmartParticipationPlaygroundRequest(BaseModel):
     message: str = Field(min_length=1, max_length=10000)
     previous_character_card_id: str = Field(default="", max_length=64)
+    profile_override: SmartParticipationProfileUpdate | None = None
 
 
 class SmartParticipationPlaygroundView(BaseModel):
