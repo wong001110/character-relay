@@ -110,10 +110,11 @@ def test_profile_playground_feedback_and_connector_mapping(tmp_path: Path) -> No
     assert profile["configured"] is True
     assert profile["preferred_follow_up_character_card_id"] == serena["id"]
 
+    preview_message = "等等,这个逻辑漏洞也太明显了吧,你认真的?"
     preview = client.post(
         f"/api/smart-participation/playground/{mia['id']}/evaluate",
         json={
-            "message": "等等，这个逻辑漏洞也太明显了吧，你认真的？",
+            "message": preview_message,
             "previous_character_card_id": serena["id"],
         },
     )
@@ -127,7 +128,7 @@ def test_profile_playground_feedback_and_connector_mapping(tmp_path: Path) -> No
 
     blocked = client.post(
         f"/api/smart-participation/playground/{mia['id']}/evaluate",
-        json={"message": "我有点不舒服，不要继续。"},
+        json={"message": "我有点不舒服,不要继续."},
     )
     assert blocked.status_code == 200, blocked.text
     assert blocked.json()["decision"] == "silent"
@@ -136,7 +137,7 @@ def test_profile_playground_feedback_and_connector_mapping(tmp_path: Path) -> No
     feedback = client.post(
         f"/api/smart-participation/feedback/{mia['id']}",
         json={
-            "message": "等等，这个逻辑漏洞也太明显了吧，你认真的？",
+            "message": preview_message,
             "previous_character_card_id": serena["id"],
             "predicted_decision": decision["decision"],
             "predicted_reason": decision["reason"],
