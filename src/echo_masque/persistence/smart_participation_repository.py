@@ -3,7 +3,7 @@
 import json
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.models import CharacterCardRecord
@@ -147,3 +147,39 @@ class SmartParticipationRepository:
             session.commit()
             session.refresh(record)
             return record
+
+    def delete_owner(self, owner_id: str) -> dict[str, int]:
+        with self.database.session() as session:
+            feedback_result = session.execute(
+                delete(SmartParticipationFeedbackRecord).where(
+                    SmartParticipationFeedbackRecord.owner_id == owner_id
+                )
+            )
+            profile_result = session.execute(
+                delete(SmartParticipationProfileRecord).where(
+                    SmartParticipationProfileRecord.owner_id == owner_id
+                )
+            )
+            session.commit()
+            return {
+                "smart_participation_feedback": feedback_result.rowcount or 0,
+                "smart_participation_profiles": profile_result.rowcount or 0,
+            }
+
+    def claim_owner(self, source_owner_id: str, target_owner_id: str) -> dict[str, int]:
+        with self.database.session() as session:
+            profile_result = session.execute(
+                update(SmartParticipationProfileRecord)
+                .where(SmartParticipationProfileRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
+            feedback_result = session.execute(
+                update(SmartParticipationFeedbackRecord)
+                .where(SmartParticipationFeedbackRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
+            session.commit()
+            return {
+                "smart_participation_profiles": profile_result.rowcount or 0,
+                "smart_participation_feedback": feedback_result.rowcount or 0,
+            }
