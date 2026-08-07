@@ -75,6 +75,7 @@ describe("Portal Smart Participation profiles", () => {
       channelCooldownSeconds: 0,
       windowSeconds: 600,
       maxRepliesPerWindow: 10,
+      automaticFollowUpsEnabled: true,
       minimumMargin: 2
     });
   });
