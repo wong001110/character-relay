@@ -1,6 +1,7 @@
 import { groupAddressAliases } from "./audienceAliases.js";
 import {
   consumeSmartSelection,
+  evaluateSmartFollowUp,
   evaluateSmartParticipation,
   markExplicitSmartSelections
 } from "./smartParticipation.js";
@@ -85,6 +86,7 @@ export type AudienceReason =
   | "selected_all"
   | "selected_single"
   | "selected_smart"
+  | "selected_smart_follow_up"
   | "ambiguous"
   | "not_found";
 
@@ -607,7 +609,22 @@ export function resolveBotTagAudience(
     additionalGroupAliases
   ).audience;
   if (leading.reason !== "not_found") return leading;
-  return inlineTaggedAudience(candidates, text, sourceDeploymentId) ?? leading;
+
+  const inline = inlineTaggedAudience(candidates, text, sourceDeploymentId);
+  if (inline) return inline;
+
+  const sourceDeployment = candidates.find(
+    (item) => item.deployment_id === sourceDeploymentId
+  );
+  if (!sourceDeployment) return leading;
+  const followUp = evaluateSmartFollowUp(sourceDeployment, candidates);
+  if (!followUp.selectedDeployment) return leading;
+  return {
+    deployments: [followUp.selectedDeployment],
+    text: text.trim(),
+    reason: "selected_smart_follow_up",
+    options: leading.options
+  };
 }
 
 export interface TriggerState {
