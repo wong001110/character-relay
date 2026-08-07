@@ -302,7 +302,7 @@ describe("deterministic Smart Participation", () => {
     expect(consumeSmartSelection(ann.deployment_id)).toBe(true);
     const result = evaluateSmartParticipation(
       [ann],
-      "我今天真的很累，你觉得呢？",
+      "我今天很累也很难过，可以帮我吗？",
       1_001_000
     );
     expect(result.reason).toBe("selected");
