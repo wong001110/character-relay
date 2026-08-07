@@ -29,6 +29,7 @@ from echo_masque.api.routes import (
     prompt_inspector_router,
     provider_traces_router,
     reports_router,
+    smart_participation_router,
     targets_router,
     templates_router,
     transcripts_router,
@@ -60,6 +61,7 @@ from echo_masque.persistence import (
     MatrixRepository,
     ProviderTraceRepository,
     Repository,
+    SmartParticipationRepository,
     TargetAccessRepository,
     WorkspaceRepository,
     inspect_storage,
@@ -100,6 +102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     discord_identity_repository = DiscordIdentityRepository(database)
     interaction_repository = InteractionRepository(database)
     expression_repository = ExpressionRepository(database)
+    smart_participation_repository = SmartParticipationRepository(database)
     if bootstrap_admin is not None:
         centralized = DiscordInventoryService(database).centralize(bootstrap_admin.id)
         if any(centralized.values()):
@@ -237,6 +240,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.discord_identity_repository = discord_identity_repository
     app.state.interaction_repository = interaction_repository
     app.state.expression_repository = expression_repository
+    app.state.smart_participation_repository = smart_participation_repository
     app.state.provider_trace_repository = provider_trace_repository
     app.state.discord_connector_runtime = discord_connector_runtime
     app.state.workspace_repository = workspace_repository
@@ -274,6 +278,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(deployments_router)
     app.include_router(discord_identities_router)
     app.include_router(interactions_router)
+    app.include_router(smart_participation_router)
     app.include_router(connectors_router)
     app.include_router(prompt_inspector_router)
     app.include_router(targets_router)
