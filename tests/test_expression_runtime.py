@@ -1,3 +1,4 @@
+from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.api.expression_schemas import ExpressionCandidate
 from echo_masque.connector_runtime import DiscordConnectorRuntime
 
@@ -66,3 +67,47 @@ def test_missing_or_invalid_control_defaults_to_none() -> None:
     assert invalid_text == "Reply"
     assert invalid.action == "none"
     assert invalid.reason == "invalid_expression_control"
+
+
+def test_expression_prompt_explains_social_meaning_without_reaction_bias() -> None:
+    emoji = candidate()
+    sticker = candidate(
+        key="sticker:987654321098765432",
+        actions=["sticker"],
+    )
+    payload = DiscordInboundMessage(
+        connection_id="connection-1",
+        deployment_id="deployment-1",
+        message_id="message-1",
+        guild_id="guild-1",
+        guild_name="Test Guild",
+        channel_id="channel-1",
+        channel_name="general",
+        author_id="user-1",
+        author_display_name="Juen",
+        text="你能使用一个 emoji 看看吗？",
+        mentioned_bot=True,
+        expression_candidates=[emoji, sticker],
+    )
+
+    prompt = DiscordConnectorRuntime._social_prompt(
+        character_name="Serena Vale",
+        payload=payload,
+    )
+
+    inline_example = '[[CR_EXPRESSION {"action":"inline","resource_key":"emoji:123"'
+    reaction_example = '[[CR_EXPRESSION {"action":"reaction","resource_key":"emoji:456"'
+    sticker_example = '[[CR_EXPRESSION {"action":"sticker","resource_key":"sticker:789"'
+    none_example = '[[CR_EXPRESSION {"action":"none","reason":"not needed"}]]'
+
+    assert "Expression controls are invisible runtime behavior." in prompt
+    assert "When you already have a substantive visible reply" in prompt
+    assert "prefer inline" in prompt
+    assert "Do not default to reaction merely because it is available" in prompt
+    assert "pressing or clicking an Emoji/reaction button" in prompt
+    assert "without explaining the platform mechanism" in prompt
+    assert inline_example in prompt
+    assert reaction_example in prompt
+    assert sticker_example in prompt
+    assert none_example in prompt
+    assert prompt.index(inline_example) < prompt.index(reaction_example)
