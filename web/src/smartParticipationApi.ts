@@ -27,6 +27,14 @@ export type SmartParticipationProfileUpdate = Omit<
   "character_card_id" | "configured" | "created_at" | "updated_at"
 >;
 
+export interface SmartParticipationGeneratedProfile
+  extends SmartParticipationProfileUpdate {
+  preferred_follow_up_character_name: string;
+  rationale: string;
+  provider_model: string;
+  correction_used: boolean;
+}
+
 export interface SmartParticipationPreview {
   character_card_id: string;
   decision: "participate" | "silent";
@@ -84,10 +92,16 @@ export const smartParticipationApi = {
       `/api/smart-participation/profiles/${encodeURIComponent(characterCardId)}`,
       { method: "PUT", body: JSON.stringify(payload) }
     ),
+  generateProfile: (characterCardId: string) =>
+    request<SmartParticipationGeneratedProfile>(
+      `/api/smart-participation/profiles/${encodeURIComponent(characterCardId)}/generate`,
+      { method: "POST" }
+    ),
   evaluate: (
     characterCardId: string,
     message: string,
-    previousCharacterCardId = ""
+    previousCharacterCardId = "",
+    profileOverride?: SmartParticipationProfileUpdate
   ) =>
     request<SmartParticipationPreview>(
       `/api/smart-participation/playground/${encodeURIComponent(characterCardId)}/evaluate`,
@@ -95,7 +109,8 @@ export const smartParticipationApi = {
         method: "POST",
         body: JSON.stringify({
           message,
-          previous_character_card_id: previousCharacterCardId
+          previous_character_card_id: previousCharacterCardId,
+          profile_override: profileOverride
         })
       }
     ),
