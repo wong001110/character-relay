@@ -340,9 +340,9 @@ class DiscordConnectorRuntime:
                 "A small retrieved set of Server expressions is available below.",
                 *candidate_lines,
                 "Expression controls are invisible runtime behavior. First write the most "
-                "natural in-character visible reply. Then decide whether a real Discord user "
-                "would naturally add one expression. Using an expression is optional; use at "
-                "most one.",
+                "natural in-character visible reply. Then make exactly one expression decision. "
+                "Using an expression is optional, but the decision is mandatory whenever "
+                "candidates are listed; use at most one expression in this reply.",
                 "Action meaning: INLINE means the custom Emoji is part of your own message and "
                 "reinforces its tone, emotion, punchline, teasing, or reaction. When you already "
                 "have a substantive visible reply and an Emoji fits naturally, prefer inline.",
@@ -367,7 +367,11 @@ class DiscordConnectorRuntime:
                 "Unicode Emoji may remain naturally in your visible reply text. Never invent a "
                 "custom Emoji or Sticker ID. Choose only a listed resource_key and an action "
                 "allowed for that candidate.",
-                "Append exactly one final machine-control line after the visible reply. Balanced "
+                "If no retrieved expression naturally fits the character, tone, or moment, choose "
+                "action none. A confident none decision is better than forcing an out-of-character "
+                "expression. When candidates are provided, never omit the CR_EXPRESSION decision.",
+                "You MUST append exactly one final machine-control line after the visible reply. "
+                "Balanced "
                 "examples follow; copy the shape, not the sample IDs:",
                 '[[CR_EXPRESSION {"action":"inline","resource_key":"emoji:123",'
                 '"reason":"reinforces the tone of my visible reply"}]]',
