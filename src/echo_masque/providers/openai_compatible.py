@@ -2,6 +2,7 @@
 
 import asyncio
 from time import perf_counter
+from urllib.parse import urlparse
 
 import httpx
 from pydantic import SecretStr
@@ -43,6 +44,11 @@ class OpenAICompatibleProvider:
         suffix = "/chat/completions" if self._base_url.endswith("/v1") else "/v1/chat/completions"
         return f"{self._base_url}{suffix}"
 
+    @property
+    def _uses_deepseek_api(self) -> bool:
+        hostname = (urlparse(self._base_url).hostname or "").casefold()
+        return hostname == "api.deepseek.com"
+
     async def complete(
         self,
         *,
@@ -50,11 +56,17 @@ class OpenAICompatibleProvider:
         model: str,
         temperature: float,
     ) -> ProviderCompletion:
-        payload = {
+        payload: dict[str, object] = {
             "model": model,
             "temperature": temperature,
             "messages": [item.model_dump() for item in messages],
         }
+        if self._uses_deepseek_api:
+            # DeepSeek currently defaults chat completions to thinking mode. Character
+            # Relay expects a direct user-visible answer from this low-latency adapter,
+            # so explicitly request non-thinking mode instead of consuming hidden CoT.
+            payload["thinking"] = {"type": "disabled"}
+
         headers = {
             "Authorization": f"Bearer {self._api_key.get_secret_value()}",
             "Content-Type": "application/json",
@@ -113,6 +125,8 @@ class OpenAICompatibleProvider:
                     choice = body["choices"][0]
                     text = choice["message"]["content"]
                     usage = body.get("usage", {})
+                    if not isinstance(text, str):
+                        raise TypeError("Chat-completion content must be a string.")
                 except (KeyError, IndexError, TypeError, ValueError) as exc:
                     trace.error(
                         reason="invalid_response_payload",
@@ -124,10 +138,28 @@ class OpenAICompatibleProvider:
                     ) from exc
 
                 response_model = str(body.get("model", model))
-                response_text = str(text)
+                response_text = text
                 input_tokens = usage.get("prompt_tokens")
                 output_tokens = usage.get("completion_tokens")
                 finish_reason = choice.get("finish_reason")
+
+                if not response_text.strip():
+                    if attempt < self._max_retries:
+                        trace.retry(
+                            attempt=attempt + 1,
+                            reason="empty_content",
+                            status_code=response.status_code,
+                        )
+                        await asyncio.sleep(0)
+                        continue
+                    trace.error(
+                        reason="empty_content",
+                        status_code=response.status_code,
+                    )
+                    raise ProviderProtocolError(
+                        "Model provider returned empty chat-completion content."
+                    )
+
                 trace.response(
                     status_code=response.status_code,
                     response_model=response_model,
