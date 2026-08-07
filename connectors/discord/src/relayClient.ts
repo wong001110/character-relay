@@ -22,6 +22,7 @@ import type {
   DiscordWebhookRegistrationResult,
   DiscordWebhookStatusReport
 } from "./types.js";
+import type { DiscordPortalParticipationProfile } from "./smartParticipation.js";
 
 const RETRY_DELAYS_MS = [0, 1_000, 2_000, 4_000, 8_000, 15_000];
 const TRANSIENT_STATUS_CODES = new Set([502, 503, 504]);
@@ -48,9 +49,16 @@ export class RelayClient {
 
   async listDeployments(): Promise<DiscordDeployment[]> {
     const query = new URLSearchParams({ connection_id: this.connectionId });
-    return this.request<DiscordDeployment[]>(
+    const deployments = await this.request<DiscordDeployment[]>(
       `/api/connectors/discord/deployments?${query.toString()}`
     );
+    const profiles = await this.request<Record<string, DiscordPortalParticipationProfile>>(
+      `/api/smart-participation/connector-profiles?${query.toString()}`
+    ).catch((): Record<string, DiscordPortalParticipationProfile> => ({}));
+    return deployments.map((deployment) => ({
+      ...deployment,
+      smart_participation_profile: profiles[deployment.deployment_id] ?? null
+    }));
   }
 
   async syncServerCatalog(

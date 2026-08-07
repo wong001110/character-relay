@@ -14,6 +14,7 @@ from echo_masque.persistence import (
     EvaluationRepository,
     ExpressionRepository,
     InteractionRepository,
+    SmartParticipationRepository,
 )
 
 
@@ -29,6 +30,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         discord_identity_repository: DiscordIdentityRepository | None = None,
         interaction_repository: InteractionRepository | None = None,
         expression_repository: ExpressionRepository | None = None,
+        smart_participation_repository: SmartParticipationRepository | None = None,
     ) -> None:
         super().__init__(
             database,
@@ -43,11 +45,15 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         )
         self.interaction_repository = interaction_repository or InteractionRepository(database)
         self.expression_repository = expression_repository or ExpressionRepository(database)
+        self.smart_participation_repository = (
+            smart_participation_repository or SmartParticipationRepository(database)
+        )
 
     def delete_account(self, user_id: str, *, email: str) -> dict[str, int]:
         evaluation_counts = self.evaluation_repository.delete_owner(user_id)
         interaction_counts = self.interaction_repository.delete_owner(user_id)
         expression_counts = self.expression_repository.delete_owner(user_id)
+        smart_counts = self.smart_participation_repository.delete_owner(user_id)
         identity_counts = self.discord_identity_repository.delete_owner(user_id)
         deployment_counts = self.deployment_repository.delete_owner(user_id)
         deleted = super().delete_account(user_id, email=email)
@@ -56,6 +62,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             **evaluation_counts,
             **interaction_counts,
             **expression_counts,
+            **smart_counts,
             **identity_counts,
             **deployment_counts,
         }
@@ -88,6 +95,10 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "local-user",
             actor_user_id,
         )
+        smart_counts = self.smart_participation_repository.claim_owner(
+            "local-user",
+            actor_user_id,
+        )
         combined = {
             **base_counts,
             **evaluation_counts,
@@ -95,6 +106,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             **identity_counts,
             **interaction_counts,
             **expression_counts,
+            **smart_counts,
         }
         if sum(combined.values()) == 0:
             if base_error is not None:

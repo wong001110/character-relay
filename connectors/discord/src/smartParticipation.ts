@@ -1,6 +1,29 @@
 import type { DiscordDeployment } from "./types.js";
 
+export type SmartParticipationStyle = "quiet" | "balanced" | "active";
+export type SmartParticipationGroupRole = "primary" | "secondary" | "independent";
+
+export interface DiscordPortalParticipationProfile {
+  character_card_id: string;
+  configured: boolean;
+  enabled: boolean;
+  style: SmartParticipationStyle;
+  group_role: SmartParticipationGroupRole;
+  topics: string[];
+  keywords: string[];
+  trigger_phrases: string[];
+  avoid_phrases: string[];
+  cooldown_seconds: number;
+  preferred_follow_up_character_card_id: string;
+  follow_up_window_seconds: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface SmartParticipationProfileInput {
+  enabled?: boolean;
+  style?: SmartParticipationStyle;
+  group_role?: SmartParticipationGroupRole;
   topics?: string[];
   keywords?: string[];
   trigger_phrases?: string[];
@@ -8,6 +31,8 @@ export interface SmartParticipationProfileInput {
   initiative?: number;
   minimum_score?: number;
   cooldown_seconds?: number;
+  preferred_follow_up_character_card_id?: string;
+  follow_up_window_seconds?: number;
 }
 
 export type SmartParticipationProfiles = Record<string, SmartParticipationProfileInput>;
@@ -32,6 +57,7 @@ export interface SmartParticipationSignals {
   short_message_penalty: number;
   cooldown_blocked: number;
   avoid_phrase_blocked: number;
+  profile_disabled_blocked: number;
 }
 
 export interface SmartParticipationCandidateScore {
@@ -63,7 +89,25 @@ export interface SmartParticipationDecision {
   candidates: SmartParticipationCandidateScore[];
 }
 
+export type SmartFollowUpReason =
+  | "disabled"
+  | "source_not_primary"
+  | "no_secondary"
+  | "ambiguous_secondary"
+  | "secondary_cooldown"
+  | "selected";
+
+export interface SmartFollowUpDecision {
+  reason: SmartFollowUpReason;
+  sourceDeployment: DiscordDeployment;
+  selectedDeployment: DiscordDeployment | null;
+  candidateDeploymentIds: string[];
+}
+
 interface NormalizedProfile {
+  enabled: boolean;
+  style: SmartParticipationStyle;
+  groupRole: SmartParticipationGroupRole;
   topics: string[];
   keywords: string[];
   triggerPhrases: string[];
@@ -71,6 +115,9 @@ interface NormalizedProfile {
   initiative: number;
   minimumScore: number;
   cooldownSeconds: number;
+  preferredFollowUpCharacterCardId: string;
+  followUpWindowSeconds: number;
+  source: "portal" | "env" | "default";
 }
 
 interface ProactiveSelection {
@@ -86,6 +133,12 @@ const DEFAULT_CONFIG: SmartParticipationRuntimeConfig = {
   channelCooldownSeconds: 45,
   windowSeconds: 600,
   maxRepliesPerWindow: 3
+};
+
+const STYLE_PRESETS: Record<SmartParticipationStyle, { initiative: number; minimumScore: number }> = {
+  quiet: { initiative: 0.15, minimumScore: 6 },
+  balanced: { initiative: 0.45, minimumScore: 5 },
+  active: { initiative: 0.8, minimumScore: 4 }
 };
 
 const LOW_INFORMATION_MESSAGES = new Set([
@@ -207,16 +260,29 @@ export function parseSmartParticipationProfiles(raw: string | undefined): SmartP
     const profile: SmartParticipationProfileInput = {};
     const topics = stringArray(input.topics, `${key}.topics`);
     const keywords = stringArray(input.keywords, `${key}.keywords`);
-    const triggerPhrases = stringArray(
-      input.trigger_phrases,
-      `${key}.trigger_phrases`
-    );
+    const triggerPhrases = stringArray(input.trigger_phrases, `${key}.trigger_phrases`);
     const avoidPhrases = stringArray(input.avoid_phrases, `${key}.avoid_phrases`);
     const initiative = optionalNumber(input.initiative, `${key}.initiative`);
     const minimumScore = optionalNumber(input.minimum_score, `${key}.minimum_score`);
-    const cooldownSeconds = optionalNumber(
-      input.cooldown_seconds,
-      `${key}.cooldown_seconds`
+    const cooldownSeconds = optionalNumber(input.cooldown_seconds, `${key}.cooldown_seconds`);
+    const followUpWindowSeconds = optionalNumber(
+      input.follow_up_window_seconds,
+      `${key}.follow_up_window_seconds`
+    );
+    const enabled = optionalBoolean(input.enabled, `${key}.enabled`);
+    const style = optionalEnum<SmartParticipationStyle>(
+      input.style,
+      `${key}.style`,
+      ["quiet", "balanced", "active"]
+    );
+    const groupRole = optionalEnum<SmartParticipationGroupRole>(
+      input.group_role,
+      `${key}.group_role`,
+      ["primary", "secondary", "independent"]
+    );
+    const preferredFollowUp = optionalString(
+      input.preferred_follow_up_character_card_id,
+      `${key}.preferred_follow_up_character_card_id`
     );
     if (topics !== undefined) profile.topics = topics;
     if (keywords !== undefined) profile.keywords = keywords;
@@ -225,6 +291,13 @@ export function parseSmartParticipationProfiles(raw: string | undefined): SmartP
     if (initiative !== undefined) profile.initiative = initiative;
     if (minimumScore !== undefined) profile.minimum_score = minimumScore;
     if (cooldownSeconds !== undefined) profile.cooldown_seconds = cooldownSeconds;
+    if (followUpWindowSeconds !== undefined) profile.follow_up_window_seconds = followUpWindowSeconds;
+    if (enabled !== undefined) profile.enabled = enabled;
+    if (style !== undefined) profile.style = style;
+    if (groupRole !== undefined) profile.group_role = groupRole;
+    if (preferredFollowUp !== undefined) {
+      profile.preferred_follow_up_character_card_id = preferredFollowUp;
+    }
     profiles[key] = profile;
   }
   return profiles;
@@ -246,6 +319,30 @@ function optionalNumber(value: unknown, field: string): number | undefined {
   return value;
 }
 
+function optionalBoolean(value: unknown, field: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") throw new Error(`${field} must be a boolean.`);
+  return value;
+}
+
+function optionalString(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") throw new Error(`${field} must be a string.`);
+  return value.trim();
+}
+
+function optionalEnum<T extends string>(
+  value: unknown,
+  field: string,
+  allowed: readonly T[]
+): T | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !allowed.includes(value as T)) {
+    throw new Error(`${field} must be one of ${allowed.join(", ")}.`);
+  }
+  return value as T;
+}
+
 function normalizeText(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase().replace(/\s+/gu, " ").trim();
 }
@@ -258,19 +355,56 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
-function normalizedProfile(profile: SmartParticipationProfileInput | undefined): NormalizedProfile {
+function portalProfile(deployment: DiscordDeployment): DiscordPortalParticipationProfile | null {
+  return (
+    deployment as DiscordDeployment & {
+      smart_participation_profile?: DiscordPortalParticipationProfile | null;
+    }
+  ).smart_participation_profile ?? null;
+}
+
+function normalizedPortalProfile(profile: DiscordPortalParticipationProfile): NormalizedProfile {
+  const preset = STYLE_PRESETS[profile.style] ?? STYLE_PRESETS.balanced;
   return {
+    enabled: profile.enabled,
+    style: profile.style,
+    groupRole: profile.group_role,
+    topics: normalizeList(profile.topics),
+    keywords: normalizeList(profile.keywords),
+    triggerPhrases: normalizeList(profile.trigger_phrases),
+    avoidPhrases: normalizeList(profile.avoid_phrases),
+    initiative: preset.initiative,
+    minimumScore: preset.minimumScore,
+    cooldownSeconds: clamp(profile.cooldown_seconds, 0, 86_400),
+    preferredFollowUpCharacterCardId: profile.preferred_follow_up_character_card_id.trim(),
+    followUpWindowSeconds: clamp(profile.follow_up_window_seconds, 1, 600),
+    source: "portal"
+  };
+}
+
+function normalizedEnvProfile(profile: SmartParticipationProfileInput | undefined): NormalizedProfile {
+  const style = profile?.style ?? "balanced";
+  const preset = STYLE_PRESETS[style];
+  return {
+    enabled: profile?.enabled ?? true,
+    style,
+    groupRole: profile?.group_role ?? "independent",
     topics: normalizeList(profile?.topics),
     keywords: normalizeList(profile?.keywords),
     triggerPhrases: normalizeList(profile?.trigger_phrases),
     avoidPhrases: normalizeList(profile?.avoid_phrases),
-    initiative: clamp(profile?.initiative ?? 0, 0, 1),
-    minimumScore: clamp(profile?.minimum_score ?? 5, 0, 100),
-    cooldownSeconds: clamp(profile?.cooldown_seconds ?? 120, 0, 86_400)
+    initiative: clamp(profile?.initiative ?? (profile ? preset.initiative : 0), 0, 1),
+    minimumScore: clamp(profile?.minimum_score ?? (profile ? preset.minimumScore : 5), 0, 100),
+    cooldownSeconds: clamp(profile?.cooldown_seconds ?? 120, 0, 86_400),
+    preferredFollowUpCharacterCardId: profile?.preferred_follow_up_character_card_id?.trim() ?? "",
+    followUpWindowSeconds: clamp(profile?.follow_up_window_seconds ?? 30, 1, 600),
+    source: profile ? "env" : "default"
   };
 }
 
-function profileFor(deployment: DiscordDeployment): NormalizedProfile {
+export function smartParticipationProfileFor(deployment: DiscordDeployment): NormalizedProfile {
+  const embedded = portalProfile(deployment);
+  if (embedded) return normalizedPortalProfile(embedded);
   const keys = [
     `deployment:${deployment.deployment_id}`,
     deployment.deployment_id,
@@ -284,9 +418,9 @@ function profileFor(deployment: DiscordDeployment): NormalizedProfile {
   ].filter(Boolean);
   for (const key of keys) {
     const profile = runtimeConfig.profiles[key];
-    if (profile) return normalizedProfile(profile);
+    if (profile) return normalizedEnvProfile(profile);
   }
-  return normalizedProfile(undefined);
+  return normalizedEnvProfile(undefined);
 }
 
 function scopeKey(deployment: DiscordDeployment): string {
@@ -300,14 +434,6 @@ function scopeKey(deployment: DiscordDeployment): string {
 
 function matchedPhrases(text: string, phrases: string[]): string[] {
   return phrases.filter((phrase) => phrase && text.includes(phrase));
-}
-
-function nameValues(deployment: DiscordDeployment): string[] {
-  return normalizeList([
-    deployment.character_display_name,
-    deployment.identity_display_name,
-    ...(deployment.address_aliases ?? [])
-  ]);
 }
 
 function isQuestion(text: string): boolean {
@@ -324,13 +450,16 @@ function isLowInformation(text: string): boolean {
 }
 
 function pruneSelections(now: number): void {
-  const retentionMilliseconds = Math.max(
-    runtimeConfig.windowSeconds,
-    86_400
-  ) * 1000;
+  const retentionMilliseconds = Math.max(runtimeConfig.windowSeconds, 86_400) * 1000;
   proactiveSelections = proactiveSelections.filter(
     (item) => now - item.selectedAt <= retentionMilliseconds
   );
+}
+
+function lastSelectionFor(deploymentId: string): ProactiveSelection | undefined {
+  return proactiveSelections
+    .filter((item) => item.deploymentId === deploymentId)
+    .sort((left, right) => right.selectedAt - left.selectedAt)[0];
 }
 
 function clearPending(deployments: DiscordDeployment[]): void {
@@ -350,7 +479,8 @@ function emptySignals(): SmartParticipationSignals {
     initiative: 0,
     short_message_penalty: 0,
     cooldown_blocked: 0,
-    avoid_phrase_blocked: 0
+    avoid_phrase_blocked: 0,
+    profile_disabled_blocked: 0
   };
 }
 
@@ -359,53 +489,33 @@ function scoreCandidate(
   text: string,
   now: number
 ): SmartParticipationCandidateScore {
-  const profile = profileFor(deployment);
+  const profile = smartParticipationProfileFor(deployment);
   const signals = emptySignals();
+  if (!profile.enabled) {
+    signals.profile_disabled_blocked = 1;
+    return blockedCandidate(deployment, profile, signals, []);
+  }
   const matchedAvoidPhrases = matchedPhrases(text, profile.avoidPhrases);
   if (matchedAvoidPhrases.length) {
     signals.avoid_phrase_blocked = 1;
-    return {
-      deployment,
-      score: Number.NEGATIVE_INFINITY,
-      minimumScore: profile.minimumScore,
-      eligible: false,
-      signals,
-      matchedTopics: [],
-      matchedKeywords: [],
-      matchedTriggerPhrases: [],
-      matchedAvoidPhrases
-    };
+    return blockedCandidate(deployment, profile, signals, matchedAvoidPhrases);
   }
 
-  const lastSelection = proactiveSelections
-    .filter((item) => item.deploymentId === deployment.deployment_id)
-    .sort((left, right) => right.selectedAt - left.selectedAt)[0];
-  if (
-    lastSelection &&
-    now - lastSelection.selectedAt < profile.cooldownSeconds * 1000
-  ) {
+  const lastSelection = lastSelectionFor(deployment.deployment_id);
+  if (lastSelection && now - lastSelection.selectedAt < profile.cooldownSeconds * 1000) {
     signals.cooldown_blocked = 1;
-    return {
-      deployment,
-      score: Number.NEGATIVE_INFINITY,
-      minimumScore: profile.minimumScore,
-      eligible: false,
-      signals,
-      matchedTopics: [],
-      matchedKeywords: [],
-      matchedTriggerPhrases: [],
-      matchedAvoidPhrases: []
-    };
+    return blockedCandidate(deployment, profile, signals, []);
   }
 
   const matchedTopics = matchedPhrases(text, profile.topics);
   const matchedKeywords = matchedPhrases(text, profile.keywords);
   const matchedTriggerPhrases = matchedPhrases(text, profile.triggerPhrases);
-  const names = matchedPhrases(text, nameValues(deployment));
 
   signals.question = isQuestion(text) ? 2 : 0;
   signals.help_request = isHelpRequest(text) ? 2 : 0;
-  signals.name_match = names.length ? 5 : 0;
+  // Explicit character addressing is resolved before this scorer. Keeping fuzzy name
+  // matching here causes single-character aliases such as "安" to match "安静".
+  signals.name_match = 0;
   signals.topic_match = Math.min(6, matchedTopics.length * 3);
   signals.keyword_match = Math.min(6, matchedKeywords.length * 2);
   signals.trigger_phrase = Math.min(4, matchedTriggerPhrases.length * 2);
@@ -426,29 +536,46 @@ function scoreCandidate(
   };
 }
 
-function logDecision(decision: SmartParticipationDecision, messageLength: number): void {
-  console.log(
-    JSON.stringify({
-      timestamp: new Date().toISOString(),
-      message: "Deterministic Smart Participation decision.",
-      event_type: "smart_participation_decision",
-      reason: decision.reason,
-      message_length: messageLength,
-      selected_deployment_id: decision.selectedDeployment?.deployment_id ?? null,
-      candidates: decision.candidates.map((candidate) => ({
-        deployment_id: candidate.deployment.deployment_id,
-        character_card_id: candidate.deployment.character_card_id,
-        score: Number.isFinite(candidate.score) ? candidate.score : null,
-        minimum_score: candidate.minimumScore,
-        eligible: candidate.eligible,
-        signals: candidate.signals,
-        matched_topics: candidate.matchedTopics,
-        matched_keywords: candidate.matchedKeywords,
-        matched_trigger_phrases: candidate.matchedTriggerPhrases,
-        matched_avoid_phrases: candidate.matchedAvoidPhrases
-      }))
-    })
-  );
+function blockedCandidate(
+  deployment: DiscordDeployment,
+  profile: NormalizedProfile,
+  signals: SmartParticipationSignals,
+  matchedAvoidPhrases: string[]
+): SmartParticipationCandidateScore {
+  return {
+    deployment,
+    score: Number.NEGATIVE_INFINITY,
+    minimumScore: profile.minimumScore,
+    eligible: false,
+    signals,
+    matchedTopics: [],
+    matchedKeywords: [],
+    matchedTriggerPhrases: [],
+    matchedAvoidPhrases
+  };
+}
+
+function logDecision(value: SmartParticipationDecision, messageLength: number): void {
+  console.log(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    message: "Deterministic Smart Participation decision.",
+    event_type: "smart_participation_decision",
+    reason: value.reason,
+    message_length: messageLength,
+    selected_deployment_id: value.selectedDeployment?.deployment_id ?? null,
+    candidates: value.candidates.map((candidate) => ({
+      deployment_id: candidate.deployment.deployment_id,
+      character_card_id: candidate.deployment.character_card_id,
+      score: Number.isFinite(candidate.score) ? candidate.score : null,
+      minimum_score: candidate.minimumScore,
+      eligible: candidate.eligible,
+      signals: candidate.signals,
+      matched_topics: candidate.matchedTopics,
+      matched_keywords: candidate.matchedKeywords,
+      matched_trigger_phrases: candidate.matchedTriggerPhrases,
+      matched_avoid_phrases: candidate.matchedAvoidPhrases
+    }))
+  }));
 }
 
 function decision(
@@ -490,10 +617,7 @@ export function evaluateSmartParticipation(
     .filter((item) => item.scopeKey === scope)
     .sort((left, right) => right.selectedAt - left.selectedAt);
   const latest = scopeSelections[0];
-  if (
-    latest &&
-    now - latest.selectedAt < runtimeConfig.channelCooldownSeconds * 1000
-  ) {
+  if (latest && now - latest.selectedAt < runtimeConfig.channelCooldownSeconds * 1000) {
     return decision("channel_cooldown", null, [], text.length);
   }
   const windowStart = now - runtimeConfig.windowSeconds * 1000;
@@ -530,6 +654,78 @@ export function evaluateSmartParticipation(
     selectedAt: now
   });
   return decision("selected", top.deployment, candidates, text.length);
+}
+
+export function evaluateSmartFollowUp(
+  sourceDeployment: DiscordDeployment,
+  deployments: DiscordDeployment[],
+  now = Date.now()
+): SmartFollowUpDecision {
+  if (!runtimeConfig.enabled) {
+    return followUpDecision("disabled", sourceDeployment, null, []);
+  }
+  const sourceProfile = smartParticipationProfileFor(sourceDeployment);
+  if (
+    sourceProfile.source !== "portal" ||
+    !sourceProfile.enabled ||
+    sourceProfile.groupRole !== "primary"
+  ) {
+    return followUpDecision("source_not_primary", sourceDeployment, null, []);
+  }
+
+  pruneSelections(now);
+  const matching = deployments.filter((deployment) => {
+    if (
+      deployment.deployment_id === sourceDeployment.deployment_id ||
+      deployment.participation_mode !== "smart"
+    ) {
+      return false;
+    }
+    const profile = smartParticipationProfileFor(deployment);
+    return (
+      profile.source === "portal" &&
+      profile.enabled &&
+      profile.groupRole === "secondary" &&
+      profile.preferredFollowUpCharacterCardId === sourceDeployment.character_card_id &&
+      profile.followUpWindowSeconds > 0
+    );
+  });
+  if (!matching.length) return followUpDecision("no_secondary", sourceDeployment, null, []);
+  if (matching.length > 1) {
+    return followUpDecision(
+      "ambiguous_secondary",
+      sourceDeployment,
+      null,
+      matching.map((item) => item.deployment_id)
+    );
+  }
+
+  const selected = matching[0]!;
+  const profile = smartParticipationProfileFor(selected);
+  const lastSelection = lastSelectionFor(selected.deployment_id);
+  if (lastSelection && now - lastSelection.selectedAt < profile.cooldownSeconds * 1000) {
+    return followUpDecision(
+      "secondary_cooldown",
+      sourceDeployment,
+      null,
+      [selected.deployment_id]
+    );
+  }
+  proactiveSelections.push({
+    deploymentId: selected.deployment_id,
+    scopeKey: scopeKey(selected),
+    selectedAt: now
+  });
+  return followUpDecision("selected", sourceDeployment, selected, [selected.deployment_id]);
+}
+
+function followUpDecision(
+  reason: SmartFollowUpReason,
+  sourceDeployment: DiscordDeployment,
+  selectedDeployment: DiscordDeployment | null,
+  candidateDeploymentIds: string[]
+): SmartFollowUpDecision {
+  return { reason, sourceDeployment, selectedDeployment, candidateDeploymentIds };
 }
 
 export function markExplicitSmartSelections(deployments: DiscordDeployment[]): void {
