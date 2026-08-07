@@ -20,6 +20,7 @@ from echo_masque.persistence import (
     Repository,
     SmartParticipationRepository,
 )
+from echo_masque.persistence.models import CharacterCardRecord
 from echo_masque.smart_participation import ParticipationProfile, evaluate_participation
 
 router = APIRouter(prefix="/api/smart-participation", tags=["smart-participation"])
@@ -63,7 +64,11 @@ def _authorize_connector(
         )
 
 
-def _require_character(request: Request, character_card_id: str, owner_id: str):
+def _require_character(
+    request: Request,
+    character_card_id: str,
+    owner_id: str,
+) -> CharacterCardRecord:
     card = character_repository(request).get_character_card(character_card_id, owner_id)
     if card is None:
         raise HTTPException(status_code=404, detail="Character Card not found.")
