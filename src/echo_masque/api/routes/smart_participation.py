@@ -1,8 +1,9 @@
 """Character-level Smart Participation configuration and deterministic Playground APIs."""
 
-from typing import cast
+import hmac
+from typing import Annotated, cast
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 
 from echo_masque.api.dependencies import CurrentUserDependency
 from echo_masque.api.smart_participation_schemas import (
@@ -13,7 +14,12 @@ from echo_masque.api.smart_participation_schemas import (
     SmartParticipationProfileUpdate,
     SmartParticipationProfileView,
 )
-from echo_masque.persistence import Repository, SmartParticipationRepository
+from echo_masque.config import Settings
+from echo_masque.persistence import (
+    DeploymentRepository,
+    Repository,
+    SmartParticipationRepository,
+)
 from echo_masque.smart_participation import ParticipationProfile, evaluate_participation
 
 router = APIRouter(prefix="/api/smart-participation", tags=["smart-participation"])
@@ -28,6 +34,33 @@ def smart_repository(request: Request) -> SmartParticipationRepository:
 
 def character_repository(request: Request) -> Repository:
     return cast(Repository, request.app.state.repository)
+
+
+def deployment_repository(request: Request) -> DeploymentRepository:
+    return cast(DeploymentRepository, request.app.state.deployment_repository)
+
+
+def _authorize_connector(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    settings = cast(Settings, request.app.state.settings)
+    configured = settings.connector_shared_secret
+    if configured is None or not configured.get_secret_value():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Connector API is disabled until a shared secret is configured.",
+        )
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.casefold() != "bearer" or not hmac.compare_digest(
+        token,
+        configured.get_secret_value(),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid connector credential.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def _require_character(request: Request, character_card_id: str, owner_id: str):
@@ -101,6 +134,31 @@ def update_profile(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return SmartParticipationProfileView.from_record(record)
+
+
+@router.get(
+    "/connector-profiles",
+    response_model=dict[str, SmartParticipationProfileView],
+)
+def list_connector_profiles(
+    request: Request,
+    connection_id: str = Query(min_length=1, max_length=64),
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, SmartParticipationProfileView]:
+    """Return only persisted profile overrides for active deployments on one Connector."""
+
+    _authorize_connector(request, authorization)
+    records = deployment_repository(request).list_connector_deployments(
+        platform="discord",
+        connection_id=connection_id,
+    )
+    repo = smart_repository(request)
+    result: dict[str, SmartParticipationProfileView] = {}
+    for deployment in records:
+        profile = repo.get_profile(deployment.character_card_id, deployment.owner_id)
+        if profile is not None:
+            result[deployment.id] = SmartParticipationProfileView.from_record(profile)
+    return result
 
 
 @router.post(
