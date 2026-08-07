@@ -101,9 +101,15 @@ def test_expression_prompt_explains_social_meaning_without_reaction_bias() -> No
     none_example = '[[CR_EXPRESSION {"action":"none","reason":"not needed"}]]'
 
     assert "Expression controls are invisible runtime behavior." in prompt
+    assert "decision is mandatory whenever" in prompt
+    assert "Using an expression is optional" in prompt
+    assert "use at most one expression in this reply" in prompt
     assert "When you already have a substantive visible reply" in prompt
     assert "prefer inline" in prompt
     assert "Do not default to reaction merely because it is available" in prompt
+    assert "A confident none decision is better than forcing an out-of-character" in prompt
+    assert "never omit the CR_EXPRESSION decision" in prompt
+    assert "You MUST append exactly one final machine-control line" in prompt
     assert "pressing or clicking an Emoji/reaction button" in prompt
     assert "without explaining the platform mechanism" in prompt
     assert inline_example in prompt
