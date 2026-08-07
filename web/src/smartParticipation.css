@@ -1,0 +1,224 @@
+.smart-participation-studio {
+  display: grid;
+  gap: 18px;
+  min-width: min(1080px, 88vw);
+}
+
+.smart-participation-header,
+.smart-section-heading,
+.smart-preview-head,
+.smart-feedback-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.smart-participation-header h2,
+.smart-section-heading strong {
+  margin: 0;
+}
+
+.smart-participation-header p {
+  max-width: 760px;
+}
+
+.smart-participation-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.9fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.smart-profile-panel,
+.smart-playground-panel {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+}
+
+.smart-profile-panel label,
+.smart-playground-panel label,
+.smart-preset-fieldset {
+  display: grid;
+  gap: 7px;
+}
+
+.smart-profile-panel textarea,
+.smart-playground-panel textarea {
+  resize: vertical;
+  min-height: 88px;
+}
+
+.smart-section-heading span,
+.smart-score span,
+.smart-match-grid span,
+.smart-follow-up-result span {
+  display: block;
+  font-size: 0.73rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.66;
+}
+
+.smart-section-heading small {
+  opacity: 0.68;
+}
+
+.smart-toggle-row {
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  padding: 12px;
+  border: 1px dashed rgba(65, 62, 58, 0.24);
+  border-radius: 12px;
+}
+
+.smart-toggle-row input {
+  margin-top: 4px;
+}
+
+.smart-toggle-row span {
+  display: grid;
+  gap: 3px;
+}
+
+.smart-toggle-row small,
+.smart-preset-fieldset small,
+.smart-playground-panel label small {
+  opacity: 0.66;
+}
+
+.smart-preset-fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.smart-preset-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.smart-preset {
+  appearance: none;
+  border: 1px solid rgba(65, 62, 58, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.46);
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.smart-preset.is-active {
+  border-color: rgba(65, 62, 58, 0.56);
+  box-shadow: inset 0 -3px 0 rgba(65, 62, 58, 0.12);
+}
+
+.smart-follow-up-fields,
+.smart-list-grid,
+.smart-match-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.smart-list-grid textarea {
+  min-height: 96px;
+}
+
+.smart-preview {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(65, 62, 58, 0.18);
+  border-radius: 14px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.smart-preview.is-participate {
+  box-shadow: inset 4px 0 0 rgba(86, 120, 86, 0.46);
+}
+
+.smart-preview.is-silent {
+  box-shadow: inset 4px 0 0 rgba(110, 112, 120, 0.32);
+}
+
+.smart-preview-head strong {
+  display: block;
+  font-size: 1.05rem;
+}
+
+.smart-score {
+  text-align: right;
+}
+
+.smart-signal-list {
+  display: grid;
+  gap: 5px;
+}
+
+.smart-signal-list > div,
+.smart-match-grid > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: rgba(65, 62, 58, 0.045);
+}
+
+.smart-match-grid > div {
+  display: block;
+}
+
+.smart-match-grid strong {
+  display: block;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+
+.smart-follow-up-result {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px dashed rgba(65, 62, 58, 0.22);
+}
+
+.smart-follow-up-result.is-ready {
+  border-style: solid;
+  border-color: rgba(86, 120, 86, 0.42);
+}
+
+.smart-feedback-row {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.smart-feedback-row button {
+  appearance: none;
+  border: 1px solid rgba(65, 62, 58, 0.22);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.62);
+  cursor: pointer;
+}
+
+.success-note {
+  margin: 0;
+  font-size: 0.86rem;
+  opacity: 0.78;
+}
+
+@media (max-width: 920px) {
+  .smart-participation-studio {
+    min-width: 0;
+  }
+
+  .smart-participation-grid,
+  .smart-list-grid,
+  .smart-follow-up-fields,
+  .smart-match-grid {
+    grid-template-columns: 1fr;
+  }
+}
