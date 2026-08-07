@@ -83,7 +83,8 @@ describe("Portal Smart Participation profiles", () => {
     const mia = deployment("mia", "card-mia", "Mia", {
       enabled: true,
       style: "quiet",
-      topics: ["logic gap"]
+      topics: ["logic gap"],
+      trigger_phrases: ["are you serious"]
     });
 
     const envOnlyMessage = evaluateSmartParticipation(
