@@ -155,7 +155,6 @@ class OpenAICompatibleProvider:
                     trace.error(
                         reason="empty_content",
                         status_code=response.status_code,
-                        response_body=response.text,
                     )
                     raise ProviderProtocolError(
                         "Model provider returned empty chat-completion content."
