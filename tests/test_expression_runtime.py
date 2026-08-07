@@ -85,7 +85,7 @@ def test_expression_prompt_explains_social_meaning_without_reaction_bias() -> No
         channel_name="general",
         author_id="user-1",
         author_display_name="Juen",
-        text="你能使用一个 emoji 看看吗？",
+        text="你能使用一个 emoji 看看吗?",
         mentioned_bot=True,
         expression_candidates=[emoji, sticker],
     )
