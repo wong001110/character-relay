@@ -170,6 +170,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         discord_identity_repository,
         interaction_repository,
         expression_repository,
+        smart_participation_repository,
     )
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
