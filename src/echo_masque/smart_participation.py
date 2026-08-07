@@ -138,7 +138,7 @@ def matched_phrases(text: str, phrases: list[str]) -> list[str]:
 
 
 def _is_question(text: str) -> bool:
-    return "?" in text or "？" in text or any(item in text for item in QUESTION_PHRASES)
+    return "?" in text or any(item in text for item in QUESTION_PHRASES)
 
 
 def _is_help_request(text: str) -> bool:
@@ -146,7 +146,7 @@ def _is_help_request(text: str) -> bool:
 
 
 def _is_low_information(text: str) -> bool:
-    stripped = re.sub(r"[\s.,!?，。！？~～…]+", "", text).strip()
+    stripped = re.sub(r"[\s.,!?~\u3002\u2026]+", "", text).strip()
     return len(stripped) <= 16 and stripped in LOW_INFORMATION_MESSAGES
 
 
