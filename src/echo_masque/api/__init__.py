@@ -72,6 +72,7 @@ from echo_masque.public_demo import PublicDemoService
 from echo_masque.public_demo_middleware import PublicDemoReadOnlyMiddleware
 from echo_masque.public_demo_quota import PublicDemoQuotaService
 from echo_masque.services import MatrixService, RuntimeService, TrialService
+from echo_masque.smart_participation_generation import SmartParticipationGenerationService
 from echo_masque.template_sharing import EvaluationTemplateService
 
 logger = logging.getLogger(__name__)
@@ -194,6 +195,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         auth_repository,
         authoring_runtime_service,
     )
+    smart_participation_generation_service = SmartParticipationGenerationService(
+        repository,
+        authoring_runtime_service,
+    )
     judge_evaluation_service = JudgeEvaluationService(
         calibration_repository,
         evaluation_repository,
@@ -250,6 +255,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.evaluation_template_service = evaluation_template_service
     app.state.authoring_runtime_service = authoring_runtime_service
     app.state.authoring_generation_service = authoring_generation_service
+    app.state.smart_participation_generation_service = smart_participation_generation_service
     app.state.calibration_repository = calibration_repository
     app.state.evaluation_repository = evaluation_repository
     app.state.coverage_analytics_service = coverage_analytics_service
