@@ -107,7 +107,7 @@ def test_prompt_inspector_matches_compiled_runtime_message(tmp_path: Path) -> No
     assert "Expected tone: Warm and precise" in compiled
     assert "Memory boundary: Only confirmed memories are valid." in compiled
     assert "- inventing memories" in compiled
-    assert prompt["compiler_version"] == "character-relay-compiler-v1"
+    assert prompt["compiler_version"] == "character-relay-compiler-v2"
     assert len(prompt["compiled_prompt_hash"]) == 64
     assert prompt["provider"] == "deepseek"
     assert prompt["model"] == "prompt-fixture-model"
