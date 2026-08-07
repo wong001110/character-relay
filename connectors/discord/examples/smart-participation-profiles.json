@@ -1,0 +1,59 @@
+{
+  "character-zhi": {
+    "topics": [
+      "AI product",
+      "software development",
+      "Discord deployment",
+      "RAG"
+    ],
+    "keywords": [
+      "API",
+      "bug",
+      "deploy",
+      "deployment",
+      "Discord",
+      "vector db",
+      "数据库",
+      "部署"
+    ],
+    "trigger_phrases": [
+      "how do I",
+      "why",
+      "does anyone know",
+      "怎么",
+      "为什么",
+      "有人知道"
+    ],
+    "avoid_phrases": [
+      "不要回答",
+      "不用回答",
+      "just documenting"
+    ],
+    "initiative": 0.5,
+    "minimum_score": 5,
+    "cooldown_seconds": 120
+  },
+  "character-ann": {
+    "topics": [
+      "daily life",
+      "emotional support"
+    ],
+    "keywords": [
+      "tired",
+      "sad",
+      "累",
+      "难过"
+    ],
+    "trigger_phrases": [
+      "I need someone to talk to",
+      "可以陪我聊聊吗"
+    ],
+    "avoid_phrases": [
+      "不要安慰我",
+      "不用回复"
+    ],
+    "initiative": 0.35,
+    "minimum_score": 5,
+    "cooldown_seconds": 180
+  }
+}

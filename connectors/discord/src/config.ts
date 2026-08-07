@@ -1,3 +1,9 @@
+import {
+  configureSmartParticipation,
+  parseSmartParticipationProfiles,
+  type SmartParticipationProfiles
+} from "./smartParticipation.js";
+
 export interface ConnectorConfig {
   discordBotToken: string;
   relayApiUrl: string;
@@ -9,6 +15,11 @@ export interface ConnectorConfig {
   maxContextMessages: number;
   messageContentIntent: boolean;
   smartParticipationEnabled: boolean;
+  smartParticipationProfiles: SmartParticipationProfiles;
+  smartParticipationMinimumMargin: number;
+  smartParticipationChannelCooldownSeconds: number;
+  smartParticipationWindowSeconds: number;
+  smartParticipationMaxRepliesPerWindow: number;
   groupAddressAliases: string[];
   botTagConversationsEnabled: boolean;
   botTagMaxDepth: number;
@@ -66,7 +77,7 @@ function stringList(name: string): string[] {
 }
 
 export function loadConfig(): ConnectorConfig {
-  return {
+  const config: ConnectorConfig = {
     discordBotToken: required("DISCORD_BOT_TOKEN"),
     relayApiUrl: required("CHARACTER_RELAY_API_URL").replace(/\/$/, ""),
     relayConnectorToken: required("CHARACTER_RELAY_CONNECTOR_TOKEN"),
@@ -77,6 +88,29 @@ export function loadConfig(): ConnectorConfig {
     maxContextMessages: integer("MAX_CONTEXT_MESSAGES", 20, 1),
     messageContentIntent: boolean("DISCORD_MESSAGE_CONTENT_INTENT", false),
     smartParticipationEnabled: boolean("DISCORD_SMART_PARTICIPATION_ENABLED", false),
+    smartParticipationProfiles: parseSmartParticipationProfiles(
+      process.env.DISCORD_SMART_PARTICIPATION_PROFILES_JSON
+    ),
+    smartParticipationMinimumMargin: integer(
+      "DISCORD_SMART_PARTICIPATION_MINIMUM_MARGIN",
+      2,
+      0
+    ),
+    smartParticipationChannelCooldownSeconds: integer(
+      "DISCORD_SMART_PARTICIPATION_CHANNEL_COOLDOWN_SECONDS",
+      45,
+      0
+    ),
+    smartParticipationWindowSeconds: integer(
+      "DISCORD_SMART_PARTICIPATION_WINDOW_SECONDS",
+      600,
+      1
+    ),
+    smartParticipationMaxRepliesPerWindow: integer(
+      "DISCORD_SMART_PARTICIPATION_MAX_REPLIES_PER_WINDOW",
+      3,
+      1
+    ),
     groupAddressAliases: stringList("DISCORD_GROUP_ADDRESS_ALIASES"),
     botTagConversationsEnabled: boolean(
       "DISCORD_BOT_TAG_CONVERSATIONS_ENABLED",
@@ -90,4 +124,13 @@ export function loadConfig(): ConnectorConfig {
       30
     )
   };
+  configureSmartParticipation({
+    enabled: config.smartParticipationEnabled,
+    profiles: config.smartParticipationProfiles,
+    minimumMargin: config.smartParticipationMinimumMargin,
+    channelCooldownSeconds: config.smartParticipationChannelCooldownSeconds,
+    windowSeconds: config.smartParticipationWindowSeconds,
+    maxRepliesPerWindow: config.smartParticipationMaxRepliesPerWindow
+  });
+  return config;
 }
