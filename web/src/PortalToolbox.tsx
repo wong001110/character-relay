@@ -1,15 +1,17 @@
 import { useState } from "react";
 
 import { AccountPanel } from "./AccountPanel";
-import type { AuthUser } from "./api";
+import type { AuthUser, CharacterCard } from "./api";
 import { useI18n } from "./i18n";
 import { PaperModal } from "./NotebookUI";
 import { ProviderTraceViewer } from "./ProviderTraceViewer";
+import { SmartParticipationStudio } from "./SmartParticipationStudio";
 
-type ToolboxSection = "actions" | "account" | "provider";
+type ToolboxSection = "actions" | "account" | "provider" | "participation";
 
 interface Props {
   user: AuthUser;
+  cards: CharacterCard[];
   publicDemo: boolean;
   onDeployments: () => void;
   onWorkspace: () => void;
@@ -21,6 +23,7 @@ interface Props {
 
 export function PortalToolbox({
   user,
+  cards,
   publicDemo,
   onDeployments,
   onWorkspace,
@@ -57,45 +60,49 @@ export function PortalToolbox({
           onClose={() => setOpen(false)}
           className="portal-toolbox-modal"
         >
-          <header className="portal-toolbox-header">
-            <div>
-              <p className="tape-label">CHARACTER RELAY / TOOLBOX</p>
-              <h2>{zh ? "随手工具与账户" : "Tools and account"}</h2>
-              <p>
-                {zh
-                  ? "次要操作集中在这里，主页只保留创建角色。"
-                  : "Secondary actions live here so the character shelf stays focused."}
-              </p>
-            </div>
-          </header>
+          {section !== "participation" && (
+            <header className="portal-toolbox-header">
+              <div>
+                <p className="tape-label">CHARACTER RELAY / TOOLBOX</p>
+                <h2>{zh ? "随手工具与账户" : "Tools and account"}</h2>
+                <p>
+                  {zh
+                    ? "次要操作集中在这里，主页只保留创建角色。"
+                    : "Secondary actions live here so the character shelf stays focused."}
+                </p>
+              </div>
+            </header>
+          )}
 
-          <nav className="portal-toolbox-tabs" aria-label={zh ? "工具箱分区" : "Toolbox sections"}>
-            <button
-              type="button"
-              className={section === "actions" ? "is-active" : ""}
-              onClick={() => setSection("actions")}
-            >
-              {zh ? "快捷入口" : "Quick actions"}
-            </button>
-            {!publicDemo && (
+          {section !== "participation" && (
+            <nav className="portal-toolbox-tabs" aria-label={zh ? "工具箱分区" : "Toolbox sections"}>
               <button
                 type="button"
-                className={section === "account" ? "is-active" : ""}
-                onClick={() => setSection("account")}
+                className={section === "actions" ? "is-active" : ""}
+                onClick={() => setSection("actions")}
               >
-                {zh ? "账户与安全" : "Account & security"}
+                {zh ? "快捷入口" : "Quick actions"}
               </button>
-            )}
-            {user.role === "admin" && !publicDemo && (
-              <button
-                type="button"
-                className={section === "provider" ? "is-active" : ""}
-                onClick={() => setSection("provider")}
-              >
-                Provider Trace
-              </button>
-            )}
-          </nav>
+              {!publicDemo && (
+                <button
+                  type="button"
+                  className={section === "account" ? "is-active" : ""}
+                  onClick={() => setSection("account")}
+                >
+                  {zh ? "账户与安全" : "Account & security"}
+                </button>
+              )}
+              {user.role === "admin" && !publicDemo && (
+                <button
+                  type="button"
+                  className={section === "provider" ? "is-active" : ""}
+                  onClick={() => setSection("provider")}
+                >
+                  Provider Trace
+                </button>
+              )}
+            </nav>
+          )}
 
           {section === "actions" && (
             <section className="portal-toolbox-actions">
@@ -108,6 +115,17 @@ export function PortalToolbox({
                     : "Manage Discord servers, deployments, and interaction sessions."}
                 </small>
               </button>
+              {!publicDemo && (
+                <button type="button" onClick={() => setSection("participation")}>
+                  <span className="toolbox-sticker sticker-mint">SMART</span>
+                  <strong>{zh ? "Smart Participation" : "Smart Participation"}</strong>
+                  <small>
+                    {zh
+                      ? "调整角色参与风格、Primary / Secondary 关系，并用 Playground 快速测试。"
+                      : "Tune participation style, Primary / Secondary relationships, and test them in the Playground."}
+                  </small>
+                </button>
+              )}
               <button type="button" onClick={() => run(onWorkspace)}>
                 <span className="toolbox-sticker sticker-mint">TEST</span>
                 <strong>{zh ? "Echo Masque 测试" : "Echo Masque Lab"}</strong>
@@ -147,6 +165,14 @@ export function PortalToolbox({
                 </button>
               )}
             </section>
+          )}
+
+          {section === "participation" && !publicDemo && (
+            <SmartParticipationStudio
+              cards={cards}
+              zh={zh}
+              onBack={() => setSection("actions")}
+            />
           )}
 
           {section === "account" && !publicDemo && (
