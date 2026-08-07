@@ -1,21 +1,230 @@
-# Character Relay: RAG Evaluation and Smart Participation Roadmap
+# Character Relay Runtime Roadmap
 
-This document records the product decisions made before implementation so later work does not blur separate concerns.
+This document records the current runtime boundaries for Discord Smart Participation, Smart Output, future RAG / Vector Memory, and Tool Calling. The goal is to keep social behavior flexible without turning the whole Discord connector into an LLM-controlled agent.
 
-## 1. Keep four concerns separate
+## 1. Runtime boundaries
 
-Character Relay should treat these as composable but independent modules:
+Character Relay should keep these concerns separate:
 
-1. **Smart Participation** — decide whether any character should speak and which character should speak.
-2. **Memory / RAG** — retrieve relevant history, knowledge, lore, or relationship context after a character has been selected.
-3. **Expression Retrieval** — retrieve a small set of Discord Emoji or Sticker candidates for the response model.
-4. **RAG Evaluation** — test a customer's external AI/RAG API against customer-authored expected results.
+1. **Routing** — resolve explicit Discord addressing such as Mention, Reply, Server/Channel scope, and active deployments.
+2. **Smart Participation** — decide whether an unaddressed message should give any character a turn, and which character receives that turn.
+3. **Context** — collect recent conversation, future RAG / Vector Memory, relationship context, expression candidates, and other bounded context for the selected character.
+4. **Smart Output** — let the selected character choose a natural social action such as silence, reaction, sticker, direct message, reply-to-message, inline Emoji, or character Mention.
+5. **Execution** — validate permissions, resource availability, self-Mention rules, chain limits, rate limits, and Discord API delivery.
+6. **RAG Evaluation** — test an external customer's AI/RAG API against customer-authored expected results. This remains separate from the deployed character runtime.
 
-Smart Participation does not require a Vector Database. Vector storage belongs to a later persistent-memory or knowledge-retrieval layer.
+A recurring design rule is:
 
-## 2. External RAG Evaluation direction
+> LLM output is a proposal. Character Relay Runtime remains the authority that validates and executes it.
 
-The initial RAG Evaluation feature should be API-first. Character Relay does not need direct access to a customer's Vector Database.
+## 2. Production Smart Participation V2
+
+Smart Participation is a **Smart Turn Selector**, not a response generator and not an LLM Judge.
+
+The production path remains deterministic:
+
+1. Explicit Mention and Reply bypass proactive Smart selection and continue to target the addressed character directly.
+2. Ordinary messages are considered only for deployments using `participation_mode=smart`.
+3. Participation Profiles supply topics, keywords, trigger phrases, avoid phrases, style, initiative, thresholds, and cooldowns.
+4. Fixed scoring selects at most one proactive character.
+5. A minimum score and minimum lead over the runner-up are required.
+6. Per-character and per-channel limits protect the conversation from interruptions and excessive model calls.
+7. Smart selection is first reserved, then counted when the selected turn is admitted into Character Runtime rather than when the scorer merely evaluates it.
+8. Decisions remain observable through score and reason logs.
+9. Any deterministic failure remains fail-closed for unaddressed Smart messages.
+
+### 2.1 Lightweight social follow-up
+
+Short acknowledgements such as `lol`, `haha`, `thanks`, `好的`, `哈哈`, `晚安`, and similar messages are no longer treated as universally meaningless.
+
+They may receive one conservative lightweight follow-up when:
+
+- a Smart character had the most recent admitted turn in the same Discord destination;
+- that turn is still inside the lightweight follow-up window;
+- the character is still active and enabled;
+- no avoid rule blocks the message; and
+- the immediately previous Smart turn was not itself a lightweight follow-up.
+
+This gives Smart Output an opportunity to choose a lightweight reaction, Emoji, Sticker, short reply, or silence without opening repeated acknowledgement loops.
+
+If there is no recent character turn to anchor the acknowledgement, the message stays silent as before.
+
+### 2.2 Automatic Primary → Secondary follow-up
+
+Automatic untagged Primary-to-Secondary continuation is now **disabled by default**.
+
+The preferred direction is explicit character intent:
+
+- a character explicitly Mentions another active character when it wants that character to answer;
+- self-Mention is rejected by Runtime;
+- bot-to-bot chains are bounded by unique-participant and response budgets.
+
+The existing Primary/Secondary follow-up implementation is retained only as a compatibility path and may be explicitly enabled for legacy behavior.
+
+## 3. Smart Output target protocol
+
+Smart Output should eventually replace the current "visible reply plus expression control marker" with one structured character action.
+
+Target actions:
+
+```text
+ignore
+react
+sticker
+message
+```
+
+A `message` may support:
+
+- normal text;
+- normal Unicode Emoji directly in text;
+- structured custom Emoji references selected from Expression Retrieval;
+- structured character/user Mentions;
+- optional `reply_to` message reference;
+- direct channel speech when `reply_to` is omitted.
+
+Discord IDs, raw custom Emoji IDs, raw Sticker IDs, permission decisions, and execution authority stay outside the LLM.
+
+### 3.1 Resource retrieval
+
+The existing Expression Retrieval design remains the resource provider for custom Emoji and Stickers:
+
+```text
+Server expression dictionary
+→ available / enabled / allowed-action filtering
+→ semantic ranking + recent-use penalty
+→ small Top-K candidate set
+→ selected character model
+```
+
+Do not send the entire Server Emoji or Sticker dictionary to the model.
+
+### 3.2 Token policy
+
+The normal Smart path should keep one main character-model call:
+
+```text
+Deterministic routing
+→ deterministic Smart Participation
+→ deterministic retrieval
+→ one Character LLM call
+→ deterministic validation / execution
+```
+
+Extra LLM calls are justified only when a future Tool Call or another explicitly Mentioned character requires another turn.
+
+## 4. Future Local Participation Judge — reserved architecture
+
+A Local LLM Judge is **not part of the current implementation**. The architecture should remain compatible with it without making Smart Participation depend on it.
+
+The future abstraction should behave like a replaceable Participation Decision Provider:
+
+```text
+Hard deterministic gates
+→ deterministic scorer
+→ clear winner? return it
+→ ambiguous case? optional Local Judge
+→ validate Judge proposal
+→ selected character or silence
+```
+
+The recommended future mode is **hybrid**, not Judge-every-message:
+
+- clear deterministic cases never call the Judge;
+- ambiguous margins, weak social cues, or difficult multi-character choices may call the Local Judge;
+- the Judge evaluates all eligible candidates in one request;
+- the Judge returns strict structured selection only and never writes the character response;
+- cooldowns, permissions, deployment state, rate limits, and execution rules remain deterministic Runtime authority.
+
+### 4.1 Local Judge failure fallback
+
+If the local model server is down, times out, returns malformed output, selects an unknown character, or otherwise fails validation:
+
+```text
+Local Judge failure
+→ deterministic Smart Participation fallback
+→ continue normal runtime
+```
+
+The Discord bot should degrade in selection quality rather than stop functioning.
+
+No external/cloud Judge fallback should be enabled implicitly because it would change privacy, cost, and latency characteristics.
+
+## 5. Future Context Layer: RAG, Vector DB, LangChain
+
+RAG and Vector Memory belong after character selection and before Smart Output.
+
+They should not replace Smart Participation.
+
+A future Context Orchestrator may combine:
+
+- recent Discord conversation;
+- character card and runtime profile;
+- RAG knowledge retrieval;
+- Vector Memory;
+- user/character relationship memory;
+- Server/channel knowledge;
+- Expression Retrieval;
+- active participants;
+- future Tool results.
+
+The selected context should be ranked and budgeted before entering the character model.
+
+### 5.1 Data isolation
+
+Persistent retrieval must remain scoped by metadata such as:
+
+- owner/workspace;
+- Discord connection;
+- Guild/Server;
+- Channel/Thread;
+- Deployment;
+- Character / character version;
+- User or relationship scope;
+- memory/knowledge type.
+
+Server A data must not silently leak into Server B merely because the same Character Card is deployed to both.
+
+### 5.2 Initial RAG shape
+
+Prefer a predictable two-step runtime first:
+
+```text
+query/context signal
+→ retrieve Top-K
+→ one Character LLM call
+```
+
+LangChain may later provide retrievers, context composition, structured output, and tool orchestration. A full autonomous agent loop is not required for the initial RAG implementation.
+
+A likely storage evolution remains:
+
+```text
+current SQL storage
+→ PostgreSQL
+→ PostgreSQL + pgvector or another justified Vector DB
+```
+
+## 6. Future Tool Calling
+
+Tool Calling is in future scope.
+
+Examples for Discord characters may include:
+
+- search project issues or pull requests;
+- read deployment status;
+- query internal services;
+- retrieve project/task information;
+- create explicitly authorized tasks or records;
+- call application-specific APIs.
+
+Tool availability must be filtered by character, workspace, server, user authorization, and current task. Tool execution remains Runtime-controlled and audited.
+
+**MCP is not currently in the Character Relay roadmap.** If interoperability requirements change later it can be reconsidered, but current planning should assume direct Tool Calling integrations.
+
+## 7. External RAG Evaluation direction
+
+The RAG Evaluation feature remains API-first. Character Relay does not need direct access to a customer's Vector Database.
 
 The customer supplies:
 
@@ -26,116 +235,35 @@ The customer supplies:
 - optional response mapping for retrieved contexts, source IDs, citations, and scores;
 - manually authored test cases and accepted results.
 
-A test case may contain:
+Two evaluation levels may be supported:
 
-- question/input;
-- expected answer or accepted answer rules;
-- accepted source IDs;
-- required phrases;
-- forbidden phrases;
-- optional expected evidence text.
+- **Black-box** — only the final answer is available.
+- **White-box** — retrieved contexts, sources, citations, or traces are also available.
 
-Character Relay calls the customer API, maps its response, compares it with the customer's accepted result, and produces a report.
+This keeps external RAG testing separate from Character Relay's own future memory stack.
 
-Two evaluation levels should be supported later:
+## 8. Delivery sequence
 
-- **Black-box** — the API returns only a final answer.
-- **White-box** — the API also returns retrieved contexts, sources, citations, or traces.
+### Production now
 
-This design avoids requiring customers to expose Vector DB credentials, embedding models, chunking configuration, or internal storage.
+1. Deterministic Smart Participation and Participation Profiles.
+2. Server/channel deployment routing, explicit Mention/Reply, cooldowns, and rate limits.
+3. Expression Retrieval with available/enabled/action filtering and bounded Top-K candidates.
+4. Smart Participation V2 lightweight follow-up and admission-based proactive accounting.
+5. Automatic untagged Primary → Secondary follow-up disabled by default.
 
-## 3. Smart Participation MVP
+### Next
 
-The first Smart Participation MVP must not add:
+6. Unified Smart Output action schema: `ignore | react | sticker | message`.
+7. Structured Mention/custom-Emoji references and optional `reply_to`.
+8. Bot-chain guard based on bounded responses and unique participant tracking.
+9. Execution-confirmed participation accounting once Smart Output has a stable delivery callback.
 
-- a Vector Database;
-- embeddings;
-- a second LLM Judge call;
-- persistent long-term memory.
+### Later
 
-It should provide a conservative deterministic gate:
-
-1. Explicit Mention and Reply continue to work without the Smart gate.
-2. Ordinary messages are evaluated only for deployments using `participation_mode=smart`.
-3. Each character may have a configurable Participation Profile.
-4. Fixed scoring selects at most one proactive character.
-5. A minimum score and minimum lead over the runner-up are required.
-6. Channel and per-character cooldowns limit interruption frequency.
-7. Low-information acknowledgements and configured avoid phrases stay silent.
-8. Decisions are logged with scores and reason codes.
-9. Any failure defaults ordinary Smart messages to silence.
-
-### Participation Profile
-
-The connector MVP accepts profiles through `DISCORD_SMART_PARTICIPATION_PROFILES_JSON`.
-
-Keys are resolved in this order:
-
-1. deployment ID;
-2. character-card ID;
-3. character display name;
-4. Discord identity display name;
-5. `default`.
-
-Example:
-
-```json
-{
-  "character-zhi": {
-    "topics": ["AI product", "software development", "Discord deployment", "RAG"],
-    "keywords": ["API", "bug", "deploy", "deployment", "Discord", "vector db"],
-    "trigger_phrases": ["how do I", "why", "怎么", "为什么", "有人知道"],
-    "avoid_phrases": ["不要回答", "不用回答", "just documenting"],
-    "initiative": 0.5,
-    "minimum_score": 5,
-    "cooldown_seconds": 120
-  }
-}
-```
-
-The initial profile is connector configuration rather than a database schema. A later Portal phase can persist and edit the same contract.
-
-## 4. Future Participation Judge runtime
-
-After the deterministic MVP collects real false-positive and false-negative examples, Character Relay may add an optional Participation Judge.
-
-Supported runtime modes should eventually include:
-
-- local model;
-- self-hosted cloud model;
-- external LLM API;
-- hybrid primary plus API fallback.
-
-The Judge should evaluate all candidate characters in one request and return a strict JSON decision. It must not generate the final character response.
-
-Fallback principles:
-
-- infrastructure or schema failure may trigger the configured fallback;
-- a valid `silent` decision must not trigger a second opinion by default;
-- if all Judge routes fail, ordinary Smart messages remain silent;
-- explicit Mention and Reply remain available;
-- cloud fallback must be explicit because it may send Discord content to an external provider.
-
-## 5. Future persistent memory and Vector DB
-
-Vector search should be introduced only when Character Relay needs persistent semantic retrieval across large amounts of history, lore, or knowledge.
-
-A likely path is:
-
-```text
-SQLite / current SQL database
-→ PostgreSQL
-→ PostgreSQL + pgvector
-```
-
-Runtime data must remain scoped by workspace/account, Discord connection, Server, Channel/Thread, Deployment, character version, and user visibility policy.
-
-## 6. Delivery sequence
-
-1. Deterministic Smart Participation engine and tests.
-2. Connector integration, conservative defaults, cooldowns, and decision logs.
-3. Portal-backed Participation Profiles and per-Server/channel settings.
-4. Evaluation dataset from real Smart decisions.
-5. Optional local/cloud/API Participation Judge with fallback and circuit breaker.
-6. Persistent memory and pgvector when justified by retrieval requirements.
-7. External RAG Evaluation workspace using customer APIs and customer-authored accepted results.
+10. Evaluation dataset from real Smart Participation decisions.
+11. Optional hybrid Local Participation Judge with deterministic fallback when the local server is unavailable.
+12. Persistent memory / RAG / Vector DB with strict Server and account isolation.
+13. LangChain-based retrieval/context orchestration where it reduces implementation complexity.
+14. Tool Calling with explicit permissions and auditability.
+15. External RAG Evaluation workspace using customer APIs and customer-authored expected results.
