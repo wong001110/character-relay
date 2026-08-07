@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { AccountPanel } from "./AccountPanel";
-import type { AuthUser, CharacterCard } from "./api";
+import { api, type AuthUser, type CharacterCard } from "./api";
 import { useI18n } from "./i18n";
 import { PaperModal } from "./NotebookUI";
 import { ProviderTraceViewer } from "./ProviderTraceViewer";
@@ -11,7 +11,6 @@ type ToolboxSection = "actions" | "account" | "provider" | "participation";
 
 interface Props {
   user: AuthUser;
-  cards: CharacterCard[];
   publicDemo: boolean;
   onDeployments: () => void;
   onWorkspace: () => void;
@@ -23,7 +22,6 @@ interface Props {
 
 export function PortalToolbox({
   user,
-  cards,
   publicDemo,
   onDeployments,
   onWorkspace,
@@ -36,10 +34,26 @@ export function PortalToolbox({
   const zh = language === "zh-CN";
   const [open, setOpen] = useState(false);
   const [section, setSection] = useState<ToolboxSection>("actions");
+  const [participationCards, setParticipationCards] = useState<CharacterCard[]>([]);
+  const [participationLoading, setParticipationLoading] = useState(false);
+  const [participationError, setParticipationError] = useState<string | null>(null);
 
   function run(action: () => void) {
     setOpen(false);
     window.setTimeout(action, 190);
+  }
+
+  async function openParticipation() {
+    setSection("participation");
+    setParticipationError(null);
+    setParticipationLoading(true);
+    try {
+      setParticipationCards(await api.listCharacters());
+    } catch (reason) {
+      setParticipationError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setParticipationLoading(false);
+    }
   }
 
   return (
@@ -116,9 +130,9 @@ export function PortalToolbox({
                 </small>
               </button>
               {!publicDemo && (
-                <button type="button" onClick={() => setSection("participation")}>
+                <button type="button" onClick={() => void openParticipation()}>
                   <span className="toolbox-sticker sticker-mint">SMART</span>
-                  <strong>{zh ? "Smart Participation" : "Smart Participation"}</strong>
+                  <strong>Smart Participation</strong>
                   <small>
                     {zh
                       ? "调整角色参与风格、Primary / Secondary 关系，并用 Playground 快速测试。"
@@ -168,11 +182,27 @@ export function PortalToolbox({
           )}
 
           {section === "participation" && !publicDemo && (
-            <SmartParticipationStudio
-              cards={cards}
-              zh={zh}
-              onBack={() => setSection("actions")}
-            />
+            participationLoading ? (
+              <section className="smart-participation-studio">
+                <button className="text-button" type="button" onClick={() => setSection("actions")}>
+                  ← {zh ? "返回" : "Back"}
+                </button>
+                <p>{zh ? "正在读取 Character Cards…" : "Loading Character Cards…"}</p>
+              </section>
+            ) : participationError ? (
+              <section className="smart-participation-studio">
+                <button className="text-button" type="button" onClick={() => setSection("actions")}>
+                  ← {zh ? "返回" : "Back"}
+                </button>
+                <p className="error-note">{participationError}</p>
+              </section>
+            ) : (
+              <SmartParticipationStudio
+                cards={participationCards}
+                zh={zh}
+                onBack={() => setSection("actions")}
+              />
+            )
           )}
 
           {section === "account" && !publicDemo && (
