@@ -1,9 +1,11 @@
 """Persistence operations for Smart Participation profiles and Playground feedback."""
 
 import json
+from typing import Any, cast
 from uuid import uuid4
 
 from sqlalchemy import delete, select, update
+from sqlalchemy.engine import CursorResult
 
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.models import CharacterCardRecord
@@ -29,6 +31,10 @@ def decode_strings(value: str) -> list[str]:
     if not isinstance(decoded, list):
         return []
     return _normalized_strings([item for item in decoded if isinstance(item, str)])
+
+
+def _cursor_rowcount(result: object) -> int:
+    return cast(CursorResult[Any], result).rowcount or 0
 
 
 class SmartParticipationRepository:
@@ -162,8 +168,8 @@ class SmartParticipationRepository:
             )
             session.commit()
             return {
-                "smart_participation_feedback": feedback_result.rowcount or 0,
-                "smart_participation_profiles": profile_result.rowcount or 0,
+                "smart_participation_feedback": _cursor_rowcount(feedback_result),
+                "smart_participation_profiles": _cursor_rowcount(profile_result),
             }
 
     def claim_owner(self, source_owner_id: str, target_owner_id: str) -> dict[str, int]:
@@ -180,6 +186,6 @@ class SmartParticipationRepository:
             )
             session.commit()
             return {
-                "smart_participation_profiles": profile_result.rowcount or 0,
-                "smart_participation_feedback": feedback_result.rowcount or 0,
+                "smart_participation_profiles": _cursor_rowcount(profile_result),
+                "smart_participation_feedback": _cursor_rowcount(feedback_result),
             }
