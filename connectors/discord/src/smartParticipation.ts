@@ -44,6 +44,8 @@ export interface SmartParticipationRuntimeConfig {
   channelCooldownSeconds: number;
   windowSeconds: number;
   maxRepliesPerWindow: number;
+  automaticFollowUpsEnabled: boolean;
+  lightweightFollowUpWindowSeconds: number;
 }
 
 export interface SmartParticipationSignals {
@@ -55,6 +57,8 @@ export interface SmartParticipationSignals {
   trigger_phrase: number;
   initiative: number;
   short_message_penalty: number;
+  recent_turn_match: number;
+  lightweight_follow_up: number;
   cooldown_blocked: number;
   avoid_phrase_blocked: number;
   profile_disabled_blocked: number;
@@ -81,6 +85,7 @@ export type SmartParticipationReason =
   | "channel_rate_limit"
   | "below_threshold"
   | "ambiguous_margin"
+  | "selected_lightweight"
   | "selected";
 
 export interface SmartParticipationDecision {
@@ -120,6 +125,21 @@ interface NormalizedProfile {
   source: "portal" | "env" | "default";
 }
 
+type SmartSelectionOrigin = "proactive" | "explicit" | "lightweight";
+
+interface PendingSmartSelection {
+  deployment: DiscordDeployment;
+  origin: SmartSelectionOrigin;
+  selectedAt: number;
+}
+
+interface SmartTurnAdmission {
+  deploymentId: string;
+  scopeKey: string;
+  admittedAt: number;
+  origin: SmartSelectionOrigin;
+}
+
 interface ProactiveSelection {
   deploymentId: string;
   scopeKey: string;
@@ -132,7 +152,9 @@ const DEFAULT_CONFIG: SmartParticipationRuntimeConfig = {
   minimumMargin: 2,
   channelCooldownSeconds: 45,
   windowSeconds: 600,
-  maxRepliesPerWindow: 3
+  maxRepliesPerWindow: 3,
+  automaticFollowUpsEnabled: false,
+  lightweightFollowUpWindowSeconds: 90
 };
 
 const STYLE_PRESETS: Record<SmartParticipationStyle, { initiative: number; minimumScore: number }> = {
@@ -222,8 +244,9 @@ const HELP_PHRASES = [
 
 let runtimeConfig: SmartParticipationRuntimeConfig = { ...DEFAULT_CONFIG };
 let runtimeConfigured = false;
-const pendingSmartSelections = new Set<string>();
+const pendingSmartSelections = new Map<string, PendingSmartSelection>();
 let proactiveSelections: ProactiveSelection[] = [];
+let turnAdmissions: SmartTurnAdmission[] = [];
 
 export function configureSmartParticipation(
   config: Partial<SmartParticipationRuntimeConfig>
@@ -446,13 +469,23 @@ function isHelpRequest(text: string): boolean {
 
 function isLowInformation(text: string): boolean {
   const stripped = text.replace(/[\s.,!?，。！？~～…]+/gu, "").trim();
-  return stripped.length <= 16 && LOW_INFORMATION_MESSAGES.has(stripped);
+  if (!stripped) return true;
+  if (stripped.length <= 16 && LOW_INFORMATION_MESSAGES.has(stripped)) return true;
+  return /^(?:\p{Extended_Pictographic}|\uFE0F|\u200D)+$/u.test(stripped);
 }
 
 function pruneSelections(now: number): void {
-  const retentionMilliseconds = Math.max(runtimeConfig.windowSeconds, 86_400) * 1000;
+  const retentionSeconds = Math.max(
+    runtimeConfig.windowSeconds,
+    runtimeConfig.lightweightFollowUpWindowSeconds,
+    86_400
+  );
+  const retentionMilliseconds = retentionSeconds * 1000;
   proactiveSelections = proactiveSelections.filter(
     (item) => now - item.selectedAt <= retentionMilliseconds
+  );
+  turnAdmissions = turnAdmissions.filter(
+    (item) => now - item.admittedAt <= retentionMilliseconds
   );
 }
 
@@ -478,6 +511,8 @@ function emptySignals(): SmartParticipationSignals {
     trigger_phrase: 0,
     initiative: 0,
     short_message_penalty: 0,
+    recent_turn_match: 0,
+    lightweight_follow_up: 0,
     cooldown_blocked: 0,
     avoid_phrase_blocked: 0,
     profile_disabled_blocked: 0
@@ -513,8 +548,6 @@ function scoreCandidate(
 
   signals.question = isQuestion(text) ? 2 : 0;
   signals.help_request = isHelpRequest(text) ? 2 : 0;
-  // Explicit character addressing is resolved before this scorer. Keeping fuzzy name
-  // matching here causes single-character aliases such as "安" to match "安静".
   signals.name_match = 0;
   signals.topic_match = Math.min(6, matchedTopics.length * 3);
   signals.keyword_match = Math.min(6, matchedKeywords.length * 2);
@@ -532,6 +565,38 @@ function scoreCandidate(
     matchedTopics,
     matchedKeywords,
     matchedTriggerPhrases,
+    matchedAvoidPhrases: []
+  };
+}
+
+function lightweightCandidate(
+  deployment: DiscordDeployment,
+  text: string
+): SmartParticipationCandidateScore {
+  const profile = smartParticipationProfileFor(deployment);
+  const signals = emptySignals();
+  if (!profile.enabled) {
+    signals.profile_disabled_blocked = 1;
+    return blockedCandidate(deployment, profile, signals, []);
+  }
+  const matchedAvoidPhrases = matchedPhrases(text, profile.avoidPhrases);
+  if (matchedAvoidPhrases.length) {
+    signals.avoid_phrase_blocked = 1;
+    return blockedCandidate(deployment, profile, signals, matchedAvoidPhrases);
+  }
+  signals.recent_turn_match = 6;
+  signals.lightweight_follow_up = 2;
+  signals.initiative = profile.initiative;
+  const score = Object.values(signals).reduce((total, value) => total + value, 0);
+  return {
+    deployment,
+    score: Math.round(score * 1000) / 1000,
+    minimumScore: profile.minimumScore,
+    eligible: true,
+    signals,
+    matchedTopics: [],
+    matchedKeywords: [],
+    matchedTriggerPhrases: [],
     matchedAvoidPhrases: []
   };
 }
@@ -589,6 +654,59 @@ function decision(
   return value;
 }
 
+function queueSelection(
+  deployment: DiscordDeployment,
+  origin: SmartSelectionOrigin,
+  selectedAt: number
+): void {
+  pendingSmartSelections.set(deployment.deployment_id, {
+    deployment,
+    origin,
+    selectedAt
+  });
+}
+
+function evaluateLightweightParticipation(
+  smartCandidates: DiscordDeployment[],
+  text: string,
+  now: number
+): SmartParticipationDecision {
+  const scope = scopeKey(smartCandidates[0]!);
+  const recentAdmissions = turnAdmissions
+    .filter(
+      (item) =>
+        item.scopeKey === scope &&
+        now - item.admittedAt <= runtimeConfig.lightweightFollowUpWindowSeconds * 1000
+    )
+    .sort((left, right) => right.admittedAt - left.admittedAt);
+  const recent = recentAdmissions[0];
+  const sameMomentDifferentCharacter = recent
+    ? recentAdmissions.some(
+        (item) =>
+          item.admittedAt === recent.admittedAt && item.deploymentId !== recent.deploymentId
+      )
+    : false;
+
+  if (!recent || recent.origin === "lightweight" || sameMomentDifferentCharacter) {
+    return decision("low_information_message", null, [], text.length);
+  }
+
+  const deployment = smartCandidates.find(
+    (item) => item.deployment_id === recent.deploymentId
+  );
+  if (!deployment) {
+    return decision("low_information_message", null, [], text.length);
+  }
+
+  const candidate = lightweightCandidate(deployment, text);
+  if (!candidate.eligible || candidate.score < candidate.minimumScore) {
+    return decision("low_information_message", null, [candidate], text.length);
+  }
+
+  queueSelection(deployment, "lightweight", now);
+  return decision("selected_lightweight", deployment, [candidate], text.length);
+}
+
 export function evaluateSmartParticipation(
   deployments: DiscordDeployment[],
   message: string,
@@ -607,11 +725,12 @@ export function evaluateSmartParticipation(
 
   const text = normalizeText(message);
   if (!text) return decision("empty_message", null, [], 0);
-  if (isLowInformation(text)) {
-    return decision("low_information_message", null, [], text.length);
-  }
 
   pruneSelections(now);
+  if (isLowInformation(text)) {
+    return evaluateLightweightParticipation(smartCandidates, text, now);
+  }
+
   const scope = scopeKey(smartCandidates[0]!);
   const scopeSelections = proactiveSelections
     .filter((item) => item.scopeKey === scope)
@@ -647,12 +766,7 @@ export function evaluateSmartParticipation(
     return decision("ambiguous_margin", null, candidates, text.length);
   }
 
-  pendingSmartSelections.add(top.deployment.deployment_id);
-  proactiveSelections.push({
-    deploymentId: top.deployment.deployment_id,
-    scopeKey: scopeKey(top.deployment),
-    selectedAt: now
-  });
+  queueSelection(top.deployment, "proactive", now);
   return decision("selected", top.deployment, candidates, text.length);
 }
 
@@ -661,7 +775,7 @@ export function evaluateSmartFollowUp(
   deployments: DiscordDeployment[],
   now = Date.now()
 ): SmartFollowUpDecision {
-  if (!runtimeConfig.enabled) {
+  if (!runtimeConfig.enabled || !runtimeConfig.automaticFollowUpsEnabled) {
     return followUpDecision("disabled", sourceDeployment, null, []);
   }
   const sourceProfile = smartParticipationProfileFor(sourceDeployment);
@@ -716,6 +830,12 @@ export function evaluateSmartFollowUp(
     scopeKey: scopeKey(selected),
     selectedAt: now
   });
+  turnAdmissions.push({
+    deploymentId: selected.deployment_id,
+    scopeKey: scopeKey(selected),
+    admittedAt: now,
+    origin: "proactive"
+  });
   return followUpDecision("selected", sourceDeployment, selected, [selected.deployment_id]);
 }
 
@@ -728,20 +848,40 @@ function followUpDecision(
   return { reason, sourceDeployment, selectedDeployment, candidateDeploymentIds };
 }
 
-export function markExplicitSmartSelections(deployments: DiscordDeployment[]): void {
+export function markExplicitSmartSelections(
+  deployments: DiscordDeployment[],
+  now = Date.now()
+): void {
   clearPending(deployments);
   for (const deployment of deployments) {
     if (deployment.participation_mode === "smart") {
-      pendingSmartSelections.add(deployment.deployment_id);
+      queueSelection(deployment, "explicit", now);
     }
   }
 }
 
 export function consumeSmartSelection(deploymentId: string): boolean {
   if (!runtimeConfigured) return true;
-  const selected = pendingSmartSelections.has(deploymentId);
+  const pending = pendingSmartSelections.get(deploymentId);
   pendingSmartSelections.delete(deploymentId);
-  return selected;
+  if (!pending) return false;
+
+  const admittedAt = pending.selectedAt;
+  const scope = scopeKey(pending.deployment);
+  turnAdmissions.push({
+    deploymentId,
+    scopeKey: scope,
+    admittedAt,
+    origin: pending.origin
+  });
+  if (pending.origin === "proactive") {
+    proactiveSelections.push({
+      deploymentId,
+      scopeKey: scope,
+      selectedAt: admittedAt
+    });
+  }
+  return true;
 }
 
 export function resetSmartParticipationState(): void {
@@ -749,4 +889,5 @@ export function resetSmartParticipationState(): void {
   runtimeConfigured = false;
   pendingSmartSelections.clear();
   proactiveSelections = [];
+  turnAdmissions = [];
 }
