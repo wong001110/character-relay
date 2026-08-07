@@ -162,6 +162,9 @@ def evaluate_participation(
     previous_character_card_id: str = "",
     previous_character_is_primary: bool = False,
 ) -> ParticipationPreview:
+    # Character names are intentionally not scored here. Explicit addressing is
+    # resolved by the Discord audience router before ordinary Smart scoring.
+    _ = character_display_name
     initiative, minimum_score = style_values(profile.style)
     signals: dict[str, float] = {
         "question": 0.0,
@@ -250,11 +253,10 @@ def evaluate_participation(
     matched_topics = matched_phrases(text, profile.topics)
     matched_keywords = matched_phrases(text, profile.keywords)
     matched_triggers = matched_phrases(text, profile.trigger_phrases)
-    display_name = normalize_text(character_display_name)
 
     signals["question"] = 2.0 if _is_question(text) else 0.0
     signals["help_request"] = 2.0 if _is_help_request(text) else 0.0
-    signals["name_match"] = 5.0 if display_name and display_name in text else 0.0
+    signals["name_match"] = 0.0
     signals["topic_match"] = float(min(6, len(matched_topics) * 3))
     signals["keyword_match"] = float(min(6, len(matched_keywords) * 2))
     signals["trigger_phrase"] = float(min(4, len(matched_triggers) * 2))
