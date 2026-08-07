@@ -436,14 +436,6 @@ function matchedPhrases(text: string, phrases: string[]): string[] {
   return phrases.filter((phrase) => phrase && text.includes(phrase));
 }
 
-function nameValues(deployment: DiscordDeployment): string[] {
-  return normalizeList([
-    deployment.character_display_name,
-    deployment.identity_display_name,
-    ...(deployment.address_aliases ?? [])
-  ]);
-}
-
 function isQuestion(text: string): boolean {
   return /[?？]/u.test(text) || QUESTION_PHRASES.some((phrase) => text.includes(phrase));
 }
@@ -518,11 +510,12 @@ function scoreCandidate(
   const matchedTopics = matchedPhrases(text, profile.topics);
   const matchedKeywords = matchedPhrases(text, profile.keywords);
   const matchedTriggerPhrases = matchedPhrases(text, profile.triggerPhrases);
-  const names = matchedPhrases(text, nameValues(deployment));
 
   signals.question = isQuestion(text) ? 2 : 0;
   signals.help_request = isHelpRequest(text) ? 2 : 0;
-  signals.name_match = names.length ? 5 : 0;
+  // Explicit character addressing is resolved before this scorer. Keeping fuzzy name
+  // matching here causes single-character aliases such as "安" to match "安静".
+  signals.name_match = 0;
   signals.topic_match = Math.min(6, matchedTopics.length * 3);
   signals.keyword_match = Math.min(6, matchedKeywords.length * 2);
   signals.trigger_phrase = Math.min(4, matchedTriggerPhrases.length * 2);
