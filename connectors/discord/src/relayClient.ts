@@ -54,7 +54,7 @@ export class RelayClient {
     );
     const profiles = await this.request<Record<string, DiscordPortalParticipationProfile>>(
       `/api/smart-participation/connector-profiles?${query.toString()}`
-    ).catch(() => ({}));
+    ).catch((): Record<string, DiscordPortalParticipationProfile> => ({}));
     return deployments.map((deployment) => ({
       ...deployment,
       smart_participation_profile: profiles[deployment.deployment_id] ?? null
