@@ -339,13 +339,43 @@ class DiscordConnectorRuntime:
             expression_guidance = (
                 "A small retrieved set of Server expressions is available below.",
                 *candidate_lines,
-                "Using an expression is optional. Use at most one. Unicode Emoji may remain "
-                "naturally in your reply text. Never invent a custom Emoji or Sticker ID.",
-                "Append exactly one final machine-control line after the visible reply: "
-                '[[CR_EXPRESSION {"action":"none","reason":"not needed"}]] or '
-                '[[CR_EXPRESSION {"action":"reaction","resource_key":"emoji:123",'
-                '"reason":"brief reason"}]]. Valid actions are none, inline, reaction, sticker. '
-                "Choose only a listed resource_key and an action allowed for that candidate.",
+                "Expression controls are invisible runtime behavior. First write the most "
+                "natural in-character visible reply. Then decide whether a real Discord user "
+                "would naturally add one expression. Using an expression is optional; use at "
+                "most one.",
+                "Action meaning: INLINE means the custom Emoji is part of your own message and "
+                "reinforces its tone, emotion, punchline, teasing, or reaction. When you already "
+                "have a substantive visible reply and an Emoji fits naturally, prefer inline.",
+                "Action meaning: REACTION means a lightweight gesture attached to the other "
+                "person's triggering message, such as a quick laugh, acknowledgement, approval, "
+                "surprise, or mild disagreement. Do not default to reaction merely because it is "
+                "available; when you are already saying something substantial, inline is usually "
+                "more natural.",
+                "Action meaning: STICKER means the visual or meme-like reaction carries the "
+                "moment better than a custom Emoji. It may accompany brief visible text when that "
+                "is natural. Action NONE means the visible reply is stronger without an extra "
+                "expression.",
+                "Decision order: write the visible reply first; if no expression improves it, use "
+                "none. Otherwise choose inline when the expression belongs to your own sentence "
+                "or tone, reaction when it is primarily a lightweight response to the triggering "
+                "message itself, or sticker when the visual reaction works better than an Emoji.",
+                "Never mention expression actions, inline/reaction/sticker selection, resource "
+                "keys, machine-control lines, pressing or clicking an Emoji/reaction button, or "
+                "the fact that Character Relay selected an expression. If a member asks you to "
+                "use an Emoji or Sticker, comply naturally when appropriate without explaining "
+                "the platform mechanism.",
+                "Unicode Emoji may remain naturally in your visible reply text. Never invent a "
+                "custom Emoji or Sticker ID. Choose only a listed resource_key and an action "
+                "allowed for that candidate.",
+                "Append exactly one final machine-control line after the visible reply. Balanced "
+                "examples follow; copy the shape, not the sample IDs:",
+                '[[CR_EXPRESSION {"action":"inline","resource_key":"emoji:123",'
+                '"reason":"reinforces the tone of my visible reply"}]]',
+                '[[CR_EXPRESSION {"action":"reaction","resource_key":"emoji:456",'
+                '"reason":"a lightweight acknowledgement fits better"}]]',
+                '[[CR_EXPRESSION {"action":"sticker","resource_key":"sticker:789",'
+                '"reason":"the visual reaction carries the moment better"}]]',
+                '[[CR_EXPRESSION {"action":"none","reason":"not needed"}]]',
             )
         source_guidance = (
             "The latest triggering message was written by another deployed character."
