@@ -78,6 +78,7 @@ function configure(overrides: Parameters<typeof configureSmartParticipation>[0] 
     channelCooldownSeconds: 45,
     windowSeconds: 600,
     maxRepliesPerWindow: 3,
+    lightweightFollowUpWindowSeconds: 90,
     ...overrides
   });
 }
@@ -135,12 +136,49 @@ describe("deterministic Smart Participation", () => {
     expect(consumeSmartSelection(zhi.deployment_id)).toBe(false);
   });
 
-  it("stays silent for low-information acknowledgements", () => {
+  it("keeps low-information messages silent when no recent character turn exists", () => {
     configure();
     const result = evaluateSmartParticipation([ann, zhi], "好的", 1_000_000);
 
     expect(result.reason).toBe("low_information_message");
     expect(result.selectedDeployment).toBeNull();
+  });
+
+  it("allows one lightweight follow-up for the most recently admitted character turn", () => {
+    configure();
+    markExplicitSmartSelections([ann], 1_000_000);
+    expect(consumeSmartSelection(ann.deployment_id)).toBe(true);
+
+    const result = evaluateSmartParticipation([ann, zhi], "哈哈", 1_010_000);
+
+    expect(result.reason).toBe("selected_lightweight");
+    expect(result.selectedDeployment?.deployment_id).toBe(ann.deployment_id);
+    expect(result.candidates[0]?.signals.recent_turn_match).toBe(6);
+    expect(consumeSmartSelection(ann.deployment_id)).toBe(true);
+  });
+
+  it("allows an Emoji-only acknowledgement as a lightweight follow-up", () => {
+    configure();
+    markExplicitSmartSelections([ann], 1_000_000);
+    expect(consumeSmartSelection(ann.deployment_id)).toBe(true);
+
+    const result = evaluateSmartParticipation([ann, zhi], "😂", 1_010_000);
+    expect(result.reason).toBe("selected_lightweight");
+    expect(result.selectedDeployment?.deployment_id).toBe(ann.deployment_id);
+  });
+
+  it("does not chain repeated lightweight turns without a new substantive turn", () => {
+    configure();
+    markExplicitSmartSelections([ann], 1_000_000);
+    expect(consumeSmartSelection(ann.deployment_id)).toBe(true);
+    expect(
+      evaluateSmartParticipation([ann, zhi], "哈哈", 1_010_000).reason
+    ).toBe("selected_lightweight");
+    expect(consumeSmartSelection(ann.deployment_id)).toBe(true);
+
+    const second = evaluateSmartParticipation([ann, zhi], "lol", 1_020_000);
+    expect(second.reason).toBe("low_information_message");
+    expect(second.selectedDeployment).toBeNull();
   });
 
   it("stays silent when every candidate is below its threshold", () => {
@@ -194,24 +232,43 @@ describe("deterministic Smart Participation", () => {
     expect(result.candidates[0]?.signals.avoid_phrase_blocked).toBe(1);
   });
 
-  it("enforces channel cooldown after a proactive selection", () => {
+  it("starts channel cooldown only after the selected Smart turn is admitted", () => {
     configure();
     const first = evaluateSmartParticipation(
       [zhi],
       "为什么 Discord deployment 没反应？",
       1_000_000
     );
+    expect(first.reason).toBe("selected");
+    expect(consumeSmartSelection(zhi.deployment_id)).toBe(true);
+
     const second = evaluateSmartParticipation(
       [zhi],
       "另一个 Discord bug 怎么解决？",
       1_010_000
     );
-
-    expect(first.reason).toBe("selected");
     expect(second.reason).toBe("channel_cooldown");
   });
 
-  it("enforces a per-channel reply limit", () => {
+  it("does not consume cooldown merely because a candidate was evaluated", () => {
+    configure();
+    expect(
+      evaluateSmartParticipation(
+        [zhi],
+        "为什么 Discord deployment 没反应？",
+        1_000_000
+      ).reason
+    ).toBe("selected");
+
+    const second = evaluateSmartParticipation(
+      [zhi],
+      "另一个 Discord bug 怎么解决？",
+      1_010_000
+    );
+    expect(second.reason).toBe("selected");
+  });
+
+  it("enforces a per-channel proactive turn limit after admitted turns", () => {
     configure({
       channelCooldownSeconds: 0,
       windowSeconds: 600,
@@ -228,9 +285,11 @@ describe("deterministic Smart Participation", () => {
     expect(
       evaluateSmartParticipation([zhi], "Discord issue one?", 1_000_000).reason
     ).toBe("selected");
+    expect(consumeSmartSelection(zhi.deployment_id)).toBe(true);
     expect(
       evaluateSmartParticipation([zhi], "Discord issue two?", 1_001_000).reason
     ).toBe("selected");
+    expect(consumeSmartSelection(zhi.deployment_id)).toBe(true);
     expect(
       evaluateSmartParticipation([zhi], "Discord issue three?", 1_002_000).reason
     ).toBe("channel_rate_limit");
@@ -238,10 +297,15 @@ describe("deterministic Smart Participation", () => {
 
   it("marks explicitly addressed Smart deployments without counting a proactive decision", () => {
     configure();
-    markExplicitSmartSelections([ann, zhi]);
+    markExplicitSmartSelections([ann], 1_000_000);
 
     expect(consumeSmartSelection(ann.deployment_id)).toBe(true);
-    expect(consumeSmartSelection(zhi.deployment_id)).toBe(true);
+    const result = evaluateSmartParticipation(
+      [ann],
+      "我今天很累也很难过，可以帮我吗？",
+      1_001_000
+    );
+    expect(result.reason).toBe("selected");
   });
 
   it("does not select candidates while the runtime is disabled", () => {

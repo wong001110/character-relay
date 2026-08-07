@@ -65,11 +65,35 @@ describe("Smart Primary to Secondary routing", () => {
       enabled: true,
       channelCooldownSeconds: 0,
       windowSeconds: 600,
-      maxRepliesPerWindow: 10
+      maxRepliesPerWindow: 10,
+      automaticFollowUpsEnabled: true
     });
   });
 
-  it("routes an untagged Primary reply to its configured Secondary", () => {
+  it("keeps automatic Primary-to-Secondary follow-up disabled unless explicitly enabled", () => {
+    configureSmartParticipation({
+      enabled: true,
+      automaticFollowUpsEnabled: false
+    });
+    const serena = deployment("serena", "card-serena", "Serena", {
+      group_role: "primary"
+    });
+    const mia = deployment("mia", "card-mia", "Mia", {
+      group_role: "secondary",
+      preferred_follow_up_character_card_id: "card-serena"
+    });
+
+    const audience = resolveBotTagAudience(
+      [serena, mia],
+      "That conclusion is doing a lot of work.",
+      serena.deployment_id
+    );
+
+    expect(audience.reason).toBe("not_found");
+    expect(audience.deployments).toEqual([]);
+  });
+
+  it("routes an untagged Primary reply to its configured Secondary when legacy follow-up is enabled", () => {
     const serena = deployment("serena", "card-serena", "Serena", {
       group_role: "primary"
     });
