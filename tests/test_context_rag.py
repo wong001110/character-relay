@@ -29,7 +29,11 @@ def deployment(*, guild_id: str = "guild-a") -> CharacterDeploymentRecord:
     )
 
 
-def payload(*, guild_id: str = "guild-a", text: str = "What is the launch password?") -> DiscordInboundMessage:
+def payload(
+    *,
+    guild_id: str = "guild-a",
+    text: str = "What is the launch password?",
+) -> DiscordInboundMessage:
     return DiscordInboundMessage(
         connection_id="connection-1",
         deployment_id="deployment-ann",
@@ -151,7 +155,7 @@ def test_channel_scope_and_chinese_sparse_retrieval() -> None:
         channel_id="channel-1",
         thread_id="",
         character_card_id="card-ann",
-        query="宁喜欢喝什么饮料？",
+        query="宁喜欢喝什么饮料?",
     )
 
     assert result.eligible_base_count == 1
