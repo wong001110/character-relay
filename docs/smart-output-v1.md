@@ -49,7 +49,7 @@ No Discord state changes are made.
   "reply_to": "trigger",
   "content": [
     {"text": "你 😂 真的认真的？ "},
-    {"emoji": "emoji:123"},
+    {"emoji": "e1"},
     {"text": " "},
     {"mention": "p1"}
   ]
@@ -59,7 +59,7 @@ No Discord state changes are made.
 `content` is ordered. Every item contains exactly one field:
 
 - `text` — normal visible text; Unicode Emoji may appear directly here;
-- `emoji` — one retrieved custom Server Emoji resource key;
+- `emoji` — one prompt-local alias for a retrieved custom Server Emoji;
 - `mention` — one runtime-supplied participant alias.
 
 Omitting `reply_to` means normal channel speech. Setting `reply_to` uses only one supplied message alias.
@@ -72,18 +72,18 @@ V1 permits at most one retrieved custom Emoji in one message. Unicode Emoji are 
 {
   "action": "react",
   "target": "trigger",
-  "emoji": "emoji:123"
+  "emoji": "e1"
 }
 ```
 
-The Emoji must be one of the retrieved resources and must allow `reaction`.
+The Emoji alias must refer to one of the retrieved resources and that resource must allow `reaction`.
 
 ### Sticker
 
 ```json
 {
   "action": "sticker",
-  "sticker": "sticker:456"
+  "sticker": "s1"
 }
 ```
 
@@ -91,7 +91,7 @@ A Sticker may optionally specify `reply_to`.
 
 ## Reference isolation
 
-The model is not given raw Discord user IDs, deployment IDs, message IDs, custom Emoji IDs, or Sticker IDs as behavioral references.
+The model is not given raw Discord user IDs, deployment IDs, message IDs, custom Emoji IDs, Sticker IDs, or expression resource keys as behavioral references.
 
 Prompt-local aliases are used instead:
 
@@ -99,11 +99,11 @@ Prompt-local aliases are used instead:
 trigger
 m1, m2, ...
 p1, p2, ...
-emoji:<catalog key>
-sticker:<catalog key>
+e1, e2, ...
+s1, s2, ...
 ```
 
-After generation, the backend resolves those aliases back to runtime references. The Discord Connector then validates them again before executing anything.
+`eN` aliases refer only to retrieved Emoji candidates and `sN` aliases refer only to retrieved Sticker candidates. After generation, the backend resolves every alias back to its hidden runtime reference. The Discord Connector validates the resolved reference again before executing anything.
 
 The current character is intentionally excluded from the mentionable participant list, and Connector validation rejects a self-reference if one is injected anyway.
 
@@ -119,11 +119,12 @@ Server expression dictionary
 → allowed-action filtering
 → semantic retrieval + recent-use penalty
 → Top-K candidates
+→ prompt-local eN / sN aliases
 → Smart Output
 → live Discord resource validation
 ```
 
-The full Server expression dictionary is never sent to the character model.
+The full Server expression dictionary and raw Discord expression IDs are never sent to the character model.
 
 ## Failure policy
 
@@ -136,7 +137,7 @@ Smart Output V1 is fail-closed:
 5. if still invalid, convert the turn to `ignore`;
 6. do not partially execute an invalid action.
 
-Examples of rejection include unknown participant aliases, unknown message aliases, un-retrieved resources, wrong resource action, unavailable resources, or invalid message content.
+Examples of rejection include unknown participant aliases, unknown message aliases, unknown expression aliases, wrong resource action, unavailable resources, or invalid message content.
 
 A failed Reaction does not silently become an inline Emoji. A bad Mention does not result in a partially sent message.
 
@@ -144,7 +145,7 @@ A failed Reaction does not silently become an inline Emoji. A bad Mention does n
 
 Human Mentions are converted to Discord mentions only after the runtime approves the participant. Discord delivery uses an explicit allowed-user list; broad mention parsing stays disabled.
 
-Character Mentions compile to the active Character Relay address alias and may trigger another character turn. Bot-to-bot continuation keeps the existing depth/response budget and additionally tracks characters already seen in the chain so a character cannot re-enter the same human-triggered chain.
+Character Mentions compile to the active Character Relay address alias and may trigger another character turn. Bot-to-bot continuation keeps the existing depth/response budget and uses one shared seen-set for the whole human-triggered chain. A character is reserved when it receives a turn, so it cannot re-enter through its own branch or a sibling branch later in the same chain.
 
 ## Reply semantics
 
