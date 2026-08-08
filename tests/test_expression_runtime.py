@@ -120,8 +120,10 @@ def test_smart_output_prompt_explains_social_actions_and_hides_raw_ids() -> None
     assert '"action":"react"' in prompt
     assert '"action":"sticker"' in prompt
     assert '"action":"ignore"' in prompt
-    assert "emoji:123456789012345678" in prompt
-    assert "sticker:987654321098765432" in prompt
+    assert "e1; type=emoji; name=peek" in prompt
+    assert "s1; type=sticker; name=peek" in prompt
+    assert "emoji:123456789012345678" not in prompt
+    assert "sticker:987654321098765432" not in prompt
     assert "p1: Juen (human)" in prompt
     assert "p2: Ning (character)" in prompt
     assert "123456789012345678" not in prompt
