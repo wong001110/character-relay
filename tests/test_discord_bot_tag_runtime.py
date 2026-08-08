@@ -66,7 +66,7 @@ def test_social_prompt_exposes_bounded_character_alias_contract() -> None:
     assert "宁 · Ning (character)" not in prompt
     assert "Never mention yourself" in prompt
     assert "another deployed character" in prompt
-    assert "[context | Character: Ann]" in prompt
+    assert "[m1 | Character: Ann]" in prompt
     assert "deployment:deployment-ann" not in prompt
 
 
