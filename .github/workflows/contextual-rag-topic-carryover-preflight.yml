@@ -50,16 +50,15 @@ jobs:
 
           index_path = Path('connectors/discord/src/index.ts')
           index = index_path.read_text()
-          old = '''    rag_status: trace.rag_status,
-            rag_reason: trace.rag_reason,
-            query_chars: trace.query_chars,'''
-          new = '''    rag_status: trace.rag_status,
-            rag_reason: trace.rag_reason,
-            retrieval_mode: trace.retrieval_mode,
-            carryover_message_count: trace.carryover_message_count,
-            initial_hit_count: trace.initial_hit_count,
-            fallback_hit_count: trace.fallback_hit_count,
-            query_chars: trace.query_chars,'''
+          old = "    rag_reason: trace.rag_reason,\n    query_chars: trace.query_chars,"
+          new = (
+              "    rag_reason: trace.rag_reason,\n"
+              "    retrieval_mode: trace.retrieval_mode,\n"
+              "    carryover_message_count: trace.carryover_message_count,\n"
+              "    initial_hit_count: trace.initial_hit_count,\n"
+              "    fallback_hit_count: trace.fallback_hit_count,\n"
+              "    query_chars: trace.query_chars,"
+          )
           if old not in index:
               raise SystemExit('reportCharacterContext anchor not found')
           index_path.write_text(index.replace(old, new, 1))
