@@ -4,6 +4,7 @@ import json
 from echo_masque.providers import ChatToolCall, ChatToolFunctionCall
 from echo_masque.tool_runtime import (
     ToolExecutionContext,
+    ToolExecutionResult,
     default_tool_registry,
 )
 
@@ -27,7 +28,11 @@ def context() -> ToolExecutionContext:
     )
 
 
-def execute(name: str, arguments: dict[str, object], enabled: tuple[str, ...]):
+def execute(
+    name: str,
+    arguments: dict[str, object],
+    enabled: tuple[str, ...],
+) -> ToolExecutionResult:
     return asyncio.run(
         default_tool_registry().execute(
             call(name, arguments),
