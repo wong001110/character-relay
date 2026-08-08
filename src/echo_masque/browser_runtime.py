@@ -7,6 +7,7 @@ import json
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from time import monotonic
 from urllib.parse import quote_plus
@@ -22,6 +23,11 @@ from playwright.async_api import (
 )
 
 from echo_masque.network_safety import PublicUrlGuard, PublicUrlRejected
+
+_BROWSER_SESSION_KEY: ContextVar[str] = ContextVar(
+    "character_relay_browser_session_key",
+    default="runtime",
+)
 
 
 class BrowserToolUnavailable(RuntimeError):
@@ -109,7 +115,7 @@ class BrowserCapabilityManager:
     async def search_web(self, query: str, count: int) -> dict[str, object]:
         normalized = _query(query)
         count = min(max(count, 1), 10)
-        async with self._page_for("web-search", normalized) as page:
+        async with self._page_for("web-search") as page:
             url = (
                 "https://www.bing.com/search?"
                 f"q={quote_plus(normalized)}&count={count}&safeSearch=Strict"
@@ -129,7 +135,7 @@ class BrowserCapabilityManager:
     async def search_images(self, query: str, count: int) -> dict[str, object]:
         normalized = _query(query)
         count = min(max(count, 1), 10)
-        async with self._page_for("image-search", normalized) as page:
+        async with self._page_for("image-search") as page:
             url = (
                 "https://www.bing.com/images/search?"
                 f"q={quote_plus(normalized)}&safeSearch=Strict"
@@ -189,7 +195,7 @@ class BrowserCapabilityManager:
             raise ValueError("A place search location is required; do not guess the user's location.")
         count = min(max(count, 1), 10)
         combined = f"{normalized_query} near {normalized_location} address"
-        async with self._page_for("places-search", combined) as page:
+        async with self._page_for("places-search") as page:
             url = (
                 "https://www.bing.com/search?"
                 f"q={quote_plus(combined)}&count={count}&safeSearch=Strict"
@@ -218,7 +224,7 @@ class BrowserCapabilityManager:
     async def fetch_rendered_page(self, url: str, max_chars: int) -> dict[str, object]:
         validated = await self.url_guard.validate(url.strip())
         max_chars = min(max(max_chars, 500), 12_000)
-        async with self._page_for("rendered-fetch", validated) as page:
+        async with self._page_for("rendered-fetch") as page:
             await self._navigate(page, validated)
             try:
                 await page.wait_for_load_state("networkidle", timeout=4_000)
@@ -243,20 +249,11 @@ class BrowserCapabilityManager:
         }
 
     @asynccontextmanager
-    async def _page_for(self, page_kind: str, activity_key: str) -> AsyncIterator[Page]:
-        del activity_key  # Kept in the API for future per-query observability without logging text.
+    async def _page_for(self, page_kind: str) -> AsyncIterator[Page]:
         if not self.settings.enabled:
             raise BrowserToolUnavailable("Browser Tools are disabled by Runtime configuration.")
         async with self._semaphore:
-            session_key = asyncio.current_task()
-            if session_key is None:
-                key = "runtime"
-            else:
-                key = getattr(session_key, "_character_relay_browser_key", "runtime")
-            # ToolRegistry sets a task-local key through use_session_key(); otherwise a shared
-            # ephemeral runtime context is still isolated from persistent browser profiles.
-            session_id = str(key)
-            session = await self._ensure_session(session_id)
+            session = await self._ensure_session(_BROWSER_SESSION_KEY.get())
             async with self._state_lock:
                 self._active_operations += 1
             try:
@@ -274,23 +271,13 @@ class BrowserCapabilityManager:
 
     @asynccontextmanager
     async def use_session_key(self, key: str) -> AsyncIterator[None]:
-        """Bind browser Context reuse to one owner/deployment for this async task."""
+        """Bind BrowserContext reuse to one owner/deployment for this logical turn."""
 
-        task = asyncio.current_task()
-        if task is None:
-            yield
-            return
-        sentinel = object()
-        previous = getattr(task, "_character_relay_browser_key", sentinel)
-        setattr(task, "_character_relay_browser_key", key)
+        token = _BROWSER_SESSION_KEY.set(key or "runtime")
         try:
             yield
         finally:
-            if previous is sentinel:
-                with suppress(AttributeError):
-                    delattr(task, "_character_relay_browser_key")
-            else:
-                setattr(task, "_character_relay_browser_key", previous)
+            _BROWSER_SESSION_KEY.reset(token)
 
     async def _ensure_session(self, session_id: str) -> _BrowserSession:
         async with self._state_lock:
