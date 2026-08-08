@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   configureSmartParticipation,
   consumeSmartSelection,
+  coordinateExplicitSmartParticipants,
   evaluateSmartParticipation,
   markExplicitSmartSelections,
   parseSmartParticipationProfiles,
@@ -75,6 +76,7 @@ function configure(overrides: Parameters<typeof configureSmartParticipation>[0] 
       }
     },
     minimumMargin: 2,
+    maxParticipants: 2,
     channelCooldownSeconds: 45,
     windowSeconds: 600,
     maxRepliesPerWindow: 3,
@@ -129,11 +131,153 @@ describe("deterministic Smart Participation", () => {
 
     expect(result.reason).toBe("selected");
     expect(result.selectedDeployment?.deployment_id).toBe(zhi.deployment_id);
+    expect(result.selectedDeployments.map((item) => item.deployment_id)).toEqual([
+      zhi.deployment_id
+    ]);
     expect(result.candidates[0]?.signals.question).toBe(2);
     expect(result.candidates[0]?.signals.help_request).toBe(2);
     expect(result.candidates[0]?.matchedKeywords).toContain("discord");
     expect(consumeSmartSelection(zhi.deployment_id)).toBe(true);
     expect(consumeSmartSelection(zhi.deployment_id)).toBe(false);
+  });
+
+  it("uses semantic Character Card relevance without manual topic or keyword matches", () => {
+    configure({
+      profiles: {
+        "character-zhi": {
+          initiative: 0.5,
+          minimum_score: 4,
+          cooldown_seconds: 0
+        },
+        "character-ann": {
+          initiative: 0.3,
+          minimum_score: 4,
+          cooldown_seconds: 0
+        }
+      }
+    });
+
+    const result = evaluateSmartParticipation(
+      [ann, zhi],
+      "How should I turn several AI tools into a practical product workflow?",
+      1_000_000,
+      {
+        [zhi.deployment_id]: 0.91,
+        [ann.deployment_id]: 0.72
+      }
+    );
+
+    expect(result.reason).toBe("selected");
+    expect(result.selectedDeployment?.deployment_id).toBe(zhi.deployment_id);
+    expect(result.candidates[0]?.semanticRelevance).toBe(0.91);
+    expect(result.candidates[0]?.signals.semantic_match).toBe(6);
+  });
+
+  it("admits two strong character-specific candidates instead of forcing one winner", () => {
+    configure({
+      profiles: {
+        "character-zhi": {
+          initiative: 0.5,
+          minimum_score: 4,
+          cooldown_seconds: 0
+        },
+        "character-ann": {
+          initiative: 0.5,
+          minimum_score: 4,
+          cooldown_seconds: 0
+        }
+      },
+      minimumMargin: 2,
+      maxParticipants: 2
+    });
+
+    const result = evaluateSmartParticipation(
+      [ann, zhi],
+      "Can you both help me reason about this AI product decision?",
+      1_000_000,
+      {
+        [zhi.deployment_id]: 0.91,
+        [ann.deployment_id]: 0.89
+      }
+    );
+
+    expect(result.reason).toBe("selected_multiple");
+    expect(result.selectedDeployments.map((item) => item.deployment_id)).toEqual([
+      zhi.deployment_id,
+      ann.deployment_id
+    ]);
+    expect(result.turns.map((item) => item.role)).toEqual(["primary", "complement"]);
+    expect(consumeSmartSelection(zhi.deployment_id)).toBe(true);
+    expect(consumeSmartSelection(ann.deployment_id)).toBe(true);
+  });
+
+  it("does not add a generic runner-up without a character-specific reason", () => {
+    configure({
+      profiles: {
+        "character-zhi": {
+          initiative: 0.5,
+          minimum_score: 4,
+          cooldown_seconds: 0
+        },
+        "character-ann": {
+          initiative: 0.5,
+          minimum_score: 2,
+          cooldown_seconds: 0
+        }
+      },
+      minimumMargin: 6
+    });
+
+    const result = evaluateSmartParticipation(
+      [ann, zhi],
+      "How should I design this AI workflow?",
+      1_000_000,
+      { [zhi.deployment_id]: 0.91 }
+    );
+
+    expect(result.reason).toBe("selected");
+    expect(result.selectedDeployments.map((item) => item.deployment_id)).toEqual([
+      zhi.deployment_id
+    ]);
+  });
+
+  it("coordinates one linked secondary before an explicitly addressed primary", () => {
+    const lady = deployment("deploy-lady", "Serena", "character-lady");
+    const attendant = deployment("deploy-attendant", "Mira", "character-attendant");
+    configure({
+      profiles: {
+        "character-lady": {
+          group_role: "primary",
+          initiative: 0.4,
+          minimum_score: 4,
+          cooldown_seconds: 0
+        },
+        "character-attendant": {
+          group_role: "secondary",
+          preferred_follow_up_character_card_id: "character-lady",
+          initiative: 0.5,
+          minimum_score: 4,
+          cooldown_seconds: 0
+        }
+      }
+    });
+
+    const result = coordinateExplicitSmartParticipants(
+      [lady, attendant],
+      [lady],
+      "Why did you leave yesterday?",
+      1_000_000,
+      { [attendant.deployment_id]: 0.86 }
+    );
+
+    expect(result.coordinated).toBe(true);
+    expect(result.deployments.map((item) => item.deployment_id)).toEqual([
+      attendant.deployment_id,
+      lady.deployment_id
+    ]);
+    expect(result.turns.map((item) => item.role)).toEqual(["interject", "primary"]);
+    expect(consumeSmartSelection(attendant.deployment_id)).toBe(true);
+    expect(consumeSmartSelection(lady.deployment_id)).toBe(true);
   });
 
   it("keeps low-information messages silent when no recent character turn exists", () => {
@@ -193,7 +337,7 @@ describe("deterministic Smart Participation", () => {
     expect(result.selectedDeployment).toBeNull();
   });
 
-  it("stays silent when the leading characters are too close", () => {
+  it("allows tied meaningful characters to participate together", () => {
     configure({
       profiles: {
         "character-zhi": {
@@ -207,7 +351,8 @@ describe("deterministic Smart Participation", () => {
           cooldown_seconds: 0
         }
       },
-      minimumMargin: 2
+      minimumMargin: 2,
+      maxParticipants: 2
     });
     const result = evaluateSmartParticipation(
       [ann, zhi],
@@ -215,8 +360,8 @@ describe("deterministic Smart Participation", () => {
       1_000_000
     );
 
-    expect(result.reason).toBe("ambiguous_margin");
-    expect(result.selectedDeployment).toBeNull();
+    expect(result.reason).toBe("selected_multiple");
+    expect(result.selectedDeployments).toHaveLength(2);
   });
 
   it("respects avoid phrases before scoring", () => {
