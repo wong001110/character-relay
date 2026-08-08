@@ -1,7 +1,7 @@
 """API schemas for scoped Knowledge Bases and RAG V1 retrieval."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -60,7 +60,7 @@ class KnowledgeBaseView(KnowledgeBaseWrite):
             id=record.id,
             name=record.name,
             description=record.description,
-            scope_type=record.scope_type,
+            scope_type=cast(KnowledgeScopeType, record.scope_type),
             connection_id=record.connection_id,
             guild_id=record.guild_id,
             channel_id=record.channel_id,
