@@ -17,6 +17,27 @@ if TYPE_CHECKING:
 _OUTPUT_PATTERN = re.compile(r"^\s*\[\[CR_OUTPUT\s+(\{.*\})\s*\]\]\s*$", re.DOTALL)
 
 
+def _expression_aliases(
+    candidates: list[ExpressionCandidate],
+) -> dict[str, ExpressionCandidate]:
+    """Build stable prompt-local aliases without exposing Discord resource IDs."""
+
+    aliases: dict[str, ExpressionCandidate] = {}
+    emoji_index = 0
+    sticker_index = 0
+    for candidate in candidates[:6]:
+        if candidate.resource_type == "emoji":
+            emoji_index += 1
+            alias = f"e{emoji_index}"
+        elif candidate.resource_type == "sticker":
+            sticker_index += 1
+            alias = f"s{sticker_index}"
+        else:
+            continue
+        aliases[alias] = candidate
+    return aliases
+
+
 class DiscordActionParticipant(BaseModel):
     """A runtime-approved participant that a character may mention."""
 
@@ -36,7 +57,7 @@ class SmartTextPart(BaseModel):
 class SmartEmojiPart(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    emoji: str = Field(min_length=1, max_length=240)
+    emoji: str = Field(min_length=1, max_length=32)
 
 
 class SmartMentionPart(BaseModel):
@@ -60,8 +81,8 @@ class SmartOutputProposal(BaseModel):
     content: list[SmartMessagePart] = Field(default_factory=list, max_length=24)
     reply_to: str | None = Field(default=None, max_length=32)
     target: str | None = Field(default=None, max_length=32)
-    emoji: str | None = Field(default=None, max_length=240)
-    sticker: str | None = Field(default=None, max_length=240)
+    emoji: str | None = Field(default=None, max_length=32)
+    sticker: str | None = Field(default=None, max_length=32)
 
     @model_validator(mode="after")
     def validate_action_shape(self) -> SmartOutputProposal:
@@ -76,7 +97,13 @@ class SmartOutputProposal(BaseModel):
                 raise ValueError("message contains unsupported action fields")
             return self
         if self.action == "react":
-            if self.content or self.reply_to or self.sticker or not self.target or not self.emoji:
+            if (
+                self.content
+                or self.reply_to
+                or self.sticker
+                or not self.target
+                or not self.emoji
+            ):
                 raise ValueError("react requires target and emoji only")
             return self
         if self.content or self.target or self.emoji or not self.sticker:
@@ -87,8 +114,8 @@ class SmartOutputProposal(BaseModel):
 class DiscordSmartOutputView(BaseModel):
     """Resolved output returned to the Discord Connector.
 
-    Message and participant aliases have already been converted back to runtime refs.
-    The LLM never receives these raw refs.
+    Prompt-local aliases have already been converted back to runtime references.
+    The LLM never receives raw participant, message, Emoji, or Sticker IDs.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -148,7 +175,9 @@ class SmartOutputContext:
             alias = f"p{index}"
             participant_alias_to_ref[alias] = participant.ref
             participant_ref_to_name[participant.ref] = participant.display_name
-            descriptions.append(f"- {alias}: {participant.display_name} ({participant.kind})")
+            descriptions.append(
+                f"- {alias}: {participant.display_name} ({participant.kind})"
+            )
 
         return cls(
             message_alias_to_id=message_alias_to_id,
@@ -176,55 +205,67 @@ class SmartOutputContext:
                 "one of: text, emoji, mention."
             ),
             (
-                "A custom Server Emoji in message content must use an emoji resource "
-                "key listed below and may appear anywhere in the content array."
+                "A custom Server Emoji in message content must use an Emoji alias "
+                "listed below and may appear anywhere in the content array."
             ),
             (
                 "Use react for a lightweight Emoji reaction attached to one supplied "
                 "message reference."
             ),
-            ("Use sticker when a listed Server Sticker is the whole social action for this turn."),
+            (
+                "Use sticker when a listed Server Sticker is the whole social action "
+                "for this turn."
+            ),
             (
                 "For message and sticker, omit reply_to to send directly to the "
                 "channel; set reply_to to a supplied message reference only when an "
                 "explicit Discord reply is socially useful."
             ),
             (
-                "Never invent message references, participant aliases, custom Emoji "
-                "keys, or Sticker keys."
+                "Never invent message references, participant aliases, Emoji aliases, "
+                "or Sticker aliases."
             ),
-            ("Never mention yourself. Your own participant alias is intentionally not supplied."),
+            (
+                "Never mention yourself. Your own participant alias is intentionally "
+                "not supplied."
+            ),
             (
                 "Do not emit reasoning, confidence, explanations, prose outside the "
                 "control line, or legacy CR_EXPRESSION controls."
             ),
             "Return exactly one line in the form [[CR_OUTPUT {...}]].",
-            "Examples (copy the shape, not unavailable sample keys):",
-            ('[[CR_OUTPUT {"action":"message","content":[{"text":"你 😂 真的认真的?"}]}]]'),
+            "Examples (copy the shape, not unavailable sample aliases):",
+            (
+                '[[CR_OUTPUT {"action":"message","content":'
+                '[{"text":"你 😂 真的认真的?"}]}]]'
+            ),
             (
                 '[[CR_OUTPUT {"action":"message","reply_to":"trigger","content":'
-                '[{"text":"这句我不同意。 "},{"emoji":"emoji:123"},'
+                '[{"text":"这句我不同意。 "},{"emoji":"e1"},'
                 '{"text":" "},{"mention":"p1"}]}]]'
             ),
-            '[[CR_OUTPUT {"action":"react","target":"trigger","emoji":"emoji:123"}]]',
-            '[[CR_OUTPUT {"action":"sticker","sticker":"sticker:456"}]]',
+            '[[CR_OUTPUT {"action":"react","target":"trigger","emoji":"e1"}]]',
+            '[[CR_OUTPUT {"action":"sticker","sticker":"s1"}]]',
             '[[CR_OUTPUT {"action":"ignore"}]]',
-            "Message references available this turn: " + ", ".join(self.message_alias_to_id.keys()),
+            "Message references available this turn: "
+            + ", ".join(self.message_alias_to_id.keys()),
         ]
         if self.participant_alias_descriptions:
             lines.extend(("Mentionable participants:", *self.participant_alias_descriptions))
         else:
             lines.append("Mentionable participants: none.")
-        if candidates:
-            lines.append("Retrieved Server expression resources:")
-            for item in candidates[:6]:
+
+        expression_aliases = _expression_aliases(candidates)
+        if expression_aliases:
+            lines.append("Retrieved Server expression aliases:")
+            for alias, item in expression_aliases.items():
                 meaning = item.semantic_description or item.semantic_intent or item.name
                 lines.append(
-                    f"- key={item.resource_key}; type={item.resource_type}; "
+                    f"- {alias}; type={item.resource_type}; name={item.name}; "
                     f"actions={','.join(item.allowed_actions)}; meaning={meaning}"
                 )
         else:
-            lines.append("Retrieved Server expression resources: none.")
+            lines.append("Retrieved Server expression aliases: none.")
         return tuple(lines)
 
     def parse_and_resolve(
@@ -246,7 +287,7 @@ class SmartOutputContext:
         proposal: SmartOutputProposal,
         candidates: list[ExpressionCandidate],
     ) -> tuple[DiscordSmartOutputView | None, str]:
-        by_key = {item.resource_key: item for item in candidates}
+        by_alias = _expression_aliases(candidates)
 
         def message_id(alias: str | None) -> str | None:
             if alias is None:
@@ -262,7 +303,7 @@ class SmartOutputContext:
             return DiscordSmartOutputView(action="ignore"), "ok"
 
         if proposal.action == "react":
-            candidate = by_key.get(proposal.emoji or "")
+            candidate = by_alias.get(proposal.emoji or "")
             if (
                 candidate is None
                 or candidate.resource_type != "emoji"
@@ -281,7 +322,7 @@ class SmartOutputContext:
             )
 
         if proposal.action == "sticker":
-            candidate = by_key.get(proposal.sticker or "")
+            candidate = by_alias.get(proposal.sticker or "")
             if (
                 candidate is None
                 or candidate.resource_type != "sticker"
@@ -308,7 +349,7 @@ class SmartOutputContext:
                 resolved_parts.append(part)
                 continue
             if isinstance(part, SmartEmojiPart):
-                candidate = by_key.get(part.emoji)
+                candidate = by_alias.get(part.emoji)
                 if (
                     candidate is None
                     or candidate.resource_type != "emoji"
