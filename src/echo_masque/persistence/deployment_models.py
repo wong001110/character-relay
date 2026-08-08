@@ -133,6 +133,20 @@ class CharacterDeploymentRecord(Base):
     )
 
 
+class DeploymentToolProfileRecord(Base):
+    """Tools explicitly assigned to one Character Deployment."""
+
+    __tablename__ = "deployment_tool_profiles"
+
+    deployment_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    enabled_tools_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class DiscordDeploymentScopeRecord(Base):
     """Optional server-wide Discord scope attached to a deployment.
 
@@ -158,6 +172,7 @@ class DiscordDeploymentScopeRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
 
 class DiscordConnectorEventRecord(Base):
     """Privacy-safe event emitted by the Discord Gateway connector."""
