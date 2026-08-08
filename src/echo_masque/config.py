@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     semantic_embedding_dimension: int = 384
     semantic_embedding_cache_dir: str = "./.cache/character-relay/embeddings"
 
+    # Deployment-scoped Tool Calling providers. Secrets remain server-side and are never
+    # included in Tool schemas, Tool Results, Portal responses, or Character prompts.
+    brave_search_api_key: SecretStr | None = None
+    discord_tool_bot_token: SecretStr | None = None
+
     # Legacy environment credentials remain read-only migration fallbacks. Admin API access
     # is role-based and never trusts the legacy token after Phase 15C.
     admin_token: SecretStr | None = None
