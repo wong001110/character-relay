@@ -24,6 +24,21 @@ import type {
 } from "./types.js";
 import type { DiscordPortalParticipationProfile } from "./smartParticipation.js";
 
+export interface DiscordSemanticParticipationCandidate {
+  deployment_id: string;
+  character_card_id: string;
+  semantic_relevance: number;
+  profile_ready: boolean;
+}
+
+export interface DiscordSemanticParticipationResult {
+  available: boolean;
+  reason: string;
+  model: string;
+  dimension: number;
+  candidates: DiscordSemanticParticipationCandidate[];
+}
+
 const RETRY_DELAYS_MS = [0, 1_000, 2_000, 4_000, 8_000, 15_000];
 const TRANSIENT_STATUS_CODES = new Set([502, 503, 504]);
 
@@ -188,6 +203,19 @@ export class RelayClient {
   ): Promise<void> {
     await this.request<void>(
       `/api/connectors/discord/interaction-sessions/runs/${runId}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
+  }
+
+  async scoreSmartParticipation(payload: {
+    message: string;
+    deployment_ids: string[];
+  }): Promise<DiscordSemanticParticipationResult> {
+    return this.request<DiscordSemanticParticipationResult>(
+      "/api/smart-participation/semantic-score",
       {
         method: "POST",
         body: JSON.stringify({ connection_id: this.connectionId, ...payload })

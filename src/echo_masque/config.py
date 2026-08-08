@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     provider_trace_retention_days: int = 7
     provider_trace_max_records: int = 2000
 
+    # Smart Participation V3 semantic relevance. Production explicitly enables this so
+    # tests and source checkouts never download a model merely by creating a Character Card.
+    semantic_participation_enabled: bool = False
+    semantic_embedding_model: str = "intfloat/multilingual-e5-small"
+    semantic_embedding_model_file: str = "onnx/model_O4.onnx"
+    semantic_embedding_dimension: int = 384
+    semantic_embedding_cache_dir: str = "./.cache/character-relay/embeddings"
+
     # Legacy environment credentials remain read-only migration fallbacks. Admin API access
     # is role-based and never trusts the legacy token after Phase 15C.
     admin_token: SecretStr | None = None

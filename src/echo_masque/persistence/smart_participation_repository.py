@@ -1,4 +1,4 @@
-"""Persistence operations for Smart Participation profiles and Playground feedback."""
+"""Persistence operations for Smart Participation profiles, semantics, and feedback."""
 
 import json
 from typing import Any, cast
@@ -10,6 +10,7 @@ from sqlalchemy.engine import CursorResult
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.models import CharacterCardRecord
 from echo_masque.persistence.smart_participation_models import (
+    CharacterSemanticProfileRecord,
     SmartParticipationFeedbackRecord,
     SmartParticipationProfileRecord,
 )
@@ -117,6 +118,65 @@ class SmartParticipationRepository:
                 )
             )
 
+    def get_semantic_profile(
+        self,
+        character_card_id: str,
+        owner_id: str,
+    ) -> CharacterSemanticProfileRecord | None:
+        with self.database.session() as session:
+            record = session.get(CharacterSemanticProfileRecord, character_card_id)
+            if record is None or record.owner_id != owner_id:
+                return None
+            return record
+
+    def upsert_semantic_profile(
+        self,
+        *,
+        character_card_id: str,
+        owner_id: str,
+        source_hash: str,
+        semantic_text: str,
+        model_name: str,
+        dimension: int,
+        embedding_blob: bytes,
+    ) -> CharacterSemanticProfileRecord:
+        self._require_character(character_card_id, owner_id)
+        with self.database.session() as session:
+            record = session.get(CharacterSemanticProfileRecord, character_card_id)
+            if record is None:
+                record = CharacterSemanticProfileRecord(
+                    character_card_id=character_card_id,
+                    owner_id=owner_id,
+                    source_hash=source_hash,
+                    semantic_text=semantic_text,
+                    model_name=model_name,
+                    dimension=dimension,
+                    embedding_blob=embedding_blob,
+                )
+                session.add(record)
+            elif record.owner_id != owner_id:
+                raise KeyError("character")
+            else:
+                record.source_hash = source_hash
+                record.semantic_text = semantic_text
+                record.model_name = model_name
+                record.dimension = dimension
+                record.embedding_blob = embedding_blob
+            session.commit()
+            session.refresh(record)
+            return record
+
+    def delete_semantic_profile(self, character_card_id: str, owner_id: str) -> bool:
+        with self.database.session() as session:
+            result = session.execute(
+                delete(CharacterSemanticProfileRecord).where(
+                    CharacterSemanticProfileRecord.character_card_id == character_card_id,
+                    CharacterSemanticProfileRecord.owner_id == owner_id,
+                )
+            )
+            session.commit()
+            return _cursor_rowcount(result) > 0
+
     def record_feedback(
         self,
         *,
@@ -161,6 +221,11 @@ class SmartParticipationRepository:
                     SmartParticipationFeedbackRecord.owner_id == owner_id
                 )
             )
+            semantic_result = session.execute(
+                delete(CharacterSemanticProfileRecord).where(
+                    CharacterSemanticProfileRecord.owner_id == owner_id
+                )
+            )
             profile_result = session.execute(
                 delete(SmartParticipationProfileRecord).where(
                     SmartParticipationProfileRecord.owner_id == owner_id
@@ -169,6 +234,7 @@ class SmartParticipationRepository:
             session.commit()
             return {
                 "smart_participation_feedback": _cursor_rowcount(feedback_result),
+                "character_semantic_profiles": _cursor_rowcount(semantic_result),
                 "smart_participation_profiles": _cursor_rowcount(profile_result),
             }
 
@@ -179,6 +245,11 @@ class SmartParticipationRepository:
                 .where(SmartParticipationProfileRecord.owner_id == source_owner_id)
                 .values(owner_id=target_owner_id)
             )
+            semantic_result = session.execute(
+                update(CharacterSemanticProfileRecord)
+                .where(CharacterSemanticProfileRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
             feedback_result = session.execute(
                 update(SmartParticipationFeedbackRecord)
                 .where(SmartParticipationFeedbackRecord.owner_id == source_owner_id)
@@ -187,5 +258,6 @@ class SmartParticipationRepository:
             session.commit()
             return {
                 "smart_participation_profiles": _cursor_rowcount(profile_result),
+                "character_semantic_profiles": _cursor_rowcount(semantic_result),
                 "smart_participation_feedback": _cursor_rowcount(feedback_result),
             }

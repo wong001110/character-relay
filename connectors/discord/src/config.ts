@@ -17,6 +17,7 @@ export interface ConnectorConfig {
   smartParticipationEnabled: boolean;
   smartParticipationProfiles: SmartParticipationProfiles;
   smartParticipationMinimumMargin: number;
+  smartParticipationMaxParticipants: number;
   smartParticipationChannelCooldownSeconds: number;
   smartParticipationWindowSeconds: number;
   smartParticipationMaxRepliesPerWindow: number;
@@ -96,6 +97,12 @@ export function loadConfig(): ConnectorConfig {
       2,
       0
     ),
+    smartParticipationMaxParticipants: boundedInteger(
+      "DISCORD_SMART_PARTICIPATION_MAX_PARTICIPANTS",
+      2,
+      1,
+      3
+    ),
     smartParticipationChannelCooldownSeconds: integer(
       "DISCORD_SMART_PARTICIPATION_CHANNEL_COOLDOWN_SECONDS",
       45,
@@ -128,6 +135,7 @@ export function loadConfig(): ConnectorConfig {
     enabled: config.smartParticipationEnabled,
     profiles: config.smartParticipationProfiles,
     minimumMargin: config.smartParticipationMinimumMargin,
+    maxParticipants: config.smartParticipationMaxParticipants,
     channelCooldownSeconds: config.smartParticipationChannelCooldownSeconds,
     windowSeconds: config.smartParticipationWindowSeconds,
     maxRepliesPerWindow: config.smartParticipationMaxRepliesPerWindow

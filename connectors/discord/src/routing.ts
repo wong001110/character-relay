@@ -1,9 +1,11 @@
 import { groupAddressAliases } from "./audienceAliases.js";
 import {
   consumeSmartSelection,
+  coordinateExplicitSmartParticipants,
   evaluateSmartFollowUp,
   evaluateSmartParticipation,
-  markExplicitSmartSelections
+  markExplicitSmartSelections,
+  type SmartParticipationSemanticScores
 } from "./smartParticipation.js";
 import type { DiscordDeployment } from "./types.js";
 
@@ -85,7 +87,9 @@ export type AudienceReason =
   | "selected_multiple"
   | "selected_all"
   | "selected_single"
+  | "selected_coordinated"
   | "selected_smart"
+  | "selected_smart_multiple"
   | "selected_smart_follow_up"
   | "ambiguous"
   | "not_found";
@@ -303,7 +307,8 @@ export function resolveAudience(
   candidates: DiscordDeployment[],
   text: string,
   replyDeploymentId?: string | null,
-  additionalGroupAliases: string[] = []
+  additionalGroupAliases: string[] = [],
+  semanticScores: SmartParticipationSemanticScores = {}
 ): AudienceResolution {
   const options = [...new Set(candidates.map(displayName))];
   if (!candidates.length) {
@@ -343,16 +348,41 @@ export function resolveAudience(
 
   const named = namedAudience(candidates, text, options);
   if (named) {
+    if (named.deployments.length === 1) {
+      const coordinated = coordinateExplicitSmartParticipants(
+        candidates,
+        named.deployments,
+        named.text,
+        Date.now(),
+        semanticScores
+      );
+      if (coordinated.coordinated) {
+        return {
+          ...named,
+          deployments: coordinated.deployments,
+          reason: "selected_coordinated"
+        };
+      }
+      return named;
+    }
     markExplicitSmartSelections(named.deployments);
     return named;
   }
 
-  const smartDecision = evaluateSmartParticipation(candidates, text);
-  if (smartDecision.selectedDeployment) {
+  const smartDecision = evaluateSmartParticipation(
+    candidates,
+    text,
+    Date.now(),
+    semanticScores
+  );
+  if (smartDecision.selectedDeployments.length) {
     return {
-      deployments: [smartDecision.selectedDeployment],
+      deployments: smartDecision.selectedDeployments,
       text: text.trim(),
-      reason: "selected_smart",
+      reason:
+        smartDecision.selectedDeployments.length > 1
+          ? "selected_smart_multiple"
+          : "selected_smart",
       options
     };
   }

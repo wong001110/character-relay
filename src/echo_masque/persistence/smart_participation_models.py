@@ -1,8 +1,8 @@
-"""Persistence models for character-level Smart Participation configuration and feedback."""
+"""Persistence models for Smart Participation configuration, semantics, and feedback."""
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from echo_masque.persistence.models import Base, utcnow
@@ -31,6 +31,24 @@ class SmartParticipationProfileRecord(Base):
     follow_up_window_seconds: Mapped[int] = mapped_column(
         Integer, default=30, nullable=False
     )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class CharacterSemanticProfileRecord(Base):
+    """Cached Character Card embedding used as a Smart Participation signal."""
+
+    __tablename__ = "character_semantic_profiles"
+
+    character_card_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    semantic_text: Mapped[str] = mapped_column(Text, nullable=False)
+    model_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    dimension: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding_blob: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
