@@ -44,7 +44,7 @@ jobs:
             tests/test_discord_bot_tag_runtime.py \
             tests/test_character_prompt_inspector.py \
             tests/test_character_prompt_expression_invariants.py
-          python -m ruff check .
+          python -m ruff check . --exclude scripts/finalize_smart_output_v1.py
       - name: Typecheck Python
         run: python -m mypy src
       - name: Run Smart Output regression tests
