@@ -14,6 +14,7 @@ import {
   type PlatformConnection,
   type PlatformId
 } from "./deploymentApi";
+import { DeploymentToolSelector } from "./DeploymentToolSelector";
 import {
   discordIdentityApi,
   type DeploymentIdentityMode,
@@ -1173,6 +1174,25 @@ export function DeploymentCenter({
                     <option value="custom">Custom</option>
                   </select>
                 </label>
+
+                {editingDeployment ? (
+                  <DeploymentToolSelector
+                    deploymentId={editingDeployment.id}
+                    disabled={working}
+                    zh={zh}
+                  />
+                ) : (
+                  <section className="deployment-form-wide deployment-tool-selector">
+                    <div className="deployment-form-divider">
+                      <strong>{zh ? "角色工具 / Tool Calling" : "Character tools / Tool Calling"}</strong>
+                      <span>
+                        {zh
+                          ? "先建立 Deployment，再从编辑页面为这个角色手动分配工具。工具属于 Deployment，不写进 Character Card。"
+                          : "Create the Deployment first, then edit it to assign tools manually. Tools belong to the Deployment, not the Character Card."}
+                      </span>
+                    </div>
+                  </section>
+                )}
 
                 {discordIdentityEnabled && draftParticipationMode === "smart" && (
                   <div className="deployment-form-wide deployment-smart-participation">
