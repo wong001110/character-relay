@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
@@ -193,6 +193,16 @@ class ScheduledReminderRepository:
                 delete(ScheduledReminderRecord).where(
                     ScheduledReminderRecord.deployment_id.not_in(deployment_ids)
                 )
+            )
+            session.commit()
+            return int(getattr(result, "rowcount", 0) or 0)
+
+    def claim_owner(self, source_owner_id: str, target_owner_id: str) -> int:
+        with self.database.session() as session:
+            result = session.execute(
+                update(ScheduledReminderRecord)
+                .where(ScheduledReminderRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
             )
             session.commit()
             return int(getattr(result, "rowcount", 0) or 0)
