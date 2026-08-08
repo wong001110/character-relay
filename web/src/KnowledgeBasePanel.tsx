@@ -138,6 +138,10 @@ export function KnowledgeBasePanel({ profile, catalog, cards, demoMode, zh }: Pr
     }));
   }
 
+  function updateBaseDraft(patch: Partial<KnowledgeBaseWrite>) {
+    setBaseDraft((current) => ({ ...current, ...patch }));
+  }
+
   async function createBase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!profile) return;
@@ -203,14 +207,15 @@ export function KnowledgeBasePanel({ profile, catalog, cards, demoMode, zh }: Pr
   async function addDocument(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedBase) return;
-    const data = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const data = new FormData(form);
     const title = String(data.get("title") ?? "").trim();
     const content = String(data.get("content") ?? "").trim();
     try {
       setWorking(true);
       await knowledgeApi.createDocument(selectedBase.id, { title, content });
       setDocumentOpen(false);
-      event.currentTarget.reset();
+      form.reset();
       await loadDocuments(selectedBase.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -306,9 +311,7 @@ export function KnowledgeBasePanel({ profile, catalog, cards, demoMode, zh }: Pr
               required
               maxLength={160}
               value={baseDraft.name}
-              onChange={(event) =>
-                setBaseDraft((current) => ({ ...current, name: event.currentTarget.value }))
-              }
+              onChange={(event) => updateBaseDraft({ name: event.currentTarget.value })}
               placeholder={zh ? "例如：Server FAQ" : "e.g. Server FAQ"}
             />
           </label>
@@ -329,12 +332,7 @@ export function KnowledgeBasePanel({ profile, catalog, cards, demoMode, zh }: Pr
               <select
                 required
                 value={baseDraft.channel_id}
-                onChange={(event) =>
-                  setBaseDraft((current) => ({
-                    ...current,
-                    channel_id: event.currentTarget.value
-                  }))
-                }
+                onChange={(event) => updateBaseDraft({ channel_id: event.currentTarget.value })}
               >
                 <option value="">{zh ? "选择 Channel" : "Select channel"}</option>
                 {catalog?.channels.map((channel) => (
@@ -351,10 +349,7 @@ export function KnowledgeBasePanel({ profile, catalog, cards, demoMode, zh }: Pr
             <select
               value={baseDraft.character_card_id}
               onChange={(event) =>
-                setBaseDraft((current) => ({
-                  ...current,
-                  character_card_id: event.currentTarget.value
-                }))
+                updateBaseDraft({ character_card_id: event.currentTarget.value })
               }
             >
               <option value="">{zh ? "所有角色" : "All characters"}</option>
@@ -367,16 +362,22 @@ export function KnowledgeBasePanel({ profile, catalog, cards, demoMode, zh }: Pr
           </label>
           <label className="knowledge-description-field">
             {zh ? "说明（可选）" : "Description (optional)"}
-            <input
+            <textarea
+              rows={5}
               maxLength={4000}
               value={baseDraft.description}
-              onChange={(event) =>
-                setBaseDraft((current) => ({
-                  ...current,
-                  description: event.currentTarget.value
-                }))
+              onChange={(event) => updateBaseDraft({ description: event.currentTarget.value })}
+              placeholder={
+                zh
+                  ? "简要说明这个 Knowledge Base 的用途。实际知识内容请在建立后用“+ 文档”加入。"
+                  : "Briefly describe this knowledge base. Add the actual knowledge with + Document after creation."
               }
             />
+            <small>
+              {zh
+                ? "这里是知识库说明，不是 RAG 正文；FAQ、角色背景、Lore 等请放进文档。"
+                : "This describes the knowledge base; put FAQ, character background, lore, and other RAG content in documents."}
+            </small>
           </label>
           <button className="ink-button" disabled={working}>
             {working ? (zh ? "建立中…" : "Creating…") : zh ? "建立" : "Create"}
@@ -460,6 +461,10 @@ export function KnowledgeBasePanel({ profile, catalog, cards, demoMode, zh }: Pr
                   </button>
                 )}
               </div>
+
+              {selectedBase.description && (
+                <p className="knowledge-base-description">{selectedBase.description}</p>
+              )}
 
               {documentOpen && !demoMode && (
                 <form className="knowledge-document-form" onSubmit={addDocument}>
