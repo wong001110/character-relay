@@ -89,6 +89,7 @@ export function DeploymentToolSelector({
         <div className="deployment-tool-grid">
           {catalog.map((tool) => {
             const unavailable = tool.available === false;
+            const isEnabled = enabled.has(tool.id);
             return (
               <label
                 className={`deployment-tool-option${unavailable ? " is-unavailable" : ""}`}
@@ -96,8 +97,8 @@ export function DeploymentToolSelector({
               >
                 <input
                   type="checkbox"
-                  checked={enabled.has(tool.id)}
-                  disabled={disabled || saving || unavailable}
+                  checked={isEnabled}
+                  disabled={disabled || saving || (unavailable && !isEnabled)}
                   onChange={() => void toggle(tool.id)}
                 />
                 <span>
