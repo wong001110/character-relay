@@ -35,7 +35,13 @@ import {
   splitDiscordMessage,
   type DeploymentIndex
 } from "./routing.js";
+import {
+  buildMentionableParticipants,
+  compileSmartMessage,
+  smartOutputResourceCandidate
+} from "./smartOutput.js";
 import type {
+  DiscordActionParticipant,
   DiscordCatalogServer,
   DiscordContextMessage,
   DiscordDeployment,
@@ -44,6 +50,7 @@ import type {
   DiscordExpressionDecision,
   DiscordExpressionRetrieval,
   DiscordInteractionClaim,
+  DiscordSmartOutput,
   DiscordStickerContent
 } from "./types.js";
 import { DiscordWebhookManager } from "./webhookManager.js";
@@ -594,10 +601,16 @@ async function sendSelectionHelp(
   });
 }
 
+interface CharacterDeliveryOptions {
+  replyToMessageId?: string | null;
+  allowedUserIds?: string[];
+}
+
 async function sendBotFallback(
   source: Message<true>,
   characterName: string,
-  replyText: string
+  replyText: string,
+  options: CharacterDeliveryOptions
 ): Promise<string[]> {
   const safeName = characterName.replaceAll(/([\\*_`~|>])/g, "\\$1");
   const [firstChunk, ...remainingChunks] = splitDiscordMessage(
@@ -605,15 +618,32 @@ async function sendBotFallback(
   );
   if (!firstChunk) return [];
   const messageIds: string[] = [];
-  const first = await source.reply({
-    content: firstChunk,
-    allowedMentions: { parse: [], repliedUser: false }
-  });
+  const allowedUserIds = options.allowedUserIds ?? [];
+  const allowedMentions = {
+    parse: [] as [],
+    users: allowedUserIds,
+    repliedUser: false
+  };
+  let first: Message<true>;
+  if (options.replyToMessageId) {
+    const target = await resolveSmartOutputTargetMessage(
+      source,
+      options.replyToMessageId
+    );
+    if (!target) {
+      throw new Error("Smart Output reply target is unavailable.");
+    }
+    first = await target.reply({ content: firstChunk, allowedMentions });
+  } else {
+    const sent = await source.channel.send({ content: firstChunk, allowedMentions });
+    if (!sent.inGuild()) throw new Error("Discord returned a non-guild message.");
+    first = sent;
+  }
   messageIds.push(first.id);
   for (const chunk of remainingChunks) {
     const sent = await source.channel.send({
       content: chunk,
-      allowedMentions: { parse: [] }
+      allowedMentions: { parse: [], users: allowedUserIds }
     });
     messageIds.push(sent.id);
   }
@@ -624,14 +654,17 @@ async function sendCharacterReply(
   source: Message<true>,
   deployment: DiscordDeployment,
   replyText: string,
-  botUserId: string
+  botUserId: string,
+  options?: CharacterDeliveryOptions
 ): Promise<string[]> {
+  const delivery = options ?? { replyToMessageId: source.id, allowedUserIds: [] };
   if (deployment.identity_mode === "webhook") {
     try {
       const ids = await webhookManager.send(
         deployment,
         splitDiscordMessage(replyText),
-        botUserId
+        botUserId,
+        delivery.allowedUserIds ?? []
       );
       if (deployment.webhook_id) observedWebhookIds.add(deployment.webhook_id);
       return ids;
@@ -645,7 +678,8 @@ async function sendCharacterReply(
   return sendBotFallback(
     source,
     deployment.identity_display_name || deployment.character_display_name,
-    replyText
+    replyText,
+    delivery
   );
 }
 
@@ -799,6 +833,20 @@ async function resolveExpressionSourceMessage(
       error: error instanceof Error ? error.message : String(error)
     });
     return fallback;
+  }
+}
+
+async function resolveSmartOutputTargetMessage(
+  source: Message<true>,
+  messageId: string
+): Promise<Message<true> | null> {
+  if (!messageId) return null;
+  if (messageId === source.id) return source;
+  try {
+    const fetched = await source.channel.messages.fetch(messageId);
+    return fetched.inGuild() ? fetched : null;
+  } catch {
+    return null;
   }
 }
 
@@ -1032,6 +1080,172 @@ async function executeCharacterOutput(
   };
 }
 
+interface SmartOutputExecutionResult extends ExpressionExecutionResult {
+  smartAction: DiscordSmartOutput["action"];
+  mentionedDeploymentIds: string[];
+}
+
+function skippedSmartOutput(
+  action: DiscordSmartOutput["action"],
+  fallback: string
+): SmartOutputExecutionResult {
+  return {
+    sentMessageIds: [],
+    outgoingText: "",
+    action: "none",
+    resourceKey: "",
+    applied: false,
+    fallback,
+    smartAction: action,
+    mentionedDeploymentIds: []
+  };
+}
+
+async function executeSmartOutput(
+  source: Message<true>,
+  deployment: DiscordDeployment,
+  output: DiscordSmartOutput,
+  prepared: PreparedExpression,
+  botUserId: string,
+  candidates: DiscordDeployment[],
+  mentionableParticipants: DiscordActionParticipant[]
+): Promise<SmartOutputExecutionResult> {
+  if (output.action === "ignore") {
+    return skippedSmartOutput("ignore", "ignore");
+  }
+
+  const expressionCandidates = prepared.retrieval?.candidates ?? [];
+  if (output.action === "message") {
+    const compiled = compileSmartMessage(
+      output,
+      candidates,
+      deployment,
+      expressionCandidates,
+      mentionableParticipants
+    );
+    if (!compiled.ok) {
+      return skippedSmartOutput("message", compiled.error);
+    }
+    for (const resourceKey of compiled.customEmojiResourceKeys) {
+      const candidate = expressionCandidate(expressionCandidates, resourceKey);
+      if (!candidate || !(await validateExpressionResource(source, candidate))) {
+        return skippedSmartOutput("message", "inline_emoji_unavailable");
+      }
+    }
+    if (output.reply_to_message_id) {
+      const target = await resolveSmartOutputTargetMessage(
+        source,
+        output.reply_to_message_id
+      );
+      if (!target) return skippedSmartOutput("message", "reply_target_unavailable");
+    }
+    const sentMessageIds = await sendCharacterReply(
+      source,
+      deployment,
+      compiled.content,
+      botUserId,
+      {
+        replyToMessageId: output.reply_to_message_id,
+        allowedUserIds: compiled.allowedUserIds
+      }
+    );
+    const resourceKey = compiled.customEmojiResourceKeys[0] ?? "";
+    return {
+      sentMessageIds,
+      outgoingText: compiled.content,
+      action: resourceKey ? "inline" : "none",
+      resourceKey,
+      applied: Boolean(resourceKey),
+      fallback:
+        deployment.identity_mode === "webhook" && output.reply_to_message_id
+          ? "webhook_reply_to_direct"
+          : "none",
+      smartAction: "message",
+      mentionedDeploymentIds: compiled.mentionedDeploymentIds
+    };
+  }
+
+  const candidate = smartOutputResourceCandidate(output, expressionCandidates);
+  if (!candidate || !(await validateExpressionResource(source, candidate))) {
+    return skippedSmartOutput(output.action, "resource_unavailable");
+  }
+
+  if (output.action === "react") {
+    const targetId = output.target_message_id;
+    if (!targetId) return skippedSmartOutput("react", "reaction_target_missing");
+    const target = await resolveSmartOutputTargetMessage(source, targetId);
+    if (!target) return skippedSmartOutput("react", "reaction_target_unavailable");
+    try {
+      await target.react(`${candidate.name}:${candidate.resource_id}`);
+    } catch {
+      return skippedSmartOutput("react", "reaction_failed");
+    }
+    return {
+      sentMessageIds: [],
+      outgoingText: "",
+      action: "reaction",
+      resourceKey: candidate.resource_key,
+      applied: true,
+      fallback: "none",
+      smartAction: "react",
+      mentionedDeploymentIds: []
+    };
+  }
+
+  const replyTarget = output.reply_to_message_id
+    ? await resolveSmartOutputTargetMessage(source, output.reply_to_message_id)
+    : null;
+  if (output.reply_to_message_id && !replyTarget) {
+    return skippedSmartOutput("sticker", "reply_target_unavailable");
+  }
+  let sentMessageIds: string[] = [];
+  let fallback = "none";
+  const normalizedFormat = candidate.format_type.toLowerCase();
+  const webhookRenderable = !["3", "lottie"].includes(normalizedFormat);
+  if (deployment.identity_mode === "webhook" && candidate.asset_url && webhookRenderable) {
+    try {
+      const extension = ["4", "gif"].includes(normalizedFormat) ? "gif" : "png";
+      sentMessageIds = await webhookManager.sendAsset(
+        deployment,
+        "",
+        candidate.asset_url,
+        `${candidate.name || "expression"}.${extension}`,
+        botUserId
+      );
+      fallback = output.reply_to_message_id
+        ? "webhook_reply_to_direct"
+        : "webhook_attachment";
+    } catch {
+      fallback = "webhook_attachment_to_native_sticker";
+    }
+  }
+  if (!sentMessageIds.length) {
+    try {
+      const options = {
+        stickers: [candidate.resource_id],
+        allowedMentions: { parse: [] as [], repliedUser: false }
+      };
+      const sent = replyTarget
+        ? await replyTarget.reply(options)
+        : await source.channel.send(options);
+      sentMessageIds = [sent.id];
+      if (fallback === "none") fallback = "native_bot_sticker";
+    } catch {
+      return skippedSmartOutput("sticker", "sticker_delivery_failed");
+    }
+  }
+  return {
+    sentMessageIds,
+    outgoingText: "",
+    action: "sticker",
+    resourceKey: candidate.resource_key,
+    applied: true,
+    fallback,
+    smartAction: "sticker",
+    mentionedDeploymentIds: []
+  };
+}
+
 interface BotConversationBudget {
   remainingResponses: number;
 }
@@ -1052,7 +1266,8 @@ async function continueBotTagConversation(
   key: string,
   botUserId: string,
   depth: number,
-  budget: BotConversationBudget
+  budget: BotConversationBudget,
+  participantsSeen: Set<string>
 ): Promise<void> {
   if (
     !config.botTagConversationsEnabled ||
@@ -1070,16 +1285,18 @@ async function continueBotTagConversation(
   );
   if (!audience.deployments.length) return;
 
-  const eligible = audience.deployments.filter((deployment) =>
-    shouldSubmitMessage(
-      deployment,
+  const eligible = audience.deployments.filter(
+    (deployment) =>
+      !participantsSeen.has(deployment.deployment_id) &&
+      shouldSubmitMessage(
+        deployment,
       {
         mentionedBot: true,
         repliedToBot: false,
         hasReadableText: Boolean(audience.text || sourceText)
-      },
-      config.smartParticipationEnabled
-    )
+        },
+        config.smartParticipationEnabled
+      )
   );
   if (!eligible.length) return;
 
@@ -1095,13 +1312,19 @@ async function continueBotTagConversation(
       sourceMessage,
       sourceDiscordMessageId
     );
+    const recentMessages = context.get(key);
+    const mentionableParticipants = buildMentionableParticipants(
+      candidates,
+      recentMessages,
+      deployment
+    );
     const preparedExpression = await prepareExpression(
       expressionSource,
       deployment,
       audience.text || sourceText,
       [],
       [],
-      context.get(key)
+      recentMessages
     );
     await sourceMessage.channel.sendTyping();
     const reply = await relay.processMessage({
@@ -1139,7 +1362,8 @@ async function continueBotTagConversation(
       available_characters: candidates
         .filter((item) => item.deployment_id !== deployment.deployment_id)
         .map(deploymentAddressAlias),
-      recent_messages: context.get(key)
+      mentionable_participants: mentionableParticipants,
+      recent_messages: recentMessages
     });
     if (preparedExpression.retrieval) {
       await reportExpressionNode(preparedExpression.retrieval.run_id, {
@@ -1158,26 +1382,38 @@ async function continueBotTagConversation(
         selected_resource_key: reply.expression.resource_key ?? ""
       });
     }
-    if (reply.action === "silent" || (!reply.text && reply.expression.action === "none")) {
+    if (
+      reply.action === "silent" ||
+      reply.smart_output?.action === "ignore" ||
+      (!reply.smart_output && !reply.text && reply.expression.action === "none")
+    ) {
       continue;
     }
-    const normalizedReply = reply.text
-      ? normalizeBotTagReply(
+    const execution = reply.smart_output
+      ? await executeSmartOutput(
+          expressionSource,
+          deployment,
+          reply.smart_output,
+          preparedExpression,
+          botUserId,
           candidates,
-          reply.text,
-          deployment.deployment_id,
-          config.groupAddressAliases
+          mentionableParticipants
         )
-      : { displayText: "" };
-    const visibleText = normalizedReply.displayText.trim();
-    const execution = await executeCharacterOutput(
-      expressionSource,
-      deployment,
-      visibleText,
-      reply.expression,
-      preparedExpression,
-      botUserId
-    );
+      : await executeCharacterOutput(
+          expressionSource,
+          deployment,
+          reply.text
+            ? normalizeBotTagReply(
+                candidates,
+                reply.text,
+                deployment.deployment_id,
+                config.groupAddressAliases
+              ).displayText.trim()
+            : "",
+          reply.expression,
+          preparedExpression,
+          botUserId
+        );
     const sentMessageIds = execution.sentMessageIds;
     const outgoingText = execution.outgoingText;
     if (!outgoingText && !sentMessageIds.length && !execution.applied) continue;
@@ -1223,7 +1459,8 @@ async function continueBotTagConversation(
       key,
       botUserId,
       depth + 1,
-      budget
+      budget,
+      new Set([...participantsSeen, turn.deployment.deployment_id])
     );
   }
 }
@@ -1268,13 +1505,19 @@ async function processInteractionSession(
       for (const [participantIndex, baseDeployment] of ordered.entries()) {
         if (!baseDeployment) continue;
         const deployment = resolveDeploymentLocation(baseDeployment, location);
+        const recentMessages = context.get(key);
+        const mentionableParticipants = buildMentionableParticipants(
+          candidates,
+          recentMessages,
+          deployment
+        ).filter((participant) => participant.kind === "human");
         const preparedExpression = await prepareExpression(
           sourceMessage,
           deployment,
           originalText,
           stickers,
           emojis,
-          context.get(key)
+          recentMessages
         );
         await sourceMessage.channel.sendTyping();
         const reply = await relay.processMessage({
@@ -1299,7 +1542,8 @@ async function processInteractionSession(
           emojis,
           stickers,
           available_characters: [],
-          recent_messages: context.get(key),
+          mentionable_participants: mentionableParticipants,
+          recent_messages: recentMessages,
           interaction_session_id: session.id,
           interaction_type: "roast",
           interaction_intensity: session.intensity,
@@ -1330,31 +1574,38 @@ async function processInteractionSession(
             selected_resource_key: reply.expression.resource_key ?? ""
           });
         }
-        if (reply.action === "silent" || (!reply.text && reply.expression.action === "none")) {
+        if (
+          reply.action === "silent" ||
+          reply.smart_output?.action === "ignore" ||
+          (!reply.smart_output && !reply.text && reply.expression.action === "none")
+        ) {
           continue;
         }
-        let visibleText = "";
-        if (reply.text) {
-          const normalizedReply = normalizeBotTagReply(
-            candidates,
-            reply.text,
-            deployment.deployment_id,
-            config.groupAddressAliases
-          );
-          visibleText = (
-            normalizedReply.audience.reason === "not_found"
-              ? normalizedReply.displayText
-              : normalizedReply.audience.text
-          ).trim();
-        }
-        const execution = await executeCharacterOutput(
-          sourceMessage,
-          deployment,
-          visibleText,
-          reply.expression,
-          preparedExpression,
-          botUserId
-        );
+        const execution = reply.smart_output
+          ? await executeSmartOutput(
+              sourceMessage,
+              deployment,
+              reply.smart_output,
+              preparedExpression,
+              botUserId,
+              candidates,
+              mentionableParticipants
+            )
+          : await executeCharacterOutput(
+              sourceMessage,
+              deployment,
+              reply.text
+                ? normalizeBotTagReply(
+                    candidates,
+                    reply.text,
+                    deployment.deployment_id,
+                    config.groupAddressAliases
+                  ).audience.text.trim() || reply.text.trim()
+                : "",
+              reply.expression,
+              preparedExpression,
+              botUserId
+            );
         const sentMessageIds = execution.sentMessageIds;
         const outgoingText = execution.outgoingText;
         if (!outgoingText && !sentMessageIds.length && !execution.applied) continue;
@@ -1708,13 +1959,19 @@ reportDiscordEvent({
           response_count: eligibleDeployments.length
         }
       });
+      const recentMessages = context.get(key);
+      const mentionableParticipants = buildMentionableParticipants(
+        candidates,
+        recentMessages,
+        deployment
+      );
       const preparedExpression = await prepareExpression(
         guildMessage,
         deployment,
         (addressedToMultiple ? originalText : audience.text) || originalText,
         stickers,
         emojis,
-        context.get(key)
+        recentMessages
       );
       await guildMessage.channel.sendTyping();
       const reply = await relay.processMessage({
@@ -1756,7 +2013,8 @@ reportDiscordEvent({
         available_characters: candidates
           .filter((item) => item.deployment_id !== deployment.deployment_id)
           .map(deploymentAddressAlias),
-        recent_messages: context.get(key)
+        mentionable_participants: mentionableParticipants,
+        recent_messages: recentMessages
       });
       if (preparedExpression.retrieval) {
         await reportExpressionNode(preparedExpression.retrieval.run_id, {
@@ -1775,7 +2033,11 @@ reportDiscordEvent({
           selected_resource_key: reply.expression.resource_key ?? ""
         });
       }
-      if (reply.action === "silent" || (!reply.text && reply.expression.action === "none")) {
+      if (
+        reply.action === "silent" ||
+        reply.smart_output?.action === "ignore" ||
+        (!reply.smart_output && !reply.text && reply.expression.action === "none")
+      ) {
         if (preparedExpression.retrieval) {
           await reportExpressionNode(preparedExpression.retrieval.run_id, {
             node_name: "execute_delivery",
@@ -1810,25 +2072,33 @@ reportDiscordEvent({
         });
         continue;
       }
-      const normalizedReply = reply.text
-        ? normalizeBotTagReply(
-            candidates,
-            reply.text,
-            deployment.deployment_id,
-            config.groupAddressAliases
-          )
-        : { displayText: "" };
-      const visibleText = normalizedReply.displayText.trim();
-      let execution: ExpressionExecutionResult;
+      let execution: ExpressionExecutionResult | SmartOutputExecutionResult;
       try {
-        execution = await executeCharacterOutput(
-          guildMessage,
-          deployment,
-          visibleText,
-          reply.expression,
-          preparedExpression,
-          botUser.id
-        );
+        execution = reply.smart_output
+          ? await executeSmartOutput(
+              guildMessage,
+              deployment,
+              reply.smart_output,
+              preparedExpression,
+              botUser.id,
+              candidates,
+              mentionableParticipants
+            )
+          : await executeCharacterOutput(
+              guildMessage,
+              deployment,
+              reply.text
+                ? normalizeBotTagReply(
+                    candidates,
+                    reply.text,
+                    deployment.deployment_id,
+                    config.groupAddressAliases
+                  ).displayText.trim()
+                : "",
+              reply.expression,
+              preparedExpression,
+              botUser.id
+            );
       } catch (error) {
         reportDiscordEvent({
           level: "error",
@@ -1939,7 +2209,8 @@ reportDiscordEvent({
         key,
         botUser.id,
         0,
-        botConversationBudget
+        botConversationBudget,
+        new Set([deployment.deployment_id])
       );
     }
   });
@@ -1992,6 +2263,7 @@ const healthServer = createServer((request, response) => {
       sticker_understanding_enabled: true,
       expression_retrieval_enabled: true,
       expression_retrieval_backend: "hybrid_sparse_v1",
+      smart_output_v1_enabled: true,
       expression_max_candidates: 6,
       expression_max_per_character_reply: 1,
       last_catalog_sync_at: lastCatalogSyncAt,

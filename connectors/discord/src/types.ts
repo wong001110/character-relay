@@ -119,6 +119,26 @@ export interface DiscordExpressionDecision {
   reason: string;
 }
 
+export interface DiscordActionParticipant {
+  ref: string;
+  display_name: string;
+  kind: "human" | "character";
+}
+
+export type DiscordSmartOutputPart =
+  | { text: string }
+  | { emoji: string }
+  | { mention: string };
+
+export interface DiscordSmartOutput {
+  action: "ignore" | "message" | "react" | "sticker";
+  content: DiscordSmartOutputPart[];
+  reply_to_message_id: string | null;
+  target_message_id: string | null;
+  emoji_resource_key: string | null;
+  sticker_resource_key: string | null;
+}
+
 export interface DiscordExpressionResolveRequest {
   guild_id: string;
   resource_type: "emoji" | "sticker";
@@ -229,6 +249,7 @@ export interface DiscordInboundMessage {
   author_is_bot: boolean;
   stickers: DiscordStickerContent[];
   available_characters: string[];
+  mentionable_participants: DiscordActionParticipant[];
   recent_messages: DiscordContextMessage[];
   interaction_session_id: string;
   interaction_type: string;
@@ -254,6 +275,7 @@ export interface DiscordReply {
   input_tokens?: number | null;
   output_tokens?: number | null;
   expression: DiscordExpressionDecision;
+  smart_output?: DiscordSmartOutput | null;
 }
 
 export type DiscordConnectorEventLevel = "info" | "warning" | "error";

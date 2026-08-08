@@ -64,7 +64,8 @@ export class DiscordWebhookManager {
     content: string,
     assetUrl: string,
     filename: string,
-    botUserId: string
+    botUserId: string,
+    allowedUserIds: string[] = []
   ): Promise<string[]> {
     try {
       let binding = await this.ensure(deployment, botUserId);
@@ -73,7 +74,8 @@ export class DiscordWebhookManager {
         deployment,
         content,
         assetUrl,
-        filename
+        filename,
+        allowedUserIds
       );
       if (response.status === 401 || response.status === 404) {
         deployment.webhook_id = null;
@@ -85,7 +87,8 @@ export class DiscordWebhookManager {
           deployment,
           content,
           assetUrl,
-          filename
+          filename,
+          allowedUserIds
         );
       }
       if (!response.ok) {
@@ -120,11 +123,12 @@ export class DiscordWebhookManager {
   async send(
     deployment: DiscordDeployment,
     chunks: string[],
-    botUserId: string
+    botUserId: string,
+    allowedUserIds: string[] = []
   ): Promise<string[]> {
     if (!chunks.length) return [];
     try {
-      return await this.sendWithBinding(deployment, chunks, botUserId);
+      return await this.sendWithBinding(deployment, chunks, botUserId, allowedUserIds);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       deployment.webhook_status = "error";
@@ -142,7 +146,8 @@ export class DiscordWebhookManager {
   private async sendWithBinding(
     deployment: DiscordDeployment,
     chunks: string[],
-    botUserId: string
+    botUserId: string,
+    allowedUserIds: string[]
   ): Promise<string[]> {
     let binding = await this.ensure(deployment, botUserId);
     const messageIds: string[] = [];
@@ -150,13 +155,13 @@ export class DiscordWebhookManager {
     for (let index = 0; index < chunks.length; index += 1) {
       const chunk = chunks[index];
       if (!chunk) continue;
-      let response = await this.executeWebhook(binding, deployment, chunk);
+      let response = await this.executeWebhook(binding, deployment, chunk, allowedUserIds);
       if ((response.status === 401 || response.status === 404) && index === 0) {
         deployment.webhook_id = null;
         deployment.webhook_token = null;
         deployment.webhook_status = "pending";
         binding = await this.ensure(deployment, botUserId);
-        response = await this.executeWebhook(binding, deployment, chunk);
+        response = await this.executeWebhook(binding, deployment, chunk, allowedUserIds);
       }
       if (!response.ok) {
         throw new Error(
@@ -183,7 +188,8 @@ export class DiscordWebhookManager {
     deployment: DiscordDeployment,
     content: string,
     assetUrl: string,
-    filename: string
+    filename: string,
+    allowedUserIds: string[]
   ): Promise<Response> {
     const asset = await fetch(assetUrl, {
       signal: AbortSignal.timeout(30_000)
@@ -204,7 +210,9 @@ export class DiscordWebhookManager {
         ...(deployment.identity_avatar_url
           ? { avatar_url: deployment.identity_avatar_url }
           : {}),
-        allowed_mentions: { parse: [] },
+        allowed_mentions: allowedUserIds.length
+          ? { parse: [], users: allowedUserIds }
+          : { parse: [] },
         attachments: [{ id: 0, filename }]
       })
     );
@@ -225,7 +233,8 @@ export class DiscordWebhookManager {
   private executeWebhook(
     binding: { id: string; token: string },
     deployment: DiscordDeployment,
-    content: string
+    content: string,
+    allowedUserIds: string[]
   ): Promise<Response> {
     const url = new URL(`${DISCORD_API}/webhooks/${binding.id}/${binding.token}`);
     url.searchParams.set("wait", "true");
@@ -242,7 +251,9 @@ export class DiscordWebhookManager {
         ...(deployment.identity_avatar_url
           ? { avatar_url: deployment.identity_avatar_url }
           : {}),
-        allowed_mentions: { parse: [] }
+        allowed_mentions: allowedUserIds.length
+          ? { parse: [], users: allowedUserIds }
+          : { parse: [] }
       })
     });
   }
