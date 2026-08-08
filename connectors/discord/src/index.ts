@@ -790,7 +790,6 @@ function resolveDeploymentLocation(
   };
 }
 
-
 interface PreparedExpression {
   retrieval: DiscordExpressionRetrieval | null;
   query: string;
@@ -1524,7 +1523,6 @@ async function continueBotTagConversation(
   }
 }
 
-
 async function processInteractionSession(
   sourceMessage: Message<true>,
   claim: DiscordInteractionClaim,
@@ -1750,33 +1748,33 @@ async function processMessage(message: Message): Promise<void> {
     location.categoryId
   );
   log("Discord Gateway message received.", {
-  level: "info",
-  connectionId: config.relayConnectionId,
-  guildId: guildMessage.guildId,
-  guildName: guildMessage.guild.name,
-  channelId: location.channelId,
-  channelName: location.channelName,
-  threadId: location.threadId || null,
-  sourceMessageId: guildMessage.id,
-  authorId: guildMessage.author.id,
-  mentionedBot,
-  mentionSource: mentionDetection.source,
-  structuredUserMention: mentionDetection.structuredUserMention,
-  rawUserMention: mentionDetection.rawUserMention,
-  managedBotRoleMention: mentionDetection.managedBotRoleMention,
-  mentionedUserIds: mentionDetection.mentionedUserIds,
-  mentionedRoleIds: mentionDetection.mentionedRoleIds,
-  managedBotRoleIds: mentionDetection.managedBotRoleIds,
-  candidateCount: candidates.length,
-  hasReadableText: Boolean(originalText || parseCustomEmojiTokens(guildMessage.content).length),
-  customEmojiCount: parseCustomEmojiTokens(guildMessage.content).length,
-  stickerCount: guildMessage.stickers.size,
-  railwayReplicaRegion: process.env.RAILWAY_REPLICA_REGION ?? null,
-  railwayReplicaId: process.env.RAILWAY_REPLICA_ID ?? null
-});
-reportDiscordEvent({
-  level: "info",
-  eventType: "message_received",
+    level: "info",
+    connectionId: config.relayConnectionId,
+    guildId: guildMessage.guildId,
+    guildName: guildMessage.guild.name,
+    channelId: location.channelId,
+    channelName: location.channelName,
+    threadId: location.threadId || null,
+    sourceMessageId: guildMessage.id,
+    authorId: guildMessage.author.id,
+    mentionedBot,
+    mentionSource: mentionDetection.source,
+    structuredUserMention: mentionDetection.structuredUserMention,
+    rawUserMention: mentionDetection.rawUserMention,
+    managedBotRoleMention: mentionDetection.managedBotRoleMention,
+    mentionedUserIds: mentionDetection.mentionedUserIds,
+    mentionedRoleIds: mentionDetection.mentionedRoleIds,
+    managedBotRoleIds: mentionDetection.managedBotRoleIds,
+    candidateCount: candidates.length,
+    hasReadableText: Boolean(originalText || parseCustomEmojiTokens(guildMessage.content).length),
+    customEmojiCount: parseCustomEmojiTokens(guildMessage.content).length,
+    stickerCount: guildMessage.stickers.size,
+    railwayReplicaRegion: process.env.RAILWAY_REPLICA_REGION ?? null,
+    railwayReplicaId: process.env.RAILWAY_REPLICA_ID ?? null
+  });
+  reportDiscordEvent({
+    level: "info",
+    eventType: "message_received",
     message: "A Discord message reached the Gateway message handler.",
     guildId: guildMessage.guildId,
     guildName: guildMessage.guild.name,
@@ -1915,11 +1913,82 @@ reportDiscordEvent({
         details: { candidate_count: candidates.length }
       });
     }
+
+    const semanticScores: Record<string, number> = {};
+    if (
+      config.smartParticipationEnabled &&
+      !replyTarget.deploymentId &&
+      originalText.trim()
+    ) {
+      const smartDeploymentIds = candidates
+        .filter((item) => item.participation_mode === "smart")
+        .map((item) => item.deployment_id);
+      if (smartDeploymentIds.length) {
+        try {
+          const semantic = await relay.scoreSmartParticipation({
+            message: originalText,
+            deployment_ids: smartDeploymentIds
+          });
+          if (semantic.available) {
+            for (const candidate of semantic.candidates) {
+              if (candidate.profile_ready && Number.isFinite(candidate.semantic_relevance)) {
+                semanticScores[candidate.deployment_id] = candidate.semantic_relevance;
+              }
+            }
+          }
+          reportDiscordEvent({
+            level: semantic.available ? "info" : "warning",
+            eventType: "smart_participation_semantic_scored",
+            message: semantic.available
+              ? "Semantic Character Card relevance was scored for Smart Participation."
+              : "Semantic Smart Participation was unavailable; deterministic routing continued.",
+            guildId: guildMessage.guildId,
+            guildName: guildMessage.guild.name,
+            channelId: location.channelId,
+            channelName: location.channelName,
+            threadId: location.threadId,
+            threadName: location.threadName,
+            sourceMessageId: guildMessage.id,
+            details: {
+              available: semantic.available,
+              reason: semantic.reason,
+              model: semantic.model || null,
+              dimension: semantic.dimension || null,
+              candidate_count: semantic.candidates.length,
+              scores: semantic.candidates.map((candidate) => ({
+                deployment_id: candidate.deployment_id,
+                semantic_relevance: candidate.semantic_relevance,
+                profile_ready: candidate.profile_ready
+              }))
+            }
+          });
+        } catch (error) {
+          reportDiscordEvent({
+            level: "warning",
+            eventType: "smart_participation_semantic_failed",
+            message: "Semantic Smart Participation failed; deterministic routing continued.",
+            guildId: guildMessage.guildId,
+            guildName: guildMessage.guild.name,
+            channelId: location.channelId,
+            channelName: location.channelName,
+            threadId: location.threadId,
+            threadName: location.threadName,
+            sourceMessageId: guildMessage.id,
+            details: {
+              error: error instanceof Error ? error.message : String(error),
+              candidate_count: smartDeploymentIds.length
+            }
+          });
+        }
+      }
+    }
+
     const audience = resolveAudience(
       candidates,
       originalText,
       replyTarget.deploymentId,
-      config.groupAddressAliases
+      config.groupAddressAliases,
+      semanticScores
     );
     if (!audience.deployments.length) {
       if (mentionedBot || replyTarget.characterMessage) {
@@ -2015,7 +2084,8 @@ reportDiscordEvent({
         details: {
           audience_reason: audience.reason,
           response_index: responseIndex + 1,
-          response_count: eligibleDeployments.length
+          response_count: eligibleDeployments.length,
+          semantic_relevance: semanticScores[deployment.deployment_id] ?? null
         }
       });
       const recentMessages = context.get(key);
@@ -2319,6 +2389,8 @@ const healthServer = createServer((request, response) => {
       ).length,
       message_content_intent: config.messageContentIntent,
       smart_participation_enabled: config.smartParticipationEnabled,
+      smart_participation_max_participants: config.smartParticipationMaxParticipants,
+      smart_participation_semantic_enabled: true,
       bot_tag_conversations_enabled: config.botTagConversationsEnabled,
       bot_tag_max_depth: config.botTagMaxDepth,
       bot_tag_max_responses: config.botTagMaxResponses,
