@@ -1,6 +1,8 @@
 """FastAPI application factory."""
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -43,6 +45,7 @@ from echo_masque.auth import AuthService
 from echo_masque.authoring_archive import AuthoringArchiveService
 from echo_masque.authoring_generation import AuthoringGenerationService
 from echo_masque.authoring_runtime import AuthoringRuntimeService
+from echo_masque.browser_runtime import BrowserCapabilityManager, BrowserRuntimeSettings
 from echo_masque.config import Settings, get_settings
 from echo_masque.connector_runtime import DiscordConnectorRuntime
 from echo_masque.context_layer import ContextOrchestrator
@@ -66,6 +69,7 @@ from echo_masque.persistence import (
     MatrixRepository,
     ProviderTraceRepository,
     Repository,
+    ScheduledReminderRepository,
     SmartParticipationRepository,
     TargetAccessRepository,
     WorkspaceRepository,
@@ -76,6 +80,7 @@ from echo_masque.providers.trace import configure_provider_trace_sink
 from echo_masque.public_demo import PublicDemoService
 from echo_masque.public_demo_middleware import PublicDemoReadOnlyMiddleware
 from echo_masque.public_demo_quota import PublicDemoQuotaService
+from echo_masque.scheduled_reminder_service import ScheduledReminderDeliveryService
 from echo_masque.semantic_participation import CharacterParticipationSemanticService
 from echo_masque.services import MatrixService, RuntimeService, TrialService
 from echo_masque.smart_participation_generation import SmartParticipationGenerationService
@@ -108,11 +113,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     repository = Repository(database)
     deployment_repository = DeploymentRepository(database)
     deployment_tool_repository = DeploymentToolRepository(database)
+    discord_identity_repository = DiscordIdentityRepository(database)
+    scheduled_reminder_repository = ScheduledReminderRepository(database)
+    browser_runtime = BrowserCapabilityManager(
+        BrowserRuntimeSettings(
+            enabled=resolved.browser_tools_enabled,
+            page_idle_seconds=resolved.browser_page_idle_seconds,
+            context_idle_seconds=resolved.browser_context_idle_seconds,
+            browser_idle_seconds=resolved.browser_idle_seconds,
+            browser_max_lifetime_seconds=resolved.browser_max_lifetime_seconds,
+            browser_max_operations=resolved.browser_max_operations,
+            max_concurrent_contexts=resolved.browser_max_concurrent_contexts,
+            navigation_timeout_ms=resolved.browser_navigation_timeout_ms,
+        )
+    )
     tool_registry = ToolRegistry(
-        brave_search_api_key=resolved.brave_search_api_key,
+        browser_runtime=browser_runtime,
+        reminder_repository=scheduled_reminder_repository,
         discord_bot_token=resolved.discord_tool_bot_token,
     )
-    discord_identity_repository = DiscordIdentityRepository(database)
     interaction_repository = InteractionRepository(database)
     expression_repository = ExpressionRepository(database)
     smart_participation_repository = SmartParticipationRepository(database)
@@ -157,6 +176,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     target_access_repository = TargetAccessRepository(database)
     credential_store = CredentialVault(auth_repository, resolved)
+    scheduled_reminder_delivery = ScheduledReminderDeliveryService(
+        scheduled_reminder_repository,
+        deployment_repository,
+        discord_identity_repository,
+        credential_store,
+        discord_bot_token=resolved.discord_tool_bot_token,
+        poll_seconds=resolved.scheduler_poll_seconds,
+        retry_seconds=resolved.scheduler_retry_seconds,
+        max_attempts=resolved.scheduler_max_attempts,
+    )
     discord_connector_runtime = DiscordConnectorRuntime(
         repository,
         deployment_repository,
@@ -196,6 +225,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         smart_participation_repository,
         knowledge_repository,
         deployment_tool_repository,
+        scheduled_reminder_repository,
     )
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
@@ -243,6 +273,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         trial_service,
     )
 
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        await browser_runtime.start()
+        await scheduled_reminder_delivery.start()
+        try:
+            yield
+        finally:
+            await scheduled_reminder_delivery.stop()
+            await browser_runtime.stop()
+
     app = FastAPI(
         title=resolved.app_name,
         version=resolved.app_version,
@@ -250,6 +290,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description=(
             "Create, test, publish, and deploy persistent AI characters across chat platforms."
         ),
+        lifespan=lifespan,
     )
     app.add_middleware(
         CORSMiddleware,
@@ -269,6 +310,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.deployment_repository = deployment_repository
     app.state.deployment_tool_repository = deployment_tool_repository
     app.state.tool_registry = tool_registry
+    app.state.browser_runtime = browser_runtime
+    app.state.scheduled_reminder_repository = scheduled_reminder_repository
+    app.state.scheduled_reminder_delivery = scheduled_reminder_delivery
     app.state.discord_identity_repository = discord_identity_repository
     app.state.interaction_repository = interaction_repository
     app.state.expression_repository = expression_repository

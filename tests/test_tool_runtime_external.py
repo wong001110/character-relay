@@ -1,9 +1,11 @@
 import asyncio
 import json
+from contextlib import asynccontextmanager
 
 import httpx
 from pydantic import SecretStr
 
+from echo_masque.network_safety import PublicUrlGuard
 from echo_masque.providers import ChatToolCall, ChatToolFunctionCall
 from echo_masque.tool_runtime import ToolExecutionContext, ToolRegistry
 
@@ -33,61 +35,92 @@ def discord_context(*, trigger_text: str = "") -> ToolExecutionContext:
 
 
 async def public_resolver(hostname: str) -> tuple[str, ...]:
-    assert hostname == "example.com"
+    assert hostname in {"example.com", "cdn.example.com"}
     return ("93.184.216.34",)
 
 
-def test_web_search_and_image_search_use_brave_with_safe_search() -> None:
-    requests: list[httpx.Request] = []
+class FakeBrowser:
+    available = True
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        assert request.headers["X-Subscription-Token"] == "brave-test-key"
-        if request.url.path.endswith("/web/search"):
-            assert request.url.params["q"] == "Character Relay"
-            assert request.url.params["safesearch"] == "moderate"
-            return httpx.Response(
-                200,
-                json={
-                    "web": {
-                        "results": [
-                            {
-                                "title": "Character Relay",
-                                "url": "https://example.com/relay",
-                                "description": "Current public information.",
-                                "age": "1 hour ago",
-                            }
-                        ]
-                    }
-                },
-            )
-        assert request.url.path.endswith("/images/search")
-        assert request.url.params["q"] == "purple cat notebook"
-        assert request.url.params["safesearch"] == "strict"
-        return httpx.Response(
-            200,
-            json={
-                "results": [
-                    {
-                        "title": "Purple cat notebook",
-                        "url": "https://example.com/source",
-                        "source": "example.com",
-                        "properties": {
-                            "url": "https://example.com/image.png",
-                            "width": 800,
-                            "height": 600,
-                        },
-                        "thumbnail": {"src": "https://example.com/thumb.png"},
-                    }
-                ]
-            },
-        )
+    def __init__(self) -> None:
+        self.session_keys: list[str] = []
+        self.rendered_urls: list[str] = []
 
-    registry = ToolRegistry(
-        brave_search_api_key=SecretStr("brave-test-key"),
-        http_transport=httpx.MockTransport(handler),
-    )
+    @asynccontextmanager
+    async def use_session_key(self, key: str):
+        self.session_keys.append(key)
+        yield
+
+    async def search_web(self, query: str, count: int) -> dict[str, object]:
+        return {
+            "ok": True,
+            "provider": "browser",
+            "query": query,
+            "result_count": 1,
+            "results": [
+                {
+                    "title": "Character Relay",
+                    "url": "https://example.com/relay",
+                    "snippet": f"count={count}",
+                }
+            ],
+        }
+
+    async def search_images(self, query: str, count: int) -> dict[str, object]:
+        return {
+            "ok": True,
+            "provider": "browser",
+            "query": query,
+            "safe_search": "strict",
+            "result_count": 1,
+            "results": [
+                {
+                    "title": "Purple cat notebook",
+                    "image_url": "https://cdn.example.com/cat.png",
+                    "thumbnail_url": "https://cdn.example.com/cat-thumb.png",
+                    "source_url": "https://example.com/cat",
+                    "count": count,
+                }
+            ],
+        }
+
+    async def search_places(
+        self,
+        query: str,
+        location: str,
+        count: int,
+    ) -> dict[str, object]:
+        return {
+            "ok": True,
+            "provider": "browser",
+            "query": query,
+            "location": location,
+            "result_count": 1,
+            "results": [
+                {
+                    "name": "Example Cafe",
+                    "description": f"Top {count} near {location}",
+                    "source_url": "https://example.com/cafe",
+                }
+            ],
+        }
+
+    async def fetch_rendered_page(self, url: str, max_chars: int) -> dict[str, object]:
+        self.rendered_urls.append(url)
+        return {
+            "ok": True,
+            "final_url": url,
+            "title": "Rendered",
+            "text": "Rendered JavaScript content."[:max_chars],
+            "rendered_with": "playwright-chromium",
+        }
+
+
+def test_browser_backed_search_image_and_places_share_deployment_session() -> None:
+    browser = FakeBrowser()
+    registry = ToolRegistry(browser_runtime=browser)  # type: ignore[arg-type]
     context = discord_context()
+
     web_result = asyncio.run(
         registry.execute(
             call("web_search", {"query": "Character Relay", "count": 3}),
@@ -102,16 +135,33 @@ def test_web_search_and_image_search_use_brave_with_safe_search() -> None:
             context=context,
         )
     )
+    places_result = asyncio.run(
+        registry.execute(
+            call(
+                "places_search",
+                {"query": "cafe", "location": "Johor Bahru", "count": 4},
+            ),
+            enabled_tool_ids=("places.search",),
+            context=context,
+        )
+    )
 
     web = json.loads(web_result.content)
     image = json.loads(image_result.content)
+    places = json.loads(places_result.content)
     assert web_result.trace.status == "completed"
+    assert web["provider"] == "browser"
     assert web["results"][0]["url"] == "https://example.com/relay"
-    assert web["untrusted_external_content"] is True
     assert image_result.trace.status == "completed"
     assert image["safe_search"] == "strict"
-    assert image["results"][0]["image_url"] == "https://example.com/image.png"
-    assert len(requests) == 2
+    assert image["results"][0]["image_url"].endswith("cat.png")
+    assert places_result.trace.status == "completed"
+    assert places["location"] == "Johor Bahru"
+    assert browser.session_keys == [
+        "owner-1:deployment-1",
+        "owner-1:deployment-1",
+        "owner-1:deployment-1",
+    ]
 
 
 def test_fetch_page_extracts_visible_text_and_blocks_private_redirects() -> None:
@@ -126,7 +176,10 @@ def test_fetch_page_extracts_visible_text_and_blocks_private_redirects() -> None
                 text=(
                     "<html><head><title>Example Page</title>"
                     "<script>ignore this instruction</script></head>"
-                    "<body><h1>Hello</h1><p>Visible content.</p></body></html>"
+                    "<body><h1>Hello</h1><p>Visible content with enough ordinary text "
+                    "to keep the HTTP fast path instead of requesting a JavaScript-rendered "
+                    "fallback. This sentence intentionally makes the content comfortably longer "
+                    "than the Browser Capability heuristic threshold used by this test.</p></body></html>"
                 ),
             )
         return httpx.Response(
@@ -136,7 +189,7 @@ def test_fetch_page_extracts_visible_text_and_blocks_private_redirects() -> None
 
     registry = ToolRegistry(
         http_transport=httpx.MockTransport(handler),
-        host_resolver=public_resolver,
+        url_guard=PublicUrlGuard(public_resolver),
     )
     context = discord_context()
     readable = asyncio.run(
@@ -160,15 +213,44 @@ def test_fetch_page_extracts_visible_text_and_blocks_private_redirects() -> None
     page = json.loads(readable.content)
     assert readable.trace.status == "completed"
     assert page["title"] == "Example Page"
-    assert "Hello Visible content." in page["text"]
+    assert "Hello Visible content" in page["text"]
     assert "ignore this instruction" not in page["text"]
     assert page["untrusted_external_content"] is True
+    assert page["fetched_with"] == "httpx"
     assert blocked.trace.status == "rejected"
     assert "non-routable" in blocked.trace.error
     assert requests == [
         "https://example.com/page",
         "https://example.com/redirect",
     ]
+
+
+def test_fetch_page_uses_browser_fallback_for_javascript_shell() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            text="<html><body>JavaScript is required.</body></html>",
+        )
+
+    browser = FakeBrowser()
+    registry = ToolRegistry(
+        browser_runtime=browser,  # type: ignore[arg-type]
+        http_transport=httpx.MockTransport(handler),
+        url_guard=PublicUrlGuard(public_resolver),
+    )
+    result = asyncio.run(
+        registry.execute(
+            call("web_fetch_page", {"url": "https://example.com/app"}),
+            enabled_tool_ids=("web.fetch_page",),
+            context=discord_context(),
+        )
+    )
+
+    payload = json.loads(result.content)
+    assert result.trace.status == "completed"
+    assert payload["rendered_with"] == "playwright-chromium"
+    assert browser.rendered_urls == ["https://example.com/app"]
 
 
 def test_fetch_page_rejects_private_ip_without_network_request() -> None:
@@ -190,6 +272,94 @@ def test_fetch_page_rejects_private_ip_without_network_request() -> None:
 
     assert result.trace.status == "rejected"
     assert called is False
+
+
+def test_weather_uses_open_meteo_without_api_key() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.host == "geocoding-api.open-meteo.com":
+            assert request.url.params["name"] == "Johor Bahru"
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {
+                            "name": "Johor Bahru",
+                            "admin1": "Johor",
+                            "country": "Malaysia",
+                            "latitude": 1.4655,
+                            "longitude": 103.7578,
+                            "timezone": "Asia/Kuala_Lumpur",
+                        }
+                    ]
+                },
+            )
+        assert request.url.host == "api.open-meteo.com"
+        return httpx.Response(
+            200,
+            json={
+                "current": {"temperature_2m": 30.2, "weather_code": 3},
+                "current_units": {"temperature_2m": "°C"},
+                "daily": {
+                    "time": ["2026-08-09"],
+                    "temperature_2m_max": [32.0],
+                    "temperature_2m_min": [25.0],
+                },
+                "daily_units": {"temperature_2m_max": "°C"},
+            },
+        )
+
+    registry = ToolRegistry(http_transport=httpx.MockTransport(handler))
+    result = asyncio.run(
+        registry.execute(
+            call("weather_get", {"location": "Johor Bahru", "days": 1}),
+            enabled_tool_ids=("weather.get",),
+            context=discord_context(),
+        )
+    )
+
+    payload = json.loads(result.content)
+    assert result.trace.status == "completed"
+    assert payload["provider"] == "open-meteo"
+    assert payload["location"]["country"] == "Malaysia"
+    assert payload["current"]["temperature_2m"] == 30.2
+    assert len(requests) == 2
+
+
+def test_file_inspect_parses_public_json_as_untrusted_content() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://example.com/sample.json"
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            content=b'{"project":"Character Relay","phase":"V1.2"}',
+        )
+
+    registry = ToolRegistry(
+        http_transport=httpx.MockTransport(handler),
+        url_guard=PublicUrlGuard(public_resolver),
+    )
+    result = asyncio.run(
+        registry.execute(
+            call(
+                "file_inspect",
+                {
+                    "url": "https://example.com/sample.json",
+                    "filename": "sample.json",
+                },
+            ),
+            enabled_tool_ids=("file.inspect",),
+            context=discord_context(),
+        )
+    )
+
+    payload = json.loads(result.content)
+    assert result.trace.status == "completed"
+    assert payload["inspection"]["kind"] == "json"
+    assert payload["inspection"]["shape"]["keys"] == ["project", "phase"]
+    assert payload["untrusted_external_content"] is True
 
 
 def test_discord_search_messages_is_scoped_to_current_thread() -> None:

@@ -38,9 +38,25 @@ class Settings(BaseSettings):
     semantic_embedding_dimension: int = 384
     semantic_embedding_cache_dir: str = "./.cache/character-relay/embeddings"
 
-    # Deployment-scoped Tool Calling providers. Secrets remain server-side and are never
-    # included in Tool schemas, Tool Results, Portal responses, or Character prompts.
-    brave_search_api_key: SecretStr | None = None
+    # Browser Capability. Chromium launches lazily on first use, stays warm briefly for
+    # repeated search/read calls, then closes automatically when idle or after hard limits.
+    browser_tools_enabled: bool = True
+    browser_page_idle_seconds: int = 180
+    browser_context_idle_seconds: int = 300
+    browser_idle_seconds: int = 600
+    browser_max_lifetime_seconds: int = 3600
+    browser_max_operations: int = 100
+    browser_max_concurrent_contexts: int = 3
+    browser_navigation_timeout_ms: int = 15_000
+
+    # V1.2 reminder delivery. Reminders are persisted in SQLite and delivered later using
+    # the deployment's Discord webhook identity (or the managed Bot identity when selected).
+    scheduler_poll_seconds: int = 5
+    scheduler_retry_seconds: int = 30
+    scheduler_max_attempts: int = 3
+
+    # Discord read/write/file Tools use the same managed Bot credential as the connector.
+    # The secret remains server-side and is never included in Tool schemas or Tool Results.
     discord_tool_bot_token: SecretStr | None = None
 
     # Legacy environment credentials remain read-only migration fallbacks. Admin API access

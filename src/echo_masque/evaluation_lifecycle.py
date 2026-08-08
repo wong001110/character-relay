@@ -16,6 +16,7 @@ from echo_masque.persistence import (
     ExpressionRepository,
     InteractionRepository,
     KnowledgeRepository,
+    ScheduledReminderRepository,
     SmartParticipationRepository,
 )
 
@@ -35,6 +36,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         smart_participation_repository: SmartParticipationRepository | None = None,
         knowledge_repository: KnowledgeRepository | None = None,
         deployment_tool_repository: DeploymentToolRepository | None = None,
+        scheduled_reminder_repository: ScheduledReminderRepository | None = None,
     ) -> None:
         super().__init__(
             database,
@@ -46,6 +48,9 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         self.deployment_repository = deployment_repository or DeploymentRepository(database)
         self.deployment_tool_repository = (
             deployment_tool_repository or DeploymentToolRepository(database)
+        )
+        self.scheduled_reminder_repository = (
+            scheduled_reminder_repository or ScheduledReminderRepository(database)
         )
         self.discord_identity_repository = discord_identity_repository or DiscordIdentityRepository(
             database
@@ -64,6 +69,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         smart_counts = self.smart_participation_repository.delete_owner(user_id)
         knowledge_counts = self.knowledge_repository.delete_owner(user_id)
         identity_counts = self.discord_identity_repository.delete_owner(user_id)
+        reminder_count = self.scheduled_reminder_repository.delete_owner(user_id)
         deployment_tool_count = self.deployment_tool_repository.delete_owner(user_id)
         deployment_counts = self.deployment_repository.delete_owner(user_id)
         deleted = super().delete_account(user_id, email=email)
@@ -75,6 +81,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             **smart_counts,
             **knowledge_counts,
             **identity_counts,
+            "scheduled_reminders": reminder_count,
             "deployment_tool_profiles": deployment_tool_count,
             **deployment_counts,
         }
@@ -96,6 +103,10 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             actor_user_id,
         )
         deployment_tool_count = self.deployment_tool_repository.claim_owner(
+            "local-user",
+            actor_user_id,
+        )
+        reminder_count = self.scheduled_reminder_repository.claim_owner(
             "local-user",
             actor_user_id,
         )
@@ -124,6 +135,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             **evaluation_counts,
             **deployment_counts,
             "deployment_tool_profiles": deployment_tool_count,
+            "scheduled_reminders": reminder_count,
             **identity_counts,
             **interaction_counts,
             **expression_counts,

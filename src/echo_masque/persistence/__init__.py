@@ -75,6 +75,8 @@ from echo_masque.persistence.portable_calibration_repository import (
 from echo_masque.persistence.provider_trace_models import ProviderTraceRecord
 from echo_masque.persistence.provider_trace_repository import ProviderTraceRepository
 from echo_masque.persistence.repository import Repository
+from echo_masque.persistence.scheduled_reminder_models import ScheduledReminderRecord
+from echo_masque.persistence.scheduled_reminder_repository import ScheduledReminderRepository
 from echo_masque.persistence.smart_participation_models import (
     CharacterSemanticProfileRecord,
     SmartParticipationFeedbackRecord,
@@ -150,6 +152,8 @@ __all__ = [
     "ProviderTraceRecord",
     "ProviderTraceRepository",
     "Repository",
+    "ScheduledReminderRecord",
+    "ScheduledReminderRepository",
     "SmartParticipationFeedbackRecord",
     "SmartParticipationProfileRecord",
     "SmartParticipationRepository",

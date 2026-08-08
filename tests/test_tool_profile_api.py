@@ -107,12 +107,32 @@ def test_tool_catalog_and_manual_deployment_assignment(tmp_path: Path) -> None:
         "web.fetch_page",
         "discord.search_messages",
         "discord.create_poll",
+        "weather.get",
+        "random.roll",
+        "random.choose",
         "image.search",
+        "scheduler.remind",
+        "scheduler.list",
+        "scheduler.cancel",
+        "places.search",
+        "file.inspect",
     }
-    assert items["utility.calculator"]["available"] is True
-    assert items["web.fetch_page"]["available"] is True
-    assert items["web.search"]["available"] is False
-    assert items["image.search"]["available"] is False
+    for tool_id in (
+        "utility.calculator",
+        "utility.current_time",
+        "web.search",
+        "web.fetch_page",
+        "weather.get",
+        "random.roll",
+        "random.choose",
+        "image.search",
+        "scheduler.remind",
+        "scheduler.list",
+        "scheduler.cancel",
+        "places.search",
+        "file.inspect",
+    ):
+        assert items[tool_id]["available"] is True
     assert items["discord.search_messages"]["available"] is False
     assert items["discord.create_poll"]["available"] is False
 
@@ -120,15 +140,21 @@ def test_tool_catalog_and_manual_deployment_assignment(tmp_path: Path) -> None:
     assert initial.status_code == 200, initial.text
     assert initial.json()["enabled_tools"] == []
 
+    enabled = [
+        "utility.calculator",
+        "web.search",
+        "weather.get",
+        "random.choose",
+        "scheduler.remind",
+        "places.search",
+        "file.inspect",
+    ]
     saved = client.put(
         f"/api/deployments/{deployment_id}/tools",
-        json={"enabled_tools": ["utility.calculator", "utility.current_time"]},
+        json={"enabled_tools": enabled},
     )
     assert saved.status_code == 200, saved.text
-    assert saved.json()["enabled_tools"] == [
-        "utility.calculator",
-        "utility.current_time",
-    ]
+    assert saved.json()["enabled_tools"] == enabled
 
     reread = client.get(f"/api/deployments/{deployment_id}/tools")
     assert reread.status_code == 200, reread.text
@@ -136,10 +162,10 @@ def test_tool_catalog_and_manual_deployment_assignment(tmp_path: Path) -> None:
 
     unavailable = client.put(
         f"/api/deployments/{deployment_id}/tools",
-        json={"enabled_tools": ["web.search"]},
+        json={"enabled_tools": ["discord.search_messages"]},
     )
     assert unavailable.status_code == 422, unavailable.text
-    assert "BRAVE_SEARCH_API_KEY" in unavailable.text
+    assert "DISCORD_TOOL_BOT_TOKEN" in unavailable.text
 
     unknown = client.put(
         f"/api/deployments/{deployment_id}/tools",

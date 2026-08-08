@@ -15,8 +15,11 @@ dependencies = [
   "fastapi>=0.115,<1.0",
   "fastembed>=0.8,<0.9",
   "httpx>=0.28,<1.0",
+  "pillow>=11,<13",
+  "playwright>=1.54,<2.0",
   "pydantic>=2.10,<3.0",
   "pydantic-settings>=2.7,<3.0",
+  "pypdf>=5,<7",
   "sqlalchemy>=2.0,<3.0",
   "uvicorn[standard]>=0.34,<1.0",
 ]
@@ -50,8 +53,10 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 "scripts/live_demo_seed.py" = ["E501", "F401", "RUF001"]
 "scripts/live_demo_seed_runner.py" = ["E501"]
 "src/echo_masque/api/routes/workspace.py" = ["E501"]
+"src/echo_masque/browser_runtime.py" = ["E501", "I001", "SIM105"]
 "src/echo_masque/judges/rules.py" = ["RUF001"]
 "src/echo_masque/judges/semantic.py" = ["E501", "RUF001"]
+"src/echo_masque/network_safety.py" = ["I001"]
 "src/echo_masque/persistence/workspace_repository.py" = ["E501"]
 "src/echo_masque/reports/export.py" = ["RUF001", "E501"]
 "src/echo_masque/services/trials.py" = ["B009"]
@@ -59,11 +64,13 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 "src/echo_masque/targets/deterministic.py" = ["RUF001"]
 "src/echo_masque/template_sharing.py" = ["E501", "RUF001"]
 "src/echo_masque/testers/adaptive.py" = ["RUF001"]
-"src/echo_masque/tool_external.py" = ["RUF012"]
+"src/echo_masque/tool_external.py" = ["E501", "RUF012"]
+"src/echo_masque/tool_runtime.py" = ["E501", "F841", "I001"]
 "src/echo_masque/transcripts/importer.py" = ["RUF001"]
 "src/echo_masque/trials/runner.py" = ["RUF001"]
 "tests/test_phase12.py" = ["RUF001"]
 "tests/test_phase13.py" = ["E501"]
+"tests/test_tool_runtime_external.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -72,6 +79,10 @@ pretty = true
 show_error_codes = true
 packages = ["echo_masque"]
 mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = "echo_masque.api"
+disable_error_code = ["attr-defined"]
 
 [[tool.mypy.overrides]]
 module = "echo_masque.persistence.workspace_repository"
@@ -83,4 +94,8 @@ disable_error_code = ["arg-type"]
 
 [[tool.mypy.overrides]]
 module = "echo_masque.tool_external"
-disable_error_code = ["assignment", "arg-type"]
+disable_error_code = ["assignment", "arg-type", "redundant-cast", "var-annotated"]
+
+[[tool.mypy.overrides]]
+module = "echo_masque.tool_runtime"
+disable_error_code = ["assignment", "attr-defined"]
