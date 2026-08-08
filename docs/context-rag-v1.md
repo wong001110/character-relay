@@ -244,3 +244,14 @@ Context Layer contract
 ```
 
 The Context Layer and Smart Output contracts should remain stable while the retrieval backend evolves.
+
+
+## Contextual retrieval V1.1
+
+RAG first retrieves with the current user message only. If matching Knowledge Bases exist but the current query returns no candidate chunks, Character Relay performs one deterministic contextual fallback.
+
+The fallback prepends at most the two most recent non-empty messages from the same human author, then retries the same scoped sparse retrieval. Bot/character messages are deliberately excluded so generated or hallucinated output cannot become retrieval evidence for the next turn. Other users' messages are also excluded to reduce topic borrowing in group chat.
+
+This adds no LLM call and does not change Knowledge Base authorization or Server/Channel/Character isolation. A direct current-query hit never pulls conversation history into retrieval.
+
+Privacy-safe context traces expose `retrieval_mode` (`current` or `contextual_fallback`), `carryover_message_count`, `initial_hit_count`, and `fallback_hit_count` without storing the retrieval query or knowledge text in Discord Event Logs.

@@ -240,7 +240,7 @@ def test_contextual_retrieval_recovers_same_author_topic_after_current_miss() ->
     )
     orchestrator = ContextOrchestrator(repo)
     recent = [
-        context_message("previous-user", "Character Relay 的角色卡怎么运作？"),
+        context_message("previous-user", "Character Relay 的角色卡怎么运作?"),
         context_message(
             "previous-bot",
             "The bot gave an unrelated answer that must not become retrieval evidence.",
@@ -248,11 +248,11 @@ def test_contextual_retrieval_recovers_same_author_topic_after_current_miss() ->
             author_display_name="Ann",
             is_bot=True,
         ),
-        context_message("message-1", "角色卡怎么运行的？"),
+        context_message("message-1", "角色卡怎么运行的?"),
     ]
 
     context = orchestrator.build(
-        payload=payload(text="角色卡怎么运行的？", recent_messages=recent),
+        payload=payload(text="角色卡怎么运行的?", recent_messages=recent),
         deployment=deployment(),
         character_name="Ann",
     )
@@ -264,7 +264,7 @@ def test_contextual_retrieval_recovers_same_author_topic_after_current_miss() ->
     assert context.trace.initial_hit_count == 0
     assert context.trace.fallback_hit_count > 0
     assert context.trace.selected_chunk_count > 0
-    assert context.trace.query_chars > len("角色卡怎么运行的？")
+    assert context.trace.query_chars > len("角色卡怎么运行的?")
     assert "Character Relay" in context.knowledge[0].resource.content
 
 
@@ -292,11 +292,11 @@ def test_contextual_retrieval_does_not_borrow_other_users_topic() -> None:
             author_id="user-2",
             author_display_name="Other User",
         ),
-        context_message("message-1", "角色卡怎么运行的？"),
+        context_message("message-1", "角色卡怎么运行的?"),
     ]
 
     context = orchestrator.build(
-        payload=payload(text="角色卡怎么运行的？", recent_messages=recent),
+        payload=payload(text="角色卡怎么运行的?", recent_messages=recent),
         deployment=deployment(),
         character_name="Ann",
     )

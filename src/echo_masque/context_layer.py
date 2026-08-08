@@ -214,7 +214,9 @@ class ContextOrchestrator:
                 ),
             )
 
-        fallback_hit_count = len(result.candidates) if retrieval_mode == "contextual_fallback" else 0
+        fallback_hit_count = (
+            len(result.candidates) if retrieval_mode == "contextual_fallback" else 0
+        )
 
         if result.eligible_base_count == 0:
             return CharacterTurnContext(
