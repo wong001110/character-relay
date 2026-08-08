@@ -32,7 +32,12 @@ class ScheduledReminderRepository:
         target_user_id: str,
         reminder_text: str,
         scheduled_at: datetime,
+        connection_id: str = "",
+        platform: str = "",
     ) -> ScheduledReminderRecord:
+        # connection_id/platform are accepted as compatibility hints from ToolExecutionContext,
+        # but the database deployment remains authority for the actual delivery identity.
+        del connection_id, platform
         with self.database.session() as session:
             deployment = session.get(CharacterDeploymentRecord, deployment_id)
             if deployment is None or deployment.owner_id != owner_id:
