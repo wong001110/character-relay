@@ -1,4 +1,4 @@
-"""Character-level Smart Participation configuration and deterministic Playground APIs."""
+"""Character-level Smart Participation configuration, semantics, and Playground APIs."""
 
 import hmac
 from typing import Annotated, cast
@@ -18,6 +18,9 @@ from echo_masque.api.smart_participation_schemas import (
     SmartParticipationPlaygroundView,
     SmartParticipationProfileUpdate,
     SmartParticipationProfileView,
+    SmartParticipationSemanticCandidateView,
+    SmartParticipationSemanticScoreRequest,
+    SmartParticipationSemanticScoreView,
 )
 from echo_masque.authoring_generation import AuthoringRuntimeUnavailable
 from echo_masque.config import Settings
@@ -29,6 +32,10 @@ from echo_masque.persistence import (
 from echo_masque.persistence.models import CharacterCardRecord
 from echo_masque.providers import ProviderError
 from echo_masque.security_controls import QuotaExceeded
+from echo_masque.semantic_participation import (
+    CharacterParticipationSemanticService,
+    SemanticEmbeddingUnavailable,
+)
 from echo_masque.smart_participation import ParticipationProfile, evaluate_participation
 from echo_masque.smart_participation_generation import SmartParticipationGenerationService
 
@@ -54,6 +61,13 @@ def generation_service(request: Request) -> SmartParticipationGenerationService:
     return cast(
         SmartParticipationGenerationService,
         request.app.state.smart_participation_generation_service,
+    )
+
+
+def semantic_service(request: Request) -> CharacterParticipationSemanticService:
+    return cast(
+        CharacterParticipationSemanticService,
+        request.app.state.semantic_participation_service,
     )
 
 
@@ -216,6 +230,73 @@ def list_connector_profiles(
         if profile is not None:
             result[deployment.id] = SmartParticipationProfileView.from_record(profile)
     return result
+
+
+@router.post(
+    "/semantic-score",
+    response_model=SmartParticipationSemanticScoreView,
+)
+def score_semantic_participation(
+    payload: SmartParticipationSemanticScoreRequest,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> SmartParticipationSemanticScoreView:
+    """Return semantic relevance only; raw Character Card vectors never leave the API."""
+
+    _authorize_connector(request, authorization)
+    service = semantic_service(request)
+    if not service.enabled:
+        return SmartParticipationSemanticScoreView(
+            available=False,
+            reason="semantic_participation_disabled",
+        )
+
+    requested = set(payload.deployment_ids)
+    records = deployment_repository(request).list_connector_deployments(
+        platform="discord",
+        connection_id=payload.connection_id,
+    )
+    eligible = [
+        deployment
+        for deployment in records
+        if deployment.id in requested and deployment.participation_mode == "smart"
+    ]
+    if not eligible:
+        return SmartParticipationSemanticScoreView(
+            available=False,
+            reason="no_eligible_smart_deployments",
+        )
+
+    try:
+        model, dimension, scores = service.score(
+            message=payload.message,
+            deployments=[
+                (deployment.id, deployment.owner_id, deployment.character_card_id)
+                for deployment in eligible
+            ],
+        )
+    except SemanticEmbeddingUnavailable:
+        return SmartParticipationSemanticScoreView(
+            available=False,
+            reason="embedding_unavailable",
+        )
+
+    ready = [item for item in scores if item.profile_ready]
+    return SmartParticipationSemanticScoreView(
+        available=bool(ready),
+        reason="ok" if ready else "no_semantic_profiles_ready",
+        model=model,
+        dimension=dimension,
+        candidates=[
+            SmartParticipationSemanticCandidateView(
+                deployment_id=item.deployment_id,
+                character_card_id=item.character_card_id,
+                semantic_relevance=item.relevance,
+                profile_ready=item.profile_ready,
+            )
+            for item in scores
+        ],
+    )
 
 
 @router.post(
