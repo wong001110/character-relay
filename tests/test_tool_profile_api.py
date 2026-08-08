@@ -99,8 +99,22 @@ def test_tool_catalog_and_manual_deployment_assignment(tmp_path: Path) -> None:
 
     catalog = client.get("/api/tools/catalog")
     assert catalog.status_code == 200, catalog.text
-    tool_ids = {item["id"] for item in catalog.json()["items"]}
-    assert tool_ids == {"utility.calculator", "utility.current_time"}
+    items = {item["id"]: item for item in catalog.json()["items"]}
+    assert set(items) == {
+        "utility.calculator",
+        "utility.current_time",
+        "web.search",
+        "web.fetch_page",
+        "discord.search_messages",
+        "discord.create_poll",
+        "image.search",
+    }
+    assert items["utility.calculator"]["available"] is True
+    assert items["web.fetch_page"]["available"] is True
+    assert items["web.search"]["available"] is False
+    assert items["image.search"]["available"] is False
+    assert items["discord.search_messages"]["available"] is False
+    assert items["discord.create_poll"]["available"] is False
 
     initial = client.get(f"/api/deployments/{deployment_id}/tools")
     assert initial.status_code == 200, initial.text
@@ -120,8 +134,15 @@ def test_tool_catalog_and_manual_deployment_assignment(tmp_path: Path) -> None:
     assert reread.status_code == 200, reread.text
     assert reread.json() == saved.json()
 
-    unknown = client.put(
+    unavailable = client.put(
         f"/api/deployments/{deployment_id}/tools",
         json={"enabled_tools": ["web.search"]},
+    )
+    assert unavailable.status_code == 422, unavailable.text
+    assert "BRAVE_SEARCH_API_KEY" in unavailable.text
+
+    unknown = client.put(
+        f"/api/deployments/{deployment_id}/tools",
+        json={"enabled_tools": ["unknown.tool"]},
     )
     assert unknown.status_code == 422, unknown.text
