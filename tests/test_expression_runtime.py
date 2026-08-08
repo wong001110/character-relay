@@ -1,6 +1,7 @@
 from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.api.expression_schemas import ExpressionCandidate
 from echo_masque.connector_runtime import DiscordConnectorRuntime
+from echo_masque.smart_output import DiscordActionParticipant
 
 
 def candidate(
@@ -31,6 +32,7 @@ def candidate(
 
 
 def test_expression_control_is_removed_from_visible_text() -> None:
+    """Keep the legacy parser while older observability paths still reference it."""
     item = candidate()
     text, decision = DiscordConnectorRuntime._parse_expression_decision(
         'I am listening.\n[[CR_EXPRESSION {"action":"reaction",'
@@ -55,7 +57,10 @@ def test_expression_control_rejects_unknown_or_disallowed_resource() -> None:
 
 
 def test_missing_or_invalid_control_defaults_to_none() -> None:
-    plain_text, plain = DiscordConnectorRuntime._parse_expression_decision("Plain reply ✨", [])
+    plain_text, plain = DiscordConnectorRuntime._parse_expression_decision(
+        "Plain reply ✨",
+        [],
+    )
     assert plain_text == "Plain reply ✨"
     assert plain.action == "none"
     assert plain.reason == "model_omitted_expression_control"
@@ -69,7 +74,7 @@ def test_missing_or_invalid_control_defaults_to_none() -> None:
     assert invalid.reason == "invalid_expression_control"
 
 
-def test_expression_prompt_explains_social_meaning_without_reaction_bias() -> None:
+def test_smart_output_prompt_explains_social_actions_and_hides_raw_ids() -> None:
     emoji = candidate()
     sticker = candidate(
         key="sticker:987654321098765432",
@@ -83,11 +88,23 @@ def test_expression_prompt_explains_social_meaning_without_reaction_bias() -> No
         guild_name="Test Guild",
         channel_id="channel-1",
         channel_name="general",
-        author_id="user-1",
+        author_id="123456789012345678",
         author_display_name="Juen",
         text="你能使用一个 emoji 看看吗?",
         mentioned_bot=True,
         expression_candidates=[emoji, sticker],
+        mentionable_participants=[
+            DiscordActionParticipant(
+                ref="user:123456789012345678",
+                display_name="Juen",
+                kind="human",
+            ),
+            DiscordActionParticipant(
+                ref="deployment:deployment-2",
+                display_name="Ning",
+                kind="character",
+            ),
+        ],
     )
 
     prompt = DiscordConnectorRuntime._social_prompt(
@@ -95,25 +112,19 @@ def test_expression_prompt_explains_social_meaning_without_reaction_bias() -> No
         payload=payload,
     )
 
-    inline_example = '[[CR_EXPRESSION {"action":"inline","resource_key":"emoji:123"'
-    reaction_example = '[[CR_EXPRESSION {"action":"reaction","resource_key":"emoji:456"'
-    sticker_example = '[[CR_EXPRESSION {"action":"sticker","resource_key":"sticker:789"'
-    none_example = '[[CR_EXPRESSION {"action":"none","reason":"not needed"}]]'
-
-    assert "Expression controls are invisible runtime behavior." in prompt
-    assert "decision is mandatory whenever" in prompt
-    assert "Using an expression is optional" in prompt
-    assert "use at most one expression in this reply" in prompt
-    assert "When you already have a substantive visible reply" in prompt
-    assert "prefer inline" in prompt
-    assert "Do not default to reaction merely because it is available" in prompt
-    assert "A confident none decision is better than forcing an out-of-character" in prompt
-    assert "never omit the CR_EXPRESSION decision" in prompt
-    assert "You MUST append exactly one final machine-control line" in prompt
-    assert "pressing or clicking an Emoji/reaction button" in prompt
-    assert "without explaining the platform mechanism" in prompt
-    assert inline_example in prompt
-    assert reaction_example in prompt
-    assert sticker_example in prompt
-    assert none_example in prompt
-    assert prompt.index(inline_example) < prompt.index(reaction_example)
+    assert "Available actions: ignore, message, react, sticker" in prompt
+    assert "Unicode Emoji may appear directly inside a text value" in prompt
+    assert "exactly one of: text, emoji, mention" in prompt
+    assert "omit reply_to to send directly to the channel" in prompt
+    assert "Return exactly one line in the form [[CR_OUTPUT {...}]]" in prompt
+    assert '"action":"react"' in prompt
+    assert '"action":"sticker"' in prompt
+    assert '"action":"ignore"' in prompt
+    assert "emoji:123456789012345678" in prompt
+    assert "sticker:987654321098765432" in prompt
+    assert "p1: Juen (human)" in prompt
+    assert "p2: Ning (character)" in prompt
+    assert "123456789012345678" not in prompt
+    assert "deployment:deployment-2" not in prompt
+    assert "legacy CR_EXPRESSION controls" in prompt
+    assert "never omit the CR_EXPRESSION decision" not in prompt
