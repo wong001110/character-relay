@@ -33,6 +33,7 @@ from echo_masque.api.routes import (
     smart_participation_router,
     targets_router,
     templates_router,
+    tools_router,
     transcripts_router,
     trials_router,
     workspace_router,
@@ -56,6 +57,7 @@ from echo_masque.persistence import (
     CalibrationRepository,
     Database,
     DeploymentRepository,
+    DeploymentToolRepository,
     DiscordIdentityRepository,
     EvaluationRepository,
     ExpressionRepository,
@@ -78,6 +80,7 @@ from echo_masque.semantic_participation import CharacterParticipationSemanticSer
 from echo_masque.services import MatrixService, RuntimeService, TrialService
 from echo_masque.smart_participation_generation import SmartParticipationGenerationService
 from echo_masque.template_sharing import EvaluationTemplateService
+from echo_masque.tool_runtime import default_tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +107,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     repository = Repository(database)
     deployment_repository = DeploymentRepository(database)
+    deployment_tool_repository = DeploymentToolRepository(database)
+    tool_registry = default_tool_registry()
     discord_identity_repository = DiscordIdentityRepository(database)
     interaction_repository = InteractionRepository(database)
     expression_repository = ExpressionRepository(database)
@@ -154,6 +159,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         deployment_repository,
         credential_store,
         context_orchestrator=context_orchestrator,
+        deployment_tool_repository=deployment_tool_repository,
+        tool_registry=tool_registry,
     )
     public_demo_result = PublicDemoService(
         settings=resolved,
@@ -256,6 +263,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.auth_service = auth_service
     app.state.repository = repository
     app.state.deployment_repository = deployment_repository
+    app.state.deployment_tool_repository = deployment_tool_repository
+    app.state.tool_registry = tool_registry
     app.state.discord_identity_repository = discord_identity_repository
     app.state.interaction_repository = interaction_repository
     app.state.expression_repository = expression_repository
@@ -299,6 +308,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(templates_router)
     app.include_router(characters_router)
     app.include_router(deployments_router)
+    app.include_router(tools_router)
     app.include_router(discord_identities_router)
     app.include_router(interactions_router)
     app.include_router(smart_participation_router)
