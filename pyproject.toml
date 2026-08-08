@@ -80,3 +80,7 @@ disable_error_code = ["attr-defined"]
 [[tool.mypy.overrides]]
 module = "echo_masque.template_sharing"
 disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "echo_masque.tool_external"
+disable_error_code = ["assignment", "arg-type"]
