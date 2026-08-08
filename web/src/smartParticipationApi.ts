@@ -4,6 +4,12 @@ export type SmartParticipationFeedbackLabel =
   | "correct"
   | "should_speak"
   | "should_stay_silent";
+export type SemanticProfileStatus =
+  | "disabled"
+  | "not_created"
+  | "ready"
+  | "stale"
+  | "invalid";
 
 export interface SmartParticipationProfile {
   character_card_id: string;
@@ -33,6 +39,21 @@ export interface SmartParticipationGeneratedProfile
   rationale: string;
   provider_model: string;
   correction_used: boolean;
+}
+
+export interface SemanticProfile {
+  character_card_id: string;
+  status: SemanticProfileStatus;
+  enabled: boolean;
+  created: boolean;
+  model_name: string;
+  dimension: number;
+  embedding_bytes: number;
+  source_hash: string;
+  semantic_text: string;
+  created_at: string | null;
+  updated_at: string | null;
+  rebuilt: boolean;
 }
 
 export interface SmartParticipationPreview {
@@ -95,6 +116,15 @@ export const smartParticipationApi = {
   generateProfile: (characterCardId: string) =>
     request<SmartParticipationGeneratedProfile>(
       `/api/smart-participation/profiles/${encodeURIComponent(characterCardId)}/generate`,
+      { method: "POST" }
+    ),
+  getSemanticProfile: (characterCardId: string) =>
+    request<SemanticProfile>(
+      `/api/smart-participation/semantic-profile/${encodeURIComponent(characterCardId)}`
+    ),
+  createSemanticProfile: (characterCardId: string) =>
+    request<SemanticProfile>(
+      `/api/smart-participation/semantic-profile/${encodeURIComponent(characterCardId)}`,
       { method: "POST" }
     ),
   evaluate: (
