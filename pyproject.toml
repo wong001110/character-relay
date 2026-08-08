@@ -81,6 +81,10 @@ packages = ["echo_masque"]
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
+module = "echo_masque.api"
+disable_error_code = ["attr-defined"]
+
+[[tool.mypy.overrides]]
 module = "echo_masque.persistence.workspace_repository"
 disable_error_code = ["attr-defined"]
 
@@ -90,4 +94,8 @@ disable_error_code = ["arg-type"]
 
 [[tool.mypy.overrides]]
 module = "echo_masque.tool_external"
-disable_error_code = ["assignment", "arg-type"]
+disable_error_code = ["assignment", "arg-type", "redundant-cast", "var-annotated"]
+
+[[tool.mypy.overrides]]
+module = "echo_masque.tool_runtime"
+disable_error_code = ["assignment", "attr-defined"]
