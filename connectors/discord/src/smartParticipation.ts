@@ -2,6 +2,13 @@ import type { DiscordDeployment } from "./types.js";
 
 export type SmartParticipationStyle = "quiet" | "balanced" | "active";
 export type SmartParticipationGroupRole = "primary" | "secondary" | "independent";
+export type SmartParticipationSemanticScores = Record<string, number>;
+export type SmartParticipationTurnRole =
+  | "primary"
+  | "interject"
+  | "complement"
+  | "support"
+  | "challenge";
 
 export interface DiscordPortalParticipationProfile {
   character_card_id: string;
@@ -41,6 +48,7 @@ export interface SmartParticipationRuntimeConfig {
   enabled: boolean;
   profiles: SmartParticipationProfiles;
   minimumMargin: number;
+  maxParticipants: number;
   channelCooldownSeconds: number;
   windowSeconds: number;
   maxRepliesPerWindow: number;
@@ -55,6 +63,7 @@ export interface SmartParticipationSignals {
   topic_match: number;
   keyword_match: number;
   trigger_phrase: number;
+  semantic_match: number;
   initiative: number;
   short_message_penalty: number;
   recent_turn_match: number;
@@ -69,11 +78,18 @@ export interface SmartParticipationCandidateScore {
   score: number;
   minimumScore: number;
   eligible: boolean;
+  semanticRelevance: number | null;
   signals: SmartParticipationSignals;
   matchedTopics: string[];
   matchedKeywords: string[];
   matchedTriggerPhrases: string[];
   matchedAvoidPhrases: string[];
+}
+
+export interface SmartParticipationTurnSelection {
+  deployment: DiscordDeployment;
+  role: SmartParticipationTurnRole;
+  order: number;
 }
 
 export type SmartParticipationReason =
@@ -86,12 +102,21 @@ export type SmartParticipationReason =
   | "below_threshold"
   | "ambiguous_margin"
   | "selected_lightweight"
+  | "selected_multiple"
   | "selected";
 
 export interface SmartParticipationDecision {
   reason: SmartParticipationReason;
   selectedDeployment: DiscordDeployment | null;
+  selectedDeployments: DiscordDeployment[];
+  turns: SmartParticipationTurnSelection[];
   candidates: SmartParticipationCandidateScore[];
+}
+
+export interface ExplicitParticipationCoordination {
+  deployments: DiscordDeployment[];
+  turns: SmartParticipationTurnSelection[];
+  coordinated: boolean;
 }
 
 export type SmartFollowUpReason =
@@ -150,6 +175,7 @@ const DEFAULT_CONFIG: SmartParticipationRuntimeConfig = {
   enabled: false,
   profiles: {},
   minimumMargin: 2,
+  maxParticipants: 2,
   channelCooldownSeconds: 45,
   windowSeconds: 600,
   maxRepliesPerWindow: 3,
@@ -254,6 +280,7 @@ export function configureSmartParticipation(
   runtimeConfig = {
     ...DEFAULT_CONFIG,
     ...config,
+    maxParticipants: clamp(Math.floor(config.maxParticipants ?? DEFAULT_CONFIG.maxParticipants), 1, 3),
     profiles: config.profiles ?? {}
   };
   runtimeConfigured = true;
@@ -376,6 +403,12 @@ function normalizeList(values: string[] | undefined): string[] {
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+function semanticSignal(relevance: number | undefined): number {
+  if (relevance === undefined || !Number.isFinite(relevance)) return 0;
+  const points = clamp((relevance - 0.75) / 0.15, 0, 1) * 6;
+  return Math.round(points * 1000) / 1000;
 }
 
 function portalProfile(deployment: DiscordDeployment): DiscordPortalParticipationProfile | null {
@@ -509,6 +542,7 @@ function emptySignals(): SmartParticipationSignals {
     topic_match: 0,
     keyword_match: 0,
     trigger_phrase: 0,
+    semantic_match: 0,
     initiative: 0,
     short_message_penalty: 0,
     recent_turn_match: 0,
@@ -522,24 +556,31 @@ function emptySignals(): SmartParticipationSignals {
 function scoreCandidate(
   deployment: DiscordDeployment,
   text: string,
-  now: number
+  now: number,
+  semanticRelevance: number | undefined
 ): SmartParticipationCandidateScore {
   const profile = smartParticipationProfileFor(deployment);
   const signals = emptySignals();
   if (!profile.enabled) {
     signals.profile_disabled_blocked = 1;
-    return blockedCandidate(deployment, profile, signals, []);
+    return blockedCandidate(deployment, profile, signals, [], semanticRelevance);
   }
   const matchedAvoidPhrases = matchedPhrases(text, profile.avoidPhrases);
   if (matchedAvoidPhrases.length) {
     signals.avoid_phrase_blocked = 1;
-    return blockedCandidate(deployment, profile, signals, matchedAvoidPhrases);
+    return blockedCandidate(
+      deployment,
+      profile,
+      signals,
+      matchedAvoidPhrases,
+      semanticRelevance
+    );
   }
 
   const lastSelection = lastSelectionFor(deployment.deployment_id);
   if (lastSelection && now - lastSelection.selectedAt < profile.cooldownSeconds * 1000) {
     signals.cooldown_blocked = 1;
-    return blockedCandidate(deployment, profile, signals, []);
+    return blockedCandidate(deployment, profile, signals, [], semanticRelevance);
   }
 
   const matchedTopics = matchedPhrases(text, profile.topics);
@@ -552,6 +593,7 @@ function scoreCandidate(
   signals.topic_match = Math.min(6, matchedTopics.length * 3);
   signals.keyword_match = Math.min(6, matchedKeywords.length * 2);
   signals.trigger_phrase = Math.min(4, matchedTriggerPhrases.length * 2);
+  signals.semantic_match = semanticSignal(semanticRelevance);
   signals.initiative = profile.initiative;
   signals.short_message_penalty = text.length < 4 ? -2 : 0;
 
@@ -561,6 +603,10 @@ function scoreCandidate(
     score: Math.round(score * 1000) / 1000,
     minimumScore: profile.minimumScore,
     eligible: true,
+    semanticRelevance:
+      semanticRelevance !== undefined && Number.isFinite(semanticRelevance)
+        ? semanticRelevance
+        : null,
     signals,
     matchedTopics,
     matchedKeywords,
@@ -593,6 +639,7 @@ function lightweightCandidate(
     score: Math.round(score * 1000) / 1000,
     minimumScore: profile.minimumScore,
     eligible: true,
+    semanticRelevance: null,
     signals,
     matchedTopics: [],
     matchedKeywords: [],
@@ -605,19 +652,33 @@ function blockedCandidate(
   deployment: DiscordDeployment,
   profile: NormalizedProfile,
   signals: SmartParticipationSignals,
-  matchedAvoidPhrases: string[]
+  matchedAvoidPhrases: string[],
+  semanticRelevance?: number
 ): SmartParticipationCandidateScore {
   return {
     deployment,
     score: Number.NEGATIVE_INFINITY,
     minimumScore: profile.minimumScore,
     eligible: false,
+    semanticRelevance:
+      semanticRelevance !== undefined && Number.isFinite(semanticRelevance)
+        ? semanticRelevance
+        : null,
     signals,
     matchedTopics: [],
     matchedKeywords: [],
     matchedTriggerPhrases: [],
     matchedAvoidPhrases
   };
+}
+
+function hasCharacterSpecificReason(candidate: SmartParticipationCandidateScore): boolean {
+  return (
+    candidate.signals.semantic_match > 0 ||
+    candidate.signals.topic_match > 0 ||
+    candidate.signals.keyword_match > 0 ||
+    candidate.signals.trigger_phrase > 0
+  );
 }
 
 function logDecision(value: SmartParticipationDecision, messageLength: number): void {
@@ -628,12 +689,19 @@ function logDecision(value: SmartParticipationDecision, messageLength: number): 
     reason: value.reason,
     message_length: messageLength,
     selected_deployment_id: value.selectedDeployment?.deployment_id ?? null,
+    selected_deployment_ids: value.selectedDeployments.map((item) => item.deployment_id),
+    turns: value.turns.map((turn) => ({
+      deployment_id: turn.deployment.deployment_id,
+      role: turn.role,
+      order: turn.order
+    })),
     candidates: value.candidates.map((candidate) => ({
       deployment_id: candidate.deployment.deployment_id,
       character_card_id: candidate.deployment.character_card_id,
       score: Number.isFinite(candidate.score) ? candidate.score : null,
       minimum_score: candidate.minimumScore,
       eligible: candidate.eligible,
+      semantic_relevance: candidate.semanticRelevance,
       signals: candidate.signals,
       matched_topics: candidate.matchedTopics,
       matched_keywords: candidate.matchedKeywords,
@@ -643,13 +711,28 @@ function logDecision(value: SmartParticipationDecision, messageLength: number): 
   }));
 }
 
+function turnsFor(deployments: DiscordDeployment[]): SmartParticipationTurnSelection[] {
+  return deployments.map((deployment, index) => ({
+    deployment,
+    role: index === 0 ? "primary" : "complement",
+    order: index + 1
+  }));
+}
+
 function decision(
   reason: SmartParticipationReason,
-  selectedDeployment: DiscordDeployment | null,
+  selectedDeployments: DiscordDeployment[],
   candidates: SmartParticipationCandidateScore[],
-  messageLength: number
+  messageLength: number,
+  turns = turnsFor(selectedDeployments)
 ): SmartParticipationDecision {
-  const value: SmartParticipationDecision = { reason, selectedDeployment, candidates };
+  const value: SmartParticipationDecision = {
+    reason,
+    selectedDeployment: selectedDeployments[0] ?? null,
+    selectedDeployments,
+    turns,
+    candidates
+  };
   if (runtimeConfig.enabled) logDecision(value, messageLength);
   return value;
 }
@@ -688,43 +771,44 @@ function evaluateLightweightParticipation(
     : false;
 
   if (!recent || recent.origin === "lightweight" || sameMomentDifferentCharacter) {
-    return decision("low_information_message", null, [], text.length);
+    return decision("low_information_message", [], [], text.length);
   }
 
   const deployment = smartCandidates.find(
     (item) => item.deployment_id === recent.deploymentId
   );
   if (!deployment) {
-    return decision("low_information_message", null, [], text.length);
+    return decision("low_information_message", [], [], text.length);
   }
 
   const candidate = lightweightCandidate(deployment, text);
   if (!candidate.eligible || candidate.score < candidate.minimumScore) {
-    return decision("low_information_message", null, [candidate], text.length);
+    return decision("low_information_message", [], [candidate], text.length);
   }
 
   queueSelection(deployment, "lightweight", now);
-  return decision("selected_lightweight", deployment, [candidate], text.length);
+  return decision("selected_lightweight", [deployment], [candidate], text.length);
 }
 
 export function evaluateSmartParticipation(
   deployments: DiscordDeployment[],
   message: string,
-  now = Date.now()
+  now = Date.now(),
+  semanticScores: SmartParticipationSemanticScores = {}
 ): SmartParticipationDecision {
   clearPending(deployments);
   if (!runtimeConfig.enabled) {
-    return { reason: "disabled", selectedDeployment: null, candidates: [] };
+    return decision("disabled", [], [], message.length);
   }
   const smartCandidates = deployments.filter(
     (deployment) => deployment.participation_mode === "smart"
   );
   if (!smartCandidates.length) {
-    return { reason: "no_smart_candidates", selectedDeployment: null, candidates: [] };
+    return decision("no_smart_candidates", [], [], message.length);
   }
 
   const text = normalizeText(message);
-  if (!text) return decision("empty_message", null, [], 0);
+  if (!text) return decision("empty_message", [], [], 0);
 
   pruneSelections(now);
   if (isLowInformation(text)) {
@@ -737,37 +821,142 @@ export function evaluateSmartParticipation(
     .sort((left, right) => right.selectedAt - left.selectedAt);
   const latest = scopeSelections[0];
   if (latest && now - latest.selectedAt < runtimeConfig.channelCooldownSeconds * 1000) {
-    return decision("channel_cooldown", null, [], text.length);
+    return decision("channel_cooldown", [], [], text.length);
   }
   const windowStart = now - runtimeConfig.windowSeconds * 1000;
   if (
     scopeSelections.filter((item) => item.selectedAt >= windowStart).length >=
     runtimeConfig.maxRepliesPerWindow
   ) {
-    return decision("channel_rate_limit", null, [], text.length);
+    return decision("channel_rate_limit", [], [], text.length);
   }
 
   const candidates = smartCandidates
-    .map((deployment) => scoreCandidate(deployment, text, now))
+    .map((deployment) =>
+      scoreCandidate(deployment, text, now, semanticScores[deployment.deployment_id])
+    )
     .sort((left, right) => {
       if (left.eligible !== right.eligible) return left.eligible ? -1 : 1;
       if (left.score !== right.score) return right.score - left.score;
       return left.deployment.deployment_id.localeCompare(right.deployment.deployment_id);
     });
-  const top = candidates.find((candidate) => candidate.eligible);
-  if (!top || top.score < top.minimumScore) {
-    return decision("below_threshold", null, candidates, text.length);
-  }
-  const runnerUp = candidates.find(
-    (candidate) =>
-      candidate.eligible && candidate.deployment.deployment_id !== top.deployment.deployment_id
+  const top = candidates.find(
+    (candidate) => candidate.eligible && candidate.score >= candidate.minimumScore
   );
-  if (runnerUp && top.score - runnerUp.score < runtimeConfig.minimumMargin) {
-    return decision("ambiguous_margin", null, candidates, text.length);
+  if (!top) {
+    return decision("below_threshold", [], candidates, text.length);
   }
 
-  queueSelection(top.deployment, "proactive", now);
-  return decision("selected", top.deployment, candidates, text.length);
+  const selectedCandidates = [top];
+  for (const candidate of candidates) {
+    if (selectedCandidates.length >= runtimeConfig.maxParticipants) break;
+    if (candidate.deployment.deployment_id === top.deployment.deployment_id) continue;
+    if (!candidate.eligible || candidate.score < candidate.minimumScore) continue;
+    if (!hasCharacterSpecificReason(candidate)) continue;
+    if (top.score - candidate.score > runtimeConfig.minimumMargin) continue;
+    selectedCandidates.push(candidate);
+  }
+
+  const selected = selectedCandidates.map((candidate) => candidate.deployment);
+  for (const deployment of selected) {
+    queueSelection(deployment, "proactive", now);
+  }
+  return decision(
+    selected.length > 1 ? "selected_multiple" : "selected",
+    selected,
+    candidates,
+    text.length
+  );
+}
+
+export function coordinateExplicitSmartParticipants(
+  deployments: DiscordDeployment[],
+  explicitDeployments: DiscordDeployment[],
+  message: string,
+  now = Date.now(),
+  semanticScores: SmartParticipationSemanticScores = {}
+): ExplicitParticipationCoordination {
+  if (
+    !runtimeConfig.enabled ||
+    explicitDeployments.length !== 1 ||
+    runtimeConfig.maxParticipants < 2
+  ) {
+    markExplicitSmartSelections(explicitDeployments, now);
+    return {
+      deployments: explicitDeployments,
+      turns: turnsFor(explicitDeployments),
+      coordinated: false
+    };
+  }
+
+  const primary = explicitDeployments[0]!;
+  const text = normalizeText(message);
+  pruneSelections(now);
+  const linked = deployments.filter((deployment) => {
+    if (
+      deployment.deployment_id === primary.deployment_id ||
+      deployment.participation_mode !== "smart"
+    ) {
+      return false;
+    }
+    const profile = smartParticipationProfileFor(deployment);
+    if (
+      !profile.enabled ||
+      profile.groupRole !== "secondary" ||
+      profile.preferredFollowUpCharacterCardId !== primary.character_card_id
+    ) {
+      return false;
+    }
+    if (matchedPhrases(text, profile.avoidPhrases).length) return false;
+    const lastSelection = lastSelectionFor(deployment.deployment_id);
+    return !(
+      lastSelection && now - lastSelection.selectedAt < profile.cooldownSeconds * 1000
+    );
+  });
+
+  let interject: DiscordDeployment | null = null;
+  if (linked.length === 1) {
+    interject = linked[0]!;
+  } else if (linked.length > 1) {
+    const ranked = linked
+      .map((deployment) => ({
+        deployment,
+        relevance: semanticScores[deployment.deployment_id] ?? Number.NEGATIVE_INFINITY
+      }))
+      .sort((left, right) => {
+        if (left.relevance !== right.relevance) return right.relevance - left.relevance;
+        return left.deployment.deployment_id.localeCompare(right.deployment.deployment_id);
+      });
+    const best = ranked[0];
+    const runnerUp = ranked[1];
+    if (
+      best &&
+      Number.isFinite(best.relevance) &&
+      (!runnerUp || best.relevance - runnerUp.relevance >= 0.02)
+    ) {
+      interject = best.deployment;
+    }
+  }
+
+  clearPending(deployments);
+  queueSelection(primary, "explicit", now);
+  if (!interject) {
+    return {
+      deployments: [primary],
+      turns: [{ deployment: primary, role: "primary", order: 1 }],
+      coordinated: false
+    };
+  }
+
+  queueSelection(interject, "proactive", now);
+  return {
+    deployments: [interject, primary],
+    turns: [
+      { deployment: interject, role: "interject", order: 1 },
+      { deployment: primary, role: "primary", order: 2 }
+    ],
+    coordinated: true
+  };
 }
 
 export function evaluateSmartFollowUp(
