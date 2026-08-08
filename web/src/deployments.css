@@ -434,6 +434,40 @@
   align-self: end;
 }
 
+.knowledge-description-field {
+  grid-column: 1 / -1;
+}
+
+.knowledge-description-field textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 10px 12px;
+  resize: vertical;
+  border: 1px solid rgba(41, 35, 48, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  color: inherit;
+  font: inherit;
+  line-height: 1.5;
+}
+
+.knowledge-description-field small {
+  color: var(--muted-ink, #716977);
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.knowledge-base-description {
+  margin: -4px 0 14px;
+  padding: 10px 12px;
+  border-left: 3px solid rgba(95, 77, 127, 0.38);
+  border-radius: 0 8px 8px 0;
+  background: rgba(95, 77, 127, 0.06);
+  color: var(--muted-ink, #716977);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
 .knowledge-layout {
   display: grid;
   grid-template-columns: minmax(260px, 0.8fr) minmax(340px, 1.2fr);
