@@ -60,6 +60,7 @@ class PublicUrlGuard:
         if hostname == "localhost" or hostname.endswith(".localhost"):
             raise PublicUrlRejected("Localhost URLs are not allowed.")
 
+        addresses: tuple[str, ...]
         try:
             ipaddress.ip_address(hostname)
             addresses = (hostname,)
