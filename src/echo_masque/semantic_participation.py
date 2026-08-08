@@ -95,7 +95,7 @@ class FastEmbedSemanticEncoder:
     def _embed(self, text: str, prefix: str) -> list[float]:
         model = self._load_model()
         try:
-            embed = getattr(model, "embed")
+            embed = getattr(model, "embed")  # noqa: B009
             values = list(embed([f"{prefix}: {text}"]))
             if not values:
                 raise ValueError("Embedding model returned no vector.")
@@ -133,7 +133,8 @@ def _deserialize_vector(value: bytes, dimension: int) -> list[float]:
     expected = dimension * 4
     if len(value) != expected:
         raise ValueError(
-            f"Stored embedding has {len(value)} bytes; expected {expected} for {dimension} dimensions."
+            "Stored embedding has "
+            f"{len(value)} bytes; expected {expected} for {dimension} dimensions."
         )
     return list(struct.unpack(f"<{dimension}f", value))
 
