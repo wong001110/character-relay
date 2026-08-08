@@ -59,6 +59,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 "src/echo_masque/targets/deterministic.py" = ["RUF001"]
 "src/echo_masque/template_sharing.py" = ["E501", "RUF001"]
 "src/echo_masque/testers/adaptive.py" = ["RUF001"]
+"src/echo_masque/tool_external.py" = ["RUF012"]
 "src/echo_masque/transcripts/importer.py" = ["RUF001"]
 "src/echo_masque/trials/runner.py" = ["RUF001"]
 "tests/test_phase12.py" = ["RUF001"]
@@ -79,3 +80,7 @@ disable_error_code = ["attr-defined"]
 [[tool.mypy.overrides]]
 module = "echo_masque.template_sharing"
 disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "echo_masque.tool_external"
+disable_error_code = ["assignment", "arg-type"]

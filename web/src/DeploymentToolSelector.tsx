@@ -8,12 +8,17 @@ interface Props {
   zh: boolean;
 }
 
+type ToolCatalogItemWithAvailability = ToolCatalogItem & {
+  available?: boolean;
+  availability_reason?: string;
+};
+
 export function DeploymentToolSelector({
   deploymentId,
   disabled = false,
   zh
 }: Props) {
-  const [catalog, setCatalog] = useState<ToolCatalogItem[]>([]);
+  const [catalog, setCatalog] = useState<ToolCatalogItemWithAvailability[]>([]);
   const [enabled, setEnabled] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -82,22 +87,38 @@ export function DeploymentToolSelector({
         <small>{zh ? "目前没有可分配工具。" : "No assignable tools are available."}</small>
       ) : (
         <div className="deployment-tool-grid">
-          {catalog.map((tool) => (
-            <label className="deployment-tool-option" key={tool.id}>
-              <input
-                type="checkbox"
-                checked={enabled.has(tool.id)}
-                disabled={disabled || saving}
-                onChange={() => void toggle(tool.id)}
-              />
-              <span>
-                <strong>{tool.display_name}</strong>
-                <small>{tool.id}</small>
-                <small>{tool.description}</small>
-              </span>
-              <em>{tool.operation} · {tool.risk}</em>
-            </label>
-          ))}
+          {catalog.map((tool) => {
+            const unavailable = tool.available === false;
+            const isEnabled = enabled.has(tool.id);
+            return (
+              <label
+                className={`deployment-tool-option${unavailable ? " is-unavailable" : ""}`}
+                key={tool.id}
+              >
+                <input
+                  type="checkbox"
+                  checked={isEnabled}
+                  disabled={disabled || saving || (unavailable && !isEnabled)}
+                  onChange={() => void toggle(tool.id)}
+                />
+                <span>
+                  <strong>{tool.display_name}</strong>
+                  <small>{tool.id}</small>
+                  <small>{tool.description}</small>
+                  {unavailable && tool.availability_reason && (
+                    <small className="deployment-inline-error">
+                      {zh ? "尚未配置：" : "Unavailable: "}
+                      {tool.availability_reason}
+                    </small>
+                  )}
+                </span>
+                <em>
+                  {tool.operation} · {tool.risk}
+                  {unavailable ? ` · ${zh ? "不可用" : "unavailable"}` : ""}
+                </em>
+              </label>
+            );
+          })}
         </div>
       )}
     </section>

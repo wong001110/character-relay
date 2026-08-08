@@ -163,6 +163,11 @@ class DiscordConnectorRuntime:
                         deployment_id=deployment.id,
                         character_card_id=card.id,
                         platform=deployment.platform,
+                        guild_id=payload.guild_id,
+                        channel_id=payload.channel_id,
+                        thread_id=payload.thread_id,
+                        trigger_text=payload.text,
+                        initiator_is_bot=payload.author_is_bot,
                     ),
                     max_tool_rounds=2,
                 )
