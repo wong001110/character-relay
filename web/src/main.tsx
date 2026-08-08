@@ -5,6 +5,7 @@ import "./discordEventLog.css";
 import "./discordServerProfiles.css";
 import "./interactionSessions.css";
 import "./smartParticipation.css";
+import "./toolCalling.css";
 import { I18nProvider } from "./i18n";
 
 createRoot(document.getElementById("root")!).render(
