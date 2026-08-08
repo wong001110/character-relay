@@ -15,6 +15,28 @@ export type DeploymentStatus =
   | "disconnected";
 export type ChannelScopeMode = "exact" | "all_except";
 export type DiscordConnectorLogLevel = "info" | "warning" | "error";
+export type ToolOperation = "read" | "write" | "coordination";
+export type ToolRisk = "low" | "medium" | "high";
+
+export interface ToolCatalogItem {
+  id: string;
+  display_name: string;
+  description: string;
+  category: string;
+  operation: ToolOperation;
+  risk: ToolRisk;
+  side_effect: boolean;
+  provider_function_name: string;
+}
+
+export interface ToolCatalogView {
+  items: ToolCatalogItem[];
+}
+
+export interface DeploymentToolProfile {
+  deployment_id: string;
+  enabled_tools: string[];
+}
 
 export interface PlatformConnection {
   id: string;
@@ -332,5 +354,18 @@ export const deploymentApi = {
       body: JSON.stringify({ status, last_error: lastError })
     }),
   deleteDeployment: (deploymentId: string) =>
-    request<void>(`/api/deployments/${deploymentId}`, { method: "DELETE" })
+    request<void>(`/api/deployments/${deploymentId}`, { method: "DELETE" }),
+  listToolCatalog: () => request<ToolCatalogView>("/api/tools/catalog"),
+  getDeploymentTools: (deploymentId: string) =>
+    request<DeploymentToolProfile>(
+      `/api/deployments/${encodeURIComponent(deploymentId)}/tools`
+    ),
+  updateDeploymentTools: (deploymentId: string, enabledTools: string[]) =>
+    request<DeploymentToolProfile>(
+      `/api/deployments/${encodeURIComponent(deploymentId)}/tools`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ enabled_tools: enabledTools })
+      }
+    )
 };
