@@ -3,22 +3,20 @@ import { useEffect, useState } from "react";
 import { deploymentApi, type ToolCatalogItem } from "./deploymentApi";
 
 interface Props {
-  deploymentId?: string | null;
-  value: Set<string>;
-  onChange: (value: Set<string>) => void;
+  deploymentId: string;
   disabled?: boolean;
   zh: boolean;
 }
 
 export function DeploymentToolSelector({
   deploymentId,
-  value,
-  onChange,
   disabled = false,
   zh
 }: Props) {
   const [catalog, setCatalog] = useState<ToolCatalogItem[]>([]);
+  const [enabled, setEnabled] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -27,12 +25,12 @@ export function DeploymentToolSelector({
     setError("");
     Promise.all([
       deploymentApi.listToolCatalog(),
-      deploymentId ? deploymentApi.getDeploymentTools(deploymentId) : Promise.resolve(null)
+      deploymentApi.getDeploymentTools(deploymentId)
     ])
       .then(([nextCatalog, profile]) => {
         if (!active) return;
         setCatalog(nextCatalog.items);
-        if (profile) onChange(new Set(profile.enabled_tools));
+        setEnabled(new Set(profile.enabled_tools));
       })
       .catch((reason: unknown) => {
         if (!active) return;
@@ -46,11 +44,24 @@ export function DeploymentToolSelector({
     };
   }, [deploymentId]);
 
-  function toggle(toolId: string) {
-    const next = new Set(value);
+  async function toggle(toolId: string) {
+    if (saving || disabled) return;
+    const previous = enabled;
+    const next = new Set(enabled);
     if (next.has(toolId)) next.delete(toolId);
     else next.add(toolId);
-    onChange(next);
+    setEnabled(next);
+    try {
+      setSaving(true);
+      setError("");
+      const saved = await deploymentApi.updateDeploymentTools(deploymentId, [...next]);
+      setEnabled(new Set(saved.enabled_tools));
+    } catch (reason) {
+      setEnabled(previous);
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -59,8 +70,8 @@ export function DeploymentToolSelector({
         <strong>{zh ? "角色工具 / Tool Calling" : "Character tools / Tool Calling"}</strong>
         <span>
           {zh
-            ? "只把勾选的工具提供给这个 Deployment 的角色。不同 Deployment 可以分配不同能力；目前不使用 embedding 做 Tool Retrieval。"
-            : "Only checked tools are exposed to this Deployment. The same Character Card may receive different capabilities elsewhere; Tool Retrieval does not use embeddings yet."}
+            ? "只把勾选的工具提供给这个 Deployment 的角色。不同 Deployment 可以分配不同能力；目前不使用 embedding 做 Tool Retrieval。勾选后会立即保存。"
+            : "Only checked tools are exposed to this Deployment. The same Character Card may receive different capabilities elsewhere; Tool Retrieval does not use embeddings yet. Changes save immediately."}
         </span>
       </div>
       {loading ? (
@@ -75,9 +86,9 @@ export function DeploymentToolSelector({
             <label className="deployment-tool-option" key={tool.id}>
               <input
                 type="checkbox"
-                checked={value.has(tool.id)}
-                disabled={disabled}
-                onChange={() => toggle(tool.id)}
+                checked={enabled.has(tool.id)}
+                disabled={disabled || saving}
+                onChange={() => void toggle(tool.id)}
               />
               <span>
                 <strong>{tool.display_name}</strong>
