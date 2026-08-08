@@ -61,8 +61,8 @@ class FastEmbedSemanticEncoder:
             if self._model is not None:
                 return self._model
             try:
-                from fastembed import TextEmbedding  # type: ignore[import-untyped]
-                from fastembed.common.model_description import (  # type: ignore[import-untyped]
+                from fastembed import TextEmbedding
+                from fastembed.common.model_description import (
                     ModelSource,
                     PoolingType,
                 )
