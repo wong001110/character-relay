@@ -192,6 +192,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         expression_repository,
         smart_participation_repository,
         knowledge_repository,
+        deployment_tool_repository,
     )
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
