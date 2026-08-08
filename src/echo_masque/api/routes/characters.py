@@ -35,6 +35,7 @@ from echo_masque.persistence import MatrixRepository, Repository, TargetAccessRe
 from echo_masque.persistence.models import CharacterCardRecord
 from echo_masque.providers import ProviderError
 from echo_masque.security_controls import QuotaExceeded
+from echo_masque.semantic_participation import CharacterParticipationSemanticService
 from echo_masque.targets import PromptModelConfig
 
 router = APIRouter(prefix="/api/characters", tags=["characters"])
@@ -61,6 +62,22 @@ def credential_source(request: Request) -> Literal["vault", "memory"]:
 
 def target_access(request: Request) -> TargetAccessRepository:
     return cast(TargetAccessRepository, request.app.state.target_access_repository)
+
+
+def semantic_participation_service(request: Request) -> CharacterParticipationSemanticService:
+    return cast(
+        CharacterParticipationSemanticService,
+        request.app.state.semantic_participation_service,
+    )
+
+
+def _refresh_semantic_profile(request: Request, owner_id: str, card_id: str) -> None:
+    """Generate or refresh the cached Character Card vector without blocking card persistence."""
+
+    semantic_participation_service(request).refresh_character(
+        owner_id=owner_id,
+        character_card_id=card_id,
+    )
 
 
 def _enforce_create_quota(request: Request, owner_id: str) -> None:
@@ -230,6 +247,7 @@ def create_character(
         payload=payload,
     )
     matrix_repository(request).capture_prompt_version(user.id, card.id)
+    _refresh_semantic_profile(request, user.id, card.id)
     return card
 
 
@@ -273,6 +291,7 @@ def create_prompt_character(
         repo.delete_target(target.id)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     matrix_repository(request).capture_prompt_version(user.id, card.id, label="Initial")
+    _refresh_semantic_profile(request, user.id, card.id)
     return card
 
 
@@ -320,6 +339,7 @@ def update_character(
     )
     if prompt_changed:
         matrix_repository(request).capture_prompt_version(user.id, card_id)
+    _refresh_semantic_profile(request, user.id, card_id)
     return updated
 
 
