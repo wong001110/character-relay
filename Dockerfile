@@ -8,6 +8,7 @@ RUN npm run build
 FROM python:3.12-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     ECHO_MASQUE_ENVIRONMENT=production \
     ECHO_MASQUE_DEBUG=false \
     ECHO_MASQUE_PUBLIC_DEMO_ENABLED=true \
@@ -17,7 +18,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
-RUN python -m pip install --no-cache-dir .
+RUN python -m pip install --no-cache-dir . \
+    && python -m playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=web /app/web/dist ./web/dist
 RUN mkdir -p /data
 EXPOSE 8000
