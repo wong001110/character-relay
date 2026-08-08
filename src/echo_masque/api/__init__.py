@@ -80,7 +80,7 @@ from echo_masque.semantic_participation import CharacterParticipationSemanticSer
 from echo_masque.services import MatrixService, RuntimeService, TrialService
 from echo_masque.smart_participation_generation import SmartParticipationGenerationService
 from echo_masque.template_sharing import EvaluationTemplateService
-from echo_masque.tool_runtime import default_tool_registry
+from echo_masque.tool_runtime import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     repository = Repository(database)
     deployment_repository = DeploymentRepository(database)
     deployment_tool_repository = DeploymentToolRepository(database)
-    tool_registry = default_tool_registry()
+    tool_registry = ToolRegistry(
+        brave_search_api_key=resolved.brave_search_api_key,
+        discord_bot_token=resolved.discord_tool_bot_token,
+    )
     discord_identity_repository = DiscordIdentityRepository(database)
     interaction_repository = InteractionRepository(database)
     expression_repository = ExpressionRepository(database)
