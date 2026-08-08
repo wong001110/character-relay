@@ -7,7 +7,7 @@ import os
 import re
 from collections.abc import Callable
 
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from echo_masque.api.connector_schemas import (
     DiscordConnectorReplyView,
@@ -38,6 +38,7 @@ from echo_masque.targets import PromptModelConfig, PromptModelTarget, fragile_ta
 from echo_masque.targets.base import TargetAdapter
 from echo_masque.tool_runtime import (
     ToolExecutionContext,
+    ToolExecutionTrace,
     ToolRegistry,
     default_tool_registry,
 )
@@ -174,6 +175,7 @@ class DiscordConnectorRuntime:
             )
             raise
 
+        tool_traces = self._tool_traces(response.trace)
         final_response = response
         smart_output, smart_reason = smart_context.parse_and_resolve(
             response.text.strip(),
@@ -228,6 +230,7 @@ class DiscordConnectorRuntime:
                 expression=expression,
                 smart_output=smart_output,
                 context_trace=turn_context.trace if turn_context is not None else None,
+                tool_calls=tool_traces,
             )
 
         self.deployment_repository.record_deployment_activity(deployment.id)
@@ -244,7 +247,21 @@ class DiscordConnectorRuntime:
             expression=expression,
             smart_output=smart_output,
             context_trace=turn_context.trace if turn_context is not None else None,
+            tool_calls=tool_traces,
         )
+
+    @staticmethod
+    def _tool_traces(trace: dict[str, object]) -> list[ToolExecutionTrace]:
+        raw = trace.get("tool_calls", [])
+        if not isinstance(raw, list):
+            return []
+        results: list[ToolExecutionTrace] = []
+        for item in raw[:8]:
+            try:
+                results.append(ToolExecutionTrace.model_validate(item))
+            except ValidationError:
+                continue
+        return results
 
     @staticmethod
     def _parse_expression_decision(
