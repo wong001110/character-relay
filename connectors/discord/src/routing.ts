@@ -388,7 +388,7 @@ export function resolveAudience(
   }
 
   const only = candidates[0];
-  if (candidates.length === 1 && only && only.participation_mode !== "smart") {
+  if (candidates.length === 1 && only) {
     return {
       deployments: [only],
       text: text.trim(),
