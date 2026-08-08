@@ -25,10 +25,23 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Apply connector trace and docs updates
+      - name: Apply trace, docs, and lint-safe updates
         run: |
           python - <<'PY'
           from pathlib import Path
+
+          context_path = Path('src/echo_masque/context_layer.py')
+          context = context_path.read_text()
+          long_line = '        fallback_hit_count = len(result.candidates) if retrieval_mode == "contextual_fallback" else 0'
+          wrapped = '''        fallback_hit_count = (
+            len(result.candidates) if retrieval_mode == "contextual_fallback" else 0
+        )'''
+          if long_line in context:
+              context_path.write_text(context.replace(long_line, wrapped, 1))
+
+          tests_path = Path('tests/test_context_rag.py')
+          tests = tests_path.read_text()
+          tests_path.write_text(tests.replace('？', '?'))
 
           types_path = Path('connectors/discord/src/types.ts')
           types = types_path.read_text()
