@@ -204,7 +204,10 @@ class ToolRegistry:
                             "properties": {
                                 "expression": {
                                     "type": "string",
-                                    "description": "Arithmetic expression, for example (8 * 0.27) + 2.",
+                                    "description": (
+                                        "Arithmetic expression, for example "
+                                        "(8 * 0.27) + 2."
+                                    ),
                                 }
                             },
                             "required": ["expression"],
