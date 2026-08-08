@@ -139,6 +139,26 @@ export interface DiscordSmartOutput {
   sticker_resource_key: string | null;
 }
 
+export interface DiscordContextTraceItem {
+  knowledge_base_id: string;
+  document_id: string;
+  document_title: string;
+  chunk_index: number;
+  score: number;
+}
+
+export interface DiscordContextTrace {
+  rag_status: "skipped" | "completed" | "failed";
+  rag_reason: string;
+  query_chars: number;
+  eligible_base_count: number;
+  candidate_chunk_count: number;
+  selected_chunk_count: number;
+  selected_knowledge_tokens: number;
+  knowledge_token_budget: number;
+  selected: DiscordContextTraceItem[];
+}
+
 export interface DiscordExpressionResolveRequest {
   guild_id: string;
   resource_type: "emoji" | "sticker";
@@ -276,6 +296,7 @@ export interface DiscordReply {
   output_tokens?: number | null;
   expression: DiscordExpressionDecision;
   smart_output?: DiscordSmartOutput | null;
+  context_trace?: DiscordContextTrace | null;
 }
 
 export type DiscordConnectorEventLevel = "info" | "warning" | "error";

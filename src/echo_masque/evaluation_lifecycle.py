@@ -14,6 +14,7 @@ from echo_masque.persistence import (
     EvaluationRepository,
     ExpressionRepository,
     InteractionRepository,
+    KnowledgeRepository,
     SmartParticipationRepository,
 )
 
@@ -31,6 +32,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         interaction_repository: InteractionRepository | None = None,
         expression_repository: ExpressionRepository | None = None,
         smart_participation_repository: SmartParticipationRepository | None = None,
+        knowledge_repository: KnowledgeRepository | None = None,
     ) -> None:
         super().__init__(
             database,
@@ -48,12 +50,14 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         self.smart_participation_repository = (
             smart_participation_repository or SmartParticipationRepository(database)
         )
+        self.knowledge_repository = knowledge_repository or KnowledgeRepository(database)
 
     def delete_account(self, user_id: str, *, email: str) -> dict[str, int]:
         evaluation_counts = self.evaluation_repository.delete_owner(user_id)
         interaction_counts = self.interaction_repository.delete_owner(user_id)
         expression_counts = self.expression_repository.delete_owner(user_id)
         smart_counts = self.smart_participation_repository.delete_owner(user_id)
+        knowledge_counts = self.knowledge_repository.delete_owner(user_id)
         identity_counts = self.discord_identity_repository.delete_owner(user_id)
         deployment_counts = self.deployment_repository.delete_owner(user_id)
         deleted = super().delete_account(user_id, email=email)
@@ -63,6 +67,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             **interaction_counts,
             **expression_counts,
             **smart_counts,
+            **knowledge_counts,
             **identity_counts,
             **deployment_counts,
         }
@@ -99,6 +104,10 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "local-user",
             actor_user_id,
         )
+        knowledge_counts = self.knowledge_repository.claim_owner(
+            "local-user",
+            actor_user_id,
+        )
         combined = {
             **base_counts,
             **evaluation_counts,
@@ -107,6 +116,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             **interaction_counts,
             **expression_counts,
             **smart_counts,
+            **knowledge_counts,
         }
         if sum(combined.values()) == 0:
             if base_error is not None:
@@ -136,5 +146,13 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
                 resource_type="workspace",
                 resource_id=actor_user_id,
                 metadata=cast(dict[str, object], identity_counts),
+            )
+        if sum(knowledge_counts.values()) > 0:
+            self.auth_repository.audit(
+                actor_user_id=actor_user_id,
+                action="workspace.knowledge_local_claimed",
+                resource_type="workspace",
+                resource_id=actor_user_id,
+                metadata=cast(dict[str, object], knowledge_counts),
             )
         return combined

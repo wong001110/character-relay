@@ -11,6 +11,7 @@ from echo_masque.api.expression_schemas import (
     ExpressionContent,
     ExpressionDecision,
 )
+from echo_masque.context_layer import CharacterContextTraceView
 from echo_masque.smart_output import (
     DiscordActionParticipant,
     DiscordSmartOutputView,
@@ -297,3 +298,4 @@ class DiscordConnectorReplyView(BaseModel):
     output_tokens: int | None = None
     expression: ExpressionDecision = Field(default_factory=ExpressionDecision)
     smart_output: DiscordSmartOutputView | None = None
+    context_trace: CharacterContextTraceView | None = None

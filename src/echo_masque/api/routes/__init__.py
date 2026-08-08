@@ -18,6 +18,7 @@ from echo_masque.api.routes.discord_identities import router as discord_identiti
 from echo_masque.api.routes.evaluations import router as evaluations_router
 from echo_masque.api.routes.health import router as health_router
 from echo_masque.api.routes.interactions import router as interactions_router
+from echo_masque.api.routes.knowledge import router as knowledge_router
 from echo_masque.api.routes.matrices import router as matrices_router
 from echo_masque.api.routes.prompt_inspector import router as prompt_inspector_router
 from echo_masque.api.routes.provider_traces import router as provider_traces_router
@@ -46,6 +47,7 @@ __all__ = [
     "evaluations_router",
     "health_router",
     "interactions_router",
+    "knowledge_router",
     "matrices_router",
     "prompt_inspector_router",
     "provider_traces_router",

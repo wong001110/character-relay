@@ -57,6 +57,15 @@ from echo_masque.persistence.interaction_repository import (
     InteractionConflict,
     InteractionRepository,
 )
+from echo_masque.persistence.knowledge_models import (
+    KnowledgeBaseRecord,
+    KnowledgeChunkRecord,
+    KnowledgeDocumentRecord,
+)
+from echo_masque.persistence.knowledge_repository import (
+    KnowledgeRepository,
+    KnowledgeRetrievalResult,
+)
 from echo_masque.persistence.matrix_repository import MatrixRepository
 from echo_masque.persistence.portable_calibration_repository import (
     PortableCalibrationRepository,
@@ -124,6 +133,11 @@ __all__ = [
     "InteractionRepository",
     "JudgeEvaluationRecord",
     "JudgePredictionRecord",
+    "KnowledgeBaseRecord",
+    "KnowledgeChunkRecord",
+    "KnowledgeDocumentRecord",
+    "KnowledgeRepository",
+    "KnowledgeRetrievalResult",
     "MatrixRepository",
     "PlatformConnectionRecord",
     "PortableCalibrationRepository",

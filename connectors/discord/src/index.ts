@@ -45,6 +45,7 @@ import type {
   DiscordActionParticipant,
   DiscordCatalogServer,
   DiscordContextMessage,
+  DiscordContextTrace,
   DiscordDeployment,
   DiscordExpressionCandidate,
   DiscordExpressionContent,
@@ -194,6 +195,56 @@ function reportDiscordEvent(input: {
     sourceMessageId: input.sourceMessageId ?? null,
     deploymentId: input.deploymentId || null,
     pendingPortalLogs: eventReporter.pendingCount
+  });
+}
+
+function reportCharacterContext(input: {
+  trace: DiscordContextTrace | null | undefined;
+  source: Message<true>;
+  deployment: DiscordDeployment;
+}): void {
+  const trace = input.trace;
+  if (!trace) return;
+  const common = {
+    guildId: input.source.guildId,
+    guildName: input.source.guild.name,
+    channelId: input.deployment.channel_id,
+    channelName: input.deployment.channel_name,
+    threadId: input.deployment.thread_id,
+    threadName: input.deployment.thread_name,
+    sourceMessageId: input.source.id,
+    deploymentId: input.deployment.deployment_id,
+    characterName: input.deployment.identity_display_name || input.deployment.character_display_name
+  };
+  const details = {
+    rag_status: trace.rag_status,
+    rag_reason: trace.rag_reason,
+    query_chars: trace.query_chars,
+    eligible_base_count: trace.eligible_base_count,
+    candidate_chunk_count: trace.candidate_chunk_count,
+    selected_chunk_count: trace.selected_chunk_count,
+    selected_knowledge_tokens: trace.selected_knowledge_tokens,
+    knowledge_token_budget: trace.knowledge_token_budget,
+    selected: trace.selected
+  };
+  reportDiscordEvent({
+    level: trace.rag_status === "failed" ? "warning" : "info",
+    eventType: "context_built",
+    message: "Character Turn Context was assembled before Smart Output.",
+    ...common,
+    details
+  });
+  reportDiscordEvent({
+    level: trace.rag_status === "failed" ? "warning" : "info",
+    eventType: `rag_retrieval_${trace.rag_status}`,
+    message:
+      trace.rag_status === "completed"
+        ? "RAG retrieval completed for this character turn."
+        : trace.rag_status === "failed"
+          ? "RAG retrieval failed; Character Runtime continued without knowledge context."
+          : "RAG retrieval was skipped for this character turn.",
+    ...common,
+    details
   });
 }
 
@@ -2019,6 +2070,11 @@ reportDiscordEvent({
           .map(deploymentAddressAlias),
         mentionable_participants: mentionableParticipants,
         recent_messages: recentMessages
+      });
+      reportCharacterContext({
+        trace: reply.context_trace,
+        source: guildMessage,
+        deployment
       });
       if (preparedExpression.retrieval) {
         await reportExpressionNode(preparedExpression.retrieval.run_id, {

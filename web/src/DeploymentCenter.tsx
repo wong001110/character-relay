@@ -25,6 +25,7 @@ import { PaperDrawer, PaperModal } from "./NotebookUI";
 import { Pagination } from "./Pagination";
 import { useI18n } from "./i18n";
 import { InteractionSessionsPanel } from "./InteractionSessionsPanel";
+import { KnowledgeBasePanel } from "./KnowledgeBasePanel";
 import { SmartParticipationStudio } from "./SmartParticipationStudio";
 
 interface Props {
@@ -623,6 +624,14 @@ export function DeploymentCenter({
         onChanged={load}
         onError={(message) => setError(message || null)}
         onOpenLogs={() => setEventLogOpen(true)}
+      />
+
+      <KnowledgeBasePanel
+        profile={selectedWorkspaceProfile}
+        catalog={selectedWorkspaceCatalog}
+        cards={cards}
+        demoMode={demoMode}
+        zh={zh}
       />
 
       <section className="deployment-summary-grid">

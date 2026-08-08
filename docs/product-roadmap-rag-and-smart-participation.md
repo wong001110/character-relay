@@ -1,6 +1,6 @@
 # Character Relay Runtime Roadmap
 
-This document records the current runtime boundaries for Discord Smart Participation, Smart Output, future RAG / Vector Memory, LangChain, and Tool Calling. The goal is to keep character behavior flexible without turning the whole Discord connector into an LLM-controlled agent.
+This document records the current runtime boundaries for Discord Smart Participation, Smart Output, Context/RAG, future Vector Memory, LangChain, and Tool Calling. The goal is to keep character behavior flexible without turning the whole Discord connector into an LLM-controlled agent.
 
 ## 1. Runtime boundaries
 
@@ -8,7 +8,7 @@ Character Relay keeps these concerns separate:
 
 1. **Routing** — resolve explicit Discord addressing, Reply, Server/Channel scope, and active deployments.
 2. **Smart Participation** — decide whether an unaddressed message should give any character a turn, and which character receives that turn.
-3. **Context** — collect recent conversation, Expression candidates, active participants, and later RAG / Vector Memory / relationship context.
+3. **Context** — collect recent conversation, Smart Output references, Expression candidates, active participants, scoped RAG knowledge, and later Vector Memory / relationship context.
 4. **Smart Output** — let the selected character choose one natural social action.
 5. **Execution** — validate references, resources, permissions, self-Mention rules, chain limits, rate limits, and Discord delivery.
 6. **RAG Evaluation** — evaluate an external customer's AI/RAG API against customer-authored expected results; this remains separate from deployed character runtime.
@@ -110,53 +110,71 @@ Deterministic routing
 
 A second character-model call occurs only for invalid structured-output regeneration, an explicitly triggered character turn, or later Tool Calling that genuinely requires another model round.
 
-## 4. Next: Context Layer, RAG, and Vector Memory
+## 4. Production Context Layer + RAG V1
 
-With Smart Participation and Smart Output boundaries established, the next runtime milestone is a formal Context Layer.
+A formal `CharacterTurnContext` now sits between admitted character turns and Smart Output generation.
 
-A future `CharacterTurnContext` / Context Orchestrator should combine bounded providers such as:
+The current Context Layer combines:
 
-- recent Discord conversation;
-- character card and runtime profile;
-- Expression Retrieval;
-- active participants;
-- RAG knowledge retrieval;
-- Vector Memory;
-- user/character relationship memory;
-- Server/channel knowledge;
-- future Tool results.
+- the existing Smart Output message/participant/expression references;
+- recent Discord conversation already supplied by the Connector;
+- scoped RAG knowledge retrieval;
+- a bounded knowledge-context budget;
+- privacy-safe Context/RAG observability.
 
-Smart Output should not need to know whether context came from SQL, a vector store, LangChain retriever, or another provider.
+Smart Output does not need to know whether knowledge came from SQL sparse retrieval or a future vector-backed provider.
 
-### 4.1 Initial RAG shape
+See `docs/context-rag-v1.md` for the V1 storage, retrieval, scope, security, API, Portal, and observability contracts.
 
-Start with predictable two-step RAG:
+### 4.1 Two-step RAG V1
+
+Production RAG starts with the predictable two-step shape:
 
 ```text
 turn/query context
-→ retrieve and rank Top-K
-→ budget context
+→ deterministic scoped retrieval + Top-K ranking
+→ context budget
 → one Character LLM / Smart Output call
 ```
 
-Do not start with an autonomous Agentic RAG loop.
+RAG V1 is SQL-backed sparse retrieval and does not use an LLM Judge, query-rewrite model, embedding provider, Vector DB, or Agentic RAG loop.
 
-### 4.2 Vector storage and isolation
+Users can create owner-scoped Knowledge Bases, add plain-text documents, and inspect retrieval through the Deployment Center RAG Retrieval Playground before testing the same knowledge through Discord.
 
-Persistent retrieval must be scoped by metadata such as:
+### 4.2 Scope and isolation
 
-- owner/workspace;
-- Discord connection;
-- Guild/Server;
-- Channel/Thread;
-- Deployment;
-- Character / character version;
-- User or relationship scope;
-- memory/knowledge type.
+Knowledge retrieval supports explicit account-global, Server, and Channel/Thread scope plus an optional Character Card filter.
 
-The same Character Card deployed to Server A and Server B must not silently merge private Server memories.
+The same Character Card deployed to Server A and Server B does not silently merge Server-scoped knowledge. Account-global sharing must be configured explicitly.
 
-A likely storage evolution is:
+RAG retrieval failure is fail-open for character availability: Character Relay records the failure and continues the turn without retrieved knowledge.
+
+### 4.3 Current retrieval observability
+
+Discord logs can record:
+
+- `context_built`;
+- `rag_retrieval_completed`;
+- `rag_retrieval_skipped`;
+- `rag_retrieval_failed`.
+
+The log trace stores metadata/counts/scores rather than retrieved chunk content.
+
+## 5. Next: Vector Memory and vector-backed retrieval
+
+The next retrieval milestone is persistent Vector Memory / Vector DB after RAG V1 behavior is measured in live usage.
+
+Persistent memory will require stricter semantics than knowledge RAG, including:
+
+- what conversation events deserve memory;
+- user/character relationship scope;
+- Server/Channel privacy boundaries;
+- memory confidence and provenance;
+- consolidation and deduplication;
+- correction/deletion;
+- forgetting/retention policy.
+
+A likely storage evolution remains:
 
 ```text
 current SQL storage
@@ -164,15 +182,15 @@ current SQL storage
 → PostgreSQL + pgvector or another justified Vector DB
 ```
 
-The exact Vector DB should be selected after retrieval requirements and deployment constraints are measured rather than chosen only for architecture fashion.
+The exact Vector DB and embedding model should be selected after retrieval requirements, corpus size, latency, deployment constraints, and RAG V1 quality data are measured rather than chosen only for architecture fashion.
 
-### 4.3 LangChain
+## 6. Future LangChain
 
-LangChain is future implementation infrastructure, not a required runtime authority.
+LangChain remains future implementation infrastructure, not a required runtime authority.
 
 It may be introduced for retrievers, context composition, evaluation utilities, and later Tool Calling orchestration when it reduces implementation complexity. Routing, Smart Participation, Discord execution, permissions, and resource validation stay owned by Character Relay.
 
-## 5. Future Local Participation Judge — reserved architecture
+## 7. Future Local Participation Judge — reserved architecture
 
 A Local LLM Judge is not implemented now. Smart Participation remains compatible with a replaceable Judge without depending on one.
 
@@ -197,9 +215,9 @@ Local Judge failure
 
 The bot should degrade in selection quality rather than stop functioning. No cloud Judge fallback should be enabled implicitly.
 
-## 6. Future Tool Calling
+## 8. Future Tool Calling
 
-Tool Calling remains in future scope after Context/RAG foundations.
+Tool Calling remains in future scope after Context/RAG/Memory foundations.
 
 Examples include:
 
@@ -214,35 +232,38 @@ Tool availability must be filtered by character, workspace, server, user authori
 
 **MCP is not currently in the Character Relay roadmap.** Current planning assumes direct Tool Calling integrations.
 
-## 7. External RAG Evaluation direction
+## 9. External RAG Evaluation direction
 
 External RAG Evaluation stays API-first and separate from Character Relay's own memory runtime. Customers can provide an endpoint, authentication mapping, request/response mapping, expected answers, accepted sources, required/forbidden phrases, and optional retrieved evidence.
 
 Both black-box answer evaluation and later white-box retrieval/source evaluation remain valid product directions.
 
-## 8. Delivery sequence
+## 10. Delivery sequence
 
-### Production / current milestone
+### Production / completed foundation
 
 1. Deterministic Smart Participation and Portal Participation Profiles. ✅
 2. Server/channel routing, explicit Mention/Reply, cooldowns, and rate limits. ✅
 3. Expression Retrieval with available/enabled/action filtering and bounded Top-K candidates. ✅
 4. Smart Participation V2 lightweight follow-up and admission-based accounting. ✅
 5. Automatic untagged Primary → Secondary follow-up disabled by default. ✅
-6. Smart Output V1 structured action schema. **Current implementation milestone.**
-7. Structured Mention/custom-Emoji references, optional reply targets, atomic runtime validation, and unique-participant bot-chain guard. **Current implementation milestone.**
+6. Smart Output V1 structured action schema. ✅
+7. Structured Mention/custom-Emoji references, optional reply targets, atomic runtime validation, and unique-participant bot-chain guard. ✅
+8. Formal `CharacterTurnContext` / Context Orchestrator boundary. ✅
+9. Two-step RAG V1 using scoped SQL-backed sparse Top-K retrieval. ✅
+10. Knowledge Base Portal, Retrieval Playground, context budgeting, and RAG observability. ✅
 
 ### Next
 
-8. Formal `CharacterTurnContext` / Context Provider abstraction.
-9. Two-step RAG MVP using bounded Top-K retrieval.
-10. Persistent Vector Memory with strict Server/account/character/user scoping.
-11. Retrieval evaluation, context budgeting, and observability.
-12. Introduce LangChain components only where they simplify the above contracts.
+11. Measure RAG V1 retrieval quality, latency, corpus size, and real Discord usage.
+12. Select embedding model and Vector DB based on measured requirements.
+13. Add vector-backed retrieval and persistent Vector Memory with strict Server/account/character/user scoping.
+14. Add memory provenance, correction/deletion, consolidation, deduplication, and retention semantics.
 
 ### Later
 
-13. Evaluation dataset from real Smart Participation decisions.
-14. Optional hybrid Local Participation Judge with deterministic fallback.
-15. Tool Calling with explicit permissions and auditability.
-16. External RAG Evaluation workspace using customer APIs and customer-authored expected results.
+15. Introduce LangChain components only where they simplify stable Context/RAG/Tool contracts.
+16. Build an evaluation dataset from real Smart Participation and retrieval decisions.
+17. Optional hybrid Local Participation Judge with deterministic fallback.
+18. Tool Calling with explicit permissions and auditability.
+19. External RAG Evaluation workspace using customer APIs and customer-authored expected results.
