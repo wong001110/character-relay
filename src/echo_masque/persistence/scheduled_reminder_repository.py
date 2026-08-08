@@ -27,31 +27,29 @@ class ScheduledReminderRepository:
         *,
         owner_id: str,
         deployment_id: str,
-        connection_id: str,
-        platform: str,
         channel_id: str,
         thread_id: str,
         target_user_id: str,
         reminder_text: str,
         scheduled_at: datetime,
     ) -> ScheduledReminderRecord:
-        record = ScheduledReminderRecord(
-            id=str(uuid4()),
-            owner_id=owner_id,
-            deployment_id=deployment_id,
-            connection_id=connection_id,
-            platform=platform,
-            channel_id=channel_id,
-            thread_id=thread_id,
-            target_user_id=target_user_id,
-            reminder_text=reminder_text,
-            scheduled_at=_utc(scheduled_at),
-            status="pending",
-        )
         with self.database.session() as session:
             deployment = session.get(CharacterDeploymentRecord, deployment_id)
             if deployment is None or deployment.owner_id != owner_id:
                 raise KeyError("deployment")
+            record = ScheduledReminderRecord(
+                id=str(uuid4()),
+                owner_id=owner_id,
+                deployment_id=deployment_id,
+                connection_id=deployment.connection_id,
+                platform=deployment.platform,
+                channel_id=channel_id,
+                thread_id=thread_id,
+                target_user_id=target_user_id,
+                reminder_text=reminder_text,
+                scheduled_at=_utc(scheduled_at),
+                status="pending",
+            )
             session.add(record)
             session.commit()
             session.refresh(record)
