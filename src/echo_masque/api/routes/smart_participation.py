@@ -19,6 +19,7 @@ from echo_masque.api.smart_participation_schemas import (
     SmartParticipationProfileUpdate,
     SmartParticipationProfileView,
     SmartParticipationSemanticCandidateView,
+    SmartParticipationSemanticProfileView,
     SmartParticipationSemanticScoreRequest,
     SmartParticipationSemanticScoreView,
 )
@@ -34,6 +35,7 @@ from echo_masque.providers import ProviderError
 from echo_masque.security_controls import QuotaExceeded
 from echo_masque.semantic_participation import (
     CharacterParticipationSemanticService,
+    CharacterSemanticProfileInspection,
     SemanticEmbeddingUnavailable,
 )
 from echo_masque.smart_participation import ParticipationProfile, evaluate_participation
@@ -122,6 +124,27 @@ def _profile_value(
     )
 
 
+def _semantic_profile_view(
+    inspection: CharacterSemanticProfileInspection,
+    *,
+    rebuilt: bool = False,
+) -> SmartParticipationSemanticProfileView:
+    return SmartParticipationSemanticProfileView(
+        character_card_id=inspection.character_card_id,
+        status=inspection.status,
+        enabled=inspection.enabled,
+        created=inspection.embedding_bytes > 0,
+        model_name=inspection.model_name,
+        dimension=inspection.dimension,
+        embedding_bytes=inspection.embedding_bytes,
+        source_hash=inspection.source_hash,
+        semantic_text=inspection.semantic_text,
+        created_at=inspection.created_at,
+        updated_at=inspection.updated_at,
+        rebuilt=rebuilt,
+    )
+
+
 @router.get(
     "/profiles/{character_card_id}",
     response_model=SmartParticipationProfileView,
@@ -205,6 +228,64 @@ async def generate_profile(
         ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get(
+    "/semantic-profile/{character_card_id}",
+    response_model=SmartParticipationSemanticProfileView,
+)
+def get_semantic_profile(
+    character_card_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+) -> SmartParticipationSemanticProfileView:
+    """Inspect one Character Card semantic profile without running the embedding model."""
+
+    _require_character(request, character_card_id, user.id)
+    inspection = semantic_service(request).inspect_profile(
+        owner_id=user.id,
+        character_card_id=character_card_id,
+    )
+    return _semantic_profile_view(inspection)
+
+
+@router.post(
+    "/semantic-profile/{character_card_id}",
+    response_model=SmartParticipationSemanticProfileView,
+)
+def create_semantic_profile(
+    character_card_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+) -> SmartParticipationSemanticProfileView:
+    """Explicitly create or refresh one Character Card semantic embedding."""
+
+    _require_character(request, character_card_id, user.id)
+    service = semantic_service(request)
+    if not service.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Semantic participation is disabled on this deployment.",
+        )
+    try:
+        _, rebuilt = service.ensure_profile(
+            owner_id=user.id,
+            character_card_id=character_card_id,
+        )
+    except SemanticEmbeddingUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Character Card not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    inspection = service.inspect_profile(
+        owner_id=user.id,
+        character_card_id=character_card_id,
+    )
+    return _semantic_profile_view(inspection, rebuilt=rebuilt)
 
 
 @router.get(

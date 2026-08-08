@@ -19,6 +19,13 @@ ParticipationFeedbackLabel = Literal[
     "should_speak",
     "should_stay_silent",
 ]
+SemanticProfileStatus = Literal[
+    "disabled",
+    "not_created",
+    "ready",
+    "stale",
+    "invalid",
+]
 
 
 class SmartParticipationProfileUpdate(BaseModel):
@@ -71,6 +78,21 @@ class SmartParticipationGeneratedProfile(SmartParticipationProfileUpdate):
     rationale: str = ""
     provider_model: str
     correction_used: bool = False
+
+
+class SmartParticipationSemanticProfileView(BaseModel):
+    character_card_id: str
+    status: SemanticProfileStatus
+    enabled: bool
+    created: bool
+    model_name: str
+    dimension: int
+    embedding_bytes: int
+    source_hash: str
+    semantic_text: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    rebuilt: bool = False
 
 
 class SmartParticipationSemanticScoreRequest(BaseModel):

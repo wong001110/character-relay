@@ -6,7 +6,8 @@ Smart Participation V3 upgrades Character Relay from manual topic/keyword routin
 
 V3 includes:
 
-- Character Card semantic profiles generated after Character Card create/update.
+- Optional Character Card Semantic Profiles backed by multilingual embeddings.
+- A Character Shelf inspector that shows whether a card has an embedding and lets the user create or refresh it without a Deployment.
 - Multilingual semantic relevance for incoming Discord messages.
 - SQLite BLOB storage for cached embedding vectors; no Vector DB is required.
 - Candidate-set admission instead of winner-takes-all routing.
@@ -17,6 +18,26 @@ V3 includes:
 - Fail-open behavior when semantic embedding is disabled or unavailable.
 
 V3 does **not** add long-term Memory, a Vector DB, LangGraph, or a general Character Relationship Graph.
+
+## Optional Semantic Profile lifecycle
+
+Creating a Character Card does not require an embedding. A card can exist, be edited, tested, or organized with no Semantic Profile at all.
+
+Users can open **Semantic Profile** directly from the Character Shelf to inspect one card. The inspector reports:
+
+- status: `not_created`, `ready`, `stale`, `invalid`, or `disabled`;
+- embedding model;
+- vector dimension;
+- persisted vector byte size;
+- source hash;
+- created / updated timestamps;
+- the Character Card identity text used as semantic source.
+
+No raw vector values are exposed to the browser.
+
+A user can explicitly choose **Create Semantic Profile** from that panel. Deployment is not required. After a card has opted in, later edits refresh the persisted profile when its semantic source changes.
+
+Smart semantic runtime also remains self-healing: if a Character Card is later used by a Smart Discord deployment and no Semantic Profile exists yet, the scoring path may lazily create it when semantic relevance is actually needed. This keeps card-only creation lightweight while preserving Smart Participation behavior.
 
 ## Semantic Character Card profile
 
@@ -32,7 +53,7 @@ The Character Card is the semantic source of truth for participation relevance. 
 
 Memory summary and forbidden-behavior text are deliberately excluded from the participation embedding.
 
-On Character Card create/update:
+When a Semantic Profile is explicitly created or first required by Smart semantic scoring:
 
 ```text
 Character Card
@@ -42,7 +63,7 @@ Character Card
   → SQLite character_semantic_profiles
 ```
 
-Each cached record stores the source hash, model name, dimension, semantic text, and vector BLOB. If the semantic source text and model are unchanged, the existing vector is reused. Existing Character Cards are lazily backfilled the first time semantic scoring needs them.
+Each cached record stores the source hash, model name, dimension, semantic text, and vector BLOB. If the semantic source text and model are unchanged, the existing vector is reused.
 
 Production uses `intfloat/multilingual-e5-small` through FastEmbed/ONNX. Query messages are embedded with the E5 `query:` prefix and Character Card profiles with `passage:`.
 
@@ -147,6 +168,8 @@ The deterministic Smart Participation decision log also includes:
 - per-candidate semantic relevance
 - semantic score contribution
 - existing literal/trigger/cooldown signals
+
+For card-only workflows, the Character Shelf **Semantic Profile** inspector is the preferred way to verify persisted embedding state without needing Discord or a Deployment.
 
 ## Configuration
 
