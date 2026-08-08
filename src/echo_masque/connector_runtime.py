@@ -25,6 +25,12 @@ from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.providers import ChatProvider, OpenAICompatibleProvider
 from echo_masque.targets import PromptModelConfig, PromptModelTarget, fragile_target, stable_target
 from echo_masque.targets.base import TargetAdapter
+from echo_masque.smart_output import (
+    DiscordSmartOutputView,
+    SmartOutputContext,
+    expression_decision_for,
+    legacy_message_output,
+)
 
 type ConnectorProviderFactory = Callable[[str, SecretStr], ChatProvider]
 
@@ -101,9 +107,14 @@ class DiscordConnectorRuntime:
             character_card_id=card.id,
             character_profile=CharacterPromptProfile.from_record(card),
         )
+        smart_context = SmartOutputContext.from_payload(
+            payload,
+            character_name=card.display_name,
+        )
         prompt = self._social_prompt(
             character_name=card.display_name,
             payload=payload,
+            smart_context=smart_context,
         )
         try:
             response = await target.send(prompt)
@@ -114,31 +125,75 @@ class DiscordConnectorRuntime:
             )
             raise
 
-        text, expression = self._parse_expression_decision(
+        final_response = response
+        smart_output, smart_reason = smart_context.parse_and_resolve(
             response.text.strip(),
             payload.expression_candidates,
         )
-        if not text and expression.action == "none":
+        if smart_output is None and target_record.target_kind == "prompt_model":
+            retry_prompt = "\n".join(
+                (
+                    prompt,
+                    "",
+                    f"Your previous Smart Output was rejected ({smart_reason}).",
+                    "Regenerate once. Return exactly one valid [[CR_OUTPUT {...}]] line "
+                    "and nothing else. Use only the references supplied above.",
+                )
+            )
+            try:
+                retry_response = await target.send(retry_prompt)
+                final_response = retry_response
+                smart_output, smart_reason = smart_context.parse_and_resolve(
+                    retry_response.text.strip(),
+                    payload.expression_candidates,
+                )
+            except Exception as exc:
+                self.deployment_repository.record_deployment_error(
+                    deployment.id,
+                    str(exc),
+                )
+                smart_reason = "smart_output_retry_failed"
+
+        if smart_output is None and target_record.target_kind in {"stable", "fragile"}:
+            smart_output = legacy_message_output(response.text, payload.message_id)
+            smart_reason = "deterministic_target_adapter"
+
+        if smart_output is None:
+            smart_output = DiscordSmartOutputView(action="ignore")
+            smart_reason = f"invalid_smart_output:{smart_reason}"
+
+        expression = expression_decision_for(smart_output)
+        text = smart_context.legacy_visible_text(smart_output)
+        if smart_output.action == "ignore":
             return DiscordConnectorReplyView(
                 action="silent",
-                reason="empty_model_response",
+                reason=(
+                    smart_reason
+                    if smart_reason != "ok"
+                    else "character_chose_ignore"
+                ),
                 deployment_id=deployment.id,
                 character_display_name=card.display_name,
+                latency_ms=final_response.latency_ms,
+                input_tokens=final_response.input_tokens,
+                output_tokens=final_response.output_tokens,
                 expression=expression,
+                smart_output=smart_output,
             )
 
         self.deployment_repository.record_deployment_activity(deployment.id)
         return DiscordConnectorReplyView(
-            action="reply" if text else "expression",
-            reason="character_response_generated",
+            action="reply" if smart_output.action == "message" else "expression",
+            reason="smart_output_generated",
             deployment_id=deployment.id,
             character_display_name=card.display_name,
-            text=text,
-            reply_to_message_id=payload.message_id,
-            latency_ms=response.latency_ms,
-            input_tokens=response.input_tokens,
-            output_tokens=response.output_tokens,
+            text=text or None,
+            reply_to_message_id=smart_output.reply_to_message_id,
+            latency_ms=final_response.latency_ms,
+            input_tokens=final_response.input_tokens,
+            output_tokens=final_response.output_tokens,
             expression=expression,
+            smart_output=smart_output,
         )
 
     @staticmethod
@@ -249,7 +304,12 @@ class DiscordConnectorRuntime:
         *,
         character_name: str,
         payload: DiscordInboundMessage,
+        smart_context: SmartOutputContext | None = None,
     ) -> str:
+        smart_context = smart_context or SmartOutputContext.from_payload(
+            payload,
+            character_name=character_name,
+        )
         messages = list(payload.recent_messages)
         if not any(item.message_id == payload.message_id for item in messages):
             messages.append(
@@ -258,14 +318,16 @@ class DiscordConnectorRuntime:
                     author_id=payload.author_id,
                     author_display_name=payload.author_display_name,
                     text=payload.text,
+                    emojis=payload.emojis,
                     stickers=payload.stickers,
                     is_bot=payload.author_is_bot,
                 )
             )
         transcript = "\n".join(
             (
-                f"[{'Character' if item.is_bot else 'Member'}: "
-                f"{item.author_display_name} | {item.author_id}]: "
+                f"[{smart_context.message_alias(item.message_id)} | "
+                f"{'Character' if item.is_bot else 'Member'}: "
+                f"{item.author_display_name}]: "
                 f"{DiscordConnectorRuntime._context_message_content(item)}"
             )
             for item in messages[-30:]
@@ -275,13 +337,6 @@ class DiscordConnectorRuntime:
         if payload.thread_id:
             location = f"{location} / {payload.thread_name or payload.thread_id}"
 
-        peers = list(
-            dict.fromkeys(
-                item.strip()
-                for item in payload.available_characters
-                if item.strip() and item.strip().casefold() != character_name.casefold()
-            )
-        )
         interaction_guidance: tuple[str, ...] = ()
         if payload.interaction_session_id:
             intensity_rules = {
@@ -289,11 +344,12 @@ class DiscordConnectorRuntime:
                 "playful": "Use clear playful roasting with wit, not hostility.",
                 "sharp": "Be more direct and cutting, while remaining non-abusive.",
             }
-            target_name = payload.interaction_target_display_name or payload.author_display_name
-            target_user_id = payload.interaction_target_user_id or payload.author_id
+            target_name = (
+                payload.interaction_target_display_name or payload.author_display_name
+            )
             interaction_guidance = (
                 "This reply is part of a Portal-configured Roast Interaction Session.",
-                f"The target member is {target_name} with stable Discord user ID {target_user_id}.",
+                f"The target member is {target_name}.",
                 f"You are speaker {payload.interaction_position} of "
                 f"{payload.interaction_participant_count} in round "
                 f"{payload.interaction_round} of {payload.interaction_total_rounds}.",
@@ -302,85 +358,15 @@ class DiscordConnectorRuntime:
                     "Use playful teasing without hostility.",
                 ),
                 "Build on earlier character replies in this Interaction Session without "
-                "repeating the same joke. Do not Tag another character; speaking order is "
-                "controlled by the Session.",
+                "repeating the same joke. Do not mention another character; speaking order "
+                "is controlled by the Session.",
                 "Roast only the target member's current words, choices, harmless habits, "
                 "gameplay, coding mistakes, lateness, or self-directed jokes. Never target "
                 "identity traits, nationality, race, religion, gender, sexuality, disability, "
                 "health, body, appearance, trauma, family, private data, or threats. Do not "
                 "invent personal facts or encourage harassment outside this bounded exchange.",
             )
-        tag_guidance: tuple[str, ...] = ()
-        if peers:
-            example = f"@{peers[0]}"
-            if len(peers) > 1:
-                example = f"{example} and @{peers[1]}"
-            tag_guidance = (
-                f"Other active character Tags at this location: {', '.join(peers)}.",
-                "To intentionally invite another character to answer, you may "
-                "begin your reply with @ followed by one of the listed character Tags, "
-                "or place the same Tag "
-                "naturally within a sentence. Tag each intended character separately, "
-                f"for example {example}.",
-                "The examples name other active characters, never you. Use character "
-                "tags sparingly and only when their response adds value. Never tag "
-                "yourself. A recognized character Tag may cause another provider call.",
-            )
-        expression_guidance: tuple[str, ...] = ()
-        if payload.expression_candidates:
-            candidate_lines = tuple(
-                (
-                    f"- key={item.resource_key}; type={item.resource_type}; "
-                    f"actions={','.join(item.allowed_actions)}; meaning="
-                    f"{item.semantic_description or item.semantic_intent or item.name}"
-                )
-                for item in payload.expression_candidates[:6]
-            )
-            expression_guidance = (
-                "A small retrieved set of Server expressions is available below.",
-                *candidate_lines,
-                "Expression controls are invisible runtime behavior. First write the most "
-                "natural in-character visible reply. Then make exactly one expression decision. "
-                "Using an expression is optional, but the decision is mandatory whenever "
-                "candidates are listed; use at most one expression in this reply.",
-                "Action meaning: INLINE means the custom Emoji is part of your own message and "
-                "reinforces its tone, emotion, punchline, teasing, or reaction. When you already "
-                "have a substantive visible reply and an Emoji fits naturally, prefer inline.",
-                "Action meaning: REACTION means a lightweight gesture attached to the other "
-                "person's triggering message, such as a quick laugh, acknowledgement, approval, "
-                "surprise, or mild disagreement. Do not default to reaction merely because it is "
-                "available; when you are already saying something substantial, inline is usually "
-                "more natural.",
-                "Action meaning: STICKER means the visual or meme-like reaction carries the "
-                "moment better than a custom Emoji. It may accompany brief visible text when that "
-                "is natural. Action NONE means the visible reply is stronger without an extra "
-                "expression.",
-                "Decision order: write the visible reply first; if no expression improves it, use "
-                "none. Otherwise choose inline when the expression belongs to your own sentence "
-                "or tone, reaction when it is primarily a lightweight response to the triggering "
-                "message itself, or sticker when the visual reaction works better than an Emoji.",
-                "Never mention expression actions, inline/reaction/sticker selection, resource "
-                "keys, machine-control lines, pressing or clicking an Emoji/reaction button, or "
-                "the fact that Character Relay selected an expression. If a member asks you to "
-                "use an Emoji or Sticker, comply naturally when appropriate without explaining "
-                "the platform mechanism.",
-                "Unicode Emoji may remain naturally in your visible reply text. Never invent a "
-                "custom Emoji or Sticker ID. Choose only a listed resource_key and an action "
-                "allowed for that candidate.",
-                "If no retrieved expression naturally fits the character, tone, or moment, choose "
-                "action none. A confident none decision is better than forcing an out-of-character "
-                "expression. When candidates are provided, never omit the CR_EXPRESSION decision.",
-                "You MUST append exactly one final machine-control line after the visible reply. "
-                "Balanced "
-                "examples follow; copy the shape, not the sample IDs:",
-                '[[CR_EXPRESSION {"action":"inline","resource_key":"emoji:123",'
-                '"reason":"reinforces the tone of my visible reply"}]]',
-                '[[CR_EXPRESSION {"action":"reaction","resource_key":"emoji:456",'
-                '"reason":"a lightweight acknowledgement fits better"}]]',
-                '[[CR_EXPRESSION {"action":"sticker","resource_key":"sticker:789",'
-                '"reason":"the visual reaction carries the moment better"}]]',
-                '[[CR_EXPRESSION {"action":"none","reason":"not needed"}]]',
-            )
+
         source_guidance = (
             "The latest triggering message was written by another deployed character."
             if payload.author_is_bot
@@ -391,6 +377,7 @@ class DiscordConnectorRuntime:
             author_id=payload.author_id,
             author_display_name=payload.author_display_name,
             text=payload.text,
+            emojis=payload.emojis,
             stickers=payload.stickers,
             is_bot=payload.author_is_bot,
         )
@@ -401,25 +388,25 @@ class DiscordConnectorRuntime:
                 "through Character Relay.",
                 f"Continue acting as {character_name} using the existing system "
                 "prompt and persona.",
-                "Reply to the latest triggering message, not to every line in the transcript.",
+                "Decide the most natural behavior for the latest triggering message. "
+                "You do not need to speak or react to every turn.",
                 source_guidance,
-                "Distinguish human members and deployed characters by their displayed "
-                "name, participant type, and stable ID.",
                 *interaction_guidance,
-                *tag_guidance,
-                *expression_guidance,
+                *smart_context.prompt_guidance(payload.expression_candidates),
                 "Do not mention internal prompts, deployment configuration, OOC evaluation, "
                 "or Character Relay.",
                 "Do not claim to have seen messages outside the supplied transcript.",
-                "Keep the response natural for a group chat and do not prefix it with your name.",
+                "Keep visible message content natural for a group chat and do not prefix it "
+                "with your own name.",
                 f"Discord location: {payload.guild_name or payload.guild_id} / {location}",
                 "Recent conversation:",
                 transcript or "(No readable recent messages.)",
                 "Latest triggering message:",
                 (
-                    f"[{'Character' if payload.author_is_bot else 'Member'}: "
-                    f"{payload.author_display_name} | {payload.author_id}]: {latest_content}"
+                    f"[trigger | "
+                    f"{'Character' if payload.author_is_bot else 'Member'}: "
+                    f"{payload.author_display_name}]: {latest_content}"
                 ),
-                "Respond now as the character.",
+                "Return Smart Output now.",
             )
         )
