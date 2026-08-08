@@ -21,7 +21,11 @@ from echo_masque.character_prompts import (
 )
 from echo_masque.context_layer import CharacterTurnContext, ContextOrchestrator
 from echo_masque.credentials import CredentialStore
-from echo_masque.persistence import DeploymentRepository, Repository
+from echo_masque.persistence import (
+    DeploymentRepository,
+    DeploymentToolRepository,
+    Repository,
+)
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.providers import ChatProvider, OpenAICompatibleProvider
 from echo_masque.smart_output import (
@@ -32,6 +36,11 @@ from echo_masque.smart_output import (
 )
 from echo_masque.targets import PromptModelConfig, PromptModelTarget, fragile_target, stable_target
 from echo_masque.targets.base import TargetAdapter
+from echo_masque.tool_runtime import (
+    ToolExecutionContext,
+    ToolRegistry,
+    default_tool_registry,
+)
 
 type ConnectorProviderFactory = Callable[[str, SecretStr], ChatProvider]
 
@@ -54,12 +63,16 @@ class DiscordConnectorRuntime:
         credential_store: CredentialStore,
         provider_factory: ConnectorProviderFactory = default_connector_provider_factory,
         context_orchestrator: ContextOrchestrator | None = None,
+        deployment_tool_repository: DeploymentToolRepository | None = None,
+        tool_registry: ToolRegistry | None = None,
     ) -> None:
         self.repository = repository
         self.deployment_repository = deployment_repository
         self.credential_store = credential_store
         self.provider_factory = provider_factory
         self.context_orchestrator = context_orchestrator
+        self.deployment_tool_repository = deployment_tool_repository
+        self.tool_registry = tool_registry or default_tool_registry()
 
     async def respond(self, payload: DiscordInboundMessage) -> DiscordConnectorReplyView:
         deployment = self.deployment_repository.deployment_matches_discord_destination(
@@ -133,8 +146,27 @@ class DiscordConnectorRuntime:
             smart_context=smart_context,
             turn_context=turn_context,
         )
+        enabled_tools = (
+            self.deployment_tool_repository.get_enabled_tools_for_runtime(deployment.id)
+            if self.deployment_tool_repository is not None
+            else ()
+        )
         try:
-            response = await target.send(prompt)
+            if isinstance(target, PromptModelTarget) and enabled_tools:
+                response = await target.send_with_tools(
+                    prompt,
+                    tool_registry=self.tool_registry,
+                    enabled_tool_ids=enabled_tools,
+                    tool_context=ToolExecutionContext(
+                        owner_id=deployment.owner_id,
+                        deployment_id=deployment.id,
+                        character_card_id=card.id,
+                        platform=deployment.platform,
+                    ),
+                    max_tool_rounds=2,
+                )
+            else:
+                response = await target.send(prompt)
         except Exception as exc:
             self.deployment_repository.record_deployment_error(
                 deployment.id,
@@ -158,6 +190,9 @@ class DiscordConnectorRuntime:
                 )
             )
             try:
+                # Formatting repair intentionally does not re-enable tools. Tool results from
+                # the original turn already remain in PromptModelTarget history, so a repair
+                # cannot duplicate a side effect or repeat a read call.
                 retry_response = await target.send(retry_prompt)
                 final_response = retry_response
                 smart_output, smart_reason = smart_context.parse_and_resolve(
