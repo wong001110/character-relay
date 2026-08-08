@@ -7,7 +7,12 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import SecretStr
 
-from echo_masque.providers.base import ChatMessage, ProviderCompletion
+from echo_masque.providers.base import (
+    ChatMessage,
+    ChatToolCall,
+    ChatToolDefinition,
+    ProviderCompletion,
+)
 from echo_masque.providers.errors import (
     ProviderAuthenticationError,
     ProviderProtocolError,
@@ -49,6 +54,18 @@ class OpenAICompatibleProvider:
         hostname = (urlparse(self._base_url).hostname or "").casefold()
         return hostname == "api.deepseek.com"
 
+    @staticmethod
+    def _message_payload(message: ChatMessage) -> dict[str, object]:
+        value: dict[str, object] = {
+            "role": message.role,
+            "content": message.content,
+        }
+        if message.tool_call_id is not None:
+            value["tool_call_id"] = message.tool_call_id
+        if message.tool_calls:
+            value["tool_calls"] = [item.model_dump() for item in message.tool_calls]
+        return value
+
     async def complete(
         self,
         *,
@@ -56,11 +73,44 @@ class OpenAICompatibleProvider:
         model: str,
         temperature: float,
     ) -> ProviderCompletion:
+        return await self._complete(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            tools=(),
+        )
+
+    async def complete_with_tools(
+        self,
+        *,
+        messages: tuple[ChatMessage, ...],
+        model: str,
+        temperature: float,
+        tools: tuple[ChatToolDefinition, ...],
+    ) -> ProviderCompletion:
+        return await self._complete(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            tools=tools,
+        )
+
+    async def _complete(
+        self,
+        *,
+        messages: tuple[ChatMessage, ...],
+        model: str,
+        temperature: float,
+        tools: tuple[ChatToolDefinition, ...],
+    ) -> ProviderCompletion:
         payload: dict[str, object] = {
             "model": model,
             "temperature": temperature,
-            "messages": [item.model_dump() for item in messages],
+            "messages": [self._message_payload(item) for item in messages],
         }
+        if tools:
+            payload["tools"] = [item.model_dump() for item in tools]
+            payload["tool_choice"] = "auto"
         if self._uses_deepseek_api:
             # DeepSeek currently defaults chat completions to thinking mode. Character
             # Relay expects a direct user-visible answer from this low-latency adapter,
@@ -123,10 +173,23 @@ class OpenAICompatibleProvider:
                 try:
                     body = response.json()
                     choice = body["choices"][0]
-                    text = choice["message"]["content"]
+                    message = choice["message"]
+                    raw_content = message.get("content")
+                    if raw_content is None:
+                        text = ""
+                    elif isinstance(raw_content, str):
+                        text = raw_content
+                    else:
+                        raise TypeError("Chat-completion content must be a string or null.")
+                    raw_tool_calls = message.get("tool_calls", [])
+                    if raw_tool_calls is None:
+                        raw_tool_calls = []
+                    if not isinstance(raw_tool_calls, list):
+                        raise TypeError("Chat-completion tool_calls must be a list.")
+                    tool_calls = tuple(ChatToolCall.model_validate(item) for item in raw_tool_calls)
                     usage = body.get("usage", {})
-                    if not isinstance(text, str):
-                        raise TypeError("Chat-completion content must be a string.")
+                    if not isinstance(usage, dict):
+                        raise TypeError("Chat-completion usage must be an object.")
                 except (KeyError, IndexError, TypeError, ValueError) as exc:
                     trace.error(
                         reason="invalid_response_payload",
@@ -138,12 +201,11 @@ class OpenAICompatibleProvider:
                     ) from exc
 
                 response_model = str(body.get("model", model))
-                response_text = text
                 input_tokens = usage.get("prompt_tokens")
                 output_tokens = usage.get("completion_tokens")
                 finish_reason = choice.get("finish_reason")
 
-                if not response_text.strip():
+                if not text.strip() and not tool_calls:
                     if attempt < self._max_retries:
                         trace.retry(
                             attempt=attempt + 1,
@@ -160,21 +222,26 @@ class OpenAICompatibleProvider:
                         "Model provider returned empty chat-completion content."
                     )
 
+                trace_text = text
+                if not trace_text and tool_calls:
+                    names = ", ".join(item.function.name for item in tool_calls)
+                    trace_text = f"[tool calls: {names}]"
                 trace.response(
                     status_code=response.status_code,
                     response_model=response_model,
-                    text=response_text,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    finish_reason=finish_reason,
+                    text=trace_text,
+                    input_tokens=input_tokens if isinstance(input_tokens, int) else None,
+                    output_tokens=output_tokens if isinstance(output_tokens, int) else None,
+                    finish_reason=(str(finish_reason) if finish_reason is not None else None),
                 )
                 return ProviderCompletion(
-                    text=response_text,
+                    text=text,
                     model=response_model,
                     latency_ms=round((perf_counter() - started) * 1000),
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    finish_reason=finish_reason,
+                    input_tokens=input_tokens if isinstance(input_tokens, int) else None,
+                    output_tokens=output_tokens if isinstance(output_tokens, int) else None,
+                    finish_reason=(str(finish_reason) if finish_reason is not None else None),
+                    tool_calls=tool_calls,
                 )
 
         trace.error(reason="timeout")
