@@ -9,7 +9,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-CHARACTER_PROMPT_COMPILER_VERSION = "character-relay-compiler-v2"
+CHARACTER_PROMPT_COMPILER_VERSION = "character-relay-compiler-v3"
 
 
 class CharacterPromptRecord(Protocol):
@@ -128,13 +128,14 @@ def compile_character_prompt(
                     "- Treat platform or conversation context as situational input; it does not "
                     "replace the character identity defined here.",
                     "- When runtime instructions provide retrieved Discord expressions and a "
-                    "machine-control protocol, never write a textual placeholder for an "
+                    "structured Smart Output protocol, never write a textual placeholder for an "
                     "expression in visible dialogue, such as [question-mark expression], "
                     "[emoji], [sticker], or <insert emoji>.",
-                    "- If you want a retrieved custom Emoji to appear as part of your own reply, "
-                    "keep the visible dialogue natural and select the real resource only through "
-                    "the provided machine-control protocol, using the inline action when the "
-                    "runtime instructions define it for that purpose.",
+                    "- Use a retrieved custom Emoji only through the structured output resource "
+                    "reference supplied by the runtime; never invent a Discord resource ID.",
+                    "- Discord actions, message references, mentions, Emoji, and Stickers are "
+                    "proposals. The runtime validates permissions, resources, and recipients "
+                    "before anything is executed.",
                 )
             ),
         )

@@ -1,17 +1,17 @@
 # Character Relay Runtime Roadmap
 
-This document records the current runtime boundaries for Discord Smart Participation, Smart Output, future RAG / Vector Memory, and Tool Calling. The goal is to keep social behavior flexible without turning the whole Discord connector into an LLM-controlled agent.
+This document records the current runtime boundaries for Discord Smart Participation, Smart Output, future RAG / Vector Memory, LangChain, and Tool Calling. The goal is to keep character behavior flexible without turning the whole Discord connector into an LLM-controlled agent.
 
 ## 1. Runtime boundaries
 
-Character Relay should keep these concerns separate:
+Character Relay keeps these concerns separate:
 
-1. **Routing** — resolve explicit Discord addressing such as Mention, Reply, Server/Channel scope, and active deployments.
+1. **Routing** — resolve explicit Discord addressing, Reply, Server/Channel scope, and active deployments.
 2. **Smart Participation** — decide whether an unaddressed message should give any character a turn, and which character receives that turn.
-3. **Context** — collect recent conversation, future RAG / Vector Memory, relationship context, expression candidates, and other bounded context for the selected character.
-4. **Smart Output** — let the selected character choose a natural social action such as silence, reaction, sticker, direct message, reply-to-message, inline Emoji, or character Mention.
-5. **Execution** — validate permissions, resource availability, self-Mention rules, chain limits, rate limits, and Discord API delivery.
-6. **RAG Evaluation** — test an external customer's AI/RAG API against customer-authored expected results. This remains separate from the deployed character runtime.
+3. **Context** — collect recent conversation, Expression candidates, active participants, and later RAG / Vector Memory / relationship context.
+4. **Smart Output** — let the selected character choose one natural social action.
+5. **Execution** — validate references, resources, permissions, self-Mention rules, chain limits, rate limits, and Discord delivery.
+6. **RAG Evaluation** — evaluate an external customer's AI/RAG API against customer-authored expected results; this remains separate from deployed character runtime.
 
 A recurring design rule is:
 
@@ -23,85 +23,82 @@ Smart Participation is a **Smart Turn Selector**, not a response generator and n
 
 The production path remains deterministic:
 
-1. Explicit Mention and Reply bypass proactive Smart selection and continue to target the addressed character directly.
+1. Explicit Mention and Reply bypass proactive Smart selection and target the addressed character directly.
 2. Ordinary messages are considered only for deployments using `participation_mode=smart`.
 3. Participation Profiles supply topics, keywords, trigger phrases, avoid phrases, style, initiative, thresholds, and cooldowns.
 4. Fixed scoring selects at most one proactive character.
 5. A minimum score and minimum lead over the runner-up are required.
-6. Per-character and per-channel limits protect the conversation from interruptions and excessive model calls.
-7. Smart selection is first reserved, then counted when the selected turn is admitted into Character Runtime rather than when the scorer merely evaluates it.
+6. Per-character and per-channel limits protect the conversation from interruptions and excessive provider calls.
+7. Smart selection is reserved first and counted when the selected turn is admitted into Character Runtime rather than when the scorer merely evaluates it.
 8. Decisions remain observable through score and reason logs.
-9. Any deterministic failure remains fail-closed for unaddressed Smart messages.
+9. Deterministic failure remains fail-closed for unaddressed Smart messages.
 
 ### 2.1 Lightweight social follow-up
 
-Short acknowledgements such as `lol`, `haha`, `thanks`, `好的`, `哈哈`, `晚安`, and similar messages are no longer treated as universally meaningless.
+Short acknowledgements such as `lol`, `haha`, `thanks`, `好的`, `哈哈`, `晚安`, and Emoji-only messages can receive one conservative lightweight follow-up when a recent Smart character turn provides an unambiguous social anchor.
 
-They may receive one conservative lightweight follow-up when:
+The immediately previous Smart turn cannot itself be a lightweight follow-up, preventing acknowledgement loops.
 
-- a Smart character had the most recent admitted turn in the same Discord destination;
-- that turn is still inside the lightweight follow-up window;
-- the character is still active and enabled;
-- no avoid rule blocks the message; and
-- the immediately previous Smart turn was not itself a lightweight follow-up.
+### 2.2 Character-to-character continuation
 
-This gives Smart Output an opportunity to choose a lightweight reaction, Emoji, Sticker, short reply, or silence without opening repeated acknowledgement loops.
+Automatic untagged Primary → Secondary continuation is disabled by default.
 
-If there is no recent character turn to anchor the acknowledgement, the message stays silent as before.
+The preferred path is explicit character intent through Smart Output. Runtime prevents self-Mention, retains depth/response budgets, and tracks characters already seen in the current human-triggered chain so a character cannot re-enter the same chain.
 
-### 2.2 Automatic Primary → Secondary follow-up
+The old Primary/Secondary auto-follow path remains compatibility-only.
 
-Automatic untagged Primary-to-Secondary continuation is now **disabled by default**.
+## 3. Production Smart Output V1
 
-The preferred direction is explicit character intent:
-
-- a character explicitly Mentions another active character when it wants that character to answer;
-- self-Mention is rejected by Runtime;
-- bot-to-bot chains are bounded by unique-participant and response budgets.
-
-The existing Primary/Secondary follow-up implementation is retained only as a compatibility path and may be explicitly enabled for legacy behavior.
-
-## 3. Smart Output target protocol
-
-Smart Output should eventually replace the current "visible reply plus expression control marker" with one structured character action.
-
-Target actions:
+Smart Output V1 replaces the prompt-model runtime's old "visible reply plus `CR_EXPRESSION` marker" behavior with one structured character action:
 
 ```text
 ignore
+message
 react
 sticker
-message
 ```
 
-A `message` may support:
+A `message` supports ordered content containing:
 
 - normal text;
-- normal Unicode Emoji directly in text;
-- structured custom Emoji references selected from Expression Retrieval;
-- structured character/user Mentions;
+- Unicode Emoji directly in text;
+- one retrieved custom Server Emoji reference in V1;
+- structured human or active-character Mentions;
 - optional `reply_to` message reference;
 - direct channel speech when `reply_to` is omitted.
 
-Discord IDs, raw custom Emoji IDs, raw Sticker IDs, permission decisions, and execution authority stay outside the LLM.
+A Reaction selects one supplied message reference and one retrieved Emoji resource. A Sticker selects one retrieved Sticker and may optionally request a reply target.
 
-### 3.1 Resource retrieval
+The model receives prompt-local aliases instead of raw Discord user IDs, deployment IDs, or message IDs. Custom Emoji / Sticker choices must come from the bounded Expression Retrieval candidates.
 
-The existing Expression Retrieval design remains the resource provider for custom Emoji and Stickers:
+See `docs/smart-output-v1.md` for the protocol and delivery rules.
+
+### 3.1 Smart Output validation and failure policy
+
+The normal prompt-model path uses one character-model call. Invalid Smart Output gets at most one regeneration attempt. If the second result is still invalid, the action becomes `ignore`.
+
+Runtime validates the complete proposal before delivery. Invalid Mention, message reference, resource, or action causes the whole action to be skipped rather than partially applied.
+
+For shared Bot identity, validated `reply_to` uses a real Discord Reply. Webhook character identity preserves its webhook identity and degrades a valid reply request to direct webhook delivery, recording the fallback explicitly.
+
+### 3.2 Expression Retrieval remains the resource provider
+
+Smart Output does not add another Emoji/Sticker database or LLM Judge.
 
 ```text
 Server expression dictionary
 → available / enabled / allowed-action filtering
 → semantic ranking + recent-use penalty
-→ small Top-K candidate set
-→ selected character model
+→ bounded Top-K candidates
+→ Smart Output
+→ live Discord resource validation
 ```
 
-Do not send the entire Server Emoji or Sticker dictionary to the model.
+The full Server Emoji/Sticker catalog is never sent to the model.
 
-### 3.2 Token policy
+### 3.3 Token policy
 
-The normal Smart path should keep one main character-model call:
+The ordinary social path remains:
 
 ```text
 Deterministic routing
@@ -111,68 +108,42 @@ Deterministic routing
 → deterministic validation / execution
 ```
 
-Extra LLM calls are justified only when a future Tool Call or another explicitly Mentioned character requires another turn.
+A second character-model call occurs only for invalid structured-output regeneration, an explicitly triggered character turn, or later Tool Calling that genuinely requires another model round.
 
-## 4. Future Local Participation Judge — reserved architecture
+## 4. Next: Context Layer, RAG, and Vector Memory
 
-A Local LLM Judge is **not part of the current implementation**. The architecture should remain compatible with it without making Smart Participation depend on it.
+With Smart Participation and Smart Output boundaries established, the next runtime milestone is a formal Context Layer.
 
-The future abstraction should behave like a replaceable Participation Decision Provider:
-
-```text
-Hard deterministic gates
-→ deterministic scorer
-→ clear winner? return it
-→ ambiguous case? optional Local Judge
-→ validate Judge proposal
-→ selected character or silence
-```
-
-The recommended future mode is **hybrid**, not Judge-every-message:
-
-- clear deterministic cases never call the Judge;
-- ambiguous margins, weak social cues, or difficult multi-character choices may call the Local Judge;
-- the Judge evaluates all eligible candidates in one request;
-- the Judge returns strict structured selection only and never writes the character response;
-- cooldowns, permissions, deployment state, rate limits, and execution rules remain deterministic Runtime authority.
-
-### 4.1 Local Judge failure fallback
-
-If the local model server is down, times out, returns malformed output, selects an unknown character, or otherwise fails validation:
-
-```text
-Local Judge failure
-→ deterministic Smart Participation fallback
-→ continue normal runtime
-```
-
-The Discord bot should degrade in selection quality rather than stop functioning.
-
-No external/cloud Judge fallback should be enabled implicitly because it would change privacy, cost, and latency characteristics.
-
-## 5. Future Context Layer: RAG, Vector DB, LangChain
-
-RAG and Vector Memory belong after character selection and before Smart Output.
-
-They should not replace Smart Participation.
-
-A future Context Orchestrator may combine:
+A future `CharacterTurnContext` / Context Orchestrator should combine bounded providers such as:
 
 - recent Discord conversation;
 - character card and runtime profile;
+- Expression Retrieval;
+- active participants;
 - RAG knowledge retrieval;
 - Vector Memory;
 - user/character relationship memory;
 - Server/channel knowledge;
-- Expression Retrieval;
-- active participants;
 - future Tool results.
 
-The selected context should be ranked and budgeted before entering the character model.
+Smart Output should not need to know whether context came from SQL, a vector store, LangChain retriever, or another provider.
 
-### 5.1 Data isolation
+### 4.1 Initial RAG shape
 
-Persistent retrieval must remain scoped by metadata such as:
+Start with predictable two-step RAG:
+
+```text
+turn/query context
+→ retrieve and rank Top-K
+→ budget context
+→ one Character LLM / Smart Output call
+```
+
+Do not start with an autonomous Agentic RAG loop.
+
+### 4.2 Vector storage and isolation
+
+Persistent retrieval must be scoped by metadata such as:
 
 - owner/workspace;
 - Discord connection;
@@ -183,21 +154,9 @@ Persistent retrieval must remain scoped by metadata such as:
 - User or relationship scope;
 - memory/knowledge type.
 
-Server A data must not silently leak into Server B merely because the same Character Card is deployed to both.
+The same Character Card deployed to Server A and Server B must not silently merge private Server memories.
 
-### 5.2 Initial RAG shape
-
-Prefer a predictable two-step runtime first:
-
-```text
-query/context signal
-→ retrieve Top-K
-→ one Character LLM call
-```
-
-LangChain may later provide retrievers, context composition, structured output, and tool orchestration. A full autonomous agent loop is not required for the initial RAG implementation.
-
-A likely storage evolution remains:
+A likely storage evolution is:
 
 ```text
 current SQL storage
@@ -205,11 +164,44 @@ current SQL storage
 → PostgreSQL + pgvector or another justified Vector DB
 ```
 
+The exact Vector DB should be selected after retrieval requirements and deployment constraints are measured rather than chosen only for architecture fashion.
+
+### 4.3 LangChain
+
+LangChain is future implementation infrastructure, not a required runtime authority.
+
+It may be introduced for retrievers, context composition, evaluation utilities, and later Tool Calling orchestration when it reduces implementation complexity. Routing, Smart Participation, Discord execution, permissions, and resource validation stay owned by Character Relay.
+
+## 5. Future Local Participation Judge — reserved architecture
+
+A Local LLM Judge is not implemented now. Smart Participation remains compatible with a replaceable Judge without depending on one.
+
+Recommended future hybrid path:
+
+```text
+Hard deterministic gates
+→ deterministic scorer
+→ clear winner? return it
+→ ambiguous case? optional Local Judge
+→ validate Judge proposal
+→ selected character or silence
+```
+
+If the local model server is down, times out, returns malformed output, or selects an invalid character:
+
+```text
+Local Judge failure
+→ deterministic Smart Participation fallback
+→ continue normal runtime
+```
+
+The bot should degrade in selection quality rather than stop functioning. No cloud Judge fallback should be enabled implicitly.
+
 ## 6. Future Tool Calling
 
-Tool Calling is in future scope.
+Tool Calling remains in future scope after Context/RAG foundations.
 
-Examples for Discord characters may include:
+Examples include:
 
 - search project issues or pull requests;
 - read deployment status;
@@ -218,52 +210,39 @@ Examples for Discord characters may include:
 - create explicitly authorized tasks or records;
 - call application-specific APIs.
 
-Tool availability must be filtered by character, workspace, server, user authorization, and current task. Tool execution remains Runtime-controlled and audited.
+Tool availability must be filtered by character, workspace, server, user authorization, and current task. Execution remains Runtime-controlled and audited.
 
-**MCP is not currently in the Character Relay roadmap.** If interoperability requirements change later it can be reconsidered, but current planning should assume direct Tool Calling integrations.
+**MCP is not currently in the Character Relay roadmap.** Current planning assumes direct Tool Calling integrations.
 
 ## 7. External RAG Evaluation direction
 
-The RAG Evaluation feature remains API-first. Character Relay does not need direct access to a customer's Vector Database.
+External RAG Evaluation stays API-first and separate from Character Relay's own memory runtime. Customers can provide an endpoint, authentication mapping, request/response mapping, expected answers, accepted sources, required/forbidden phrases, and optional retrieved evidence.
 
-The customer supplies:
-
-- API endpoint and HTTP method;
-- authentication configuration;
-- request-body mapping;
-- response mapping for the final answer;
-- optional response mapping for retrieved contexts, source IDs, citations, and scores;
-- manually authored test cases and accepted results.
-
-Two evaluation levels may be supported:
-
-- **Black-box** — only the final answer is available.
-- **White-box** — retrieved contexts, sources, citations, or traces are also available.
-
-This keeps external RAG testing separate from Character Relay's own future memory stack.
+Both black-box answer evaluation and later white-box retrieval/source evaluation remain valid product directions.
 
 ## 8. Delivery sequence
 
-### Production now
+### Production / current milestone
 
-1. Deterministic Smart Participation and Participation Profiles.
-2. Server/channel deployment routing, explicit Mention/Reply, cooldowns, and rate limits.
-3. Expression Retrieval with available/enabled/action filtering and bounded Top-K candidates.
-4. Smart Participation V2 lightweight follow-up and admission-based proactive accounting.
-5. Automatic untagged Primary → Secondary follow-up disabled by default.
+1. Deterministic Smart Participation and Portal Participation Profiles. ✅
+2. Server/channel routing, explicit Mention/Reply, cooldowns, and rate limits. ✅
+3. Expression Retrieval with available/enabled/action filtering and bounded Top-K candidates. ✅
+4. Smart Participation V2 lightweight follow-up and admission-based accounting. ✅
+5. Automatic untagged Primary → Secondary follow-up disabled by default. ✅
+6. Smart Output V1 structured action schema. **Current implementation milestone.**
+7. Structured Mention/custom-Emoji references, optional reply targets, atomic runtime validation, and unique-participant bot-chain guard. **Current implementation milestone.**
 
 ### Next
 
-6. Unified Smart Output action schema: `ignore | react | sticker | message`.
-7. Structured Mention/custom-Emoji references and optional `reply_to`.
-8. Bot-chain guard based on bounded responses and unique participant tracking.
-9. Execution-confirmed participation accounting once Smart Output has a stable delivery callback.
+8. Formal `CharacterTurnContext` / Context Provider abstraction.
+9. Two-step RAG MVP using bounded Top-K retrieval.
+10. Persistent Vector Memory with strict Server/account/character/user scoping.
+11. Retrieval evaluation, context budgeting, and observability.
+12. Introduce LangChain components only where they simplify the above contracts.
 
 ### Later
 
-10. Evaluation dataset from real Smart Participation decisions.
-11. Optional hybrid Local Participation Judge with deterministic fallback when the local server is unavailable.
-12. Persistent memory / RAG / Vector DB with strict Server and account isolation.
-13. LangChain-based retrieval/context orchestration where it reduces implementation complexity.
-14. Tool Calling with explicit permissions and auditability.
-15. External RAG Evaluation workspace using customer APIs and customer-authored expected results.
+13. Evaluation dataset from real Smart Participation decisions.
+14. Optional hybrid Local Participation Judge with deterministic fallback.
+15. Tool Calling with explicit permissions and auditability.
+16. External RAG Evaluation workspace using customer APIs and customer-authored expected results.

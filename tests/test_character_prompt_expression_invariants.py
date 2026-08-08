@@ -14,9 +14,10 @@ def test_compiled_prompt_forbids_visible_expression_placeholders() -> None:
         ),
     )
 
-    assert CHARACTER_PROMPT_COMPILER_VERSION == "character-relay-compiler-v2"
+    assert CHARACTER_PROMPT_COMPILER_VERSION == "character-relay-compiler-v3"
     assert compiled.compiler_version == CHARACTER_PROMPT_COMPILER_VERSION
     assert "never write a textual placeholder for an expression" in compiled.compiled_system_prompt
     assert "[question-mark expression]" in compiled.compiled_system_prompt
-    assert "select the real resource only through" in compiled.compiled_system_prompt
-    assert "using the inline action" in compiled.compiled_system_prompt
+    assert "structured output resource reference" in compiled.compiled_system_prompt
+    assert "never invent a Discord resource ID" in compiled.compiled_system_prompt
+    assert "proposals" in compiled.compiled_system_prompt

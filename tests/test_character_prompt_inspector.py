@@ -107,7 +107,7 @@ def test_prompt_inspector_matches_compiled_runtime_message(tmp_path: Path) -> No
     assert "Expected tone: Warm and precise" in compiled
     assert "Memory boundary: Only confirmed memories are valid." in compiled
     assert "- inventing memories" in compiled
-    assert prompt["compiler_version"] == "character-relay-compiler-v2"
+    assert prompt["compiler_version"] == "character-relay-compiler-v3"
     assert len(prompt["compiled_prompt_hash"]) == 64
     assert prompt["provider"] == "deepseek"
     assert prompt["model"] == "prompt-fixture-model"
@@ -211,15 +211,16 @@ def test_prompt_inspection_is_owner_scoped_and_rejects_non_prompt_cards(
     card = create_prompt_character(admin)
 
     assert member.get(f"/api/characters/{card['id']}/prompt").status_code == 404
-    assert member.get(
-        f"/api/characters/{card['id']}/prompt/export",
-        params={"format": "json"},
-    ).status_code == 404
+    assert (
+        member.get(
+            f"/api/characters/{card['id']}/prompt/export",
+            params={"format": "json"},
+        ).status_code
+        == 404
+    )
 
     stable_target = next(
-        item
-        for item in admin.get("/api/targets").json()
-        if item["target_kind"] == "stable"
+        item for item in admin.get("/api/targets").json() if item["target_kind"] == "stable"
     )
     deterministic = admin.post(
         "/api/characters",
@@ -239,8 +240,6 @@ def test_prompt_inspection_is_owner_scoped_and_rejects_non_prompt_cards(
         },
     )
     assert deterministic.status_code == 201
-    unavailable = admin.get(
-        f"/api/characters/{deterministic.json()['id']}/prompt"
-    )
+    unavailable = admin.get(f"/api/characters/{deterministic.json()['id']}/prompt")
     assert unavailable.status_code == 409
     assert "no Provider System Prompt" in unavailable.json()["detail"]

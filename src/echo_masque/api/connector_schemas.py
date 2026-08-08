@@ -11,6 +11,10 @@ from echo_masque.api.expression_schemas import (
     ExpressionContent,
     ExpressionDecision,
 )
+from echo_masque.smart_output import (
+    DiscordActionParticipant,
+    DiscordSmartOutputView,
+)
 
 DiscordParticipationMode = Literal[
     "mention_only",
@@ -264,6 +268,9 @@ class DiscordInboundMessage(BaseModel):
     author_is_bot: bool = False
     stickers: list[DiscordStickerContent] = Field(default_factory=list, max_length=3)
     available_characters: list[str] = Field(default_factory=list, max_length=30)
+    mentionable_participants: list[DiscordActionParticipant] = Field(
+        default_factory=list, max_length=20
+    )
     recent_messages: list[DiscordContextMessage] = Field(default_factory=list, max_length=30)
     interaction_session_id: str = Field(default="", max_length=64)
     interaction_type: str = Field(default="", max_length=32)
@@ -289,3 +296,4 @@ class DiscordConnectorReplyView(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
     expression: ExpressionDecision = Field(default_factory=ExpressionDecision)
+    smart_output: DiscordSmartOutputView | None = None
