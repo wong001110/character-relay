@@ -23,14 +23,14 @@ from echo_masque.credentials import CredentialStore
 from echo_masque.persistence import DeploymentRepository, Repository
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.providers import ChatProvider, OpenAICompatibleProvider
-from echo_masque.targets import PromptModelConfig, PromptModelTarget, fragile_target, stable_target
-from echo_masque.targets.base import TargetAdapter
 from echo_masque.smart_output import (
     DiscordSmartOutputView,
     SmartOutputContext,
     expression_decision_for,
     legacy_message_output,
 )
+from echo_masque.targets import PromptModelConfig, PromptModelTarget, fragile_target, stable_target
+from echo_masque.targets.base import TargetAdapter
 
 type ConnectorProviderFactory = Callable[[str, SecretStr], ChatProvider]
 
@@ -167,11 +167,7 @@ class DiscordConnectorRuntime:
         if smart_output.action == "ignore":
             return DiscordConnectorReplyView(
                 action="silent",
-                reason=(
-                    smart_reason
-                    if smart_reason != "ok"
-                    else "character_chose_ignore"
-                ),
+                reason=(smart_reason if smart_reason != "ok" else "character_chose_ignore"),
                 deployment_id=deployment.id,
                 character_display_name=card.display_name,
                 latency_ms=final_response.latency_ms,
@@ -344,9 +340,7 @@ class DiscordConnectorRuntime:
                 "playful": "Use clear playful roasting with wit, not hostility.",
                 "sharp": "Be more direct and cutting, while remaining non-abusive.",
             }
-            target_name = (
-                payload.interaction_target_display_name or payload.author_display_name
-            )
+            target_name = payload.interaction_target_display_name or payload.author_display_name
             interaction_guidance = (
                 "This reply is part of a Portal-configured Roast Interaction Session.",
                 f"The target member is {target_name}.",
