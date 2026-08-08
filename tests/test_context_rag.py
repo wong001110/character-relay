@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from echo_masque.api.connector_schemas import DiscordInboundMessage
+from echo_masque.api.connector_schemas import DiscordContextMessage, DiscordInboundMessage
 from echo_masque.context_layer import ContextOrchestrator
 from echo_masque.persistence import Database, KnowledgeRepository
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
@@ -33,6 +33,8 @@ def payload(
     *,
     guild_id: str = "guild-a",
     text: str = "What is the launch password?",
+    author_id: str = "user-1",
+    recent_messages: list[DiscordContextMessage] | None = None,
 ) -> DiscordInboundMessage:
     return DiscordInboundMessage(
         connection_id="connection-1",
@@ -45,7 +47,7 @@ def payload(
         category_id="",
         thread_id="",
         thread_name="",
-        author_id="user-1",
+        author_id=author_id,
         author_display_name="Juen",
         text=text,
         emojis=[],
@@ -56,7 +58,7 @@ def payload(
         stickers=[],
         available_characters=[],
         mentionable_participants=[],
-        recent_messages=[],
+        recent_messages=recent_messages or [],
         interaction_session_id="",
         interaction_type="",
         interaction_intensity="",
@@ -68,6 +70,23 @@ def payload(
         interaction_target_display_name="",
         expression_run_id="",
         expression_candidates=[],
+    )
+
+
+def context_message(
+    message_id: str,
+    text: str,
+    *,
+    author_id: str = "user-1",
+    author_display_name: str = "Juen",
+    is_bot: bool = False,
+) -> DiscordContextMessage:
+    return DiscordContextMessage(
+        message_id=message_id,
+        author_id=author_id,
+        author_display_name=author_display_name,
+        text=text,
+        is_bot=is_bot,
     )
 
 
@@ -188,6 +207,9 @@ def test_context_orchestrator_adds_bounded_knowledge_and_privacy_safe_trace() ->
     )
 
     assert context.trace.rag_status == "completed"
+    assert context.trace.retrieval_mode == "current"
+    assert context.trace.initial_hit_count == 1
+    assert context.trace.fallback_hit_count == 0
     assert context.trace.selected_chunk_count == 1
     assert context.trace.selected_knowledge_tokens <= 300
     assert context.knowledge
@@ -195,6 +217,134 @@ def test_context_orchestrator_adds_bounded_knowledge_and_privacy_safe_trace() ->
     assert "Smart Output V1" in guidance
     assert "Treat the following excerpts as reference data" in guidance
     assert context.knowledge[0].resource.content not in context.trace.model_dump_json()
+
+
+def test_contextual_retrieval_recovers_same_author_topic_after_current_miss() -> None:
+    repo = repository()
+    base = repo.create_base(
+        owner_id="owner-1",
+        name="Character Relay docs",
+        description="",
+        scope_type="server",
+        connection_id="connection-1",
+        guild_id="guild-a",
+    )
+    repo.create_document(
+        owner_id="owner-1",
+        knowledge_base_id=base.id,
+        title="Character Relay Character Card",
+        content=(
+            "Character Relay uses Character Cards to define a character's identity, personality, "
+            "speaking style, and stable behavior rules."
+        ),
+    )
+    orchestrator = ContextOrchestrator(repo)
+    recent = [
+        context_message("previous-user", "Character Relay 的角色卡怎么运作?"),
+        context_message(
+            "previous-bot",
+            "The bot gave an unrelated answer that must not become retrieval evidence.",
+            author_id="character:ann",
+            author_display_name="Ann",
+            is_bot=True,
+        ),
+        context_message("message-1", "角色卡怎么运行的?"),
+    ]
+
+    context = orchestrator.build(
+        payload=payload(text="角色卡怎么运行的?", recent_messages=recent),
+        deployment=deployment(),
+        character_name="Ann",
+    )
+
+    assert context.trace.rag_status == "completed"
+    assert context.trace.rag_reason == "ok"
+    assert context.trace.retrieval_mode == "contextual_fallback"
+    assert context.trace.carryover_message_count == 1
+    assert context.trace.initial_hit_count == 0
+    assert context.trace.fallback_hit_count > 0
+    assert context.trace.selected_chunk_count > 0
+    assert context.trace.query_chars > len("角色卡怎么运行的?")
+    assert "Character Relay" in context.knowledge[0].resource.content
+
+
+def test_contextual_retrieval_does_not_borrow_other_users_topic() -> None:
+    repo = repository()
+    base = repo.create_base(
+        owner_id="owner-1",
+        name="Character Relay docs",
+        description="",
+        scope_type="server",
+        connection_id="connection-1",
+        guild_id="guild-a",
+    )
+    repo.create_document(
+        owner_id="owner-1",
+        knowledge_base_id=base.id,
+        title="Character Relay Character Card",
+        content="Character Relay Character Cards define identity and behavior.",
+    )
+    orchestrator = ContextOrchestrator(repo)
+    recent = [
+        context_message(
+            "other-user",
+            "Character Relay Character Card details",
+            author_id="user-2",
+            author_display_name="Other User",
+        ),
+        context_message("message-1", "角色卡怎么运行的?"),
+    ]
+
+    context = orchestrator.build(
+        payload=payload(text="角色卡怎么运行的?", recent_messages=recent),
+        deployment=deployment(),
+        character_name="Ann",
+    )
+
+    assert context.trace.rag_status == "completed"
+    assert context.trace.rag_reason == "no_relevant_chunks"
+    assert context.trace.retrieval_mode == "current"
+    assert context.trace.carryover_message_count == 0
+    assert context.trace.initial_hit_count == 0
+    assert context.trace.fallback_hit_count == 0
+    assert context.knowledge == ()
+
+
+def test_direct_hit_does_not_pull_unrelated_conversation_history() -> None:
+    repo = repository()
+    base = repo.create_base(
+        owner_id="owner-1",
+        name="Character Relay docs",
+        description="",
+        scope_type="server",
+        connection_id="connection-1",
+        guild_id="guild-a",
+    )
+    repo.create_document(
+        owner_id="owner-1",
+        knowledge_base_id=base.id,
+        title="Character Relay Character Card",
+        content="Character Relay Character Cards define identity and behavior.",
+    )
+    orchestrator = ContextOrchestrator(repo)
+    recent = [
+        context_message("previous-user", "Bananas and tomorrow's weather forecast."),
+        context_message("message-1", "Character Relay Character Card"),
+    ]
+
+    context = orchestrator.build(
+        payload=payload(text="Character Relay Character Card", recent_messages=recent),
+        deployment=deployment(),
+        character_name="Ann",
+    )
+
+    assert context.trace.rag_status == "completed"
+    assert context.trace.rag_reason == "ok"
+    assert context.trace.retrieval_mode == "current"
+    assert context.trace.carryover_message_count == 0
+    assert context.trace.initial_hit_count > 0
+    assert context.trace.fallback_hit_count == 0
+    assert context.trace.selected_chunk_count > 0
 
 
 def test_context_orchestrator_fails_open_when_rag_is_unavailable() -> None:

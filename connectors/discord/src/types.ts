@@ -150,6 +150,10 @@ export interface DiscordContextTraceItem {
 export interface DiscordContextTrace {
   rag_status: "skipped" | "completed" | "failed";
   rag_reason: string;
+  retrieval_mode: "current" | "contextual_fallback";
+  carryover_message_count: number;
+  initial_hit_count: number;
+  fallback_hit_count: number;
   query_chars: number;
   eligible_base_count: number;
   candidate_chunk_count: number;

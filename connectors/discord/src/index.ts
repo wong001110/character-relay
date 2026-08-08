@@ -219,6 +219,10 @@ function reportCharacterContext(input: {
   const details = {
     rag_status: trace.rag_status,
     rag_reason: trace.rag_reason,
+    retrieval_mode: trace.retrieval_mode,
+    carryover_message_count: trace.carryover_message_count,
+    initial_hit_count: trace.initial_hit_count,
+    fallback_hit_count: trace.fallback_hit_count,
     query_chars: trace.query_chars,
     eligible_base_count: trace.eligible_base_count,
     candidate_chunk_count: trace.candidate_chunk_count,

@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from echo_masque.expression_retrieval import semantic_tokens
 from echo_masque.knowledge_retrieval import KnowledgeCandidate
 from echo_masque.persistence.knowledge_repository import KnowledgeRepository
 from echo_masque.smart_output import SmartOutputContext
@@ -34,6 +33,10 @@ class CharacterContextTraceView(BaseModel):
 
     rag_status: Literal["skipped", "completed", "failed"] = "skipped"
     rag_reason: str = ""
+    retrieval_mode: Literal["current", "contextual_fallback"] = "current"
+    carryover_message_count: int = Field(default=0, ge=0, le=2)
+    initial_hit_count: int = Field(default=0, ge=0)
+    fallback_hit_count: int = Field(default=0, ge=0)
     query_chars: int = 0
     eligible_base_count: int = 0
     candidate_chunk_count: int = 0
@@ -98,18 +101,41 @@ class ContextOrchestrator:
         return " ".join(item for item in values if item)
 
     @classmethod
-    def _retrieval_query(cls, payload: DiscordInboundMessage) -> str:
+    def _current_retrieval_query(cls, payload: DiscordInboundMessage) -> str:
         current = payload.text.strip() or cls._expression_text(payload)
-        if not current:
-            return ""
-        if len(semantic_tokens(current)) >= 4:
-            return current[:4000]
+        return current[:4000]
+
+    @staticmethod
+    def _recent_human_topic_messages(payload: DiscordInboundMessage) -> list[str]:
+        """Return at most two recent messages from the same human author.
+
+        Bot/character output is deliberately excluded so a hallucinated response cannot
+        become retrieval evidence on the next turn. Restricting carryover to the same
+        author is conservative for group chat and avoids borrowing another participant's
+        unrelated topic.
+        """
+
         previous = [
             item.text.strip()
-            for item in payload.recent_messages[-3:]
-            if item.text.strip() and item.message_id != payload.message_id
+            for item in payload.recent_messages
+            if item.message_id != payload.message_id
+            and not item.is_bot
+            and item.author_id == payload.author_id
+            and item.text.strip()
         ]
-        return "\n".join([*previous[-2:], current])[-4000:]
+        return previous[-2:]
+
+    @classmethod
+    def _contextual_retrieval_query(
+        cls,
+        payload: DiscordInboundMessage,
+        current_query: str,
+    ) -> tuple[str, int]:
+        previous = cls._recent_human_topic_messages(payload)
+        if not previous:
+            return current_query, 0
+        query = "\n".join([*previous, current_query])[-4000:]
+        return query, len(previous)
 
     @staticmethod
     def _estimate_tokens(value: str) -> int:
@@ -127,8 +153,8 @@ class ContextOrchestrator:
             payload,
             character_name=character_name,
         )
-        query = self._retrieval_query(payload)
-        if not query:
+        current_query = self._current_retrieval_query(payload)
+        if not current_query:
             return CharacterTurnContext(
                 smart_output=smart_output,
                 knowledge=(),
@@ -139,6 +165,10 @@ class ContextOrchestrator:
                 ),
             )
 
+        retrieval_mode: Literal["current", "contextual_fallback"] = "current"
+        carryover_message_count = 0
+        final_query = current_query
+
         try:
             result = self.knowledge_repository.retrieve_for_turn(
                 owner_id=deployment.owner_id,
@@ -147,9 +177,29 @@ class ContextOrchestrator:
                 channel_id=payload.channel_id,
                 thread_id=payload.thread_id,
                 character_card_id=deployment.character_card_id,
-                query=query,
+                query=current_query,
                 top_k=self.knowledge_top_k,
             )
+            initial_hit_count = len(result.candidates)
+
+            if result.eligible_base_count > 0 and not result.candidates:
+                contextual_query, carryover_message_count = self._contextual_retrieval_query(
+                    payload,
+                    current_query,
+                )
+                if carryover_message_count and contextual_query != current_query:
+                    retrieval_mode = "contextual_fallback"
+                    final_query = contextual_query
+                    result = self.knowledge_repository.retrieve_for_turn(
+                        owner_id=deployment.owner_id,
+                        connection_id=payload.connection_id,
+                        guild_id=payload.guild_id,
+                        channel_id=payload.channel_id,
+                        thread_id=payload.thread_id,
+                        character_card_id=deployment.character_card_id,
+                        query=contextual_query,
+                        top_k=self.knowledge_top_k,
+                    )
         except Exception:
             return CharacterTurnContext(
                 smart_output=smart_output,
@@ -157,10 +207,16 @@ class ContextOrchestrator:
                 trace=CharacterContextTraceView(
                     rag_status="failed",
                     rag_reason="retrieval_error",
-                    query_chars=len(query),
+                    retrieval_mode=retrieval_mode,
+                    carryover_message_count=carryover_message_count,
+                    query_chars=len(final_query),
                     knowledge_token_budget=self.knowledge_token_budget,
                 ),
             )
+
+        fallback_hit_count = (
+            len(result.candidates) if retrieval_mode == "contextual_fallback" else 0
+        )
 
         if result.eligible_base_count == 0:
             return CharacterTurnContext(
@@ -169,7 +225,11 @@ class ContextOrchestrator:
                 trace=CharacterContextTraceView(
                     rag_status="skipped",
                     rag_reason="no_matching_knowledge_base",
-                    query_chars=len(query),
+                    retrieval_mode=retrieval_mode,
+                    carryover_message_count=carryover_message_count,
+                    initial_hit_count=initial_hit_count,
+                    fallback_hit_count=fallback_hit_count,
+                    query_chars=len(final_query),
                     knowledge_token_budget=self.knowledge_token_budget,
                 ),
             )
@@ -191,7 +251,11 @@ class ContextOrchestrator:
             trace=CharacterContextTraceView(
                 rag_status="completed",
                 rag_reason="ok" if selected else "no_relevant_chunks",
-                query_chars=len(query),
+                retrieval_mode=retrieval_mode,
+                carryover_message_count=carryover_message_count,
+                initial_hit_count=initial_hit_count,
+                fallback_hit_count=fallback_hit_count,
+                query_chars=len(final_query),
                 eligible_base_count=result.eligible_base_count,
                 candidate_chunk_count=result.candidate_chunk_count,
                 selected_chunk_count=len(selected),
