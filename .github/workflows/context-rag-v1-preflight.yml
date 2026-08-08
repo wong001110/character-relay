@@ -1,5 +1,5 @@
 name: Context Layer and RAG V1 preflight
-# Rerun after branch lint fixes.
+# Rerun after strict Mypy scope narrowing.
 
 on:
   push:
