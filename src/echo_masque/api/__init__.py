@@ -1,6 +1,8 @@
 """FastAPI application factory."""
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -223,6 +225,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         smart_participation_repository,
         knowledge_repository,
         deployment_tool_repository,
+        scheduled_reminder_repository,
     )
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
@@ -270,6 +273,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         trial_service,
     )
 
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        await browser_runtime.start()
+        await scheduled_reminder_delivery.start()
+        try:
+            yield
+        finally:
+            await scheduled_reminder_delivery.stop()
+            await browser_runtime.stop()
+
     app = FastAPI(
         title=resolved.app_name,
         version=resolved.app_version,
@@ -277,11 +290,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description=(
             "Create, test, publish, and deploy persistent AI characters across chat platforms."
         ),
+        lifespan=lifespan,
     )
-    app.add_event_handler("startup", browser_runtime.start)
-    app.add_event_handler("startup", scheduled_reminder_delivery.start)
-    app.add_event_handler("shutdown", scheduled_reminder_delivery.stop)
-    app.add_event_handler("shutdown", browser_runtime.stop)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
