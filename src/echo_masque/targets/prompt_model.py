@@ -119,6 +119,7 @@ class PromptModelTarget:
         saw_output_tokens = False
         traces: list[ToolExecutionTrace] = []
         last_completion: ProviderCompletion | None = None
+        side_effect_executed = False
 
         for _ in range(max(1, min(max_tool_rounds, 4))):
             completion = await cast(Any, complete_with_tools)(
@@ -155,12 +156,16 @@ class PromptModelTarget:
                 )
             )
             for call in calls:
-                result = tool_registry.execute(
+                is_side_effect = tool_registry.is_side_effect_call(call)
+                result = await tool_registry.execute(
                     call,
                     enabled_tool_ids=enabled_tool_ids,
                     context=tool_context,
+                    allow_side_effect=not side_effect_executed,
                 )
                 traces.append(result.trace)
+                if is_side_effect and result.trace.status == "completed":
+                    side_effect_executed = True
                 self._history.append(
                     ChatMessage(
                         role="tool",
