@@ -1,11 +1,11 @@
-name: Apply Smart Output V1 backend patch
+name: Apply Smart Output V1 backend migration
 
 on:
   push:
     branches:
       - agent/smart-output-v1
     paths:
-      - patches/smart-output-v1-backend.patch
+      - scripts/apply_smart_output_v1_backend.py
       - .github/workflows/apply-smart-output-v1-backend.yml
 
 permissions:
@@ -19,11 +19,14 @@ jobs:
         with:
           ref: agent/smart-output-v1
           fetch-depth: 0
-      - name: Apply staged patch
-        run: git apply --check patches/smart-output-v1-backend.patch && git apply patches/smart-output-v1-backend.patch
+      - name: Apply migration
+        run: python scripts/apply_smart_output_v1_backend.py
       - name: Remove staging files
-        run: rm patches/smart-output-v1-backend.patch .github/workflows/apply-smart-output-v1-backend.yml
-      - name: Commit patch
+        run: |
+          rm -f patches/smart-output-v1-backend.patch
+          rm scripts/apply_smart_output_v1_backend.py
+          rm .github/workflows/apply-smart-output-v1-backend.yml
+      - name: Commit migration
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
