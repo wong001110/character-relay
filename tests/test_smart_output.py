@@ -16,6 +16,7 @@ def candidate(
     actions: list[str] | None = None,
 ) -> ExpressionCandidate:
     resource_type, resource_id = key.split(":", maxsplit=1)
+    default_actions = ["inline", "reaction"] if resource_type == "emoji" else ["sticker"]
     return ExpressionCandidate(
         resource_key=key,
         resource_type=resource_type,
@@ -24,7 +25,7 @@ def candidate(
         animated=False,
         available=True,
         enabled=True,
-        allowed_actions=actions or (["inline", "reaction"] if resource_type == "emoji" else ["sticker"]),
+        allowed_actions=actions or default_actions,
         semantic_intent="playful",
         semantic_emotion="curious",
         semantic_description="A playful expression.",
