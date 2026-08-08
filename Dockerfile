@@ -11,7 +11,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ECHO_MASQUE_ENVIRONMENT=production \
     ECHO_MASQUE_DEBUG=false \
     ECHO_MASQUE_PUBLIC_DEMO_ENABLED=true \
-    ECHO_MASQUE_DATABASE_URL=sqlite:////data/echo_masque.db
+    ECHO_MASQUE_DATABASE_URL=sqlite:////data/echo_masque.db \
+    ECHO_MASQUE_SEMANTIC_EMBEDDING_CACHE_DIR=/data/embedding-models
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
