@@ -15,8 +15,11 @@ dependencies = [
   "fastapi>=0.115,<1.0",
   "fastembed>=0.8,<0.9",
   "httpx>=0.28,<1.0",
+  "pillow>=11,<13",
+  "playwright>=1.54,<2.0",
   "pydantic>=2.10,<3.0",
   "pydantic-settings>=2.7,<3.0",
+  "pypdf>=5,<7",
   "sqlalchemy>=2.0,<3.0",
   "uvicorn[standard]>=0.34,<1.0",
 ]
