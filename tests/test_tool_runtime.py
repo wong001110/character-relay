@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 from echo_masque.providers import ChatToolCall, ChatToolFunctionCall
@@ -26,22 +27,45 @@ def context() -> ToolExecutionContext:
     )
 
 
-def test_registry_only_exposes_manually_enabled_tools() -> None:
+def execute(name: str, arguments: dict[str, object], enabled: tuple[str, ...]):
+    return asyncio.run(
+        default_tool_registry().execute(
+            call(name, arguments),
+            enabled_tool_ids=enabled,
+            context=context(),
+        )
+    )
+
+
+def test_registry_only_exposes_manually_enabled_and_available_tools() -> None:
     registry = default_tool_registry()
-    schemas = registry.provider_tools(("utility.calculator",))
+    schemas = registry.provider_tools(("utility.calculator", "web.search"))
 
     assert [item.function.name for item in schemas] == ["utility_calculator"]
     assert {item.id for item in registry.catalog()} == {
         "utility.calculator",
         "utility.current_time",
+        "web.search",
+        "web.fetch_page",
+        "discord.search_messages",
+        "discord.create_poll",
+        "image.search",
     }
+    availability = {item.id: item.available for item in registry.catalog()}
+    assert availability["utility.calculator"] is True
+    assert availability["utility.current_time"] is True
+    assert availability["web.fetch_page"] is True
+    assert availability["web.search"] is False
+    assert availability["image.search"] is False
+    assert availability["discord.search_messages"] is False
+    assert availability["discord.create_poll"] is False
 
 
 def test_calculator_executes_safe_arithmetic() -> None:
-    result = default_tool_registry().execute(
-        call("utility_calculator", {"expression": "(8 * 0.27) + 2"}),
-        enabled_tool_ids=("utility.calculator",),
-        context=context(),
+    result = execute(
+        "utility_calculator",
+        {"expression": "(8 * 0.27) + 2"},
+        ("utility.calculator",),
     )
 
     payload = json.loads(result.content)
@@ -51,10 +75,10 @@ def test_calculator_executes_safe_arithmetic() -> None:
 
 
 def test_calculator_rejects_code_and_function_calls() -> None:
-    result = default_tool_registry().execute(
-        call("utility_calculator", {"expression": "__import__('os').system('whoami')"}),
-        enabled_tool_ids=("utility.calculator",),
-        context=context(),
+    result = execute(
+        "utility_calculator",
+        {"expression": "__import__('os').system('whoami')"},
+        ("utility.calculator",),
     )
 
     assert result.trace.status == "rejected"
@@ -62,10 +86,10 @@ def test_calculator_rejects_code_and_function_calls() -> None:
 
 
 def test_current_time_returns_requested_timezone() -> None:
-    result = default_tool_registry().execute(
-        call("utility_current_time", {"timezone": "Asia/Kuala_Lumpur"}),
-        enabled_tool_ids=("utility.current_time",),
-        context=context(),
+    result = execute(
+        "utility_current_time",
+        {"timezone": "Asia/Kuala_Lumpur"},
+        ("utility.current_time",),
     )
 
     payload = json.loads(result.content)
@@ -75,10 +99,10 @@ def test_current_time_returns_requested_timezone() -> None:
 
 
 def test_runtime_rejects_tool_not_assigned_to_deployment() -> None:
-    result = default_tool_registry().execute(
-        call("utility_current_time", {"timezone": "UTC"}),
-        enabled_tool_ids=("utility.calculator",),
-        context=context(),
+    result = execute(
+        "utility_current_time",
+        {"timezone": "UTC"},
+        ("utility.calculator",),
     )
 
     assert result.trace.status == "rejected"
