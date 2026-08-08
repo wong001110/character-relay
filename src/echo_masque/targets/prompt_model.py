@@ -1,5 +1,7 @@
 """Prompt-and-model target adapter."""
 
+from typing import Any, cast
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from echo_masque.character_prompts import (
@@ -12,7 +14,12 @@ from echo_masque.domain import (
     TargetSummary,
     TargetType,
 )
-from echo_masque.providers import ChatMessage, ChatProvider
+from echo_masque.providers import ChatMessage, ChatProvider, ProviderCompletion
+from echo_masque.tool_runtime import (
+    ToolExecutionContext,
+    ToolExecutionTrace,
+    ToolRegistry,
+)
 
 
 class PromptModelConfig(BaseModel):
@@ -83,15 +90,129 @@ class PromptModelTarget:
             temperature=self.config.temperature,
         )
         self._history.append(ChatMessage(role="assistant", content=completion.text))
+        return self._target_response(completion)
+
+    async def send_with_tools(
+        self,
+        message: str,
+        *,
+        tool_registry: ToolRegistry,
+        enabled_tool_ids: tuple[str, ...],
+        tool_context: ToolExecutionContext,
+        max_tool_rounds: int = 2,
+    ) -> TargetResponse:
+        """Run a bounded native Tool Calling loop, then return one final assistant response."""
+
+        provider_tools = tool_registry.provider_tools(enabled_tool_ids)
+        complete_with_tools = getattr(self.provider, "complete_with_tools", None)
+        if not provider_tools or not callable(complete_with_tools):
+            return await self.send(message)
+
+        if not self._history:
+            await self.reset()
+        self._history.append(ChatMessage(role="user", content=message))
+
+        total_latency = 0
+        total_input_tokens = 0
+        total_output_tokens = 0
+        saw_input_tokens = False
+        saw_output_tokens = False
+        traces: list[ToolExecutionTrace] = []
+        last_completion: ProviderCompletion | None = None
+
+        for _ in range(max(1, min(max_tool_rounds, 4))):
+            completion = await cast(Any, complete_with_tools)(
+                messages=tuple(self._history),
+                model=self.config.model,
+                temperature=self.config.temperature,
+                tools=provider_tools,
+            )
+            last_completion = completion
+            total_latency += completion.latency_ms
+            if completion.input_tokens is not None:
+                saw_input_tokens = True
+                total_input_tokens += completion.input_tokens
+            if completion.output_tokens is not None:
+                saw_output_tokens = True
+                total_output_tokens += completion.output_tokens
+
+            if not completion.tool_calls:
+                self._history.append(ChatMessage(role="assistant", content=completion.text))
+                return self._target_response(
+                    completion,
+                    latency_ms=total_latency,
+                    input_tokens=total_input_tokens if saw_input_tokens else None,
+                    output_tokens=total_output_tokens if saw_output_tokens else None,
+                    tool_traces=traces,
+                )
+
+            calls = completion.tool_calls[:4]
+            self._history.append(
+                ChatMessage(
+                    role="assistant",
+                    content=completion.text,
+                    tool_calls=calls,
+                )
+            )
+            for call in calls:
+                result = tool_registry.execute(
+                    call,
+                    enabled_tool_ids=enabled_tool_ids,
+                    context=tool_context,
+                )
+                traces.append(result.trace)
+                self._history.append(
+                    ChatMessage(
+                        role="tool",
+                        content=result.content,
+                        tool_call_id=call.id,
+                    )
+                )
+
+        # V1 never permits an unbounded agent loop. After the configured tool rounds,
+        # remove tools from the next request and require a normal final response.
+        completion = await self.provider.complete(
+            messages=tuple(self._history),
+            model=self.config.model,
+            temperature=self.config.temperature,
+        )
+        last_completion = completion
+        total_latency += completion.latency_ms
+        if completion.input_tokens is not None:
+            saw_input_tokens = True
+            total_input_tokens += completion.input_tokens
+        if completion.output_tokens is not None:
+            saw_output_tokens = True
+            total_output_tokens += completion.output_tokens
+        self._history.append(ChatMessage(role="assistant", content=completion.text))
+        return self._target_response(
+            last_completion,
+            latency_ms=total_latency,
+            input_tokens=total_input_tokens if saw_input_tokens else None,
+            output_tokens=total_output_tokens if saw_output_tokens else None,
+            tool_traces=traces,
+        )
+
+    def _target_response(
+        self,
+        completion: ProviderCompletion,
+        *,
+        latency_ms: int | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        tool_traces: list[ToolExecutionTrace] | None = None,
+    ) -> TargetResponse:
+        traces = tool_traces or []
         return TargetResponse(
             text=completion.text,
-            latency_ms=completion.latency_ms,
-            input_tokens=completion.input_tokens,
-            output_tokens=completion.output_tokens,
+            latency_ms=completion.latency_ms if latency_ms is None else latency_ms,
+            input_tokens=completion.input_tokens if input_tokens is None else input_tokens,
+            output_tokens=completion.output_tokens if output_tokens is None else output_tokens,
             trace={
                 "provider": self.config.provider,
                 "model": completion.model,
                 "finish_reason": completion.finish_reason,
                 "history_messages": len(self._history),
+                "tool_calls": [item.model_dump() for item in traces],
             },
         )

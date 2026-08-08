@@ -26,6 +26,7 @@ from echo_masque.api.routes.reports import router as reports_router
 from echo_masque.api.routes.smart_participation import router as smart_participation_router
 from echo_masque.api.routes.targets import router as targets_router
 from echo_masque.api.routes.templates import router as templates_router
+from echo_masque.api.routes.tools import router as tools_router
 from echo_masque.api.routes.transcripts import router as transcripts_router
 from echo_masque.api.routes.trials import router as trials_router
 from echo_masque.api.routes.workspace import router as workspace_router
@@ -55,6 +56,7 @@ __all__ = [
     "smart_participation_router",
     "targets_router",
     "templates_router",
+    "tools_router",
     "transcripts_router",
     "trials_router",
     "workspace_router",

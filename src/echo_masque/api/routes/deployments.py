@@ -26,6 +26,7 @@ from echo_masque.persistence import (
     AuthRepository,
     DeploymentConflict,
     DeploymentRepository,
+    DeploymentToolRepository,
     ExpressionRepository,
     InteractionRepository,
     Repository,
@@ -37,6 +38,10 @@ router = APIRouter(prefix="/api", tags=["deployments"])
 
 def deployment_repository(request: Request) -> DeploymentRepository:
     return cast(DeploymentRepository, request.app.state.deployment_repository)
+
+
+def deployment_tool_repository(request: Request) -> DeploymentToolRepository:
+    return cast(DeploymentToolRepository, request.app.state.deployment_tool_repository)
 
 
 def character_repository(request: Request) -> Repository:
@@ -184,6 +189,7 @@ def delete_connection(
         connection_id=connection_id,
         server_profile_ids=profile_ids,
     )
+    deployment_tool_repository(request).delete_connection(connection_id, user.id)
     if not deployments.delete_connection(connection_id, user.id):
         raise HTTPException(status_code=404, detail="Platform connection not found.")
 
@@ -533,5 +539,10 @@ def delete_deployment(
     request: Request,
     user: CurrentUserDependency,
 ) -> None:
-    if not deployment_repository(request).delete_deployment(deployment_id, user.id):
+    tool_repo = deployment_tool_repository(request)
+    deployments = deployment_repository(request)
+    if deployments.get_deployment(deployment_id, user.id) is None:
+        raise HTTPException(status_code=404, detail="Deployment not found.")
+    tool_repo.delete_deployment(deployment_id, user.id)
+    if not deployments.delete_deployment(deployment_id, user.id):
         raise HTTPException(status_code=404, detail="Deployment not found.")

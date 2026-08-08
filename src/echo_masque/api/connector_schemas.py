@@ -16,6 +16,7 @@ from echo_masque.smart_output import (
     DiscordActionParticipant,
     DiscordSmartOutputView,
 )
+from echo_masque.tool_runtime import ToolExecutionTrace
 
 DiscordParticipationMode = Literal[
     "mention_only",
@@ -299,3 +300,4 @@ class DiscordConnectorReplyView(BaseModel):
     expression: ExpressionDecision = Field(default_factory=ExpressionDecision)
     smart_output: DiscordSmartOutputView | None = None
     context_trace: CharacterContextTraceView | None = None
+    tool_calls: list[ToolExecutionTrace] = Field(default_factory=list, max_length=8)

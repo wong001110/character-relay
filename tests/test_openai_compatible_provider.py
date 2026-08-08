@@ -6,7 +6,12 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from echo_masque.providers import ChatMessage, OpenAICompatibleProvider
+from echo_masque.providers import (
+    ChatMessage,
+    ChatToolDefinition,
+    ChatToolFunction,
+    OpenAICompatibleProvider,
+)
 from echo_masque.providers.errors import ProviderProtocolError
 from echo_masque.providers.trace import configure_provider_trace_sink
 
@@ -36,6 +41,29 @@ def _run(provider: OpenAICompatibleProvider) -> Any:
             messages=(ChatMessage(role="user", content="Hello"),),
             model="deepseek-v4-flash",
             temperature=0.4,
+        )
+    )
+
+
+def _run_tools(provider: OpenAICompatibleProvider) -> Any:
+    return asyncio.run(
+        provider.complete_with_tools(
+            messages=(ChatMessage(role="user", content="What is 8 * 0.27?"),),
+            model="deepseek-v4-flash",
+            temperature=0.4,
+            tools=(
+                ChatToolDefinition(
+                    function=ChatToolFunction(
+                        name="utility_calculator",
+                        description="Calculate arithmetic.",
+                        parameters={
+                            "type": "object",
+                            "properties": {"expression": {"type": "string"}},
+                            "required": ["expression"],
+                        },
+                    )
+                ),
+            ),
         )
     )
 
@@ -71,6 +99,49 @@ def test_non_deepseek_provider_does_not_receive_thinking_extension() -> None:
 
     completion = _run(provider)
     assert completion.text == "Generic provider answer"
+
+
+def test_native_tool_call_allows_null_content_and_preserves_call() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert payload["tool_choice"] == "auto"
+        assert payload["tools"][0]["function"]["name"] == "utility_calculator"
+        return httpx.Response(
+            200,
+            json={
+                "model": "deepseek-v4-flash",
+                "choices": [
+                    {
+                        "message": {
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "call-1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "utility_calculator",
+                                        "arguments": '{"expression":"8 * 0.27"}',
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+                "usage": {"prompt_tokens": 24, "completion_tokens": 12},
+            },
+        )
+
+    provider = OpenAICompatibleProvider(
+        base_url="https://api.deepseek.com",
+        api_key=SecretStr("secret"),
+        transport=httpx.MockTransport(handler),
+    )
+    completion = _run_tools(provider)
+
+    assert completion.text == ""
+    assert completion.finish_reason == "tool_calls"
+    assert completion.tool_calls[0].function.name == "utility_calculator"
 
 
 def test_empty_content_is_retried_before_returning_success(monkeypatch: Any) -> None:

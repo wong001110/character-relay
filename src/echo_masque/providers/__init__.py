@@ -1,6 +1,15 @@
 """Provider exports."""
 
-from echo_masque.providers.base import ChatMessage, ChatProvider, ProviderCompletion
+from echo_masque.providers.base import (
+    ChatMessage,
+    ChatProvider,
+    ChatToolCall,
+    ChatToolDefinition,
+    ChatToolFunction,
+    ChatToolFunctionCall,
+    ProviderCompletion,
+    ToolCapableChatProvider,
+)
 from echo_masque.providers.errors import (
     ProviderAuthenticationError,
     ProviderError,
@@ -13,6 +22,10 @@ from echo_masque.providers.openai_compatible import OpenAICompatibleProvider
 __all__ = [
     "ChatMessage",
     "ChatProvider",
+    "ChatToolCall",
+    "ChatToolDefinition",
+    "ChatToolFunction",
+    "ChatToolFunctionCall",
     "MockChatProvider",
     "OpenAICompatibleProvider",
     "ProviderAuthenticationError",
@@ -20,4 +33,5 @@ __all__ = [
     "ProviderError",
     "ProviderProtocolError",
     "ProviderTimeoutError",
+    "ToolCapableChatProvider",
 ]
