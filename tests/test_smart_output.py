@@ -150,8 +150,7 @@ def test_unknown_refs_and_multiple_custom_emojis_are_rejected_atomically() -> No
     assert reason == "unknown_mention_participant"
 
     output, reason = context.parse_and_resolve(
-        '[[CR_OUTPUT {"action":"message","content":['
-        '{"emoji":"e1"},{"emoji":"e2"}]}]]',
+        '[[CR_OUTPUT {"action":"message","content":[{"emoji":"e1"},{"emoji":"e2"}]}]]',
         [candidate(), candidate("emoji:456")],
     )
     assert output is None

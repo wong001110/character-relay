@@ -38,6 +38,7 @@ import {
 import {
   buildMentionableParticipants,
   compileSmartMessage,
+  reserveUniqueCharacterTurn,
   smartOutputResourceCandidate
 } from "./smartOutput.js";
 import type {
@@ -1290,10 +1291,10 @@ async function continueBotTagConversation(
       !participantsSeen.has(deployment.deployment_id) &&
       shouldSubmitMessage(
         deployment,
-      {
-        mentionedBot: true,
-        repliedToBot: false,
-        hasReadableText: Boolean(audience.text || sourceText)
+        {
+          mentionedBot: true,
+          repliedToBot: false,
+          hasReadableText: Boolean(audience.text || sourceText)
         },
         config.smartParticipationEnabled
       )
@@ -1306,6 +1307,9 @@ async function continueBotTagConversation(
 
   for (const [responseIndex, baseDeployment] of eligible.entries()) {
     if (budget.remainingResponses <= 0) break;
+    if (!reserveUniqueCharacterTurn(participantsSeen, baseDeployment.deployment_id)) {
+      continue;
+    }
     budget.remainingResponses -= 1;
     const deployment = resolveDeploymentLocation(baseDeployment, location);
     const expressionSource = await resolveExpressionSourceMessage(
@@ -1460,7 +1464,7 @@ async function continueBotTagConversation(
       botUserId,
       depth + 1,
       budget,
-      new Set([...participantsSeen, turn.deployment.deployment_id])
+      participantsSeen
     );
   }
 }

@@ -97,13 +97,7 @@ class SmartOutputProposal(BaseModel):
                 raise ValueError("message contains unsupported action fields")
             return self
         if self.action == "react":
-            if (
-                self.content
-                or self.reply_to
-                or self.sticker
-                or not self.target
-                or not self.emoji
-            ):
+            if self.content or self.reply_to or self.sticker or not self.target or not self.emoji:
                 raise ValueError("react requires target and emoji only")
             return self
         if self.content or self.target or self.emoji or not self.sticker:
@@ -175,9 +169,7 @@ class SmartOutputContext:
             alias = f"p{index}"
             participant_alias_to_ref[alias] = participant.ref
             participant_ref_to_name[participant.ref] = participant.display_name
-            descriptions.append(
-                f"- {alias}: {participant.display_name} ({participant.kind})"
-            )
+            descriptions.append(f"- {alias}: {participant.display_name} ({participant.kind})")
 
         return cls(
             message_alias_to_id=message_alias_to_id,
@@ -212,10 +204,7 @@ class SmartOutputContext:
                 "Use react for a lightweight Emoji reaction attached to one supplied "
                 "message reference."
             ),
-            (
-                "Use sticker when a listed Server Sticker is the whole social action "
-                "for this turn."
-            ),
+            ("Use sticker when a listed Server Sticker is the whole social action for this turn."),
             (
                 "For message and sticker, omit reply_to to send directly to the "
                 "channel; set reply_to to a supplied message reference only when an "
@@ -225,20 +214,14 @@ class SmartOutputContext:
                 "Never invent message references, participant aliases, Emoji aliases, "
                 "or Sticker aliases."
             ),
-            (
-                "Never mention yourself. Your own participant alias is intentionally "
-                "not supplied."
-            ),
+            ("Never mention yourself. Your own participant alias is intentionally not supplied."),
             (
                 "Do not emit reasoning, confidence, explanations, prose outside the "
                 "control line, or legacy CR_EXPRESSION controls."
             ),
             "Return exactly one line in the form [[CR_OUTPUT {...}]].",
             "Examples (copy the shape, not unavailable sample aliases):",
-            (
-                '[[CR_OUTPUT {"action":"message","content":'
-                '[{"text":"你 😂 真的认真的?"}]}]]'
-            ),
+            ('[[CR_OUTPUT {"action":"message","content":[{"text":"你 😂 真的认真的?"}]}]]'),
             (
                 '[[CR_OUTPUT {"action":"message","reply_to":"trigger","content":'
                 '[{"text":"这句我不同意。 "},{"emoji":"e1"},'
@@ -247,8 +230,7 @@ class SmartOutputContext:
             '[[CR_OUTPUT {"action":"react","target":"trigger","emoji":"e1"}]]',
             '[[CR_OUTPUT {"action":"sticker","sticker":"s1"}]]',
             '[[CR_OUTPUT {"action":"ignore"}]]',
-            "Message references available this turn: "
-            + ", ".join(self.message_alias_to_id.keys()),
+            "Message references available this turn: " + ", ".join(self.message_alias_to_id.keys()),
         ]
         if self.participant_alias_descriptions:
             lines.extend(("Mentionable participants:", *self.participant_alias_descriptions))
