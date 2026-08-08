@@ -22,6 +22,7 @@ jobs:
         run: python -m pip install ruff==0.16.2
       - name: Fix and format touched Python
         run: |
+          # Keep formatting identical to repository CI before the next PR run.
           python -m ruff check --fix \
             src/echo_masque/connector_runtime.py \
             src/echo_masque/smart_output.py \
