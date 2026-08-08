@@ -33,7 +33,7 @@ def login(client: TestClient) -> None:
 
 def create_character(client: TestClient) -> str:
     response = client.post(
-        "/api/characters/stable",
+        "/api/characters/prompt-model",
         json={
             "display_name": "Ann",
             "subtitle": "RAG test character",
@@ -46,6 +46,12 @@ def create_character(client: TestClient) -> str:
             "memory_summary": "Server knowledge stays isolated.",
             "preferred_suites": ["identity_integrity"],
             "portrait_variant": "lavender",
+            "provider": "deepseek",
+            "base_url": "https://api.deepseek.com",
+            "model": "deepseek-v4-flash",
+            "system_prompt": "You are Ann.",
+            "temperature": 0.4,
+            "api_key": "test-provider-key",
         },
     )
     assert response.status_code == 201, response.text
