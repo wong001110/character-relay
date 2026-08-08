@@ -44,9 +44,14 @@ def execute(
 
 def test_registry_only_exposes_manually_enabled_and_available_tools() -> None:
     registry = default_tool_registry()
-    schemas = registry.provider_tools(("utility.calculator", "web.search"))
+    schemas = registry.provider_tools(
+        ("utility.calculator", "web.search", "random.roll", "scheduler.remind")
+    )
 
-    assert [item.function.name for item in schemas] == ["utility_calculator"]
+    assert [item.function.name for item in schemas] == [
+        "utility_calculator",
+        "random_roll",
+    ]
     assert {item.id for item in registry.catalog()} == {
         "utility.calculator",
         "utility.current_time",
@@ -54,14 +59,30 @@ def test_registry_only_exposes_manually_enabled_and_available_tools() -> None:
         "web.fetch_page",
         "discord.search_messages",
         "discord.create_poll",
+        "weather.get",
+        "random.roll",
+        "random.choose",
         "image.search",
+        "scheduler.remind",
+        "scheduler.list",
+        "scheduler.cancel",
+        "places.search",
+        "file.inspect",
     }
     availability = {item.id: item.available for item in registry.catalog()}
     assert availability["utility.calculator"] is True
     assert availability["utility.current_time"] is True
     assert availability["web.fetch_page"] is True
+    assert availability["weather.get"] is True
+    assert availability["random.roll"] is True
+    assert availability["random.choose"] is True
+    assert availability["file.inspect"] is True
     assert availability["web.search"] is False
     assert availability["image.search"] is False
+    assert availability["places.search"] is False
+    assert availability["scheduler.remind"] is False
+    assert availability["scheduler.list"] is False
+    assert availability["scheduler.cancel"] is False
     assert availability["discord.search_messages"] is False
     assert availability["discord.create_poll"] is False
 
@@ -101,6 +122,26 @@ def test_current_time_returns_requested_timezone() -> None:
     assert result.trace.status == "completed"
     assert payload["timezone"] == "Asia/Kuala_Lumpur"
     assert payload["utc_offset"] == "+08:00"
+
+
+def test_random_roll_is_bounded() -> None:
+    result = execute("random_roll", {"dice": "3d6+2"}, ("random.roll",))
+
+    payload = json.loads(result.content)
+    assert result.trace.status == "completed"
+    assert len(payload["rolls"]) == 3
+    assert all(1 <= item <= 6 for item in payload["rolls"])
+    assert payload["total"] == sum(payload["rolls"]) + 2
+
+
+def test_random_choose_returns_supplied_option() -> None:
+    options = ["Serena", "Mia", "Zhi"]
+    result = execute("random_choose", {"options": options}, ("random.choose",))
+
+    payload = json.loads(result.content)
+    assert result.trace.status == "completed"
+    assert payload["selected"] in options
+    assert payload["option_count"] == 3
 
 
 def test_runtime_rejects_tool_not_assigned_to_deployment() -> None:
