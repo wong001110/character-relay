@@ -74,6 +74,7 @@ from echo_masque.providers.trace import configure_provider_trace_sink
 from echo_masque.public_demo import PublicDemoService
 from echo_masque.public_demo_middleware import PublicDemoReadOnlyMiddleware
 from echo_masque.public_demo_quota import PublicDemoQuotaService
+from echo_masque.semantic_participation import CharacterParticipationSemanticService
 from echo_masque.services import MatrixService, RuntimeService, TrialService
 from echo_masque.smart_participation_generation import SmartParticipationGenerationService
 from echo_masque.template_sharing import EvaluationTemplateService
@@ -107,6 +108,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     interaction_repository = InteractionRepository(database)
     expression_repository = ExpressionRepository(database)
     smart_participation_repository = SmartParticipationRepository(database)
+    semantic_participation_service = CharacterParticipationSemanticService(
+        repository,
+        smart_participation_repository,
+        resolved,
+    )
     knowledge_repository = KnowledgeRepository(database)
     context_orchestrator = ContextOrchestrator(knowledge_repository)
     if bootstrap_admin is not None:
@@ -254,6 +260,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.interaction_repository = interaction_repository
     app.state.expression_repository = expression_repository
     app.state.smart_participation_repository = smart_participation_repository
+    app.state.semantic_participation_service = semantic_participation_service
     app.state.knowledge_repository = knowledge_repository
     app.state.context_orchestrator = context_orchestrator
     app.state.provider_trace_repository = provider_trace_repository
