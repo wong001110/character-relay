@@ -10,7 +10,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
-from typing import Protocol, cast
+from typing import Protocol
 
 from echo_masque.config import Settings
 from echo_masque.persistence.models import CharacterCardRecord
@@ -149,14 +149,14 @@ def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
     return max(-1.0, min(1.0, dot / (left_norm * right_norm)))
 
 
-def _compact(value: str) -> str:
-    return " ".join(value.split())
+def _compact(value: str | None) -> str:
+    return " ".join((value or "").split())
 
 
 def participation_semantic_text(card: CharacterCardRecord) -> str:
     """Build stable participation-focused text without an additional LLM call."""
 
-    sections: list[tuple[str, str]] = [
+    sections: list[tuple[str, str | None]] = [
         ("Character", card.display_name),
         ("Role", card.subtitle),
         ("Type", card.subject_type),
@@ -323,4 +323,4 @@ class CharacterParticipationSemanticService:
     def replace_encoder_for_test(self, encoder: SemanticEncoder) -> None:
         """Install a deterministic encoder in tests without loading the production model."""
 
-        self._encoder = cast(SemanticEncoder, encoder)
+        self._encoder = encoder
