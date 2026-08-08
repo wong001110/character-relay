@@ -8,9 +8,10 @@ import math
 import struct
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from typing import Protocol
+from typing import Literal, Protocol
 
 from echo_masque.config import Settings
 from echo_masque.persistence.models import CharacterCardRecord
@@ -21,6 +22,8 @@ from echo_masque.persistence.smart_participation_repository import (
 )
 
 logger = logging.getLogger(__name__)
+
+SemanticProfileStatus = Literal["disabled", "not_created", "ready", "stale", "invalid"]
 
 
 class SemanticEmbeddingUnavailable(RuntimeError):
@@ -123,6 +126,20 @@ class SemanticParticipationScore:
     profile_ready: bool
 
 
+@dataclass(frozen=True)
+class CharacterSemanticProfileInspection:
+    character_card_id: str
+    status: SemanticProfileStatus
+    enabled: bool
+    model_name: str
+    dimension: int
+    embedding_bytes: int
+    source_hash: str
+    semantic_text: str
+    created_at: datetime | None
+    updated_at: datetime | None
+
+
 def _serialize_vector(vector: Sequence[float]) -> bytes:
     if not vector:
         raise ValueError("Embedding vector cannot be empty.")
@@ -212,9 +229,78 @@ class CharacterParticipationSemanticService:
                 )
             return self._encoder
 
-    def _source_hash(self, semantic_text: str, encoder: SemanticEncoder) -> str:
-        payload = "\n".join([encoder.model_name, str(encoder.dimension), semantic_text])
+    @staticmethod
+    def _source_hash_values(semantic_text: str, model_name: str, dimension: int) -> str:
+        payload = "\n".join([model_name, str(dimension), semantic_text])
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _source_hash(self, semantic_text: str, encoder: SemanticEncoder) -> str:
+        return self._source_hash_values(
+            semantic_text,
+            encoder.model_name,
+            encoder.dimension,
+        )
+
+    def inspect_profile(
+        self,
+        *,
+        owner_id: str,
+        character_card_id: str,
+    ) -> CharacterSemanticProfileInspection:
+        """Inspect persisted embedding state without loading or running the model."""
+
+        card = self.repository.get_character_card(character_card_id, owner_id)
+        if card is None:
+            raise KeyError("character")
+        semantic_text = participation_semantic_text(card)
+        existing = self.smart_repository.get_semantic_profile(character_card_id, owner_id)
+
+        if existing is None:
+            return CharacterSemanticProfileInspection(
+                character_card_id=character_card_id,
+                status="not_created" if self.enabled else "disabled",
+                enabled=self.enabled,
+                model_name=self.settings.semantic_embedding_model,
+                dimension=self.settings.semantic_embedding_dimension,
+                embedding_bytes=0,
+                source_hash="",
+                semantic_text=semantic_text,
+                created_at=None,
+                updated_at=None,
+            )
+
+        embedding_bytes = len(existing.embedding_blob)
+        if not self.enabled:
+            status: SemanticProfileStatus = "disabled"
+        elif existing.dimension <= 0 or embedding_bytes != existing.dimension * 4:
+            status = "invalid"
+        else:
+            expected_hash = self._source_hash_values(
+                semantic_text,
+                self.settings.semantic_embedding_model,
+                self.settings.semantic_embedding_dimension,
+            )
+            if (
+                existing.source_hash != expected_hash
+                or existing.model_name != self.settings.semantic_embedding_model
+                or existing.dimension != self.settings.semantic_embedding_dimension
+            ):
+                status = "stale"
+            else:
+                status = "ready"
+
+        return CharacterSemanticProfileInspection(
+            character_card_id=character_card_id,
+            status=status,
+            enabled=self.enabled,
+            model_name=existing.model_name,
+            dimension=existing.dimension,
+            embedding_bytes=embedding_bytes,
+            source_hash=existing.source_hash,
+            semantic_text=semantic_text,
+            created_at=existing.created_at,
+            updated_at=existing.updated_at,
+        )
 
     def ensure_profile(
         self,
@@ -258,9 +344,11 @@ class CharacterParticipationSemanticService:
         return vector, True
 
     def refresh_character(self, *, owner_id: str, character_card_id: str) -> bool:
-        """Refresh one card after save; failures are intentionally fail-open."""
+        """Refresh an opted-in profile after save; never create one only because a card exists."""
 
         if not self.enabled:
+            return False
+        if self.smart_repository.get_semantic_profile(character_card_id, owner_id) is None:
             return False
         try:
             _, rebuilt = self.ensure_profile(
