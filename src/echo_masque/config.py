@@ -30,9 +30,9 @@ class Settings(BaseSettings):
     provider_trace_retention_days: int = 7
     provider_trace_max_records: int = 2000
 
-    # Smart Participation V3 semantic relevance. The model is loaded lazily and its
-    # cached ONNX files can live on the same persistent volume as SQLite in production.
-    semantic_participation_enabled: bool = True
+    # Smart Participation V3 semantic relevance. Production explicitly enables this so
+    # tests and source checkouts never download a model merely by creating a Character Card.
+    semantic_participation_enabled: bool = False
     semantic_embedding_model: str = "intfloat/multilingual-e5-small"
     semantic_embedding_model_file: str = "onnx/model_O4.onnx"
     semantic_embedding_dimension: int = 384
