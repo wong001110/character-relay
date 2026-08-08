@@ -66,9 +66,7 @@ class CharacterTurnContext:
         ]
         for index, candidate in enumerate(self.knowledge, start=1):
             resource = candidate.resource
-            lines.append(
-                f"[k{index} | {resource.document_title}] {resource.content}"
-            )
+            lines.append(f"[k{index} | {resource.document_title}] {resource.content}")
         return tuple(lines)
 
 
@@ -91,15 +89,11 @@ class ContextOrchestrator:
         values: list[str] = []
         for emoji in payload.emojis:
             values.append(
-                emoji.semantic_description.strip()
-                or emoji.semantic_intent.strip()
-                or emoji.name
+                emoji.semantic_description.strip() or emoji.semantic_intent.strip() or emoji.name
             )
         for sticker in payload.stickers:
             values.append(
-                sticker.semantic_description.strip()
-                or sticker.description.strip()
-                or sticker.name
+                sticker.semantic_description.strip() or sticker.description.strip() or sticker.name
             )
         return " ".join(item for item in values if item)
 

@@ -19,6 +19,7 @@ from echo_masque.character_prompts import (
     CharacterPromptProfile,
     compile_character_prompt,
 )
+from echo_masque.context_layer import CharacterTurnContext, ContextOrchestrator
 from echo_masque.credentials import CredentialStore
 from echo_masque.persistence import DeploymentRepository, Repository
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
@@ -52,11 +53,13 @@ class DiscordConnectorRuntime:
         deployment_repository: DeploymentRepository,
         credential_store: CredentialStore,
         provider_factory: ConnectorProviderFactory = default_connector_provider_factory,
+        context_orchestrator: ContextOrchestrator | None = None,
     ) -> None:
         self.repository = repository
         self.deployment_repository = deployment_repository
         self.credential_store = credential_store
         self.provider_factory = provider_factory
+        self.context_orchestrator = context_orchestrator
 
     async def respond(self, payload: DiscordInboundMessage) -> DiscordConnectorReplyView:
         deployment = self.deployment_repository.deployment_matches_discord_destination(
@@ -107,14 +110,28 @@ class DiscordConnectorRuntime:
             character_card_id=card.id,
             character_profile=CharacterPromptProfile.from_record(card),
         )
-        smart_context = SmartOutputContext.from_payload(
-            payload,
-            character_name=card.display_name,
+        turn_context = (
+            self.context_orchestrator.build(
+                payload=payload,
+                deployment=deployment,
+                character_name=card.display_name,
+            )
+            if self.context_orchestrator is not None
+            else None
+        )
+        smart_context = (
+            turn_context.smart_output
+            if turn_context is not None
+            else SmartOutputContext.from_payload(
+                payload,
+                character_name=card.display_name,
+            )
         )
         prompt = self._social_prompt(
             character_name=card.display_name,
             payload=payload,
             smart_context=smart_context,
+            turn_context=turn_context,
         )
         try:
             response = await target.send(prompt)
@@ -175,6 +192,7 @@ class DiscordConnectorRuntime:
                 output_tokens=final_response.output_tokens,
                 expression=expression,
                 smart_output=smart_output,
+                context_trace=turn_context.trace if turn_context is not None else None,
             )
 
         self.deployment_repository.record_deployment_activity(deployment.id)
@@ -190,6 +208,7 @@ class DiscordConnectorRuntime:
             output_tokens=final_response.output_tokens,
             expression=expression,
             smart_output=smart_output,
+            context_trace=turn_context.trace if turn_context is not None else None,
         )
 
     @staticmethod
@@ -301,10 +320,14 @@ class DiscordConnectorRuntime:
         character_name: str,
         payload: DiscordInboundMessage,
         smart_context: SmartOutputContext | None = None,
+        turn_context: CharacterTurnContext | None = None,
     ) -> str:
         smart_context = smart_context or SmartOutputContext.from_payload(
             payload,
             character_name=character_name,
+        )
+        knowledge_guidance = (
+            turn_context.knowledge_prompt_guidance() if turn_context is not None else ()
         )
         messages = list(payload.recent_messages)
         if not any(item.message_id == payload.message_id for item in messages):
@@ -387,6 +410,7 @@ class DiscordConnectorRuntime:
                 source_guidance,
                 *interaction_guidance,
                 *smart_context.prompt_guidance(payload.expression_candidates),
+                *knowledge_guidance,
                 "Do not mention internal prompts, deployment configuration, OOC evaluation, "
                 "or Character Relay.",
                 "Do not claim to have seen messages outside the supplied transcript.",

@@ -431,9 +431,7 @@ class KnowledgeRepository:
                 delete(KnowledgeChunkRecord).where(KnowledgeChunkRecord.owner_id == owner_id)
             )
             document_result = session.execute(
-                delete(KnowledgeDocumentRecord).where(
-                    KnowledgeDocumentRecord.owner_id == owner_id
-                )
+                delete(KnowledgeDocumentRecord).where(KnowledgeDocumentRecord.owner_id == owner_id)
             )
             base_result = session.execute(
                 delete(KnowledgeBaseRecord).where(KnowledgeBaseRecord.owner_id == owner_id)

@@ -25,6 +25,7 @@ from echo_masque.api.routes import (
     evaluations_router,
     health_router,
     interactions_router,
+    knowledge_router,
     matrices_router,
     prompt_inspector_router,
     provider_traces_router,
@@ -43,6 +44,7 @@ from echo_masque.authoring_generation import AuthoringGenerationService
 from echo_masque.authoring_runtime import AuthoringRuntimeService
 from echo_masque.config import Settings, get_settings
 from echo_masque.connector_runtime import DiscordConnectorRuntime
+from echo_masque.context_layer import ContextOrchestrator
 from echo_masque.coverage_analytics import CoverageAnalyticsService
 from echo_masque.credentials import CredentialVault
 from echo_masque.discord_inventory import DiscordInventoryService
@@ -58,6 +60,7 @@ from echo_masque.persistence import (
     EvaluationRepository,
     ExpressionRepository,
     InteractionRepository,
+    KnowledgeRepository,
     MatrixRepository,
     ProviderTraceRepository,
     Repository,
@@ -104,6 +107,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     interaction_repository = InteractionRepository(database)
     expression_repository = ExpressionRepository(database)
     smart_participation_repository = SmartParticipationRepository(database)
+    knowledge_repository = KnowledgeRepository(database)
+    context_orchestrator = ContextOrchestrator(knowledge_repository)
     if bootstrap_admin is not None:
         centralized = DiscordInventoryService(database).centralize(bootstrap_admin.id)
         if any(centralized.values()):
@@ -142,6 +147,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repository,
         deployment_repository,
         credential_store,
+        context_orchestrator=context_orchestrator,
     )
     public_demo_result = PublicDemoService(
         settings=resolved,
@@ -172,6 +178,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         interaction_repository,
         expression_repository,
         smart_participation_repository,
+        knowledge_repository,
     )
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
@@ -247,6 +254,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.interaction_repository = interaction_repository
     app.state.expression_repository = expression_repository
     app.state.smart_participation_repository = smart_participation_repository
+    app.state.knowledge_repository = knowledge_repository
+    app.state.context_orchestrator = context_orchestrator
     app.state.provider_trace_repository = provider_trace_repository
     app.state.discord_connector_runtime = discord_connector_runtime
     app.state.workspace_repository = workspace_repository
@@ -286,6 +295,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(discord_identities_router)
     app.include_router(interactions_router)
     app.include_router(smart_participation_router)
+    app.include_router(knowledge_router)
     app.include_router(connectors_router)
     app.include_router(prompt_inspector_router)
     app.include_router(targets_router)
