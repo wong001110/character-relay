@@ -163,6 +163,13 @@ export interface DiscordContextTrace {
   selected: DiscordContextTraceItem[];
 }
 
+export interface DiscordToolExecutionTrace {
+  tool_id: string;
+  status: "completed" | "failed" | "rejected";
+  duration_ms: number;
+  error: string;
+}
+
 export interface DiscordExpressionResolveRequest {
   guild_id: string;
   resource_type: "emoji" | "sticker";
@@ -301,6 +308,7 @@ export interface DiscordReply {
   expression: DiscordExpressionDecision;
   smart_output?: DiscordSmartOutput | null;
   context_trace?: DiscordContextTrace | null;
+  tool_calls: DiscordToolExecutionTrace[];
 }
 
 export type DiscordConnectorEventLevel = "info" | "warning" | "error";
