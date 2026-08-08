@@ -8,6 +8,7 @@ import {
   NotebookInput,
   NotebookSelect
 } from "./NotebookUI";
+import { SemanticProfilePanel } from "./SemanticProfilePanel";
 
 interface Props {
   cards: CharacterCard[];
@@ -46,6 +47,7 @@ export function CharacterShelf({
   const [tag, setTag] = useState("all");
   const [sort, setSort] = useState("newest");
   const [page, setPage] = useState(1);
+  const [semanticCard, setSemanticCard] = useState<CharacterCard | null>(null);
 
   const tags = useMemo(
     () => [...new Set(cards.flatMap((card) => card.tags))].sort((a, b) => a.localeCompare(b)),
@@ -225,6 +227,9 @@ export function CharacterShelf({
                   <button className="paper-button" onClick={() => onPrompt(card)}>
                     {zh ? "真实 Prompt" : "View Prompt"}
                   </button>
+                  <button className="paper-button" onClick={() => setSemanticCard(card)}>
+                    Semantic Profile
+                  </button>
                   <button className="paper-button" onClick={() => onDeploy(card)}>
                     {zh ? "部署" : "Deploy"}
                   </button>
@@ -271,6 +276,15 @@ export function CharacterShelf({
             </nav>
           )}
         </>
+      )}
+
+      {semanticCard && (
+        <SemanticProfilePanel
+          card={semanticCard}
+          zh={zh}
+          demoMode={demoMode}
+          onClose={() => setSemanticCard(null)}
+        />
       )}
     </main>
   );
