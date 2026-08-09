@@ -26,6 +26,8 @@ jobs:
           types = Path('connectors/discord/src/types.ts')
           text = types.read_text(encoding='utf-8')
           marker = 'export type ChannelScopeMode = "exact" | "all_except";\n'
+          if text.count(marker) != 1:
+              raise SystemExit('channel scope marker mismatch')
           text = text.replace(
               marker,
               marker + 'export type LangGraphMode = "off" | "condition_watch" | "character_turn" | "social_turn";\n',
@@ -34,50 +36,49 @@ jobs:
           field = '  webhook_token?: string | null;\n'
           if text.count(field) != 1:
               raise SystemExit('deployment field marker mismatch')
-          text = text.replace(
-              field,
-              field + '  orchestration_mode: LangGraphMode;\n',
-              1,
-          )
+          text = text.replace(field, field + '  orchestration_mode: LangGraphMode;\n', 1)
+
           reply_marker = 'export interface DiscordReply {\n'
-          social = '''export type DiscordSocialTurnOrigin = "selected" | "invite" | "mention";
-
-export interface DiscordSocialPendingTurn {
-  deployment_id: string;
-  origin: DiscordSocialTurnOrigin;
-  depth: number;
-  source_deployment_id: string;
-}
-
-export interface DiscordSocialTurnCursor {
-  pending_turns: DiscordSocialPendingTurn[];
-  completed_deployment_ids: string[];
-  continuation_budget_remaining: number;
-  max_depth: number;
-  step_index: number;
-}
-
-export interface DiscordSocialTurnStepRequest {
-  payload: DiscordInboundMessage;
-  initial_deployment_ids: string[];
-  available_deployment_ids: string[];
-  continuation_budget: number;
-  max_depth: number;
-  cursor?: DiscordSocialTurnCursor | null;
-}
-
-export interface DiscordSocialTurnStepReply {
-  reply: DiscordReply;
-  cursor: DiscordSocialTurnCursor;
-  current_deployment_id: string;
-  next_turn?: DiscordSocialPendingTurn | null;
-  done: boolean;
-  stop_reason: string;
-  invite_candidate_deployment_id: string;
-  mentioned_character_deployment_ids: string[];
-}
-
-'''
+          social = '\n'.join([
+              'export type DiscordSocialTurnOrigin = "selected" | "invite" | "mention";',
+              '',
+              'export interface DiscordSocialPendingTurn {',
+              '  deployment_id: string;',
+              '  origin: DiscordSocialTurnOrigin;',
+              '  depth: number;',
+              '  source_deployment_id: string;',
+              '}',
+              '',
+              'export interface DiscordSocialTurnCursor {',
+              '  pending_turns: DiscordSocialPendingTurn[];',
+              '  completed_deployment_ids: string[];',
+              '  continuation_budget_remaining: number;',
+              '  max_depth: number;',
+              '  step_index: number;',
+              '}',
+              '',
+              'export interface DiscordSocialTurnStepRequest {',
+              '  payload: DiscordInboundMessage;',
+              '  initial_deployment_ids: string[];',
+              '  available_deployment_ids: string[];',
+              '  continuation_budget: number;',
+              '  max_depth: number;',
+              '  cursor?: DiscordSocialTurnCursor | null;',
+              '}',
+              '',
+              'export interface DiscordSocialTurnStepReply {',
+              '  reply: DiscordReply;',
+              '  cursor: DiscordSocialTurnCursor;',
+              '  current_deployment_id: string;',
+              '  next_turn?: DiscordSocialPendingTurn | null;',
+              '  done: boolean;',
+              '  stop_reason: string;',
+              '  invite_candidate_deployment_id: string;',
+              '  mentioned_character_deployment_ids: string[];',
+              '}',
+              '',
+              '',
+          ])
           if text.count(reply_marker) != 1:
               raise SystemExit('DiscordReply marker mismatch')
           types.write_text(text.replace(reply_marker, social + reply_marker, 1), encoding='utf-8')
@@ -85,30 +86,34 @@ export interface DiscordSocialTurnStepReply {
           relay = Path('connectors/discord/src/relayClient.ts')
           text = relay.read_text(encoding='utf-8')
           import_marker = '  DiscordServerCatalogSync,\n'
+          if text.count(import_marker) != 1:
+              raise SystemExit('relay import marker mismatch')
           text = text.replace(
               import_marker,
               import_marker + '  DiscordSocialTurnStepReply,\n  DiscordSocialTurnStepRequest,\n',
               1,
           )
           method_marker = '  async processMessage(\n'
-          method = '''  async processSocialTurnStep(
-    request: Omit<DiscordSocialTurnStepRequest, "payload"> & {
-      payload: Omit<DiscordInboundMessage, "connection_id">;
-    }
-  ): Promise<DiscordSocialTurnStepReply> {
-    return this.request<DiscordSocialTurnStepReply>(
-      "/api/connectors/discord/social-turns/step",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          ...request,
-          payload: { connection_id: this.connectionId, ...request.payload }
-        })
-      }
-    );
-  }
-
-'''
+          method = '\n'.join([
+              '  async processSocialTurnStep(',
+              '    request: Omit<DiscordSocialTurnStepRequest, "payload"> & {',
+              '      payload: Omit<DiscordInboundMessage, "connection_id">;',
+              '    }',
+              '  ): Promise<DiscordSocialTurnStepReply> {',
+              '    return this.request<DiscordSocialTurnStepReply>(',
+              '      "/api/connectors/discord/social-turns/step",',
+              '      {',
+              '        method: "POST",',
+              '        body: JSON.stringify({',
+              '          ...request,',
+              '          payload: { connection_id: this.connectionId, ...request.payload }',
+              '        })',
+              '      }',
+              '    );',
+              '  }',
+              '',
+              '',
+          ])
           if text.count(method_marker) != 1:
               raise SystemExit('processMessage marker mismatch')
           relay.write_text(text.replace(method_marker, method + method_marker, 1), encoding='utf-8')
