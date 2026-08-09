@@ -86,7 +86,7 @@ def test_webhook_reminder_registers_reply_route_after_delivery() -> None:
         channel_id="channel-1",
         thread_id="",
         target_user_id="user-1",
-        reminder_text="十一点了。你自己叫我提醒你的, 别装没看到。",
+        reminder_text="Eleven o'clock. You asked me to remind you, so don't ignore this.",
         scheduled_at=datetime.now(UTC) - timedelta(seconds=1),
     )
     identities = FakeIdentityRepository()
@@ -98,6 +98,7 @@ def test_webhook_reminder_registers_reply_route_after_delivery() -> None:
         body = json.loads(request.content)
         assert body["username"] == "安 · Ann"
         assert body["content"].startswith("<@user-1> ")
+        assert body["allowed_mentions"] == {"parse": [], "users": ["user-1"]}
         return httpx.Response(200, json={"id": "message-webhook-1"})
 
     service = ScheduledReminderDeliveryService(
