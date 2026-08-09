@@ -60,7 +60,10 @@ from echo_masque.credentials import CredentialVault
 from echo_masque.discord_inventory import DiscordInventoryService
 from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
 from echo_masque.judge_evaluation import JudgeEvaluationService
-from echo_masque.orchestration import ConditionWatchGraphRunner
+from echo_masque.orchestration import (
+    CharacterTurnGraphRunner,
+    ConditionWatchGraphRunner,
+)
 from echo_masque.persistence import (
     AuthoringRepository,
     AuthRepository,
@@ -239,6 +242,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         deployment_tool_repository=deployment_tool_repository,
         tool_registry=tool_registry,
     )
+    character_turn_graph_runner = (
+        CharacterTurnGraphRunner(discord_connector_runtime)
+        if resolved.langgraph_allows("character_turn")
+        else None
+    )
     public_demo_result = PublicDemoService(
         settings=resolved,
         auth_service=auth_service,
@@ -373,6 +381,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.context_orchestrator = context_orchestrator
     app.state.provider_trace_repository = provider_trace_repository
     app.state.discord_connector_runtime = discord_connector_runtime
+    app.state.character_turn_graph_runner = character_turn_graph_runner
     app.state.workspace_repository = workspace_repository
     app.state.authoring_repository = authoring_repository
     app.state.authoring_archive_service = authoring_archive_service
