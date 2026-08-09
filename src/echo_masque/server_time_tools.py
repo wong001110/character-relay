@@ -240,7 +240,8 @@ class ServerAwareToolRegistry(ToolRegistry):
                             "The exact future message this Character will send only after the "
                             "condition triggers. Write it now in the current Character "
                             "persona and "
-                            "voice. Do not write an internal title or instruction, and do not add an "
+                            "voice. Do not write an internal title or instruction, "
+                            "and do not add an "
                             "@mention; Runtime handles the target mention separately."
                         )
                     function["description"] = (
