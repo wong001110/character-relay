@@ -182,7 +182,7 @@ Raw keys, encrypted blobs, Session tokens, password hashes, invitation codes, Bo
 
 Deploy the root `Dockerfile` with `railway.toml`, one replica, and a Railway Volume mounted at `/data`.
 
-Character Relay application settings use the `CHARACTER_RELAY_*` environment prefix. Historical `ECHO_MASQUE_*` application variables are no longer read by the runtime.
+Character Relay application settings use the `CHARACTER_RELAY_*` environment prefix. Previous product-prefix application variables are no longer read by the runtime.
 
 Required variables:
 
