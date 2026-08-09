@@ -61,7 +61,9 @@ class ProviderTraceRepository:
             record.trace_mode = str(payload.get("trace_mode", record.trace_mode or "summary"))
 
             if event == "provider.request":
-                record.status = "pending"
+                record.status = (
+                    "error" if self._payload_has_failed_tool_result(payload) else "pending"
+                )
                 record.request_model = str(payload.get("model", ""))
                 record.request_json = encoded
                 self._prune(session, now=now)
@@ -72,7 +74,11 @@ class ProviderTraceRepository:
                     retries[-20:], ensure_ascii=False, separators=(",", ":")
                 )
             elif event == "provider.response":
-                record.status = "succeeded"
+                record.status = (
+                    "error"
+                    if self._request_has_failed_tool_result(record.request_json)
+                    else "succeeded"
+                )
                 record.response_model = str(payload.get("response_model", ""))
                 record.response_json = encoded
                 record.status_code = self._optional_int(payload.get("status_code"))
@@ -230,6 +236,11 @@ class ProviderTraceRepository:
         with self.database.session() as session:
             records = list(session.scalars(select(ProviderTraceRecord)))
             for record in records:
+                if (
+                    record.status != "error"
+                    and self._request_has_failed_tool_result(record.request_json)
+                ):
+                    record.status = "error"
                 self._sync_index(session, record)
             session.commit()
 
@@ -261,6 +272,45 @@ class ProviderTraceRepository:
             if isinstance(candidate, str) and candidate.strip():
                 return candidate.strip()
         return ""
+
+    @classmethod
+    def _request_has_failed_tool_result(cls, value: str) -> bool:
+        try:
+            decoded = json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            return False
+        return isinstance(decoded, dict) and cls._payload_has_failed_tool_result(decoded)
+
+    @classmethod
+    def _payload_has_failed_tool_result(cls, payload: dict[str, object]) -> bool:
+        latest = payload.get("latest_message")
+        if isinstance(latest, dict) and latest.get("role") == "tool":
+            if cls._tool_content_failed(latest.get("content")):
+                return True
+        messages = payload.get("messages")
+        if not isinstance(messages, list):
+            return False
+        return any(
+            isinstance(message, dict)
+            and message.get("role") == "tool"
+            and cls._tool_content_failed(message.get("content"))
+            for message in messages
+        )
+
+    @staticmethod
+    def _tool_content_failed(content: object) -> bool:
+        if not isinstance(content, str) or not content.strip():
+            return False
+        try:
+            decoded = json.loads(content)
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(decoded, dict):
+            return False
+        if decoded.get("ok") is False:
+            return True
+        status = decoded.get("status")
+        return isinstance(status, str) and status.casefold() in {"failed", "rejected", "error"}
 
     def _prune(self, session: Session, *, now: datetime) -> None:
         cutoff = now - timedelta(days=self.retention_days)
