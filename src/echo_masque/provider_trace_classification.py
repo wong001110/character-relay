@@ -61,7 +61,6 @@ def provider_trace_tool_names(request_json: str, response_json: str) -> list[str
 
 def provider_trace_category(request_json: str, response_json: str) -> ProviderTraceCategory:
     request = _object(request_json)
-    response = _object(response_json)
     roles = _string_list(request.get("message_roles"))
     tool_names = provider_trace_tool_names(request_json, response_json)
     if (
