@@ -163,3 +163,35 @@ def test_ignore_is_a_valid_atomic_action() -> None:
     assert reason == "ok"
     assert output is not None
     assert output.action == "ignore"
+
+
+def test_terminal_control_recovers_provider_prose_and_one_missing_bracket() -> None:
+    context = SmartOutputContext.from_payload(payload(), character_name="Ann")
+    raw = (
+        "I found some useful results. Let me share a concise summary.\n\n"
+        '[[CR_OUTPUT {"action":"message","reply_to":"trigger","content":'
+        '[{"text":"I found several current AI developments worth noting."}]}]'
+    )
+
+    output, reason = context.parse_and_resolve(raw, [])
+
+    assert reason == "ok"
+    assert output is not None
+    assert output.action == "message"
+    assert output.reply_to_message_id == "message-trigger"
+    assert output.content == [
+        SmartTextPart(text="I found several current AI developments worth noting.")
+    ]
+
+
+def test_terminal_control_recovery_rejects_trailing_prose() -> None:
+    context = SmartOutputContext.from_payload(payload(), character_name="Ann")
+    raw = (
+        '[[CR_OUTPUT {"action":"message","content":[{"text":"hello"}]}]] '
+        "extra text"
+    )
+
+    output, reason = context.parse_and_resolve(raw, [])
+
+    assert output is None
+    assert reason == "missing_smart_output_control"
