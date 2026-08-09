@@ -287,11 +287,33 @@ class SmartOutputContext:
         candidates: list[ExpressionCandidate],
     ) -> tuple[DiscordSmartOutputView | None, str]:
         marker = _OUTPUT_PATTERN.fullmatch(raw)
-        if marker is None:
-            return None, "missing_smart_output_control"
+        value: object
+        if marker is not None:
+            try:
+                value = json.loads(marker.group(1))
+            except json.JSONDecodeError:
+                return None, "invalid_smart_output_control"
+        else:
+            # Providers occasionally prepend harmless prose or omit one final closing
+            # bracket after an otherwise valid CR_OUTPUT. Recover only the final control,
+            # require a complete JSON value, and reject any trailing prose. Runtime
+            # schema/reference validation still runs below.
+            token = "[[CR_OUTPUT"
+            start = raw.rfind(token)
+            if start < 0:
+                return None, "missing_smart_output_control"
+            candidate = raw[start + len(token) :].lstrip()
+            if not candidate.startswith("{"):
+                return None, "invalid_smart_output_control"
+            try:
+                value, end = json.JSONDecoder().raw_decode(candidate)
+            except json.JSONDecodeError:
+                return None, "invalid_smart_output_control"
+            if candidate[end:].strip() not in {"]", "]]"}:
+                return None, "missing_smart_output_control"
         try:
-            proposal = SmartOutputProposal.model_validate(json.loads(marker.group(1)))
-        except (json.JSONDecodeError, ValueError):
+            proposal = SmartOutputProposal.model_validate(value)
+        except ValueError:
             return None, "invalid_smart_output_control"
         return self.resolve(proposal, candidates)
 
