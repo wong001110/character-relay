@@ -263,10 +263,11 @@ def _expand_and_advance(
 
     proposals: list[tuple[str, SocialTurnOrigin]] = []
     invite = result.invite_candidate_deployment_id
-    if invite and not context.request.payload.author_is_bot:
+    invite_allowed = bool(invite and not context.request.payload.author_is_bot)
+    if invite_allowed:
         proposals.append((invite, "invite"))
     for candidate in result.mentioned_character_deployment_ids:
-        if candidate != invite:
+        if not (invite_allowed and candidate == invite):
             proposals.append((candidate, "mention"))
 
     if next_depth <= cursor.max_depth:
