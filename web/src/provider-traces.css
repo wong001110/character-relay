@@ -38,7 +38,7 @@
 
 .provider-trace-controls {
   display: grid;
-  grid-template-columns: minmax(150px, 0.6fr) minmax(220px, 1fr) auto minmax(190px, auto) auto;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(140px, 0.6fr) minmax(220px, 1fr) auto minmax(190px, auto) auto;
   align-items: end;
   gap: 14px;
   max-width: 1500px;
@@ -89,7 +89,7 @@
 
 .provider-trace-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 370px) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 390px) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
   max-width: 1500px;
@@ -110,8 +110,7 @@
 
 .provider-trace-list-item {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 5px 10px;
+  gap: 5px;
   padding: 14px;
   text-align: left;
   border: 1px solid rgba(41, 35, 48, 0.13);
@@ -128,18 +127,24 @@
 }
 
 .provider-trace-list-item strong {
-  align-self: center;
   overflow-wrap: anywhere;
 }
 
 .provider-trace-list-item small,
 .provider-trace-list-item code {
-  grid-column: 2;
   color: rgba(41, 35, 48, 0.66);
   font-size: 0.73rem;
 }
 
-.provider-trace-status {
+.provider-trace-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.provider-trace-status,
+.provider-trace-category {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -150,6 +155,40 @@
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.provider-trace-category {
+  border: 1px solid rgba(41, 35, 48, 0.12);
+}
+
+.category-tool_calling {
+  background: rgba(111, 82, 154, 0.16);
+  color: #5f397f;
+}
+
+.category-character_turn {
+  background: rgba(51, 119, 136, 0.14);
+  color: #285f6f;
+}
+
+.category-model_call {
+  background: rgba(87, 92, 103, 0.12);
+  color: #555965;
+}
+
+.provider-trace-tool-names {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #5f397f !important;
+  overflow-wrap: anywhere;
+}
+
+.provider-trace-tool-chip {
+  display: inline-flex;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: rgba(111, 82, 154, 0.1);
+  color: #5f397f !important;
+  font-size: 0.72rem;
 }
 
 .trace-pending {
@@ -182,7 +221,9 @@
   margin: 6px 0;
 }
 
-.provider-trace-detail-heading code {
+.provider-trace-detail-heading > div > code {
+  display: block;
+  margin-top: 8px;
   color: rgba(41, 35, 48, 0.66);
   overflow-wrap: anywhere;
 }
@@ -260,6 +301,12 @@
 .provider-trace-empty p {
   margin: 0;
   color: rgba(41, 35, 48, 0.65);
+}
+
+@media (max-width: 1180px) {
+  .provider-trace-controls {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1040px) {
