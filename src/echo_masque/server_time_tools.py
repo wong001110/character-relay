@@ -9,7 +9,12 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, model_validator
 
+from echo_masque.character_invite_runtime import (
+    CharacterInviteProposal,
+    current_character_invite_turn,
+)
 from echo_masque.persistence.condition_watch_repository import ConditionWatchRepository
+from echo_masque.persistence.deployment_repository import DeploymentRepository
 from echo_masque.providers import ChatToolDefinition
 from echo_masque.server_time import current_server_timezone, validate_timezone
 from echo_masque.tool_external import json_result
@@ -33,6 +38,17 @@ class WatchConditionInput(BaseModel):
         return self
 
 
+class CharacterInviteInput(BaseModel):
+    participant_alias: str = Field(min_length=2, max_length=16, pattern=r"^p[1-9][0-9]*$")
+    reason: str = Field(default="", max_length=600)
+
+    @model_validator(mode="after")
+    def normalize_reason(self) -> CharacterInviteInput:
+        self.participant_alias = self.participant_alias.strip()
+        self.reason = self.reason.strip()
+        return self
+
+
 class ServerAwareToolRegistry(ToolRegistry):
     """Use the current Discord Server timezone and expose server-aware V2 capabilities."""
 
@@ -41,12 +57,18 @@ class ServerAwareToolRegistry(ToolRegistry):
         *args: Any,
         condition_watch_repository: ConditionWatchRepository | None = None,
         condition_watch_enabled: bool = False,
+        deployment_repository: DeploymentRepository | None = None,
+        character_invite_enabled: bool | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         if condition_watch_repository is None and self.reminders is not None:
             condition_watch_repository = ConditionWatchRepository(self.reminders.database)
         self.condition_watches = condition_watch_repository
+        if deployment_repository is None and condition_watch_repository is not None:
+            deployment_repository = DeploymentRepository(condition_watch_repository.database)
+        self.deployments = deployment_repository
+
         watch_available = (
             condition_watch_enabled and condition_watch_repository is not None
         )
@@ -106,6 +128,56 @@ class ServerAwareToolRegistry(ToolRegistry):
         self._by_id[watch_tool.catalog.id] = watch_tool
         self._by_provider_name[watch_tool.catalog.provider_function_name] = watch_tool
 
+        invite_enabled = (
+            condition_watch_enabled
+            if character_invite_enabled is None
+            else character_invite_enabled
+        )
+        invite_available = invite_enabled and self.deployments is not None
+        invite_tool = _tool(
+            tool_id="character.invite",
+            display_name="Invite Character",
+            description=(
+                "Propose one prompt-local Character to join the current Discord turn. "
+                "Runtime validates the candidate and may decline or suppress participation."
+            ),
+            category="character",
+            operation="coordination",
+            risk="medium",
+            side_effect=True,
+            provider_name="character_invite",
+            provider_description=(
+                "Propose one listed participant alias such as p1 to join this live human-"
+                "initiated turn when the relationship, capability, or context justifies it. "
+                "This Tool does not guarantee that the invited Character will speak."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "participant_alias": {
+                        "type": "string",
+                        "pattern": "^p[1-9][0-9]*$",
+                        "description": "A prompt-local Character participant alias, e.g. p1.",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 600,
+                        "description": "Brief social or capability reason for the invitation.",
+                    },
+                },
+                "required": ["participant_alias"],
+                "additionalProperties": False,
+            },
+            available=invite_available,
+            availability_reason=(
+                ""
+                if invite_available
+                else "Character invite Runtime validation is not enabled."
+            ),
+        )
+        self._by_id[invite_tool.catalog.id] = invite_tool
+        self._by_provider_name[invite_tool.catalog.provider_function_name] = invite_tool
+
     def provider_tools(
         self,
         enabled_tool_ids: tuple[str, ...],
@@ -164,7 +236,78 @@ class ServerAwareToolRegistry(ToolRegistry):
             return await super()._execute_tool(tool_id, adjusted, context)
         if tool_id == "watch.condition":
             return self._watch_condition(arguments, context)
+        if tool_id == "character.invite":
+            return self._character_invite(arguments, context)
         return await super()._execute_tool(tool_id, arguments, context)
+
+    def _character_invite(
+        self,
+        arguments: dict[str, object],
+        context: ToolExecutionContext,
+    ) -> str:
+        self._require_discord(context)
+        if context.initiator_is_bot:
+            raise ValueError(
+                "Character invitations are allowed only on a human-initiated turn."
+            )
+        if self.deployments is None:
+            raise ValueError("Character invite Runtime validation is unavailable.")
+        state = current_character_invite_turn()
+        if state is None or state.deployment_id != context.deployment_id:
+            raise ValueError("No prompt-local Character participants are available to invite.")
+        if (
+            state.connection_id != context.connection_id
+            or state.guild_id != context.guild_id
+            or state.channel_id != context.channel_id
+            or state.thread_id != context.thread_id
+        ):
+            raise ValueError("Character invite Runtime context does not match this turn.")
+
+        payload = CharacterInviteInput.model_validate(arguments)
+        participant = state.participant(payload.participant_alias)
+        if participant is None:
+            raise ValueError("Unknown prompt-local participant alias.")
+        if participant.kind != "character" or not participant.ref.startswith("deployment:"):
+            raise ValueError("character.invite can target only a Character participant alias.")
+        candidate_id = participant.ref.removeprefix("deployment:").strip()
+        if not candidate_id or candidate_id == context.deployment_id:
+            raise ValueError("A Character cannot invite itself.")
+
+        candidate = self.deployments.deployment_matches_discord_destination(
+            candidate_id,
+            connection_id=context.connection_id,
+            guild_id=context.guild_id,
+            channel_id=context.channel_id,
+            thread_id=context.thread_id,
+            category_id=state.category_id,
+        )
+        if candidate is None or candidate.owner_id != context.owner_id:
+            raise ValueError("The invited Character is not active in this Runtime scope.")
+        if candidate.participation_mode != "smart":
+            raise ValueError(
+                "The invited Character must use Smart Participation in this destination."
+            )
+
+        state.record(
+            CharacterInviteProposal(
+                participant_alias=payload.participant_alias,
+                candidate_deployment_id=candidate.id,
+                candidate_character_card_id=candidate.character_card_id,
+                candidate_display_name=participant.display_name,
+                reason=payload.reason,
+            )
+        )
+        return json_result(
+            ok=True,
+            proposal_status="pending_runtime_validation",
+            participant_alias=payload.participant_alias,
+            participant_name=participant.display_name,
+            reason=payload.reason,
+            note=(
+                "Character Relay will validate the final Smart Output and participant "
+                "budget. This does not guarantee the invited Character will speak."
+            ),
+        )
 
     def _watch_condition(
         self,
@@ -267,4 +410,4 @@ class ServerAwareToolRegistry(ToolRegistry):
         return parsed.astimezone(ZoneInfo(timezone)).isoformat(timespec="seconds")
 
 
-__all__ = ["ServerAwareToolRegistry", "WatchConditionInput"]
+__all__ = ["CharacterInviteInput", "ServerAwareToolRegistry", "WatchConditionInput"]
