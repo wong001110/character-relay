@@ -1,0 +1,31 @@
+name: Phase 3 final import cleanup
+
+on:
+  push:
+    branches:
+      - agent/langgraph-phase-3-character-turn
+    paths:
+      - .github/workflows/phase3-final-import-cleanup.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/langgraph-phase-3-character-turn
+          fetch-depth: 0
+      - name: Remove unused import
+        run: sed -i 's/from typing import Any, cast/from typing import cast/' src/echo_masque/targets/prompt_model.py
+      - name: Remove one-shot workflow
+        run: git rm .github/workflows/phase3-final-import-cleanup.yml
+      - name: Commit cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "style: remove unused Phase 3 typing import"
+          git push origin HEAD:agent/langgraph-phase-3-character-turn
