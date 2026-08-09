@@ -226,6 +226,7 @@ async def _invoke_model(
     prepared = context.prepared
     if prepared is None:
         raise RuntimeError("Character Turn graph lost prepared context.")
+    response: TargetResponse | None
     try:
         if context.tool_turn is None:
             context.tool_turn = await context.runtime.start_character_tool_turn(prepared)

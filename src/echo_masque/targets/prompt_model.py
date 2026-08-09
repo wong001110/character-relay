@@ -21,6 +21,7 @@ from echo_masque.providers import (
     ChatToolCall,
     ChatToolDefinition,
     ProviderCompletion,
+    ToolCapableChatProvider,
 )
 from echo_masque.tool_runtime import (
     ToolExecutionContext,
@@ -183,7 +184,9 @@ class PromptModelTarget:
             self._history.append(ChatMessage(role="assistant", content=completion.text))
             return self._tool_turn_response(turn, completion)
 
-        complete_with_tools = cast(Any, self.provider.complete_with_tools)
+        complete_with_tools = cast(
+            ToolCapableChatProvider, self.provider
+        ).complete_with_tools
         completion = await complete_with_tools(
             messages=tuple(self._history),
             model=self.config.model,
