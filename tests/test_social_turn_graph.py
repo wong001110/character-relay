@@ -170,6 +170,7 @@ def test_social_turn_blocks_duplicate_and_recursive_invite_expansion() -> None:
         {
             "a": character_result("a", invite="b", mentions=("b", "c")),
             "c": character_result("c", invite="d", mentions=("d",)),
+            "d": character_result("d", mentions=("a",)),
         }
     )
     traces = TraceCollector()
@@ -222,6 +223,8 @@ def test_social_turn_blocks_duplicate_and_recursive_invite_expansion() -> None:
             )
         )
     )
+    # d is already at max depth, so its mention cannot expand another Character turn.
     assert third.view.next_turn is not None
     assert third.view.next_turn.deployment_id == "b"
+    assert third.view.cursor.continuation_budget_remaining == 1
     assert "private social turn text" not in repr(traces.events)
