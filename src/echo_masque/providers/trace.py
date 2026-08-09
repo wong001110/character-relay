@@ -85,6 +85,16 @@ def _message_content(
     }
 
 
+def _prior_tool_call_names(messages: tuple[ChatMessage, ...]) -> list[str]:
+    names: list[str] = []
+    for message in messages:
+        for call in message.tool_calls:
+            name = call.function.name.strip()
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
 def _emit(payload: dict[str, object]) -> None:
     sink = _TRACE_SINK
     if sink is None:
@@ -116,6 +126,7 @@ class ProviderTrace:
         model: str,
         temperature: float,
         messages: tuple[ChatMessage, ...],
+        available_tool_names: tuple[str, ...] = (),
     ) -> ProviderTrace:
         mode = _trace_mode()
         trace = cls(
@@ -130,6 +141,7 @@ class ProviderTrace:
             return trace
 
         system_chars = sum(len(item.content) for item in messages if item.role == "system")
+        prior_tools = _prior_tool_call_names(messages)
         event: dict[str, object] = {
             "event": "provider.request",
             "trace_id": trace.trace_id,
@@ -140,6 +152,9 @@ class ProviderTrace:
             "message_roles": [item.role for item in messages],
             "message_chars": sum(len(item.content) for item in messages),
             "system_message_chars": system_chars,
+            "available_tool_names": list(dict.fromkeys(available_tool_names)),
+            "prior_tool_call_names": prior_tools,
+            "tool_result_count": sum(1 for item in messages if item.role == "tool"),
             "trace_mode": mode,
         }
         event.update(_message_content(messages, mode=mode, maximum=trace.max_chars))
@@ -171,6 +186,7 @@ class ProviderTrace:
         input_tokens: int | None,
         output_tokens: int | None,
         finish_reason: str | None,
+        tool_call_names: tuple[str, ...] = (),
     ) -> None:
         if self.mode == "off":
             return
@@ -186,6 +202,7 @@ class ProviderTrace:
             "output_tokens": output_tokens,
             "finish_reason": finish_reason,
             "response_chars": len(text),
+            "tool_call_names": list(dict.fromkeys(tool_call_names)),
             "trace_mode": self.mode,
         }
         if self.mode in {"summary", "content"}:
