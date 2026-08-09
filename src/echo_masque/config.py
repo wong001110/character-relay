@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AliasChoices, Field, SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from echo_masque import __version__
@@ -12,10 +12,8 @@ from echo_masque import __version__
 class Settings(BaseSettings):
     """Environment-derived settings with credential-free defaults."""
 
-    # The ECHO_MASQUE_ prefix remains a compatibility contract for existing Railway
-    # deployments while the user-facing product transitions to Character Relay.
     model_config = SettingsConfigDict(
-        env_prefix="ECHO_MASQUE_",
+        env_prefix="CHARACTER_RELAY_",
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
@@ -64,18 +62,14 @@ class Settings(BaseSettings):
     condition_watch_poll_seconds: int = 60
 
     # Discord read/write/file Tools use the same managed Bot credential name as the
-    # Discord Connector. The former ECHO_MASQUE_DISCORD_TOOL_BOT_TOKEN name is accepted as
-    # a migration fallback, but new deployments should use DISCORD_BOT_TOKEN everywhere.
+    # Discord Connector. DISCORD_BOT_TOKEN is intentionally shared between services.
     discord_tool_bot_token: SecretStr | None = Field(
         default=None,
-        validation_alias=AliasChoices(
-            "DISCORD_BOT_TOKEN",
-            "ECHO_MASQUE_DISCORD_TOOL_BOT_TOKEN",
-        ),
+        validation_alias="DISCORD_BOT_TOKEN",
     )
 
-    # Legacy environment credentials remain read-only migration fallbacks. Admin API access
-    # is role-based and never trusts the legacy token after Phase 15C.
+    # Environment credentials remain optional runtime fallbacks. Admin API access is
+    # role-based and never trusts a shared token in place of authenticated authorization.
     admin_token: SecretStr | None = None
     adaptive_api_key: SecretStr | None = None
     judge_api_key: SecretStr | None = None
