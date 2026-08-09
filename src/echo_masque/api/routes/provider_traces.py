@@ -12,7 +12,9 @@ from echo_masque.api.provider_trace_schemas import (
     ProviderTraceSummary,
     ProviderTraceView,
 )
-from echo_masque.persistence import AuthRepository, ProviderTraceRepository
+from echo_masque.auth import SYSTEM_RUNTIME_USER_ID
+from echo_masque.persistence import AuthRepository, Database, ProviderTraceRepository
+from echo_masque.persistence.models import UserRecord
 from echo_masque.provider_trace_classification import ProviderTraceCategory
 
 router = APIRouter(prefix="/api/admin/provider-traces", tags=["provider-traces"])
@@ -24,6 +26,28 @@ def trace_repository(request: Request) -> ProviderTraceRepository:
 
 def auth_repository(request: Request) -> AuthRepository:
     return cast(AuthRepository, request.app.state.auth_repository)
+
+
+def database(request: Request) -> Database:
+    return cast(Database, request.app.state.database)
+
+
+def active_owner_filter(request: Request, owner_id: str | None) -> str | None:
+    selected = owner_id.strip() if owner_id else ""
+    if not selected:
+        return None
+    with database(request).session() as session:
+        user = session.get(UserRecord, selected)
+        if (
+            user is None
+            or not user.is_active
+            or user.id == SYSTEM_RUNTIME_USER_ID
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Provider Trace account is unavailable.",
+            )
+    return selected
 
 
 @router.get("/access", response_model=ProviderTraceAccessView)
@@ -51,7 +75,7 @@ def list_provider_traces(
         limit=limit,
         status=status_filter,
         category=category,
-        owner_id=owner_id.strip() if owner_id else None,
+        owner_id=active_owner_filter(request, owner_id),
         model=model.strip() if model else None,
         trace_id=trace_id.strip() if trace_id else None,
     )
@@ -80,7 +104,7 @@ def paginate_provider_traces(
             cursor=cursor,
             status=status_filter,
             category=category,
-            owner_id=owner_id.strip() if owner_id else None,
+            owner_id=active_owner_filter(request, owner_id),
             model=model.strip() if model else None,
             trace_id=trace_id.strip() if trace_id else None,
         )
@@ -99,7 +123,7 @@ def clear_provider_traces(
     user: SuperAdminUserDependency,
     owner_id: str | None = Query(default=None, max_length=64),
 ) -> ProviderTraceClearResult:
-    selected_owner = owner_id.strip() if owner_id else None
+    selected_owner = active_owner_filter(request, owner_id)
     deleted = trace_repository(request).clear(owner_id=selected_owner)
     auth_repository(request).audit(
         actor_user_id=user.id,
