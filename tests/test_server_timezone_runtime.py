@@ -6,12 +6,12 @@ from zoneinfo import ZoneInfo
 from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.context_layer import ContextOrchestrator
 from echo_masque.persistence import Database, DeploymentRepository, KnowledgeRepository, Repository
+from echo_masque.persistence.scheduled_reminder_repository import ScheduledReminderRepository
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.providers import ChatToolCall, ChatToolFunctionCall
 from echo_masque.server_time import activate_server_timezone
 from echo_masque.server_time_tools import ServerAwareToolRegistry
 from echo_masque.tool_runtime import ToolExecutionContext
-from echo_masque.persistence.scheduled_reminder_repository import ScheduledReminderRepository
 
 
 def call(name: str, arguments: dict[str, object]) -> ChatToolCall:
