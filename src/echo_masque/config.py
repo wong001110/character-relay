@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from echo_masque import __version__
@@ -55,9 +55,16 @@ class Settings(BaseSettings):
     scheduler_retry_seconds: int = 30
     scheduler_max_attempts: int = 3
 
-    # Discord read/write/file Tools use the same managed Bot credential as the connector.
-    # The secret remains server-side and is never included in Tool schemas or Tool Results.
-    discord_tool_bot_token: SecretStr | None = None
+    # Discord read/write/file Tools use the same managed Bot credential name as the
+    # Discord Connector. The former ECHO_MASQUE_DISCORD_TOOL_BOT_TOKEN name is accepted as
+    # a migration fallback, but new deployments should use DISCORD_BOT_TOKEN everywhere.
+    discord_tool_bot_token: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "DISCORD_BOT_TOKEN",
+            "ECHO_MASQUE_DISCORD_TOOL_BOT_TOKEN",
+        ),
+    )
 
     # Legacy environment credentials remain read-only migration fallbacks. Admin API access
     # is role-based and never trusts the legacy token after Phase 15C.

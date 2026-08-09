@@ -128,6 +128,7 @@ class OpenAICompatibleProvider:
             model=model,
             temperature=temperature,
             messages=messages,
+            available_tool_names=tuple(item.function.name for item in tools),
         )
 
         async with httpx.AsyncClient(
@@ -233,6 +234,7 @@ class OpenAICompatibleProvider:
                     input_tokens=input_tokens if isinstance(input_tokens, int) else None,
                     output_tokens=output_tokens if isinstance(output_tokens, int) else None,
                     finish_reason=(str(finish_reason) if finish_reason is not None else None),
+                    tool_call_names=tuple(item.function.name for item in tool_calls),
                 )
                 return ProviderCompletion(
                     text=text,

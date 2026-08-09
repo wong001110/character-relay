@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   providerTraceApi,
+  type ProviderTraceCategory,
   type ProviderTraceStatus,
   type ProviderTraceView
 } from "./providerTraceApi";
@@ -34,6 +35,12 @@ export function ProviderTraceAccessButton({ onOpen }: { onOpen: () => void }) {
   );
 }
 
+function categoryLabel(category: ProviderTraceCategory, zh: boolean): string {
+  if (category === "tool_calling") return zh ? "Tool Calling" : "Tool Calling";
+  if (category === "character_turn") return zh ? "角色回合" : "Character Turn";
+  return zh ? "模型调用" : "Model Call";
+}
+
 export function ProviderTraceViewer({
   onClose,
   embedded = false
@@ -45,6 +52,7 @@ export function ProviderTraceViewer({
   const zh = language === "zh-CN";
   const [traces, setTraces] = useState<ProviderTraceView[]>([]);
   const [status, setStatus] = useState<ProviderTraceStatus | "all">("all");
+  const [category, setCategory] = useState<ProviderTraceCategory | "all">("all");
   const [model, setModel] = useState("");
   const [appliedModel, setAppliedModel] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -66,6 +74,7 @@ export function ProviderTraceViewer({
       const next = await providerTraceApi.list({
         limit: 50,
         status,
+        category,
         model: targetModel,
         cursor: targetCursor
       });
@@ -116,7 +125,7 @@ export function ProviderTraceViewer({
 
   useEffect(() => {
     resetAndLoad();
-  }, [status]);
+  }, [status, category]);
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -125,7 +134,7 @@ export function ProviderTraceViewer({
       5000
     );
     return () => window.clearInterval(timer);
-  }, [autoRefresh, status, appliedModel, cursor]);
+  }, [autoRefresh, status, category, appliedModel, cursor]);
 
   const selected = useMemo(
     () => traces.find((item) => item.trace_id === selectedId) ?? null,
@@ -166,8 +175,8 @@ export function ProviderTraceViewer({
           <h1>{zh ? "Provider 请求与响应" : "Provider requests and responses"}</h1>
           <p>
             {zh
-              ? "私密 Trace 只保存在 Character Relay 数据库，并由 Super Admin Session 读取。API Key 与 Authorization Header 不会被保存。"
-              : "Private traces are stored only in the Character Relay database and require a Super Admin session. API keys and Authorization headers are never stored."}
+              ? "私密 Trace 只保存在 Character Relay 数据库。现在可按 Tool Calling、角色回合与普通模型调用分类筛选。API Key 与 Authorization Header 不会被保存。"
+              : "Private traces stay in Character Relay. Filter them by Tool Calling, Character Turn, or general Model Call. API keys and Authorization headers are never stored."}
           </p>
         </div>
         <div className="provider-trace-header-actions">
@@ -186,6 +195,20 @@ export function ProviderTraceViewer({
       </header>
 
       <section className="paper-sheet provider-trace-controls">
+        <label>
+          {zh ? "类型" : "Category"}
+          <select
+            value={category}
+            onChange={(event) =>
+              setCategory(event.currentTarget.value as ProviderTraceCategory | "all")
+            }
+          >
+            <option value="all">{zh ? "全部类型" : "All categories"}</option>
+            <option value="tool_calling">Tool Calling</option>
+            <option value="character_turn">{zh ? "角色回合" : "Character Turn"}</option>
+            <option value="model_call">{zh ? "模型调用" : "Model Call"}</option>
+          </select>
+        </label>
         <label>
           {zh ? "状态" : "Status"}
           <select
@@ -236,42 +259,65 @@ export function ProviderTraceViewer({
             <p>{zh ? "正在读取 Trace…" : "Loading traces…"}</p>
           ) : traces.length === 0 ? (
             <div className="provider-trace-empty">
-              <strong>{zh ? "还没有 Provider Trace" : "No provider traces yet"}</strong>
+              <strong>{zh ? "没有符合筛选的 Provider Trace" : "No matching provider traces"}</strong>
               <p>
                 {zh
-                  ? "下一次模型调用后会出现在这里。"
-                  : "The next model call will appear here."}
+                  ? "下一次模型调用或 Tool Calling 后会出现在这里。"
+                  : "The next model or Tool Calling request will appear here."}
               </p>
             </div>
           ) : (
             <>
               {traces.map((trace) => (
-              <button
-                type="button"
-                key={trace.trace_id}
-                className={`provider-trace-list-item ${
-                  selectedId === trace.trace_id ? "is-active" : ""
-                }`}
-                onClick={() => setSelectedId(trace.trace_id)}
-              >
-                <span className={`provider-trace-status trace-${trace.status}`}>
-                  {trace.status}
-                </span>
-                <strong>{trace.request_model || "unknown model"}</strong>
-                <small>{new Date(trace.created_at).toLocaleString()}</small>
-                <small>
-                  {trace.latency_ms ?? "—"} ms · {trace.input_tokens ?? "—"} /{" "}
-                  {trace.output_tokens ?? "—"} tokens
-                </small>
-                <code>{trace.trace_id.slice(0, 12)}</code>
-              </button>
+                <button
+                  type="button"
+                  key={trace.trace_id}
+                  className={`provider-trace-list-item ${
+                    selectedId === trace.trace_id ? "is-active" : ""
+                  }`}
+                  onClick={() => setSelectedId(trace.trace_id)}
+                >
+                  <div className="provider-trace-badge-row">
+                    <span className={`provider-trace-category category-${trace.category}`}>
+                      {categoryLabel(trace.category, zh)}
+                    </span>
+                    <span className={`provider-trace-status trace-${trace.status}`}>
+                      {trace.status}
+                    </span>
+                  </div>
+                  <strong>{trace.request_model || "unknown model"}</strong>
+                  {trace.tool_names.length > 0 && (
+                    <small className="provider-trace-tool-names">
+                      {trace.tool_names.join(" · ")}
+                    </small>
+                  )}
+                  <small>{new Date(trace.created_at).toLocaleString()}</small>
+                  <small>
+                    {trace.latency_ms ?? "—"} ms · {trace.input_tokens ?? "—"} /{" "}
+                    {trace.output_tokens ?? "—"} tokens
+                  </small>
+                  <code>{trace.trace_id.slice(0, 12)}</code>
+                </button>
               ))}
-              <nav className="library-pagination" style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 12 }}>
-                <button type="button" className="paper-button" disabled={cursorHistory.length === 0 || loading} onClick={showNewer}>
+              <nav
+                className="library-pagination"
+                style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 12 }}
+              >
+                <button
+                  type="button"
+                  className="paper-button"
+                  disabled={cursorHistory.length === 0 || loading}
+                  onClick={showNewer}
+                >
                   {zh ? "较新" : "Newer"}
                 </button>
                 <span>{page}</span>
-                <button type="button" className="paper-button" disabled={!nextCursor || loading} onClick={showOlder}>
+                <button
+                  type="button"
+                  className="paper-button"
+                  disabled={!nextCursor || loading}
+                  onClick={showOlder}
+                >
                   {zh ? "较旧" : "Older"}
                 </button>
               </nav>
@@ -290,6 +336,14 @@ export function ProviderTraceViewer({
                 <div>
                   <p className="tape-label">TRACE DETAIL</p>
                   <h2>{selected.request_model || "Provider call"}</h2>
+                  <div className="provider-trace-badge-row">
+                    <span className={`provider-trace-category category-${selected.category}`}>
+                      {categoryLabel(selected.category, zh)}
+                    </span>
+                    {selected.tool_names.map((name) => (
+                      <code key={name} className="provider-trace-tool-chip">{name}</code>
+                    ))}
+                  </div>
                   <code>{selected.trace_id}</code>
                 </div>
                 <span className={`provider-trace-status trace-${selected.status}`}>
@@ -298,6 +352,7 @@ export function ProviderTraceViewer({
               </div>
 
               <dl className="provider-trace-meta">
+                <div><dt>Category</dt><dd>{categoryLabel(selected.category, zh)}</dd></div>
                 <div><dt>Endpoint</dt><dd>{selected.endpoint}</dd></div>
                 <div><dt>Trace mode</dt><dd>{selected.trace_mode}</dd></div>
                 <div><dt>Status code</dt><dd>{selected.status_code ?? "—"}</dd></div>

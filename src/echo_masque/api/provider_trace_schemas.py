@@ -9,6 +9,11 @@ from typing import Literal, cast
 from pydantic import BaseModel
 
 from echo_masque.persistence.provider_trace_models import ProviderTraceRecord
+from echo_masque.provider_trace_classification import (
+    ProviderTraceCategory,
+    provider_trace_category,
+    provider_trace_tool_names,
+)
 
 TraceStatus = Literal["pending", "succeeded", "error"]
 
@@ -34,6 +39,8 @@ def _json_list(value: str) -> list[dict[str, object]]:
 class ProviderTraceView(BaseModel):
     trace_id: str
     status: TraceStatus
+    category: ProviderTraceCategory
+    tool_names: list[str]
     trace_mode: str
     endpoint: str
     request_model: str
@@ -54,6 +61,8 @@ class ProviderTraceView(BaseModel):
         return cls(
             trace_id=record.trace_id,
             status=cast(TraceStatus, record.status),
+            category=provider_trace_category(record.request_json, record.response_json),
+            tool_names=provider_trace_tool_names(record.request_json, record.response_json),
             trace_mode=record.trace_mode,
             endpoint=record.endpoint,
             request_model=record.request_model,
@@ -73,6 +82,7 @@ class ProviderTraceView(BaseModel):
 
 class ProviderTraceClearResult(BaseModel):
     deleted_count: int
+
 
 class ProviderTracePage(BaseModel):
     items: list[ProviderTraceView]

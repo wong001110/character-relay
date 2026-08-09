@@ -60,6 +60,38 @@ class ScheduledReminderRepository:
             session.refresh(record)
             return record
 
+    def get(self, *, owner_id: str, reminder_id: str) -> ScheduledReminderRecord | None:
+        with self.database.session() as session:
+            record = session.get(ScheduledReminderRecord, reminder_id)
+            if record is None or record.owner_id != owner_id:
+                return None
+            return record
+
+    def list_for_owner(
+        self,
+        *,
+        owner_id: str,
+        deployment_id: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[ScheduledReminderRecord]:
+        with self.database.session() as session:
+            query = select(ScheduledReminderRecord).where(
+                ScheduledReminderRecord.owner_id == owner_id
+            )
+            if deployment_id:
+                query = query.where(ScheduledReminderRecord.deployment_id == deployment_id)
+            if status:
+                query = query.where(ScheduledReminderRecord.status == status)
+            return list(
+                session.scalars(
+                    query.order_by(
+                        ScheduledReminderRecord.scheduled_at.desc(),
+                        ScheduledReminderRecord.created_at.desc(),
+                    ).limit(min(max(limit, 1), 250))
+                )
+            )
+
     def list_for_deployment(
         self,
         *,
