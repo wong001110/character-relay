@@ -21,14 +21,15 @@ class ConditionWatchEvaluation:
 
 ConditionEvaluator = Callable[[ConditionWatchRecord], Awaitable[ConditionWatchEvaluation]]
 ConditionNotifier = Callable[[ConditionWatchRecord, ConditionWatchEvaluation], Awaitable[None]]
+ConditionProcessor = Callable[[ConditionWatchRecord], Awaitable[None]]
 
 
 class ConditionWatchService:
     """Poll persisted watches and transition them through a bounded lifecycle.
 
-    Evaluation and delivery are injected deliberately. The persistence/event loop can be
-    tested independently from the LLM + read-only Tool evaluator and persistent delivery
-    adapter.
+    The service remains the scheduling clock and `claim_due()` owner. A Phase 2 orchestration
+    processor may take over one already-claimed attempt, while the legacy evaluator/notifier
+    path remains available for parity testing and rollback.
     """
 
     def __init__(
@@ -37,12 +38,14 @@ class ConditionWatchService:
         *,
         evaluator: ConditionEvaluator,
         notifier: ConditionNotifier,
+        processor: ConditionProcessor | None = None,
         poll_seconds: int = 60,
         batch_size: int = 20,
     ) -> None:
         self.repository = repository
         self.evaluator = evaluator
         self.notifier = notifier
+        self.processor = processor
         self.poll_seconds = max(60, poll_seconds)
         self.batch_size = min(max(batch_size, 1), 50)
         self._task: asyncio.Task[None] | None = None
@@ -76,6 +79,9 @@ class ConditionWatchService:
 
     async def _process(self, record: ConditionWatchRecord) -> None:
         try:
+            if self.processor is not None:
+                await self.processor(record)
+                return
             evaluation = await self.evaluator(record)
             if not evaluation.triggered:
                 self.repository.mark_not_met(record.id)
@@ -85,6 +91,8 @@ class ConditionWatchService:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            # The graph processor persists expected evaluation/notifier failures itself.
+            # This remains a final safety net for orchestration/runtime failures.
             self.repository.mark_failure(record.id, str(exc))
 
     async def _run_loop(self) -> None:
@@ -99,6 +107,7 @@ class ConditionWatchService:
 __all__ = [
     "ConditionEvaluator",
     "ConditionNotifier",
+    "ConditionProcessor",
     "ConditionWatchEvaluation",
     "ConditionWatchService",
 ]
