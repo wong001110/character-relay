@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from sqlalchemy import delete, or_, select, update
+from sqlalchemy.orm import Session
 
 from echo_masque.account_lifecycle import AccountLifecycleService, LifecycleConflict
 from echo_masque.auth import SYSTEM_RUNTIME_USER_ID
@@ -76,8 +77,8 @@ class SyntheticTestAccountService:
                 if self.hard_delete(user_id):
                     deleted.append(user_id)
             except (LifecycleConflict, SyntheticTestAccountError):
-                # A strict verifier already limits candidates. Keep startup/admin cleanup
-                # best-effort rather than making an unrelated account screen unavailable.
+                # A strict verifier already limits candidates. Keep cleanup best-effort
+                # rather than making an unrelated Admin screen unavailable.
                 continue
         return deleted
 
@@ -141,7 +142,9 @@ class SyntheticTestAccountService:
                     )
                 )
             )
-            session.execute(delete(AuthSessionRecord).where(AuthSessionRecord.user_id == user_id))
+            session.execute(
+                delete(AuthSessionRecord).where(AuthSessionRecord.user_id == user_id)
+            )
             session.execute(
                 delete(EncryptedCredentialRecord).where(
                     EncryptedCredentialRecord.owner_id == user_id
@@ -161,10 +164,9 @@ class SyntheticTestAccountService:
             session.commit()
 
     @staticmethod
-    def _accepted_invitation_emails(session: object) -> dict[str, tuple[str, ...]]:
-        execute = getattr(session, "execute")
+    def _accepted_invitation_emails(session: Session) -> dict[str, tuple[str, ...]]:
         rows = list(
-            execute(
+            session.execute(
                 select(InvitationRecord.accepted_by, InvitationRecord.email).where(
                     InvitationRecord.accepted_by.is_not(None)
                 )
