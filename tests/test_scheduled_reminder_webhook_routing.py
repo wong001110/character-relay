@@ -86,7 +86,7 @@ def test_webhook_reminder_registers_reply_route_after_delivery() -> None:
         channel_id="channel-1",
         thread_id="",
         target_user_id="user-1",
-        reminder_text="十一点了。你自己叫我提醒你的，别装没看到。",
+        reminder_text="十一点了。你自己叫我提醒你的, 别装没看到。",
         scheduled_at=datetime.now(UTC) - timedelta(seconds=1),
     )
     identities = FakeIdentityRepository()

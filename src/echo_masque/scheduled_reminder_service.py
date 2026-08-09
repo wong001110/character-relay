@@ -232,7 +232,10 @@ class ScheduledReminderDeliveryService:
             # Delivery already happened. Route bookkeeping must never turn a successful
             # side effect into a retry that could duplicate the reminder.
             logger.warning(
-                "Unable to persist Discord reminder message route: deployment=%s message=%s error=%s",
+                (
+                    "Unable to persist Discord reminder message route: "
+                    "deployment=%s message=%s error=%s"
+                ),
                 reminder.deployment_id,
                 message_id,
                 exc,
