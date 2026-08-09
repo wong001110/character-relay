@@ -1,4 +1,5 @@
 export type ProviderTraceStatus = "pending" | "succeeded" | "error";
+export type ProviderTraceCategory = "tool_calling" | "character_turn" | "model_call";
 
 export interface ProviderTracePage {
   items: ProviderTraceView[];
@@ -9,6 +10,8 @@ export interface ProviderTracePage {
 export interface ProviderTraceView {
   trace_id: string;
   status: ProviderTraceStatus;
+  category: ProviderTraceCategory;
+  tool_names: string[];
   trace_mode: string;
   endpoint: string;
   request_model: string;
@@ -53,6 +56,7 @@ export const providerTraceApi = {
   list: (options: {
     limit?: number;
     status?: ProviderTraceStatus | "all";
+    category?: ProviderTraceCategory | "all";
     model?: string;
     traceId?: string;
     cursor?: string | null;
@@ -61,6 +65,9 @@ export const providerTraceApi = {
     query.set("limit", String(options.limit ?? 100));
     if (options.status && options.status !== "all") {
       query.set("status", options.status);
+    }
+    if (options.category && options.category !== "all") {
+      query.set("category", options.category);
     }
     if (options.model?.trim()) query.set("model", options.model.trim());
     if (options.traceId?.trim()) query.set("trace_id", options.traceId.trim());
