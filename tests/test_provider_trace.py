@@ -17,8 +17,8 @@ def test_provider_trace_uses_private_sink_without_process_logs(
     monkeypatch: Any,
     caplog: Any,
 ) -> None:
-    monkeypatch.setenv("ECHO_MASQUE_PROVIDER_TRACE_MODE", "summary")
-    monkeypatch.setenv("ECHO_MASQUE_PROVIDER_TRACE_MAX_CHARS", "1000")
+    monkeypatch.setenv("CHARACTER_RELAY_PROVIDER_TRACE_MODE", "summary")
+    monkeypatch.setenv("CHARACTER_RELAY_PROVIDER_TRACE_MAX_CHARS", "1000")
     caplog.set_level(logging.INFO, logger="uvicorn.error")
     events: list[dict[str, object]] = []
     configure_provider_trace_sink(events.append)
@@ -88,8 +88,8 @@ def test_provider_trace_uses_private_sink_without_process_logs(
 def test_provider_trace_content_mode_includes_bounded_messages(
     monkeypatch: Any,
 ) -> None:
-    monkeypatch.setenv("ECHO_MASQUE_PROVIDER_TRACE_MODE", "content")
-    monkeypatch.setenv("ECHO_MASQUE_PROVIDER_TRACE_MAX_CHARS", "256")
+    monkeypatch.setenv("CHARACTER_RELAY_PROVIDER_TRACE_MODE", "content")
+    monkeypatch.setenv("CHARACTER_RELAY_PROVIDER_TRACE_MAX_CHARS", "256")
     events: list[dict[str, object]] = []
     configure_provider_trace_sink(events.append)
 
