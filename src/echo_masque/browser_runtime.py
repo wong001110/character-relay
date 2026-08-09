@@ -9,9 +9,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from html.parser import HTMLParser
 from time import monotonic
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
+import httpx
 from playwright.async_api import (
     Browser,
     BrowserContext,
@@ -28,7 +30,10 @@ _BROWSER_SESSION_KEY: ContextVar[str] = ContextVar(
     "character_relay_browser_session_key",
     default="runtime",
 )
+_STATIC_SEARCH_ENGINE = "duckduckgo-html"
 _WEB_SEARCH_ENGINES = ("google", "bing")
+_DDG_SEARCH_HOST = "html.duckduckgo.com"
+_DDG_HTTP_TIMEOUT_SECONDS = 8.0
 
 
 class BrowserToolUnavailable(RuntimeError):
@@ -55,6 +60,66 @@ class _BrowserSession:
     pages: dict[str, Page] = field(default_factory=dict)
     page_last_used: dict[str, float] = field(default_factory=dict)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+
+class _DuckDuckGoHTMLParser(HTMLParser):
+    """Extract the stable no-JavaScript result link/snippet classes from DuckDuckGo HTML."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.links: list[tuple[str, str]] = []
+        self.snippets: list[str] = []
+        self._capture_kind = ""
+        self._capture_href = ""
+        self._capture_text: list[str] = []
+        self._capture_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self._capture_kind:
+            self._capture_depth += 1
+            return
+        attributes = {key: value or "" for key, value in attrs}
+        classes = set(attributes.get("class", "").split())
+        if tag == "a" and "result__a" in classes:
+            self._capture_kind = "link"
+            self._capture_href = attributes.get("href", "")
+            self._capture_text = []
+            self._capture_depth = 1
+        elif "result__snippet" in classes:
+            self._capture_kind = "snippet"
+            self._capture_href = ""
+            self._capture_text = []
+            self._capture_depth = 1
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self._capture_kind:
+            return
+        self.handle_starttag(tag, attrs)
+        if self._capture_kind:
+            self._finish_capture()
+
+    def handle_endtag(self, tag: str) -> None:
+        del tag
+        if not self._capture_kind:
+            return
+        self._capture_depth -= 1
+        if self._capture_depth <= 0:
+            self._finish_capture()
+
+    def handle_data(self, data: str) -> None:
+        if self._capture_kind:
+            self._capture_text.append(data)
+
+    def _finish_capture(self) -> None:
+        text = _normalized_text(" ".join(self._capture_text), 1600)
+        if self._capture_kind == "link" and self._capture_href and text:
+            self.links.append((self._capture_href, text[:500]))
+        elif self._capture_kind == "snippet" and text:
+            self.snippets.append(text)
+        self._capture_kind = ""
+        self._capture_href = ""
+        self._capture_text = []
+        self._capture_depth = 0
 
 
 class BrowserCapabilityManager:
@@ -116,18 +181,17 @@ class BrowserCapabilityManager:
     async def search_web(self, query: str, count: int) -> dict[str, object]:
         normalized = _query(query)
         count = min(max(count, 1), 10)
-        async with self._page_for("web-search") as page:
-            engine, results, attempted = await self._search_web_with_fallback(
-                page,
-                normalized,
-                count,
-            )
+        engine, results, attempted = await self._search_web_resilient(
+            normalized,
+            count,
+            page_kind="web-search",
+        )
         return {
             "ok": True,
             "provider": "browser",
             "engine": engine,
             "attempted_engines": attempted,
-            "fallback_used": engine != _WEB_SEARCH_ENGINES[0],
+            "fallback_used": engine != _STATIC_SEARCH_ENGINE,
             "query": normalized,
             "result_count": len(results),
             "results": results,
@@ -197,12 +261,11 @@ class BrowserCapabilityManager:
             raise ValueError("A place search location is required; do not guess the user's location.")
         count = min(max(count, 1), 10)
         combined = f"{normalized_query} near {normalized_location} address"
-        async with self._page_for("places-search") as page:
-            engine, web_results, attempted = await self._search_web_with_fallback(
-                page,
-                combined,
-                count,
-            )
+        engine, web_results, attempted = await self._search_web_resilient(
+            combined,
+            count,
+            page_kind="places-search",
+        )
         results = [
             {
                 "name": item.get("title", ""),
@@ -216,7 +279,7 @@ class BrowserCapabilityManager:
             "provider": "browser",
             "engine": f"{engine}-local-discovery",
             "attempted_engines": attempted,
-            "fallback_used": engine != _WEB_SEARCH_ENGINES[0],
+            "fallback_used": engine != _STATIC_SEARCH_ENGINE,
             "query": normalized_query,
             "location": normalized_location,
             "result_count": len(results),
@@ -293,7 +356,10 @@ class BrowserCapabilityManager:
             context = await self._browser.new_context(
                 accept_downloads=False,
                 service_workers="block",
-                locale="en-US",
+                locale="en-MY",
+                user_agent=_chromium_user_agent(self._browser.version),
+                viewport={"width": 1365, "height": 768},
+                extra_http_headers={"Accept-Language": "en-MY,en;q=0.9"},
             )
             await context.route("**/*", self._route_guard)
             now = monotonic()
@@ -356,6 +422,82 @@ class BrowserCapabilityManager:
         if response is not None and response.status >= 400:
             raise BrowserToolUnavailable(f"Browser destination returned HTTP {response.status}.")
 
+    async def _search_web_resilient(
+        self,
+        query: str,
+        count: int,
+        *,
+        page_kind: str,
+    ) -> tuple[str, list[dict[str, str]], list[str]]:
+        attempted = [_STATIC_SEARCH_ENGINE]
+        static_failure = ""
+        try:
+            static_results = await self._search_duckduckgo_html(query, count)
+        except BrowserToolUnavailable as exc:
+            static_failure = str(exc)
+        else:
+            return _STATIC_SEARCH_ENGINE, static_results, attempted
+
+        try:
+            async with self._page_for(page_kind) as page:
+                engine, results, browser_attempted = await self._search_web_with_fallback(
+                    page,
+                    query,
+                    count,
+                )
+        except BrowserToolUnavailable as exc:
+            detail = "; ".join(
+                item
+                for item in (
+                    f"{_STATIC_SEARCH_ENGINE}: {static_failure}" if static_failure else "",
+                    str(exc),
+                )
+                if item
+            )
+            raise BrowserToolUnavailable(
+                "Web search engines returned no usable results"
+                + (f" ({detail})." if detail else ".")
+            ) from exc
+        attempted.extend(browser_attempted)
+        return engine, results, attempted
+
+    async def _search_duckduckgo_html(
+        self,
+        query: str,
+        count: int,
+    ) -> list[dict[str, str]]:
+        url = (
+            f"https://{_DDG_SEARCH_HOST}/html/?"
+            f"q={quote_plus(query)}&kp=1&kl=wt-wt"
+        )
+        validated = await self.url_guard.validate(url)
+        headers = {
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-MY,en;q=0.9",
+            "User-Agent": _desktop_chromium_user_agent("140.0.0.0"),
+        }
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=_DDG_HTTP_TIMEOUT_SECONDS,
+                headers=headers,
+            ) as client:
+                response = await client.get(validated)
+        except httpx.HTTPError as exc:
+            raise BrowserToolUnavailable("static HTML request failed") from exc
+        if response.status_code >= 400:
+            raise BrowserToolUnavailable(
+                f"static HTML endpoint returned HTTP {response.status_code}"
+            )
+        results = _extract_duckduckgo_html_results(response.text, count)
+        if results:
+            return results
+        if _duckduckgo_reports_no_results(response.text):
+            return []
+        if _duckduckgo_reports_challenge(response.text):
+            raise BrowserToolUnavailable("static HTML endpoint returned a challenge page")
+        raise BrowserToolUnavailable("static HTML endpoint returned no parsable search results")
+
     async def _search_web_with_fallback(
         self,
         page: Page,
@@ -378,8 +520,8 @@ class BrowserCapabilityManager:
             failures.append(f"{engine}: no parsable search results")
         details = "; ".join(failures)
         raise BrowserToolUnavailable(
-            "Web search engines returned no usable results"
-            + (f" ({details})." if details else ".")
+            "browser engines returned no usable results"
+            + (f" ({details})" if details else "")
         )
 
     async def _search_web_engine(
@@ -560,6 +702,81 @@ def _normalized_text(value: str, maximum: int) -> str:
     return re.sub(r"\s+", " ", value).strip()[:maximum]
 
 
+def _desktop_chromium_user_agent(version: str) -> str:
+    normalized = version.strip() or "140.0.0.0"
+    return (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        f"(KHTML, like Gecko) Chrome/{normalized} Safari/537.36"
+    )
+
+
+def _chromium_user_agent(version: str) -> str:
+    return _desktop_chromium_user_agent(version.replace("HeadlessChrome/", ""))
+
+
+def _extract_duckduckgo_html_results(value: str, count: int) -> list[dict[str, str]]:
+    parser = _DuckDuckGoHTMLParser()
+    parser.feed(value)
+    parser.close()
+    results: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for index, (href, title) in enumerate(parser.links):
+        target = _duckduckgo_target_url(href)
+        if not _is_external_result_url(target) or target in seen:
+            continue
+        snippet = parser.snippets[index] if index < len(parser.snippets) else ""
+        results.append(
+            {
+                "title": title[:500],
+                "url": target[:2048],
+                "snippet": snippet[:1600],
+            }
+        )
+        seen.add(target)
+        if len(results) >= count:
+            break
+    return results
+
+
+def _duckduckgo_target_url(value: str) -> str:
+    candidate = value.strip()
+    if candidate.startswith("//"):
+        candidate = "https:" + candidate
+    elif candidate.startswith("/"):
+        candidate = "https://duckduckgo.com" + candidate
+    parsed = urlparse(candidate)
+    hostname = (parsed.hostname or "").casefold()
+    if hostname.endswith("duckduckgo.com") and parsed.path.startswith("/l/"):
+        target = parse_qs(parsed.query).get("uddg", [""])[0]
+        return target[:2048]
+    return candidate[:2048]
+
+
+def _duckduckgo_reports_no_results(value: str) -> bool:
+    lowered = re.sub(r"<[^>]+>", " ", value).casefold()
+    return any(
+        marker in lowered
+        for marker in (
+            "no results.",
+            "no results found",
+            "no more results",
+        )
+    )
+
+
+def _duckduckgo_reports_challenge(value: str) -> bool:
+    lowered = value.casefold()
+    return any(
+        marker in lowered
+        for marker in (
+            "bots use duckduckgo too",
+            "please complete the following challenge",
+            "anomaly-modal",
+            "captcha",
+        )
+    )
+
+
 def _google_target_url(value: str) -> str:
     if not value:
         return ""
@@ -582,8 +799,14 @@ def _is_external_result_url(value: str) -> bool:
         "www.google.com",
         "bing.com",
         "www.bing.com",
+        "duckduckgo.com",
+        "www.duckduckgo.com",
+        "html.duckduckgo.com",
+        "lite.duckduckgo.com",
     )
-    return hostname not in blocked_hosts and not hostname.endswith((".google.com", ".bing.com"))
+    return hostname not in blocked_hosts and not hostname.endswith(
+        (".google.com", ".bing.com", ".duckduckgo.com")
+    )
 
 
 def _safe_string(value: object, maximum: int) -> str:
