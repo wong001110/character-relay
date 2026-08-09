@@ -27,10 +27,10 @@ Authorization headers and API keys are never persisted.
 ## Trace modes
 
 ```text
-ECHO_MASQUE_PROVIDER_TRACE_MODE=off
-ECHO_MASQUE_PROVIDER_TRACE_MODE=metadata
-ECHO_MASQUE_PROVIDER_TRACE_MODE=summary
-ECHO_MASQUE_PROVIDER_TRACE_MODE=content
+CHARACTER_RELAY_PROVIDER_TRACE_MODE=off
+CHARACTER_RELAY_PROVIDER_TRACE_MODE=metadata
+CHARACTER_RELAY_PROVIDER_TRACE_MODE=summary
+CHARACTER_RELAY_PROVIDER_TRACE_MODE=content
 ```
 
 - `off`: do not persist provider traces.
@@ -41,7 +41,7 @@ ECHO_MASQUE_PROVIDER_TRACE_MODE=content
 Set the per-event text budget with:
 
 ```text
-ECHO_MASQUE_PROVIDER_TRACE_MAX_CHARS=4000
+CHARACTER_RELAY_PROVIDER_TRACE_MAX_CHARS=4000
 ```
 
 The accepted range is 256 to 20000 characters. Truncated text contains an omitted-character marker.
@@ -51,8 +51,8 @@ The accepted range is 256 to 20000 characters. Truncated text contains an omitte
 ## Retention
 
 ```text
-ECHO_MASQUE_PROVIDER_TRACE_RETENTION_DAYS=7
-ECHO_MASQUE_PROVIDER_TRACE_MAX_RECORDS=2000
+CHARACTER_RELAY_PROVIDER_TRACE_RETENTION_DAYS=7
+CHARACTER_RELAY_PROVIDER_TRACE_MAX_RECORDS=2000
 ```
 
 Retention is bounded to 1–90 days and 100–10000 records. Oldest traces are pruned automatically when new requests are recorded. The Super Admin may also clear all traces from the Portal.
