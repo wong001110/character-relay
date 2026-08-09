@@ -1,7 +1,7 @@
 """Prompt-and-model target adapter."""
 
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
