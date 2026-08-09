@@ -78,6 +78,7 @@ def database() -> Database:
 def test_webhook_reminder_registers_reply_route_after_delivery() -> None:
     db = database()
     reminders = ScheduledReminderRepository(db)
+    reminder_text = "Eleven o'clock. You asked me to remind you, so don't ignore this."
     reminders.create(
         owner_id="owner-1",
         deployment_id="deployment-1",
@@ -86,7 +87,7 @@ def test_webhook_reminder_registers_reply_route_after_delivery() -> None:
         channel_id="channel-1",
         thread_id="",
         target_user_id="user-1",
-        reminder_text="Eleven o'clock. You asked me to remind you, so don't ignore this.",
+        reminder_text=reminder_text,
         scheduled_at=datetime.now(UTC) - timedelta(seconds=1),
     )
     identities = FakeIdentityRepository()
@@ -97,7 +98,7 @@ def test_webhook_reminder_registers_reply_route_after_delivery() -> None:
         assert request.url.params["wait"] == "true"
         body = json.loads(request.content)
         assert body["username"] == "安 · Ann"
-        assert body["content"].startswith("<@user-1> ")
+        assert body["content"] == f"<@user-1> {reminder_text}"
         assert body["allowed_mentions"] == {"parse": [], "users": ["user-1"]}
         return httpx.Response(200, json={"id": "message-webhook-1"})
 
