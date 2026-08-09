@@ -9,7 +9,7 @@ from echo_masque.persistence import Database, DeploymentRepository, KnowledgeRep
 from echo_masque.persistence.scheduled_reminder_repository import ScheduledReminderRepository
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.providers import ChatToolCall, ChatToolFunctionCall
-from echo_masque.server_time import activate_server_timezone
+from echo_masque.server_time import DEFAULT_SERVER_TIMEZONE, activate_server_timezone
 from echo_masque.server_time_tools import ServerAwareToolRegistry
 from echo_masque.tool_runtime import ToolExecutionContext
 
@@ -21,7 +21,7 @@ def call(name: str, arguments: dict[str, object]) -> ChatToolCall:
     )
 
 
-def seeded_database() -> tuple[Database, str, str]:
+def seeded_database(timezone: str | None = DEFAULT_SERVER_TIMEZONE) -> tuple[Database, str, str]:
     database = Database("sqlite:///:memory:")
     database.initialize()
     repository = Repository(database)
@@ -78,12 +78,49 @@ def seeded_database() -> tuple[Database, str, str]:
         sticker_count=0,
         status="active",
     )
-    ServerRuntimeRepository(database).set_timezone(
+    if timezone is not None:
+        ServerRuntimeRepository(database).set_timezone(
+            profile_id=profile.id,
+            owner_id="owner-1",
+            timezone=timezone,
+        )
+    return database, connection.id, card.id
+
+
+def test_unconfigured_server_defaults_to_malaysia_timezone() -> None:
+    database, connection_id, _ = seeded_database(timezone=None)
+    runtime = ServerRuntimeRepository(database)
+    profile = DeploymentRepository(database).list_server_profiles("owner-1")[0]
+
+    assert runtime.get_timezone(profile_id=profile.id, owner_id="owner-1") == DEFAULT_SERVER_TIMEZONE
+    assert (
+        runtime.resolve_timezone(
+            owner_id="owner-1",
+            connection_id=connection_id,
+            guild_id="guild-1",
+        )
+        == DEFAULT_SERVER_TIMEZONE
+    )
+
+
+def test_legacy_utc_timezone_is_migrated_once_but_future_explicit_utc_is_preserved() -> None:
+    database, _, _ = seeded_database(timezone="UTC")
+    runtime = ServerRuntimeRepository(database)
+    profile = DeploymentRepository(database).list_server_profiles("owner-1")[0]
+
+    assert runtime.get_timezone(profile_id=profile.id, owner_id="owner-1") == "UTC"
+    assert runtime.migrate_legacy_utc_defaults() == 1
+    assert runtime.get_timezone(profile_id=profile.id, owner_id="owner-1") == DEFAULT_SERVER_TIMEZONE
+    assert runtime.migrate_legacy_utc_defaults() == 0
+
+    saved = runtime.set_timezone(
         profile_id=profile.id,
         owner_id="owner-1",
-        timezone="Asia/Kuala_Lumpur",
+        timezone="UTC",
     )
-    return database, connection.id, card.id
+    assert saved is not None
+    assert runtime.migrate_legacy_utc_defaults() == 0
+    assert runtime.get_timezone(profile_id=profile.id, owner_id="owner-1") == "UTC"
 
 
 def test_context_prompt_uses_server_timezone() -> None:
