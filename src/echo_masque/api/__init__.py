@@ -47,6 +47,11 @@ from echo_masque.authoring_archive import AuthoringArchiveService
 from echo_masque.authoring_generation import AuthoringGenerationService
 from echo_masque.authoring_runtime import AuthoringRuntimeService
 from echo_masque.browser_runtime import BrowserCapabilityManager, BrowserRuntimeSettings
+from echo_masque.condition_watch_runtime import (
+    ConditionWatchEvaluatorRuntime,
+    ConditionWatchReminderNotifier,
+)
+from echo_masque.condition_watch_service import ConditionWatchService
 from echo_masque.config import Settings, get_settings
 from echo_masque.connector_runtime import DiscordConnectorRuntime
 from echo_masque.context_layer import ContextOrchestrator
@@ -59,6 +64,7 @@ from echo_masque.persistence import (
     AuthoringRepository,
     AuthRepository,
     CalibrationRepository,
+    ConditionWatchRepository,
     Database,
     DeploymentRepository,
     DeploymentToolRepository,
@@ -123,6 +129,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     deployment_tool_repository = DeploymentToolRepository(database)
     discord_identity_repository = DiscordIdentityRepository(database)
     scheduled_reminder_repository = ScheduledReminderRepository(database)
+    condition_watch_repository = ConditionWatchRepository(database)
     browser_runtime = BrowserCapabilityManager(
         BrowserRuntimeSettings(
             enabled=resolved.browser_tools_enabled,
@@ -138,6 +145,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     tool_registry = ServerAwareToolRegistry(
         browser_runtime=browser_runtime,
         reminder_repository=scheduled_reminder_repository,
+        condition_watch_repository=condition_watch_repository,
+        condition_watch_enabled=True,
         discord_bot_token=resolved.discord_tool_bot_token,
     )
     interaction_repository = InteractionRepository(database)
@@ -194,6 +203,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         retry_seconds=resolved.scheduler_retry_seconds,
         max_attempts=resolved.scheduler_max_attempts,
     )
+    condition_watch_evaluator = ConditionWatchEvaluatorRuntime(
+        repository,
+        deployment_repository,
+        deployment_tool_repository,
+        credential_store,
+        tool_registry,
+    )
+    condition_watch_notifier = ConditionWatchReminderNotifier(
+        scheduled_reminder_repository,
+        deployment_repository,
+    )
+    condition_watch_service = ConditionWatchService(
+        condition_watch_repository,
+        evaluator=condition_watch_evaluator,
+        notifier=condition_watch_notifier,
+        poll_seconds=resolved.condition_watch_poll_seconds,
+    )
     discord_connector_runtime = DiscordConnectorRuntime(
         repository,
         deployment_repository,
@@ -234,6 +260,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         knowledge_repository,
         deployment_tool_repository,
         scheduled_reminder_repository,
+        condition_watch_repository,
     )
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
@@ -285,9 +312,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await browser_runtime.start()
         await scheduled_reminder_delivery.start()
+        await condition_watch_service.start()
         try:
             yield
         finally:
+            await condition_watch_service.stop()
             await scheduled_reminder_delivery.stop()
             await browser_runtime.stop()
 
@@ -321,6 +350,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.browser_runtime = browser_runtime
     app.state.scheduled_reminder_repository = scheduled_reminder_repository
     app.state.scheduled_reminder_delivery = scheduled_reminder_delivery
+    app.state.condition_watch_repository = condition_watch_repository
+    app.state.condition_watch_service = condition_watch_service
     app.state.discord_identity_repository = discord_identity_repository
     app.state.interaction_repository = interaction_repository
     app.state.expression_repository = expression_repository
