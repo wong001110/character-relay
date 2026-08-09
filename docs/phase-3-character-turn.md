@@ -88,6 +88,10 @@ No live request is executed twice in production for shadowing because that could
 Tool side effects. Shadow comparison is therefore performed with controlled direct-runtime
 fixtures until operation-level idempotency arrives in Phase 5.
 
+The branch is synchronized with the current `main`, including the deterministic terminal
+Smart Output recovery used for provider wrapper-format errors discovered during live web-search
+testing. The final Phase 3 CI therefore validates the Character graph against that same parser.
+
 ## Rollout
 
 Production remains on:
