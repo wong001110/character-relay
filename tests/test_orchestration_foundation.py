@@ -25,7 +25,7 @@ def test_langgraph_feature_flag_defaults_disabled() -> None:
 
 
 def test_langgraph_feature_flag_can_be_enabled(monkeypatch: Any) -> None:
-    monkeypatch.setenv("ECHO_MASQUE_LANGGRAPH_ENABLED", "true")
+    monkeypatch.setenv("CHARACTER_RELAY_LANGGRAPH_ENABLED", "true")
     settings = Settings(environment="test")
     assert settings.langgraph_enabled is True
 
