@@ -6,6 +6,7 @@ from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from echo_masque.persistence.models import Base, utcnow
+from echo_masque.server_time import DEFAULT_SERVER_TIMEZONE
 
 
 class DiscordServerRuntimeRecord(Base):
@@ -15,8 +16,19 @@ class DiscordServerRuntimeRecord(Base):
 
     profile_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
-    timezone: Mapped[str] = mapped_column(String(120), default="UTC", nullable=False)
+    timezone: Mapped[str] = mapped_column(
+        String(120), default=DEFAULT_SERVER_TIMEZONE, nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class ServerRuntimeMigrationRecord(Base):
+    """One-time data migrations for companion Server runtime settings."""
+
+    __tablename__ = "server_runtime_migrations"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
