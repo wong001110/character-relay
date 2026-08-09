@@ -182,19 +182,19 @@ Raw keys, encrypted blobs, Session tokens, password hashes, invitation codes, Bo
 
 Deploy the root `Dockerfile` with `railway.toml`, one replica, and a Railway Volume mounted at `/data`.
 
-The existing `ECHO_MASQUE_*` environment prefix and SQLite filename remain intentionally supported as backward-compatible infrastructure identifiers during the Character Relay product rename.
+Character Relay application settings use the `CHARACTER_RELAY_*` environment prefix. Historical `ECHO_MASQUE_*` application variables are no longer read by the runtime.
 
 Required variables:
 
 ```text
-ECHO_MASQUE_ENVIRONMENT=production
-ECHO_MASQUE_DATABASE_URL=sqlite:////data/echo_masque.db
-ECHO_MASQUE_LEGACY_LOCAL_USER_ENABLED=false
-ECHO_MASQUE_PUBLIC_REGISTRATION_ENABLED=false
-ECHO_MASQUE_BOOTSTRAP_ADMIN_EMAIL=<admin email>
-ECHO_MASQUE_BOOTSTRAP_ADMIN_PASSWORD=<long unique password>
-ECHO_MASQUE_CREDENTIAL_ENCRYPTION_KEYS=<Fernet key>
-ECHO_MASQUE_CONNECTOR_SHARED_SECRET=<long random connector secret>
+CHARACTER_RELAY_ENVIRONMENT=production
+CHARACTER_RELAY_DATABASE_URL=sqlite:////data/echo_masque.db
+CHARACTER_RELAY_LEGACY_LOCAL_USER_ENABLED=false
+CHARACTER_RELAY_PUBLIC_REGISTRATION_ENABLED=false
+CHARACTER_RELAY_BOOTSTRAP_ADMIN_EMAIL=<admin email>
+CHARACTER_RELAY_BOOTSTRAP_ADMIN_PASSWORD=<long unique password>
+CHARACTER_RELAY_CREDENTIAL_ENCRYPTION_KEYS=<Fernet key>
+CHARACTER_RELAY_CONNECTOR_SHARED_SECRET=<long random connector secret>
 ```
 
 Keep encryption keys, connector credentials, Bot tokens, WhatsApp linked-device sessions, and administrator passwords outside Git.
