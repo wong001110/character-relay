@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     scheduler_retry_seconds: int = 30
     scheduler_max_attempts: int = 3
 
+    # V2 condition watches are intentionally lower-frequency than reminder delivery. Each
+    # individual watch also enforces a minimum 5-minute evaluation cadence in Runtime.
+    condition_watch_poll_seconds: int = 60
+
     # Discord read/write/file Tools use the same managed Bot credential name as the
     # Discord Connector. The former ECHO_MASQUE_DISCORD_TOOL_BOT_TOKEN name is accepted as
     # a migration fallback, but new deployments should use DISCORD_BOT_TOKEN everywhere.
