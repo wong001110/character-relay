@@ -1,4 +1,6 @@
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
@@ -7,6 +9,7 @@ from pydantic import SecretStr
 from echo_masque.api import create_app
 from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.config import Settings
+from echo_masque.domain import TargetResponse
 from echo_masque.orchestration import CharacterTurnGraphRunner, RuntimeTraceEvent
 
 ADMIN_EMAIL = "phase3-admin@example.com"
@@ -27,6 +30,7 @@ def settings(path: Path) -> Settings:
 
 
 def seed(app: object, client: TestClient) -> tuple[dict[str, object], dict[str, object]]:
+    del app
     login = client.post(
         "/api/auth/login",
         json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
@@ -135,13 +139,13 @@ def test_character_turn_graph_matches_direct_runtime(tmp_path: Path) -> None:
     connection, deployment = seed(app, client)
     incoming = payload(connection, deployment, mentioned_bot=True)
 
-    direct = __import__("asyncio").run(app.state.discord_connector_runtime.respond(incoming))
+    direct = asyncio.run(app.state.discord_connector_runtime.respond(incoming))
     traces = TraceCollector()
     runner = CharacterTurnGraphRunner(
         app.state.discord_connector_runtime,
         trace_sink=traces,
     )
-    graph_result = __import__("asyncio").run(runner.run(incoming))
+    graph_result = asyncio.run(runner.run(incoming))
 
     assert graph_result.reply.model_dump() == direct.model_dump()
     assert graph_result.state["status"] == "completed"
@@ -150,6 +154,8 @@ def test_character_turn_graph_matches_direct_runtime(tmp_path: Path) -> None:
     assert graph_result.state["character_card_id"] == deployment["character_card_id"]
     assert graph_result.state["context_status"] == "completed"
     assert graph_result.state["model_status"] == "completed"
+    assert graph_result.state["tool_status"] == "not_started"
+    assert graph_result.state["tool_rounds"] == 0
     assert graph_result.state["smart_output_status"] == "completed"
     assert graph_result.state["authority_status"] == "completed"
     assert graph_result.state["tool_result_count"] == 0
@@ -169,6 +175,69 @@ def test_character_turn_graph_matches_direct_runtime(tmp_path: Path) -> None:
     assert "Ann, what do you think?" not in repr(traces.events)
 
 
+def test_character_turn_graph_routes_model_tool_model_explicitly(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    app = create_app(settings(tmp_path / "phase3-tool-route.db"))
+    client = TestClient(app)
+    connection, deployment = seed(app, client)
+    incoming = payload(connection, deployment, mentioned_bot=True)
+    runtime = app.state.discord_connector_runtime
+    session = SimpleNamespace(tool_rounds=0, pending_tool_calls=(), traces=[])
+    model_steps = 0
+
+    async def start_tool_turn(prepared: object) -> object:
+        del prepared
+        return session
+
+    async def advance_model(prepared: object, turn: object) -> TargetResponse | None:
+        nonlocal model_steps
+        del prepared
+        model_steps += 1
+        current = turn
+        if model_steps == 1:
+            current.tool_rounds = 1
+            current.pending_tool_calls = ("proposal",)
+            return None
+        return TargetResponse(text="Tool-backed final reply", latency_ms=2, trace={})
+
+    async def execute_tools(prepared: object, turn: object) -> int:
+        del prepared
+        current = turn
+        current.pending_tool_calls = ()
+        current.traces.append("completed")
+        return 1
+
+    monkeypatch.setattr(runtime, "start_character_tool_turn", start_tool_turn)  # type: ignore[attr-defined]
+    monkeypatch.setattr(runtime, "advance_character_tool_model", advance_model)  # type: ignore[attr-defined]
+    monkeypatch.setattr(runtime, "execute_character_tools", execute_tools)  # type: ignore[attr-defined]
+
+    traces = TraceCollector()
+    result = asyncio.run(CharacterTurnGraphRunner(runtime, trace_sink=traces).run(incoming))
+
+    assert result.reply.action == "reply"
+    assert result.reply.text == "Tool-backed final reply"
+    assert result.state["tool_status"] == "completed"
+    assert result.state["tool_rounds"] == 1
+    assert result.state["tool_result_count"] == 1
+    assert model_steps == 2
+    completed_nodes = [
+        event.node_name
+        for event in traces.events
+        if event.status == "completed"
+    ]
+    assert completed_nodes == [
+        "turn_resolve",
+        "turn_context",
+        "turn_model",
+        "turn_tool_execution",
+        "turn_model",
+        "turn_smart_output",
+        "turn_authority",
+    ]
+
+
 def test_character_turn_graph_preserves_early_silent_route(tmp_path: Path) -> None:
     app = create_app(settings(tmp_path / "phase3-silent.db"))
     client = TestClient(app)
@@ -176,7 +245,7 @@ def test_character_turn_graph_preserves_early_silent_route(tmp_path: Path) -> No
     incoming = payload(connection, deployment, mentioned_bot=False)
 
     runner = CharacterTurnGraphRunner(app.state.discord_connector_runtime)
-    result = __import__("asyncio").run(runner.run(incoming))
+    result = asyncio.run(runner.run(incoming))
 
     assert result.reply.action == "silent"
     assert result.reply.reason == "trigger_not_matched"
