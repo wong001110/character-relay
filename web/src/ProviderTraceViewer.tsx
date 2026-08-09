@@ -8,6 +8,7 @@ import {
   type ProviderTraceSummary,
   type ProviderTraceView
 } from "./providerTraceApi";
+import { formatPortalTimestamp } from "./portalTime";
 import { useI18n } from "./i18n";
 
 export function ProviderTraceAccessButton({ onOpen }: { onOpen: () => void }) {
@@ -282,8 +283,8 @@ export function ProviderTraceViewer({
           <h1>{zh ? "Provider 请求与响应" : "Provider requests and responses"}</h1>
           <p>
             {zh
-              ? "Trace 只保存在 Character Relay 数据库。列表现在按账户与类型在服务器端筛选，详情只在选中时读取。API Key 与 Authorization Header 不会被保存。"
-              : "Traces stay in Character Relay. Lists are filtered by account and category on the server, while full payloads load only when selected. API keys and Authorization headers are never stored."}
+              ? "Trace 只保存在 Character Relay 数据库。列表现在按账户与类型在服务器端筛选，详情只在选中时读取。API Key 与 Authorization Header 不会被保存。时间统一按马来西亚时间（MYT）显示。"
+              : "Traces stay in Character Relay. Lists are filtered by account and category on the server, while full payloads load only when selected. API keys and Authorization headers are never stored. Times are shown in Malaysia time (MYT)."}
           </p>
         </div>
         <div className="provider-trace-header-actions">
@@ -412,7 +413,7 @@ export function ProviderTraceViewer({
                       {trace.tool_names.join(" · ")}
                     </small>
                   )}
-                  <small>{new Date(trace.created_at).toLocaleString()}</small>
+                  <small>{formatPortalTimestamp(trace.created_at, zh)}</small>
                   <small>
                     {trace.latency_ms ?? "—"} ms · {trace.input_tokens ?? "—"} /{" "}
                     {trace.output_tokens ?? "—"} tokens
@@ -488,7 +489,7 @@ export function ProviderTraceViewer({
                 <div><dt>Response model</dt><dd>{selected.response_model || "—"}</dd></div>
                 <div><dt>Deployment</dt><dd>{selected.deployment_id || "—"}</dd></div>
                 <div><dt>Character</dt><dd>{selected.character_card_id || "—"}</dd></div>
-                <div><dt>Created</dt><dd>{new Date(selected.created_at).toLocaleString()}</dd></div>
+                <div><dt>Created</dt><dd>{formatPortalTimestamp(selected.created_at, zh)}</dd></div>
               </dl>
 
               <TraceJson title={zh ? "发送给 Provider 的 Request" : "Request sent to provider"} value={selected.request} />

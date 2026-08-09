@@ -1,3 +1,5 @@
+export const DEFAULT_SERVER_TIMEZONE = "Asia/Kuala_Lumpur";
+
 export interface ServerRuntimeTimezone {
   profile_id: string;
   timezone: string;
@@ -28,7 +30,9 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function browserTimezone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  // Character Relay uses Malaysia time as the product-level default. A Server owner can
+  // still explicitly save another IANA timezone in Server settings afterwards.
+  return DEFAULT_SERVER_TIMEZONE;
 }
 
 export const serverRuntimeApi = {

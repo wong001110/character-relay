@@ -1,23 +1,46 @@
 """Persistence access for Discord Server runtime settings."""
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import DiscordServerProfileRecord
-from echo_masque.persistence.server_runtime_models import DiscordServerRuntimeRecord
-from echo_masque.server_time import validate_timezone
+from echo_masque.persistence.server_runtime_models import (
+    DiscordServerRuntimeRecord,
+    ServerRuntimeMigrationRecord,
+)
+from echo_masque.server_time import DEFAULT_SERVER_TIMEZONE, validate_timezone
+
+_LEGACY_UTC_MIGRATION = "default-timezone-malaysia-v1"
 
 
 class ServerRuntimeRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
 
+    def migrate_legacy_utc_defaults(self) -> int:
+        """Convert UTC values written by the former default exactly once.
+
+        A marker prevents a later intentional UTC choice from being changed on future starts.
+        """
+
+        with self.database.session() as session:
+            if session.get(ServerRuntimeMigrationRecord, _LEGACY_UTC_MIGRATION) is not None:
+                return 0
+            result = session.execute(
+                update(DiscordServerRuntimeRecord)
+                .where(DiscordServerRuntimeRecord.timezone == "UTC")
+                .values(timezone=DEFAULT_SERVER_TIMEZONE)
+            )
+            session.add(ServerRuntimeMigrationRecord(id=_LEGACY_UTC_MIGRATION))
+            session.commit()
+            return int(getattr(result, "rowcount", 0) or 0)
+
     def get_timezone(
         self,
         *,
         profile_id: str,
         owner_id: str,
-        default_timezone: str = "UTC",
+        default_timezone: str = DEFAULT_SERVER_TIMEZONE,
     ) -> str | None:
         fallback = validate_timezone(default_timezone)
         with self.database.session() as session:
@@ -64,7 +87,7 @@ class ServerRuntimeRepository:
         owner_id: str,
         connection_id: str,
         guild_id: str,
-        default_timezone: str = "UTC",
+        default_timezone: str = DEFAULT_SERVER_TIMEZONE,
     ) -> str:
         fallback = validate_timezone(default_timezone)
         if not guild_id:

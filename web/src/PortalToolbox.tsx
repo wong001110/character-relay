@@ -7,8 +7,9 @@ import { PaperModal } from "./NotebookUI";
 import { providerTraceApi } from "./providerTraceApi";
 import { ProviderTraceViewer } from "./ProviderTraceViewer";
 import { ScheduledRemindersPanel } from "./ScheduledRemindersPanel";
+import { ToolCallingTestPanel } from "./ToolCallingTestPanel";
 
-type ToolboxSection = "actions" | "schedule" | "account" | "provider";
+type ToolboxSection = "actions" | "schedule" | "account" | "provider" | "tooltest";
 
 interface Props {
   user: AuthUser;
@@ -107,6 +108,15 @@ export function PortalToolbox({
                 {zh ? "提醒计划" : "Schedules"}
               </button>
             )}
+            {providerTraceAllowed && (
+              <button
+                type="button"
+                className={section === "tooltest" ? "is-active" : ""}
+                onClick={() => setSection("tooltest")}
+              >
+                {zh ? "Tool Calling 测试" : "Tool Calling Test"}
+              </button>
+            )}
             {!publicDemo && (
               <button
                 type="button"
@@ -146,6 +156,17 @@ export function PortalToolbox({
                     {zh
                       ? "确认 scheduler.remind 是否真的建立，并查看 Pending、Completed、Failed 状态。"
                       : "Verify scheduler.remind actually ran and inspect pending, completed, or failed reminders."}
+                  </small>
+                </button>
+              )}
+              {providerTraceAllowed && (
+                <button type="button" onClick={() => setSection("tooltest")}>
+                  <span className="toolbox-sticker sticker-lavender">TOOL</span>
+                  <strong>{zh ? "Tool Calling 手动测试" : "Tool Calling manual test"}</strong>
+                  <small>
+                    {zh
+                      ? "Super Admin 直接执行真实 Runtime Tool，确认 Tool 本身能否正常 completed / rejected / failed。"
+                      : "Super Admin can execute a real Runtime Tool directly to verify completed / rejected / failed behavior."}
                   </small>
                 </button>
               )}
@@ -194,6 +215,10 @@ export function PortalToolbox({
 
           {section === "schedule" && !publicDemo && (
             <ScheduledRemindersPanel onClose={() => setSection("actions")} />
+          )}
+
+          {section === "tooltest" && providerTraceAllowed && !publicDemo && (
+            <ToolCallingTestPanel onClose={() => setSection("actions")} />
           )}
 
           {section === "account" && !publicDemo && (
