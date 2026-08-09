@@ -1,4 +1,4 @@
-"""Phase 3 direct-runtime LangGraph pilot for one Character turn."""
+"""Phase 3 LangGraph orchestration for one Character turn."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from echo_masque.orchestration.trace import (
     RuntimeTraceSink,
     TraceNodeKind,
 )
+from echo_masque.targets import PromptModelToolTurn
 
 CharacterTurnOutcome = Literal["pending", "silent", "reply", "expression", "failed"]
 StageStatus = Literal["not_started", "running", "completed", "skipped", "failed"]
@@ -54,6 +55,8 @@ class CharacterTurnGraphState(TypedDict, total=False):
     context_status: StageStatus
     rag_status: StageStatus
     model_status: StageStatus
+    tool_status: StageStatus
+    tool_rounds: int
     tool_result_count: int
     smart_output_status: StageStatus
     authority_status: StageStatus
@@ -67,9 +70,10 @@ class CharacterTurnGraphContext:
     payload: DiscordInboundMessage
     runtime: DiscordConnectorRuntime
     trace_sink: RuntimeTraceSink | None = None
-    orchestration_version: str = "langgraph-phase-3-direct-pilot"
+    orchestration_version: str = "langgraph-phase-3"
     resolved: ResolvedCharacterTurn | None = None
     prepared: PreparedCharacterTurn | None = None
+    tool_turn: PromptModelToolTurn | None = None
     response: TargetResponse | None = None
     output: ResolvedCharacterOutput | None = None
     reply: DiscordConnectorReplyView | None = None
@@ -219,10 +223,19 @@ async def _invoke_model(
 ) -> CharacterTurnGraphState:
     context = runtime.context
     _emit(state, context, node_name="turn_model", node_kind="agentic", status="started")
-    if context.prepared is None:
+    prepared = context.prepared
+    if prepared is None:
         raise RuntimeError("Character Turn graph lost prepared context.")
     try:
-        response = await context.runtime.invoke_character_model(context.prepared)
+        if context.tool_turn is None:
+            context.tool_turn = await context.runtime.start_character_tool_turn(prepared)
+        if context.tool_turn is None:
+            response = await context.runtime.invoke_character_model(prepared)
+        else:
+            response = await context.runtime.advance_character_tool_model(
+                prepared,
+                context.tool_turn,
+            )
     except Exception as exc:
         _emit(
             state,
@@ -234,18 +247,107 @@ async def _invoke_model(
             error=str(exc),
         )
         raise
+
+    if response is None:
+        turn = context.tool_turn
+        if turn is None or not turn.pending_tool_calls:
+            raise RuntimeError("Character model requested Tool routing without pending calls.")
+        _emit(
+            state,
+            context,
+            node_name="turn_model",
+            node_kind="agentic",
+            status="completed",
+            changed_keys=("model_status", "tool_rounds"),
+            metadata=(
+                ("next", "tool_execution"),
+                ("tool_rounds", str(turn.tool_rounds)),
+            ),
+        )
+        return {
+            "model_status": "running",
+            "tool_rounds": turn.tool_rounds,
+        }
+
     context.response = response
-    tool_count = len(context.runtime._tool_traces(response.trace))
+    turn = context.tool_turn
+    tool_count = (
+        len(turn.traces)
+        if turn is not None
+        else len(context.runtime._tool_traces(response.trace))
+    )
+    tool_rounds = turn.tool_rounds if turn is not None else 0
     _emit(
         state,
         context,
         node_name="turn_model",
         node_kind="agentic",
         status="completed",
-        changed_keys=("model_status", "tool_result_count"),
-        metadata=(("tool_result_count", str(tool_count)),),
+        changed_keys=("model_status", "tool_rounds", "tool_result_count"),
+        metadata=(
+            ("next", "smart_output"),
+            ("tool_rounds", str(tool_rounds)),
+            ("tool_result_count", str(tool_count)),
+        ),
     )
-    return {"model_status": "completed", "tool_result_count": tool_count}
+    return {
+        "model_status": "completed",
+        "tool_rounds": tool_rounds,
+        "tool_result_count": tool_count,
+    }
+
+
+def _route_after_model(state: CharacterTurnGraphState) -> str:
+    return "tools" if state.get("model_status") == "running" else "smart_output"
+
+
+async def _execute_tools(
+    state: CharacterTurnGraphState,
+    runtime: Runtime[CharacterTurnGraphContext],
+) -> CharacterTurnGraphState:
+    context = runtime.context
+    _emit(
+        state,
+        context,
+        node_name="turn_tool_execution",
+        node_kind="capability",
+        status="started",
+    )
+    prepared = context.prepared
+    turn = context.tool_turn
+    if prepared is None or turn is None:
+        raise RuntimeError("Character Turn graph lost its pending Tool session.")
+    try:
+        executed_count = await context.runtime.execute_character_tools(prepared, turn)
+    except Exception as exc:
+        _emit(
+            state,
+            context,
+            node_name="turn_tool_execution",
+            node_kind="capability",
+            status="failed",
+            changed_keys=("tool_status", "status", "outcome"),
+            error=str(exc),
+        )
+        raise
+    _emit(
+        state,
+        context,
+        node_name="turn_tool_execution",
+        node_kind="capability",
+        status="completed",
+        changed_keys=("tool_status", "tool_rounds", "tool_result_count"),
+        metadata=(
+            ("executed_count", str(executed_count)),
+            ("tool_rounds", str(turn.tool_rounds)),
+            ("tool_result_count", str(len(turn.traces))),
+        ),
+    )
+    return {
+        "tool_status": "completed",
+        "tool_rounds": turn.tool_rounds,
+        "tool_result_count": len(turn.traces),
+    }
 
 
 async def _resolve_smart_output(
@@ -337,7 +439,7 @@ def _authorize_output(
 
 
 def build_character_turn_graph() -> Any:
-    """Compile the Phase 3 direct-runtime Character Turn graph."""
+    """Compile the Phase 3 Character Turn graph."""
 
     builder = StateGraph(
         state_schema=CharacterTurnGraphState,
@@ -346,6 +448,7 @@ def build_character_turn_graph() -> Any:
     builder.add_node("turn_resolve", _resolve_turn)
     builder.add_node("turn_context", _build_context)
     builder.add_node("turn_model", _invoke_model)
+    builder.add_node("turn_tool_execution", _execute_tools)
     builder.add_node("turn_smart_output", _resolve_smart_output)
     builder.add_node("turn_authority", _authorize_output)
     builder.add_edge(START, "turn_resolve")
@@ -355,14 +458,22 @@ def build_character_turn_graph() -> Any:
         {"context": "turn_context", "end": END},
     )
     builder.add_edge("turn_context", "turn_model")
-    builder.add_edge("turn_model", "turn_smart_output")
+    builder.add_conditional_edges(
+        "turn_model",
+        _route_after_model,
+        {
+            "tools": "turn_tool_execution",
+            "smart_output": "turn_smart_output",
+        },
+    )
+    builder.add_edge("turn_tool_execution", "turn_model")
     builder.add_edge("turn_smart_output", "turn_authority")
     builder.add_edge("turn_authority", END)
     return builder.compile()
 
 
 class CharacterTurnGraphRunner:
-    """Run Phase 3 directly without changing production Discord routing yet."""
+    """Run one reusable Character turn while Runtime services remain authoritative."""
 
     def __init__(
         self,
@@ -392,6 +503,8 @@ class CharacterTurnGraphRunner:
             "context_status": "not_started",
             "rag_status": "not_started",
             "model_status": "not_started",
+            "tool_status": "not_started",
+            "tool_rounds": 0,
             "tool_result_count": 0,
             "smart_output_status": "not_started",
             "authority_status": "not_started",
