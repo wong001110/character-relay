@@ -18,7 +18,7 @@ Tool Calling V2 is the migration baseline, not code to rewrite. Its bounded Tool
 
 ## Environment namespace
 
-Character Relay application settings use the `CHARACTER_RELAY_*` environment namespace. Production variables must be migrated to that namespace before a build containing this roadmap is deployed. The orchestration migration does not introduce a second configuration namespace.
+Character Relay application settings use the `CHARACTER_RELAY_*` environment namespace. The orchestration migration does not introduce a second configuration namespace.
 
 ## Architecture boundary
 
@@ -38,10 +38,10 @@ SocialTurnGraph
 └── DeliveryNode
 
 ConditionWatchGraph
-├── WatchValidationNode
-├── WatchEvaluationNode -> existing provider + read-only ToolRuntime
-├── WatchDecisionNode
-└── WatchTransitionNode -> existing repositories / scheduler
+├── WatchEvaluationNode -> existing ConditionWatchEvaluatorRuntime
+├── WatchDecision edge
+├── WatchNotificationNode -> existing notifier / Scheduler path
+└── WatchTransitionNode -> existing ConditionWatchRepository
 ```
 
 The following remain outside LangGraph implementation ownership:
@@ -72,58 +72,87 @@ Runtime Trace Explorer will classify nodes consistently:
 
 A service should become its own node when it changes workflow state, chooses an edge, calls a model, crosses an authority boundary, or performs an externally visible side effect. Internal implementation details should remain inside the existing service rather than being exploded into tiny graph nodes.
 
-## Phase 1 — State + Node + Trace Foundation 🚧
+## Phase 1 — State + Node + Trace Foundation ✅
 
 Goal: introduce LangGraph contracts in **shadow mode with zero production behavior change**.
 
-Deliverables:
+Completed:
 
-- add the `langgraph` package without adding the high-level `langchain` package;
-- add `CHARACTER_RELAY_LANGGRAPH_ENABLED=false` as the default migration flag;
-- add `CharacterRuntimeState` for privacy-safe workflow coordination;
-- add run-scoped `OrchestrationRuntimeContext` for dependencies/configuration;
-- add the privacy-safe `RuntimeTraceEvent` / `RuntimeTraceSink` contract;
-- define node categories used by the future Runtime Trace Explorer;
-- compile and execute a no-side-effect foundation graph in tests;
-- keep Discord, Tool Calling V2, RAG, Smart Participation, Scheduler, and Condition Watch production traffic on the existing runtime.
+- added the `langgraph` package without adding the high-level `langchain` package;
+- added `CHARACTER_RELAY_LANGGRAPH_ENABLED=false` as the default migration flag;
+- added `CharacterRuntimeState` for privacy-safe workflow coordination;
+- added run-scoped `OrchestrationRuntimeContext` for dependencies/configuration;
+- added the privacy-safe `RuntimeTraceEvent` / `RuntimeTraceSink` contract;
+- defined node categories used by the future Runtime Trace Explorer;
+- compiled and executed a no-side-effect foundation graph in tests;
+- kept Discord, Tool Calling V2, RAG, Smart Participation, Scheduler, and Condition Watch production traffic on the existing runtime.
 
-Exit gate:
+Exit gate passed:
 
 ```text
 existing runtime behavior unchanged
 + foundation graph compiles/runs
 + feature flag defaults disabled
 + trace contract tested
-+ existing CI remains green
++ CI green before merge
 ```
 
-## Phase 2 — Condition Watch Graph Pilot
+Phase 1 merged through PR #122.
+
+## Phase 2 — Condition Watch Graph Pilot 🚧
 
 Goal: use the completed Tool Calling V2 Condition Watch workflow as the first parity-tested production-shaped graph.
 
-Keep `ConditionWatchService` responsible for the clock and `claim_due()` polling. Route **one claimed watch evaluation** through `ConditionWatchGraph`:
+`ConditionWatchService` remains responsible for the clock and `claim_due()` polling. Only **one already-claimed watch attempt** is handed to `ConditionWatchGraph` when `CHARACTER_RELAY_LANGGRAPH_ENABLED=true`:
 
 ```text
 ConditionWatchService
 → claim_due
 → ConditionWatchGraph
-   → validate watch/deployment
-   → resolve read-only assigned Tools
-   → evaluate fresh evidence
-   → repair invalid control output when bounded policy allows
-   → decide triggered / not met / failed
-   → persist through existing repositories
-→ existing Scheduler notification path
+   → WatchEvaluationNode
+      -> existing ConditionWatchEvaluatorRuntime
+         -> deployment/Character validation
+         -> assigned read-only Tool resolution
+         -> bounded provider + ToolRuntime evaluation
+         -> one bounded control-output repair
+   → conditional edge
+      ├─ not met -> existing repository mark_not_met
+      ├─ triggered -> existing notifier -> repository mark_triggered
+      └─ failed -> existing repository mark_failure
+→ existing Scheduler delivery path
 ```
 
-Migration approach:
+The initial Phase 2 node boundary is intentionally coarse. `ConditionWatchEvaluatorRuntime` remains one service boundary rather than splitting provider calls, ToolRuntime checks, and repair logic into new graph nodes. This preserves the Phase 1 rule that a LangGraph node wraps an existing service boundary instead of rewriting stable Runtime internals.
 
-1. run old evaluator as baseline fixtures;
-2. run graph evaluator against the same fixtures;
-3. compare decisions, Tool availability, repository transitions, and failure behavior;
-4. enable graph path only after parity is demonstrated.
+Current migration controls:
 
-The graph must not become the scheduling clock and must not replace Condition Watch business records.
+- `CHARACTER_RELAY_LANGGRAPH_ENABLED=false` keeps the existing V2 evaluator/notifier path;
+- `CHARACTER_RELAY_LANGGRAPH_ENABLED=true` routes claimed attempts through `ConditionWatchGraph`;
+- the same evaluator, notifier, repository, Tool allowlist, attempt budget, and failure policy are used in both paths;
+- no LangGraph checkpointer is added in Phase 2;
+- Condition Watch condition text, notification text, provider credentials, Tool results, and evaluation summary are not stored in graph coordination state or Runtime Trace events.
+
+Parity work:
+
+1. verify triggered transition occurs only after notifier success;
+2. verify unmet watches retain the existing attempt/expiry policy;
+3. verify evaluator failures persist through `mark_failure`;
+4. verify notifier failures persist through `mark_failure`;
+5. verify trace events expose node/outcome metadata without evaluation-summary content;
+6. keep the legacy path available behind the feature flag for rollback.
+
+Phase 2 exit gate:
+
+```text
+Condition Watch Graph tests green
++ legacy Condition Watch tests green
++ Python 3.12 / 3.13 CI green
++ Web / Discord Connector / Docker regression green
++ graph disabled by default
++ no change to polling clock or business-record authority
+```
+
+Do not enable the production graph path merely because this implementation exists. Production activation should happen only after the Phase 2 PR passes the full gate.
 
 ## Phase 3 — Character Turn Graph
 
