@@ -57,14 +57,22 @@ def invite_and_register(
     )
 
 
-def delete_account(client: httpx.Client, email: str) -> None:
-    response = client.request(
-        "DELETE",
-        "/api/account",
-        json={"email": email, "confirmation": "DELETE MY ACCOUNT"},
-    )
-    if response.status_code not in {200, 401}:
-        raise RuntimeError(f"Could not clean up {email}: {response.status_code} {response.text}")
+def purge_legacy_test_accounts(admin: httpx.Client) -> None:
+    response = admin.delete("/api/admin/synthetic-test-users")
+    if response.status_code != 200:
+        raise RuntimeError(
+            "Could not purge legacy synthetic test accounts: "
+            f"{response.status_code} {response.text[:500]}"
+        )
+
+
+def hard_delete_test_account(admin: httpx.Client, user_id: str) -> None:
+    response = admin.delete(f"/api/admin/synthetic-test-users/{user_id}")
+    if response.status_code not in {200, 404}:
+        raise RuntimeError(
+            f"Could not hard-delete synthetic user {user_id}: "
+            f"{response.status_code} {response.text[:500]}"
+        )
 
 
 def run_acceptance(
@@ -86,8 +94,11 @@ def run_acceptance(
         httpx.Client(base_url=base, timeout=30, follow_redirects=True) as user_b,
     ):
         login(admin, admin_email, admin_password)
-        created_a = False
-        created_b = False
+        # Remove historical soft-deleted smoke fixtures before creating this run. The purge
+        # endpoint ignores ordinary deleted accounts and active Phase 15 users from another run.
+        purge_legacy_test_accounts(admin)
+        user_a_id = ""
+        user_b_id = ""
         try:
             auth_a = invite_and_register(
                 admin,
@@ -95,14 +106,14 @@ def run_acceptance(
                 email=user_a_email,
                 password=user_password,
             )
-            created_a = True
+            user_a_id = str(auth_a["user"]["id"])
             auth_b = invite_and_register(
                 admin,
                 user_b,
                 email=user_b_email,
                 password=user_password,
             )
-            created_b = True
+            user_b_id = str(auth_b["user"]["id"])
 
             card = expect(
                 user_a.post(
@@ -163,17 +174,19 @@ def run_acceptance(
 
             return {
                 "status": "passed",
-                "user_a": auth_a["user"]["id"],
-                "user_b": auth_b["user"]["id"],
+                "user_a": user_a_id,
+                "user_b": user_b_id,
                 "character_id": card_id,
                 "rotation_count": rotated["rotated_count"],
                 "key_version": rotated["key_version"],
             }
         finally:
-            if created_a:
-                delete_account(user_a, user_a_email)
-            if created_b:
-                delete_account(user_b, user_b_email)
+            # Super Admin cleanup dispatches through the full owner lifecycle first, then
+            # removes the synthetic User row, invitations, trace rows, and audit FK actor.
+            if user_a_id:
+                hard_delete_test_account(admin, user_a_id)
+            if user_b_id:
+                hard_delete_test_account(admin, user_b_id)
 
 
 def main() -> int:
