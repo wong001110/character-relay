@@ -15,6 +15,13 @@ from echo_masque.orchestration.condition_watch_graph import (
 )
 from echo_masque.orchestration.foundation_graph import build_foundation_graph
 from echo_masque.orchestration.runtime_context import OrchestrationRuntimeContext
+from echo_masque.orchestration.social_turn_graph import (
+    SocialTurnGraphContext,
+    SocialTurnGraphResult,
+    SocialTurnGraphRunner,
+    SocialTurnGraphState,
+    build_social_turn_graph,
+)
 from echo_masque.orchestration.state import CharacterRuntimeState
 from echo_masque.orchestration.trace import RuntimeTraceEvent, RuntimeTraceSink
 
@@ -30,7 +37,12 @@ __all__ = [
     "OrchestrationRuntimeContext",
     "RuntimeTraceEvent",
     "RuntimeTraceSink",
+    "SocialTurnGraphContext",
+    "SocialTurnGraphResult",
+    "SocialTurnGraphRunner",
+    "SocialTurnGraphState",
     "build_character_turn_graph",
     "build_condition_watch_graph",
     "build_foundation_graph",
+    "build_social_turn_graph",
 ]
