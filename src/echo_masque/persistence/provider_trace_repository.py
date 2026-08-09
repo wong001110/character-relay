@@ -11,6 +11,10 @@ from sqlalchemy.orm import Session
 from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.provider_trace_models import ProviderTraceRecord
+from echo_masque.provider_trace_classification import (
+    ProviderTraceCategory,
+    provider_trace_category,
+)
 
 
 class ProviderTraceRepository:
@@ -84,6 +88,7 @@ class ProviderTraceRepository:
         status: str | None = None,
         model: str | None = None,
         trace_id: str | None = None,
+        category: ProviderTraceCategory | None = None,
     ) -> list[ProviderTraceRecord]:
         bounded_limit = max(1, min(limit, 200))
         with self.database.session() as session:
@@ -96,8 +101,13 @@ class ProviderTraceRepository:
                 )
             if trace_id:
                 query = query.where(ProviderTraceRecord.trace_id == trace_id)
-            query = query.order_by(ProviderTraceRecord.created_at.desc()).limit(bounded_limit)
-            return list(session.scalars(query))
+            query = query.order_by(ProviderTraceRecord.created_at.desc())
+            if category is None:
+                return list(session.scalars(query.limit(bounded_limit)))
+            candidates = list(session.scalars(query.limit(self.maximum_records)))
+            return [item for item in candidates if self._category(item) == category][
+                :bounded_limit
+            ]
 
     def list_traces_page(
         self,
@@ -107,6 +117,7 @@ class ProviderTraceRepository:
         status: str | None = None,
         model: str | None = None,
         trace_id: str | None = None,
+        category: ProviderTraceCategory | None = None,
     ) -> tuple[list[ProviderTraceRecord], str | None]:
         bounded_limit = max(1, min(limit, 100))
         with self.database.session() as session:
@@ -132,14 +143,17 @@ class ProviderTraceRepository:
                         ),
                     )
                 )
-            records = list(
-                session.scalars(
-                    query.order_by(
-                        ProviderTraceRecord.created_at.desc(),
-                        ProviderTraceRecord.trace_id.desc(),
-                    ).limit(bounded_limit + 1)
-                )
+            ordered = query.order_by(
+                ProviderTraceRecord.created_at.desc(),
+                ProviderTraceRecord.trace_id.desc(),
             )
+            if category is None:
+                records = list(session.scalars(ordered.limit(bounded_limit + 1)))
+            else:
+                candidates = list(session.scalars(ordered.limit(self.maximum_records)))
+                records = [item for item in candidates if self._category(item) == category][
+                    : bounded_limit + 1
+                ]
             has_more = len(records) > bounded_limit
             items = records[:bounded_limit]
             next_cursor = (
@@ -173,6 +187,10 @@ class ProviderTraceRepository:
                     ProviderTraceRecord.trace_id.in_(excess_ids)
                 )
             )
+
+    @staticmethod
+    def _category(record: ProviderTraceRecord) -> ProviderTraceCategory:
+        return provider_trace_category(record.request_json, record.response_json)
 
     @staticmethod
     def _json_list(value: str) -> list[dict[str, object]]:
