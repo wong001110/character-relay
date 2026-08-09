@@ -28,9 +28,12 @@ class Settings(BaseSettings):
     provider_trace_retention_days: int = 7
     provider_trace_max_records: int = 2000
 
-    # LangGraph orchestration is introduced in shadow mode first. Existing Character Relay
-    # services remain authoritative until later migration phases explicitly cut over traffic.
+    # LangGraph rollout uses one master kill switch plus workflow-specific switches. A
+    # production workflow enters LangGraph only when both the master and its own flag are on.
     langgraph_enabled: bool = False
+    langgraph_condition_watch_enabled: bool = False
+    langgraph_character_turn_enabled: bool = False
+    langgraph_social_turn_enabled: bool = False
 
     # Smart Participation V3 semantic relevance. Production explicitly enables this so
     # tests and source checkouts never download a model merely by creating a Character Card.
