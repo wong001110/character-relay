@@ -7,6 +7,7 @@ export type ParticipationMode =
 export type IdentityMode = "bot" | "webhook";
 export type WebhookStatus = "pending" | "active" | "error" | "not_required";
 export type ChannelScopeMode = "exact" | "all_except";
+export type LangGraphMode = "off" | "condition_watch" | "character_turn" | "social_turn";
 
 export interface DiscordDeployment {
   deployment_id: string;
@@ -34,6 +35,7 @@ export interface DiscordDeployment {
   webhook_status: WebhookStatus;
   webhook_id?: string | null;
   webhook_token?: string | null;
+  orchestration_mode: LangGraphMode;
 }
 
 export interface DiscordCatalogChannel {
@@ -293,6 +295,43 @@ export interface DiscordInboundMessage {
   interaction_target_display_name: string;
   expression_run_id: string;
   expression_candidates: DiscordExpressionCandidate[];
+}
+
+export type DiscordSocialTurnOrigin = "selected" | "invite" | "mention";
+
+export interface DiscordSocialPendingTurn {
+  deployment_id: string;
+  origin: DiscordSocialTurnOrigin;
+  depth: number;
+  source_deployment_id: string;
+}
+
+export interface DiscordSocialTurnCursor {
+  pending_turns: DiscordSocialPendingTurn[];
+  completed_deployment_ids: string[];
+  continuation_budget_remaining: number;
+  max_depth: number;
+  step_index: number;
+}
+
+export interface DiscordSocialTurnStepRequest {
+  payload: DiscordInboundMessage;
+  initial_deployment_ids: string[];
+  available_deployment_ids: string[];
+  continuation_budget: number;
+  max_depth: number;
+  cursor?: DiscordSocialTurnCursor | null;
+}
+
+export interface DiscordSocialTurnStepReply {
+  reply: DiscordReply;
+  cursor: DiscordSocialTurnCursor;
+  current_deployment_id: string;
+  next_turn?: DiscordSocialPendingTurn | null;
+  done: boolean;
+  stop_reason: string;
+  invite_candidate_deployment_id: string;
+  mentioned_character_deployment_ids: string[];
 }
 
 export interface DiscordReply {

@@ -16,6 +16,8 @@ import type {
   DiscordMessageRouteView,
   DiscordReply,
   DiscordServerCatalogSync,
+  DiscordSocialTurnStepReply,
+  DiscordSocialTurnStepRequest,
   DiscordStickerContent,
   DiscordStickerObservation,
   DiscordWebhookRegistration,
@@ -219,6 +221,23 @@ export class RelayClient {
       {
         method: "POST",
         body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
+  }
+
+  async processSocialTurnStep(
+    request: Omit<DiscordSocialTurnStepRequest, "payload"> & {
+      payload: Omit<DiscordInboundMessage, "connection_id">;
+    }
+  ): Promise<DiscordSocialTurnStepReply> {
+    return this.request<DiscordSocialTurnStepReply>(
+      "/api/connectors/discord/social-turns/step",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...request,
+          payload: { connection_id: this.connectionId, ...request.payload }
+        })
       }
     );
   }
