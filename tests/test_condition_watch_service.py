@@ -44,6 +44,7 @@ def create_due(repository: ConditionWatchRepository, *, max_attempts: int = 3) -
     record = repository.create(
         owner_id="owner",
         deployment_id="deployment",
+        channel_id="channel",
         condition_text="The result is available",
         notification_text="The result is available now.",
         check_interval_seconds=300,
