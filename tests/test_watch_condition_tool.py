@@ -71,6 +71,10 @@ def context(*, bot: bool = False) -> ToolExecutionContext:
     )
 
 
+def utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
 def test_watch_condition_persists_bounded_deployment_scoped_watch(tmp_path: Path) -> None:
     database, watches = seed(tmp_path / "watch-tool.db")
     registry = ServerAwareToolRegistry(
@@ -106,7 +110,7 @@ def test_watch_condition_persists_bounded_deployment_scoped_watch(tmp_path: Path
     assert stored.check_interval_seconds == 300
     # One-hour expiry with a five-minute cadence permits at most 12 checks.
     assert stored.max_attempts == 12
-    assert stored.next_check_at > datetime.now(UTC)
+    assert utc(stored.next_check_at) > datetime.now(UTC)
 
 
 def test_watch_condition_rejects_autonomous_bot_creation(tmp_path: Path) -> None:
