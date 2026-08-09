@@ -221,7 +221,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             evaluator=condition_watch_evaluator,
             notifier=condition_watch_notifier,
         )
-        if resolved.langgraph_enabled
+        if resolved.langgraph_enabled and resolved.langgraph_condition_watch_enabled
         else None
     )
     condition_watch_service = ConditionWatchService(
