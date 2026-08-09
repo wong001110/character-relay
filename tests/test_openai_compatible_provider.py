@@ -102,6 +102,9 @@ def test_non_deepseek_provider_does_not_receive_thinking_extension() -> None:
 
 
 def test_native_tool_call_allows_null_content_and_preserves_call() -> None:
+    events: list[dict[str, object]] = []
+    configure_provider_trace_sink(events.append)
+
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         assert payload["tool_choice"] == "auto"
@@ -132,16 +135,23 @@ def test_native_tool_call_allows_null_content_and_preserves_call() -> None:
             },
         )
 
-    provider = OpenAICompatibleProvider(
-        base_url="https://api.deepseek.com",
-        api_key=SecretStr("secret"),
-        transport=httpx.MockTransport(handler),
-    )
-    completion = _run_tools(provider)
+    try:
+        provider = OpenAICompatibleProvider(
+            base_url="https://api.deepseek.com",
+            api_key=SecretStr("secret"),
+            transport=httpx.MockTransport(handler),
+        )
+        completion = _run_tools(provider)
+    finally:
+        configure_provider_trace_sink(None)
 
     assert completion.text == ""
     assert completion.finish_reason == "tool_calls"
     assert completion.tool_calls[0].function.name == "utility_calculator"
+    request_event = next(item for item in events if item["event"] == "provider.request")
+    response_event = next(item for item in events if item["event"] == "provider.response")
+    assert request_event["available_tool_names"] == ["utility_calculator"]
+    assert response_event["tool_call_names"] == ["utility_calculator"]
 
 
 def test_empty_content_is_retried_before_returning_success(monkeypatch: Any) -> None:
