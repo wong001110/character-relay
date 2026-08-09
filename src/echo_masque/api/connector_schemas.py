@@ -11,6 +11,7 @@ from echo_masque.api.expression_schemas import (
     ExpressionContent,
     ExpressionDecision,
 )
+from echo_masque.config import LangGraphMode
 from echo_masque.context_layer import CharacterContextTraceView
 from echo_masque.smart_output import (
     DiscordActionParticipant,
@@ -56,6 +57,7 @@ class DiscordConnectorDeploymentView(BaseModel):
     webhook_status: DiscordWebhookStatus = "pending"
     webhook_id: str | None = None
     webhook_token: str | None = None
+    orchestration_mode: LangGraphMode = "off"
 
 
 class DiscordCatalogChannel(BaseModel):

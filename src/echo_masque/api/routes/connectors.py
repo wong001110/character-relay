@@ -31,6 +31,10 @@ from echo_masque.api.connector_schemas import (
     DiscordWebhookStatus,
     DiscordWebhookStatusReport,
 )
+from echo_masque.api.social_turn_schemas import (
+    DiscordSocialTurnStepRequest,
+    DiscordSocialTurnStepView,
+)
 from echo_masque.api.expression_schemas import (
     ExpressionCandidate,
     ExpressionContent,
@@ -42,7 +46,10 @@ from echo_masque.api.expression_schemas import (
 from echo_masque.config import Settings
 from echo_masque.connector_runtime import ConnectorRuntimeError, DiscordConnectorRuntime
 from echo_masque.credentials import CredentialVault
-from echo_masque.orchestration import CharacterTurnGraphRunner
+from echo_masque.orchestration import (
+    CharacterTurnGraphRunner,
+    SocialTurnGraphRunner,
+)
 from echo_masque.persistence import (
     DeploymentRepository,
     DiscordIdentityRepository,
@@ -114,6 +121,12 @@ def character_turn_graph_runner(
     return cast(
         CharacterTurnGraphRunner | None,
         request.app.state.character_turn_graph_runner,
+    )
+
+def social_turn_graph_runner(request: Request) -> SocialTurnGraphRunner | None:
+    return cast(
+        SocialTurnGraphRunner | None,
+        request.app.state.social_turn_graph_runner,
     )
 
 
@@ -213,6 +226,7 @@ def list_connector_deployments(
                 webhook_status=webhook_status,
                 webhook_id=binding.webhook_id if binding is not None else None,
                 webhook_token=webhook_token,
+                orchestration_mode=cast(Settings, request.app.state.settings).langgraph_mode,
             )
         )
     return views
@@ -575,6 +589,26 @@ def complete_interaction_run(
     ):
         raise HTTPException(status_code=404, detail="Interaction run not found.")
 
+
+@router.post("/social-turns/step", response_model=DiscordSocialTurnStepView)
+async def process_social_turn_step(
+    payload: DiscordSocialTurnStepRequest,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> DiscordSocialTurnStepView:
+    _authorize_connector(request, authorization)
+    runner = social_turn_graph_runner(request)
+    if runner is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Social Turn LangGraph orchestration is not enabled.",
+        )
+    try:
+        return await runner(payload)
+    except ConnectorRuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 @router.post("/messages", response_model=DiscordConnectorReplyView)
 async def process_discord_message(

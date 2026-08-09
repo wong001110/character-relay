@@ -63,6 +63,7 @@ from echo_masque.judge_evaluation import JudgeEvaluationService
 from echo_masque.orchestration import (
     CharacterTurnGraphRunner,
     ConditionWatchGraphRunner,
+    SocialTurnGraphRunner,
 )
 from echo_masque.persistence import (
     AuthoringRepository,
@@ -247,6 +248,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if resolved.langgraph_allows("character_turn")
         else None
     )
+    social_turn_graph_runner = (
+        SocialTurnGraphRunner(character_turn_graph_runner)
+        if (
+            character_turn_graph_runner is not None
+            and resolved.langgraph_allows("social_turn")
+        )
+        else None
+    )
     public_demo_result = PublicDemoService(
         settings=resolved,
         auth_service=auth_service,
@@ -382,6 +391,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.provider_trace_repository = provider_trace_repository
     app.state.discord_connector_runtime = discord_connector_runtime
     app.state.character_turn_graph_runner = character_turn_graph_runner
+    app.state.social_turn_graph_runner = social_turn_graph_runner
     app.state.workspace_repository = workspace_repository
     app.state.authoring_repository = authoring_repository
     app.state.authoring_archive_service = authoring_archive_service
