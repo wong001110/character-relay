@@ -18,12 +18,12 @@ from echo_masque.connector_runtime import (
     ResolvedCharacterTurn,
 )
 from echo_masque.domain import TargetResponse
-from echo_masque.smart_output import SmartMentionPart
 from echo_masque.orchestration.trace import (
     RuntimeTraceEvent,
     RuntimeTraceSink,
     TraceNodeKind,
 )
+from echo_masque.smart_output import SmartMentionPart
 from echo_masque.targets import PromptModelToolTurn
 
 CharacterTurnOutcome = Literal["pending", "silent", "reply", "expression", "failed"]

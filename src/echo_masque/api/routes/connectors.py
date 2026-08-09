@@ -31,10 +31,6 @@ from echo_masque.api.connector_schemas import (
     DiscordWebhookStatus,
     DiscordWebhookStatusReport,
 )
-from echo_masque.api.social_turn_schemas import (
-    DiscordSocialTurnStepRequest,
-    DiscordSocialTurnStepView,
-)
 from echo_masque.api.expression_schemas import (
     ExpressionCandidate,
     ExpressionContent,
@@ -42,6 +38,10 @@ from echo_masque.api.expression_schemas import (
     ExpressionResolveRequest,
     ExpressionRetrievalView,
     ExpressionRetrieveRequest,
+)
+from echo_masque.api.social_turn_schemas import (
+    DiscordSocialTurnStepRequest,
+    DiscordSocialTurnStepView,
 )
 from echo_masque.config import Settings
 from echo_masque.connector_runtime import ConnectorRuntimeError, DiscordConnectorRuntime
