@@ -19,20 +19,22 @@ class MemoryTraceSink:
         self.events.append(event)
 
 
-def test_langgraph_feature_flags_default_disabled() -> None:
+def test_langgraph_mode_defaults_off() -> None:
     settings = Settings(environment="test")
-    assert settings.langgraph_enabled is False
-    assert settings.langgraph_condition_watch_enabled is False
-    assert settings.langgraph_character_turn_enabled is False
-    assert settings.langgraph_social_turn_enabled is False
+    assert settings.langgraph_mode == "off"
+    assert settings.langgraph_allows("condition_watch") is False
+    assert settings.langgraph_allows("character_turn") is False
+    assert settings.langgraph_allows("social_turn") is False
 
 
-def test_langgraph_feature_flags_can_be_enabled(monkeypatch: Any) -> None:
-    monkeypatch.setenv("CHARACTER_RELAY_LANGGRAPH_ENABLED", "true")
-    monkeypatch.setenv("CHARACTER_RELAY_LANGGRAPH_CONDITION_WATCH_ENABLED", "true")
+def test_langgraph_mode_is_cumulative(monkeypatch: Any) -> None:
+    monkeypatch.setenv("CHARACTER_RELAY_LANGGRAPH_MODE", "character_turn")
     settings = Settings(environment="test")
-    assert settings.langgraph_enabled is True
-    assert settings.langgraph_condition_watch_enabled is True
+
+    assert settings.langgraph_mode == "character_turn"
+    assert settings.langgraph_allows("condition_watch") is True
+    assert settings.langgraph_allows("character_turn") is True
+    assert settings.langgraph_allows("social_turn") is False
 
 
 def test_foundation_graph_exercises_state_context_and_trace_contracts() -> None:
