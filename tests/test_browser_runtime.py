@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any, cast
 
 import pytest
@@ -7,6 +9,9 @@ from echo_masque.browser_runtime import (
     BrowserCapabilityManager,
     BrowserRuntimeSettings,
     BrowserToolUnavailable,
+    _chromium_user_agent,
+    _duckduckgo_target_url,
+    _extract_duckduckgo_html_results,
     _google_target_url,
     _is_external_result_url,
 )
@@ -60,6 +65,131 @@ def test_google_result_redirect_is_unwrapped_and_engine_links_are_rejected() -> 
     assert _is_external_result_url(target) is True
     assert _is_external_result_url("https://www.google.com/search?q=test") is False
     assert _is_external_result_url("https://www.bing.com/search?q=test") is False
+    assert _is_external_result_url("https://html.duckduckgo.com/html/?q=test") is False
+
+
+def test_duckduckgo_html_parser_extracts_redirected_results() -> None:
+    document = """
+    <html><body>
+      <div class="result">
+        <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fnews%3Fa%3D1">
+          <b>DeepSeek</b> latest news
+        </a>
+        <a class="result__snippet">A current DeepSeek release summary.</a>
+      </div>
+      <div class="result">
+        <a class="result__a" href="https://example.org/article">Second result</a>
+        <div class="result__snippet">Another source.</div>
+      </div>
+    </body></html>
+    """
+
+    results = _extract_duckduckgo_html_results(document, 5)
+
+    assert results == [
+        {
+            "title": "DeepSeek latest news",
+            "url": "https://example.com/news?a=1",
+            "snippet": "A current DeepSeek release summary.",
+        },
+        {
+            "title": "Second result",
+            "url": "https://example.org/article",
+            "snippet": "Another source.",
+        },
+    ]
+    assert (
+        _duckduckgo_target_url(
+            "//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fnews%3Fa%3D1"
+        )
+        == "https://example.com/news?a=1"
+    )
+
+
+def test_browser_user_agent_does_not_advertise_headless_chromium() -> None:
+    user_agent = _chromium_user_agent("140.0.0.0")
+    assert "Chrome/140.0.0.0" in user_agent
+    assert "Headless" not in user_agent
+
+
+def test_resilient_web_search_prefers_static_html_without_starting_browser() -> None:
+    class Manager(BrowserCapabilityManager):
+        async def _search_duckduckgo_html(
+            self,
+            query: str,
+            count: int,
+        ) -> list[dict[str, str]]:
+            assert query == "DeepSeek latest news"
+            assert count == 5
+            return [
+                {
+                    "title": "DeepSeek news",
+                    "url": "https://example.com/deepseek",
+                    "snippet": "Latest news",
+                }
+            ]
+
+    async def scenario() -> None:
+        manager = Manager()
+        engine, results, attempted = await manager._search_web_resilient(
+            "DeepSeek latest news",
+            5,
+            page_kind="web-search",
+        )
+        assert engine == "duckduckgo-html"
+        assert attempted == ["duckduckgo-html"]
+        assert results[0]["title"] == "DeepSeek news"
+        assert manager.browser_running is False
+
+    asyncio.run(scenario())
+
+
+def test_resilient_web_search_falls_back_to_browser_engines_when_html_is_blocked() -> None:
+    class Manager(BrowserCapabilityManager):
+        async def _search_duckduckgo_html(
+            self,
+            query: str,
+            count: int,
+        ) -> list[dict[str, str]]:
+            del query, count
+            raise BrowserToolUnavailable("challenge page")
+
+        @asynccontextmanager
+        async def _page_for(self, page_kind: str) -> AsyncIterator[Any]:
+            assert page_kind == "web-search"
+            yield object()
+
+        async def _search_web_with_fallback(
+            self,
+            page: Any,
+            query: str,
+            count: int,
+        ) -> tuple[str, list[dict[str, str]], list[str]]:
+            del page, query, count
+            return (
+                "bing",
+                [
+                    {
+                        "title": "DeepSeek news",
+                        "url": "https://example.com/deepseek",
+                        "snippet": "Latest news",
+                    }
+                ],
+                ["google", "bing"],
+            )
+
+    async def scenario() -> None:
+        manager = Manager()
+        engine, results, attempted = await manager._search_web_resilient(
+            "DeepSeek latest news",
+            5,
+            page_kind="web-search",
+        )
+        assert engine == "bing"
+        assert attempted == ["duckduckgo-html", "google", "bing"]
+        assert results[0]["title"] == "DeepSeek news"
+
+    asyncio.run(scenario())
 
 
 def test_web_search_falls_back_from_google_to_bing_when_google_has_no_parsable_results() -> None:
