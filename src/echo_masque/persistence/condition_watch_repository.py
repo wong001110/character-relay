@@ -34,6 +34,7 @@ class ConditionWatchRepository:
         check_interval_seconds: int,
         expires_at: datetime,
         max_attempts: int,
+        target_user_id: str = "",
         next_check_at: datetime | None = None,
     ) -> ConditionWatchRecord:
         now = datetime.now(UTC)
@@ -46,6 +47,7 @@ class ConditionWatchRepository:
                 owner_id=owner_id,
                 deployment_id=deployment_id,
                 character_card_id=deployment.character_card_id,
+                target_user_id=target_user_id.strip()[:200],
                 condition_text=condition_text.strip(),
                 notification_text=notification_text.strip(),
                 status="active",
