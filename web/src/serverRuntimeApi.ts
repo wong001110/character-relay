@@ -30,7 +30,9 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function browserTimezone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_SERVER_TIMEZONE;
+  // Character Relay uses Malaysia time as the product-level default. A Server owner can
+  // still explicitly save another IANA timezone in Server settings afterwards.
+  return DEFAULT_SERVER_TIMEZONE;
 }
 
 export const serverRuntimeApi = {
