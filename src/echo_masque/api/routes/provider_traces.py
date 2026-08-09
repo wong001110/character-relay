@@ -33,7 +33,7 @@ def list_provider_traces(
         default=None,
         alias="status",
     ),
-    category: ProviderTraceCategory | None = Query(default=None),
+    category: ProviderTraceCategory | None = None,
     model: str | None = Query(default=None, max_length=200),
     trace_id: str | None = Query(default=None, max_length=64),
 ) -> list[ProviderTraceView]:
@@ -58,7 +58,7 @@ def paginate_provider_traces(
         default=None,
         alias="status",
     ),
-    category: ProviderTraceCategory | None = Query(default=None),
+    category: ProviderTraceCategory | None = None,
     model: str | None = Query(default=None, max_length=200),
     trace_id: str | None = Query(default=None, max_length=64),
 ) -> ProviderTracePage:
