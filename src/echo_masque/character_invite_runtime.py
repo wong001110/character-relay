@@ -33,7 +33,6 @@ class CharacterInviteProposal:
 
 @dataclass(slots=True)
 class CharacterInviteTurnState:
-    owner_id: str
     deployment_id: str
     connection_id: str
     guild_id: str
