@@ -6,6 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -135,6 +136,7 @@ class SmartOutputContext:
     participant_alias_to_ref: dict[str, str]
     participant_ref_to_name: dict[str, str]
     participant_alias_descriptions: tuple[str, ...]
+    invite_turn_token: str | None = None
 
     @classmethod
     def from_payload(
@@ -177,8 +179,10 @@ class SmartOutputContext:
             participant_ref_to_name[participant.ref] = participant.display_name
             descriptions.append(f"- {alias}: {participant.display_name} ({participant.kind})")
 
+        invite_turn_token = str(uuid4())
         activate_character_invite_turn(
             CharacterInviteTurnState(
+                turn_token=invite_turn_token,
                 deployment_id=payload.deployment_id,
                 connection_id=payload.connection_id,
                 guild_id=payload.guild_id,
@@ -203,6 +207,7 @@ class SmartOutputContext:
             participant_alias_to_ref=participant_alias_to_ref,
             participant_ref_to_name=participant_ref_to_name,
             participant_alias_descriptions=tuple(descriptions),
+            invite_turn_token=invite_turn_token,
         )
 
     def message_alias(self, message_id: str) -> str:
@@ -391,7 +396,7 @@ class SmartOutputContext:
         self,
         output: DiscordSmartOutputView,
     ) -> DiscordSmartOutputView:
-        proposal = current_character_invite_proposal()
+        proposal = current_character_invite_proposal(self.invite_turn_token)
         if proposal is None or output.action != "message":
             return output
         candidate_ref = proposal.participant_ref
