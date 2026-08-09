@@ -214,12 +214,22 @@ Provider Trace exposes a privacy-safe category for faster debugging:
 
 The Portal Provider Trace viewer can filter by category and status. New native Tool Calling traces record available Tool names, actual proposed Tool names, prior Tool calls, and Tool-result count without persisting Tool arguments, Tool Result bodies, API keys, or authorization headers as classification metadata.
 
-## Tool Calling V2 — Event-driven & Social Tools
+## Tool Calling V2 — Event-driven & Social Tools ✅
 
-- `watch.condition`
-- `character.invite`
+- `watch.condition` ✅ — persisted bounded condition watches with deployment/account scope, minimum five-minute per-watch cadence, read-only background Tool evaluation, explicit expiry/attempt budgets, and Scheduler-backed notification delivery.
+- `character.invite` ✅ — prompt-local Character coordination proposal using safe participant aliases, same-owner/current-destination validation, Smart Participation eligibility checks, one-proposal-per-turn bounds, and existing Discord participant continuation as final authority.
 
-`watch.condition` will introduce future condition-driven Character events. `character.invite` will let an admitted character propose that another character join the turn, subject to Runtime coordination, relationship/capability rules, participant limits, and redundancy checks.
+### Condition Watch authority
+
+`watch.condition` can be created only from a human-initiated Character turn. Runtime persists the original concrete Discord channel/thread, checks the condition later with the Character's configured model plus only its assigned read-only Tools, and records the lifecycle as `active`, `triggered`, `expired`, `cancelled`, or `failed`.
+
+A positive evaluation queues a real persisted reminder through the existing Scheduler delivery path. A Character saying that a watched condition has triggered is not authoritative until Runtime has recorded the transition.
+
+### Character Invite authority
+
+`character.invite` does not directly inject or force another Character to speak. The model can reference only prompt-local participant aliases such as `p1`; Runtime validates the candidate against the same owner, active Discord destination scope, exclusions, and Smart Participation mode. A successful Tool result is only `pending_runtime_validation`.
+
+The proposal is bound to one Smart Output turn token and cannot leak into a later turn. Runtime may materialize at most that validated candidate through the existing Character mention primitive. The Discord Connector then applies the existing bounded continuation rules, participant/deployment checks, unique-turn protection, depth limit, and shared response budget. Bot-authored continuation turns cannot create further Character invites, preventing recursive invite trees.
 
 ## Explicit non-goals
 
