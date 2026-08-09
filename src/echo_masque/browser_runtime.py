@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from time import monotonic
-from urllib.parse import quote_plus
+from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
 from playwright.async_api import (
     Browser,
@@ -28,6 +28,7 @@ _BROWSER_SESSION_KEY: ContextVar[str] = ContextVar(
     "character_relay_browser_session_key",
     default="runtime",
 )
+_WEB_SEARCH_ENGINES = ("google", "bing")
 
 
 class BrowserToolUnavailable(RuntimeError):
@@ -116,16 +117,17 @@ class BrowserCapabilityManager:
         normalized = _query(query)
         count = min(max(count, 1), 10)
         async with self._page_for("web-search") as page:
-            url = (
-                "https://www.bing.com/search?"
-                f"q={quote_plus(normalized)}&count={count}&safeSearch=Strict"
+            engine, results, attempted = await self._search_web_with_fallback(
+                page,
+                normalized,
+                count,
             )
-            await self._navigate(page, url)
-            results = await self._extract_web_results(page, count)
         return {
             "ok": True,
             "provider": "browser",
-            "engine": "bing",
+            "engine": engine,
+            "attempted_engines": attempted,
+            "fallback_used": engine != _WEB_SEARCH_ENGINES[0],
             "query": normalized,
             "result_count": len(results),
             "results": results,
@@ -196,12 +198,11 @@ class BrowserCapabilityManager:
         count = min(max(count, 1), 10)
         combined = f"{normalized_query} near {normalized_location} address"
         async with self._page_for("places-search") as page:
-            url = (
-                "https://www.bing.com/search?"
-                f"q={quote_plus(combined)}&count={count}&safeSearch=Strict"
+            engine, web_results, attempted = await self._search_web_with_fallback(
+                page,
+                combined,
+                count,
             )
-            await self._navigate(page, url)
-            web_results = await self._extract_web_results(page, count)
         results = [
             {
                 "name": item.get("title", ""),
@@ -213,7 +214,9 @@ class BrowserCapabilityManager:
         return {
             "ok": True,
             "provider": "browser",
-            "engine": "bing-local-discovery",
+            "engine": f"{engine}-local-discovery",
+            "attempted_engines": attempted,
+            "fallback_used": engine != _WEB_SEARCH_ENGINES[0],
             "query": normalized_query,
             "location": normalized_location,
             "result_count": len(results),
@@ -353,7 +356,92 @@ class BrowserCapabilityManager:
         if response is not None and response.status >= 400:
             raise BrowserToolUnavailable(f"Browser destination returned HTTP {response.status}.")
 
-    async def _extract_web_results(self, page: Page, count: int) -> list[dict[str, str]]:
+    async def _search_web_with_fallback(
+        self,
+        page: Page,
+        query: str,
+        count: int,
+    ) -> tuple[str, list[dict[str, str]], list[str]]:
+        attempted: list[str] = []
+        failures: list[str] = []
+        for engine in _WEB_SEARCH_ENGINES:
+            attempted.append(engine)
+            try:
+                results = await self._search_web_engine(page, engine, query, count)
+            except BrowserToolUnavailable as exc:
+                failures.append(f"{engine}: {exc}")
+                continue
+            if results:
+                return engine, results, attempted
+            if await self._page_reports_no_results(page):
+                return engine, [], attempted
+            failures.append(f"{engine}: no parsable search results")
+        details = "; ".join(failures)
+        raise BrowserToolUnavailable(
+            "Web search engines returned no usable results"
+            + (f" ({details})." if details else ".")
+        )
+
+    async def _search_web_engine(
+        self,
+        page: Page,
+        engine: str,
+        query: str,
+        count: int,
+    ) -> list[dict[str, str]]:
+        if engine == "google":
+            url = (
+                "https://www.google.com/search?"
+                f"q={quote_plus(query)}&num={count}&safe=active&hl=en"
+            )
+            await self._navigate(page, url)
+            with suppress(PlaywrightTimeoutError):
+                await page.locator("a:has(h3)").first.wait_for(timeout=3_000)
+            return await self._extract_google_results(page, count)
+        if engine == "bing":
+            url = (
+                "https://www.bing.com/search?"
+                f"q={quote_plus(query)}&count={count}&safeSearch=Strict"
+            )
+            await self._navigate(page, url)
+            with suppress(PlaywrightTimeoutError):
+                await page.locator("li.b_algo h2 a").first.wait_for(timeout=3_000)
+            return await self._extract_bing_results(page, count)
+        raise BrowserToolUnavailable(f"Unsupported search engine: {engine}.")
+
+    async def _extract_google_results(
+        self,
+        page: Page,
+        count: int,
+    ) -> list[dict[str, str]]:
+        links = page.locator("a:has(h3)")
+        link_count = min(await links.count(), count * 4)
+        results: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for index in range(link_count):
+            link = links.nth(index)
+            href = _google_target_url((await link.get_attribute("href") or "")[:4096])
+            if not _is_external_result_url(href) or href in seen:
+                continue
+            title_locator = link.locator("h3").first
+            title = _normalized_text(await title_locator.inner_text(), 500)
+            if not title:
+                continue
+            snippet = ""
+            container = link.locator("xpath=../..").first
+            if await container.count():
+                with suppress(PlaywrightTimeoutError):
+                    container_text = _normalized_text(await container.inner_text(), 1800)
+                    if container_text.startswith(title):
+                        container_text = container_text[len(title) :].strip()
+                    snippet = container_text[:1600]
+            results.append({"title": title, "url": href[:2048], "snippet": snippet})
+            seen.add(href)
+            if len(results) >= count:
+                break
+        return results
+
+    async def _extract_bing_results(self, page: Page, count: int) -> list[dict[str, str]]:
         cards = page.locator("li.b_algo")
         card_count = min(await cards.count(), count)
         results: list[dict[str, str]] = []
@@ -367,9 +455,24 @@ class BrowserCapabilityManager:
             if await snippet_locator.count():
                 with suppress(PlaywrightTimeoutError):
                     snippet = _normalized_text(await snippet_locator.inner_text(), 1600)
-            if href and title:
+            if _is_external_result_url(href) and title:
                 results.append({"title": title, "url": href, "snippet": snippet})
         return results
+
+    async def _page_reports_no_results(self, page: Page) -> bool:
+        try:
+            text = _normalized_text(await page.locator("body").inner_text(timeout=2_000), 10_000)
+        except PlaywrightTimeoutError:
+            return False
+        lowered = text.casefold()
+        return any(
+            marker in lowered
+            for marker in (
+                "did not match any documents",
+                "there are no results for",
+                "no results found for",
+            )
+        )
 
     async def _route_guard(self, route: Route) -> None:
         url = route.request.url
@@ -455,6 +558,32 @@ def _query(value: str) -> str:
 
 def _normalized_text(value: str, maximum: int) -> str:
     return re.sub(r"\s+", " ", value).strip()[:maximum]
+
+
+def _google_target_url(value: str) -> str:
+    if not value:
+        return ""
+    parsed = urlparse(value)
+    if parsed.path == "/url":
+        query = parse_qs(parsed.query)
+        target = query.get("q", [""])[0] or query.get("url", [""])[0]
+        return unquote(target)[:2048]
+    return value[:2048]
+
+
+def _is_external_result_url(value: str) -> bool:
+    if not value.startswith(("http://", "https://")):
+        return False
+    hostname = (urlparse(value).hostname or "").casefold()
+    if not hostname:
+        return False
+    blocked_hosts = (
+        "google.com",
+        "www.google.com",
+        "bing.com",
+        "www.bing.com",
+    )
+    return hostname not in blocked_hosts and not hostname.endswith((".google.com", ".bing.com"))
 
 
 def _safe_string(value: object, maximum: int) -> str:
