@@ -121,12 +121,12 @@ or
 Initial defaults are configurable through:
 
 ```text
-ECHO_MASQUE_BROWSER_PAGE_IDLE_SECONDS=180
-ECHO_MASQUE_BROWSER_CONTEXT_IDLE_SECONDS=300
-ECHO_MASQUE_BROWSER_IDLE_SECONDS=600
-ECHO_MASQUE_BROWSER_MAX_LIFETIME_SECONDS=3600
-ECHO_MASQUE_BROWSER_MAX_OPERATIONS=100
-ECHO_MASQUE_BROWSER_MAX_CONCURRENT_CONTEXTS=3
+CHARACTER_RELAY_BROWSER_PAGE_IDLE_SECONDS=180
+CHARACTER_RELAY_BROWSER_CONTEXT_IDLE_SECONDS=300
+CHARACTER_RELAY_BROWSER_IDLE_SECONDS=600
+CHARACTER_RELAY_BROWSER_MAX_LIFETIME_SECONDS=3600
+CHARACTER_RELAY_BROWSER_MAX_OPERATIONS=100
+CHARACTER_RELAY_BROWSER_MAX_CONCURRENT_CONTEXTS=3
 ```
 
 BrowserContext reuse is isolated by owner + deployment. Runtime does not expose arbitrary browser primitives such as JavaScript evaluation, login automation, arbitrary form submission, payment, or unrestricted clicking to the Character LLM.
@@ -150,7 +150,7 @@ Discord Tools use the same managed Bot credential name as the Discord Connector:
 DISCORD_BOT_TOKEN
 ```
 
-In multi-service deployments such as Railway, expose the same shared/project variable to both the Character Relay API service and the Discord Connector service. The legacy `ECHO_MASQUE_DISCORD_TOOL_BOT_TOKEN` name is accepted only as a migration fallback.
+In multi-service deployments such as Railway, expose the same shared/project variable to both the Character Relay API service and the Discord Connector service.
 
 Discord Tool scope comes from Runtime, not model-provided guild/channel IDs. Poll creation rejects bot-triggered autonomous creation and requires an explicit human poll/vote request.
 
