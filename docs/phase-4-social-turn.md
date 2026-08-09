@@ -1,9 +1,10 @@
 # LangGraph Phase 4 — Social Turn Graph
 
-Status: 🚧 implementation validation / ⏸ production pilot deferred
+Status: ✅ implementation complete / ⏸ production pilot deferred
 
-Static integration cleanup is complete; the current validation pass covers strict Python typing,
-Social Turn graph regressions, Discord Connector typecheck/tests/build, Docker, and Railway smoke.
+The targeted Phase 4 authority gate is green: Ruff, strict mypy, Social Turn graph regressions,
+and rollout wiring all pass. The remaining merge gate is the clean-head full repository CI,
+Discord Connector build, Docker regression, and Railway smoke.
 
 ## Goal
 
@@ -94,8 +95,9 @@ continuations run before the remaining initially selected participants, matching
 recursive continuation behavior while keeping every Character unique within one social turn.
 
 Bot-authored continuation defensively ignores `character.invite` signals even if a malformed or
-test double attempts to provide one. The existing ToolRuntime already rejects such proposals;
-this is a second orchestration-layer guard.
+test double attempts to provide one. If the same candidate is also present as an independently
+Runtime-resolved normal Character mention, that mention remains eligible; suppressing an invite
+does not erase a separately valid social continuation signal.
 
 ## State and durability
 
