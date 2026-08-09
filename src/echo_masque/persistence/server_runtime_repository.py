@@ -5,7 +5,7 @@ from sqlalchemy import select
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import DiscordServerProfileRecord
 from echo_masque.persistence.server_runtime_models import DiscordServerRuntimeRecord
-from echo_masque.server_time import validate_timezone
+from echo_masque.server_time import DEFAULT_SERVER_TIMEZONE, validate_timezone
 
 
 class ServerRuntimeRepository:
@@ -17,7 +17,7 @@ class ServerRuntimeRepository:
         *,
         profile_id: str,
         owner_id: str,
-        default_timezone: str = "UTC",
+        default_timezone: str = DEFAULT_SERVER_TIMEZONE,
     ) -> str | None:
         fallback = validate_timezone(default_timezone)
         with self.database.session() as session:
@@ -64,7 +64,7 @@ class ServerRuntimeRepository:
         owner_id: str,
         connection_id: str,
         guild_id: str,
-        default_timezone: str = "UTC",
+        default_timezone: str = DEFAULT_SERVER_TIMEZONE,
     ) -> str:
         fallback = validate_timezone(default_timezone)
         if not guild_id:
