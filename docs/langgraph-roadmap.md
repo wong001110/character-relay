@@ -75,7 +75,7 @@ Goal: introduce LangGraph contracts in **shadow mode with zero production behavi
 Deliverables:
 
 - add the `langgraph` package without adding the high-level `langchain` package;
-- add `ECHO_MASQUE_LANGGRAPH_ENABLED=false` as the default migration flag;
+- add `CHARACTER_RELAY_LANGGRAPH_ENABLED=false` as the default migration flag;
 - add `CharacterRuntimeState` for privacy-safe workflow coordination;
 - add run-scoped `OrchestrationRuntimeContext` for dependencies/configuration;
 - add the privacy-safe `RuntimeTraceEvent` / `RuntimeTraceSink` contract;
