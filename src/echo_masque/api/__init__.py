@@ -32,6 +32,7 @@ from echo_masque.api.routes import (
     prompt_inspector_router,
     provider_traces_router,
     reports_router,
+    scheduled_reminders_router,
     smart_participation_router,
     targets_router,
     templates_router,
@@ -357,6 +358,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(characters_router)
     app.include_router(deployments_router)
     app.include_router(tools_router)
+    app.include_router(scheduled_reminders_router)
     app.include_router(discord_identities_router)
     app.include_router(interactions_router)
     app.include_router(smart_participation_router)
