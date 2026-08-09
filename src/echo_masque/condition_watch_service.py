@@ -26,8 +26,8 @@ class ConditionWatchService:
     """Poll persisted watches and transition them through a bounded lifecycle.
 
     Evaluation and delivery are injected deliberately. The persistence/event loop can be
-    tested independently from the eventual LLM + read-only Tool evaluator and Discord
-    delivery adapter.
+    tested independently from the LLM + read-only Tool evaluator and persistent delivery
+    adapter.
     """
 
     def __init__(
@@ -50,6 +50,7 @@ class ConditionWatchService:
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
             return
+        self.repository.purge_orphans()
         self._stop.clear()
         self._task = asyncio.create_task(
             self._run_loop(),
