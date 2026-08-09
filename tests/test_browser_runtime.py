@@ -72,7 +72,8 @@ def test_duckduckgo_html_parser_extracts_redirected_results() -> None:
     document = """
     <html><body>
       <div class="result">
-        <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fnews%3Fa%3D1">
+        <a class="result__a"
+           href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fnews%3Fa%3D1">
           <b>DeepSeek</b> latest news
         </a>
         <a class="result__snippet">A current DeepSeek release summary.</a>
