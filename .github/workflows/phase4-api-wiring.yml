@@ -1,0 +1,169 @@
+name: Phase 4 Social Turn API wiring
+
+on:
+  push:
+    branches:
+      - agent/langgraph-phase-4-social-turn
+    paths:
+      - .github/workflows/phase4-api-wiring.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/langgraph-phase-4-social-turn
+          fetch-depth: 0
+      - name: Wire API and deployment mode
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          schemas = Path('src/echo_masque/api/connector_schemas.py')
+          text = schemas.read_text(encoding='utf-8')
+          text = text.replace(
+              'from echo_masque.context_layer import CharacterContextTraceView\n',
+              'from echo_masque.config import LangGraphMode\n'
+              'from echo_masque.context_layer import CharacterContextTraceView\n',
+              1,
+          )
+          marker = '    webhook_token: str | None = None\n\n\nclass DiscordCatalogChannel'
+          replacement = (
+              '    webhook_token: str | None = None\n'
+              '    orchestration_mode: LangGraphMode = "off"\n\n\n'
+              'class DiscordCatalogChannel'
+          )
+          if text.count(marker) != 1:
+              raise SystemExit('deployment schema marker mismatch')
+          schemas.write_text(text.replace(marker, replacement, 1), encoding='utf-8')
+
+          api = Path('src/echo_masque/api/__init__.py')
+          text = api.read_text(encoding='utf-8')
+          text = text.replace(
+              '    ConditionWatchGraphRunner,\n)',
+              '    ConditionWatchGraphRunner,\n    SocialTurnGraphRunner,\n)',
+              1,
+          )
+          marker = '\n'.join([
+              '    character_turn_graph_runner = (',
+              '        CharacterTurnGraphRunner(discord_connector_runtime)',
+              '        if resolved.langgraph_allows("character_turn")',
+              '        else None',
+              '    )',
+              '',
+          ])
+          replacement = marker + '\n'.join([
+              '    social_turn_graph_runner = (',
+              '        SocialTurnGraphRunner(character_turn_graph_runner)',
+              '        if (',
+              '            character_turn_graph_runner is not None',
+              '            and resolved.langgraph_allows("social_turn")',
+              '        )',
+              '        else None',
+              '    )',
+              '',
+          ])
+          if text.count(marker) != 1:
+              raise SystemExit('character runner construction marker mismatch')
+          text = text.replace(marker, replacement, 1)
+          state_marker = '    app.state.character_turn_graph_runner = character_turn_graph_runner\n'
+          if text.count(state_marker) != 1:
+              raise SystemExit('character runner app state marker mismatch')
+          text = text.replace(
+              state_marker,
+              state_marker + '    app.state.social_turn_graph_runner = social_turn_graph_runner\n',
+              1,
+          )
+          api.write_text(text, encoding='utf-8')
+
+          routes = Path('src/echo_masque/api/routes/connectors.py')
+          text = routes.read_text(encoding='utf-8')
+          text = text.replace(
+              'from echo_masque.api.expression_schemas import (\n',
+              'from echo_masque.api.social_turn_schemas import (\n'
+              '    DiscordSocialTurnStepRequest,\n'
+              '    DiscordSocialTurnStepView,\n'
+              ')\n'
+              'from echo_masque.api.expression_schemas import (\n',
+              1,
+          )
+          text = text.replace(
+              'from echo_masque.orchestration import CharacterTurnGraphRunner\n',
+              'from echo_masque.orchestration import (\n'
+              '    CharacterTurnGraphRunner,\n'
+              '    SocialTurnGraphRunner,\n'
+              ')\n',
+              1,
+          )
+          helper_marker = '\n'.join([
+              'def character_turn_graph_runner(',
+              '    request: Request,',
+              ') -> CharacterTurnGraphRunner | None:',
+              '    return cast(',
+              '        CharacterTurnGraphRunner | None,',
+              '        request.app.state.character_turn_graph_runner,',
+              '    )',
+              '',
+              '',
+          ])
+          helper_add = helper_marker + '\n'.join([
+              'def social_turn_graph_runner(request: Request) -> SocialTurnGraphRunner | None:',
+              '    return cast(',
+              '        SocialTurnGraphRunner | None,',
+              '        request.app.state.social_turn_graph_runner,',
+              '    )',
+              '',
+              '',
+          ])
+          if text.count(helper_marker) != 1:
+              raise SystemExit('graph runner helper marker mismatch')
+          text = text.replace(helper_marker, helper_add, 1)
+          list_marker = '                webhook_token=webhook_token,\n'
+          if text.count(list_marker) != 1:
+              raise SystemExit('deployment view marker mismatch')
+          text = text.replace(
+              list_marker,
+              list_marker + '                orchestration_mode=cast(Settings, request.app.state.settings).langgraph_mode,\n',
+              1,
+          )
+          endpoint_marker = '@router.post("/messages", response_model=DiscordConnectorReplyView)\n'
+          endpoint = '\n'.join([
+              '@router.post("/social-turns/step", response_model=DiscordSocialTurnStepView)',
+              'async def process_social_turn_step(',
+              '    payload: DiscordSocialTurnStepRequest,',
+              '    request: Request,',
+              '    authorization: Annotated[str | None, Header()] = None,',
+              ') -> DiscordSocialTurnStepView:',
+              '    _authorize_connector(request, authorization)',
+              '    runner = social_turn_graph_runner(request)',
+              '    if runner is None:',
+              '        raise HTTPException(',
+              '            status_code=status.HTTP_409_CONFLICT,',
+              '            detail="Social Turn LangGraph orchestration is not enabled.",',
+              '        )',
+              '    try:',
+              '        return await runner(payload)',
+              '    except ConnectorRuntimeError as exc:',
+              '        raise HTTPException(status_code=409, detail=str(exc)) from exc',
+              '    except ValueError as exc:',
+              '        raise HTTPException(status_code=409, detail=str(exc)) from exc',
+              '',
+              '',
+          ]) + endpoint_marker
+          if text.count(endpoint_marker) != 1:
+              raise SystemExit('messages endpoint marker mismatch')
+          routes.write_text(text.replace(endpoint_marker, endpoint, 1), encoding='utf-8')
+          PY
+      - name: Remove one-shot workflow
+        run: git rm .github/workflows/phase4-api-wiring.yml
+      - name: Commit wiring
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: wire Social Turn graph behind social_turn mode"
+          git push origin HEAD:agent/langgraph-phase-4-social-turn
