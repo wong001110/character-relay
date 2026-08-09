@@ -53,6 +53,9 @@ import type {
   DiscordExpressionRetrieval,
   DiscordInteractionClaim,
   DiscordSmartOutput,
+  DiscordSocialPendingTurn,
+  DiscordSocialTurnCursor,
+  DiscordSocialTurnStepReply,
   DiscordStickerContent
 } from "./types.js";
 import { DiscordWebhookManager } from "./webhookManager.js";
@@ -2063,10 +2066,66 @@ async function processMessage(message: Message): Promise<void> {
     }
 
     const addressedToMultiple = audience.deployments.length > 1;
+    const socialTurnEnabled =
+      eligibleDeployments[0]?.orchestration_mode === "social_turn";
     const botConversationBudget: BotConversationBudget = {
       remainingResponses: config.botTagMaxResponses
     };
-    for (const [responseIndex, baseDeployment] of eligibleDeployments.entries()) {
+    const socialInitialDeploymentIds = eligibleDeployments.map(
+      (item) => item.deployment_id
+    );
+    const socialContinuationDeploymentIds = candidates
+      .filter((item) =>
+        shouldSubmitMessage(
+          item,
+          { mentionedBot: true, repliedToBot: false, hasReadableText: true },
+          config.smartParticipationEnabled
+        )
+      )
+      .map((item) => item.deployment_id);
+    const socialAvailableDeploymentIds = [
+      ...new Set([
+        ...socialInitialDeploymentIds,
+        ...socialContinuationDeploymentIds
+      ])
+    ];
+    let socialCursor: DiscordSocialTurnCursor | null = null;
+    let socialNextTurn: DiscordSocialPendingTurn | null = socialTurnEnabled
+      ? {
+          deployment_id: socialInitialDeploymentIds[0] ?? "",
+          origin: "selected",
+          depth: 0,
+          source_deployment_id: ""
+        }
+      : null;
+    const socialSources = new Map<
+      string,
+      { text: string; sentMessageIds: string[] }
+    >();
+    const legacyQueue = [...eligibleDeployments];
+    let processedResponses = 0;
+    while (
+      (socialTurnEnabled && socialNextTurn) ||
+      (!socialTurnEnabled && legacyQueue.length)
+    ) {
+      const pendingTurn: DiscordSocialPendingTurn = socialTurnEnabled
+        ? (socialNextTurn as DiscordSocialPendingTurn)
+        : {
+            deployment_id: legacyQueue.shift()?.deployment_id ?? "",
+            origin: "selected",
+            depth: 0,
+            source_deployment_id: ""
+          };
+      socialNextTurn = null;
+      const baseDeployment = candidates.find(
+        (item) => item.deployment_id === pendingTurn.deployment_id
+      );
+      if (!baseDeployment) {
+        if (socialTurnEnabled) break;
+        continue;
+      }
+      const responseIndex = processedResponses;
+      processedResponses += 1;
       const deployment = resolveDeploymentLocation(baseDeployment, location);
       reportDiscordEvent({
         level: "info",
@@ -2089,23 +2148,61 @@ async function processMessage(message: Message): Promise<void> {
         }
       });
       const recentMessages = context.get(key);
+      const socialSource =
+        socialTurnEnabled && pendingTurn.origin !== "selected"
+          ? socialSources.get(pendingTurn.source_deployment_id)
+          : undefined;
+      const sourceDeployment = socialSource
+        ? candidates.find(
+            (item) => item.deployment_id === pendingTurn.source_deployment_id
+          )
+        : undefined;
+      const sourceDiscordMessageId =
+        socialSource?.sentMessageIds[0] ?? guildMessage.id;
+      const expressionSource = socialSource
+        ? await resolveExpressionSourceMessage(
+            guildMessage,
+            sourceDiscordMessageId
+          )
+        : guildMessage;
+      const continuationAudience =
+        socialSource && sourceDeployment
+          ? resolveBotTagAudience(
+              candidates,
+              socialSource.text,
+              sourceDeployment.deployment_id,
+              config.groupAddressAliases
+            )
+          : null;
+      const sourceDisplayName = sourceDeployment
+        ? deploymentDisplayName(sourceDeployment)
+        : authorDisplayName;
+      const turnText = socialSource
+        ? continuationAudience?.text ||
+          socialSource.text ||
+          `${sourceDisplayName} tagged this character without additional readable text.`
+        : (addressedToMultiple ? originalText : audience.text) ||
+          originalText ||
+          (emojis.length || stickers.length
+            ? "The user addressed the character with interpreted Discord expression content and no text."
+            : "The user addressed the character without additional readable text.");
       const mentionableParticipants = buildMentionableParticipants(
         candidates,
         recentMessages,
         deployment
       );
       const preparedExpression = await prepareExpression(
-        guildMessage,
+        expressionSource,
         deployment,
-        (addressedToMultiple ? originalText : audience.text) || originalText,
-        stickers,
-        emojis,
+        turnText,
+        socialSource ? [] : stickers,
+        socialSource ? [] : emojis,
         recentMessages
       );
-      await guildMessage.channel.sendTyping();
-      const reply = await relay.processMessage({
+      await expressionSource.channel.sendTyping();
+      const inboundPayload = {
         deployment_id: deployment.deployment_id,
-        message_id: guildMessage.id,
+        message_id: sourceDiscordMessageId,
         guild_id: guildMessage.guildId,
         guild_name: guildMessage.guild.name,
         channel_id: location.channelId,
@@ -2113,21 +2210,20 @@ async function processMessage(message: Message): Promise<void> {
         category_id: location.categoryId,
         thread_id: location.threadId,
         thread_name: location.threadName,
-        author_id: guildMessage.author.id,
-        author_display_name: authorDisplayName,
-        text:
-          (addressedToMultiple ? originalText : audience.text) ||
-          (emojis.length || stickers.length
-            ? "The user addressed the character with interpreted Discord expression content and no text."
-            : "The user addressed the character without additional readable text."),
-        mentioned_bot: mentionedBot,
-        replied_to_bot: isReplyToCharacter,
-        smart_candidate:
-          deployment.participation_mode === "smart" &&
-          config.smartParticipationEnabled,
-        author_is_bot: false,
-        emojis,
-        stickers,
+        author_id: sourceDeployment
+          ? `character:${sourceDeployment.character_card_id}`
+          : guildMessage.author.id,
+        author_display_name: sourceDisplayName,
+        text: turnText,
+        mentioned_bot: socialSource ? true : mentionedBot,
+        replied_to_bot: socialSource ? false : isReplyToCharacter,
+        smart_candidate: socialSource
+          ? false
+          : deployment.participation_mode === "smart" &&
+            config.smartParticipationEnabled,
+        author_is_bot: Boolean(sourceDeployment),
+        emojis: socialSource ? [] : emojis,
+        stickers: socialSource ? [] : stickers,
         interaction_session_id: "",
         interaction_type: "",
         interaction_intensity: "",
@@ -2144,7 +2240,25 @@ async function processMessage(message: Message): Promise<void> {
           .map(deploymentAddressAlias),
         mentionable_participants: mentionableParticipants,
         recent_messages: recentMessages
-      });
+      };
+      let socialStep: DiscordSocialTurnStepReply | null = null;
+      const reply = socialTurnEnabled
+        ? (
+            (socialStep = await relay.processSocialTurnStep({
+              payload: inboundPayload,
+              initial_deployment_ids: socialInitialDeploymentIds,
+              available_deployment_ids: socialAvailableDeploymentIds,
+              continuation_budget: config.botTagMaxResponses,
+              max_depth: config.botTagMaxDepth,
+              cursor: socialCursor
+            })),
+            socialStep.reply
+          )
+        : await relay.processMessage(inboundPayload);
+      if (socialStep) {
+        socialCursor = socialStep.cursor;
+        socialNextTurn = socialStep.next_turn ?? null;
+      }
       reportCharacterContext({
         trace: reply.context_trace,
         source: guildMessage,
@@ -2333,19 +2447,33 @@ async function processMessage(message: Message): Promise<void> {
         sentMessageIds,
         latencyMs: reply.latency_ms ?? null
       });
-      await continueBotTagConversation(
-        guildMessage,
-        deployment,
-        outgoingText,
-        sentMessageIds,
-        candidates,
-        location,
-        key,
-        botUser.id,
-        0,
-        botConversationBudget,
-        new Set([deployment.deployment_id])
-      );
+      if (socialTurnEnabled) {
+        if (outgoingText || sentMessageIds.length) {
+          socialSources.set(deployment.deployment_id, {
+            text: outgoingText,
+            sentMessageIds
+          });
+        } else if (socialCursor) {
+          socialCursor.pending_turns = socialCursor.pending_turns.filter(
+            (item) => item.source_deployment_id !== deployment.deployment_id
+          );
+          socialNextTurn = socialCursor.pending_turns[0] ?? null;
+        }
+      } else {
+        await continueBotTagConversation(
+          guildMessage,
+          deployment,
+          outgoingText,
+          sentMessageIds,
+          candidates,
+          location,
+          key,
+          botUser.id,
+          0,
+          botConversationBudget,
+          new Set([deployment.deployment_id])
+        );
+      }
     }
   });
 }

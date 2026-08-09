@@ -56,6 +56,7 @@ function deployment(
     webhook_status: "pending",
     webhook_id: null,
     webhook_token: null,
+    orchestration_mode: "off",
     smart_participation_profile: portalProfile
   } as DiscordDeployment;
 }

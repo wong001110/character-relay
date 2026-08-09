@@ -29,7 +29,8 @@ function deployment(): DiscordDeployment {
     identity_avatar_url: "https://example.com/ann.png",
     webhook_status: "pending",
     webhook_id: null,
-    webhook_token: null
+    webhook_token: null,
+    orchestration_mode: "off"
   };
 }
 

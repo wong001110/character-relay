@@ -39,7 +39,8 @@ function deployment(id: string, name: string): DiscordDeployment {
     address_aliases: [name],
     webhook_status: "active",
     webhook_id: "webhook-1",
-    webhook_token: "token"
+    webhook_token: "token",
+    orchestration_mode: "off"
   };
 }
 

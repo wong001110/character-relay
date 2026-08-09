@@ -10,6 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 
 from echo_masque.api.connector_schemas import DiscordConnectorReplyView, DiscordInboundMessage
+from echo_masque.character_invite_runtime import current_character_invite_proposal
 from echo_masque.connector_runtime import (
     DiscordConnectorRuntime,
     PreparedCharacterTurn,
@@ -22,6 +23,7 @@ from echo_masque.orchestration.trace import (
     RuntimeTraceSink,
     TraceNodeKind,
 )
+from echo_masque.smart_output import SmartMentionPart
 from echo_masque.targets import PromptModelToolTurn
 
 CharacterTurnOutcome = Literal["pending", "silent", "reply", "expression", "failed"]
@@ -83,6 +85,8 @@ class CharacterTurnGraphContext:
 class CharacterTurnGraphResult:
     state: CharacterTurnGraphState
     reply: DiscordConnectorReplyView
+    invite_candidate_deployment_id: str = ""
+    mentioned_character_deployment_ids: tuple[str, ...] = ()
 
 
 def _emit(
@@ -517,7 +521,31 @@ class CharacterTurnGraphRunner:
         )
         if context.reply is None:
             raise RuntimeError("Character Turn graph completed without a reply view.")
-        return CharacterTurnGraphResult(state=result, reply=context.reply)
+        mentioned: tuple[str, ...] = ()
+        invite_candidate = ""
+        smart_output = context.reply.smart_output
+        if smart_output is not None and smart_output.action == "message":
+            mentioned = tuple(
+                part.mention.removeprefix("deployment:")
+                for part in smart_output.content
+                if isinstance(part, SmartMentionPart)
+                and part.mention.startswith("deployment:")
+            )
+            if context.prepared is not None:
+                proposal = current_character_invite_proposal(
+                    context.prepared.smart_context.invite_turn_token
+                )
+                if (
+                    proposal is not None
+                    and proposal.candidate_deployment_id in mentioned
+                ):
+                    invite_candidate = proposal.candidate_deployment_id
+        return CharacterTurnGraphResult(
+            state=result,
+            reply=context.reply,
+            invite_candidate_deployment_id=invite_candidate,
+            mentioned_character_deployment_ids=mentioned,
+        )
 
     async def __call__(self, payload: DiscordInboundMessage) -> DiscordConnectorReplyView:
         return (await self.run(payload)).reply
