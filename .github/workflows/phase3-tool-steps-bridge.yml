@@ -26,90 +26,98 @@ jobs:
 
           path = Path('src/echo_masque/connector_runtime.py')
           text = path.read_text(encoding='utf-8')
-          old_import = (
-              'from echo_masque.targets import PromptModelConfig, PromptModelTarget, fragile_target, stable_target\n'
-          )
-          new_import = '''from echo_masque.targets import (
-    PromptModelConfig,
-    PromptModelTarget,
-    PromptModelToolTurn,
-    fragile_target,
-    stable_target,
-)
-'''
+          old_import = 'from echo_masque.targets import PromptModelConfig, PromptModelTarget, fragile_target, stable_target\n'
+          new_import = '\n'.join([
+              'from echo_masque.targets import (',
+              '    PromptModelConfig,',
+              '    PromptModelTarget,',
+              '    PromptModelToolTurn,',
+              '    fragile_target,',
+              '    stable_target,',
+              ')',
+              '',
+          ])
           if text.count(old_import) != 1:
               raise SystemExit(f'target import count: {text.count(old_import)}')
           text = text.replace(old_import, new_import, 1)
 
-          marker = '''    async def resolve_character_output(
-        self,
-        prepared: PreparedCharacterTurn,
-        response: TargetResponse,
-    ) -> ResolvedCharacterOutput:
-'''
-          bridge = '''    async def start_character_tool_turn(
-        self,
-        prepared: PreparedCharacterTurn,
-    ) -> PromptModelToolTurn | None:
-        """Start an explicit bounded Tool session for LangGraph orchestration."""
-
-        target = prepared.resolved.target
-        if not isinstance(target, PromptModelTarget) or not prepared.enabled_tools:
-            return None
-        try:
-            return await target.start_tool_turn(
-                prepared.prompt,
-                tool_registry=self.tool_registry,
-                enabled_tool_ids=prepared.enabled_tools,
-                tool_context=prepared.tool_context,
-                max_tool_rounds=2,
-            )
-        except Exception as exc:
-            self.deployment_repository.record_deployment_error(
-                prepared.resolved.deployment.id,
-                str(exc),
-            )
-            raise
-
-    async def advance_character_tool_model(
-        self,
-        prepared: PreparedCharacterTurn,
-        turn: PromptModelToolTurn,
-    ) -> TargetResponse | None:
-        """Run one provider step while keeping provider history outside graph state."""
-
-        target = prepared.resolved.target
-        if not isinstance(target, PromptModelTarget):
-            raise ConnectorRuntimeError("Character Tool session requires a prompt-model target.")
-        try:
-            return await target.advance_tool_model(turn)
-        except Exception as exc:
-            self.deployment_repository.record_deployment_error(
-                prepared.resolved.deployment.id,
-                str(exc),
-            )
-            raise
-
-    async def execute_character_tools(
-        self,
-        prepared: PreparedCharacterTurn,
-        turn: PromptModelToolTurn,
-    ) -> int:
-        """Execute pending proposals through the existing ToolRuntime authority."""
-
-        target = prepared.resolved.target
-        if not isinstance(target, PromptModelTarget):
-            raise ConnectorRuntimeError("Character Tool execution requires a prompt-model target.")
-        try:
-            return await target.execute_pending_tools(turn)
-        except Exception as exc:
-            self.deployment_repository.record_deployment_error(
-                prepared.resolved.deployment.id,
-                str(exc),
-            )
-            raise
-
-'''
+          marker = '\n'.join([
+              '    async def resolve_character_output(',
+              '        self,',
+              '        prepared: PreparedCharacterTurn,',
+              '        response: TargetResponse,',
+              '    ) -> ResolvedCharacterOutput:',
+              '',
+          ])
+          bridge = '\n'.join([
+              '    async def start_character_tool_turn(',
+              '        self,',
+              '        prepared: PreparedCharacterTurn,',
+              '    ) -> PromptModelToolTurn | None:',
+              '        """Start an explicit bounded Tool session for LangGraph orchestration."""',
+              '',
+              '        target = prepared.resolved.target',
+              '        if not isinstance(target, PromptModelTarget) or not prepared.enabled_tools:',
+              '            return None',
+              '        try:',
+              '            return await target.start_tool_turn(',
+              '                prepared.prompt,',
+              '                tool_registry=self.tool_registry,',
+              '                enabled_tool_ids=prepared.enabled_tools,',
+              '                tool_context=prepared.tool_context,',
+              '                max_tool_rounds=2,',
+              '            )',
+              '        except Exception as exc:',
+              '            self.deployment_repository.record_deployment_error(',
+              '                prepared.resolved.deployment.id,',
+              '                str(exc),',
+              '            )',
+              '            raise',
+              '',
+              '    async def advance_character_tool_model(',
+              '        self,',
+              '        prepared: PreparedCharacterTurn,',
+              '        turn: PromptModelToolTurn,',
+              '    ) -> TargetResponse | None:',
+              '        """Run one provider step while keeping provider history outside graph state."""',
+              '',
+              '        target = prepared.resolved.target',
+              '        if not isinstance(target, PromptModelTarget):',
+              '            raise ConnectorRuntimeError(',
+              '                "Character Tool session requires a prompt-model target."',
+              '            )',
+              '        try:',
+              '            return await target.advance_tool_model(turn)',
+              '        except Exception as exc:',
+              '            self.deployment_repository.record_deployment_error(',
+              '                prepared.resolved.deployment.id,',
+              '                str(exc),',
+              '            )',
+              '            raise',
+              '',
+              '    async def execute_character_tools(',
+              '        self,',
+              '        prepared: PreparedCharacterTurn,',
+              '        turn: PromptModelToolTurn,',
+              '    ) -> int:',
+              '        """Execute pending proposals through the existing ToolRuntime authority."""',
+              '',
+              '        target = prepared.resolved.target',
+              '        if not isinstance(target, PromptModelTarget):',
+              '            raise ConnectorRuntimeError(',
+              '                "Character Tool execution requires a prompt-model target."',
+              '            )',
+              '        try:',
+              '            return await target.execute_pending_tools(turn)',
+              '        except Exception as exc:',
+              '            self.deployment_repository.record_deployment_error(',
+              '                prepared.resolved.deployment.id,',
+              '                str(exc),',
+              '            )',
+              '            raise',
+              '',
+              '',
+          ])
           if text.count(marker) != 1:
               raise SystemExit(f'resolve output marker count: {text.count(marker)}')
           text = text.replace(marker, bridge + marker, 1)
