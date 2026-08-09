@@ -19,15 +19,20 @@ class MemoryTraceSink:
         self.events.append(event)
 
 
-def test_langgraph_feature_flag_defaults_disabled() -> None:
+def test_langgraph_feature_flags_default_disabled() -> None:
     settings = Settings(environment="test")
     assert settings.langgraph_enabled is False
+    assert settings.langgraph_condition_watch_enabled is False
+    assert settings.langgraph_character_turn_enabled is False
+    assert settings.langgraph_social_turn_enabled is False
 
 
-def test_langgraph_feature_flag_can_be_enabled(monkeypatch: Any) -> None:
+def test_langgraph_feature_flags_can_be_enabled(monkeypatch: Any) -> None:
     monkeypatch.setenv("CHARACTER_RELAY_LANGGRAPH_ENABLED", "true")
+    monkeypatch.setenv("CHARACTER_RELAY_LANGGRAPH_CONDITION_WATCH_ENABLED", "true")
     settings = Settings(environment="test")
     assert settings.langgraph_enabled is True
+    assert settings.langgraph_condition_watch_enabled is True
 
 
 def test_foundation_graph_exercises_state_context_and_trace_contracts() -> None:
