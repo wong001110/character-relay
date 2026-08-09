@@ -13,6 +13,13 @@ type ToolCatalogItemWithAvailability = ToolCatalogItem & {
   availability_reason?: string;
 };
 
+function availabilityReason(value: string): string {
+  return value.replaceAll(
+    "ECHO_MASQUE_DISCORD_TOOL_BOT_TOKEN",
+    "DISCORD_BOT_TOKEN"
+  );
+}
+
 export function DeploymentToolSelector({
   deploymentId,
   disabled = false,
@@ -108,7 +115,7 @@ export function DeploymentToolSelector({
                   {unavailable && tool.availability_reason && (
                     <small className="deployment-inline-error">
                       {zh ? "尚未配置：" : "Unavailable: "}
-                      {tool.availability_reason}
+                      {availabilityReason(tool.availability_reason)}
                     </small>
                   )}
                 </span>
