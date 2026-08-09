@@ -121,3 +121,32 @@ def test_service_persists_delivery_failure(tmp_path: Path) -> None:
     assert stored is not None
     assert stored.status == "failed"
     assert "delivery unavailable" in stored.last_error
+
+
+def test_service_hands_claimed_attempt_to_optional_processor(tmp_path: Path) -> None:
+    repository = seeded_repository(tmp_path / "processor.db")
+    watch_id = create_due(repository)
+    processed: list[str] = []
+
+    async def evaluator(_record):
+        raise AssertionError("legacy evaluator must be bypassed when processor is configured")
+
+    async def notifier(_record, _evaluation):
+        raise AssertionError("legacy notifier must be bypassed when processor is configured")
+
+    async def processor(record):
+        processed.append(record.id)
+        repository.mark_not_met(record.id)
+
+    service = ConditionWatchService(
+        repository,
+        evaluator=evaluator,
+        notifier=notifier,
+        processor=processor,
+    )
+    assert asyncio.run(service.run_once()) == 1
+    assert processed == [watch_id]
+    stored = repository.get(owner_id="owner", watch_id=watch_id)
+    assert stored is not None
+    assert stored.status == "active"
+    assert stored.attempt_count == 1

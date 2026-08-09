@@ -60,6 +60,7 @@ from echo_masque.credentials import CredentialVault
 from echo_masque.discord_inventory import DiscordInventoryService
 from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
 from echo_masque.judge_evaluation import JudgeEvaluationService
+from echo_masque.orchestration import ConditionWatchGraphRunner
 from echo_masque.persistence import (
     AuthoringRepository,
     AuthRepository,
@@ -214,10 +215,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scheduled_reminder_repository,
         deployment_repository,
     )
+    condition_watch_graph_runner = (
+        ConditionWatchGraphRunner(
+            condition_watch_repository,
+            evaluator=condition_watch_evaluator,
+            notifier=condition_watch_notifier,
+        )
+        if resolved.langgraph_allows("condition_watch")
+        else None
+    )
     condition_watch_service = ConditionWatchService(
         condition_watch_repository,
         evaluator=condition_watch_evaluator,
         notifier=condition_watch_notifier,
+        processor=condition_watch_graph_runner,
         poll_seconds=resolved.condition_watch_poll_seconds,
     )
     discord_connector_runtime = DiscordConnectorRuntime(
@@ -351,6 +362,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.scheduled_reminder_repository = scheduled_reminder_repository
     app.state.scheduled_reminder_delivery = scheduled_reminder_delivery
     app.state.condition_watch_repository = condition_watch_repository
+    app.state.condition_watch_graph_runner = condition_watch_graph_runner
     app.state.condition_watch_service = condition_watch_service
     app.state.discord_identity_repository = discord_identity_repository
     app.state.interaction_repository = interaction_repository
