@@ -205,7 +205,12 @@ export function CharacterCreator({
               }
             : {})
         };
-        onSaved(await api.updateCharacter(card.id, payload));
+        const updated = await api.updateCharacter(card.id, payload);
+        const replacementKey = String(data.get("api_key") ?? "").trim();
+        if (target?.target_kind === "prompt_model" && replacementKey) {
+          await api.configureCredential(card.id, replacementKey);
+        }
+        onSaved(updated);
       } else if (bindingMode === "prompt") {
         const payload: PromptCharacterCreate = {
           ...common,
@@ -416,8 +421,8 @@ export function CharacterCreator({
           title={zh ? "AI 连接" : "AI connection"}
           guide={
             zh
-              ? "这里决定角色由哪个模型运行。API Key 只在创建请求中使用，不会显示在角色卡内容里。"
-              : "Choose which model runs the character. API keys are used for creation and are not displayed as character content."
+              ? "这里决定角色由哪个模型运行。API Key 不会回填明文；编辑时留空会保留现有凭证，输入新 Key 会安全覆盖。"
+              : "Choose which model runs the character. API keys are never read back in plaintext; leave the edit field blank to keep the current credential or enter a new key to replace it securely."
           }
           accent="mint"
         >
@@ -449,17 +454,34 @@ export function CharacterCreator({
                   placeholder={t("creator.baseUrlPlaceholder")}
                 />
               </NotebookField>
-              {!editing && (
-                <NotebookField className="is-wide" label={t("creator.apiKey")} guide={t("creator.keysNeverSaved")} required>
-                  <NotebookInput
-                    name="api_key"
-                    type="password"
-                    required
-                    autoComplete="off"
-                    placeholder={t("creator.apiKeyPlaceholder")}
-                  />
-                </NotebookField>
-              )}
+              <NotebookField
+                className="is-wide"
+                label={t("creator.apiKey")}
+                guide={
+                  editing
+                    ? zh
+                      ? "留空不会删除或覆盖现有凭证；输入新 Key 后会通过独立 Credential Vault 接口安全替换。"
+                      : "Leave blank to preserve the existing credential. Entering a new key replaces it through the separate Credential Vault endpoint."
+                    : zh
+                      ? "原始 Key 不会写入角色卡、Trace 或日志；Production 会以加密 Credential Vault 保存。"
+                      : "The raw key is never written to the Character Card, traces, or logs; production stores it encrypted in the Credential Vault."
+                }
+                required={!editing}
+              >
+                <NotebookInput
+                  name="api_key"
+                  type="password"
+                  required={!editing}
+                  autoComplete="new-password"
+                  placeholder={
+                    editing
+                      ? zh
+                        ? "留空保留现有 Key；输入新 Key 可重新连接"
+                        : "Leave blank to keep the current key; enter a new key to reconnect"
+                      : t("creator.apiKeyPlaceholder")
+                  }
+                />
+              </NotebookField>
               <NotebookField
                 className="is-wide"
                 label={t("creator.systemPrompt")}
