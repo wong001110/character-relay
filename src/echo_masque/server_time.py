@@ -7,7 +7,10 @@ from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 _DEFAULT_TIMEZONE = "UTC"
-_SERVER_TIMEZONE: ContextVar[str] = ContextVar("character_relay_server_timezone", default=_DEFAULT_TIMEZONE)
+_SERVER_TIMEZONE: ContextVar[str] = ContextVar(
+    "character_relay_server_timezone",
+    default=_DEFAULT_TIMEZONE,
+)
 
 
 def validate_timezone(value: str) -> str:
