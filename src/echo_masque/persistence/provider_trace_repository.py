@@ -284,9 +284,12 @@ class ProviderTraceRepository:
     @classmethod
     def _payload_has_failed_tool_result(cls, payload: dict[str, object]) -> bool:
         latest = payload.get("latest_message")
-        if isinstance(latest, dict) and latest.get("role") == "tool":
-            if cls._tool_content_failed(latest.get("content")):
-                return True
+        if (
+            isinstance(latest, dict)
+            and latest.get("role") == "tool"
+            and cls._tool_content_failed(latest.get("content"))
+        ):
+            return True
         messages = payload.get("messages")
         if not isinstance(messages, list):
             return False
