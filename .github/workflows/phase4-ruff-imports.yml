@@ -1,0 +1,32 @@
+name: Phase 4 Ruff imports
+
+on:
+  push:
+    branches:
+      - agent/langgraph-phase-4-social-turn
+    paths:
+      - .github/workflows/phase4-ruff-imports.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/langgraph-phase-4-social-turn
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'ruff>=0.9,<1.0'
+      - run: ruff check --fix src/echo_masque/api/routes/connectors.py src/echo_masque/orchestration/character_turn_graph.py
+      - run: git rm .github/workflows/phase4-ruff-imports.yml
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "style: normalize Phase 4 imports"
+          git push origin HEAD:agent/langgraph-phase-4-social-turn
