@@ -154,6 +154,7 @@ def expected_connector_deployment(
         "webhook_status": webhook_status,
         "webhook_id": webhook_id,
         "webhook_token": webhook_token,
+        "orchestration_mode": "off",
     }
 
 
