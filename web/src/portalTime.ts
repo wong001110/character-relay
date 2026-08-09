@@ -13,6 +13,6 @@ export function formatPortalTimestamp(value: string, zh = false): string {
   if (Number.isNaN(date.getTime())) return value || "—";
   return `${date.toLocaleString(zh ? "zh-CN" : "en-MY", {
     timeZone: PORTAL_TIMEZONE,
-    hour12: !zh
+    hour12: true
   })} MYT`;
 }
