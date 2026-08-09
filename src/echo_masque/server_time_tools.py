@@ -3,16 +3,102 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
+from pydantic import BaseModel, Field, model_validator
+
+from echo_masque.persistence.condition_watch_repository import ConditionWatchRepository
 from echo_masque.providers import ChatToolDefinition
 from echo_masque.server_time import current_server_timezone, validate_timezone
-from echo_masque.tool_runtime import ToolExecutionContext, ToolRegistry
+from echo_masque.tool_external import json_result
+from echo_masque.tool_runtime import ToolExecutionContext, ToolRegistry, _tool
+
+
+class WatchConditionInput(BaseModel):
+    condition_text: str = Field(min_length=1, max_length=1200)
+    notification_text: str = Field(min_length=1, max_length=1800)
+    check_interval_seconds: int = Field(default=900, ge=300, le=86_400)
+    expires_in_seconds: int = Field(default=86_400, ge=600, le=2_592_000)
+    max_attempts: int = Field(default=96, ge=1, le=500)
+    mention_user: bool = True
+
+    @model_validator(mode="after")
+    def normalize_text(self) -> WatchConditionInput:
+        self.condition_text = self.condition_text.strip()
+        self.notification_text = self.notification_text.strip()
+        if not self.condition_text or not self.notification_text:
+            raise ValueError("Condition and notification text cannot be blank.")
+        return self
 
 
 class ServerAwareToolRegistry(ToolRegistry):
-    """Use the current Discord Server timezone when a Tool call omits one."""
+    """Use the current Discord Server timezone and expose server-aware V2 capabilities."""
+
+    def __init__(
+        self,
+        *args: Any,
+        condition_watch_repository: ConditionWatchRepository | None = None,
+        condition_watch_enabled: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        if condition_watch_repository is None and self.reminders is not None:
+            condition_watch_repository = ConditionWatchRepository(self.reminders.database)
+        self.condition_watches = condition_watch_repository
+        watch_available = condition_watch_enabled and condition_watch_repository is not None
+        watch_tool = _tool(
+            tool_id="watch.condition",
+            display_name="Watch Condition",
+            description=(
+                "Persist a bounded future condition watch for this Character Deployment. "
+                "Runtime checks it later and queues a real notification only after the condition triggers."
+            ),
+            category="watch",
+            operation="coordination",
+            risk="medium",
+            side_effect=True,
+            provider_name="watch_condition",
+            provider_description=(
+                "Create a bounded future condition watch after an explicit human request. "
+                "The condition is not considered triggered until Runtime later evaluates and persists it."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "condition_text": {"type": "string", "maxLength": 1200},
+                    "notification_text": {"type": "string", "maxLength": 1800},
+                    "check_interval_seconds": {
+                        "type": "integer",
+                        "minimum": 300,
+                        "maximum": 86400,
+                        "default": 900,
+                    },
+                    "expires_in_seconds": {
+                        "type": "integer",
+                        "minimum": 600,
+                        "maximum": 2592000,
+                        "default": 86400,
+                    },
+                    "max_attempts": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 500,
+                        "default": 96,
+                    },
+                    "mention_user": {"type": "boolean", "default": True},
+                },
+                "required": ["condition_text", "notification_text"],
+                "additionalProperties": False,
+            },
+            available=watch_available,
+            availability_reason=(
+                "" if watch_available else "Condition Watch background Runtime is not enabled."
+            ),
+        )
+        self._by_id[watch_tool.catalog.id] = watch_tool
+        self._by_provider_name[watch_tool.catalog.provider_function_name] = watch_tool
 
     def provider_tools(
         self,
@@ -70,7 +156,51 @@ class ServerAwareToolRegistry(ToolRegistry):
             if not isinstance(timezone, str) or not timezone.strip():
                 adjusted["timezone"] = current_server_timezone()
             return await super()._execute_tool(tool_id, adjusted, context)
+        if tool_id == "watch.condition":
+            return self._watch_condition(arguments, context)
         return await super()._execute_tool(tool_id, arguments, context)
+
+    def _watch_condition(
+        self,
+        arguments: dict[str, object],
+        context: ToolExecutionContext,
+    ) -> str:
+        self._require_discord(context)
+        if context.initiator_is_bot:
+            raise ValueError("Condition watches require an explicit human-initiated request.")
+        if self.condition_watches is None:
+            raise ValueError("Condition Watch persistence is unavailable.")
+        payload = WatchConditionInput.model_validate(arguments)
+        now = datetime.now(UTC)
+        maximum_possible_attempts = max(
+            1,
+            payload.expires_in_seconds // payload.check_interval_seconds,
+        )
+        max_attempts = min(payload.max_attempts, maximum_possible_attempts)
+        record = self.condition_watches.create(
+            owner_id=context.owner_id,
+            deployment_id=context.deployment_id,
+            target_user_id=(
+                context.initiator_user_id
+                if payload.mention_user and context.initiator_user_id
+                else ""
+            ),
+            condition_text=payload.condition_text,
+            notification_text=payload.notification_text,
+            check_interval_seconds=payload.check_interval_seconds,
+            max_attempts=max_attempts,
+            next_check_at=now + timedelta(seconds=payload.check_interval_seconds),
+            expires_at=now + timedelta(seconds=payload.expires_in_seconds),
+        )
+        return json_result(
+            ok=True,
+            watch_id=record.id,
+            status=record.status,
+            next_check_at=record.next_check_at.isoformat(),
+            expires_at=record.expires_at.isoformat(),
+            check_interval_seconds=record.check_interval_seconds,
+            max_attempts=record.max_attempts,
+        )
 
     def _schedule_reminder(
         self,
@@ -127,4 +257,4 @@ class ServerAwareToolRegistry(ToolRegistry):
         return parsed.astimezone(ZoneInfo(timezone)).isoformat(timespec="seconds")
 
 
-__all__ = ["ServerAwareToolRegistry"]
+__all__ = ["ServerAwareToolRegistry", "WatchConditionInput"]
