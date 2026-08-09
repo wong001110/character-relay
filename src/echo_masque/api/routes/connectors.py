@@ -42,6 +42,7 @@ from echo_masque.api.expression_schemas import (
 from echo_masque.config import Settings
 from echo_masque.connector_runtime import ConnectorRuntimeError, DiscordConnectorRuntime
 from echo_masque.credentials import CredentialVault
+from echo_masque.orchestration import CharacterTurnGraphRunner
 from echo_masque.persistence import (
     DeploymentRepository,
     DiscordIdentityRepository,
@@ -106,6 +107,14 @@ def credential_store(request: Request) -> CredentialVault:
 
 def connector_runtime(request: Request) -> DiscordConnectorRuntime:
     return cast(DiscordConnectorRuntime, request.app.state.discord_connector_runtime)
+
+def character_turn_graph_runner(
+    request: Request,
+) -> CharacterTurnGraphRunner | None:
+    return cast(
+        CharacterTurnGraphRunner | None,
+        request.app.state.character_turn_graph_runner,
+    )
 
 
 @router.get("/deployments", response_model=list[DiscordConnectorDeploymentView])
@@ -575,6 +584,9 @@ async def process_discord_message(
 ) -> DiscordConnectorReplyView:
     _authorize_connector(request, authorization)
     try:
+        runner = character_turn_graph_runner(request)
+        if runner is not None:
+            return await runner(payload)
         return await connector_runtime(request).respond(payload)
     except ConnectorRuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
