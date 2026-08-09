@@ -184,11 +184,11 @@ class SmartOutputContext:
             CharacterInviteTurnState(
                 turn_token=invite_turn_token,
                 deployment_id=payload.deployment_id,
-                connection_id=payload.connection_id,
-                guild_id=payload.guild_id,
-                channel_id=payload.channel_id,
-                thread_id=payload.thread_id,
-                category_id=payload.category_id,
+                connection_id=getattr(payload, "connection_id", ""),
+                guild_id=getattr(payload, "guild_id", ""),
+                channel_id=getattr(payload, "channel_id", ""),
+                thread_id=getattr(payload, "thread_id", ""),
+                category_id=getattr(payload, "category_id", ""),
                 participants=tuple(
                     CharacterInviteParticipant(
                         alias=alias,
