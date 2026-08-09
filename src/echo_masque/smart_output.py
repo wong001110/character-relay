@@ -6,10 +6,17 @@ import json
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from echo_masque.api.expression_schemas import ExpressionCandidate, ExpressionDecision
+from echo_masque.character_invite_runtime import (
+    CharacterInviteParticipant,
+    CharacterInviteTurnState,
+    activate_character_invite_turn,
+    current_character_invite_proposal,
+)
 
 if TYPE_CHECKING:
     from echo_masque.api.connector_schemas import DiscordInboundMessage
@@ -129,6 +136,7 @@ class SmartOutputContext:
     participant_alias_to_ref: dict[str, str]
     participant_ref_to_name: dict[str, str]
     participant_alias_descriptions: tuple[str, ...]
+    invite_turn_token: str | None = None
 
     @classmethod
     def from_payload(
@@ -171,12 +179,35 @@ class SmartOutputContext:
             participant_ref_to_name[participant.ref] = participant.display_name
             descriptions.append(f"- {alias}: {participant.display_name} ({participant.kind})")
 
+        invite_turn_token = str(uuid4())
+        activate_character_invite_turn(
+            CharacterInviteTurnState(
+                turn_token=invite_turn_token,
+                deployment_id=payload.deployment_id,
+                connection_id=getattr(payload, "connection_id", ""),
+                guild_id=getattr(payload, "guild_id", ""),
+                channel_id=getattr(payload, "channel_id", ""),
+                thread_id=getattr(payload, "thread_id", ""),
+                category_id=getattr(payload, "category_id", ""),
+                participants=tuple(
+                    CharacterInviteParticipant(
+                        alias=alias,
+                        ref=ref,
+                        display_name=participant_ref_to_name.get(ref, ""),
+                        kind="character" if ref.startswith("deployment:") else "human",
+                    )
+                    for alias, ref in participant_alias_to_ref.items()
+                ),
+            )
+        )
+
         return cls(
             message_alias_to_id=message_alias_to_id,
             message_id_to_alias=message_id_to_alias,
             participant_alias_to_ref=participant_alias_to_ref,
             participant_ref_to_name=participant_ref_to_name,
             participant_alias_descriptions=tuple(descriptions),
+            invite_turn_token=invite_turn_token,
         )
 
     def message_alias(self, message_id: str) -> str:
@@ -354,14 +385,40 @@ class SmartOutputContext:
             return None, "message_text_too_long"
         if not resolved_parts:
             return None, "empty_message_content"
-        return (
-            DiscordSmartOutputView(
-                action="message",
-                content=resolved_parts,
-                reply_to_message_id=message_id(proposal.reply_to),
-            ),
-            "ok",
+        output = DiscordSmartOutputView(
+            action="message",
+            content=resolved_parts,
+            reply_to_message_id=message_id(proposal.reply_to),
         )
+        return self._materialize_character_invite(output), "ok"
+
+    def _materialize_character_invite(
+        self,
+        output: DiscordSmartOutputView,
+    ) -> DiscordSmartOutputView:
+        proposal = current_character_invite_proposal(self.invite_turn_token)
+        if proposal is None or output.action != "message":
+            return output
+        candidate_ref = proposal.participant_ref
+        if candidate_ref not in self.participant_ref_to_name:
+            return output
+
+        character_mentions = [
+            part.mention
+            for part in output.content
+            if isinstance(part, SmartMentionPart) and part.mention.startswith("deployment:")
+        ]
+        if any(item != candidate_ref for item in character_mentions):
+            # Do not let one Tool proposal silently expand into multiple Character turns.
+            return output
+        if candidate_ref in character_mentions:
+            return output
+
+        content = list(output.content)
+        if content:
+            content.append(SmartTextPart(text=" "))
+        content.append(SmartMentionPart(mention=candidate_ref))
+        return output.model_copy(update={"content": content})
 
     def legacy_visible_text(self, output: DiscordSmartOutputView) -> str:
         if output.action != "message":
