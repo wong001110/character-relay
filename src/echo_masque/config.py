@@ -8,6 +8,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from echo_masque import __version__
 
+LangGraphMode = Literal["off", "condition_watch", "character_turn", "social_turn"]
+LangGraphWorkflow = Literal["condition_watch", "character_turn", "social_turn"]
+_LANGGRAPH_MODE_RANK: dict[str, int] = {
+    "off": 0,
+    "condition_watch": 1,
+    "character_turn": 2,
+    "social_turn": 3,
+}
+
 
 class Settings(BaseSettings):
     """Environment-derived settings with credential-free defaults."""
@@ -28,12 +37,9 @@ class Settings(BaseSettings):
     provider_trace_retention_days: int = 7
     provider_trace_max_records: int = 2000
 
-    # LangGraph rollout uses one master kill switch plus workflow-specific switches. A
-    # production workflow enters LangGraph only when both the master and its own flag are on.
-    langgraph_enabled: bool = False
-    langgraph_condition_watch_enabled: bool = False
-    langgraph_character_turn_enabled: bool = False
-    langgraph_social_turn_enabled: bool = False
+    # One cumulative rollout value controls LangGraph adoption. Moving forward through the
+    # modes keeps already-migrated workflows enabled; "off" is the global rollback state.
+    langgraph_mode: LangGraphMode = "off"
 
     # Smart Participation V3 semantic relevance. Production explicitly enables this so
     # tests and source checkouts never download a model merely by creating a Character Card.
@@ -108,6 +114,11 @@ class Settings(BaseSettings):
     max_evaluation_cases_per_day: int = 1000
     max_template_instantiations_per_day: int = 100
     max_shared_assets_per_bundle: int = 200
+
+    def langgraph_allows(self, workflow: LangGraphWorkflow) -> bool:
+        """Return whether the cumulative rollout mode includes a workflow."""
+
+        return _LANGGRAPH_MODE_RANK[self.langgraph_mode] >= _LANGGRAPH_MODE_RANK[workflow]
 
 
 @lru_cache
