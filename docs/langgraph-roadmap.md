@@ -20,40 +20,43 @@ Tool Calling V2 is the migration baseline, not code to rewrite. Its bounded Tool
 
 Character Relay application settings use the `CHARACTER_RELAY_*` environment namespace. The orchestration migration does not introduce a second configuration namespace.
 
-## Rollout controls
+## Rollout control
 
-LangGraph production rollout uses one master kill switch plus workflow-specific switches:
-
-```text
-CHARACTER_RELAY_LANGGRAPH_ENABLED=false
-CHARACTER_RELAY_LANGGRAPH_CONDITION_WATCH_ENABLED=false
-CHARACTER_RELAY_LANGGRAPH_CHARACTER_TURN_ENABLED=false
-CHARACTER_RELAY_LANGGRAPH_SOCIAL_TURN_ENABLED=false
-```
-
-The master switch never enables a workflow by itself. A workflow uses LangGraph only when both the master switch and its workflow switch are enabled. This keeps rollout and rollback independent as new graphs arrive:
+LangGraph production rollout uses **one cumulative environment setting**:
 
 ```text
-Phase 2 pilot
-LANGGRAPH_ENABLED=true
-LANGGRAPH_CONDITION_WATCH_ENABLED=true
-LANGGRAPH_CHARACTER_TURN_ENABLED=false
-LANGGRAPH_SOCIAL_TURN_ENABLED=false
-
-Phase 3 pilot
-LANGGRAPH_ENABLED=true
-LANGGRAPH_CONDITION_WATCH_ENABLED=true
-LANGGRAPH_CHARACTER_TURN_ENABLED=true
-LANGGRAPH_SOCIAL_TURN_ENABLED=false
-
-Phase 4 pilot
-LANGGRAPH_ENABLED=true
-LANGGRAPH_CONDITION_WATCH_ENABLED=true
-LANGGRAPH_CHARACTER_TURN_ENABLED=true
-LANGGRAPH_SOCIAL_TURN_ENABLED=true
+CHARACTER_RELAY_LANGGRAPH_MODE=off
 ```
 
-Setting `CHARACTER_RELAY_LANGGRAPH_ENABLED=false` is the global rollback path and disables all LangGraph workflow routing regardless of the workflow-specific values.
+Supported values move forward with the migration:
+
+```text
+off
+  └─ no production workflow uses LangGraph
+
+condition_watch
+  └─ Condition Watch uses LangGraph
+
+character_turn
+  ├─ Condition Watch uses LangGraph
+  └─ Character Turn uses LangGraph
+
+social_turn
+  ├─ Condition Watch uses LangGraph
+  ├─ Character Turn uses LangGraph
+  └─ Social Turn uses LangGraph
+```
+
+The mode is intentionally cumulative. A later migration phase keeps already-validated earlier workflows on LangGraph without requiring multiple boolean combinations. Setting the mode back to `off` is the global rollback path.
+
+Production rollout therefore stays simple:
+
+```text
+Phase 1 / pre-pilot   LANGGRAPH_MODE=off
+Phase 2 pilot         LANGGRAPH_MODE=condition_watch
+Phase 3 pilot         LANGGRAPH_MODE=character_turn
+Phase 4+              LANGGRAPH_MODE=social_turn
+```
 
 ## Architecture boundary
 
@@ -114,7 +117,7 @@ Goal: introduce LangGraph contracts in **shadow mode with zero production behavi
 Completed:
 
 - added the `langgraph` package without adding the high-level `langchain` package;
-- added `CHARACTER_RELAY_LANGGRAPH_ENABLED=false` as the master migration flag;
+- introduced the initial disabled LangGraph rollout gate, later consolidated in Phase 2 into `CHARACTER_RELAY_LANGGRAPH_MODE`;
 - added `CharacterRuntimeState` for privacy-safe workflow coordination;
 - added run-scoped `OrchestrationRuntimeContext` for dependencies/configuration;
 - added the privacy-safe `RuntimeTraceEvent` / `RuntimeTraceSink` contract;
@@ -127,7 +130,7 @@ Exit gate passed:
 ```text
 existing runtime behavior unchanged
 + foundation graph compiles/runs
-+ feature flag defaults disabled
++ rollout defaults disabled
 + trace contract tested
 + CI green before merge
 ```
@@ -138,7 +141,7 @@ Phase 1 merged through PR #122.
 
 Goal: use the completed Tool Calling V2 Condition Watch workflow as the first parity-tested production-shaped graph.
 
-`ConditionWatchService` remains responsible for the clock and `claim_due()` polling. Only **one already-claimed watch attempt** is handed to `ConditionWatchGraph` when both `CHARACTER_RELAY_LANGGRAPH_ENABLED=true` and `CHARACTER_RELAY_LANGGRAPH_CONDITION_WATCH_ENABLED=true`:
+`ConditionWatchService` remains responsible for the clock and `claim_due()` polling. Only **one already-claimed watch attempt** is handed to `ConditionWatchGraph` when `CHARACTER_RELAY_LANGGRAPH_MODE` includes Condition Watch (`condition_watch`, `character_turn`, or `social_turn`):
 
 ```text
 ConditionWatchService
@@ -161,10 +164,9 @@ The initial Phase 2 node boundary is intentionally coarse. `ConditionWatchEvalua
 
 Current migration controls:
 
-- master false + workflow false -> existing V2 evaluator/notifier path;
-- master false + workflow true -> existing V2 path; workflow switch cannot bypass the kill switch;
-- master true + workflow false -> existing V2 path; master switch cannot enable the workflow by itself;
-- master true + workflow true -> claimed attempts route through `ConditionWatchGraph`;
+- `LANGGRAPH_MODE=off` keeps the existing V2 evaluator/notifier path;
+- `LANGGRAPH_MODE=condition_watch` routes claimed attempts through `ConditionWatchGraph`;
+- later cumulative modes keep Condition Watch on LangGraph after its parity gate has passed;
 - the same evaluator, notifier, repository, Tool allowlist, attempt budget, and failure policy are used in both paths;
 - no LangGraph checkpointer is added in Phase 2;
 - Condition Watch condition text, notification text, provider credentials, Tool results, and evaluation summary are not stored in graph coordination state or Runtime Trace events.
@@ -176,22 +178,22 @@ Parity work:
 3. verify evaluator failures persist through `mark_failure`;
 4. verify notifier failures persist through `mark_failure`;
 5. verify trace events expose node/outcome metadata without evaluation-summary content;
-6. verify the master/workflow feature-flag matrix cannot accidentally enable graph routing;
-7. keep the legacy path available behind the feature flags for rollback.
+6. verify `off` never wires the graph and later cumulative modes preserve already-migrated Condition Watch routing;
+7. keep the legacy path available through `LANGGRAPH_MODE=off` for rollback.
 
 Phase 2 exit gate:
 
 ```text
 Condition Watch Graph tests green
 + legacy Condition Watch tests green
-+ master/workflow rollout matrix green
++ cumulative rollout-mode tests green
 + Python 3.12 / 3.13 CI green
 + Web / Discord Connector / Docker regression green
-+ graph disabled by default
++ LANGGRAPH_MODE defaults to off
 + no change to polling clock or business-record authority
 ```
 
-Do not enable the production graph path merely because this implementation exists. Merge the Phase 2 implementation with both switches disabled, verify deployment health, then run a controlled production pilot by enabling only the master and Condition Watch switches.
+Do not enable the production graph path merely because this implementation exists. Merge the Phase 2 implementation with `LANGGRAPH_MODE=off`, verify deployment health, then run a controlled production pilot with `LANGGRAPH_MODE=condition_watch`.
 
 ## Phase 3 — Character Turn Graph
 
@@ -220,7 +222,13 @@ Migration order:
 
 The existing `max_tool_rounds=2`, one-side-effect-per-turn rule, deployment Tool allowlist, network safety, destination scope, and execution-integrity rules remain unchanged.
 
-Phase 3 production pilot enables `CHARACTER_RELAY_LANGGRAPH_CHARACTER_TURN_ENABLED=true` only after its own parity gate passes; the Social Turn switch remains false.
+After the Phase 3 parity gate passes, the production pilot advances the single setting to:
+
+```text
+CHARACTER_RELAY_LANGGRAPH_MODE=character_turn
+```
+
+This keeps the already-validated Condition Watch graph enabled while adding Character Turn routing.
 
 ## Phase 4 — Social Turn Graph
 
@@ -253,7 +261,11 @@ Exit gate:
 - unique-turn/depth/response-budget protections preserved;
 - Runtime Trace Explorer can explain why every participant entered the turn.
 
-Phase 4 production pilot enables `CHARACTER_RELAY_LANGGRAPH_SOCIAL_TURN_ENABLED=true` only after this exit gate passes.
+After the Phase 4 parity gate passes, production advances the single setting to:
+
+```text
+CHARACTER_RELAY_LANGGRAPH_MODE=social_turn
+```
 
 ## Phase 5 — Durable Runtime + Runtime Trace Explorer + Cutover
 
@@ -266,6 +278,8 @@ Durable execution work:
 - add operation IDs/idempotency for externally visible side effects;
 - support safe resume/replay without duplicate Discord messages, reminders, polls, or future notifications;
 - retire only orchestration glue that has become demonstrably redundant.
+
+Phase 5 does not require another rollout environment variable. The existing `social_turn` mode represents the fully migrated runtime while durability and observability mature behind the same orchestration boundary.
 
 ### Runtime Trace Explorer
 
