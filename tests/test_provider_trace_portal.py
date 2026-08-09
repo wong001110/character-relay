@@ -81,6 +81,8 @@ def test_provider_trace_portal_is_bootstrap_super_admin_only(tmp_path: Path) -> 
         {
             "trace_id": "trace-001",
             "status": "succeeded",
+            "category": "model_call",
+            "tool_names": [],
             "trace_mode": "content",
             "endpoint": "https://api.deepseek.com/v1/chat/completions",
             "request_model": "deepseek-v4-flash",
@@ -139,6 +141,7 @@ def test_provider_trace_portal_is_bootstrap_super_admin_only(tmp_path: Path) -> 
     assert cleared.json() == {"deleted_count": 1}
     assert super_client.get("/api/admin/provider-traces").json() == []
 
+
 def test_provider_trace_cursor_pagination(tmp_path: Path) -> None:
     app = create_app(settings(tmp_path / "provider-trace-pagination.db"))
     repository = app.state.provider_trace_repository
@@ -175,3 +178,44 @@ def test_provider_trace_cursor_pagination(tmp_path: Path) -> None:
         params={"cursor": "not-a-valid-cursor"},
     )
     assert invalid.status_code == 422
+
+
+def test_provider_trace_category_filter_surfaces_tool_calling(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "provider-trace-category.db"))
+    repository = app.state.provider_trace_repository
+    seed_trace(app)
+    repository.record_event(
+        {
+            "event": "provider.request",
+            "trace_id": "trace-tool",
+            "endpoint": "https://api.deepseek.com/v1/chat/completions",
+            "model": "deepseek-v4-flash",
+            "trace_mode": "summary",
+            "message_roles": ["system", "user"],
+            "available_tool_names": ["scheduler_remind"],
+            "latest_message": {"role": "user", "content": "Remind me in ten minutes."},
+        }
+    )
+    repository.record_event(
+        {
+            "event": "provider.response",
+            "trace_id": "trace-tool",
+            "endpoint": "https://api.deepseek.com/v1/chat/completions",
+            "response_model": "deepseek-v4-flash",
+            "status_code": 200,
+            "tool_call_names": ["scheduler_remind"],
+            "trace_mode": "summary",
+        }
+    )
+
+    client = TestClient(app)
+    login(client, SUPER_EMAIL, SUPER_PASSWORD)
+    response = client.get(
+        "/api/admin/provider-traces/page",
+        params={"category": "tool_calling", "limit": 50},
+    )
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    assert [item["trace_id"] for item in items] == ["trace-tool"]
+    assert items[0]["category"] == "tool_calling"
+    assert items[0]["tool_names"] == ["scheduler_remind"]
