@@ -33,6 +33,7 @@ class CharacterInviteProposal:
 
 @dataclass(slots=True)
 class CharacterInviteTurnState:
+    turn_token: str
     deployment_id: str
     connection_id: str
     guild_id: str
@@ -69,9 +70,16 @@ def current_character_invite_turn() -> CharacterInviteTurnState | None:
     return _CURRENT_TURN.get()
 
 
-def current_character_invite_proposal() -> CharacterInviteProposal | None:
+def current_character_invite_proposal(
+    turn_token: str | None,
+) -> CharacterInviteProposal | None:
     state = _CURRENT_TURN.get()
-    if state is None or not state.proposals:
+    if (
+        turn_token is None
+        or state is None
+        or state.turn_token != turn_token
+        or not state.proposals
+    ):
         return None
     return state.proposals[0]
 
