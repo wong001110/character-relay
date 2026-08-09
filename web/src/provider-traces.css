@@ -149,10 +149,12 @@
   align-items: center;
   justify-content: center;
   width: fit-content;
+  min-height: 0;
   padding: 4px 8px;
   border-radius: 999px;
   font-size: 0.68rem;
   font-weight: 800;
+  line-height: 1.2;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -212,9 +214,15 @@
 
 .provider-trace-detail-heading {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
   margin-bottom: 18px;
+}
+
+.provider-trace-detail-heading > .provider-trace-status {
+  flex: 0 0 auto;
+  align-self: flex-start;
 }
 
 .provider-trace-detail-heading h2 {
