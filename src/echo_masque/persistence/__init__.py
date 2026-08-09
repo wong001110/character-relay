@@ -16,6 +16,8 @@ from echo_masque.persistence.calibration_repository import CalibrationConflict
 from echo_masque.persistence.calibration_repository import (
     CalibrationRepository as BaseCalibrationRepository,
 )
+from echo_masque.persistence.condition_watch_models import ConditionWatchRecord
+from echo_masque.persistence.condition_watch_repository import ConditionWatchRepository
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
@@ -114,6 +116,8 @@ __all__ = [
     "CalibrationRepository",
     "CharacterDeploymentRecord",
     "CharacterSemanticProfileRecord",
+    "ConditionWatchRecord",
+    "ConditionWatchRepository",
     "Database",
     "DeploymentConflict",
     "DeploymentMessageAliasRecord",

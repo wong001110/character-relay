@@ -32,6 +32,14 @@ function starterArguments(toolId: string): string {
     },
     "scheduler.list": { limit: 20, include_finished: false },
     "scheduler.cancel": { reminder_id: "" },
+    "watch.condition": {
+      condition_text: "Character Relay V2 is publicly released",
+      notification_text: "Character Relay V2 is publicly released now.",
+      check_interval_seconds: 300,
+      expires_in_seconds: 3600,
+      max_attempts: 12,
+      mention_user: false
+    },
     "places.search": { query: "coffee", location: "Kuala Lumpur", count: 3 },
     "file.inspect": {}
   };
@@ -246,7 +254,7 @@ export function ToolCallingTestPanel({ onClose }: { onClose: () => void }) {
                 <input
                   value={channelId}
                   onChange={(event) => setChannelId(event.currentTarget.value)}
-                  placeholder={zh ? "Server-wide Deployment 的 Discord Tool 需要填写" : "Required for Discord Tools on server-wide deployments"}
+                  placeholder={zh ? "Server-wide Deployment 的 Discord/Watch Tool 需要填写" : "Required for Discord/Watch Tools on server-wide deployments"}
                 />
               </label>
               <label>
@@ -279,8 +287,8 @@ export function ToolCallingTestPanel({ onClose }: { onClose: () => void }) {
                 />
                 <span>
                   {zh
-                    ? "我确认这会执行真实 side effect（例如建立 Reminder 或 Discord Poll）。"
-                    : "I confirm this executes the real side effect (for example creating a Reminder or Discord Poll)."}
+                    ? "我确认这会执行真实 side effect（例如建立 Reminder、Condition Watch 或 Discord Poll）。"
+                    : "I confirm this executes the real side effect (for example creating a Reminder, Condition Watch, or Discord Poll)."}
                 </span>
               </label>
             )}

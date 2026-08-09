@@ -29,14 +29,20 @@ class ConditionWatchRepository:
         *,
         owner_id: str,
         deployment_id: str,
+        channel_id: str,
         condition_text: str,
         notification_text: str,
         check_interval_seconds: int,
         expires_at: datetime,
         max_attempts: int,
+        thread_id: str = "",
+        target_user_id: str = "",
         next_check_at: datetime | None = None,
     ) -> ConditionWatchRecord:
         now = datetime.now(UTC)
+        concrete_channel_id = channel_id.strip()
+        if not concrete_channel_id or concrete_channel_id.startswith("@server:"):
+            raise ValueError("Condition Watch requires a concrete destination channel.")
         with self.database.session() as session:
             deployment = session.get(CharacterDeploymentRecord, deployment_id)
             if deployment is None or deployment.owner_id != owner_id:
@@ -46,6 +52,9 @@ class ConditionWatchRepository:
                 owner_id=owner_id,
                 deployment_id=deployment_id,
                 character_card_id=deployment.character_card_id,
+                channel_id=concrete_channel_id[:200],
+                thread_id=thread_id.strip()[:200],
+                target_user_id=target_user_id.strip()[:200],
                 condition_text=condition_text.strip(),
                 notification_text=notification_text.strip(),
                 status="active",
@@ -155,7 +164,7 @@ class ConditionWatchRepository:
                 record.attempt_count += 1
                 record.last_checked_at = now
                 record.next_check_at = now + timedelta(
-                    seconds=max(60, record.check_interval_seconds)
+                    seconds=max(300, record.check_interval_seconds)
                 )
                 record.last_error = ""
             session.commit()

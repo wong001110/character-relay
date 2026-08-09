@@ -259,6 +259,7 @@ async def execute_tool_runtime_test(
         "scheduler.remind",
         "discord.search_messages",
         "discord.create_poll",
+        "watch.condition",
     } and not channel_id:
         raise HTTPException(
             status_code=422,

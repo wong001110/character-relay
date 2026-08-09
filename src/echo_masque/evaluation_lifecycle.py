@@ -8,6 +8,7 @@ from echo_masque.calibration_lifecycle import CalibrationAwareAccountLifecycleSe
 from echo_masque.persistence import (
     AuthRepository,
     CalibrationRepository,
+    ConditionWatchRepository,
     Database,
     DeploymentRepository,
     DeploymentToolRepository,
@@ -37,6 +38,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         knowledge_repository: KnowledgeRepository | None = None,
         deployment_tool_repository: DeploymentToolRepository | None = None,
         scheduled_reminder_repository: ScheduledReminderRepository | None = None,
+        condition_watch_repository: ConditionWatchRepository | None = None,
     ) -> None:
         super().__init__(
             database,
@@ -51,6 +53,9 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         )
         self.scheduled_reminder_repository = (
             scheduled_reminder_repository or ScheduledReminderRepository(database)
+        )
+        self.condition_watch_repository = (
+            condition_watch_repository or ConditionWatchRepository(database)
         )
         self.discord_identity_repository = discord_identity_repository or DiscordIdentityRepository(
             database
@@ -70,6 +75,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         knowledge_counts = self.knowledge_repository.delete_owner(user_id)
         identity_counts = self.discord_identity_repository.delete_owner(user_id)
         reminder_count = self.scheduled_reminder_repository.delete_owner(user_id)
+        watch_count = self.condition_watch_repository.delete_owner(user_id)
         deployment_tool_count = self.deployment_tool_repository.delete_owner(user_id)
         deployment_counts = self.deployment_repository.delete_owner(user_id)
         deleted = super().delete_account(user_id, email=email)
@@ -82,6 +88,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             **knowledge_counts,
             **identity_counts,
             "scheduled_reminders": reminder_count,
+            "condition_watches": watch_count,
             "deployment_tool_profiles": deployment_tool_count,
             **deployment_counts,
         }
@@ -107,6 +114,10 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             actor_user_id,
         )
         reminder_count = self.scheduled_reminder_repository.claim_owner(
+            "local-user",
+            actor_user_id,
+        )
+        watch_count = self.condition_watch_repository.claim_owner(
             "local-user",
             actor_user_id,
         )
@@ -136,6 +147,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             **deployment_counts,
             "deployment_tool_profiles": deployment_tool_count,
             "scheduled_reminders": reminder_count,
+            "condition_watches": watch_count,
             **identity_counts,
             **interaction_counts,
             **expression_counts,
