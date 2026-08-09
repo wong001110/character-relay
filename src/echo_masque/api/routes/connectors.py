@@ -41,8 +41,8 @@ from echo_masque.api.expression_schemas import (
 )
 from echo_masque.config import Settings
 from echo_masque.connector_runtime import ConnectorRuntimeError, DiscordConnectorRuntime
-from echo_masque.orchestration import CharacterTurnGraphRunner
 from echo_masque.credentials import CredentialVault
+from echo_masque.orchestration import CharacterTurnGraphRunner
 from echo_masque.persistence import (
     DeploymentRepository,
     DiscordIdentityRepository,
