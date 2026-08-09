@@ -47,13 +47,16 @@ class ServerAwareToolRegistry(ToolRegistry):
         if condition_watch_repository is None and self.reminders is not None:
             condition_watch_repository = ConditionWatchRepository(self.reminders.database)
         self.condition_watches = condition_watch_repository
-        watch_available = condition_watch_enabled and condition_watch_repository is not None
+        watch_available = (
+            condition_watch_enabled and condition_watch_repository is not None
+        )
         watch_tool = _tool(
             tool_id="watch.condition",
             display_name="Watch Condition",
             description=(
                 "Persist a bounded future condition watch for this Character Deployment. "
-                "Runtime checks it later and queues a real notification only after the condition triggers."
+                "Runtime checks it later and queues a real notification only after the "
+                "condition triggers."
             ),
             category="watch",
             operation="coordination",
@@ -62,7 +65,8 @@ class ServerAwareToolRegistry(ToolRegistry):
             provider_name="watch_condition",
             provider_description=(
                 "Create a bounded future condition watch after an explicit human request. "
-                "The condition is not considered triggered until Runtime later evaluates and persists it."
+                "The condition is not considered triggered until Runtime later evaluates "
+                "and persists it."
             ),
             parameters={
                 "type": "object",
@@ -94,7 +98,9 @@ class ServerAwareToolRegistry(ToolRegistry):
             },
             available=watch_available,
             availability_reason=(
-                "" if watch_available else "Condition Watch background Runtime is not enabled."
+                ""
+                if watch_available
+                else "Condition Watch background Runtime is not enabled."
             ),
         )
         self._by_id[watch_tool.catalog.id] = watch_tool
