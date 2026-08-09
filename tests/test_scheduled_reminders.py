@@ -176,3 +176,11 @@ def test_scheduler_delivery_sends_due_bot_identity_reminder() -> None:
     by_id = {item.id: item for item in finished}
     assert by_id[record.id].status == "completed"
     assert by_id[record.id].delivered_at is not None
+    route = identities.resolve_message_route(
+        connection_id="connection-1",
+        message_id="message-1",
+    )
+    assert route is not None
+    assert route.deployment_id == "deployment-1"
+    assert route.character_card_id == "character-1"
+    assert route.channel_id == "channel-1"

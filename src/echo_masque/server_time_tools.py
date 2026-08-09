@@ -208,6 +208,17 @@ class ServerAwareToolRegistry(ToolRegistry):
                         f"Server default ({timezone})."
                     )
                 if isinstance(properties, dict) and name == "scheduler_remind":
+                    reminder_schema = properties.get("reminder_text")
+                    if isinstance(reminder_schema, dict):
+                        reminder_schema["description"] = (
+                            "The exact future message this Character will send when the "
+                            "reminder fires. "
+                            "Write it now in the current Character persona and voice. "
+                            "Do not write an "
+                            "internal title or instruction, and do not add an @mention; "
+                            "Runtime handles "
+                            "the target mention separately."
+                        )
                     scheduled_schema = properties.get("scheduled_at")
                     if isinstance(scheduled_schema, dict):
                         scheduled_schema["description"] = (
@@ -215,9 +226,31 @@ class ServerAwareToolRegistry(ToolRegistry):
                             f"local time is interpreted in the Server timezone ({timezone})."
                         )
                     function["description"] = (
-                        "Schedule a future reminder. Use delay_seconds for relative time or "
-                        "scheduled_at for a local/offset ISO-8601 time. Unqualified times use "
-                        f"the Server timezone ({timezone})."
+                        "Schedule a future reminder. Write reminder_text as the exact future "
+                        "Character-facing message in the current persona and voice; Runtime will "
+                        "deliver it deterministically without another model call. "
+                        "Use delay_seconds "
+                        "for relative time or scheduled_at for a local/offset ISO-8601 time. "
+                        f"Unqualified times use the Server timezone ({timezone})."
+                    )
+                if isinstance(properties, dict) and name == "watch_condition":
+                    notification_schema = properties.get("notification_text")
+                    if isinstance(notification_schema, dict):
+                        notification_schema["description"] = (
+                            "The exact future message this Character will send only after the "
+                            "condition triggers. Write it now in the current Character "
+                            "persona and "
+                            "voice. Do not write an internal title or instruction, "
+                            "and do not add an "
+                            "@mention; Runtime handles the target mention separately."
+                        )
+                    function["description"] = (
+                        "Create a bounded future condition watch after an explicit human "
+                        "request. "
+                        "Write notification_text as the exact future Character-facing message in "
+                        "the current persona and voice. Runtime later evaluates the condition and "
+                        "delivers that stored text deterministically only after a persisted "
+                        "trigger."
                     )
             adjusted.append(ChatToolDefinition.model_validate(payload))
         return tuple(adjusted)
