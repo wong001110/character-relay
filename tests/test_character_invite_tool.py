@@ -148,7 +148,7 @@ def test_character_invite_records_safe_prompt_local_proposal(tmp_path: Path) -> 
     assert content["participant_name"] == "Selena"
     assert "candidate" not in result.content
 
-    proposal = current_character_invite_proposal()
+    proposal = current_character_invite_proposal(smart_context.invite_turn_token)
     assert proposal is not None
     assert proposal.candidate_deployment_id == "candidate"
     assert proposal.candidate_character_card_id == "character-candidate"
@@ -258,3 +258,34 @@ def test_character_invite_does_not_expand_conflicting_character_mentions(
         if isinstance(part, SmartMentionPart)
     ]
     assert mentions == ["deployment:other"]
+
+
+def test_character_invite_proposal_does_not_leak_into_a_new_turn(tmp_path: Path) -> None:
+    database = seed(tmp_path / "invite-isolation.db")
+    first_context = SmartOutputContext.from_payload(inbound(), character_name="Inviter")
+    result = asyncio.run(
+        registry(database).execute(
+            invite_call(),
+            enabled_tool_ids=("character.invite",),
+            context=execution_context(),
+        )
+    )
+    assert result.trace.status == "completed"
+    assert current_character_invite_proposal(first_context.invite_turn_token) is not None
+
+    next_payload = inbound()
+    next_payload.message_id = "message-2"
+    next_context = SmartOutputContext.from_payload(next_payload, character_name="Inviter")
+    assert next_context.invite_turn_token != first_context.invite_turn_token
+    assert current_character_invite_proposal(next_context.invite_turn_token) is None
+
+    output, reason = next_context.resolve(
+        SmartOutputProposal(
+            action="message",
+            content=[SmartTextPart(text="A new turn starts cleanly.")],
+        ),
+        [],
+    )
+    assert reason == "ok"
+    assert output is not None
+    assert all(not isinstance(part, SmartMentionPart) for part in output.content)
