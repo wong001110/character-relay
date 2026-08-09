@@ -24,7 +24,7 @@ Keep one replica. The current implementation uses SQLite plus process-memory Sub
 
 1. In Railway, create a new project.
 2. Choose **Deploy from GitHub repo**.
-3. Select `wong001110/echo-masque` and the `main` branch.
+3. Select `wong001110/character-relay` and the `main` branch.
 4. Railway should detect the root `Dockerfile` and `railway.toml` automatically.
 5. Do not set a custom start command. The Dockerfile reads Railway's injected `PORT` variable.
 
@@ -52,7 +52,7 @@ Keep exactly one replica. Multiple replicas cannot safely share the current SQLi
 
 ## 3. Configure variables
 
-Character Relay application settings use the `CHARACTER_RELAY_*` namespace. Historical `ECHO_MASQUE_*` application variables are not read by the runtime.
+Character Relay application settings use the `CHARACTER_RELAY_*` namespace. Previous product-prefix application variables are not read by the runtime.
 
 The image includes these non-secret defaults:
 
