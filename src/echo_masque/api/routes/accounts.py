@@ -7,21 +7,32 @@ from typing import Literal, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from echo_masque.account_lifecycle import (
     AccountLifecycleService,
     LifecycleConflict,
 )
-from echo_masque.api.dependencies import AdminUserDependency, CurrentUserDependency
-from echo_masque.persistence import AuthRepository, WorkspaceRepository
+from echo_masque.api.dependencies import (
+    AdminUserDependency,
+    CurrentUserDependency,
+    SuperAdminUserDependency,
+)
+from echo_masque.auth import SYSTEM_RUNTIME_USER_ID
+from echo_masque.persistence import AuthRepository, Database, WorkspaceRepository
 from echo_masque.persistence.models import (
     AuditEventRecord,
     InvitationRecord,
     UserRecord,
 )
+from echo_masque.synthetic_test_accounts import (
+    SyntheticTestAccountError,
+    SyntheticTestAccountService,
+)
 from echo_masque.workspace import WorkspaceArchive
 
 router = APIRouter(tags=["accounts"])
+_ACCOUNT_SECURITY_LIMIT = 10
 
 
 class InvitationCreate(BaseModel):
@@ -143,6 +154,11 @@ class AccountDeleteRequest(BaseModel):
     confirmation: str
 
 
+class SyntheticTestPurgeResult(BaseModel):
+    deleted_count: int
+    user_ids: list[str]
+
+
 def lifecycle_service(request: Request) -> AccountLifecycleService:
     return cast(AccountLifecycleService, request.app.state.account_lifecycle_service)
 
@@ -153,6 +169,14 @@ def auth_repository(request: Request) -> AuthRepository:
 
 def workspace_repository(request: Request) -> WorkspaceRepository:
     return cast(WorkspaceRepository, request.app.state.workspace_repository)
+
+
+def database(request: Request) -> Database:
+    return cast(Database, request.app.state.database)
+
+
+def synthetic_test_accounts(request: Request) -> SyntheticTestAccountService:
+    return SyntheticTestAccountService(database(request), lifecycle_service(request))
 
 
 @router.post(
@@ -182,6 +206,7 @@ def list_invitations(
     request: Request,
     admin: AdminUserDependency,
 ) -> list[InvitationView]:
+    del admin
     return [
         InvitationView.from_record(item)
         for item in lifecycle_service(request).list_invitations()
@@ -209,10 +234,69 @@ def list_users(
     request: Request,
     admin: AdminUserDependency,
 ) -> list[AccountAdminView]:
-    return [
-        AccountAdminView.from_record(item)
-        for item in lifecycle_service(request).list_users()
-    ]
+    """Return only the ten newest active accounts for Account & Security."""
+
+    del admin
+    with database(request).session() as session:
+        records = list(
+            session.scalars(
+                select(UserRecord)
+                .where(
+                    UserRecord.id != SYSTEM_RUNTIME_USER_ID,
+                    UserRecord.is_active.is_(True),
+                )
+                .order_by(UserRecord.created_at.desc(), UserRecord.id.desc())
+                .limit(_ACCOUNT_SECURITY_LIMIT)
+            )
+        )
+    return [AccountAdminView.from_record(item) for item in records]
+
+
+@router.delete(
+    "/api/admin/synthetic-test-users",
+    response_model=SyntheticTestPurgeResult,
+)
+def purge_legacy_synthetic_test_users(
+    request: Request,
+    user: SuperAdminUserDependency,
+) -> SyntheticTestPurgeResult:
+    deleted_ids = synthetic_test_accounts(request).purge_legacy()
+    auth_repository(request).audit(
+        actor_user_id=user.id,
+        action="synthetic_test_accounts.purged",
+        resource_type="user",
+        metadata={"deleted_count": len(deleted_ids)},
+    )
+    return SyntheticTestPurgeResult(
+        deleted_count=len(deleted_ids),
+        user_ids=deleted_ids,
+    )
+
+
+@router.delete(
+    "/api/admin/synthetic-test-users/{user_id}",
+    response_model=SyntheticTestPurgeResult,
+)
+def hard_delete_synthetic_test_user(
+    user_id: str,
+    request: Request,
+    user: SuperAdminUserDependency,
+) -> SyntheticTestPurgeResult:
+    try:
+        deleted = synthetic_test_accounts(request).hard_delete(user_id)
+    except SyntheticTestAccountError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except LifecycleConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Synthetic test account not found.")
+    auth_repository(request).audit(
+        actor_user_id=user.id,
+        action="synthetic_test_account.hard_deleted",
+        resource_type="user",
+        resource_id=user_id,
+    )
+    return SyntheticTestPurgeResult(deleted_count=1, user_ids=[user_id])
 
 
 @router.put("/api/admin/users/{user_id}/role", response_model=AccountAdminView)
@@ -241,6 +325,7 @@ def list_audit_events(
     admin: AdminUserDependency,
     limit: int = 200,
 ) -> list[AuditEventView]:
+    del admin
     bounded = max(1, min(limit, 500))
     service = lifecycle_service(request)
     return [
