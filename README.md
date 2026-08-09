@@ -174,7 +174,7 @@ Deleting a platform connection also removes its deployment records. Creating the
 
 ## Authentication and credential security
 
-Production uses Argon2 password hashes, opaque server-side Sessions, HttpOnly cookies, invitation-controlled registration, user/Admin roles, owner-scoped resources, encrypted Character and shared Runtime credentials, MultiFernet rotation, redacted Audit Events, quotas, and secret-free account export.
+Production uses Argon2 password hashes, opaque server-side Sessions, HttpOnly cookies, invitation-controlled registration, user/Admin roles, owner-scoped resources, encrypted Character and shared Runtime credentials, MultiFernet rotation, redacted Audit Events, and secret-free account export.
 
 Raw keys, encrypted blobs, Session tokens, password hashes, invitation codes, Bot tokens, shared connector secrets, and local connector sessions must not enter exports, snapshots, reports, or logs.
 
