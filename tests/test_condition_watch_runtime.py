@@ -8,6 +8,8 @@ from echo_masque.condition_watch_runtime import (
     ConditionWatchEvaluatorRuntime,
     ConditionWatchReminderNotifier,
 )
+from echo_masque.condition_watch_service import ConditionWatchEvaluation
+from echo_masque.credentials import CredentialStore
 from echo_masque.persistence import (
     ConditionWatchRepository,
     Database,
@@ -23,7 +25,7 @@ from echo_masque.targets import PromptModelConfig
 from echo_masque.tool_runtime import default_tool_registry
 
 
-class FakeCredentialStore:
+class FakeCredentialStore(CredentialStore):
     def get(self, owner_id: str, character_card_id: str) -> SecretStr | None:
         if owner_id == "owner" and character_card_id == "character":
             return SecretStr("test-key")
@@ -46,7 +48,7 @@ class FakeProvider:
         )
 
 
-def seed(path: Path):
+def seed(path: Path) -> Database:
     database = Database(f"sqlite:///{path}")
     database.initialize()
     config = PromptModelConfig(
@@ -83,10 +85,10 @@ def seed(path: Path):
                 platform="discord",
                 workspace_id="guild",
                 workspace_name="Guild",
-                channel_id="channel",
-                channel_name="general",
-                thread_id="thread",
-                thread_name="topic",
+                channel_id="@server:guild",
+                channel_name="All allowed channels",
+                thread_id="",
+                thread_name="",
                 status="active",
             )
         )
@@ -102,6 +104,8 @@ def test_evaluator_uses_character_model_configuration_and_parses_control_output(
     watch = watches.create(
         owner_id="owner",
         deployment_id="deployment",
+        channel_id="actual-channel",
+        thread_id="actual-thread",
         target_user_id="member-1",
         condition_text="The release is available",
         notification_text="The release is available now.",
@@ -113,7 +117,7 @@ def test_evaluator_uses_character_model_configuration_and_parses_control_output(
         Repository(database),
         DeploymentRepository(database),
         DeploymentToolRepository(database),
-        FakeCredentialStore(),  # type: ignore[arg-type]
+        FakeCredentialStore(),
         default_tool_registry(),
         provider_factory=lambda _base_url, _api_key: FakeProvider(),
     )
@@ -129,7 +133,7 @@ def test_evaluator_filters_background_capabilities_to_read_only_tools(tmp_path: 
         Repository(database),
         DeploymentRepository(database),
         DeploymentToolRepository(database),
-        FakeCredentialStore(),  # type: ignore[arg-type]
+        FakeCredentialStore(),
         default_tool_registry(),
         provider_factory=lambda _base_url, _api_key: FakeProvider(),
     )
@@ -139,13 +143,17 @@ def test_evaluator_filters_background_capabilities_to_read_only_tools(tmp_path: 
     ) == ("utility.calculator",)
 
 
-def test_trigger_notifier_queues_existing_persistent_reminder_delivery(tmp_path: Path) -> None:
+def test_trigger_notifier_queues_delivery_to_original_concrete_destination(
+    tmp_path: Path,
+) -> None:
     database = seed(tmp_path / "watch-notifier.db")
     watches = ConditionWatchRepository(database)
     reminders = ScheduledReminderRepository(database)
     watch = watches.create(
         owner_id="owner",
         deployment_id="deployment",
+        channel_id="actual-channel",
+        thread_id="actual-thread",
         target_user_id="member-1",
         condition_text="The release is available",
         notification_text="The release is available now.",
@@ -158,12 +166,19 @@ def test_trigger_notifier_queues_existing_persistent_reminder_delivery(tmp_path:
         DeploymentRepository(database),
     )
 
-    asyncio.run(notifier(watch, type("Evaluation", (), {"triggered": True, "summary": ""})()))  # type: ignore[arg-type]
+    asyncio.run(
+        notifier(
+            watch,
+            ConditionWatchEvaluation(triggered=True, summary="matched"),
+        )
+    )
     queued = reminders.list_for_deployment(
         owner_id="owner",
         deployment_id="deployment",
         include_finished=True,
     )
     assert len(queued) == 1
+    assert queued[0].channel_id == "actual-channel"
+    assert queued[0].thread_id == "actual-thread"
     assert queued[0].target_user_id == "member-1"
     assert queued[0].reminder_text == "The release is available now."
