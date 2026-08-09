@@ -1,5 +1,12 @@
 """LangGraph orchestration contracts for Character Relay."""
 
+from echo_masque.orchestration.character_turn_graph import (
+    CharacterTurnGraphContext,
+    CharacterTurnGraphResult,
+    CharacterTurnGraphRunner,
+    CharacterTurnGraphState,
+    build_character_turn_graph,
+)
 from echo_masque.orchestration.condition_watch_graph import (
     ConditionWatchGraphContext,
     ConditionWatchGraphRunner,
@@ -12,6 +19,10 @@ from echo_masque.orchestration.state import CharacterRuntimeState
 from echo_masque.orchestration.trace import RuntimeTraceEvent, RuntimeTraceSink
 
 __all__ = [
+    "CharacterTurnGraphContext",
+    "CharacterTurnGraphResult",
+    "CharacterTurnGraphRunner",
+    "CharacterTurnGraphState",
     "CharacterRuntimeState",
     "ConditionWatchGraphContext",
     "ConditionWatchGraphRunner",
@@ -19,6 +30,7 @@ __all__ = [
     "OrchestrationRuntimeContext",
     "RuntimeTraceEvent",
     "RuntimeTraceSink",
+    "build_character_turn_graph",
     "build_condition_watch_graph",
     "build_foundation_graph",
 ]

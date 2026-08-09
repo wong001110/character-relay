@@ -6,6 +6,7 @@ import json
 import os
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from pydantic import SecretStr, ValidationError
 
@@ -21,12 +22,14 @@ from echo_masque.character_prompts import (
 )
 from echo_masque.context_layer import CharacterTurnContext, ContextOrchestrator
 from echo_masque.credentials import CredentialStore
+from echo_masque.domain import TargetResponse
 from echo_masque.persistence import (
     DeploymentRepository,
     DeploymentToolRepository,
     Repository,
 )
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
+from echo_masque.persistence.models import CharacterCardRecord, TargetRecord
 from echo_masque.providers import ChatProvider, OpenAICompatibleProvider
 from echo_masque.smart_output import (
     DiscordSmartOutputView,
@@ -54,6 +57,39 @@ class ConnectorRuntimeError(RuntimeError):
     """Raised when a deployment cannot produce a connector reply."""
 
 
+@dataclass(slots=True)
+class ResolvedCharacterTurn:
+    """Transient resolved runtime dependencies for one Character turn."""
+
+    payload: DiscordInboundMessage
+    deployment: CharacterDeploymentRecord
+    card: CharacterCardRecord
+    target_record: TargetRecord
+    target: TargetAdapter
+
+
+@dataclass(slots=True)
+class PreparedCharacterTurn:
+    """Transient context/model inputs. Raw content never enters LangGraph state."""
+
+    resolved: ResolvedCharacterTurn
+    turn_context: CharacterTurnContext | None
+    smart_context: SmartOutputContext
+    prompt: str
+    enabled_tools: tuple[str, ...]
+    tool_context: ToolExecutionContext
+
+
+@dataclass(slots=True)
+class ResolvedCharacterOutput:
+    """Transient model/output result awaiting deterministic Runtime authority."""
+
+    final_response: TargetResponse
+    smart_output: DiscordSmartOutputView
+    smart_reason: str
+    tool_traces: list[ToolExecutionTrace]
+
+
 class DiscordConnectorRuntime:
     """Resolve one Discord destination and generate one character response."""
 
@@ -75,7 +111,12 @@ class DiscordConnectorRuntime:
         self.deployment_tool_repository = deployment_tool_repository
         self.tool_registry = tool_registry or default_tool_registry()
 
-    async def respond(self, payload: DiscordInboundMessage) -> DiscordConnectorReplyView:
+    def resolve_character_turn(
+        self,
+        payload: DiscordInboundMessage,
+    ) -> tuple[ResolvedCharacterTurn | None, DiscordConnectorReplyView | None]:
+        """Resolve deployment/card/target without performing a provider call."""
+
         deployment = self.deployment_repository.deployment_matches_discord_destination(
             payload.deployment_id,
             connection_id=payload.connection_id,
@@ -85,14 +126,14 @@ class DiscordConnectorRuntime:
             category_id=payload.category_id,
         )
         if deployment is None:
-            return DiscordConnectorReplyView(
+            return None, DiscordConnectorReplyView(
                 action="silent",
                 reason="no_active_deployment",
                 deployment_id=payload.deployment_id,
             )
 
         if not self._should_reply(deployment, payload):
-            return DiscordConnectorReplyView(
+            return None, DiscordConnectorReplyView(
                 action="silent",
                 reason="trigger_not_matched",
                 deployment_id=deployment.id,
@@ -124,6 +165,26 @@ class DiscordConnectorRuntime:
             character_card_id=card.id,
             character_profile=CharacterPromptProfile.from_record(card),
         )
+        return (
+            ResolvedCharacterTurn(
+                payload=payload,
+                deployment=deployment,
+                card=card,
+                target_record=target_record,
+                target=target,
+            ),
+            None,
+        )
+
+    def prepare_character_turn(
+        self,
+        resolved: ResolvedCharacterTurn,
+    ) -> PreparedCharacterTurn:
+        """Build scoped context/RAG and the bounded Tool execution context."""
+
+        payload = resolved.payload
+        deployment = resolved.deployment
+        card = resolved.card
         turn_context = (
             self.context_orchestrator.build(
                 payload=payload,
@@ -152,30 +213,47 @@ class DiscordConnectorRuntime:
             if self.deployment_tool_repository is not None
             else ()
         )
+        tool_context = ToolExecutionContext(
+            owner_id=deployment.owner_id,
+            deployment_id=deployment.id,
+            character_card_id=card.id,
+            platform=deployment.platform,
+            connection_id=deployment.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+            message_id=payload.message_id,
+            trigger_text=payload.text,
+            initiator_is_bot=payload.author_is_bot,
+            initiator_user_id=payload.author_id,
+        )
+        return PreparedCharacterTurn(
+            resolved=resolved,
+            turn_context=turn_context,
+            smart_context=smart_context,
+            prompt=prompt,
+            enabled_tools=enabled_tools,
+            tool_context=tool_context,
+        )
+
+    async def invoke_character_model(
+        self,
+        prepared: PreparedCharacterTurn,
+    ) -> TargetResponse:
+        """Invoke the existing model adapter and bounded ToolRuntime loop unchanged."""
+
+        target = prepared.resolved.target
+        deployment = prepared.resolved.deployment
         try:
-            if isinstance(target, PromptModelTarget) and enabled_tools:
-                response = await target.send_with_tools(
-                    prompt,
+            if isinstance(target, PromptModelTarget) and prepared.enabled_tools:
+                return await target.send_with_tools(
+                    prepared.prompt,
                     tool_registry=self.tool_registry,
-                    enabled_tool_ids=enabled_tools,
-                    tool_context=ToolExecutionContext(
-                        owner_id=deployment.owner_id,
-                        deployment_id=deployment.id,
-                        character_card_id=card.id,
-                        platform=deployment.platform,
-                        connection_id=deployment.connection_id,
-                        guild_id=payload.guild_id,
-                        channel_id=payload.channel_id,
-                        thread_id=payload.thread_id,
-                        message_id=payload.message_id,
-                        trigger_text=payload.text,
-                        initiator_is_bot=payload.author_is_bot,
-                        initiator_user_id=payload.author_id,
-                    ),
+                    enabled_tool_ids=prepared.enabled_tools,
+                    tool_context=prepared.tool_context,
                     max_tool_rounds=2,
                 )
-            else:
-                response = await target.send(prompt)
+            return await target.send(prepared.prompt)
         except Exception as exc:
             self.deployment_repository.record_deployment_error(
                 deployment.id,
@@ -183,6 +261,19 @@ class DiscordConnectorRuntime:
             )
             raise
 
+    async def resolve_character_output(
+        self,
+        prepared: PreparedCharacterTurn,
+        response: TargetResponse,
+    ) -> ResolvedCharacterOutput:
+        """Parse/repair Smart Output without re-running side-effect Tools."""
+
+        resolved = prepared.resolved
+        payload = resolved.payload
+        deployment = resolved.deployment
+        target = resolved.target
+        target_record = resolved.target_record
+        smart_context = prepared.smart_context
         tool_traces = self._tool_traces(response.trace)
         final_response = response
         smart_output, smart_reason = smart_context.parse_and_resolve(
@@ -192,7 +283,7 @@ class DiscordConnectorRuntime:
         if smart_output is None and target_record.target_kind == "prompt_model":
             retry_prompt = "\n".join(
                 (
-                    prompt,
+                    prepared.prompt,
                     "",
                     f"Your previous Smart Output was rejected ({smart_reason}).",
                     "Regenerate once. Return exactly one valid [[CR_OUTPUT {...}]] line "
@@ -200,9 +291,9 @@ class DiscordConnectorRuntime:
                 )
             )
             try:
-                # Formatting repair intentionally does not re-enable tools. Tool results from
-                # the original turn already remain in PromptModelTarget history, so a repair
-                # cannot duplicate a side effect or repeat a read call.
+                # Formatting repair intentionally does not re-enable Tools. Tool results
+                # from the original turn remain in target history, preventing duplicated
+                # reads or side effects during repair.
                 retry_response = await target.send(retry_prompt)
                 final_response = retry_response
                 smart_output, smart_reason = smart_context.parse_and_resolve(
@@ -224,12 +315,35 @@ class DiscordConnectorRuntime:
             smart_output = DiscordSmartOutputView(action="ignore")
             smart_reason = f"invalid_smart_output:{smart_reason}"
 
+        return ResolvedCharacterOutput(
+            final_response=final_response,
+            smart_output=smart_output,
+            smart_reason=smart_reason,
+            tool_traces=tool_traces,
+        )
+
+    def authorize_character_output(
+        self,
+        prepared: PreparedCharacterTurn,
+        output: ResolvedCharacterOutput,
+    ) -> DiscordConnectorReplyView:
+        """Apply deterministic Runtime authority and produce the platform command view."""
+
+        resolved = prepared.resolved
+        deployment = resolved.deployment
+        card = resolved.card
+        smart_output = output.smart_output
+        final_response = output.final_response
         expression = expression_decision_for(smart_output)
-        text = smart_context.legacy_visible_text(smart_output)
+        text = prepared.smart_context.legacy_visible_text(smart_output)
         if smart_output.action == "ignore":
             return DiscordConnectorReplyView(
                 action="silent",
-                reason=(smart_reason if smart_reason != "ok" else "character_chose_ignore"),
+                reason=(
+                    output.smart_reason
+                    if output.smart_reason != "ok"
+                    else "character_chose_ignore"
+                ),
                 deployment_id=deployment.id,
                 character_display_name=card.display_name,
                 latency_ms=final_response.latency_ms,
@@ -237,8 +351,12 @@ class DiscordConnectorRuntime:
                 output_tokens=final_response.output_tokens,
                 expression=expression,
                 smart_output=smart_output,
-                context_trace=turn_context.trace if turn_context is not None else None,
-                tool_calls=tool_traces,
+                context_trace=(
+                    prepared.turn_context.trace
+                    if prepared.turn_context is not None
+                    else None
+                ),
+                tool_calls=output.tool_traces,
             )
 
         self.deployment_repository.record_deployment_activity(deployment.id)
@@ -254,9 +372,24 @@ class DiscordConnectorRuntime:
             output_tokens=final_response.output_tokens,
             expression=expression,
             smart_output=smart_output,
-            context_trace=turn_context.trace if turn_context is not None else None,
-            tool_calls=tool_traces,
+            context_trace=(
+                prepared.turn_context.trace if prepared.turn_context is not None else None
+            ),
+            tool_calls=output.tool_traces,
         )
+
+    async def respond(self, payload: DiscordInboundMessage) -> DiscordConnectorReplyView:
+        """Legacy sequential path, now composed from reusable Phase 3 stage methods."""
+
+        resolved, early_reply = self.resolve_character_turn(payload)
+        if early_reply is not None:
+            return early_reply
+        if resolved is None:
+            raise ConnectorRuntimeError("Character turn resolution produced no result.")
+        prepared = self.prepare_character_turn(resolved)
+        response = await self.invoke_character_model(prepared)
+        output = await self.resolve_character_output(prepared, response)
+        return self.authorize_character_output(prepared, output)
 
     @staticmethod
     def _tool_traces(trace: dict[str, object]) -> list[ToolExecutionTrace]:
