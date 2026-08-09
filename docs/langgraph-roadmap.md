@@ -16,6 +16,10 @@ Existing services own implementation.
 
 Tool Calling V2 is the migration baseline, not code to rewrite. Its bounded Tool loop, deployment capability checks, Runtime validation, condition-watch persistence, Character invite safety, Smart Output rules, and Connector continuation limits remain authoritative.
 
+## Environment namespace
+
+Character Relay application settings use the `CHARACTER_RELAY_*` environment namespace. Production variables must be migrated to that namespace before a build containing this roadmap is deployed. The orchestration migration does not introduce a second configuration namespace.
+
 ## Architecture boundary
 
 LangGraph may coordinate existing services as nodes/subgraphs:
