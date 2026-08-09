@@ -76,6 +76,7 @@ from echo_masque.persistence import (
     WorkspaceRepository,
     inspect_storage,
 )
+from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.prompt_inspector import CharacterPromptInspector
 from echo_masque.providers.trace import configure_provider_trace_sink
 from echo_masque.public_demo import PublicDemoService
@@ -96,6 +97,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     storage_status = inspect_storage(resolved)
     database = Database(resolved.database_url)
     database.initialize()
+    migrated_timezones = ServerRuntimeRepository(database).migrate_legacy_utc_defaults()
+    if migrated_timezones:
+        logger.info(
+            "Migrated %s legacy Discord Server timezone setting(s) from UTC to Asia/Kuala_Lumpur.",
+            migrated_timezones,
+        )
     storage_status = storage_status.with_instance_id(database.ensure_storage_instance_id())
     logger.info(
         "Storage ready: kind=%s path=%s mount=%s instance=%s",
