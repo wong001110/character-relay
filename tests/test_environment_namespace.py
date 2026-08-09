@@ -1,5 +1,5 @@
-import re
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,9 +30,13 @@ def _legacy_prefix_hits(paths: list[Path]) -> list[str]:
 def test_runtime_source_uses_character_relay_environment_namespace() -> None:
     source_files = sorted(RUNTIME_SOURCE.rglob("*.py"))
     hits = _legacy_prefix_hits(source_files)
-    assert hits == [], "Legacy environment variable remains in runtime source:\n" + "\n".join(hits)
+    assert hits == [], (
+        "Legacy environment variable remains in runtime source:\n" + "\n".join(hits)
+    )
 
 
 def test_active_configuration_docs_use_character_relay_environment_namespace() -> None:
     hits = _legacy_prefix_hits(list(ACTIVE_CONFIG_DOCS))
-    assert hits == [], "Legacy environment variable remains in active config/docs:\n" + "\n".join(hits)
+    assert hits == [], (
+        "Legacy environment variable remains in active config/docs:\n" + "\n".join(hits)
+    )
