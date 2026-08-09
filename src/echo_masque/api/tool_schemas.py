@@ -16,3 +16,12 @@ class DeploymentToolProfileView(BaseModel):
 
 class ToolCatalogView(BaseModel):
     items: list[ToolCatalogItem]
+
+
+class ServerRuntimeTimezoneUpdate(BaseModel):
+    timezone: str = Field(min_length=1, max_length=120)
+
+
+class ServerRuntimeTimezoneView(BaseModel):
+    profile_id: str
+    timezone: str
