@@ -19,11 +19,11 @@ from echo_masque.orchestration.state import CharacterRuntimeState
 from echo_masque.orchestration.trace import RuntimeTraceEvent, RuntimeTraceSink
 
 __all__ = [
+    "CharacterRuntimeState",
     "CharacterTurnGraphContext",
     "CharacterTurnGraphResult",
     "CharacterTurnGraphRunner",
     "CharacterTurnGraphState",
-    "CharacterRuntimeState",
     "ConditionWatchGraphContext",
     "ConditionWatchGraphRunner",
     "ConditionWatchGraphState",
