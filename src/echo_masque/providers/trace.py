@@ -69,14 +69,17 @@ def provider_trace_scope(
 
 
 def _trace_mode() -> ProviderTraceMode:
-    raw = os.getenv("ECHO_MASQUE_PROVIDER_TRACE_MODE", _DEFAULT_TRACE_MODE).strip().lower()
+    raw = os.getenv("CHARACTER_RELAY_PROVIDER_TRACE_MODE", _DEFAULT_TRACE_MODE).strip().lower()
     if raw in {"off", "metadata", "summary", "content"}:
         return raw  # type: ignore[return-value]
     return _DEFAULT_TRACE_MODE
 
 
 def _max_chars() -> int:
-    raw = os.getenv("ECHO_MASQUE_PROVIDER_TRACE_MAX_CHARS", str(_DEFAULT_MAX_CHARS)).strip()
+    raw = os.getenv(
+        "CHARACTER_RELAY_PROVIDER_TRACE_MAX_CHARS",
+        str(_DEFAULT_MAX_CHARS),
+    ).strip()
     try:
         parsed = int(raw)
     except ValueError:

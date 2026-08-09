@@ -171,7 +171,7 @@ def test_tool_catalog_and_manual_deployment_assignment(tmp_path: Path) -> None:
         json={"enabled_tools": ["discord.search_messages"]},
     )
     assert unavailable.status_code == 422, unavailable.text
-    assert "DISCORD_TOOL_BOT_TOKEN" in unavailable.text
+    assert "DISCORD_BOT_TOKEN" in unavailable.text
 
     unknown = client.put(
         f"/api/deployments/{deployment_id}/tools",

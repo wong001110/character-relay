@@ -24,7 +24,7 @@ Keep one replica. The current implementation uses SQLite plus process-memory Sub
 
 1. In Railway, create a new project.
 2. Choose **Deploy from GitHub repo**.
-3. Select `wong001110/echo-masque` and the `main` branch.
+3. Select `wong001110/character-relay` and the `main` branch.
 4. Railway should detect the root `Dockerfile` and `railway.toml` automatically.
 5. Do not set a custom start command. The Dockerfile reads Railway's injected `PORT` variable.
 
@@ -52,19 +52,21 @@ Keep exactly one replica. Multiple replicas cannot safely share the current SQLi
 
 ## 3. Configure variables
 
+Character Relay application settings use the `CHARACTER_RELAY_*` namespace. Previous product-prefix application variables are not read by the runtime.
+
 The image includes these non-secret defaults:
 
 ```text
-ECHO_MASQUE_ENVIRONMENT=production
-ECHO_MASQUE_DEBUG=false
-ECHO_MASQUE_DATABASE_URL=sqlite:////data/echo_masque.db
+CHARACTER_RELAY_ENVIRONMENT=production
+CHARACTER_RELAY_DEBUG=false
+CHARACTER_RELAY_DATABASE_URL=sqlite:////data/echo_masque.db
 ```
 
 Recommended operational variables:
 
 ```text
-ECHO_MASQUE_LOG_LEVEL=INFO
-ECHO_MASQUE_APP_NAME=Echo Masque
+CHARACTER_RELAY_LOG_LEVEL=INFO
+CHARACTER_RELAY_APP_NAME=Character Relay
 ```
 
 Do not define `PORT`; Railway supplies it.
@@ -74,7 +76,7 @@ Do not define `PORT`; Railway supplies it.
 Production Admin APIs are disabled until this variable exists:
 
 ```text
-ECHO_MASQUE_ADMIN_TOKEN=<long-random-admin-token>
+CHARACTER_RELAY_ADMIN_TOKEN=<long-random-admin-token>
 ```
 
 The browser sends the value through `X-Echo-Admin`. Admin Settings and Workspace Storage tools store it only in browser `sessionStorage`, so closing the browser session clears it.
@@ -86,7 +88,7 @@ Do not reuse a Provider API key as the Admin token.
 Configure the non-secret Provider, Base URL, Model, Prompt, Temperature, and maximum turns through **Admin Settings**. Store the persistent production credential in Railway:
 
 ```text
-ECHO_MASQUE_ADAPTIVE_API_KEY=<provider-key-for-adaptive-tester>
+CHARACTER_RELAY_ADAPTIVE_API_KEY=<provider-key-for-adaptive-tester>
 ```
 
 ### Shared Semantic Judge
@@ -94,7 +96,7 @@ ECHO_MASQUE_ADAPTIVE_API_KEY=<provider-key-for-adaptive-tester>
 Configure the non-secret Provider, Base URL, Model, Prompt, Temperature, rubric version, and default Judge Mode through **Admin Settings**. Store the persistent production credential in Railway:
 
 ```text
-ECHO_MASQUE_JUDGE_API_KEY=<provider-key-for-semantic-judge>
+CHARACTER_RELAY_JUDGE_API_KEY=<provider-key-for-semantic-judge>
 ```
 
 The Adaptive and Judge keys may be the same limited test key during MVP evaluation, but separate keys make cost attribution and rotation clearer.
@@ -135,7 +137,7 @@ This test proves that the current deployment is available. It does not prove tha
 
 ## 6. Validate Admin Runtime
 
-After setting `ECHO_MASQUE_ADMIN_TOKEN`:
+After setting `CHARACTER_RELAY_ADMIN_TOKEN`:
 
 1. Open **Admin Settings**.
 2. Enter the Admin token.

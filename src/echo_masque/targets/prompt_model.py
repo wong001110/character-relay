@@ -47,7 +47,7 @@ class PromptModelConfig(BaseModel):
     system_prompt: str = Field(min_length=1)
     base_url: str = Field(min_length=1)
     api_key_env: str = Field(
-        default="ECHO_MASQUE_MODEL_API_KEY",
+        default="CHARACTER_RELAY_MODEL_API_KEY",
         min_length=1,
         max_length=160,
     )

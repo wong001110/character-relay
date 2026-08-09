@@ -121,8 +121,8 @@ class AuthService:
             return None
         if email is None or password_secret is None:
             raise ValueError(
-                "ECHO_MASQUE_BOOTSTRAP_ADMIN_EMAIL and "
-                "ECHO_MASQUE_BOOTSTRAP_ADMIN_PASSWORD must be configured together."
+                "CHARACTER_RELAY_BOOTSTRAP_ADMIN_EMAIL and "
+                "CHARACTER_RELAY_BOOTSTRAP_ADMIN_PASSWORD must be configured together."
             )
         normalized = self._normalize_email(email)
         record = self.repository.get_user_by_email(normalized)

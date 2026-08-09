@@ -238,7 +238,7 @@ class CredentialVault(CredentialStore):
     def _require_cipher(self) -> MultiFernet:
         if self._cipher is None:
             raise CredentialVaultUnavailable(
-                "ECHO_MASQUE_CREDENTIAL_ENCRYPTION_KEYS is required in production."
+                "CHARACTER_RELAY_CREDENTIAL_ENCRYPTION_KEYS is required in production."
             )
         return self._cipher
 
