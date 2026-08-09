@@ -26,6 +26,15 @@ def test_echo_masque_env_prefix_is_not_supported(monkeypatch: Any) -> None:
     assert settings.log_level == "INFO"
 
 
+def test_retired_langgraph_boolean_env_does_not_enable_rollout(monkeypatch: Any) -> None:
+    monkeypatch.delenv("CHARACTER_RELAY_LANGGRAPH_MODE", raising=False)
+    monkeypatch.setenv("CHARACTER_RELAY_LANGGRAPH_ENABLED", "true")
+
+    settings = Settings(environment="test")
+
+    assert settings.langgraph_mode == "off"
+
+
 def test_discord_tool_token_uses_connector_env_name(monkeypatch: Any) -> None:
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "shared-discord-token")
 
