@@ -360,9 +360,7 @@ class ToolRegistry:
         scheduler_reason = (
             "" if scheduler_available else "Scheduled reminder persistence is unavailable."
         )
-        discord_reason = (
-            "" if discord_available else "Configure ECHO_MASQUE_DISCORD_TOOL_BOT_TOKEN."
-        )
+        discord_reason = "" if discord_available else "Configure DISCORD_BOT_TOKEN."
 
         no_args: dict[str, object] = {
             "type": "object",
