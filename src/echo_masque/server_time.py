@@ -6,17 +6,17 @@ from contextvars import ContextVar
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-_DEFAULT_TIMEZONE = "UTC"
+DEFAULT_SERVER_TIMEZONE = "Asia/Kuala_Lumpur"
 _SERVER_TIMEZONE: ContextVar[str] = ContextVar(
     "character_relay_server_timezone",
-    default=_DEFAULT_TIMEZONE,
+    default=DEFAULT_SERVER_TIMEZONE,
 )
 
 
 def validate_timezone(value: str) -> str:
     """Validate and normalize one IANA timezone name."""
 
-    normalized = value.strip() or _DEFAULT_TIMEZONE
+    normalized = value.strip() or DEFAULT_SERVER_TIMEZONE
     try:
         ZoneInfo(normalized)
     except ZoneInfoNotFoundError as exc:
@@ -25,12 +25,12 @@ def validate_timezone(value: str) -> str:
 
 
 def activate_server_timezone(value: str) -> str:
-    """Set the current request/task timezone, falling back safely to UTC."""
+    """Set the current request/task timezone, falling back safely to Malaysia time."""
 
     try:
         normalized = validate_timezone(value)
     except ValueError:
-        normalized = _DEFAULT_TIMEZONE
+        normalized = DEFAULT_SERVER_TIMEZONE
     _SERVER_TIMEZONE.set(normalized)
     return normalized
 
@@ -45,6 +45,7 @@ def server_local_now(timezone: str | None = None) -> datetime:
 
 
 __all__ = [
+    "DEFAULT_SERVER_TIMEZONE",
     "activate_server_timezone",
     "current_server_timezone",
     "server_local_now",
