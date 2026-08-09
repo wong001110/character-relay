@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { useI18n } from "./i18n";
+import { formatPortalTimestamp } from "./portalTime";
 import {
   schedulerApi,
   type ScheduledReminder,
@@ -171,8 +172,8 @@ export function ScheduledRemindersPanel({
           <h2>{zh ? "提醒计划" : "Scheduled reminders"}</h2>
           <p>
             {zh
-              ? "只有出现在这里的记录才代表 scheduler.remind 已实际执行并写入 Runtime；角色口头说“会提醒”不算成功。"
-              : "A reminder is real only after scheduler.remind executed and a record appears here. A character promise alone is not confirmation."}
+              ? "只有出现在这里的记录才代表 scheduler.remind 已实际执行并写入 Runtime；角色口头说“会提醒”不算成功。所有时间统一按马来西亚时间（MYT）显示。"
+              : "A reminder is real only after scheduler.remind executed and a record appears here. A character promise alone is not confirmation. All times are shown in Malaysia time (MYT)."}
           </p>
         </div>
         <button type="button" className="paper-button" onClick={onClose}>
@@ -255,11 +256,11 @@ export function ScheduledRemindersPanel({
                 <dl>
                   <div>
                     <dt>{zh ? "计划时间" : "Scheduled"}</dt>
-                    <dd>{new Date(item.scheduled_at).toLocaleString()}</dd>
+                    <dd>{formatPortalTimestamp(item.scheduled_at, zh)}</dd>
                   </div>
                   <div>
                     <dt>{zh ? "建立时间" : "Created"}</dt>
-                    <dd>{new Date(item.created_at).toLocaleString()}</dd>
+                    <dd>{formatPortalTimestamp(item.created_at, zh)}</dd>
                   </div>
                   <div>
                     <dt>{zh ? "尝试次数" : "Attempts"}</dt>
@@ -269,7 +270,7 @@ export function ScheduledRemindersPanel({
                     <dt>{zh ? "送达时间" : "Delivered"}</dt>
                     <dd>
                       {item.delivered_at
-                        ? new Date(item.delivered_at).toLocaleString()
+                        ? formatPortalTimestamp(item.delivered_at, zh)
                         : "—"}
                     </dd>
                   </div>
