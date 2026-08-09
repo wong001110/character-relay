@@ -40,7 +40,8 @@ start_tool_turn()
 ```
 
 `send_with_tools()` itself loops over those same methods, so legacy and LangGraph do not have
-separate Tool Calling implementations.
+separate Tool Calling implementations. Tool-capable model steps are typed through the existing
+`ToolCapableChatProvider` protocol rather than widening the base `ChatProvider` contract.
 
 Preserved invariants:
 
