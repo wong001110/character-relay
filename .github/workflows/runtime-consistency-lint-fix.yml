@@ -1,0 +1,92 @@
+name: Runtime consistency lint cleanup
+
+on:
+  push:
+    branches:
+      - fix/runtime-consistency-before-phase-3
+    paths:
+      - .github/workflows/runtime-consistency-lint-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/runtime-consistency-before-phase-3
+          fetch-depth: 0
+      - name: Apply guarded lint-only edits
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one match, found {count}')
+              file.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          path = 'src/echo_masque/server_time_tools.py'
+          replace_once(
+              path,
+              '                            "The exact future message this Character will send when the reminder fires. "\n',
+              '                            "The exact future message this Character will send when the "\n                            "reminder fires. "\n',
+          )
+          replace_once(
+              path,
+              '                            "Write it now in the current Character persona and voice. Do not write an "\n',
+              '                            "Write it now in the current Character persona and voice. "\n                            "Do not write an "\n',
+          )
+          replace_once(
+              path,
+              '                            "internal title or instruction, and do not add an @mention; Runtime handles "\n',
+              '                            "internal title or instruction, and do not add an @mention; "\n                            "Runtime handles "\n',
+          )
+          replace_once(
+              path,
+              '                        "deliver it deterministically without another model call. Use delay_seconds "\n',
+              '                        "deliver it deterministically without another model call. "\n                        "Use delay_seconds "\n',
+          )
+          replace_once(
+              path,
+              '                            "condition triggers. Write it now in the current Character persona and "\n',
+              '                            "condition triggers. Write it now in the current Character "\n                            "persona and "\n',
+          )
+          replace_once(
+              path,
+              '                        "Create a bounded future condition watch after an explicit human request. "\n',
+              '                        "Create a bounded future condition watch after an explicit human "\n                        "request. "\n',
+          )
+          replace_once(
+              path,
+              '                        "delivers that stored text deterministically only after a persisted trigger."\n',
+              '                        "delivers that stored text deterministically only after a persisted "\n                        "trigger."\n',
+          )
+
+          replace_once(
+              'src/echo_masque/scheduled_reminder_service.py',
+              '                "Unable to persist Discord reminder message route: deployment=%s message=%s error=%s",\n',
+              '                (\n                    "Unable to persist Discord reminder message route: "\n                    "deployment=%s message=%s error=%s"\n                ),\n',
+          )
+
+          replace_once(
+              'tests/test_scheduled_reminder_webhook_routing.py',
+              '        reminder_text="十一点了。你自己叫我提醒你的，别装没看到。",\n',
+              '        reminder_text="十一点了。你自己叫我提醒你的, 别装没看到。",\n',
+          )
+          PY
+      - name: Remove one-shot workflow
+        run: git rm .github/workflows/runtime-consistency-lint-fix.yml
+      - name: Commit cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/echo_masque/server_time_tools.py src/echo_masque/scheduled_reminder_service.py tests/test_scheduled_reminder_webhook_routing.py
+          git commit -m "style: satisfy runtime hotfix lint"
+          git push origin HEAD:fix/runtime-consistency-before-phase-3
