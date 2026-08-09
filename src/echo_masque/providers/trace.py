@@ -27,9 +27,9 @@ class _ProviderTraceScope:
     character_card_id: str = ""
 
 
-_TRACE_SCOPE: ContextVar[_ProviderTraceScope] = ContextVar(
+_TRACE_SCOPE: ContextVar[_ProviderTraceScope | None] = ContextVar(
     "provider_trace_scope",
-    default=_ProviderTraceScope(),
+    default=None,
 )
 
 
@@ -49,7 +49,7 @@ def provider_trace_scope(
 ) -> Iterator[None]:
     """Bind account/runtime identifiers to provider traces for the current async context."""
 
-    current = _TRACE_SCOPE.get()
+    current = _TRACE_SCOPE.get() or _ProviderTraceScope()
     scope = _ProviderTraceScope(
         owner_id=owner_id.strip() if owner_id is not None else current.owner_id,
         deployment_id=(
@@ -175,7 +175,7 @@ class ProviderTrace:
         available_tool_names: tuple[str, ...] = (),
     ) -> ProviderTrace:
         mode = _trace_mode()
-        scope = _TRACE_SCOPE.get()
+        scope = _TRACE_SCOPE.get() or _ProviderTraceScope()
         trace = cls(
             trace_id=str(uuid4()),
             mode=mode,
