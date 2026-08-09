@@ -5,8 +5,9 @@ import type { AuthUser } from "./api";
 import { useI18n } from "./i18n";
 import { PaperModal } from "./NotebookUI";
 import { ProviderTraceViewer } from "./ProviderTraceViewer";
+import { ScheduledRemindersPanel } from "./ScheduledRemindersPanel";
 
-type ToolboxSection = "actions" | "account" | "provider";
+type ToolboxSection = "actions" | "schedule" | "account" | "provider";
 
 interface Props {
   user: AuthUser;
@@ -83,6 +84,15 @@ export function PortalToolbox({
             {!publicDemo && (
               <button
                 type="button"
+                className={section === "schedule" ? "is-active" : ""}
+                onClick={() => setSection("schedule")}
+              >
+                {zh ? "提醒计划" : "Schedules"}
+              </button>
+            )}
+            {!publicDemo && (
+              <button
+                type="button"
                 className={section === "account" ? "is-active" : ""}
                 onClick={() => setSection("account")}
               >
@@ -111,6 +121,17 @@ export function PortalToolbox({
                     : "Manage Discord servers, deployments, Smart Participation, and interaction sessions."}
                 </small>
               </button>
+              {!publicDemo && (
+                <button type="button" onClick={() => setSection("schedule")}>
+                  <span className="toolbox-sticker sticker-mint">SCHEDULE</span>
+                  <strong>{zh ? "提醒计划" : "Scheduled reminders"}</strong>
+                  <small>
+                    {zh
+                      ? "确认 scheduler.remind 是否真的建立，并查看 Pending、Completed、Failed 状态。"
+                      : "Verify scheduler.remind actually ran and inspect pending, completed, or failed reminders."}
+                  </small>
+                </button>
+              )}
               <button type="button" onClick={() => run(onWorkspace)}>
                 <span className="toolbox-sticker sticker-mint">TEST</span>
                 <strong>{zh ? "Echo Masque 测试" : "Echo Masque Lab"}</strong>
@@ -152,6 +173,10 @@ export function PortalToolbox({
                 </button>
               )}
             </section>
+          )}
+
+          {section === "schedule" && !publicDemo && (
+            <ScheduledRemindersPanel onClose={() => setSection("actions")} />
           )}
 
           {section === "account" && !publicDemo && (
