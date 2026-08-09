@@ -1,114 +1,112 @@
-"""Authentication helpers for Character Relay."""
+"""Authentication, password hashing, and opaque session lifecycle."""
 
 from __future__ import annotations
 
+import hashlib
 import secrets
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Literal, cast
 
 from argon2 import PasswordHasher
-from argon2.exceptions import InvalidHashError, VerifyMismatchError
+from argon2.exceptions import VerificationError
+from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from echo_masque.config import Settings
-from echo_masque.persistence.auth_models import AccountRecord, SessionRecord
 from echo_masque.persistence.auth_repository import AuthRepository
+from echo_masque.persistence.models import (
+    AuthSessionRecord,
+    InvitationRecord,
+    UserRecord,
+)
+
+Role = Literal["user", "admin"]
+SYSTEM_RUNTIME_USER_ID = "system-runtime"
+SYSTEM_RUNTIME_EMAIL = "system-runtime@echo-masque.invalid"
 
 
-@dataclass(frozen=True)
-class AuthenticatedUser:
-    """Authenticated account exposed to API/runtime services."""
+class AuthenticationError(ValueError):
+    """Raised when credentials or a session cannot be authenticated."""
 
+
+class RegistrationClosedError(ValueError):
+    """Raised when self-service registration is disabled."""
+
+
+class DuplicateAccountError(ValueError):
+    """Raised when an email address is already registered."""
+
+
+class InvitationError(ValueError):
+    """Raised when an invitation is invalid, expired, or already consumed."""
+
+
+class AuthenticatedUser(BaseModel):
     id: str
     email: str
     display_name: str
-    role: str
+    role: Role
+    is_active: bool
 
     @classmethod
-    def from_record(cls, record: AccountRecord) -> AuthenticatedUser:
+    def from_record(cls, record: UserRecord) -> AuthenticatedUser:
         return cls(
             id=record.id,
             email=record.email,
             display_name=record.display_name,
-            role=record.role,
+            role=cast(Role, record.role),
+            is_active=record.is_active,
         )
 
 
-class PasswordService:
-    """Argon2 password hashing and verification."""
+class AuthContext(BaseModel):
+    user: AuthenticatedUser
+    session_id: str | None
+    expires_at: datetime | None
 
-    def __init__(self) -> None:
-        self._hasher = PasswordHasher()
 
-    def hash(self, password: str) -> str:
-        return self._hasher.hash(password)
-
-    def verify(self, password_hash: str, password: str) -> bool:
-        try:
-            return self._hasher.verify(password_hash, password)
-        except (VerifyMismatchError, InvalidHashError):
-            return False
-
-    def needs_rehash(self, password_hash: str) -> bool:
-        try:
-            return self._hasher.check_needs_rehash(password_hash)
-        except InvalidHashError:
-            return True
+class IssuedSession(BaseModel):
+    context: AuthContext
+    token: str
 
 
 class AuthService:
-    """Account/session lifecycle with production-safe bootstrap behavior."""
+    """Create users and resolve revocable opaque session tokens."""
 
-    def __init__(
-        self,
-        repository: AuthRepository,
-        settings: Settings,
-        *,
-        passwords: PasswordService | None = None,
-    ) -> None:
+    def __init__(self, repository: AuthRepository, settings: Settings) -> None:
         self.repository = repository
         self.settings = settings
-        self.passwords = passwords or PasswordService()
+        self.passwords = PasswordHasher()
+        self._dummy_hash = self.passwords.hash(secrets.token_urlsafe(32))
 
-    def authenticate(self, email: str, password: str) -> AuthenticatedUser | None:
-        normalized = self._normalize_email(email)
-        record = self.repository.get_user_by_email(normalized)
-        if record is None or record.status != "active":
+    def ensure_development_user(
+        self,
+        user_id: str = "local-user",
+    ) -> AuthenticatedUser | None:
+        if self.settings.environment == "production" or not self.settings.legacy_local_user_enabled:
             return None
-        if not self.passwords.verify(record.password_hash, password):
-            return None
-        self.repository.record_login(record.id)
-        if self.passwords.needs_rehash(record.password_hash):
-            self.repository.update_password_hash(record.id, self.passwords.hash(password))
-        refreshed = self.repository.get_user(record.id) or record
-        return AuthenticatedUser.from_record(refreshed)
-
-    def create_session(self, user_id: str) -> tuple[str, SessionRecord]:
-        token = secrets.token_urlsafe(48)
-        expires_at = datetime.now(UTC) + timedelta(seconds=self.settings.auth_session_ttl_seconds)
-        return token, self.repository.create_session(user_id, token, expires_at)
-
-    def resolve_session(self, token: str) -> AuthenticatedUser | None:
-        record = self.repository.get_session(token)
+        record = self.repository.get_user(user_id)
         if record is None:
-            return None
-        user = self.repository.get_user(record.user_id)
-        if user is None or user.status != "active":
-            return None
-        return AuthenticatedUser.from_record(user)
+            legacy_hash = self._digest(user_id)[:24]
+            record = self.repository.create_user(
+                user_id=user_id,
+                email=f"legacy-{legacy_hash}@echo-masque.invalid",
+                display_name="Local User" if user_id == "local-user" else user_id,
+                password_hash=self.passwords.hash(secrets.token_urlsafe(32)),
+                role="admin" if user_id == "local-user" else "user",
+            )
+        return AuthenticatedUser.from_record(record)
 
-    def revoke_session(self, token: str) -> None:
-        self.repository.revoke_session(token)
+    def ensure_system_runtime_user(self) -> AuthenticatedUser:
+        """Create a non-interactive owner for shared encrypted Runtime credentials."""
 
-    def ensure_local_user(self) -> AuthenticatedUser | None:
-        """Return/create the development local user when the compatibility mode is enabled."""
-
-        if not self.settings.legacy_local_user_enabled:
-            return None
-        record = self.repository.get_user_by_email("local@character-relay.invalid")
+        record = self.repository.get_user(SYSTEM_RUNTIME_USER_ID)
         if record is None:
             record = self.repository.create_user(
-                email="local@character-relay.invalid",
-                display_name="Local User",
+                user_id=SYSTEM_RUNTIME_USER_ID,
+                email=SYSTEM_RUNTIME_EMAIL,
+                display_name="Echo Masque Runtime",
                 password_hash=self.passwords.hash(secrets.token_urlsafe(64)),
                 role="admin",
             )
@@ -138,18 +136,236 @@ class AuthService:
                 password_hash=self.passwords.hash(password),
                 role="admin",
             )
+            self.repository.audit(
+                actor_user_id=record.id,
+                action="admin.bootstrap_created",
+                resource_type="user",
+                resource_id=record.id,
+            )
         elif record.role != "admin":
-            self.repository.update_role(record.id, "admin")
-            record = self.repository.get_user(record.id) or record
+            with self.repository.database.session() as session:
+                stored = session.get(UserRecord, record.id)
+                if stored is None:
+                    raise RuntimeError("Bootstrap Admin disappeared during promotion.")
+                stored.role = "admin"
+                session.commit()
+                session.refresh(stored)
+                record = stored
+            self.repository.audit(
+                actor_user_id=record.id,
+                action="admin.bootstrap_promoted",
+                resource_type="user",
+                resource_id=record.id,
+            )
         return AuthenticatedUser.from_record(record)
 
+    def development_context(self, user_id: str = "local-user") -> AuthContext | None:
+        user = self.ensure_development_user(user_id)
+        if user is None:
+            return None
+        return AuthContext(user=user, session_id=None, expires_at=None)
+
+    def register(
+        self,
+        *,
+        email: str,
+        display_name: str,
+        password: str,
+        invitation_code: str | None = None,
+    ) -> AuthenticatedUser:
+        normalized = self._normalize_email(email)
+        if (
+            self.settings.environment == "production"
+            and not self.settings.public_registration_enabled
+        ):
+            if invitation_code is None or not invitation_code.strip():
+                raise RegistrationClosedError("Registration requires an invitation.")
+            record = self._register_from_invitation(
+                email=normalized,
+                display_name=display_name,
+                password=password,
+                invitation_code=invitation_code,
+            )
+            self.repository.audit(
+                actor_user_id=record.id,
+                action="account.registered",
+                resource_type="user",
+                resource_id=record.id,
+                metadata={"registration_source": "invitation"},
+            )
+            return AuthenticatedUser.from_record(record)
+
+        if self.repository.get_user_by_email(normalized) is not None:
+            raise DuplicateAccountError("An account with this email already exists.")
+        record = self.repository.create_user(
+            email=normalized,
+            display_name=display_name.strip(),
+            password_hash=self.passwords.hash(password),
+            role="user",
+        )
+        self.repository.audit(
+            actor_user_id=record.id,
+            action="account.registered",
+            resource_type="user",
+            resource_id=record.id,
+            metadata={"registration_source": "public"},
+        )
+        return AuthenticatedUser.from_record(record)
+
+    def _register_from_invitation(
+        self,
+        *,
+        email: str,
+        display_name: str,
+        password: str,
+        invitation_code: str,
+    ) -> UserRecord:
+        now = datetime.now(UTC)
+        code_hash = self._digest(invitation_code.strip())
+        try:
+            with self.repository.database.session() as session:
+                invitation = session.scalar(
+                    select(InvitationRecord).where(
+                        InvitationRecord.code_hash == code_hash
+                    )
+                )
+                if invitation is None:
+                    raise InvitationError("Invitation is invalid or unavailable.")
+                if invitation.accepted_at is not None or invitation.revoked_at is not None:
+                    raise InvitationError("Invitation is invalid or unavailable.")
+                if self._utc(invitation.expires_at) <= now:
+                    raise InvitationError("Invitation is invalid or unavailable.")
+                if invitation.email is not None and invitation.email != email:
+                    raise InvitationError("Invitation is invalid or unavailable.")
+                existing = session.scalar(
+                    select(UserRecord).where(func.lower(UserRecord.email) == email)
+                )
+                if existing is not None:
+                    raise DuplicateAccountError(
+                        "An account with this email already exists."
+                    )
+                record = UserRecord(
+                    id=secrets.token_hex(16),
+                    email=email,
+                    display_name=display_name.strip(),
+                    password_hash=self.passwords.hash(password),
+                    role=invitation.role,
+                    is_active=True,
+                )
+                session.add(record)
+                session.flush()
+                invitation.accepted_by = record.id
+                invitation.accepted_at = now
+                session.commit()
+                session.refresh(record)
+                invitation_id = invitation.id
+        except IntegrityError as exc:
+            raise DuplicateAccountError(
+                "An account with this email already exists."
+            ) from exc
+        self.repository.audit(
+            actor_user_id=record.id,
+            action="invitation.accepted",
+            resource_type="invitation",
+            resource_id=invitation_id,
+        )
+        return record
+
+    def login(self, *, email: str, password: str, user_agent: str | None) -> IssuedSession:
+        normalized = self._normalize_email(email)
+        record = self.repository.get_user_by_email(normalized)
+        password_hash = record.password_hash if record is not None else self._dummy_hash
+        try:
+            valid = bool(self.passwords.verify(password_hash, password))
+        except VerificationError:
+            valid = False
+        if record is None or not valid or not record.is_active:
+            self.repository.audit(
+                action="session.login_failed",
+                resource_type="session",
+                metadata={"email_hash": self._digest(normalized)},
+            )
+            raise AuthenticationError("Invalid email or password.")
+
+        token = secrets.token_urlsafe(48)
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(seconds=self.settings.auth_session_ttl_seconds)
+        session = self.repository.create_session(
+            user_id=record.id,
+            token_hash=self._digest(token),
+            expires_at=expires_at,
+            user_agent_hash=self._digest(user_agent) if user_agent else None,
+        )
+        self.repository.audit(
+            actor_user_id=record.id,
+            action="session.login_succeeded",
+            resource_type="session",
+            resource_id=session.id,
+        )
+        return IssuedSession(
+            context=AuthContext(
+                user=AuthenticatedUser.from_record(record),
+                session_id=session.id,
+                expires_at=expires_at,
+            ),
+            token=token,
+        )
+
+    def resolve(self, token: str) -> AuthContext | None:
+        session = self.repository.get_session_by_token_hash(self._digest(token))
+        if session is None or session.revoked_at is not None:
+            return None
+        now = datetime.now(UTC)
+        if self._utc(session.expires_at) <= now:
+            self.repository.revoke_session(session.id)
+            return None
+        user = self.repository.get_user(session.user_id)
+        if user is None or not user.is_active:
+            return None
+        self.repository.touch_session(session.id, now=now)
+        return AuthContext(
+            user=AuthenticatedUser.from_record(user),
+            session_id=session.id,
+            expires_at=self._utc(session.expires_at),
+        )
+
+    def list_sessions(self, user_id: str) -> list[AuthSessionRecord]:
+        return self.repository.list_sessions(user_id)
+
+    def revoke_session(self, session_id: str, *, user_id: str) -> bool:
+        revoked = self.repository.revoke_session(session_id, user_id=user_id)
+        if revoked:
+            self.repository.audit(
+                actor_user_id=user_id,
+                action="session.revoked",
+                resource_type="session",
+                resource_id=session_id,
+            )
+        return revoked
+
     @staticmethod
-    def _normalize_email(email: str) -> str:
-        return email.strip().lower()
+    def _normalize_email(value: str) -> str:
+        normalized = value.casefold().strip()
+        if (
+            len(normalized) > 320
+            or normalized.count("@") != 1
+            or " " in normalized
+            or normalized.startswith("@")
+            or normalized.endswith("@")
+        ):
+            raise ValueError("Enter a valid email address.")
+        return normalized
 
+    @staticmethod
+    def token_digest(value: str) -> str:
+        return AuthService._digest(value.strip())
 
-__all__ = [
-    "AuthenticatedUser",
-    "AuthService",
-    "PasswordService",
-]
+    @staticmethod
+    def _digest(value: str) -> str:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
