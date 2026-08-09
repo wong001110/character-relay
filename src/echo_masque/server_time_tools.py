@@ -180,6 +180,8 @@ class ServerAwareToolRegistry(ToolRegistry):
         record = self.condition_watches.create(
             owner_id=context.owner_id,
             deployment_id=context.deployment_id,
+            channel_id=context.channel_id,
+            thread_id=context.thread_id,
             target_user_id=(
                 context.initiator_user_id
                 if payload.mention_user and context.initiator_user_id
@@ -196,6 +198,8 @@ class ServerAwareToolRegistry(ToolRegistry):
             ok=True,
             watch_id=record.id,
             status=record.status,
+            channel_id=record.channel_id,
+            thread_id=record.thread_id,
             next_check_at=record.next_check_at.isoformat(),
             expires_at=record.expires_at.isoformat(),
             check_interval_seconds=record.check_interval_seconds,
