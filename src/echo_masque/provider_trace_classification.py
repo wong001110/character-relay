@@ -22,6 +22,10 @@ def _string_list(value: object) -> list[str]:
     return [item for item in value if isinstance(item, str) and item.strip()]
 
 
+def _positive_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
 def _request_text(request: dict[str, object]) -> str:
     latest = request.get("latest_message")
     if isinstance(latest, dict):
@@ -60,7 +64,11 @@ def provider_trace_category(request_json: str, response_json: str) -> ProviderTr
     response = _object(response_json)
     roles = _string_list(request.get("message_roles"))
     tool_names = provider_trace_tool_names(request_json, response_json)
-    if tool_names or "tool" in roles or int(request.get("tool_result_count", 0) or 0) > 0:
+    if (
+        tool_names
+        or "tool" in roles
+        or _positive_int(request.get("tool_result_count"))
+    ):
         return "tool_calling"
 
     text = _request_text(request)
