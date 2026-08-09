@@ -92,7 +92,10 @@ def test_unconfigured_server_defaults_to_malaysia_timezone() -> None:
     runtime = ServerRuntimeRepository(database)
     profile = DeploymentRepository(database).list_server_profiles("owner-1")[0]
 
-    assert runtime.get_timezone(profile_id=profile.id, owner_id="owner-1") == DEFAULT_SERVER_TIMEZONE
+    assert (
+        runtime.get_timezone(profile_id=profile.id, owner_id="owner-1")
+        == DEFAULT_SERVER_TIMEZONE
+    )
     assert (
         runtime.resolve_timezone(
             owner_id="owner-1",
@@ -110,7 +113,10 @@ def test_legacy_utc_timezone_is_migrated_once_but_future_explicit_utc_is_preserv
 
     assert runtime.get_timezone(profile_id=profile.id, owner_id="owner-1") == "UTC"
     assert runtime.migrate_legacy_utc_defaults() == 1
-    assert runtime.get_timezone(profile_id=profile.id, owner_id="owner-1") == DEFAULT_SERVER_TIMEZONE
+    assert (
+        runtime.get_timezone(profile_id=profile.id, owner_id="owner-1")
+        == DEFAULT_SERVER_TIMEZONE
+    )
     assert runtime.migrate_legacy_utc_defaults() == 0
 
     saved = runtime.set_timezone(
