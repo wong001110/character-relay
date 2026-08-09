@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from cryptography.fernet import Fernet
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import select
@@ -36,6 +37,7 @@ def login(client: TestClient, email: str = SUPER_EMAIL) -> None:
 
 
 def invite_register(
+    app: FastAPI,
     admin: TestClient,
     member: TestClient,
     *,
@@ -46,17 +48,32 @@ def invite_register(
         json={"email": email, "role": "user", "expires_in_days": 1},
     )
     assert invitation.status_code == 201, invitation.text
+    invitation_payload = invitation.json()
     registered = member.post(
         "/api/auth/register",
         json={
             "email": email,
             "display_name": email.split("@", maxsplit=1)[0],
             "password": PASSWORD,
-            "invitation_code": invitation.json()["code"],
+            "invitation_code": invitation_payload["code"],
         },
     )
     assert registered.status_code == 201, registered.text
-    return str(registered.json()["user"]["id"])
+    user_id = str(registered.json()["user"]["id"])
+
+    # Test environments allow public registration, so the invitation code is not consumed
+    # by AuthService. Mirror production's invitation-required state explicitly so synthetic
+    # cleanup is validated against the same durable identity proof used by live Phase 15.
+    with app.state.database.session() as session:
+        record = session.get(
+            InvitationRecord,
+            str(invitation_payload["invitation"]["id"]),
+        )
+        assert record is not None
+        record.accepted_by = user_id
+        record.accepted_at = datetime.now(UTC)
+        session.commit()
+    return user_id
 
 
 def soft_delete(client: TestClient, email: str) -> None:
@@ -117,7 +134,7 @@ def test_synthetic_test_account_is_hard_deleted_with_trace_and_invitation(tmp_pa
     member = TestClient(app)
     login(admin)
     email = "phase15-a-1234567890@example.invalid"
-    user_id = invite_register(admin, member, email=email)
+    user_id = invite_register(app, admin, member, email=email)
 
     app.state.provider_trace_repository.record_event(
         {
@@ -152,9 +169,9 @@ def test_legacy_purge_removes_only_known_synthetic_deleted_users(tmp_path: Path)
     login(admin)
 
     synthetic_email = "phase15-b-1234567891@example.invalid"
-    synthetic_id = invite_register(admin, synthetic, email=synthetic_email)
+    synthetic_id = invite_register(app, admin, synthetic, email=synthetic_email)
     ordinary_email = "ordinary-delete@example.com"
-    ordinary_id = invite_register(admin, ordinary, email=ordinary_email)
+    ordinary_id = invite_register(app, admin, ordinary, email=ordinary_email)
     soft_delete(synthetic, synthetic_email)
     soft_delete(ordinary, ordinary_email)
 
@@ -174,7 +191,7 @@ def test_hard_delete_rejects_normal_accounts(tmp_path: Path) -> None:
     admin = TestClient(app)
     member = TestClient(app)
     login(admin)
-    user_id = invite_register(admin, member, email="real-person@example.com")
+    user_id = invite_register(app, admin, member, email="real-person@example.com")
 
     denied = admin.delete(f"/api/admin/synthetic-test-users/{user_id}")
     assert denied.status_code == 403
@@ -187,7 +204,7 @@ def test_provider_trace_owner_filter_rejects_inactive_or_unknown_accounts(tmp_pa
     member = TestClient(app)
     login(admin)
     email = "trace-member@example.com"
-    user_id = invite_register(admin, member, email=email)
+    user_id = invite_register(app, admin, member, email=email)
 
     app.state.provider_trace_repository.record_event(
         {
