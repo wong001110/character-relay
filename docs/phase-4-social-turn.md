@@ -2,6 +2,9 @@
 
 Status: 🚧 implementation validation / ⏸ production pilot deferred
 
+Static integration cleanup is complete; the current validation pass covers strict Python typing,
+Social Turn graph regressions, Discord Connector typecheck/tests/build, Docker, and Railway smoke.
+
 ## Goal
 
 Move ordered multi-Character execution and bounded Character-to-Character continuation into
