@@ -17,6 +17,8 @@ class ConditionWatchRecord(Base):
     owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
     deployment_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     character_card_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    channel_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(200), default="", nullable=False)
     target_user_id: Mapped[str] = mapped_column(String(200), default="", nullable=False)
     condition_text: Mapped[str] = mapped_column(Text, nullable=False)
     notification_text: Mapped[str] = mapped_column(Text, nullable=False)
