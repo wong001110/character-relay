@@ -13,6 +13,7 @@ from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.providers import ChatToolCall, ChatToolFunctionCall
 from echo_masque.server_time_tools import ServerAwareToolRegistry
 from echo_masque.smart_output import (
+    DiscordActionParticipant,
     SmartMentionPart,
     SmartOutputContext,
     SmartOutputProposal,
@@ -80,11 +81,11 @@ def inbound(*, author_is_bot: bool = False) -> DiscordInboundMessage:
         author_is_bot=author_is_bot,
         available_characters=["Inviter", "Selena"],
         mentionable_participants=[
-            {
-                "ref": "deployment:candidate",
-                "display_name": "Selena",
-                "kind": "character",
-            }
+            DiscordActionParticipant(
+                ref="deployment:candidate",
+                display_name="Selena",
+                kind="character",
+            )
         ],
     )
 
@@ -223,11 +224,11 @@ def test_character_invite_does_not_expand_conflicting_character_mentions(
     database = seed(tmp_path / "invite-conflict.db")
     payload = inbound()
     payload.mentionable_participants.append(
-        {
-            "ref": "deployment:other",
-            "display_name": "Other",
-            "kind": "character",
-        }
+        DiscordActionParticipant(
+            ref="deployment:other",
+            display_name="Other",
+            kind="character",
+        )
     )
     smart_context = SmartOutputContext.from_payload(payload, character_name="Inviter")
     result = asyncio.run(
