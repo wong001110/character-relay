@@ -117,6 +117,7 @@ def test_tool_catalog_and_manual_deployment_assignment(tmp_path: Path) -> None:
         "places.search",
         "file.inspect",
         "watch.condition",
+        "character.invite",
     }
     for tool_id in (
         "utility.calculator",
@@ -133,6 +134,7 @@ def test_tool_catalog_and_manual_deployment_assignment(tmp_path: Path) -> None:
         "places.search",
         "file.inspect",
         "watch.condition",
+        "character.invite",
     ):
         assert items[tool_id]["available"] is True
     assert items["discord.search_messages"]["available"] is False
@@ -151,6 +153,7 @@ def test_tool_catalog_and_manual_deployment_assignment(tmp_path: Path) -> None:
         "places.search",
         "file.inspect",
         "watch.condition",
+        "character.invite",
     ]
     saved = client.put(
         f"/api/deployments/{deployment_id}/tools",
