@@ -32,11 +32,11 @@ Safety/authority:
 - background evaluation cannot call side-effect Tools
 - the only side effect after a positive evaluation is the final persisted notification
 
-## Phase V2.2 — `character.invite`
+## Phase V2.2 — `character.invite` ✅
 
 `character.invite` is a social coordination proposal, not direct participant injection.
 
-Implemented proposal path on the V2.2 branch:
+Implemented proposal path:
 
 1. Smart Output creates prompt-local participant aliases such as `p1` / `p2`.
 2. A Character may call `character.invite` with one of those aliases on a human-initiated turn.
@@ -47,11 +47,12 @@ Implemented proposal path on the V2.2 branch:
    - configured for Smart Participation,
    - not the inviting Character itself.
 4. A successful Tool call returns only `proposal_status=pending_runtime_validation`; model-visible Tool output does not contain the raw Deployment ID.
-5. Runtime keeps one bounded prompt-local proposal for the turn.
+5. Runtime keeps one bounded prompt-local proposal for the turn and binds it to a unique Smart Output turn token.
 6. During Smart Output validation, Runtime materializes the proposal as the same existing Character mention primitive used by Character Relay today.
 7. If the model simultaneously tries to mention a different Character, Runtime does not auto-expand the invite proposal.
 8. The Discord Connector remains final participation authority through the existing bounded bot-tag continuation path: active candidate resolution, participation mode, unique-turn protection, maximum depth, and response budget all still apply.
 9. Bot-authored continuation turns cannot call `character.invite`, preventing recursive invite trees.
+10. A new Smart Output turn receives a new token, so an old proposal cannot leak into another turn or reused async context.
 
 The invited Character still decides its own response according to its Character Card/persona. A successful invite Tool call does **not** guarantee that the invited Character will speak.
 
@@ -61,5 +62,6 @@ The invited Character still decides its own response according to its Character 
 2. `watch.condition` Tool Registry exposure, deployment assignment, Provider Trace visibility, and regression coverage. ✅
 3. Prompt-local `character.invite` proposal/validation model. ✅
 4. Smart Output materialization through the existing participant mention path. ✅
-5. Full Python/Web/Connector/Docker regression + deployed smoke checks. ⏳
-6. Mark Tool Calling V2 complete in the main roadmap after V2.2 merges. ⏳
+5. Full Python/Web/Connector/Docker regression. ✅ — Python 3.12 and 3.13 both pass Ruff, Mypy, and 273 tests; Web, Discord Connector, and Docker checks pass.
+6. Deployed smoke validation. ✅ — Railway Smoke and Public Demo Status pass on the V2.2 code commit.
+7. Tool Calling V2 marked complete in the main roadmap. ✅
