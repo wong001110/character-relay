@@ -83,10 +83,10 @@ from echo_masque.public_demo_middleware import PublicDemoReadOnlyMiddleware
 from echo_masque.public_demo_quota import PublicDemoQuotaService
 from echo_masque.scheduled_reminder_service import ScheduledReminderDeliveryService
 from echo_masque.semantic_participation import CharacterParticipationSemanticService
+from echo_masque.server_time_tools import ServerAwareToolRegistry
 from echo_masque.services import MatrixService, RuntimeService, TrialService
 from echo_masque.smart_participation_generation import SmartParticipationGenerationService
 from echo_masque.template_sharing import EvaluationTemplateService
-from echo_masque.tool_runtime import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             navigation_timeout_ms=resolved.browser_navigation_timeout_ms,
         )
     )
-    tool_registry = ToolRegistry(
+    tool_registry = ServerAwareToolRegistry(
         browser_runtime=browser_runtime,
         reminder_repository=scheduled_reminder_repository,
         discord_bot_token=resolved.discord_tool_bot_token,
