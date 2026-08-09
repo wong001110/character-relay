@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from echo_masque.api import create_app
-from echo_masque.api.connector_schemas import DiscordConnectorReplyView
+from echo_masque.api.connector_schemas import DiscordConnectorReplyView, DiscordInboundMessage
 from echo_masque.config import LangGraphMode, Settings
 from echo_masque.orchestration import CharacterTurnGraphRunner
 
@@ -40,8 +40,8 @@ def test_connector_message_endpoint_dispatches_to_graph_runner(tmp_path: Path) -
     called: list[str] = []
 
     class FakeRunner:
-        async def __call__(self, payload: object) -> DiscordConnectorReplyView:
-            deployment_id = getattr(payload, "deployment_id")
+        async def __call__(self, payload: DiscordInboundMessage) -> DiscordConnectorReplyView:
+            deployment_id = payload.deployment_id
             called.append(deployment_id)
             return DiscordConnectorReplyView(
                 action="silent",
