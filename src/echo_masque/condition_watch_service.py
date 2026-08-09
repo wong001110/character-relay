@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -64,10 +65,8 @@ class ConditionWatchService:
         if task is None:
             return
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
     async def run_once(self) -> int:
         records = self.repository.claim_due(limit=self.batch_size)
@@ -85,7 +84,7 @@ class ConditionWatchService:
             self.repository.mark_triggered(record.id)
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # noqa: BLE001 - persisted worker boundary
+        except Exception as exc:
             self.repository.mark_failure(record.id, str(exc))
 
     async def _run_loop(self) -> None:
