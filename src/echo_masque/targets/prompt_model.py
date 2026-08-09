@@ -1,5 +1,6 @@
 """Prompt-and-model target adapter."""
 
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -14,7 +15,13 @@ from echo_masque.domain import (
     TargetSummary,
     TargetType,
 )
-from echo_masque.providers import ChatMessage, ChatProvider, ProviderCompletion
+from echo_masque.providers import (
+    ChatMessage,
+    ChatProvider,
+    ChatToolCall,
+    ChatToolDefinition,
+    ProviderCompletion,
+)
 from echo_masque.tool_runtime import (
     ToolExecutionContext,
     ToolExecutionTrace,
@@ -55,6 +62,30 @@ class PromptModelConfig(BaseModel):
     character_profile: CharacterPromptProfile | None = None
 
 
+@dataclass(slots=True)
+class PromptModelToolTurn:
+    """Transient bounded Tool Calling session for one Character turn.
+
+    This object intentionally stays outside LangGraph state. It may contain provider-visible
+    history and Tool results, so callers should keep it only in run-scoped runtime context.
+    """
+
+    provider_tools: tuple[ChatToolDefinition, ...]
+    tool_registry: ToolRegistry
+    enabled_tool_ids: tuple[str, ...]
+    tool_context: ToolExecutionContext
+    max_tool_rounds: int
+    tool_rounds: int = 0
+    total_latency_ms: int = 0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    saw_input_tokens: bool = False
+    saw_output_tokens: bool = False
+    side_effect_executed: bool = False
+    pending_tool_calls: tuple[ChatToolCall, ...] = ()
+    traces: list[ToolExecutionTrace] = field(default_factory=list)
+
+
 class PromptModelTarget:
     def __init__(
         self,
@@ -91,9 +122,7 @@ class PromptModelTarget:
         return tuple(self._history)
 
     async def reset(self) -> None:
-        self._history = [
-            ChatMessage(role="system", content=self.runtime_system_prompt)
-        ]
+        self._history = [ChatMessage(role="system", content=self.runtime_system_prompt)]
 
     async def send(self, message: str) -> TargetResponse:
         if not self._history:
@@ -107,6 +136,106 @@ class PromptModelTarget:
         self._history.append(ChatMessage(role="assistant", content=completion.text))
         return self._target_response(completion)
 
+    async def start_tool_turn(
+        self,
+        message: str,
+        *,
+        tool_registry: ToolRegistry,
+        enabled_tool_ids: tuple[str, ...],
+        tool_context: ToolExecutionContext,
+        max_tool_rounds: int = 2,
+    ) -> PromptModelToolTurn | None:
+        """Prepare a bounded Tool Calling turn without invoking the provider yet."""
+
+        provider_tools = tool_registry.provider_tools(enabled_tool_ids)
+        complete_with_tools = getattr(self.provider, "complete_with_tools", None)
+        if not provider_tools or not callable(complete_with_tools):
+            return None
+        if not self._history:
+            await self.reset()
+        self._history.append(
+            ChatMessage(role="user", content=f"{message}\n\n{_TOOL_INTEGRITY_GUIDANCE}")
+        )
+        return PromptModelToolTurn(
+            provider_tools=provider_tools,
+            tool_registry=tool_registry,
+            enabled_tool_ids=enabled_tool_ids,
+            tool_context=tool_context,
+            max_tool_rounds=max(1, min(max_tool_rounds, 4)),
+        )
+
+    async def advance_tool_model(
+        self,
+        turn: PromptModelToolTurn,
+    ) -> TargetResponse | None:
+        """Run one model step; return None when Runtime Tool execution is required next."""
+
+        if turn.pending_tool_calls:
+            raise RuntimeError("Pending Tool calls must be executed before another model step.")
+
+        if turn.tool_rounds >= turn.max_tool_rounds:
+            completion = await self.provider.complete(
+                messages=tuple(self._history),
+                model=self.config.model,
+                temperature=self.config.temperature,
+            )
+            self._accumulate(turn, completion)
+            self._history.append(ChatMessage(role="assistant", content=completion.text))
+            return self._tool_turn_response(turn, completion)
+
+        complete_with_tools = cast(Any, getattr(self.provider, "complete_with_tools"))
+        completion = await complete_with_tools(
+            messages=tuple(self._history),
+            model=self.config.model,
+            temperature=self.config.temperature,
+            tools=turn.provider_tools,
+        )
+        turn.tool_rounds += 1
+        self._accumulate(turn, completion)
+
+        if not completion.tool_calls:
+            self._history.append(ChatMessage(role="assistant", content=completion.text))
+            return self._tool_turn_response(turn, completion)
+
+        calls = completion.tool_calls[:4]
+        self._history.append(
+            ChatMessage(
+                role="assistant",
+                content=completion.text,
+                tool_calls=calls,
+            )
+        )
+        turn.pending_tool_calls = calls
+        return None
+
+    async def execute_pending_tools(self, turn: PromptModelToolTurn) -> int:
+        """Execute the pending proposals through the existing ToolRuntime authority."""
+
+        calls = turn.pending_tool_calls
+        if not calls:
+            raise RuntimeError("No pending Tool calls are available for execution.")
+        turn.pending_tool_calls = ()
+        before = len(turn.traces)
+        for call in calls:
+            is_side_effect = turn.tool_registry.is_side_effect_call(call)
+            result = await turn.tool_registry.execute(
+                call,
+                enabled_tool_ids=turn.enabled_tool_ids,
+                context=turn.tool_context,
+                allow_side_effect=not turn.side_effect_executed,
+            )
+            turn.traces.append(result.trace)
+            if is_side_effect and result.trace.status == "completed":
+                turn.side_effect_executed = True
+            self._history.append(
+                ChatMessage(
+                    role="tool",
+                    content=result.content,
+                    tool_call_id=call.id,
+                )
+            )
+        return len(turn.traces) - before
+
     async def send_with_tools(
         self,
         message: str,
@@ -116,102 +245,45 @@ class PromptModelTarget:
         tool_context: ToolExecutionContext,
         max_tool_rounds: int = 2,
     ) -> TargetResponse:
-        """Run a bounded native Tool Calling loop, then return one final assistant response."""
+        """Run the same bounded step/session logic used by LangGraph orchestration."""
 
-        provider_tools = tool_registry.provider_tools(enabled_tool_ids)
-        complete_with_tools = getattr(self.provider, "complete_with_tools", None)
-        if not provider_tools or not callable(complete_with_tools):
+        turn = await self.start_tool_turn(
+            message,
+            tool_registry=tool_registry,
+            enabled_tool_ids=enabled_tool_ids,
+            tool_context=tool_context,
+            max_tool_rounds=max_tool_rounds,
+        )
+        if turn is None:
             return await self.send(message)
 
-        if not self._history:
-            await self.reset()
-        integrity_message = f"{message}\n\n{_TOOL_INTEGRITY_GUIDANCE}"
-        self._history.append(ChatMessage(role="user", content=integrity_message))
+        while True:
+            response = await self.advance_tool_model(turn)
+            if response is not None:
+                return response
+            await self.execute_pending_tools(turn)
 
-        total_latency = 0
-        total_input_tokens = 0
-        total_output_tokens = 0
-        saw_input_tokens = False
-        saw_output_tokens = False
-        traces: list[ToolExecutionTrace] = []
-        last_completion: ProviderCompletion | None = None
-        side_effect_executed = False
-
-        for _ in range(max(1, min(max_tool_rounds, 4))):
-            completion = await cast(Any, complete_with_tools)(
-                messages=tuple(self._history),
-                model=self.config.model,
-                temperature=self.config.temperature,
-                tools=provider_tools,
-            )
-            last_completion = completion
-            total_latency += completion.latency_ms
-            if completion.input_tokens is not None:
-                saw_input_tokens = True
-                total_input_tokens += completion.input_tokens
-            if completion.output_tokens is not None:
-                saw_output_tokens = True
-                total_output_tokens += completion.output_tokens
-
-            if not completion.tool_calls:
-                self._history.append(ChatMessage(role="assistant", content=completion.text))
-                return self._target_response(
-                    completion,
-                    latency_ms=total_latency,
-                    input_tokens=total_input_tokens if saw_input_tokens else None,
-                    output_tokens=total_output_tokens if saw_output_tokens else None,
-                    tool_traces=traces,
-                )
-
-            calls = completion.tool_calls[:4]
-            self._history.append(
-                ChatMessage(
-                    role="assistant",
-                    content=completion.text,
-                    tool_calls=calls,
-                )
-            )
-            for call in calls:
-                is_side_effect = tool_registry.is_side_effect_call(call)
-                result = await tool_registry.execute(
-                    call,
-                    enabled_tool_ids=enabled_tool_ids,
-                    context=tool_context,
-                    allow_side_effect=not side_effect_executed,
-                )
-                traces.append(result.trace)
-                if is_side_effect and result.trace.status == "completed":
-                    side_effect_executed = True
-                self._history.append(
-                    ChatMessage(
-                        role="tool",
-                        content=result.content,
-                        tool_call_id=call.id,
-                    )
-                )
-
-        # V1 never permits an unbounded agent loop. After the configured tool rounds,
-        # remove tools from the next request and require a normal final response.
-        completion = await self.provider.complete(
-            messages=tuple(self._history),
-            model=self.config.model,
-            temperature=self.config.temperature,
-        )
-        last_completion = completion
-        total_latency += completion.latency_ms
+    @staticmethod
+    def _accumulate(turn: PromptModelToolTurn, completion: ProviderCompletion) -> None:
+        turn.total_latency_ms += completion.latency_ms
         if completion.input_tokens is not None:
-            saw_input_tokens = True
-            total_input_tokens += completion.input_tokens
+            turn.saw_input_tokens = True
+            turn.total_input_tokens += completion.input_tokens
         if completion.output_tokens is not None:
-            saw_output_tokens = True
-            total_output_tokens += completion.output_tokens
-        self._history.append(ChatMessage(role="assistant", content=completion.text))
+            turn.saw_output_tokens = True
+            turn.total_output_tokens += completion.output_tokens
+
+    def _tool_turn_response(
+        self,
+        turn: PromptModelToolTurn,
+        completion: ProviderCompletion,
+    ) -> TargetResponse:
         return self._target_response(
-            last_completion,
-            latency_ms=total_latency,
-            input_tokens=total_input_tokens if saw_input_tokens else None,
-            output_tokens=total_output_tokens if saw_output_tokens else None,
-            tool_traces=traces,
+            completion,
+            latency_ms=turn.total_latency_ms,
+            input_tokens=(turn.total_input_tokens if turn.saw_input_tokens else None),
+            output_tokens=(turn.total_output_tokens if turn.saw_output_tokens else None),
+            tool_traces=turn.traces,
         )
 
     def _target_response(
@@ -237,3 +309,6 @@ class PromptModelTarget:
                 "tool_calls": [item.model_dump() for item in traces],
             },
         )
+
+
+__all__ = ["PromptModelConfig", "PromptModelTarget", "PromptModelToolTurn"]
