@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Annotated, cast
 
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -9,6 +10,7 @@ from fastapi.security import OAuth2PasswordBearer
 
 from echo_masque.auth import AuthContext, AuthenticatedUser, AuthService
 from echo_masque.config import Settings
+from echo_masque.providers.trace import provider_trace_scope
 from echo_masque.security_controls import QuotaExceeded, QuotaService
 
 _oauth2 = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
@@ -68,10 +70,10 @@ def optional_auth_context(
     return None
 
 
-def current_auth_context(
+async def current_auth_context(
     request: Request,
     context: Annotated[AuthContext | None, Depends(optional_auth_context)],
-) -> AuthContext:
+) -> AsyncIterator[AuthContext]:
     if context is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -83,7 +85,8 @@ def current_auth_context(
             quota_service(request).consume_request(context.user.id)
         except QuotaExceeded as exc:
             raise quota_http_exception(exc) from exc
-    return context
+    with provider_trace_scope(owner_id=context.user.id):
+        yield context
 
 
 def current_user(

@@ -9,6 +9,7 @@ import {
 } from "./deploymentApi";
 import { PaperDrawer } from "./NotebookUI";
 import { ServerStickerDictionary } from "./ServerStickerDictionary";
+import { browserTimezone, serverRuntimeApi } from "./serverRuntimeApi";
 
 interface Props {
   connections: PlatformConnection[];
@@ -69,6 +70,7 @@ export function DiscordServerProfilesPanel({
   const [claimGuildId, setClaimGuildId] = useState("");
   const [guildId, setGuildId] = useState("");
   const [profileName, setProfileName] = useState("");
+  const [serverTimezone, setServerTimezone] = useState(browserTimezone());
   const [excludedChannels, setExcludedChannels] = useState<Set<string>>(new Set());
   const [excludedCategories, setExcludedCategories] = useState<Set<string>>(new Set());
 
@@ -97,6 +99,7 @@ export function DiscordServerProfilesPanel({
     setGuildId(nextServer?.guild_id ?? "");
     setClaimGuildId("");
     setProfileName("");
+    setServerTimezone(browserTimezone());
     setExcludedChannels(new Set());
     setExcludedCategories(new Set());
     setDrawerTab("settings");
@@ -107,15 +110,22 @@ export function DiscordServerProfilesPanel({
     setDrawerOpen(true);
   }
 
-  function openEdit(profile: DiscordServerProfile) {
+  async function openEdit(profile: DiscordServerProfile) {
     setEditing(profile);
     setConnectionId(profile.connection_id);
     setGuildId(profile.guild_id);
     setProfileName(profile.name);
+    setServerTimezone(browserTimezone());
     setExcludedChannels(new Set(profile.excluded_channel_ids));
     setExcludedCategories(new Set(profile.excluded_category_ids));
     setDrawerTab("settings");
     setDrawerOpen(true);
+    try {
+      const runtime = await serverRuntimeApi.getTimezone(profile.id);
+      setServerTimezone(runtime.timezone);
+    } catch (reason) {
+      onError(reason instanceof Error ? reason.message : String(reason));
+    }
   }
 
   function closeDrawer() {
@@ -157,7 +167,6 @@ export function DiscordServerProfilesPanel({
     if (editing && !profileName.trim()) return;
     if (!editing && !claimGuildId.trim()) return;
     const guildName = selectedServer?.guild_name ?? editing?.guild_name ?? "";
-    const serverGuildId = selectedServer?.guild_id ?? editing?.guild_id ?? "";
     try {
       setWorking(true);
       onError("");
@@ -173,6 +182,7 @@ export function DiscordServerProfilesPanel({
             guild_id: claimGuildId.trim(),
             name: profileName.trim()
           });
+      await serverRuntimeApi.updateTimezone(saved.id, serverTimezone.trim());
       closeDrawer();
       onSelectProfile(saved.id);
       await onChanged();
@@ -221,8 +231,8 @@ export function DiscordServerProfilesPanel({
             </h2>
             <p>
               {zh
-                ? "Deployment、Interaction、Session 与 Sticker 都会自动限制在当前 Server。"
-                : "Deployments, interactions, sessions, and Stickers are scoped automatically to this Server."}
+                ? "Deployment、Interaction、Session、Sticker 与时间语义都会自动限制在当前 Server。"
+                : "Deployments, interactions, sessions, Stickers, and time semantics are scoped automatically to this Server."}
             </p>
           </div>
           {!demoMode && (
@@ -236,15 +246,15 @@ export function DiscordServerProfilesPanel({
                   >
                     {zh ? "查看 Server 日志" : "View Server logs"}
                   </button>
-                  <button className="paper-button" onClick={() => openEdit(selectedProfile)}>
+                  <button
+                    className="paper-button"
+                    onClick={() => void openEdit(selectedProfile)}
+                  >
                     {zh ? "编辑 Server" : "Edit Server"}
                   </button>
                 </>
               )}
-              <button
-                className="ink-button"
-                onClick={openNew}
-              >
+              <button className="ink-button" onClick={openNew}>
                 {zh ? "+ 添加 Server" : "+ Add Server"}
               </button>
             </div>
@@ -343,8 +353,8 @@ export function DiscordServerProfilesPanel({
                 <p>
                   {editing
                     ? zh
-                      ? "Server 身份由 Connector 同步；这里只调整名称、Channel 范围与 Sticker 语义。"
-                      : "The Connector owns Server identity; edit only its label, Channel scope, and Sticker meanings."
+                      ? "Server 身份由 Connector 同步；这里调整名称、默认时区、Channel 范围与 Sticker 语义。"
+                      : "The Connector owns Server identity; edit its label, default timezone, Channel scope, and Sticker meanings here."
                     : zh
                       ? "先把 Character Relay Bot 加入 Discord Server，再输入该 Server ID 认领到当前账号。"
                       : "Add the Character Relay Bot to Discord first, then enter the Server ID to claim it for this account."}
@@ -386,27 +396,25 @@ export function DiscordServerProfilesPanel({
                     <small>{connections.find((item) => item.id === editing.connection_id)?.display_name}</small>
                   </div>
                 ) : (
-                  <>
-                    <label className="drawer-form-wide">
-                      {zh ? "Discord Server ID" : "Discord Server ID"}
-                      <input
-                        value={claimGuildId}
-                        onChange={(event) =>
-                          setClaimGuildId(event.currentTarget.value.replace(/\D+/gu, ""))
-                        }
-                        required
-                        inputMode="numeric"
-                        pattern="[0-9]+"
-                        maxLength={200}
-                        placeholder="123456789012345678"
-                      />
-                      <small>
-                        {zh
-                          ? "只会精确查找这个 ID。其他账号无法看到 Super Admin 的完整 Server 清单。"
-                          : "Only this exact ID is checked. Other accounts cannot browse the Super Admin Server catalog."}
-                      </small>
-                    </label>
-                  </>
+                  <label className="drawer-form-wide">
+                    Discord Server ID
+                    <input
+                      value={claimGuildId}
+                      onChange={(event) =>
+                        setClaimGuildId(event.currentTarget.value.replace(/\D+/gu, ""))
+                      }
+                      required
+                      inputMode="numeric"
+                      pattern="[0-9]+"
+                      maxLength={200}
+                      placeholder="123456789012345678"
+                    />
+                    <small>
+                      {zh
+                        ? "只会精确查找这个 ID。其他账号无法看到 Super Admin 的完整 Server 清单。"
+                        : "Only this exact ID is checked. Other accounts cannot browse the Super Admin Server catalog."}
+                    </small>
+                  </label>
                 )}
 
                 <label className={editing ? "drawer-form-wide" : ""}>
@@ -418,6 +426,33 @@ export function DiscordServerProfilesPanel({
                     maxLength={120}
                     placeholder={zh ? "例如：私人 Companion Server" : "e.g. Private companion server"}
                   />
+                </label>
+
+                <label className="drawer-form-wide">
+                  {zh ? "默认时区" : "Default timezone"}
+                  <input
+                    value={serverTimezone}
+                    onChange={(event) => setServerTimezone(event.currentTarget.value)}
+                    required
+                    maxLength={120}
+                    list="server-timezone-options"
+                    placeholder="Asia/Kuala_Lumpur"
+                  />
+                  <datalist id="server-timezone-options">
+                    <option value="Asia/Kuala_Lumpur" />
+                    <option value="Asia/Singapore" />
+                    <option value="Asia/Tokyo" />
+                    <option value="Asia/Shanghai" />
+                    <option value="Europe/London" />
+                    <option value="America/New_York" />
+                    <option value="America/Los_Angeles" />
+                    <option value="UTC" />
+                  </datalist>
+                  <small>
+                    {zh
+                      ? "使用 IANA 时区。未特别说明地点时，角色回答时间、Current Time Tool 与 Reminder 都以这个时区为准。"
+                      : "Use an IANA timezone. Unqualified time answers, Current Time, and Reminder scheduling all use this timezone."}
+                  </small>
                 </label>
 
                 <section className="server-channel-picker drawer-form-wide">

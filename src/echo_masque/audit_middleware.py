@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from contextlib import AbstractContextManager, nullcontext
+
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
@@ -9,6 +12,8 @@ from starlette.types import ASGIApp
 
 from echo_masque.auth import AuthContext
 from echo_masque.persistence import AuthRepository
+from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
+from echo_masque.providers.trace import provider_trace_scope
 
 _DELETE_PREFIXES = (
     "/api/characters/",
@@ -17,6 +22,7 @@ _DELETE_PREFIXES = (
     "/api/experiments/",
     "/api/matrices/",
 )
+_DISCORD_MESSAGE_PATH = "/api/connectors/discord/messages"
 
 
 class SensitiveAuditMiddleware(BaseHTTPMiddleware):
@@ -29,7 +35,13 @@ class SensitiveAuditMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: RequestResponseEndpoint,
     ) -> Response:
-        response = await call_next(request)
+        trace_scope: AbstractContextManager[None] = nullcontext()
+        if request.method == "POST" and request.url.path == _DISCORD_MESSAGE_PATH:
+            trace_scope = await self._discord_trace_scope(request)
+
+        with trace_scope:
+            response = await call_next(request)
+
         if response.status_code >= 400:
             return response
         context = getattr(request.state, "auth_context", None)
@@ -54,3 +66,30 @@ class SensitiveAuditMiddleware(BaseHTTPMiddleware):
                 metadata={"method": request.method, "path": path},
             )
         return response
+
+    @staticmethod
+    async def _discord_trace_scope(request: Request) -> AbstractContextManager[None]:
+        """Resolve connector-owned trace scope without trusting model-provided identifiers."""
+
+        try:
+            payload = json.loads((await request.body()).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return nullcontext()
+        if not isinstance(payload, dict):
+            return nullcontext()
+        deployment_id = str(payload.get("deployment_id", "")).strip()
+        if not deployment_id:
+            return nullcontext()
+
+        database = getattr(request.app.state, "database", None)
+        if database is None:
+            return nullcontext()
+        with database.session() as session:
+            deployment = session.get(CharacterDeploymentRecord, deployment_id)
+            if deployment is None:
+                return nullcontext()
+            return provider_trace_scope(
+                owner_id=deployment.owner_id,
+                deployment_id=deployment.id,
+                character_card_id=deployment.character_card_id,
+            )

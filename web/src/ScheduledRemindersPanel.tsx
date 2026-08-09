@@ -1,12 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useI18n } from "./i18n";
 import {
   schedulerApi,
   type ScheduledReminder,
+  type ScheduledReminderCounts,
   type ScheduledReminderStatus
 } from "./schedulerApi";
 import "./scheduled-reminders.css";
+
+const EMPTY_COUNTS: ScheduledReminderCounts = {
+  pending: 0,
+  processing: 0,
+  completed: 0,
+  failed: 0,
+  cancelled: 0
+};
 
 function statusLabel(status: ScheduledReminderStatus, zh: boolean): string {
   if (!zh) return status;
@@ -36,45 +45,108 @@ export function ScheduledRemindersPanel({
   const { language } = useI18n();
   const zh = language === "zh-CN";
   const [items, setItems] = useState<ScheduledReminder[]>([]);
+  const [counts, setCounts] = useState<ScheduledReminderCounts>(EMPTY_COUNTS);
   const [status, setStatus] = useState<ScheduledReminderStatus | "all">("all");
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [visible, setVisible] = useState(() => document.visibilityState === "visible");
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
+  const [pollCycle, setPollCycle] = useState(0);
+  const requestRef = useRef<AbortController | null>(null);
 
-  async function load() {
+  async function load(
+    targetCursor: string | null = cursor,
+    background = false
+  ) {
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
+    if (!background) setLoading(true);
     try {
-      setLoading(true);
-      const result = await schedulerApi.list({ status, limit: 200 });
+      const result = await schedulerApi.page({
+        status,
+        limit: 50,
+        cursor: targetCursor,
+        signal: controller.signal
+      });
+      if (controller.signal.aborted) return;
       setItems(result.items);
+      setCounts(result.counts);
+      setNextCursor(result.next_cursor);
       setError(null);
     } catch (reason) {
+      if (controller.signal.aborted) return;
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setLoading(false);
+      if (requestRef.current === controller) {
+        requestRef.current = null;
+        if (background) {
+          setPollCycle((current) => current + 1);
+        } else {
+          setLoading(false);
+        }
+      }
     }
   }
 
+  function resetAndLoad() {
+    setCursor(null);
+    setCursorHistory([]);
+    setNextCursor(null);
+    setPage(1);
+    void load(null);
+  }
+
+  function showOlder() {
+    if (!nextCursor) return;
+    setCursorHistory((current) => [...current, cursor]);
+    setCursor(nextCursor);
+    setPage((current) => current + 1);
+    void load(nextCursor);
+  }
+
+  function showNewer() {
+    const previous = cursorHistory.at(-1);
+    if (previous === undefined) return;
+    setCursorHistory((current) => current.slice(0, -1));
+    setCursor(previous);
+    setPage((current) => Math.max(1, current - 1));
+    void load(previous);
+  }
+
   useEffect(() => {
-    void load();
+    resetAndLoad();
   }, [status]);
 
   useEffect(() => {
-    if (!autoRefresh) return;
-    const timer = window.setInterval(() => void load(), 5000);
-    return () => window.clearInterval(timer);
-  }, [autoRefresh, status]);
-
-  const counts = useMemo(() => {
-    const result: Record<ScheduledReminderStatus, number> = {
-      pending: 0,
-      processing: 0,
-      completed: 0,
-      failed: 0,
-      cancelled: 0
+    const onVisibilityChange = () => {
+      setVisible(document.visibilityState === "visible");
     };
-    for (const item of items) result[item.status] += 1;
-    return result;
-  }, [items]);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      requestRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!autoRefresh || !visible || page !== 1) return;
+    const delay = counts.processing > 0 ? 5000 : counts.pending > 0 ? 10000 : 30000;
+    const timer = window.setTimeout(() => void load(null, true), delay);
+    return () => window.clearTimeout(timer);
+  }, [
+    autoRefresh,
+    visible,
+    page,
+    status,
+    counts.processing,
+    counts.pending,
+    pollCycle
+  ]);
 
   async function cancel(item: ScheduledReminder) {
     const confirmed = window.confirm(
@@ -85,7 +157,7 @@ export function ScheduledRemindersPanel({
     if (!confirmed) return;
     try {
       await schedulerApi.cancel(item.id);
-      await load();
+      await load(cursor);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
@@ -125,7 +197,7 @@ export function ScheduledRemindersPanel({
             <option value="cancelled">{zh ? "已取消" : "Cancelled"}</option>
           </select>
         </label>
-        <button type="button" className="paper-button" onClick={() => void load()}>
+        <button type="button" className="paper-button" onClick={() => void load(cursor)}>
           {loading ? (zh ? "读取中…" : "Loading…") : zh ? "刷新" : "Refresh"}
         </button>
         <label className="scheduled-reminders-auto-refresh">
@@ -134,8 +206,11 @@ export function ScheduledRemindersPanel({
             checked={autoRefresh}
             onChange={(event) => setAutoRefresh(event.currentTarget.checked)}
           />
-          {zh ? "每 5 秒刷新" : "Refresh every 5 seconds"}
+          {zh ? "自适应刷新（5–30 秒）" : "Adaptive refresh (5–30s)"}
         </label>
+        <span>
+          {zh ? `第 ${page} 页 · ${items.length} 条` : `Page ${page} · ${items.length} items`}
+        </span>
       </div>
 
       {status === "all" && (
@@ -150,7 +225,11 @@ export function ScheduledRemindersPanel({
       {error && <p className="error-note">{error}</p>}
 
       <div className="scheduled-reminders-list">
-        {!loading && items.length === 0 ? (
+        {loading && items.length === 0 ? (
+          <div className="scheduled-reminders-empty">
+            <strong>{zh ? "正在读取提醒…" : "Loading reminders…"}</strong>
+          </div>
+        ) : items.length === 0 ? (
           <div className="scheduled-reminders-empty">
             <strong>{zh ? "目前没有提醒记录" : "No reminder records"}</strong>
             <p>
@@ -160,56 +239,84 @@ export function ScheduledRemindersPanel({
             </p>
           </div>
         ) : (
-          items.map((item) => (
-            <article className="scheduled-reminder-card" key={item.id}>
-              <div className="scheduled-reminder-card-heading">
-                <div>
-                  <strong>{item.character_name}</strong>
-                  <small>{destination(item)}</small>
+          <>
+            {items.map((item) => (
+              <article className="scheduled-reminder-card" key={item.id}>
+                <div className="scheduled-reminder-card-heading">
+                  <div>
+                    <strong>{item.character_name}</strong>
+                    <small>{destination(item)}</small>
+                  </div>
+                  <span className={`scheduled-reminder-status reminder-${item.status}`}>
+                    {statusLabel(item.status, zh)}
+                  </span>
                 </div>
-                <span className={`scheduled-reminder-status reminder-${item.status}`}>
-                  {statusLabel(item.status, zh)}
-                </span>
-              </div>
-              <p className="scheduled-reminder-text">{item.reminder_text}</p>
-              <dl>
-                <div>
-                  <dt>{zh ? "计划时间" : "Scheduled"}</dt>
-                  <dd>{new Date(item.scheduled_at).toLocaleString()}</dd>
-                </div>
-                <div>
-                  <dt>{zh ? "建立时间" : "Created"}</dt>
-                  <dd>{new Date(item.created_at).toLocaleString()}</dd>
-                </div>
-                <div>
-                  <dt>{zh ? "尝试次数" : "Attempts"}</dt>
-                  <dd>{item.attempt_count}</dd>
-                </div>
-                <div>
-                  <dt>{zh ? "送达时间" : "Delivered"}</dt>
-                  <dd>{item.delivered_at ? new Date(item.delivered_at).toLocaleString() : "—"}</dd>
-                </div>
-              </dl>
-              {item.last_error && (
-                <p className="scheduled-reminder-error">
-                  <strong>{zh ? "最后错误：" : "Last error: "}</strong>
-                  {item.last_error}
-                </p>
-              )}
-              <footer>
-                <code>{item.id.slice(0, 12)}</code>
-                {!readOnly && ["pending", "processing"].includes(item.status) && (
-                  <button
-                    type="button"
-                    className="paper-button danger-text"
-                    onClick={() => void cancel(item)}
-                  >
-                    {zh ? "取消提醒" : "Cancel reminder"}
-                  </button>
+                <p className="scheduled-reminder-text">{item.reminder_text}</p>
+                <dl>
+                  <div>
+                    <dt>{zh ? "计划时间" : "Scheduled"}</dt>
+                    <dd>{new Date(item.scheduled_at).toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "建立时间" : "Created"}</dt>
+                    <dd>{new Date(item.created_at).toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "尝试次数" : "Attempts"}</dt>
+                    <dd>{item.attempt_count}</dd>
+                  </div>
+                  <div>
+                    <dt>{zh ? "送达时间" : "Delivered"}</dt>
+                    <dd>
+                      {item.delivered_at
+                        ? new Date(item.delivered_at).toLocaleString()
+                        : "—"}
+                    </dd>
+                  </div>
+                </dl>
+                {item.last_error && (
+                  <p className="scheduled-reminder-error">
+                    <strong>{zh ? "最后错误：" : "Last error: "}</strong>
+                    {item.last_error}
+                  </p>
                 )}
-              </footer>
-            </article>
-          ))
+                <footer>
+                  <code>{item.id.slice(0, 12)}</code>
+                  {!readOnly && ["pending", "processing"].includes(item.status) && (
+                    <button
+                      type="button"
+                      className="paper-button danger-text"
+                      onClick={() => void cancel(item)}
+                    >
+                      {zh ? "取消提醒" : "Cancel reminder"}
+                    </button>
+                  )}
+                </footer>
+              </article>
+            ))}
+            <nav
+              className="library-pagination"
+              style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 12 }}
+            >
+              <button
+                type="button"
+                className="paper-button"
+                disabled={cursorHistory.length === 0 || loading}
+                onClick={showNewer}
+              >
+                {zh ? "较新" : "Newer"}
+              </button>
+              <span>{page}</span>
+              <button
+                type="button"
+                className="paper-button"
+                disabled={!nextCursor || loading}
+                onClick={showOlder}
+              >
+                {zh ? "较旧" : "Older"}
+              </button>
+            </nav>
+          </>
         )}
       </div>
     </section>

@@ -7,13 +7,18 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import Select
 
 from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.database import Database
-from echo_masque.persistence.provider_trace_models import ProviderTraceRecord
+from echo_masque.persistence.provider_trace_models import (
+    ProviderTraceIndexRecord,
+    ProviderTraceRecord,
+)
 from echo_masque.provider_trace_classification import (
     ProviderTraceCategory,
     provider_trace_category,
+    provider_trace_tool_names,
 )
 
 
@@ -30,6 +35,7 @@ class ProviderTraceRepository:
         self.database = database
         self.retention_days = max(1, min(retention_days, 90))
         self.maximum_records = max(100, min(maximum_records, 10000))
+        self._backfill_indexes()
 
     def record_event(self, payload: dict[str, object]) -> None:
         trace_id = str(payload.get("trace_id", "")).strip()
@@ -55,7 +61,9 @@ class ProviderTraceRepository:
             record.trace_mode = str(payload.get("trace_mode", record.trace_mode or "summary"))
 
             if event == "provider.request":
-                record.status = "pending"
+                record.status = (
+                    "error" if self._payload_has_failed_tool_result(payload) else "pending"
+                )
                 record.request_model = str(payload.get("model", ""))
                 record.request_json = encoded
                 self._prune(session, now=now)
@@ -66,7 +74,11 @@ class ProviderTraceRepository:
                     retries[-20:], ensure_ascii=False, separators=(",", ":")
                 )
             elif event == "provider.response":
-                record.status = "succeeded"
+                record.status = (
+                    "error"
+                    if self._request_has_failed_tool_result(record.request_json)
+                    else "succeeded"
+                )
                 record.response_model = str(payload.get("response_model", ""))
                 record.response_json = encoded
                 record.status_code = self._optional_int(payload.get("status_code"))
@@ -79,7 +91,13 @@ class ProviderTraceRepository:
                 record.status_code = self._optional_int(payload.get("status_code"))
                 record.latency_ms = self._optional_int(payload.get("latency_ms"))
 
+            session.flush()
+            self._sync_index(session, record)
             session.commit()
+
+    def get_trace(self, trace_id: str) -> ProviderTraceRecord | None:
+        with self.database.session() as session:
+            return session.get(ProviderTraceRecord, trace_id)
 
     def list_traces(
         self,
@@ -89,10 +107,16 @@ class ProviderTraceRepository:
         model: str | None = None,
         trace_id: str | None = None,
         category: ProviderTraceCategory | None = None,
+        owner_id: str | None = None,
     ) -> list[ProviderTraceRecord]:
         bounded_limit = max(1, min(limit, 200))
         with self.database.session() as session:
             query = select(ProviderTraceRecord)
+            query = self._apply_index_filters(
+                query,
+                owner_id=owner_id,
+                category=category,
+            )
             if status:
                 query = query.where(ProviderTraceRecord.status == status)
             if model:
@@ -102,12 +126,7 @@ class ProviderTraceRepository:
             if trace_id:
                 query = query.where(ProviderTraceRecord.trace_id == trace_id)
             query = query.order_by(ProviderTraceRecord.created_at.desc())
-            if category is None:
-                return list(session.scalars(query.limit(bounded_limit)))
-            candidates = list(session.scalars(query.limit(self.maximum_records)))
-            return [item for item in candidates if self._category(item) == category][
-                :bounded_limit
-            ]
+            return list(session.scalars(query.limit(bounded_limit)))
 
     def list_traces_page(
         self,
@@ -118,10 +137,16 @@ class ProviderTraceRepository:
         model: str | None = None,
         trace_id: str | None = None,
         category: ProviderTraceCategory | None = None,
+        owner_id: str | None = None,
     ) -> tuple[list[ProviderTraceRecord], str | None]:
         bounded_limit = max(1, min(limit, 100))
         with self.database.session() as session:
             query = select(ProviderTraceRecord)
+            query = self._apply_index_filters(
+                query,
+                owner_id=owner_id,
+                category=category,
+            )
             if status:
                 query = query.where(ProviderTraceRecord.status == status)
             if model:
@@ -143,17 +168,14 @@ class ProviderTraceRepository:
                         ),
                     )
                 )
-            ordered = query.order_by(
-                ProviderTraceRecord.created_at.desc(),
-                ProviderTraceRecord.trace_id.desc(),
+            records = list(
+                session.scalars(
+                    query.order_by(
+                        ProviderTraceRecord.created_at.desc(),
+                        ProviderTraceRecord.trace_id.desc(),
+                    ).limit(bounded_limit + 1)
+                )
             )
-            if category is None:
-                records = list(session.scalars(ordered.limit(bounded_limit + 1)))
-            else:
-                candidates = list(session.scalars(ordered.limit(self.maximum_records)))
-                records = [item for item in candidates if self._category(item) == category][
-                    : bounded_limit + 1
-                ]
             has_more = len(records) > bounded_limit
             items = records[:bounded_limit]
             next_cursor = (
@@ -163,17 +185,147 @@ class ProviderTraceRepository:
             )
             return items, next_cursor
 
-    def clear(self) -> int:
+    def clear(self, *, owner_id: str | None = None) -> int:
         with self.database.session() as session:
-            result = session.execute(delete(ProviderTraceRecord))
+            if owner_id:
+                trace_ids = list(
+                    session.scalars(
+                        select(ProviderTraceIndexRecord.trace_id).where(
+                            ProviderTraceIndexRecord.owner_id == owner_id
+                        )
+                    )
+                )
+                if not trace_ids:
+                    return 0
+                session.execute(
+                    delete(ProviderTraceIndexRecord).where(
+                        ProviderTraceIndexRecord.trace_id.in_(trace_ids)
+                    )
+                )
+                result = session.execute(
+                    delete(ProviderTraceRecord).where(
+                        ProviderTraceRecord.trace_id.in_(trace_ids)
+                    )
+                )
+            else:
+                session.execute(delete(ProviderTraceIndexRecord))
+                result = session.execute(delete(ProviderTraceRecord))
             session.commit()
             return int(getattr(result, "rowcount", 0) or 0)
 
+    @staticmethod
+    def _apply_index_filters(
+        query: Select[tuple[ProviderTraceRecord]],
+        *,
+        owner_id: str | None,
+        category: ProviderTraceCategory | None,
+    ) -> Select[tuple[ProviderTraceRecord]]:
+        if owner_id is None and category is None:
+            return query
+        filtered = query.join(
+            ProviderTraceIndexRecord,
+            ProviderTraceIndexRecord.trace_id == ProviderTraceRecord.trace_id,
+        )
+        if owner_id is not None:
+            filtered = filtered.where(ProviderTraceIndexRecord.owner_id == owner_id)
+        if category is not None:
+            filtered = filtered.where(ProviderTraceIndexRecord.category == category)
+        return filtered
+
+    def _backfill_indexes(self) -> None:
+        with self.database.session() as session:
+            records = list(session.scalars(select(ProviderTraceRecord)))
+            for record in records:
+                if (
+                    record.status != "error"
+                    and self._request_has_failed_tool_result(record.request_json)
+                ):
+                    record.status = "error"
+                self._sync_index(session, record)
+            session.commit()
+
+    def _sync_index(self, session: Session, record: ProviderTraceRecord) -> None:
+        index = session.get(ProviderTraceIndexRecord, record.trace_id)
+        if index is None:
+            index = ProviderTraceIndexRecord(trace_id=record.trace_id)
+            session.add(index)
+        index.owner_id = self._scope_value(record, "owner_id")
+        index.deployment_id = self._scope_value(record, "deployment_id")
+        index.character_card_id = self._scope_value(record, "character_card_id")
+        index.category = provider_trace_category(record.request_json, record.response_json)
+        index.tool_names_json = json.dumps(
+            provider_trace_tool_names(record.request_json, record.response_json),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
+    @staticmethod
+    def _scope_value(record: ProviderTraceRecord, key: str) -> str:
+        for value in (record.request_json, record.response_json, record.error_json):
+            try:
+                decoded = json.loads(value)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(decoded, dict):
+                continue
+            candidate = decoded.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        return ""
+
+    @classmethod
+    def _request_has_failed_tool_result(cls, value: str) -> bool:
+        try:
+            decoded = json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            return False
+        return isinstance(decoded, dict) and cls._payload_has_failed_tool_result(decoded)
+
+    @classmethod
+    def _payload_has_failed_tool_result(cls, payload: dict[str, object]) -> bool:
+        latest = payload.get("latest_message")
+        if (
+            isinstance(latest, dict)
+            and latest.get("role") == "tool"
+            and cls._tool_content_failed(latest.get("content"))
+        ):
+            return True
+        messages = payload.get("messages")
+        if not isinstance(messages, list):
+            return False
+        return any(
+            isinstance(message, dict)
+            and message.get("role") == "tool"
+            and cls._tool_content_failed(message.get("content"))
+            for message in messages
+        )
+
+    @staticmethod
+    def _tool_content_failed(content: object) -> bool:
+        if not isinstance(content, str) or not content.strip():
+            return False
+        try:
+            decoded = json.loads(content)
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(decoded, dict):
+            return False
+        if decoded.get("ok") is False:
+            return True
+        status = decoded.get("status")
+        return isinstance(status, str) and status.casefold() in {"failed", "rejected", "error"}
+
     def _prune(self, session: Session, *, now: datetime) -> None:
         cutoff = now - timedelta(days=self.retention_days)
-        session.execute(
-            delete(ProviderTraceRecord).where(ProviderTraceRecord.created_at < cutoff)
+        expired_ids = list(
+            session.scalars(
+                select(ProviderTraceRecord.trace_id).where(
+                    ProviderTraceRecord.created_at < cutoff
+                )
+            )
         )
+        self._delete_ids(session, expired_ids)
+
         excess_ids = list(
             session.scalars(
                 select(ProviderTraceRecord.trace_id)
@@ -181,16 +333,20 @@ class ProviderTraceRepository:
                 .offset(self.maximum_records)
             )
         )
-        if excess_ids:
-            session.execute(
-                delete(ProviderTraceRecord).where(
-                    ProviderTraceRecord.trace_id.in_(excess_ids)
-                )
-            )
+        self._delete_ids(session, excess_ids)
 
     @staticmethod
-    def _category(record: ProviderTraceRecord) -> ProviderTraceCategory:
-        return provider_trace_category(record.request_json, record.response_json)
+    def _delete_ids(session: Session, trace_ids: list[str]) -> None:
+        if not trace_ids:
+            return
+        session.execute(
+            delete(ProviderTraceIndexRecord).where(
+                ProviderTraceIndexRecord.trace_id.in_(trace_ids)
+            )
+        )
+        session.execute(
+            delete(ProviderTraceRecord).where(ProviderTraceRecord.trace_id.in_(trace_ids))
+        )
 
     @staticmethod
     def _json_list(value: str) -> list[dict[str, object]]:

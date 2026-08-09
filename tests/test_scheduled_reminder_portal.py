@@ -1,9 +1,11 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
+from sqlalchemy import event
 
 from echo_masque.api import create_app
 from echo_masque.config import Settings
@@ -92,7 +94,7 @@ def create_deployment(client: TestClient) -> str:
     return str(deployment.json()["id"])
 
 
-def test_scheduler_portal_lists_and_cancels_real_reminder(tmp_path: Path) -> None:
+def test_scheduler_portal_lists_pages_and_cancels_real_reminders(tmp_path: Path) -> None:
     app = create_app(settings(tmp_path / "scheduler-portal.db"))
     client = TestClient(app)
     login(client)
@@ -109,18 +111,75 @@ def test_scheduler_portal_lists_and_cancels_real_reminder(tmp_path: Path) -> Non
         reminder_text="Time to join the meeting.",
         scheduled_at=datetime.now(UTC) + timedelta(hours=1),
     )
+    second = app.state.scheduled_reminder_repository.create(
+        owner_id=user.id,
+        deployment_id=deployment_id,
+        channel_id="channel-scheduler",
+        thread_id="",
+        target_user_id="discord-user-1",
+        reminder_text="Second reminder.",
+        scheduled_at=datetime.now(UTC) + timedelta(hours=2),
+    )
 
     listed = client.get("/api/scheduler/reminders", params={"status": "pending"})
     assert listed.status_code == 200, listed.text
     payload = listed.json()
-    assert len(payload["items"]) == 1
-    item = payload["items"][0]
-    assert item["id"] == record.id
-    assert item["deployment_id"] == deployment_id
-    assert item["character_name"] == "Reminder Character"
-    assert item["channel_name"] == "reminders"
-    assert item["status"] == "pending"
-    assert item["reminder_text"] == "Time to join the meeting."
+    assert {item["id"] for item in payload["items"]} == {record.id, second.id}
+    matching = next(item for item in payload["items"] if item["id"] == record.id)
+    assert matching["deployment_id"] == deployment_id
+    assert matching["character_name"] == "Reminder Character"
+    assert matching["channel_name"] == "reminders"
+    assert matching["status"] == "pending"
+    assert matching["reminder_text"] == "Time to join the meeting."
+
+    first_page = client.get(
+        "/api/scheduler/reminders/page",
+        params={"status": "pending", "limit": 1},
+    )
+    assert first_page.status_code == 200, first_page.text
+    first_payload = first_page.json()
+    assert len(first_payload["items"]) == 1
+    assert first_payload["counts"]["pending"] == 2
+    assert first_payload["has_more"] is True
+    assert first_payload["next_cursor"]
+
+    next_page = client.get(
+        "/api/scheduler/reminders/page",
+        params={
+            "status": "pending",
+            "limit": 1,
+            "cursor": first_payload["next_cursor"],
+        },
+    )
+    assert next_page.status_code == 200, next_page.text
+    assert len(next_page.json()["items"]) == 1
+    assert next_page.json()["items"][0]["id"] != first_payload["items"][0]["id"]
+
+    statements: list[str] = []
+
+    def before_cursor_execute(
+        _conn: Any,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: Any,
+    ) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    event.listen(app.state.database.engine, "before_cursor_execute", before_cursor_execute)
+    try:
+        rows, _, counts = app.state.scheduled_reminder_repository.list_portal_page(
+            owner_id=user.id,
+            status="pending",
+            limit=50,
+        )
+    finally:
+        event.remove(app.state.database.engine, "before_cursor_execute", before_cursor_execute)
+    assert len(rows) == 2
+    assert counts["pending"] == 2
+    assert len(statements) == 2
 
     cancelled = client.delete(f"/api/scheduler/reminders/{record.id}")
     assert cancelled.status_code == 200, cancelled.text

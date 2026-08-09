@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 
+from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
+from echo_masque.persistence.models import CharacterCardRecord
 from echo_masque.persistence.scheduled_reminder_models import ScheduledReminderRecord
 
 
@@ -16,6 +19,15 @@ def _utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+@dataclass(frozen=True)
+class ScheduledReminderPortalRow:
+    record: ScheduledReminderRecord
+    character_card_id: str
+    character_name: str
+    channel_name: str
+    thread_name: str
 
 
 class ScheduledReminderRepository:
@@ -91,6 +103,111 @@ class ScheduledReminderRepository:
                     ).limit(min(max(limit, 1), 250))
                 )
             )
+
+    def list_portal_page(
+        self,
+        *,
+        owner_id: str,
+        deployment_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> tuple[list[ScheduledReminderPortalRow], str | None, dict[str, int]]:
+        """List one account's reminders without per-row deployment/character lookups."""
+
+        bounded_limit = min(max(limit, 1), 250)
+        with self.database.session() as session:
+            base_conditions = [ScheduledReminderRecord.owner_id == owner_id]
+            if deployment_id:
+                base_conditions.append(
+                    ScheduledReminderRecord.deployment_id == deployment_id
+                )
+
+            count_rows = session.execute(
+                select(ScheduledReminderRecord.status, func.count())
+                .where(*base_conditions)
+                .group_by(ScheduledReminderRecord.status)
+            ).all()
+            counts = {str(raw_status): int(raw_count) for raw_status, raw_count in count_rows}
+
+            query = (
+                select(
+                    ScheduledReminderRecord,
+                    CharacterDeploymentRecord,
+                    CharacterCardRecord,
+                )
+                .outerjoin(
+                    CharacterDeploymentRecord,
+                    and_(
+                        CharacterDeploymentRecord.id
+                        == ScheduledReminderRecord.deployment_id,
+                        CharacterDeploymentRecord.owner_id
+                        == ScheduledReminderRecord.owner_id,
+                    ),
+                )
+                .outerjoin(
+                    CharacterCardRecord,
+                    and_(
+                        CharacterCardRecord.id
+                        == CharacterDeploymentRecord.character_card_id,
+                        CharacterCardRecord.owner_id
+                        == ScheduledReminderRecord.owner_id,
+                    ),
+                )
+                .where(*base_conditions)
+            )
+            if status:
+                query = query.where(ScheduledReminderRecord.status == status)
+            if cursor:
+                created_at, identifier = decode_time_cursor(cursor)
+                query = query.where(
+                    or_(
+                        ScheduledReminderRecord.created_at < created_at,
+                        and_(
+                            ScheduledReminderRecord.created_at == created_at,
+                            ScheduledReminderRecord.id < identifier,
+                        ),
+                    )
+                )
+
+            result_rows = session.execute(
+                query.order_by(
+                    ScheduledReminderRecord.created_at.desc(),
+                    ScheduledReminderRecord.id.desc(),
+                ).limit(bounded_limit + 1)
+            ).all()
+            has_more = len(result_rows) > bounded_limit
+            page_rows = result_rows[:bounded_limit]
+
+            rows: list[ScheduledReminderPortalRow] = []
+            for record, deployment, character in page_rows:
+                rows.append(
+                    ScheduledReminderPortalRow(
+                        record=record,
+                        character_card_id=(
+                            deployment.character_card_id if deployment is not None else ""
+                        ),
+                        character_name=(
+                            character.display_name if character is not None else "Character"
+                        ),
+                        channel_name=(
+                            deployment.channel_name if deployment is not None else ""
+                        ),
+                        thread_name=(
+                            deployment.thread_name if deployment is not None else ""
+                        ),
+                    )
+                )
+
+            next_cursor = (
+                encode_time_cursor(
+                    rows[-1].record.created_at,
+                    rows[-1].record.id,
+                )
+                if has_more and rows
+                else None
+            )
+            return rows, next_cursor, counts
 
     def list_for_deployment(
         self,

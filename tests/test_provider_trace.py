@@ -7,7 +7,10 @@ import httpx
 from pydantic import SecretStr
 
 from echo_masque.providers import ChatMessage, OpenAICompatibleProvider
-from echo_masque.providers.trace import configure_provider_trace_sink
+from echo_masque.providers.trace import (
+    configure_provider_trace_sink,
+    provider_trace_scope,
+)
 
 
 def test_provider_trace_uses_private_sink_without_process_logs(
@@ -42,16 +45,21 @@ def test_provider_trace_uses_private_sink_without_process_logs(
             api_key=SecretStr("deepseek-secret-key"),
             transport=httpx.MockTransport(handler),
         )
-        completion = asyncio.run(
-            provider.complete(
-                messages=(
-                    ChatMessage(role="system", content="PRIVATE SYSTEM PROMPT"),
-                    ChatMessage(role="user", content="Ning, are you there?"),
-                ),
-                model="deepseek-v4-flash",
-                temperature=0.4,
+        with provider_trace_scope(
+            owner_id="owner-1",
+            deployment_id="deployment-1",
+            character_card_id="character-1",
+        ):
+            completion = asyncio.run(
+                provider.complete(
+                    messages=(
+                        ChatMessage(role="system", content="PRIVATE SYSTEM PROMPT"),
+                        ChatMessage(role="user", content="Ning, are you there?"),
+                    ),
+                    model="deepseek-v4-flash",
+                    temperature=0.4,
+                )
             )
-        )
     finally:
         configure_provider_trace_sink(None)
 
@@ -63,6 +71,10 @@ def test_provider_trace_uses_private_sink_without_process_logs(
         "role": "user",
         "content": "Ning, are you there?",
     }
+    assert request_event["owner_id"] == "owner-1"
+    assert request_event["deployment_id"] == "deployment-1"
+    assert request_event["character_card_id"] == "character-1"
+    assert response_event["owner_id"] == "owner-1"
     assert "PRIVATE SYSTEM PROMPT" not in json.dumps(request_event)
     assert response_event["response_text"] == "Ning response from DeepSeek."
     serialized = json.dumps(events)

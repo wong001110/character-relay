@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AccountPanel } from "./AccountPanel";
 import type { AuthUser } from "./api";
 import { useI18n } from "./i18n";
 import { PaperModal } from "./NotebookUI";
+import { providerTraceApi } from "./providerTraceApi";
 import { ProviderTraceViewer } from "./ProviderTraceViewer";
 import { ScheduledRemindersPanel } from "./ScheduledRemindersPanel";
 
@@ -34,6 +35,22 @@ export function PortalToolbox({
   const zh = language === "zh-CN";
   const [open, setOpen] = useState(false);
   const [section, setSection] = useState<ToolboxSection>("actions");
+  const [providerTraceAllowed, setProviderTraceAllowed] = useState(false);
+
+  useEffect(() => {
+    if (user.role !== "admin" || publicDemo) {
+      setProviderTraceAllowed(false);
+      return;
+    }
+    const controller = new AbortController();
+    void providerTraceApi
+      .access(controller.signal)
+      .then(() => setProviderTraceAllowed(true))
+      .catch(() => {
+        if (!controller.signal.aborted) setProviderTraceAllowed(false);
+      });
+    return () => controller.abort();
+  }, [user.id, user.role, publicDemo]);
 
   function run(action: () => void) {
     setOpen(false);
@@ -99,7 +116,7 @@ export function PortalToolbox({
                 {zh ? "账户与安全" : "Account & security"}
               </button>
             )}
-            {user.role === "admin" && !publicDemo && (
+            {providerTraceAllowed && (
               <button
                 type="button"
                 className={section === "provider" ? "is-active" : ""}
@@ -189,7 +206,7 @@ export function PortalToolbox({
             />
           )}
 
-          {section === "provider" && user.role === "admin" && !publicDemo && (
+          {section === "provider" && providerTraceAllowed && !publicDemo && (
             <ProviderTraceViewer embedded onClose={() => setSection("actions")} />
           )}
         </PaperModal>

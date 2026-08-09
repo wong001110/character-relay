@@ -6,8 +6,10 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from echo_masque.api.dependencies import SuperAdminUserDependency
 from echo_masque.api.provider_trace_schemas import (
+    ProviderTraceAccessView,
     ProviderTraceClearResult,
     ProviderTracePage,
+    ProviderTraceSummary,
     ProviderTraceView,
 )
 from echo_masque.persistence import AuthRepository, ProviderTraceRepository
@@ -24,6 +26,12 @@ def auth_repository(request: Request) -> AuthRepository:
     return cast(AuthRepository, request.app.state.auth_repository)
 
 
+@router.get("/access", response_model=ProviderTraceAccessView)
+def provider_trace_access(user: SuperAdminUserDependency) -> ProviderTraceAccessView:
+    del user
+    return ProviderTraceAccessView()
+
+
 @router.get("", response_model=list[ProviderTraceView])
 def list_provider_traces(
     request: Request,
@@ -34,6 +42,7 @@ def list_provider_traces(
         alias="status",
     ),
     category: ProviderTraceCategory | None = None,
+    owner_id: str | None = Query(default=None, max_length=64),
     model: str | None = Query(default=None, max_length=200),
     trace_id: str | None = Query(default=None, max_length=64),
 ) -> list[ProviderTraceView]:
@@ -42,6 +51,7 @@ def list_provider_traces(
         limit=limit,
         status=status_filter,
         category=category,
+        owner_id=owner_id.strip() if owner_id else None,
         model=model.strip() if model else None,
         trace_id=trace_id.strip() if trace_id else None,
     )
@@ -59,6 +69,7 @@ def paginate_provider_traces(
         alias="status",
     ),
     category: ProviderTraceCategory | None = None,
+    owner_id: str | None = Query(default=None, max_length=64),
     model: str | None = Query(default=None, max_length=200),
     trace_id: str | None = Query(default=None, max_length=64),
 ) -> ProviderTracePage:
@@ -69,13 +80,14 @@ def paginate_provider_traces(
             cursor=cursor,
             status=status_filter,
             category=category,
+            owner_id=owner_id.strip() if owner_id else None,
             model=model.strip() if model else None,
             trace_id=trace_id.strip() if trace_id else None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return ProviderTracePage(
-        items=[ProviderTraceView.from_record(item) for item in records],
+        items=[ProviderTraceSummary.from_record(item) for item in records],
         next_cursor=next_cursor,
         has_more=next_cursor is not None,
     )
@@ -85,12 +97,27 @@ def paginate_provider_traces(
 def clear_provider_traces(
     request: Request,
     user: SuperAdminUserDependency,
+    owner_id: str | None = Query(default=None, max_length=64),
 ) -> ProviderTraceClearResult:
-    deleted = trace_repository(request).clear()
+    selected_owner = owner_id.strip() if owner_id else None
+    deleted = trace_repository(request).clear(owner_id=selected_owner)
     auth_repository(request).audit(
         actor_user_id=user.id,
         action="provider_traces.cleared",
         resource_type="provider_trace",
-        metadata={"deleted_count": deleted},
+        metadata={"deleted_count": deleted, "owner_id": selected_owner},
     )
     return ProviderTraceClearResult(deleted_count=deleted)
+
+
+@router.get("/{trace_id}", response_model=ProviderTraceView)
+def get_provider_trace(
+    trace_id: str,
+    request: Request,
+    user: SuperAdminUserDependency,
+) -> ProviderTraceView:
+    del user
+    record = trace_repository(request).get_trace(trace_id.strip())
+    if record is None:
+        raise HTTPException(status_code=404, detail="Provider Trace not found.")
+    return ProviderTraceView.from_record(record)

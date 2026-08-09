@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Literal
@@ -18,11 +20,52 @@ _DEFAULT_MAX_CHARS = 4000
 _TRACE_SINK: ProviderTraceSink | None = None
 
 
+@dataclass(frozen=True)
+class _ProviderTraceScope:
+    owner_id: str = ""
+    deployment_id: str = ""
+    character_card_id: str = ""
+
+
+_TRACE_SCOPE: ContextVar[_ProviderTraceScope | None] = ContextVar(
+    "provider_trace_scope",
+    default=None,
+)
+
+
 def configure_provider_trace_sink(sink: ProviderTraceSink | None) -> None:
     """Install the process-level private trace sink used by provider adapters."""
 
     global _TRACE_SINK
     _TRACE_SINK = sink
+
+
+@contextmanager
+def provider_trace_scope(
+    *,
+    owner_id: str | None = None,
+    deployment_id: str | None = None,
+    character_card_id: str | None = None,
+) -> Iterator[None]:
+    """Bind account/runtime identifiers to provider traces for the current async context."""
+
+    current = _TRACE_SCOPE.get() or _ProviderTraceScope()
+    scope = _ProviderTraceScope(
+        owner_id=owner_id.strip() if owner_id is not None else current.owner_id,
+        deployment_id=(
+            deployment_id.strip() if deployment_id is not None else current.deployment_id
+        ),
+        character_card_id=(
+            character_card_id.strip()
+            if character_card_id is not None
+            else current.character_card_id
+        ),
+    )
+    token = _TRACE_SCOPE.set(scope)
+    try:
+        yield
+    finally:
+        _TRACE_SCOPE.reset(token)
 
 
 def _trace_mode() -> ProviderTraceMode:
@@ -117,6 +160,9 @@ class ProviderTrace:
     endpoint: str
     model: str
     started_at: float
+    owner_id: str = ""
+    deployment_id: str = ""
+    character_card_id: str = ""
 
     @classmethod
     def start(
@@ -129,6 +175,7 @@ class ProviderTrace:
         available_tool_names: tuple[str, ...] = (),
     ) -> ProviderTrace:
         mode = _trace_mode()
+        scope = _TRACE_SCOPE.get() or _ProviderTraceScope()
         trace = cls(
             trace_id=str(uuid4()),
             mode=mode,
@@ -136,6 +183,9 @@ class ProviderTrace:
             endpoint=endpoint,
             model=model,
             started_at=perf_counter(),
+            owner_id=scope.owner_id,
+            deployment_id=scope.deployment_id,
+            character_card_id=scope.character_card_id,
         )
         if mode == "off":
             return trace
@@ -156,6 +206,7 @@ class ProviderTrace:
             "prior_tool_call_names": prior_tools,
             "tool_result_count": sum(1 for item in messages if item.role == "tool"),
             "trace_mode": mode,
+            **trace._scope_payload(),
         }
         event.update(_message_content(messages, mode=mode, maximum=trace.max_chars))
         _emit(event)
@@ -174,6 +225,7 @@ class ProviderTrace:
                 "reason": reason,
                 "status_code": status_code,
                 "trace_mode": self.mode,
+                **self._scope_payload(),
             }
         )
 
@@ -204,6 +256,7 @@ class ProviderTrace:
             "response_chars": len(text),
             "tool_call_names": list(dict.fromkeys(tool_call_names)),
             "trace_mode": self.mode,
+            **self._scope_payload(),
         }
         if self.mode in {"summary", "content"}:
             event["response_text"] = _preview(text, self.max_chars)
@@ -227,10 +280,18 @@ class ProviderTrace:
             "reason": reason,
             "latency_ms": round((perf_counter() - self.started_at) * 1000),
             "trace_mode": self.mode,
+            **self._scope_payload(),
         }
         if response_body and self.mode in {"summary", "content"}:
             event["response_body"] = _preview(response_body, self.max_chars)
         _emit(event)
+
+    def _scope_payload(self) -> dict[str, str]:
+        return {
+            "owner_id": self.owner_id,
+            "deployment_id": self.deployment_id,
+            "character_card_id": self.character_card_id,
+        }
 
 
 __all__ = [
@@ -238,4 +299,5 @@ __all__ = [
     "ProviderTraceMode",
     "ProviderTraceSink",
     "configure_provider_trace_sink",
+    "provider_trace_scope",
 ]
