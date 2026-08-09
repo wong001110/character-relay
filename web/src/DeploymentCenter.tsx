@@ -1316,6 +1316,15 @@ export function DeploymentCenter({
               <span>
                 {deployments.length} / {deploymentTotal}
               </span>
+              {!demoMode && (
+                <button
+                  className="ink-button"
+                  onClick={openNewDeployment}
+                  disabled={!cards.length || !selectedWorkspaceProfile}
+                >
+                  {zh ? "+ 新部署" : "+ New deployment"}
+                </button>
+              )}
             </div>
 
             <div className="deployment-filters">
