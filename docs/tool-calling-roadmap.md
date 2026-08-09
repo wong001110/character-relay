@@ -79,6 +79,8 @@ The LLM proposes. Runtime remains authority.
 
 The Tool loop remains bounded with `max_tool_rounds = 2`. After the configured rounds, Runtime makes a final model call without tools so a turn cannot become an unbounded agent loop. At most one side-effect Tool is allowed to complete in a single character turn.
 
+Tool-capable turns also receive an explicit **Tool execution integrity** rule: tools are real Runtime capabilities, not roleplay. A character should not claim a reminder, poll, or other external/write/future action succeeded unless the corresponding Tool returned a successful result in that turn. The persisted Runtime record / Tool trace remains the authoritative proof of execution.
+
 RAG remains an upstream Context Layer capability. A character should normally use supplied knowledge first; tools are for external/current information, deterministic utilities, random outcomes, file inspection, or explicit actions.
 
 ## Browser Capability
@@ -142,11 +144,13 @@ All browser and HTTP destinations pass a public-URL guard that rejects localhost
 - `discord.search_messages` ✅ — current Discord channel/thread only
 - `discord.create_poll` ✅ — current Discord channel/thread only
 
-`discord.search_messages` and `discord.create_poll` use the managed Discord Bot credential when configured:
+Discord Tools use the same managed Bot credential name as the Discord Connector:
 
 ```text
-ECHO_MASQUE_DISCORD_TOOL_BOT_TOKEN
+DISCORD_BOT_TOKEN
 ```
+
+In multi-service deployments such as Railway, expose the same shared/project variable to both the Character Relay API service and the Discord Connector service. The legacy `ECHO_MASQUE_DISCORD_TOOL_BOT_TOKEN` name is accepted only as a migration fallback.
 
 Discord Tool scope comes from Runtime, not model-provided guild/channel IDs. Poll creation rejects bot-triggered autonomous creation and requires an explicit human poll/vote request.
 
@@ -178,7 +182,9 @@ Reminders are persisted in SQLite and survive the current character turn / API r
 - relative `delay_seconds`; or
 - timezone-aware ISO-8601 `scheduled_at`.
 
-Reminder delivery is currently Discord-first. Webhook-mode deployments reuse the stored encrypted Character webhook binding. Bot-mode deployments use `ECHO_MASQUE_DISCORD_TOOL_BOT_TOKEN`. Failed delivery is retried with a bounded attempt count.
+Reminder delivery is currently Discord-first. Webhook-mode deployments reuse the stored encrypted Character webhook binding. Bot-mode deployments use the shared `DISCORD_BOT_TOKEN`. Failed delivery is retried with a bounded attempt count.
+
+Portal observability is available from **Portal Toolbox → Schedules / 提醒计划**. It shows the Character, destination, reminder text, scheduled/created/delivered time, status, attempt count, last error, and supports cancelling pending/processing reminders. A character merely saying “I will remind you” is not proof; a persisted reminder row in this viewer is the authority that `scheduler.remind` actually completed.
 
 ### Places
 
@@ -197,6 +203,16 @@ Reminder delivery is currently Discord-first. Webhook-mode deployments reuse the
 The maximum downloaded file size is 8 MiB. File contents are untrusted data and never become instructions. File inspection does **not** automatically persist a file into Knowledge/RAG.
 
 Permanent ingestion remains a separate Knowledge workflow.
+
+## Observability
+
+Provider Trace exposes a privacy-safe category for faster debugging:
+
+- `Tool Calling` — native Tool proposal/result rounds; exact Tool function names are shown when recorded.
+- `Character Turn` — normal Discord character-generation turns.
+- `Model Call` — other model calls that are not classified as the two categories above.
+
+The Portal Provider Trace viewer can filter by category and status. New native Tool Calling traces record available Tool names, actual proposed Tool names, prior Tool calls, and Tool-result count without persisting Tool arguments, Tool Result bodies, API keys, or authorization headers as classification metadata.
 
 ## Tool Calling V2 — Event-driven & Social Tools
 
