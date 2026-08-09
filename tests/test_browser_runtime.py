@@ -1,8 +1,15 @@
 import asyncio
+from typing import Any, cast
 
 import pytest
 
-from echo_masque.browser_runtime import BrowserCapabilityManager, BrowserRuntimeSettings
+from echo_masque.browser_runtime import (
+    BrowserCapabilityManager,
+    BrowserRuntimeSettings,
+    BrowserToolUnavailable,
+    _google_target_url,
+    _is_external_result_url,
+)
 from echo_masque.network_safety import PublicUrlGuard, PublicUrlRejected
 
 
@@ -43,3 +50,79 @@ def test_public_url_guard_caches_public_dns_and_blocks_private_targets() -> None
 
     asyncio.run(scenario())
     assert calls == 1
+
+
+def test_google_result_redirect_is_unwrapped_and_engine_links_are_rejected() -> None:
+    target = _google_target_url(
+        "/url?q=https%3A%2F%2Fexample.com%2Fnews%3Fa%3D1&sa=U"
+    )
+    assert target == "https://example.com/news?a=1"
+    assert _is_external_result_url(target) is True
+    assert _is_external_result_url("https://www.google.com/search?q=test") is False
+    assert _is_external_result_url("https://www.bing.com/search?q=test") is False
+
+
+def test_web_search_falls_back_from_google_to_bing_when_google_has_no_parsable_results() -> None:
+    class Manager(BrowserCapabilityManager):
+        async def _search_web_engine(
+            self,
+            page: Any,
+            engine: str,
+            query: str,
+            count: int,
+        ) -> list[dict[str, str]]:
+            del page, query, count
+            if engine == "google":
+                return []
+            return [
+                {
+                    "title": "DeepSeek news",
+                    "url": "https://example.com/deepseek",
+                    "snippet": "Latest news",
+                }
+            ]
+
+        async def _page_reports_no_results(self, page: Any) -> bool:
+            del page
+            return False
+
+    async def scenario() -> None:
+        manager = Manager()
+        engine, results, attempted = await manager._search_web_with_fallback(
+            cast(Any, object()),
+            "DeepSeek latest news",
+            5,
+        )
+        assert engine == "bing"
+        assert attempted == ["google", "bing"]
+        assert results[0]["title"] == "DeepSeek news"
+
+    asyncio.run(scenario())
+
+
+def test_web_search_does_not_report_ok_when_every_engine_is_unparsable() -> None:
+    class Manager(BrowserCapabilityManager):
+        async def _search_web_engine(
+            self,
+            page: Any,
+            engine: str,
+            query: str,
+            count: int,
+        ) -> list[dict[str, str]]:
+            del page, engine, query, count
+            return []
+
+        async def _page_reports_no_results(self, page: Any) -> bool:
+            del page
+            return False
+
+    async def scenario() -> None:
+        manager = Manager()
+        with pytest.raises(BrowserToolUnavailable, match="no usable results"):
+            await manager._search_web_with_fallback(
+                cast(Any, object()),
+                "DeepSeek latest news",
+                5,
+            )
+
+    asyncio.run(scenario())
