@@ -97,10 +97,11 @@ def test_scheduler_portal_lists_and_cancels_real_reminder(tmp_path: Path) -> Non
     client = TestClient(app)
     login(client)
     deployment_id = create_deployment(client)
-    user_id = app.state.auth_repository.get_by_email(EMAIL).id
+    user = app.state.auth_repository.get_user_by_email(EMAIL)
+    assert user is not None
 
     record = app.state.scheduled_reminder_repository.create(
-        owner_id=user_id,
+        owner_id=user.id,
         deployment_id=deployment_id,
         channel_id="channel-scheduler",
         thread_id="",
