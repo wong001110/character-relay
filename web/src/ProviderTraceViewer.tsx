@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { api, type AdminAccount } from "./api";
 import {
   providerTraceApi,
   type ProviderTraceCategory,
   type ProviderTraceStatus,
+  type ProviderTraceSummary,
   type ProviderTraceView
 } from "./providerTraceApi";
 import { useI18n } from "./i18n";
@@ -13,18 +15,14 @@ export function ProviderTraceAccessButton({ onOpen }: { onOpen: () => void }) {
   const [allowed, setAllowed] = useState(false);
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
     void providerTraceApi
-      .list({ limit: 1 })
-      .then(() => {
-        if (active) setAllowed(true);
-      })
+      .access(controller.signal)
+      .then(() => setAllowed(true))
       .catch(() => {
-        if (active) setAllowed(false);
+        if (!controller.signal.aborted) setAllowed(false);
       });
-    return () => {
-      active = false;
-    };
+    return () => controller.abort();
   }, []);
 
   if (!allowed) return null;
@@ -36,7 +34,7 @@ export function ProviderTraceAccessButton({ onOpen }: { onOpen: () => void }) {
 }
 
 function categoryLabel(category: ProviderTraceCategory, zh: boolean): string {
-  if (category === "tool_calling") return zh ? "Tool Calling" : "Tool Calling";
+  if (category === "tool_calling") return "Tool Calling";
   if (category === "character_turn") return zh ? "角色回合" : "Character Turn";
   return zh ? "模型调用" : "Model Call";
 }
@@ -50,13 +48,18 @@ export function ProviderTraceViewer({
 }) {
   const { language } = useI18n();
   const zh = language === "zh-CN";
-  const [traces, setTraces] = useState<ProviderTraceView[]>([]);
+  const [traces, setTraces] = useState<ProviderTraceSummary[]>([]);
+  const [accounts, setAccounts] = useState<AdminAccount[]>([]);
   const [status, setStatus] = useState<ProviderTraceStatus | "all">("all");
   const [category, setCategory] = useState<ProviderTraceCategory | "all">("all");
+  const [ownerId, setOwnerId] = useState("all");
   const [model, setModel] = useState("");
   const [appliedModel, setAppliedModel] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<ProviderTraceView | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [visible, setVisible] = useState(() => document.visibilityState === "visible");
   const [cursor, setCursor] = useState<string | null>(null);
   const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -64,20 +67,39 @@ export function ProviderTraceViewer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [pollCycle, setPollCycle] = useState(0);
+  const listRequestRef = useRef<AbortController | null>(null);
+  const detailRequestRef = useRef<AbortController | null>(null);
+
+  function accountLabel(value: string): string {
+    if (!value) return zh ? "系统 / 未归属" : "System / unscoped";
+    const account = accounts.find((item) => item.id === value);
+    if (!account) return value.slice(0, 12);
+    return account.display_name
+      ? `${account.display_name} · ${account.email}`
+      : account.email;
+  }
 
   async function load(
     targetCursor: string | null = cursor,
-    targetModel = appliedModel
+    targetModel = appliedModel,
+    background = false
   ) {
+    listRequestRef.current?.abort();
+    const controller = new AbortController();
+    listRequestRef.current = controller;
+    if (!background) setLoading(true);
     try {
-      setLoading(true);
       const next = await providerTraceApi.list({
         limit: 50,
         status,
         category,
+        ownerId: ownerId === "all" ? undefined : ownerId,
         model: targetModel,
-        cursor: targetCursor
+        cursor: targetCursor,
+        signal: controller.signal
       });
+      if (controller.signal.aborted) return;
       setTraces(next.items);
       setNextCursor(next.next_cursor);
       setSelectedId((current) =>
@@ -87,15 +109,24 @@ export function ProviderTraceViewer({
       );
       setError(null);
     } catch (reason) {
+      if (controller.signal.aborted) return;
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setLoading(false);
+      if (listRequestRef.current === controller) {
+        listRequestRef.current = null;
+        if (background) {
+          setPollCycle((current) => current + 1);
+        } else {
+          setLoading(false);
+        }
+      }
     }
   }
 
   function resetAndLoad(targetModel = appliedModel) {
     setCursor(null);
     setCursorHistory([]);
+    setNextCursor(null);
     setPage(1);
     void load(null, targetModel);
   }
@@ -124,32 +155,107 @@ export function ProviderTraceViewer({
   }
 
   useEffect(() => {
-    resetAndLoad();
-  }, [status, category]);
+    let active = true;
+    void api
+      .listAdminUsers()
+      .then((items) => {
+        if (active) setAccounts(items);
+      })
+      .catch(() => {
+        if (active) setAccounts([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
-    if (!autoRefresh) return;
-    const timer = window.setInterval(
-      () => void load(cursor, appliedModel),
-      5000
-    );
-    return () => window.clearInterval(timer);
-  }, [autoRefresh, status, category, appliedModel, cursor]);
+    resetAndLoad();
+  }, [status, category, ownerId]);
 
-  const selected = useMemo(
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      setVisible(document.visibilityState === "visible");
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      listRequestRef.current?.abort();
+      detailRequestRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!autoRefresh || !visible || page !== 1) return;
+    const delay = traces.some((item) => item.status === "pending") ? 5000 : 10000;
+    const timer = window.setTimeout(
+      () => void load(null, appliedModel, true),
+      delay
+    );
+    return () => window.clearTimeout(timer);
+  }, [
+    autoRefresh,
+    visible,
+    page,
+    status,
+    category,
+    ownerId,
+    appliedModel,
+    traces,
+    pollCycle
+  ]);
+
+  const selectedSummary = useMemo(
     () => traces.find((item) => item.trace_id === selectedId) ?? null,
     [selectedId, traces]
   );
 
+  useEffect(() => {
+    detailRequestRef.current?.abort();
+    setSelected(null);
+    if (!selectedId) {
+      setDetailLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    detailRequestRef.current = controller;
+    setDetailLoading(true);
+    void providerTraceApi
+      .detail(selectedId, controller.signal)
+      .then((detail) => {
+        if (!controller.signal.aborted) {
+          setSelected(detail);
+          setError(null);
+        }
+      })
+      .catch((reason) => {
+        if (!controller.signal.aborted) {
+          setError(reason instanceof Error ? reason.message : String(reason));
+        }
+      })
+      .finally(() => {
+        if (detailRequestRef.current === controller) {
+          detailRequestRef.current = null;
+          setDetailLoading(false);
+        }
+      });
+    return () => controller.abort();
+  }, [selectedId, selectedSummary?.updated_at]);
+
   async function clearAll() {
+    const selectedOwner = ownerId === "all" ? undefined : ownerId;
     const confirmed = window.confirm(
-      zh
-        ? "清除全部 Provider Trace？此操作无法撤销。"
-        : "Clear every provider trace? This cannot be undone."
+      selectedOwner
+        ? zh
+          ? `清除 ${accountLabel(selectedOwner)} 的 Provider Trace？此操作无法撤销。`
+          : `Clear Provider Traces for ${accountLabel(selectedOwner)}? This cannot be undone.`
+        : zh
+          ? "清除全部 Provider Trace？此操作无法撤销。"
+          : "Clear every provider trace? This cannot be undone."
     );
     if (!confirmed) return;
     try {
-      const result = await providerTraceApi.clear();
+      const result = await providerTraceApi.clear(selectedOwner);
       setMessage(
         zh
           ? `已清除 ${result.deleted_count} 条 Trace。`
@@ -157,6 +263,7 @@ export function ProviderTraceViewer({
       );
       setTraces([]);
       setSelectedId(null);
+      setSelected(null);
       setCursor(null);
       setCursorHistory([]);
       setNextCursor(null);
@@ -175,8 +282,8 @@ export function ProviderTraceViewer({
           <h1>{zh ? "Provider 请求与响应" : "Provider requests and responses"}</h1>
           <p>
             {zh
-              ? "私密 Trace 只保存在 Character Relay 数据库。现在可按 Tool Calling、角色回合与普通模型调用分类筛选。API Key 与 Authorization Header 不会被保存。"
-              : "Private traces stay in Character Relay. Filter them by Tool Calling, Character Turn, or general Model Call. API keys and Authorization headers are never stored."}
+              ? "Trace 只保存在 Character Relay 数据库。列表现在按账户与类型在服务器端筛选，详情只在选中时读取。API Key 与 Authorization Header 不会被保存。"
+              : "Traces stay in Character Relay. Lists are filtered by account and category on the server, while full payloads load only when selected. API keys and Authorization headers are never stored."}
           </p>
         </div>
         <div className="provider-trace-header-actions">
@@ -184,7 +291,9 @@ export function ProviderTraceViewer({
             {loading ? (zh ? "读取中…" : "Loading…") : zh ? "刷新" : "Refresh"}
           </button>
           <button type="button" className="paper-button danger-text" onClick={() => void clearAll()}>
-            {zh ? "清除全部" : "Clear all"}
+            {ownerId === "all"
+              ? zh ? "清除全部" : "Clear all"
+              : zh ? "清除此账户" : "Clear account"}
           </button>
           {!embedded && (
             <button type="button" className="ink-button" onClick={onClose}>
@@ -195,6 +304,17 @@ export function ProviderTraceViewer({
       </header>
 
       <section className="paper-sheet provider-trace-controls">
+        <label>
+          {zh ? "账户" : "Account"}
+          <select value={ownerId} onChange={(event) => setOwnerId(event.currentTarget.value)}>
+            <option value="all">{zh ? "全部账户" : "All accounts"}</option>
+            {accounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.display_name || account.email}
+              </option>
+            ))}
+          </select>
+        </label>
         <label>
           {zh ? "类型" : "Category"}
           <select
@@ -243,7 +363,7 @@ export function ProviderTraceViewer({
             checked={autoRefresh}
             onChange={(event) => setAutoRefresh(event.currentTarget.checked)}
           />
-          {zh ? "每 5 秒自动刷新" : "Refresh every 5 seconds"}
+          {zh ? "自适应刷新（5–10 秒）" : "Adaptive refresh (5–10s)"}
         </label>
         <span className="provider-trace-count">
           {zh ? `第 ${page} 页 · ${traces.length} 条` : `Page ${page} · ${traces.length} traces`}
@@ -286,6 +406,7 @@ export function ProviderTraceViewer({
                     </span>
                   </div>
                   <strong>{trace.request_model || "unknown model"}</strong>
+                  <small>{accountLabel(trace.owner_id)}</small>
                   {trace.tool_names.length > 0 && (
                     <small className="provider-trace-tool-names">
                       {trace.tool_names.join(" · ")}
@@ -326,7 +447,11 @@ export function ProviderTraceViewer({
         </aside>
 
         <section className="paper-sheet provider-trace-detail">
-          {!selected ? (
+          {detailLoading && !selected ? (
+            <div className="provider-trace-empty">
+              <strong>{zh ? "正在读取 Trace 详情…" : "Loading trace detail…"}</strong>
+            </div>
+          ) : !selected ? (
             <div className="provider-trace-empty">
               <strong>{zh ? "选择一条 Trace" : "Select a trace"}</strong>
             </div>
@@ -352,6 +477,7 @@ export function ProviderTraceViewer({
               </div>
 
               <dl className="provider-trace-meta">
+                <div><dt>Account</dt><dd>{accountLabel(selected.owner_id)}</dd></div>
                 <div><dt>Category</dt><dd>{categoryLabel(selected.category, zh)}</dd></div>
                 <div><dt>Endpoint</dt><dd>{selected.endpoint}</dd></div>
                 <div><dt>Trace mode</dt><dd>{selected.trace_mode}</dd></div>
@@ -360,6 +486,8 @@ export function ProviderTraceViewer({
                 <div><dt>Input tokens</dt><dd>{selected.input_tokens ?? "—"}</dd></div>
                 <div><dt>Output tokens</dt><dd>{selected.output_tokens ?? "—"}</dd></div>
                 <div><dt>Response model</dt><dd>{selected.response_model || "—"}</dd></div>
+                <div><dt>Deployment</dt><dd>{selected.deployment_id || "—"}</dd></div>
+                <div><dt>Character</dt><dd>{selected.character_card_id || "—"}</dd></div>
                 <div><dt>Created</dt><dd>{new Date(selected.created_at).toLocaleString()}</dd></div>
               </dl>
 

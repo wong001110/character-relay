@@ -1,31 +1,37 @@
 export type ProviderTraceStatus = "pending" | "succeeded" | "error";
 export type ProviderTraceCategory = "tool_calling" | "character_turn" | "model_call";
 
-export interface ProviderTracePage {
-  items: ProviderTraceView[];
-  next_cursor: string | null;
-  has_more: boolean;
-}
-
-export interface ProviderTraceView {
+export interface ProviderTraceSummary {
   trace_id: string;
   status: ProviderTraceStatus;
   category: ProviderTraceCategory;
   tool_names: string[];
+  owner_id: string;
+  deployment_id: string;
+  character_card_id: string;
   trace_mode: string;
   endpoint: string;
   request_model: string;
   response_model: string;
-  request: Record<string, unknown>;
-  retries: Array<Record<string, unknown>>;
-  response: Record<string, unknown>;
-  error: Record<string, unknown>;
   status_code: number | null;
   latency_ms: number | null;
   input_tokens: number | null;
   output_tokens: number | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProviderTracePage {
+  items: ProviderTraceSummary[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
+export interface ProviderTraceView extends ProviderTraceSummary {
+  request: Record<string, unknown>;
+  retries: Array<Record<string, unknown>>;
+  response: Record<string, unknown>;
+  error: Record<string, unknown>;
 }
 
 async function errorMessage(response: Response): Promise<string> {
@@ -53,13 +59,17 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const providerTraceApi = {
+  access: (signal?: AbortSignal) =>
+    request<{ allowed: boolean }>("/api/admin/provider-traces/access", { signal }),
   list: (options: {
     limit?: number;
     status?: ProviderTraceStatus | "all";
     category?: ProviderTraceCategory | "all";
+    ownerId?: string;
     model?: string;
     traceId?: string;
     cursor?: string | null;
+    signal?: AbortSignal;
   } = {}) => {
     const query = new URLSearchParams();
     query.set("limit", String(options.limit ?? 100));
@@ -69,15 +79,27 @@ export const providerTraceApi = {
     if (options.category && options.category !== "all") {
       query.set("category", options.category);
     }
+    if (options.ownerId?.trim()) query.set("owner_id", options.ownerId.trim());
     if (options.model?.trim()) query.set("model", options.model.trim());
     if (options.traceId?.trim()) query.set("trace_id", options.traceId.trim());
     if (options.cursor) query.set("cursor", options.cursor);
     return request<ProviderTracePage>(
-      `/api/admin/provider-traces/page?${query.toString()}`
+      `/api/admin/provider-traces/page?${query.toString()}`,
+      { signal: options.signal }
     );
   },
-  clear: () =>
-    request<{ deleted_count: number }>("/api/admin/provider-traces", {
+  detail: (traceId: string, signal?: AbortSignal) =>
+    request<ProviderTraceView>(
+      `/api/admin/provider-traces/${encodeURIComponent(traceId)}`,
+      { signal }
+    ),
+  clear: (ownerId?: string) => {
+    const selectedOwner = ownerId?.trim() ?? "";
+    const suffix = selectedOwner
+      ? `?owner_id=${encodeURIComponent(selectedOwner)}`
+      : "";
+    return request<{ deleted_count: number }>(`/api/admin/provider-traces${suffix}`, {
       method: "DELETE"
-    })
+    });
+  }
 };

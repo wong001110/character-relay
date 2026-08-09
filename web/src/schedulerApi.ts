@@ -29,6 +29,21 @@ export interface ScheduledReminderList {
   items: ScheduledReminder[];
 }
 
+export interface ScheduledReminderCounts {
+  pending: number;
+  processing: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
+}
+
+export interface ScheduledReminderPage {
+  items: ScheduledReminder[];
+  next_cursor: string | null;
+  has_more: boolean;
+  counts: ScheduledReminderCounts;
+}
+
 async function errorMessage(response: Response): Promise<string> {
   const raw = await response.text();
   try {
@@ -58,6 +73,7 @@ export const schedulerApi = {
     deploymentId?: string;
     status?: ScheduledReminderStatus | "all";
     limit?: number;
+    signal?: AbortSignal;
   } = {}) => {
     const query = new URLSearchParams({ limit: String(options.limit ?? 100) });
     if (options.deploymentId?.trim()) {
@@ -66,7 +82,30 @@ export const schedulerApi = {
     if (options.status && options.status !== "all") {
       query.set("status", options.status);
     }
-    return request<ScheduledReminderList>(`/api/scheduler/reminders?${query.toString()}`);
+    return request<ScheduledReminderList>(
+      `/api/scheduler/reminders?${query.toString()}`,
+      { signal: options.signal }
+    );
+  },
+  page: (options: {
+    deploymentId?: string;
+    status?: ScheduledReminderStatus | "all";
+    limit?: number;
+    cursor?: string | null;
+    signal?: AbortSignal;
+  } = {}) => {
+    const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+    if (options.deploymentId?.trim()) {
+      query.set("deployment_id", options.deploymentId.trim());
+    }
+    if (options.status && options.status !== "all") {
+      query.set("status", options.status);
+    }
+    if (options.cursor) query.set("cursor", options.cursor);
+    return request<ScheduledReminderPage>(
+      `/api/scheduler/reminders/page?${query.toString()}`,
+      { signal: options.signal }
+    );
   },
   cancel: (reminderId: string) =>
     request<ScheduledReminder>(

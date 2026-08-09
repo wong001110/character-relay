@@ -36,3 +36,18 @@ class ScheduledReminderView(BaseModel):
 
 class ScheduledReminderListView(BaseModel):
     items: list[ScheduledReminderView]
+
+
+class ScheduledReminderStatusCounts(BaseModel):
+    pending: int = 0
+    processing: int = 0
+    completed: int = 0
+    failed: int = 0
+    cancelled: int = 0
+
+
+class ScheduledReminderPage(BaseModel):
+    items: list[ScheduledReminderView]
+    next_cursor: str | None
+    has_more: bool
+    counts: ScheduledReminderStatusCounts

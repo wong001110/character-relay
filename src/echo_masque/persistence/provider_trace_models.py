@@ -1,4 +1,4 @@
-"""Persistence model for private model-provider traces."""
+"""Persistence models for private model-provider traces."""
 
 from datetime import datetime
 
@@ -28,6 +28,22 @@ class ProviderTraceRecord(Base):
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class ProviderTraceIndexRecord(Base):
+    """Query-efficient account and category metadata for one provider trace."""
+
+    __tablename__ = "provider_trace_indexes"
+
+    trace_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    deployment_id: Mapped[str] = mapped_column(String(64), default="")
+    character_card_id: Mapped[str] = mapped_column(String(64), default="")
+    category: Mapped[str] = mapped_column(String(32), default="model_call", index=True)
+    tool_names_json: Mapped[str] = mapped_column(Text, default="[]")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
