@@ -11,6 +11,7 @@ from echo_masque.api.provider_trace_schemas import (
     ProviderTraceView,
 )
 from echo_masque.persistence import AuthRepository, ProviderTraceRepository
+from echo_masque.provider_trace_classification import ProviderTraceCategory
 
 router = APIRouter(prefix="/api/admin/provider-traces", tags=["provider-traces"])
 
@@ -32,6 +33,7 @@ def list_provider_traces(
         default=None,
         alias="status",
     ),
+    category: ProviderTraceCategory | None = Query(default=None),
     model: str | None = Query(default=None, max_length=200),
     trace_id: str | None = Query(default=None, max_length=64),
 ) -> list[ProviderTraceView]:
@@ -39,6 +41,7 @@ def list_provider_traces(
     records = trace_repository(request).list_traces(
         limit=limit,
         status=status_filter,
+        category=category,
         model=model.strip() if model else None,
         trace_id=trace_id.strip() if trace_id else None,
     )
@@ -55,6 +58,7 @@ def paginate_provider_traces(
         default=None,
         alias="status",
     ),
+    category: ProviderTraceCategory | None = Query(default=None),
     model: str | None = Query(default=None, max_length=200),
     trace_id: str | None = Query(default=None, max_length=64),
 ) -> ProviderTracePage:
@@ -64,6 +68,7 @@ def paginate_provider_traces(
             limit=limit,
             cursor=cursor,
             status=status_filter,
+            category=category,
             model=model.strip() if model else None,
             trace_id=trace_id.strip() if trace_id else None,
         )
