@@ -77,6 +77,7 @@ class MediaUnderstandingService:
         self.singleflight = MediaAnalysisSingleFlight(repository)
         self._inflight: dict[str, asyncio.Task[tuple[MediaAnalysis, bool]]] = {}
         self._inflight_lock = asyncio.Lock()
+        self._cleanup_tasks: set[asyncio.Task[None]] = set()
 
     def _identity(self, asset: MediaAsset) -> str:
         return "|".join(
@@ -113,7 +114,9 @@ class MediaUnderstandingService:
         identity: str,
         completed: asyncio.Future[tuple[MediaAnalysis, bool]],
     ) -> None:
-        asyncio.create_task(self._clear_inflight(identity, completed))
+        cleanup = asyncio.create_task(self._clear_inflight(identity, completed))
+        self._cleanup_tasks.add(cleanup)
+        cleanup.add_done_callback(self._cleanup_tasks.discard)
 
     async def _clear_inflight(
         self,
@@ -171,7 +174,8 @@ class MediaUnderstandingService:
                     result_json=analysis.model_dump_json(),
                 ):
                     raise MediaUnderstandingUnavailable(
-                        "Media Analysis lease expired before the provider result could be committed."
+                        "Media Analysis lease expired before the provider result "
+                        "could be committed."
                     )
                 self.repository.purge_expired(limit=100)
                 return analysis, False
