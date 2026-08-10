@@ -48,6 +48,7 @@ class MediaAnalysisRepository:
                     MediaAnalysisRecord.analysis_version == analysis_version,
                     MediaAnalysisRecord.provider == provider,
                     MediaAnalysisRecord.model == model,
+                    MediaAnalysisRecord.status == "ready",
                     MediaAnalysisRecord.expires_at > current,
                 )
             )
@@ -89,7 +90,11 @@ class MediaAnalysisRepository:
                     analysis_version=analysis_version,
                     provider=provider,
                     model=model,
+                    status="ready",
                     result_json=result_json,
+                    lease_token=None,
+                    lease_expires_at=None,
+                    error=None,
                     created_at=current,
                     last_accessed_at=current,
                     expires_at=current + self.ttl,
@@ -97,7 +102,11 @@ class MediaAnalysisRepository:
                 session.add(record)
             else:
                 record.media_type = media_type
+                record.status = "ready"
                 record.result_json = result_json
+                record.lease_token = None
+                record.lease_expires_at = None
+                record.error = None
                 record.last_accessed_at = current
                 record.expires_at = current + self.ttl
             session.commit()
