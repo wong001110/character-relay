@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import SecretStr
 
@@ -19,6 +19,7 @@ from echo_masque.live_media import (
 )
 from echo_masque.media_runtime import MediaAnalysis, MediaAsset
 from echo_masque.platform_media import PlatformMediaResolution, YtDlpMediaResolver
+from echo_masque.provider_credentials import ResolvedProviderCredential
 from echo_masque.tool_external import ExternalToolFailed
 
 _ARTICLE_MAX_CHARS = 14_000
@@ -131,6 +132,44 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
                         "Platform media has transcript/metadata but no direct media URL."
                     )
         return await super()._resolve_public_media(source)
+
+    async def _analyze(
+        self,
+        asset: MediaAsset,
+        credential: ResolvedProviderCredential,
+    ) -> tuple[MediaAnalysis, bool]:
+        """Merge reusable yt-dlp transcript/metadata into objective visual analysis."""
+
+        analysis, cache_hit = await super()._analyze(asset, credential)
+        platform = self._platform_context.get(asset.media_key)
+        if platform is None or asset.media_type != "video":
+            return analysis, cache_hit
+
+        summary_parts = [value for value in (platform.title, analysis.summary) if value]
+        summary = " — ".join(dict.fromkeys(summary_parts))[:12_000]
+        visible_parts = [analysis.visible_text]
+        if platform.transcript:
+            language = f" ({platform.transcript_language})" if platform.transcript_language else ""
+            visible_parts.append(f"Transcript{language}:\n{platform.transcript}")
+        visible_text = "\n\n".join(value for value in visible_parts if value)[:16_000]
+        details = list(analysis.notable_details)
+        if platform.uploader:
+            details.append(f"Uploader: {platform.uploader}")
+        if platform.duration_seconds is not None:
+            details.append(f"Duration: {platform.duration_seconds}s")
+        if platform.transcript_source:
+            details.append(f"Transcript source: {platform.transcript_source}")
+        topics = tuple(dict.fromkeys([*analysis.topics, platform.platform]))
+        enhanced = MediaAnalysis(
+            summary=summary or analysis.summary,
+            visible_text=visible_text,
+            people=analysis.people,
+            objects=analysis.objects,
+            notable_details=tuple(dict.fromkeys(details)),
+            topics=topics,
+            tone=analysis.tone,
+        )
+        return enhanced, cache_hit
 
     async def _article_context(
         self,
@@ -289,41 +328,6 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
             "article",
             title or source.platform,
             analysis,
-        )
-
-    def _analysis_context(
-        self,
-        source_key: str,
-        kind: Literal["image", "video", "article"],
-        label: str,
-        analysis: MediaAnalysis,
-    ) -> LiveMediaContext:
-        base = super()._analysis_context(source_key, kind, label, analysis)
-        platform = self._platform_context.get(source_key)
-        if platform is None or kind != "video":
-            return base
-
-        summary_parts = [value for value in (platform.title, base.summary) if value]
-        summary = " — ".join(dict.fromkeys(summary_parts))[:12_000]
-        visible_parts = [base.visible_text]
-        if platform.transcript:
-            language = f" ({platform.transcript_language})" if platform.transcript_language else ""
-            visible_parts.append(f"Transcript{language}:\n{platform.transcript}")
-        visible_text = "\n\n".join(value for value in visible_parts if value)[:16_000]
-        details = list(base.notable_details)
-        if platform.uploader:
-            details.append(f"Uploader: {platform.uploader}")
-        if platform.duration_seconds is not None:
-            details.append(f"Duration: {platform.duration_seconds}s")
-        if platform.transcript_source:
-            details.append(f"Transcript source: {platform.transcript_source}")
-        return LiveMediaContext(
-            source_key=source_key,
-            kind="video",
-            label=platform.title or label,
-            summary=summary or base.summary,
-            visible_text=visible_text,
-            notable_details=tuple(dict.fromkeys(details))[:12],
         )
 
     @staticmethod
