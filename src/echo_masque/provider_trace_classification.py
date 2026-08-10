@@ -8,10 +8,12 @@ from typing import Literal, cast
 ProviderTraceCategory = Literal[
     "tool_calling",
     "character_turn",
+    "media_attention",
     "media_understanding",
     "model_call",
 ]
 _MEDIA_TRACE_MARKER = "[MEDIA_UNDERSTANDING]"
+_MEDIA_ATTENTION_MARKER = "[MEDIA_ATTENTION]"
 
 
 def _object(value: str) -> dict[str, object]:
@@ -101,6 +103,9 @@ def provider_trace_tool_names(request_json: str, response_json: str) -> list[str
 
 def provider_trace_category(request_json: str, response_json: str) -> ProviderTraceCategory:
     request = _object(request_json)
+    text = _request_text(request).strip()
+    if text.startswith(_MEDIA_ATTENTION_MARKER):
+        return "media_attention"
     if provider_trace_media_input(request_json):
         return "media_understanding"
 
@@ -113,7 +118,6 @@ def provider_trace_category(request_json: str, response_json: str) -> ProviderTr
     ):
         return "tool_calling"
 
-    text = _request_text(request)
     if (
         "real Discord group conversation through Character Relay" in text
         or "Return Smart Output now." in text
