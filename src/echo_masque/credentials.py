@@ -10,6 +10,7 @@ from pydantic import SecretStr
 
 from echo_masque.config import Settings
 from echo_masque.persistence.auth_repository import AuthRepository
+from echo_masque.persistence.key_group_repository import KeyGroupRepository
 
 _EPHEMERAL_DEVELOPMENT_KEY = Fernet.generate_key()
 
@@ -46,6 +47,7 @@ class CredentialVault(CredentialStore):
     """Persist credentials as authenticated ciphertext with key rotation support."""
 
     character_scope_kind = "character_provider"
+    key_group_scope_kind = "provider_key_group"
     runtime_scope_kind = "admin_runtime"
 
     def __init__(self, repository: AuthRepository, settings: Settings) -> None:
@@ -89,20 +91,50 @@ class CredentialVault(CredentialStore):
         )
 
     def get(self, owner_id: str, card_id: str) -> SecretStr | None:
-        return self.get_scope(
+        direct = self.get_scope(
             owner_id=owner_id,
             scope_kind=self.character_scope_kind,
             scope_id=card_id,
+        )
+        if direct is not None:
+            return direct
+        resolved = KeyGroupRepository(self.repository.database).resolve(
+            owner_id=owner_id,
+            character_card_id=card_id,
+            capability="character",
+        )
+        if resolved is None:
+            return None
+        return self.get_scope(
+            owner_id=owner_id,
+            scope_kind=self.key_group_scope_kind,
+            scope_id=resolved.group.id,
         )
 
     def has(self, owner_id: str, card_id: str) -> bool:
-        return self.has_scope(
+        if self.has_scope(
             owner_id=owner_id,
             scope_kind=self.character_scope_kind,
             scope_id=card_id,
+        ):
+            return True
+        resolved = KeyGroupRepository(self.repository.database).resolve(
+            owner_id=owner_id,
+            character_card_id=card_id,
+            capability="character",
+        )
+        return bool(
+            resolved
+            and self.has_scope(
+                owner_id=owner_id,
+                scope_kind=self.key_group_scope_kind,
+                scope_id=resolved.group.id,
+            )
         )
 
     def delete(self, owner_id: str, card_id: str) -> None:
+        """Delete only the per-card override; a Key Group assignment remains reusable."""
+
         self.delete_scope(
             owner_id=owner_id,
             scope_kind=self.character_scope_kind,
