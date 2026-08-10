@@ -136,9 +136,17 @@ class MediaAnalysisSingleFlight:
                 if existing.lease_expires_at is not None
                 else None
             )
-            if existing.status == "processing" and lease_expires is not None and lease_expires > current:
+            if (
+                existing.status == "processing"
+                and lease_expires is not None
+                and lease_expires > current
+            ):
                 return MediaAnalysisClaim("processing", existing)
-            if existing.status == "failed" and lease_expires is not None and lease_expires > current:
+            if (
+                existing.status == "failed"
+                and lease_expires is not None
+                and lease_expires > current
+            ):
                 return MediaAnalysisClaim("failed", existing)
 
             result = session.execute(
