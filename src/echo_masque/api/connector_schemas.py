@@ -240,6 +240,19 @@ class DiscordInteractionRunComplete(BaseModel):
     stop_reason: str = Field(default="", max_length=2000)
 
 
+class DiscordAttachmentContent(BaseModel):
+    """Attachment metadata supplied by the Discord Connector without raw bytes."""
+
+    attachment_id: str = Field(min_length=1, max_length=200)
+    url: str = Field(min_length=1, max_length=3000)
+    proxy_url: str = Field(default="", max_length=3000)
+    filename: str = Field(default="attachment", max_length=255)
+    content_type: str = Field(default="", max_length=160)
+    size_bytes: int | None = Field(default=None, ge=0, le=2_147_483_647)
+    width: int | None = Field(default=None, ge=0, le=100_000)
+    height: int | None = Field(default=None, ge=0, le=100_000)
+
+
 class DiscordContextMessage(BaseModel):
     message_id: str = Field(min_length=1, max_length=200)
     author_id: str = Field(min_length=1, max_length=200)
@@ -271,6 +284,7 @@ class DiscordInboundMessage(BaseModel):
     smart_candidate: bool = False
     author_is_bot: bool = False
     stickers: list[DiscordStickerContent] = Field(default_factory=list, max_length=3)
+    attachments: list[DiscordAttachmentContent] = Field(default_factory=list, max_length=10)
     available_characters: list[str] = Field(default_factory=list, max_length=30)
     mentionable_participants: list[DiscordActionParticipant] = Field(
         default_factory=list, max_length=20
