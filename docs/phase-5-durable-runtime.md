@@ -125,8 +125,19 @@ The slot is intentionally independent of Tool name and arguments. If a crash cau
 model turn to propose a different side-effect Tool or different arguments for the same Character
 step, Runtime treats that as `uncertain` rather than allowing a second external mutation.
 
+A Tool result with Runtime status `rejected` releases the durable claim. `rejected` means Runtime
+did not accept or complete the action, so the model may use corrected arguments in the same turn
+without the durability layer turning that ordinary Tool Calling V2 repair into an `uncertain`
+operation. A `failed` external mutation remains conservative and keeps its durable record.
+
+`character.invite` remains `side_effect=True` for the existing one-completed-side-effect-per-turn
+budget, but it is intentionally excluded from the persistent external-mutation ledger. It is a
+prompt-local coordination proposal backed by transient Runtime state, so a regenerated Character
+step must recreate that proposal rather than replay a persisted Tool result that cannot recreate
+the prompt-local invitation state.
+
 This preserves the existing Tool Calling V2 rule that at most one side-effect Tool may complete in
-a Character turn while extending it across retries and restarts.
+a Character turn while extending external mutations safely across retries and restarts.
 
 ## Discord delivery claim / acknowledgement
 
@@ -285,8 +296,10 @@ Runtime Trace Explorer correlation by operation_id
 
 - stable Social Turn `operation_id` for the same Discord source event;
 - stable per-Character `step_id` and generated-step replay;
-- one durable side-effect slot per Character step;
+- one durable external side-effect slot per Character step;
 - no duplicate side effect after changed regenerated Tool/arguments;
+- Runtime-rejected side effects release their claim so corrected Tool arguments may retry;
+- prompt-local `character.invite` stays outside the persistent external-mutation ledger;
 - delivery claim and idempotent acknowledgement;
 - delivery-claim crash becomes `uncertain` rather than duplicate resend;
 - startup resume of active Social Turn checkpoints;
