@@ -4,12 +4,16 @@ from collections.abc import Callable
 import httpx
 from pydantic import SecretStr
 
-from echo_masque.api.connector_schemas import DiscordInboundMessage
+from echo_masque.api.connector_schemas import (
+    DiscordAttachmentContent,
+    DiscordInboundMessage,
+)
 from echo_masque.live_media import (
     LiveMediaContext,
     LiveMediaContextService,
     media_prompt_guidance,
 )
+from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
 from echo_masque.live_media_scoped import KeyGroupScopedLiveMediaContextService
 from echo_masque.media_runtime import MediaAnalysis, MediaAsset
 from echo_masque.persistence import Database, MediaAnalysisRepository
@@ -139,6 +143,58 @@ def test_same_attachment_is_streamed_and_analyzed_once_across_characters() -> No
     assert media_repository.count() == 1
 
 
+def test_connector_supplied_attachment_works_without_backend_discord_token() -> None:
+    database = Database("sqlite://")
+    database.initialize()
+    media_repository = MediaAnalysisRepository(database)
+    calls = {"stream": 0, "provider": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "8.8.8.8"
+        calls["stream"] += 1
+        return httpx.Response(
+            200,
+            content=b"cat-picture",
+            headers={"content-type": "image/png"},
+        )
+
+    def provider_factory(_: ResolvedProviderCredential) -> FakeMediaProvider:
+        return FakeMediaProvider(
+            lambda: calls.__setitem__("provider", calls["provider"] + 1)
+        )
+
+    service = EnhancedLiveMediaContextService(
+        media_repository=media_repository,
+        credential_resolver=FakeCredentialResolver(),
+        discord_bot_token=None,
+        provider_factory=provider_factory,
+        http_transport=httpx.MockTransport(handler),
+    )
+    payload = inbound()
+    payload.attachments = [
+        DiscordAttachmentContent(
+            attachment_id="attachment-from-connector",
+            url="https://8.8.8.8/cat.png",
+            filename="cat.png",
+            content_type="image/png",
+            size_bytes=11,
+        )
+    ]
+
+    result = asyncio.run(
+        service.contexts_for_turn(
+            owner_id="owner-1",
+            character_card_id="a",
+            payload=payload,
+        )
+    )
+
+    assert result.status == "completed"
+    assert result.contexts[0].kind == "image"
+    assert result.contexts[0].summary.startswith("An orange cat")
+    assert calls == {"stream": 1, "provider": 1}
+
+
 def test_public_article_link_is_extracted_without_media_key_group() -> None:
     database = Database("sqlite://")
     database.initialize()
@@ -179,6 +235,70 @@ def test_public_article_link_is_extracted_without_media_key_group() -> None:
     assert result.contexts[0].summary == "Release notes"
     assert "shared media context" in result.contexts[0].visible_text
     assert result.contexts[0].source_key == "url:https://9.9.9.9/article"
+
+
+def test_article_uses_browser_fallback_when_http_page_is_not_useful() -> None:
+    database = Database("sqlite://")
+    database.initialize()
+    media_repository = MediaAnalysisRepository(database)
+
+    class NoCredentialResolver:
+        def resolve(self, **_: object) -> None:
+            return None
+
+    class FakeBrowser:
+        available = True
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def fetch_rendered_page(self, url: str, max_chars: int) -> dict[str, object]:
+            self.calls += 1
+            assert url == "https://9.9.9.9/question/123"
+            assert max_chars == 7000
+            return {
+                "ok": True,
+                "title": "Rendered Zhihu-style answer",
+                "text": "This is the readable rendered answer body after JavaScript execution.",
+            }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "9.9.9.9"
+        return httpx.Response(
+            200,
+            text="<html><body>Enable JavaScript</body></html>",
+            headers={"content-type": "text/html; charset=utf-8"},
+        )
+
+    browser = FakeBrowser()
+    service = EnhancedLiveMediaContextService(
+        media_repository=media_repository,
+        credential_resolver=NoCredentialResolver(),
+        discord_bot_token=None,
+        http_transport=httpx.MockTransport(handler),
+        browser_runtime=browser,  # type: ignore[arg-type]
+    )
+    result = asyncio.run(
+        service.contexts_for_turn(
+            owner_id="owner-1",
+            character_card_id="a",
+            payload=inbound(text="read https://9.9.9.9/question/123"),
+        )
+    )
+
+    assert browser.calls == 1
+    assert result.status == "completed"
+    assert result.contexts[0].summary == "Rendered Zhihu-style answer"
+    assert "JavaScript execution" in result.contexts[0].visible_text
+    assert (
+        media_repository.get(
+            media_key="url:https://9.9.9.9/question/123",
+            analysis_version="article-v2",
+            provider="content-extractor",
+            model="http-browser-v1",
+        )
+        is not None
+    )
 
 
 def test_media_prompt_guidance_marks_embedded_content_as_untrusted() -> None:

@@ -50,8 +50,37 @@ export interface DiscordSemanticParticipationResult {
   candidates: DiscordSemanticParticipationCandidate[];
 }
 
+interface ConnectorAttachment {
+  attachment_id: string;
+  url: string;
+  proxy_url: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number | null;
+  width: number | null;
+  height: number | null;
+}
+
+interface DiscordMessageApiAttachment {
+  id?: unknown;
+  url?: unknown;
+  proxy_url?: unknown;
+  filename?: unknown;
+  content_type?: unknown;
+  size?: unknown;
+  width?: unknown;
+  height?: unknown;
+}
+
+interface AttachmentCacheEntry {
+  expiresAt: number;
+  attachments: ConnectorAttachment[];
+}
+
 const RETRY_DELAYS_MS = [0, 1_000, 2_000, 4_000, 8_000, 15_000];
 const TRANSIENT_STATUS_CODES = new Set([502, 503, 504]);
+const DISCORD_API_BASE = "https://discord.com/api/v10";
+const ATTACHMENT_CACHE_MS = 5 * 60 * 1_000;
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -66,7 +95,20 @@ function errorDetail(error: unknown): string {
   return error.message;
 }
 
+function stringValue(value: unknown, maximum: number): string {
+  return typeof value === "string" ? value.trim().slice(0, maximum) : "";
+}
+
+function integerValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : null;
+}
+
 export class RelayClient {
+  private readonly attachmentCache = new Map<string, AttachmentCacheEntry>();
+  private readonly attachmentTasks = new Map<string, Promise<ConnectorAttachment[]>>();
+
   constructor(
     private readonly baseUrl: string,
     private readonly token: string,
@@ -294,13 +336,14 @@ export class RelayClient {
       payload: Omit<DiscordInboundMessage, "connection_id">;
     }
   ): Promise<DiscordSocialTurnStepReply> {
+    const payload = await this.withDiscordAttachments(request.payload);
     return this.request<DiscordSocialTurnStepReply>(
       "/api/connectors/discord/social-turns/step",
       {
         method: "POST",
         body: JSON.stringify({
           ...request,
-          payload: { connection_id: this.connectionId, ...request.payload }
+          payload: { connection_id: this.connectionId, ...payload }
         })
       }
     );
@@ -309,10 +352,100 @@ export class RelayClient {
   async processMessage(
     payload: Omit<DiscordInboundMessage, "connection_id">
   ): Promise<DiscordReply> {
+    const enriched = await this.withDiscordAttachments(payload);
     return this.request<DiscordReply>("/api/connectors/discord/messages", {
       method: "POST",
-      body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      body: JSON.stringify({ connection_id: this.connectionId, ...enriched })
     });
+  }
+
+  private async withDiscordAttachments<T extends Omit<DiscordInboundMessage, "connection_id">>(
+    payload: T
+  ): Promise<T & { attachments: ConnectorAttachment[] }> {
+    if (payload.author_is_bot) return { ...payload, attachments: [] };
+    const channelId = payload.thread_id || payload.channel_id;
+    if (!channelId || !payload.message_id) return { ...payload, attachments: [] };
+    const attachments = await this.discordAttachments(channelId, payload.message_id);
+    return { ...payload, attachments };
+  }
+
+  private async discordAttachments(
+    channelId: string,
+    messageId: string
+  ): Promise<ConnectorAttachment[]> {
+    const token = process.env.DISCORD_BOT_TOKEN?.trim();
+    if (!token) return [];
+    const cacheKey = `${channelId}:${messageId}`;
+    const now = Date.now();
+    const cached = this.attachmentCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) return cached.attachments;
+
+    let task = this.attachmentTasks.get(cacheKey);
+    if (!task) {
+      task = this.fetchDiscordAttachments(channelId, messageId, token);
+      this.attachmentTasks.set(cacheKey, task);
+    }
+    try {
+      const attachments = await task;
+      this.attachmentCache.set(cacheKey, {
+        expiresAt: now + ATTACHMENT_CACHE_MS,
+        attachments
+      });
+      if (this.attachmentCache.size > 1_000) {
+        for (const [key, value] of this.attachmentCache.entries()) {
+          if (value.expiresAt <= now) this.attachmentCache.delete(key);
+        }
+      }
+      return attachments;
+    } finally {
+      if (this.attachmentTasks.get(cacheKey) === task) {
+        this.attachmentTasks.delete(cacheKey);
+      }
+    }
+  }
+
+  private async fetchDiscordAttachments(
+    channelId: string,
+    messageId: string,
+    token: string
+  ): Promise<ConnectorAttachment[]> {
+    try {
+      const response = await fetch(
+        `${DISCORD_API_BASE}/channels/${channelId}/messages/${messageId}`,
+        {
+          signal: AbortSignal.timeout(8_000),
+          headers: {
+            Authorization: `Bot ${token}`,
+            Accept: "application/json"
+          }
+        }
+      );
+      if (!response.ok) return [];
+      const body = (await response.json()) as { attachments?: unknown };
+      if (!Array.isArray(body.attachments)) return [];
+      return body.attachments
+        .slice(0, 10)
+        .map((raw): ConnectorAttachment | null => {
+          if (!raw || typeof raw !== "object") return null;
+          const value = raw as DiscordMessageApiAttachment;
+          const attachmentId = stringValue(value.id, 200);
+          const url = stringValue(value.url, 3_000);
+          if (!attachmentId || !url) return null;
+          return {
+            attachment_id: attachmentId,
+            url,
+            proxy_url: stringValue(value.proxy_url, 3_000),
+            filename: stringValue(value.filename, 255) || "attachment",
+            content_type: stringValue(value.content_type, 160),
+            size_bytes: integerValue(value.size),
+            width: integerValue(value.width),
+            height: integerValue(value.height)
+          };
+        })
+        .filter((item): item is ConnectorAttachment => item !== null);
+    } catch {
+      return [];
+    }
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
