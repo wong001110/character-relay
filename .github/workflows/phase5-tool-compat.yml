@@ -1,0 +1,124 @@
+name: Phase 5 Tool Calling compatibility
+
+on:
+  push:
+    branches:
+      - agent/langgraph-phase-5-durable-runtime
+    paths:
+      - .github/workflows/phase5-tool-compat.yml
+
+permissions:
+  contents: write
+
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/langgraph-phase-5-durable-runtime
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Patch Tool durability compatibility
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path: str, old: str, new: str, count: int = 1) -> None:
+              target = Path(path)
+              text = target.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'marker not found in {path}: {old[:140]!r}')
+              target.write_text(text.replace(old, new, count), encoding='utf-8')
+
+          path = 'src/echo_masque/tool_runtime.py'
+          replace(
+              path,
+              '''    def complete_side_effect(\n        self,\n        *,\n        idempotency_key: str,\n        content: str,\n        trace: dict[str, object],\n    ) -> None: ...\n''',
+              '''    def complete_side_effect(\n        self,\n        *,\n        idempotency_key: str,\n        content: str,\n        trace: dict[str, object],\n    ) -> None: ...\n\n    def release_side_effect_claim(\n        self,\n        *,\n        idempotency_key: str,\n    ) -> None: ...\n''',
+          )
+          replace(
+              path,
+              '''        idempotency_key = ""\n        if (\n            registered.catalog.side_effect\n            and self.side_effect_store is not None\n            and context.operation_id\n            and context.step_id\n        ):\n''',
+              '''        idempotency_key = ""\n        durable_side_effect = (\n            registered.catalog.side_effect and tool_id != "character.invite"\n        )\n        if (\n            durable_side_effect\n            and self.side_effect_store is not None\n            and context.operation_id\n            and context.step_id\n        ):\n''',
+          )
+          replace(
+              path,
+              '''        if idempotency_key and self.side_effect_store is not None:\n            self.side_effect_store.complete_side_effect(\n                idempotency_key=idempotency_key,\n                content=result.content,\n                trace=result.trace.model_dump(),\n            )\n        return result\n''',
+              '''        if idempotency_key and self.side_effect_store is not None:\n            if result.trace.status == "rejected":\n                self.side_effect_store.release_side_effect_claim(\n                    idempotency_key=idempotency_key,\n                )\n            else:\n                self.side_effect_store.complete_side_effect(\n                    idempotency_key=idempotency_key,\n                    content=result.content,\n                    trace=result.trace.model_dump(),\n                )\n        return result\n''',
+          )
+
+          path = 'src/echo_masque/persistence/runtime_durability_repository.py'
+          replace(
+              path,
+              '''    def recover_interrupted(self) -> dict[str, int]:\n''',
+              '''    def release_side_effect_claim(self, *, idempotency_key: str) -> None:\n        with self.database.session() as session:\n            record = session.get(RuntimeSideEffectRecord, idempotency_key)\n            if record is None or record.status != "claimed":\n                return\n            session.delete(record)\n            session.commit()\n\n    def recover_interrupted(self) -> dict[str, int]:\n''',
+          )
+
+          path = 'tests/test_character_invite_tool.py'
+          target = Path(path)
+          text = target.read_text(encoding='utf-8')
+          text = text.replace(
+              'def execution_context(*, author_is_bot: bool = False) -> ToolExecutionContext:\n',
+              'def execution_context(\n'
+              '    *,\n'
+              '    author_is_bot: bool = False,\n'
+              '    operation_id: str = "",\n'
+              '    step_id: str = "",\n'
+              ') -> ToolExecutionContext:\n',
+              1,
+          )
+          text = text.replace(
+              '        initiator_user_id="member-1",\n    )\n',
+              '        initiator_user_id="member-1",\n'
+              '        operation_id=operation_id,\n'
+              '        step_id=step_id,\n'
+              '    )\n',
+              1,
+          )
+          text = text.replace(
+              'def registry(database: Database) -> ServerAwareToolRegistry:\n'
+              '    return ServerAwareToolRegistry(\n'
+              '        reminder_repository=ScheduledReminderRepository(database),\n'
+              '        condition_watch_repository=ConditionWatchRepository(database),\n'
+              '        condition_watch_enabled=True,\n'
+              '    )\n',
+              'def registry(\n'
+              '    database: Database,\n'
+              '    *,\n'
+              '    side_effect_store: object | None = None,\n'
+              ') -> ServerAwareToolRegistry:\n'
+              '    return ServerAwareToolRegistry(\n'
+              '        reminder_repository=ScheduledReminderRepository(database),\n'
+              '        condition_watch_repository=ConditionWatchRepository(database),\n'
+              '        condition_watch_enabled=True,\n'
+              '        side_effect_store=side_effect_store,\n'
+              '    )\n',
+              1,
+          )
+          insert_marker = '\n\ndef test_character_invite_records_safe_prompt_local_proposal'
+          support = '''\n\nclass RecordingSideEffectStore:\n    def __init__(self) -> None:\n        self.claims: list[tuple[str, str, str]] = []\n        self.released: list[str] = []\n        self.completed: list[str] = []\n\n    def claim_side_effect(\n        self,\n        *,\n        operation_id: str,\n        step_id: str,\n        deployment_id: str,\n        tool_id: str,\n        arguments_hash: str,\n    ) -> tuple[str, str, str, dict[str, object]]:\n        del operation_id, step_id, deployment_id\n        self.claims.append((tool_id, arguments_hash, f"slot-{len(self.claims) + 1}"))\n        return "granted", self.claims[-1][2], "", {}\n\n    def complete_side_effect(\n        self,\n        *,\n        idempotency_key: str,\n        content: str,\n        trace: dict[str, object],\n    ) -> None:\n        del content, trace\n        self.completed.append(idempotency_key)\n\n    def release_side_effect_claim(self, *, idempotency_key: str) -> None:\n        self.released.append(idempotency_key)\n\n\ndef reminder_call(reminder_text: str) -> ChatToolCall:\n    return ChatToolCall(\n        id="reminder-call",\n        function=ChatToolFunctionCall(\n            name="scheduler_remind",\n            arguments=json.dumps(\n                {\n                    "reminder_text": reminder_text,\n                    "delay_seconds": 30,\n                }\n            ),\n        ),\n    )\n'''
+          if insert_marker not in text:
+              raise SystemExit('invite test insertion marker not found')
+          text = text.replace(insert_marker, support + insert_marker, 1)
+          text += '''\n\ndef test_character_invite_does_not_use_durable_external_side_effect_slot(\n    tmp_path: Path,\n) -> None:\n    database = seed(tmp_path / "invite-durable-slot.db")\n    SmartOutputContext.from_payload(inbound(), character_name="Inviter")\n    store = RecordingSideEffectStore()\n\n    result = asyncio.run(\n        registry(database, side_effect_store=store).execute(\n            invite_call(),\n            enabled_tool_ids=("character.invite",),\n            context=execution_context(\n                operation_id="operation-1",\n                step_id="step-1",\n            ),\n        )\n    )\n\n    assert result.trace.status == "completed"\n    assert store.claims == []\n    assert store.released == []\n    assert store.completed == []\n\n\ndef test_rejected_durable_side_effect_releases_claim_for_corrected_retry(\n    tmp_path: Path,\n) -> None:\n    database = seed(tmp_path / "rejected-side-effect-release.db")\n    store = RecordingSideEffectStore()\n    runtime = registry(database, side_effect_store=store)\n    context = execution_context(operation_id="operation-2", step_id="step-2")\n\n    rejected = asyncio.run(\n        runtime.execute(\n            reminder_call(""),\n            enabled_tool_ids=("scheduler.remind",),\n            context=context,\n        )\n    )\n    assert rejected.trace.status == "rejected"\n    assert len(store.claims) == 1\n    assert store.released == ["slot-1"]\n    assert store.completed == []\n\n    corrected = asyncio.run(\n        runtime.execute(\n            reminder_call("现在可以提醒你了。"),\n            enabled_tool_ids=("scheduler.remind",),\n            context=context,\n        )\n    )\n    assert corrected.trace.status == "completed"\n    assert len(store.claims) == 2\n    assert store.completed == ["slot-2"]\n'''
+          target.write_text(text, encoding='utf-8')
+          PY
+      - name: Validate compatibility patch
+        run: |
+          python -m pip install -e '.[dev]'
+          ruff check --fix src/echo_masque tests/test_character_invite_tool.py tests/test_runtime_durability.py
+          ruff check src/echo_masque tests/test_character_invite_tool.py tests/test_runtime_durability.py
+          mypy src/echo_masque
+          pytest -q tests/test_character_invite_tool.py tests/test_runtime_durability.py tests/test_prompt_model_tool_calling.py
+      - name: Remove targeted workflow
+        run: git rm .github/workflows/phase5-tool-compat.yml
+      - name: Commit Tool compatibility patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: preserve Tool Calling retries under durability"
+          git push origin HEAD:agent/langgraph-phase-5-durable-runtime
