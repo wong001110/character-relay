@@ -16,6 +16,26 @@ function graphLabel(graph: RuntimeGraphName): string {
   return "Social Turn";
 }
 
+function nodeDescription(nodeName: string, zh: boolean): string {
+  const descriptions: Record<string, [string, string]> = {
+    turn_resolve: ["解析 Discord 消息、Deployment、Character Card 与 Target", "Resolve the Discord message, deployment, Character Card, and target"],
+    turn_context: ["建立最近对话、RAG / Context 与 Smart Output 上下文", "Build recent conversation, RAG/context, and Smart Output context"],
+    turn_model: ["执行角色模型回合；Media Context 会在模型调用前注入", "Run the Character model step; Media Context is injected immediately before the model call"],
+    turn_tool: ["执行 Runtime 授权的 Tool Calling", "Execute Runtime-authorized Tool Calling"],
+    turn_resolve_output: ["解析 / 修复 Smart Output", "Parse or repair Smart Output"],
+    turn_authorize: ["Runtime 做最终权限与输出授权", "Apply final Runtime authorization"],
+    turn_complete: ["结束当前 Character Turn", "Complete the Character Turn"],
+    resolve: ["解析当前运行输入", "Resolve the current runtime input"],
+    context: ["建立当前运行上下文", "Build runtime context"],
+    model: ["调用模型", "Invoke the model"],
+    tool: ["执行 Tool", "Execute a Tool"],
+    output: ["整理输出", "Resolve output"],
+    complete: ["完成运行", "Complete the run"]
+  };
+  const value = descriptions[nodeName];
+  return value ? value[zh ? 0 : 1] : zh ? "Runtime 执行节点" : "Runtime execution node";
+}
+
 export function RuntimeTraceViewer({ onClose }: { onClose: () => void }) {
   const { language } = useI18n();
   const zh = language === "zh-CN";
@@ -143,11 +163,16 @@ export function RuntimeTraceViewer({ onClose }: { onClose: () => void }) {
       <header className="provider-trace-header">
         <div>
           <p className="kicker">LANGGRAPH / DURABLE RUNTIME</p>
-          <h1>{zh ? "Runtime Trace Explorer" : "Runtime Trace Explorer"}</h1>
+          <h1>Runtime Trace Explorer</h1>
           <p>
             {zh
-              ? "查看 Condition Watch、Character Turn 与 Social Turn 的隐私安全节点轨迹、operation_id 与恢复状态。这里不会保存 Prompt、RAG 原文、Credential、Tool 参数或 Tool Result。"
-              : "Inspect privacy-safe node transitions, operation IDs, and recovery state for Condition Watch, Character Turn, and Social Turn. Prompts, RAG content, credentials, Tool arguments, and Tool results are not stored here."}
+              ? "把这里当成一轮 Character Relay 执行的 Timeline：从解析消息、建立 Context、执行模型 / Tool，到授权输出。它回答的是“这一轮按什么顺序走过哪些 Runtime 节点”。Provider Trace 则回答“其中实际向哪些外部模型发了请求”。因此一条 Runtime Trace 可以对应多条 Provider Trace。"
+              : "Treat this as the timeline for one Character Relay execution: message resolution, context building, model/Tool execution, and output authorization. It answers which Runtime nodes ran and in what order. Provider Trace answers which external model requests were actually made inside that run, so one Runtime Trace can correspond to multiple Provider Traces."}
+          </p>
+          <p>
+            {zh
+              ? "为了隐私与稳定性，这里只保存节点状态与有限 metadata，不保存完整 Prompt、RAG 原文、Credential、Tool 参数或 Tool Result。Media Understanding 的实际 Vision request/response 请到 Provider Trace → 媒体理解查看；如果命中 Media cache，则不会产生新的 Provider Trace。"
+              : "For privacy and durability this stores only node state and bounded metadata, not full prompts, RAG text, credentials, Tool arguments, or Tool results. Inspect Provider Trace → Media Understanding for the actual Vision request/response. A Media cache hit does not create a new Provider Trace."}
           </p>
         </div>
         <div className="provider-trace-header-actions">
@@ -273,9 +298,9 @@ export function RuntimeTraceViewer({ onClose }: { onClose: () => void }) {
 
         <article className="paper-sheet provider-trace-detail">
           {!selectedSummary ? (
-            <p>{zh ? "选择一个 Graph Run 查看节点。" : "Select a graph run to inspect its nodes."}</p>
+            <p>{zh ? "选择一个 Graph Run 查看执行 Timeline。" : "Select a graph run to inspect its execution timeline."}</p>
           ) : !selected ? (
-            <p>{zh ? "正在读取节点轨迹…" : "Loading node trace…"}</p>
+            <p>{zh ? "正在读取节点 Timeline…" : "Loading node timeline…"}</p>
           ) : (
             <>
               <div className="provider-trace-detail-heading">
@@ -291,18 +316,19 @@ export function RuntimeTraceViewer({ onClose }: { onClose: () => void }) {
                 <div><dt>operation_id</dt><dd>{selected.operation_id || "—"}</dd></div>
                 <div><dt>deployment</dt><dd>{selected.deployment_id || "—"}</dd></div>
                 <div><dt>character_card</dt><dd>{selected.character_card_id || "—"}</dd></div>
-                <div><dt>{zh ? "节点数" : "Events"}</dt><dd>{selected.event_count}</dd></div>
+                <div><dt>{zh ? "Timeline 事件" : "Timeline events"}</dt><dd>{selected.event_count}</dd></div>
               </dl>
               <div className="provider-trace-json-stack">
                 {selected.events.map((event) => (
                   <section key={event.id} className="provider-trace-json-card">
                     <div className="provider-trace-badge-row">
-                      <strong>{event.node_name}</strong>
+                      <strong>#{event.sequence} · {event.node_name}</strong>
                       <span className={`provider-trace-status trace-${event.status}`}>{event.status}</span>
                     </div>
+                    <p>{nodeDescription(event.node_name, zh)}</p>
                     <small>{event.node_kind} · {formatPortalTimestamp(event.created_at, zh)}</small>
                     {event.changed_keys.length > 0 && (
-                      <p>{zh ? "Changed" : "Changed"}: {event.changed_keys.join(" · ")}</p>
+                      <p>{zh ? "State changed" : "State changed"}: {event.changed_keys.join(" · ")}</p>
                     )}
                     {event.metadata.length > 0 && (
                       <p>{event.metadata.map(([key, value]) => `${key}=${value}`).join(" · ")}</p>
