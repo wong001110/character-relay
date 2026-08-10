@@ -1,4 +1,4 @@
-"""Invitation, account, role, audit, and workspace-claim endpoints."""
+"""Invitation, account, role, audit, workspace-claim, and Key Group endpoints."""
 
 from __future__ import annotations
 
@@ -6,8 +6,9 @@ from datetime import UTC, datetime
 from typing import Literal, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from echo_masque.account_lifecycle import (
     AccountLifecycleService,
@@ -19,7 +20,19 @@ from echo_masque.api.dependencies import (
     SuperAdminUserDependency,
 )
 from echo_masque.auth import SYSTEM_RUNTIME_USER_ID
-from echo_masque.persistence import AuthRepository, Database, WorkspaceRepository
+from echo_masque.credentials import CredentialVault, CredentialVaultUnavailable
+from echo_masque.persistence import (
+    AuthRepository,
+    Database,
+    KeyGroupRepository,
+    Repository,
+    WorkspaceRepository,
+)
+from echo_masque.persistence.key_group_models import (
+    CharacterKeyGroupAssignmentRecord,
+    ProviderKeyGroupRecord,
+)
+from echo_masque.persistence.key_group_repository import default_models
 from echo_masque.persistence.models import (
     AuditEventRecord,
     InvitationRecord,
@@ -33,6 +46,7 @@ from echo_masque.workspace import WorkspaceArchive
 
 router = APIRouter(tags=["accounts"])
 _ACCOUNT_SECURITY_LIMIT = 10
+KeyGroupCapability = Literal["character", "media", "image_generation"]
 
 
 class InvitationCreate(BaseModel):
@@ -159,6 +173,59 @@ class SyntheticTestPurgeResult(BaseModel):
     user_ids: list[str]
 
 
+class ProviderKeyGroupCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    provider: str = Field(min_length=1, max_length=80)
+    base_url: str = Field(default="", max_length=500)
+    api_key: SecretStr
+    default_models: dict[KeyGroupCapability, str] = Field(default_factory=dict)
+
+
+class ProviderKeyGroupUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    provider: str = Field(min_length=1, max_length=80)
+    base_url: str = Field(default="", max_length=500)
+    api_key: SecretStr | None = None
+    default_models: dict[KeyGroupCapability, str] = Field(default_factory=dict)
+
+
+class ProviderKeyGroupView(BaseModel):
+    id: str
+    name: str
+    provider: str
+    base_url: str
+    default_models: dict[str, str]
+    credential_configured: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class KeyGroupAssignmentConfigure(BaseModel):
+    key_group_id: str = Field(min_length=1, max_length=64)
+    model_override: str | None = Field(default=None, max_length=200)
+
+
+class KeyGroupAssignmentView(BaseModel):
+    character_card_id: str
+    capability: KeyGroupCapability
+    key_group_id: str
+    key_group_name: str
+    provider: str
+    base_url: str
+    model_override: str | None
+    effective_model: str
+
+
+class KeyGroupBulkApply(BaseModel):
+    character_card_ids: list[str] = Field(min_length=1, max_length=100)
+    capabilities: list[KeyGroupCapability] = Field(min_length=1, max_length=3)
+    model_overrides: dict[KeyGroupCapability, str] = Field(default_factory=dict)
+
+
+class KeyGroupBulkApplyResult(BaseModel):
+    applied: int
+
+
 def lifecycle_service(request: Request) -> AccountLifecycleService:
     return cast(AccountLifecycleService, request.app.state.account_lifecycle_service)
 
@@ -175,8 +242,73 @@ def database(request: Request) -> Database:
     return cast(Database, request.app.state.database)
 
 
+def character_repository(request: Request) -> Repository:
+    return cast(Repository, request.app.state.repository)
+
+
+def key_group_repository(request: Request) -> KeyGroupRepository:
+    return KeyGroupRepository(database(request))
+
+
+def credential_vault(request: Request) -> CredentialVault:
+    store = request.app.state.credential_store
+    if not isinstance(store, CredentialVault):
+        raise HTTPException(status_code=503, detail="Encrypted Credential Vault is unavailable.")
+    return store
+
+
 def synthetic_test_accounts(request: Request) -> SyntheticTestAccountService:
     return SyntheticTestAccountService(database(request), lifecycle_service(request))
+
+
+def _key_group_view(
+    request: Request,
+    user_id: str,
+    record: ProviderKeyGroupRecord,
+) -> ProviderKeyGroupView:
+    return ProviderKeyGroupView(
+        id=record.id,
+        name=record.name,
+        provider=record.provider,
+        base_url=record.base_url,
+        default_models=default_models(record),
+        credential_configured=credential_vault(request).has_scope(
+            owner_id=user_id,
+            scope_kind=CredentialVault.key_group_scope_kind,
+            scope_id=record.id,
+        ),
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
+
+
+def _assignment_view(
+    request: Request,
+    user_id: str,
+    record: CharacterKeyGroupAssignmentRecord,
+) -> KeyGroupAssignmentView:
+    resolved = key_group_repository(request).resolve(
+        owner_id=user_id,
+        character_card_id=record.character_card_id,
+        capability=record.capability,
+    )
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="Key Group assignment is no longer valid.")
+    return KeyGroupAssignmentView(
+        character_card_id=record.character_card_id,
+        capability=cast(KeyGroupCapability, record.capability),
+        key_group_id=resolved.group.id,
+        key_group_name=resolved.group.name,
+        provider=resolved.group.provider,
+        base_url=resolved.group.base_url,
+        model_override=record.model_override,
+        effective_model=resolved.model,
+    )
+
+
+def _require_owned_character(request: Request, owner_id: str, card_id: str) -> None:
+    if character_repository(request).get_character_card(card_id, owner_id) is None:
+        raise HTTPException(status_code=404, detail="Character Card not found.")
 
 
 @router.post(
@@ -372,6 +504,243 @@ def claim_local_workspace(
     except LifecycleConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return LifecycleResult(affected=affected)
+
+
+@router.get("/api/account/key-groups", response_model=list[ProviderKeyGroupView])
+def list_provider_key_groups(
+    request: Request,
+    user: CurrentUserDependency,
+) -> list[ProviderKeyGroupView]:
+    return [
+        _key_group_view(request, user.id, item)
+        for item in key_group_repository(request).list_groups(user.id)
+    ]
+
+
+@router.post(
+    "/api/account/key-groups",
+    response_model=ProviderKeyGroupView,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_provider_key_group(
+    payload: ProviderKeyGroupCreate,
+    request: Request,
+    user: CurrentUserDependency,
+) -> ProviderKeyGroupView:
+    repo = key_group_repository(request)
+    try:
+        record = repo.create_group(
+            owner_id=user.id,
+            name=payload.name,
+            provider=payload.provider,
+            base_url=payload.base_url,
+            default_models=payload.default_models,
+        )
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="A Key Group with this name already exists.") from exc
+    try:
+        credential_vault(request).set_scope(
+            owner_id=user.id,
+            scope_kind=CredentialVault.key_group_scope_kind,
+            scope_id=record.id,
+            value=payload.api_key,
+            actor_user_id=user.id,
+            resource_type="provider_key_group",
+        )
+    except CredentialVaultUnavailable as exc:
+        repo.delete_group(owner_id=user.id, group_id=record.id)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    auth_repository(request).audit(
+        actor_user_id=user.id,
+        action="provider_key_group.created",
+        resource_type="provider_key_group",
+        resource_id=record.id,
+        metadata={"provider": record.provider},
+    )
+    return _key_group_view(request, user.id, record)
+
+
+@router.put("/api/account/key-groups/{group_id}", response_model=ProviderKeyGroupView)
+def update_provider_key_group(
+    group_id: str,
+    payload: ProviderKeyGroupUpdate,
+    request: Request,
+    user: CurrentUserDependency,
+) -> ProviderKeyGroupView:
+    repo = key_group_repository(request)
+    if repo.get_group(user.id, group_id) is None:
+        raise HTTPException(status_code=404, detail="Key Group not found.")
+    if payload.api_key is not None:
+        try:
+            credential_vault(request).set_scope(
+                owner_id=user.id,
+                scope_kind=CredentialVault.key_group_scope_kind,
+                scope_id=group_id,
+                value=payload.api_key,
+                actor_user_id=user.id,
+                resource_type="provider_key_group",
+            )
+        except CredentialVaultUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        record = repo.update_group(
+            owner_id=user.id,
+            group_id=group_id,
+            name=payload.name,
+            provider=payload.provider,
+            base_url=payload.base_url,
+            default_models=payload.default_models,
+        )
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="A Key Group with this name already exists.") from exc
+    if record is None:
+        raise HTTPException(status_code=404, detail="Key Group not found.")
+    auth_repository(request).audit(
+        actor_user_id=user.id,
+        action="provider_key_group.updated",
+        resource_type="provider_key_group",
+        resource_id=group_id,
+        metadata={"provider": record.provider},
+    )
+    return _key_group_view(request, user.id, record)
+
+
+@router.delete("/api/account/key-groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_provider_key_group(
+    group_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+) -> None:
+    repo = key_group_repository(request)
+    if not repo.delete_group(owner_id=user.id, group_id=group_id):
+        raise HTTPException(status_code=404, detail="Key Group not found.")
+    credential_vault(request).delete_scope(
+        owner_id=user.id,
+        scope_kind=CredentialVault.key_group_scope_kind,
+        scope_id=group_id,
+        actor_user_id=user.id,
+        resource_type="provider_key_group",
+    )
+    auth_repository(request).audit(
+        actor_user_id=user.id,
+        action="provider_key_group.deleted",
+        resource_type="provider_key_group",
+        resource_id=group_id,
+    )
+
+
+@router.get(
+    "/api/account/key-groups/assignments/{card_id}",
+    response_model=list[KeyGroupAssignmentView],
+)
+def list_key_group_assignments(
+    card_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+) -> list[KeyGroupAssignmentView]:
+    _require_owned_character(request, user.id, card_id)
+    return [
+        _assignment_view(request, user.id, item)
+        for item in key_group_repository(request).list_assignments(
+            owner_id=user.id,
+            character_card_id=card_id,
+        )
+    ]
+
+
+@router.put(
+    "/api/account/key-groups/assignments/{card_id}/{capability}",
+    response_model=KeyGroupAssignmentView,
+)
+def configure_key_group_assignment(
+    card_id: str,
+    capability: KeyGroupCapability,
+    payload: KeyGroupAssignmentConfigure,
+    request: Request,
+    user: CurrentUserDependency,
+) -> KeyGroupAssignmentView:
+    _require_owned_character(request, user.id, card_id)
+    try:
+        record = key_group_repository(request).set_assignment(
+            owner_id=user.id,
+            character_card_id=card_id,
+            capability=capability,
+            key_group_id=payload.key_group_id,
+            model_override=payload.model_override,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    auth_repository(request).audit(
+        actor_user_id=user.id,
+        action="provider_key_group.assigned",
+        resource_type="character_card",
+        resource_id=card_id,
+        metadata={"capability": capability, "key_group_id": payload.key_group_id},
+    )
+    return _assignment_view(request, user.id, record)
+
+
+@router.delete(
+    "/api/account/key-groups/assignments/{card_id}/{capability}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def clear_key_group_assignment(
+    card_id: str,
+    capability: KeyGroupCapability,
+    request: Request,
+    user: CurrentUserDependency,
+) -> None:
+    _require_owned_character(request, user.id, card_id)
+    key_group_repository(request).delete_assignment(
+        owner_id=user.id,
+        character_card_id=card_id,
+        capability=capability,
+    )
+    auth_repository(request).audit(
+        actor_user_id=user.id,
+        action="provider_key_group.unassigned",
+        resource_type="character_card",
+        resource_id=card_id,
+        metadata={"capability": capability},
+    )
+
+
+@router.post(
+    "/api/account/key-groups/{group_id}/apply",
+    response_model=KeyGroupBulkApplyResult,
+)
+def bulk_apply_key_group(
+    group_id: str,
+    payload: KeyGroupBulkApply,
+    request: Request,
+    user: CurrentUserDependency,
+) -> KeyGroupBulkApplyResult:
+    repo = key_group_repository(request)
+    if repo.get_group(user.id, group_id) is None:
+        raise HTTPException(status_code=404, detail="Key Group not found.")
+    card_ids = list(dict.fromkeys(payload.character_card_ids))
+    capabilities = list(dict.fromkeys(payload.capabilities))
+    for card_id in card_ids:
+        _require_owned_character(request, user.id, card_id)
+    applied = 0
+    for card_id in card_ids:
+        for capability in capabilities:
+            repo.set_assignment(
+                owner_id=user.id,
+                character_card_id=card_id,
+                capability=capability,
+                key_group_id=group_id,
+                model_override=payload.model_overrides.get(capability),
+            )
+            applied += 1
+    auth_repository(request).audit(
+        actor_user_id=user.id,
+        action="provider_key_group.bulk_applied",
+        resource_type="provider_key_group",
+        resource_id=group_id,
+        metadata={"character_count": len(card_ids), "assignment_count": applied},
+    )
+    return KeyGroupBulkApplyResult(applied=applied)
 
 
 @router.get("/api/account/export", response_model=WorkspaceArchive)
