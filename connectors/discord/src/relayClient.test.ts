@@ -44,8 +44,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("RelayClient attachment enrichment", () => {
-  it("adds Discord attachment metadata to inbound turns and caches the lookup", async () => {
+describe("RelayClient media enrichment", () => {
+  it("adds attachments and Discord link previews while caching one message lookup", async () => {
     vi.stubEnv("DISCORD_BOT_TOKEN", "discord-token");
     const backendBodies: Array<Record<string, unknown>> = [];
     let discordCalls = 0;
@@ -71,6 +71,16 @@ describe("RelayClient attachment enrichment", () => {
                   size: 12345,
                   width: 640,
                   height: 480
+                }
+              ],
+              embeds: [
+                {
+                  type: "video",
+                  url: "https://www.bilibili.com/video/BV1abc/",
+                  title: "Cherry Studio V2 来了，超详细攻略",
+                  description: "真实使用场景分享",
+                  provider: { name: "哔哩哔哩" },
+                  author: { name: "技术爬爬虾" }
                 }
               ]
             }),
@@ -112,6 +122,16 @@ describe("RelayClient attachment enrichment", () => {
           size_bytes: 12345,
           width: 640,
           height: 480
+        }
+      ]);
+      expect(body.embeds).toEqual([
+        {
+          embed_type: "video",
+          url: "https://www.bilibili.com/video/BV1abc/",
+          title: "Cherry Studio V2 来了，超详细攻略",
+          description: "真实使用场景分享",
+          provider_name: "哔哩哔哩",
+          author_name: "技术爬爬虾"
         }
       ]);
     }
