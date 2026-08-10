@@ -60,7 +60,7 @@ from echo_masque.credentials import CredentialVault
 from echo_masque.discord_inventory import DiscordInventoryService
 from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
 from echo_masque.judge_evaluation import JudgeEvaluationService
-from echo_masque.live_media import LiveMediaContextService
+from echo_masque.live_media_scoped import KeyGroupScopedLiveMediaContextService
 from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
 from echo_masque.orchestration import (
     CharacterTurnGraphRunner,
@@ -212,7 +212,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         key_group_repository,
         credential_store,
     )
-    live_media_service = LiveMediaContextService(
+    live_media_service = KeyGroupScopedLiveMediaContextService(
         media_repository=media_analysis_repository,
         credential_resolver=media_credential_resolver,
         discord_bot_token=resolved.discord_tool_bot_token,
