@@ -105,6 +105,12 @@ class SideEffectIdempotencyStore(Protocol):
         trace: dict[str, object],
     ) -> None: ...
 
+    def release_side_effect_claim(
+        self,
+        *,
+        idempotency_key: str,
+    ) -> None: ...
+
 
 @dataclass(frozen=True)
 class RegisteredTool:
@@ -870,8 +876,11 @@ class ToolRegistry:
             )
 
         idempotency_key = ""
+        durable_side_effect = (
+            registered.catalog.side_effect and tool_id != "character.invite"
+        )
         if (
-            registered.catalog.side_effect
+            durable_side_effect
             and self.side_effect_store is not None
             and context.operation_id
             and context.step_id
@@ -938,11 +947,16 @@ class ToolRegistry:
             )
 
         if idempotency_key and self.side_effect_store is not None:
-            self.side_effect_store.complete_side_effect(
-                idempotency_key=idempotency_key,
-                content=result.content,
-                trace=result.trace.model_dump(),
-            )
+            if result.trace.status == "rejected":
+                self.side_effect_store.release_side_effect_claim(
+                    idempotency_key=idempotency_key,
+                )
+            else:
+                self.side_effect_store.complete_side_effect(
+                    idempotency_key=idempotency_key,
+                    content=result.content,
+                    trace=result.trace.model_dump(),
+                )
         return result
 
     async def _execute_tool(

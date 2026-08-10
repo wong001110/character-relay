@@ -495,6 +495,14 @@ class DurableRuntimeRepository:
             record.updated_at = datetime.now(UTC)
             session.commit()
 
+    def release_side_effect_claim(self, *, idempotency_key: str) -> None:
+        with self.database.session() as session:
+            record = session.get(RuntimeSideEffectRecord, idempotency_key)
+            if record is None or record.status != "claimed":
+                return
+            session.delete(record)
+            session.commit()
+
     def recover_interrupted(self) -> dict[str, int]:
         """Make process-restart semantics explicit instead of silently redoing side effects."""
 

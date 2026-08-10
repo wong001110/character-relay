@@ -90,7 +90,12 @@ def inbound(*, author_is_bot: bool = False) -> DiscordInboundMessage:
     )
 
 
-def execution_context(*, author_is_bot: bool = False) -> ToolExecutionContext:
+def execution_context(
+    *,
+    author_is_bot: bool = False,
+    operation_id: str = "",
+    step_id: str = "",
+) -> ToolExecutionContext:
     return ToolExecutionContext(
         owner_id="owner",
         deployment_id="inviter",
@@ -102,6 +107,8 @@ def execution_context(*, author_is_bot: bool = False) -> ToolExecutionContext:
         trigger_text="Can Selena help with this?",
         initiator_is_bot=author_is_bot,
         initiator_user_id="member-1",
+        operation_id=operation_id,
+        step_id=step_id,
     )
 
 
@@ -120,11 +127,64 @@ def invite_call(alias: str = "p1") -> ChatToolCall:
     )
 
 
-def registry(database: Database) -> ServerAwareToolRegistry:
+def registry(
+    database: Database,
+    *,
+    side_effect_store: object | None = None,
+) -> ServerAwareToolRegistry:
     return ServerAwareToolRegistry(
         reminder_repository=ScheduledReminderRepository(database),
         condition_watch_repository=ConditionWatchRepository(database),
         condition_watch_enabled=True,
+        side_effect_store=side_effect_store,
+    )
+
+
+class RecordingSideEffectStore:
+    def __init__(self) -> None:
+        self.claims: list[tuple[str, str, str]] = []
+        self.released: list[str] = []
+        self.completed: list[str] = []
+
+    def claim_side_effect(
+        self,
+        *,
+        operation_id: str,
+        step_id: str,
+        deployment_id: str,
+        tool_id: str,
+        arguments_hash: str,
+    ) -> tuple[str, str, str, dict[str, object]]:
+        del operation_id, step_id, deployment_id
+        self.claims.append((tool_id, arguments_hash, f"slot-{len(self.claims) + 1}"))
+        return "granted", self.claims[-1][2], "", {}
+
+    def complete_side_effect(
+        self,
+        *,
+        idempotency_key: str,
+        content: str,
+        trace: dict[str, object],
+    ) -> None:
+        del content, trace
+        self.completed.append(idempotency_key)
+
+    def release_side_effect_claim(self, *, idempotency_key: str) -> None:
+        self.released.append(idempotency_key)
+
+
+def reminder_call(reminder_text: str) -> ChatToolCall:
+    return ChatToolCall(
+        id="reminder-call",
+        function=ChatToolFunctionCall(
+            name="scheduler_remind",
+            arguments=json.dumps(
+                {
+                    "reminder_text": reminder_text,
+                    "delay_seconds": 30,
+                }
+            ),
+        ),
     )
 
 
@@ -289,3 +349,59 @@ def test_character_invite_proposal_does_not_leak_into_a_new_turn(tmp_path: Path)
     assert reason == "ok"
     assert output is not None
     assert all(not isinstance(part, SmartMentionPart) for part in output.content)
+
+
+def test_character_invite_does_not_use_durable_external_side_effect_slot(
+    tmp_path: Path,
+) -> None:
+    database = seed(tmp_path / "invite-durable-slot.db")
+    SmartOutputContext.from_payload(inbound(), character_name="Inviter")
+    store = RecordingSideEffectStore()
+
+    result = asyncio.run(
+        registry(database, side_effect_store=store).execute(
+            invite_call(),
+            enabled_tool_ids=("character.invite",),
+            context=execution_context(
+                operation_id="operation-1",
+                step_id="step-1",
+            ),
+        )
+    )
+
+    assert result.trace.status == "completed"
+    assert store.claims == []
+    assert store.released == []
+    assert store.completed == []
+
+
+def test_rejected_durable_side_effect_releases_claim_for_corrected_retry(
+    tmp_path: Path,
+) -> None:
+    database = seed(tmp_path / "rejected-side-effect-release.db")
+    store = RecordingSideEffectStore()
+    runtime = registry(database, side_effect_store=store)
+    context = execution_context(operation_id="operation-2", step_id="step-2")
+
+    rejected = asyncio.run(
+        runtime.execute(
+            reminder_call(""),
+            enabled_tool_ids=("scheduler.remind",),
+            context=context,
+        )
+    )
+    assert rejected.trace.status == "rejected"
+    assert len(store.claims) == 1
+    assert store.released == ["slot-1"]
+    assert store.completed == []
+
+    corrected = asyncio.run(
+        runtime.execute(
+            reminder_call("现在可以提醒你了。"),
+            enabled_tool_ids=("scheduler.remind",),
+            context=context,
+        )
+    )
+    assert corrected.trace.status == "completed"
+    assert len(store.claims) == 2
+    assert store.completed == ["slot-2"]
