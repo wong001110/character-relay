@@ -1,6 +1,6 @@
 # Tool Calling Roadmap
 
-Character Relay Tool Calling is a general **Character Capability Module**, not a Discord-only feature. Tools let a character actively obtain external/current information or perform an action, while Character Card, RAG, and Runtime Authority keep their existing responsibilities.
+Character Relay Tool Calling is a general **Character Capability Module**, not a Discord-only feature. Tools let a character actively obtain external/current information or perform an action, while Character Card, RAG, Participant Runtime, and Runtime Authority keep their existing responsibilities.
 
 ## Goal
 
@@ -11,14 +11,49 @@ Character Card
 Knowledge / RAG
 = what the character already knows
 
+Participant Runtime
+= how the character participates in the conversation
+
 Tool Calling
-= what the character can actively do
+= what the character can actively do outside normal chat participation
 
 Runtime Authority
 = whether a proposed action is actually legal and executable
 ```
 
 A Tool Result is turn-local context by default. It is **not** automatically written into Knowledge/RAG or long-term Memory.
+
+## Runtime / Tool boundary
+
+Tool Calling must not duplicate normal participant behavior.
+
+Participant Runtime remains responsible for conversational actions such as:
+
+- deciding whether a Character speaks or stays silent
+- reaction selection
+- reply / quote targeting
+- turn order and continuation
+- Character mentions and participation routing
+
+Tool Calling is reserved for capabilities that require external/current information or change shared state outside the normal message response path.
+
+For social Tools, the intended product behavior is:
+
+```text
+Shared conversation state
+        ↓
+Character persona decides whether / how to act
+        ↓
+Tool proposal
+        ↓
+Runtime authority + policy validation
+        ↓
+Shared external state changes
+        ↓
+Group members can observe the result
+```
+
+The Tool capability itself is neutral. Character Card/persona should influence whether a Character uses it, how it frames the action, what it chooses, and whether it refuses a conversational request.
 
 ## Deployment-scoped assignment
 
@@ -79,7 +114,7 @@ The LLM proposes. Runtime remains authority.
 
 The Tool loop remains bounded with `max_tool_rounds = 2`. After the configured rounds, Runtime makes a final model call without tools so a turn cannot become an unbounded agent loop. At most one side-effect Tool is allowed to complete in a single character turn.
 
-Tool-capable turns also receive an explicit **Tool execution integrity** rule: tools are real Runtime capabilities, not roleplay. A character should not claim a reminder, poll, or other external/write/future action succeeded unless the corresponding Tool returned a successful result in that turn. The persisted Runtime record / Tool trace remains the authoritative proof of execution.
+Tool-capable turns also receive an explicit **Tool execution integrity** rule: tools are real Runtime capabilities, not roleplay. A character should not claim a reminder, poll, role assignment, music action, or other external/write/future action succeeded unless the corresponding Tool returned a successful result in that turn. The persisted Runtime record / Tool trace remains the authoritative proof of execution.
 
 RAG remains an upstream Context Layer capability. A character should normally use supplied knowledge first; tools are for external/current information, deterministic utilities, random outcomes, file inspection, or explicit actions.
 
@@ -231,13 +266,175 @@ A positive evaluation queues a real persisted reminder through the existing Sche
 
 The proposal is bound to one Smart Output turn token and cannot leak into a later turn. Runtime may materialize at most that validated candidate through the existing Character mention primitive. The Discord Connector then applies the existing bounded continuation rules, participant/deployment checks, unique-turn protection, depth limit, and shared response budget. Bot-authored continuation turns cannot create further Character invites, preventing recursive invite trees.
 
+## Tool Calling V3 — Shared Social Actions & Voice 🧭 Planned
+
+V3 focuses on **group-visible actions** rather than personal-assistant utilities. `discord.create_poll` and `discord.search_messages` are already shipped in V1, so V3 does not duplicate poll or message-history features.
+
+A V3 capability should normally satisfy all of the following:
+
+- the effect is visible or directly experienced by other people in the shared Discord space
+- Character persona can meaningfully affect whether the Tool is used and how it is used
+- Runtime can bound the side effect and enforce Discord permissions independently of the model
+- the feature does not duplicate Participant Runtime behavior
+
+### V3.1 — Temporary Social Roles
+
+Primary planned Tool:
+
+- `discord.assign_temporary_role` 🧭 — create/reuse a zero-permission cosmetic role, assign it to a current-guild participant for a bounded duration, then remove/clean it automatically.
+
+Optional companion Tool after the assignment lifecycle is stable:
+
+- `discord.remove_temporary_role` 🧭 — remove a Character Relay-managed temporary social role before expiry.
+
+Example social behavior:
+
+```text
+A group member says or does something notable
+        ↓
+Character persona decides a temporary title is appropriate
+        ↓
+discord.assign_temporary_role
+        ↓
+"今日最佳工程師" appears as a real Discord role
+        ↓
+Everyone in the server can observe the shared-state change
+```
+
+Runtime authority requirements:
+
+- feature is opt-in per Discord connection / deployment and requires the Bot to hold `MANAGE_ROLES`
+- target must resolve from the current guild/context through a Runtime-controlled participant/member alias; the model does not supply arbitrary guild IDs or raw target IDs
+- only current-guild human members are eligible; no cross-guild targeting
+- the Bot's Discord role hierarchy must allow the assignment
+- created roles are **cosmetic only**: `permissions=0`, `hoist=false`, `mentionable=false`
+- the model never controls permission bits, role position, administrator/moderator capabilities, or an existing privileged role
+- title is normalized and bounded; reserved/admin-like names may be rejected by policy
+- duration is bounded and configurable; the initial target is a short-lived social role with a conservative maximum such as 24 hours
+- one Character turn still obeys the existing one-side-effect limit
+- bot-authored recursive continuation/background turns cannot autonomously create role chains
+- assignments are persisted so expiry/cleanup survives API or Connector restart
+- a deterministic owner/admin removal path must exist even if the Character would refuse a conversational request to remove the role
+
+Persistence should record at minimum:
+
+```text
+temporary_role_assignment
+- owner_id
+- deployment_id / character_id
+- guild_id
+- role_id
+- target_user_id
+- display_title
+- source_message_id
+- created_at
+- expires_at
+- status
+```
+
+The persisted record, not roleplay text, is authority that the assignment exists and when it should expire.
+
+A later enhancement may emit a bounded `social_tool_completed` event back into Participant Runtime so other Characters can react naturally to a successful shared action. Such continuation must not be allowed to cascade into additional side-effect Tools.
+
+### V3.2 — Full Music Playback
+
+Goal: let a Character use its existing persona to search for, choose, queue, and play music that everyone in a Discord voice channel can hear.
+
+Planned Character-facing Tools:
+
+- `music.search` 🧭 — provider-neutral track search returning stable Runtime track references and metadata
+- `music.play` 🧭 — start playback / establish the shared guild player when allowed
+- `music.queue_add` 🧭 — add a resolved track to the shared queue
+- `music.skip` 🧭 — skip the current track under Runtime policy
+- `music.stop` 🧭 — stop playback and clear/leave according to Runtime policy
+- `music.now_playing` 🧭 — read the current track and queue state
+
+Character behavior remains persona-driven. For example, two Characters receiving “放點歌” may search different moods/genres, select different tracks, or refuse the conversational request. The music service itself does not contain persona logic.
+
+#### Shared Guild Audio Service
+
+Music playback must not create one Discord voice player per Character. Character Relay should maintain one shared audio runtime per guild:
+
+```text
+Character Runtime
+       ↓
+Music Tools
+       ↓
+GuildAudioService
+├─ Voice Connection
+├─ Audio Player
+├─ Queue
+└─ current Character / track attribution
+       ↓
+Discord Voice Channel
+```
+
+The Discord Connector owns the voice connection and audio output. The current connector uses `discord.js`; V3.2 will add the voice stack (for example `@discordjs/voice` plus the required Opus/FFmpeg path for the selected source formats) rather than attempting to stream audio through the Python HTTP Tool executor.
+
+Scope / authority requirements:
+
+- voice channel destination comes from Connector/Runtime context, never a model-provided channel ID
+- initial join target should be the human initiator's current voice channel or an already-established Character Relay guild voice connection
+- the Bot must pass Discord `CONNECT` / `SPEAK` and channel visibility checks
+- one shared guild connection/player/queue prevents Characters from creating competing voice sessions
+- queue entries retain which Character proposed them so later group interaction can attribute choices correctly
+- arbitrary model-provided audio URLs are rejected; Characters operate on Runtime-issued `track_id` values
+- conversational requests may be accepted/refused according to persona, but deterministic owner/admin controls such as an explicit stop/cleanup command bypass persona so a Character cannot hold a voice channel hostage
+- reconnect, idle disconnect, queue bounds, track-duration bounds, and failed-stream recovery are Runtime responsibilities
+
+#### Music source abstraction
+
+Music source access should be provider-neutral:
+
+```text
+MusicSourceAdapter
+├─ search(query / genre / mood)
+├─ resolve(track_id)
+└─ open_stream(track_id)
+```
+
+**Audius is the initial MVP provider candidate** because it offers music discovery/streaming APIs suitable for evaluating a zero-API-fee prototype. Production enablement still requires a fresh terms/licensing review and Runtime must respect provider streamability/access metadata.
+
+The adapter boundary keeps Character Relay free to add or replace sources later, including a self-hosted royalty-free / CC-licensed library.
+
+The initial implementation should not depend on YouTube audio extraction or Spotify rebroadcast. Provider/API availability does not by itself grant redistribution rights; source terms and track licensing remain part of production readiness.
+
+“Free music API” also does not mean zero operating cost: Discord voice bandwidth, CPU/transcoding, storage/cache, and hosting remain Character Relay infrastructure costs.
+
+#### Suggested V3 delivery order
+
+1. Temporary Social Role Tool contract + Runtime policy / alias resolution.
+2. Temporary role persistence, expiry cleanup, Discord permission/hierarchy validation, tests, and Portal observability.
+3. Ship `discord.assign_temporary_role`; add early removal only after lifecycle/cleanup is stable.
+4. Introduce provider-neutral `MusicSourceAdapter` and `GuildAudioService` contracts.
+5. Add `music.search` with the first approved free/low-cost provider candidate.
+6. Add Connector voice dependencies, one-guild player/queue lifecycle, and `music.play` / `music.queue_add`.
+7. Add bounded `music.skip`, `music.stop`, `music.now_playing`, deterministic owner/admin override, and reconnect/idle cleanup.
+8. Run Discord permission, multi-Character queue, deployment isolation, restart, and deployed smoke validation before marking V3 complete.
+
+## Deferred / Cost-gated capabilities
+
+### `image.generate`
+
+Image generation remains a good group-visible Character capability, but it is **deferred rather than an explicit non-goal** until the operating-cost model is evaluated.
+
+Before implementation, define:
+
+- provider abstraction and current per-image pricing
+- per-guild / per-deployment daily budgets
+- concurrency and cooldown limits for proactive Character generations
+- abuse/moderation policy
+- image storage / attachment lifetime and bandwidth cost
+- behavior when a Character wants to generate an image but Runtime budget denies the Tool
+
+The initial Character-facing contract should describe a creative brief rather than expose raw provider/model controls, so persona decides what to create while Runtime remains free to change image providers.
+
 ## Explicit non-goals
 
 The current roadmap does not include:
 
 - `gif.search`
 - `code.execute`
-- `image.generate`
 - paid Search API dependency
 - embedding-based Tool Retrieval
 - automatic Tool Result → RAG persistence
