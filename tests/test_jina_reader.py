@@ -16,7 +16,9 @@ def test_jina_reader_prefers_structured_summary_and_clean_content() -> None:
         assert request.headers.get("x-respond-with") == "readerlm-v2"
         payload = {
             "title": "Example article",
-            "summary": "The article explains the new media resolver and why shared context matters.",
+            "summary": (
+                "The article explains the new media resolver and why shared context matters."
+            ),
             "content": "The resolver now uses clean article content and reusable media context.",
             "published_time": "2026-08-10T12:00:00Z",
         }
