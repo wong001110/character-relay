@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
@@ -16,7 +17,7 @@ PASSWORD = "TraceScopeAdmin2026!"
 CONNECTOR_SECRET = "trace-scope-connector-secret"
 
 
-def settings(path: Path) -> Settings:
+def settings(path: Path, *, langgraph_mode: str = "off") -> Settings:
     return Settings(
         environment="test",
         database_url=f"sqlite:///{path}",
@@ -25,6 +26,7 @@ def settings(path: Path) -> Settings:
         bootstrap_admin_password=SecretStr(PASSWORD),
         credential_encryption_keys=SecretStr(Fernet.generate_key().decode("ascii")),
         connector_shared_secret=SecretStr(CONNECTOR_SECRET),
+        langgraph_mode=langgraph_mode,  # type: ignore[arg-type]
     )
 
 
@@ -36,8 +38,17 @@ def login(client: TestClient) -> None:
     assert response.status_code == 200, response.text
 
 
-def test_discord_provider_traces_inherit_deployment_account_scope(tmp_path: Path) -> None:
-    app = create_app(settings(tmp_path / "provider-trace-scope.db"))
+@pytest.mark.parametrize("langgraph_mode", ["off", "character_turn"])
+def test_discord_provider_traces_inherit_deployment_account_scope(
+    tmp_path: Path,
+    langgraph_mode: str,
+) -> None:
+    app = create_app(
+        settings(
+            tmp_path / f"provider-trace-scope-{langgraph_mode}.db",
+            langgraph_mode=langgraph_mode,
+        )
+    )
     client = TestClient(app)
     login(client)
 
