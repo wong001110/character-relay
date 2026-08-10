@@ -27,7 +27,7 @@ def test_discord_inbound_message_accepts_attachment_and_embed_metadata() -> None
                 {
                     "embed_type": "video",
                     "url": "https://www.bilibili.com/video/BV1abc/",
-                    "title": "Cherry Studio V2 来了，超详细攻略",
+                    "title": "Cherry Studio V2 来了, 超详细攻略",
                     "description": "真实使用场景分享",
                     "provider_name": "哔哩哔哩",
                     "author_name": "技术爬爬虾",
