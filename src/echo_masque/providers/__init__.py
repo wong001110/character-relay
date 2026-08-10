@@ -18,6 +18,7 @@ from echo_masque.providers.errors import (
 )
 from echo_masque.providers.mock import MockChatProvider
 from echo_masque.providers.openai_compatible import OpenAICompatibleProvider
+from echo_masque.providers.openrouter_image import OpenRouterImageGenerationProvider
 
 __all__ = [
     "ChatMessage",
@@ -28,6 +29,7 @@ __all__ = [
     "ChatToolFunctionCall",
     "MockChatProvider",
     "OpenAICompatibleProvider",
+    "OpenRouterImageGenerationProvider",
     "ProviderAuthenticationError",
     "ProviderCompletion",
     "ProviderError",
