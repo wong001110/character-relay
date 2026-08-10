@@ -116,7 +116,7 @@ class MediaUnderstandingService:
     ) -> None:
         cleanup = asyncio.create_task(self._clear_inflight(identity, completed))
         self._cleanup_tasks.add(cleanup)
-        cleanup.add_done_callback(self._cleanup_tasks.discard)
+        cleanup.add_done_callback(lambda _: self._cleanup_tasks.discard(cleanup))
 
     async def _clear_inflight(
         self,
