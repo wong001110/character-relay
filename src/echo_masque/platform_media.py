@@ -105,7 +105,10 @@ class YtDlpMediaResolver:
     @staticmethod
     def supports(url: str) -> bool:
         host = (urlparse(url).hostname or "").casefold().rstrip(".")
-        return any(host == suffix or host.endswith(f".{suffix}") for suffix in _PLATFORM_HOST_SUFFIXES)
+        return any(
+            host == suffix or host.endswith(f".{suffix}")
+            for suffix in _PLATFORM_HOST_SUFFIXES
+        )
 
     async def resolve(
         self,
@@ -245,7 +248,11 @@ class YtDlpMediaResolver:
             height = int(height_raw) if isinstance(height_raw, (int, float)) else 0
             has_video = bool(url and vcodec and vcodec != "none")
             has_audio = bool(acodec and acodec != "none")
-            direct_http = protocol.startswith("http") and "m3u8" not in protocol and "dash" not in protocol
+            direct_http = (
+                protocol.startswith("http")
+                and "m3u8" not in protocol
+                and "dash" not in protocol
+            )
             reasonable_height = min(height or 480, 1080)
             return (
                 int(has_video and has_audio and direct_http),
