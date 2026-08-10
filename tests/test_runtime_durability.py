@@ -241,9 +241,30 @@ def test_side_effect_ledger_replays_completed_and_blocks_uncertain(tmp_path: Pat
     assert "reminder-1" in content
     assert trace["status"] == "completed"
 
-    pending, uncertain_key, _, _ = runtime.claim_side_effect(
+    changed_arguments, changed_key, _, _ = runtime.claim_side_effect(
         operation_id=operation.operation_id,
         step_id=step_id,
+        deployment_id="ann",
+        tool_id="scheduler.remind",
+        arguments_hash="args-changed-after-crash",
+    )
+    assert changed_arguments == "uncertain"
+    assert changed_key == key
+
+    changed_tool, changed_tool_key, _, _ = runtime.claim_side_effect(
+        operation_id=operation.operation_id,
+        step_id=step_id,
+        deployment_id="ann",
+        tool_id="watch.condition",
+        arguments_hash="args-2",
+    )
+    assert changed_tool == "uncertain"
+    assert changed_tool_key == key
+
+    other_step_id = runtime.social_step_id(operation.operation_id, 1, "ann")
+    pending, uncertain_key, _, _ = runtime.claim_side_effect(
+        operation_id=operation.operation_id,
+        step_id=other_step_id,
         deployment_id="ann",
         tool_id="watch.condition",
         arguments_hash="args-2",
@@ -253,7 +274,7 @@ def test_side_effect_ledger_replays_completed_and_blocks_uncertain(tmp_path: Pat
     restarted = DurableRuntimeRepository(database)
     uncertain, same_key, _, _ = restarted.claim_side_effect(
         operation_id=operation.operation_id,
-        step_id=step_id,
+        step_id=other_step_id,
         deployment_id="ann",
         tool_id="watch.condition",
         arguments_hash="args-2",
@@ -337,3 +358,23 @@ def test_operation_identity_cannot_be_rebound_to_another_discord_event(tmp_path:
         persisted = session.get(RuntimeOperationRecord, operation.operation_id)
         assert persisted is not None
         assert persisted.channel_id == "channel-1"
+
+
+def test_early_silent_character_trace_is_completed(tmp_path: Path) -> None:
+    _database, runtime = repository(tmp_path / "durable-early-silent-trace.db")
+    runtime.emit(
+        RuntimeTraceEvent(
+            trace_id="trace-silent",
+            graph_run_id="graph-run-silent",
+            graph_name="character_turn",
+            node_name="turn_resolve",
+            node_kind="decision",
+            status="completed",
+            deployment_id="ann",
+            changed_keys=("resolve_status", "status", "outcome", "deployment_id"),
+            metadata=(("result", "trigger_not_matched"),),
+        )
+    )
+    record = runtime.get_trace_run("graph-run-silent")
+    assert record is not None
+    assert record.status == "completed"

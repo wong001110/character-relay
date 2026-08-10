@@ -452,12 +452,10 @@ class DurableRuntimeRepository:
         arguments_hash: str,
     ) -> tuple[SideEffectClaimStatus, str, str, dict[str, object]]:
         key = self.stable_hash(
-            "tool-side-effect-v1",
+            "tool-side-effect-slot-v2",
             operation_id,
             step_id,
             deployment_id,
-            tool_id,
-            arguments_hash,
         )
         with self.database.session() as session:
             record = session.get(RuntimeSideEffectRecord, key)
@@ -474,6 +472,8 @@ class DurableRuntimeRepository:
                 session.add(record)
                 session.commit()
                 return "granted", key, "", {}
+            if record.tool_id != tool_id or record.arguments_hash != arguments_hash:
+                return "uncertain", key, "", {}
             if record.status == "completed":
                 return "replay", key, record.content, self._object(record.trace_json)
             return "uncertain", key, "", {}
@@ -633,6 +633,8 @@ class DurableRuntimeRepository:
     def _final_completed_event(event: RuntimeTraceEvent) -> bool:
         if event.status != "completed":
             return False
+        if event.node_name == "turn_resolve":
+            return any(key == "result" for key, _value in event.metadata)
         return event.node_name in {
             "turn_authority",
             "social_continuation_authority",

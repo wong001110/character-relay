@@ -2600,7 +2600,8 @@ async function resumePendingSocialTurns(): Promise<void> {
       const guild =
         client.guilds.cache.get(operation.guild_id) ??
         (await client.guilds.fetch(operation.guild_id));
-      const channel = await guild.channels.fetch(operation.channel_id);
+      const sourceChannelId = operation.thread_id || operation.channel_id;
+      const channel = await guild.channels.fetch(sourceChannelId);
       if (!channel || !channel.isTextBased() || !("messages" in channel)) {
         throw new Error("Durable Social Turn source channel is unavailable.");
       }
