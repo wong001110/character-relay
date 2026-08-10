@@ -70,6 +70,44 @@ Media
 
 The shared cache is **content-only**. It must not contain guild IDs, user IDs, character persona, surrounding conversation, or a previous bot's subjective reply. Cache administration is Superadmin-only.
 
+### 3.1 In-flight deduplication / single-flight
+
+A cache alone is insufficient because another Character or worker can request the same media while the first provider call is still running.
+
+Every analysis identity therefore has an explicit state:
+
+```text
+MISS
+PROCESSING
+READY
+FAILED
+```
+
+The identity is based on:
+
+```text
+media_key
++ analysis_version
++ provider
++ model
+```
+
+The first worker atomically claims a short processing lease and becomes the provider-call owner. Later requests for the same identity must join the existing in-flight task or wait for the shared record; they must not start another MiMo/vision request.
+
+```text
+Bot A -> claim -> PROCESSING -> provider call
+Bot B -> sees PROCESSING -> join/wait
+Bot C -> sees PROCESSING -> join/wait
+                         -> READY
+                         -> one shared Media Context
+```
+
+Within one application process, callers share the same async Future so they do not repeatedly poll SQLite. Across multiple Railway/backend workers, the SQL unique identity plus processing lease provides cross-worker deduplication.
+
+A crashed/stalled worker cannot leave the media permanently locked. `lease_expires_at` allows another worker to reclaim an expired `PROCESSING` record. Recent failures use a short cooldown so many waiting Characters do not immediately stampede the provider after one failure.
+
+Media inference must not block Discord ingestion globally. New messages can continue entering routing/context while a media task runs; only the Character turn that actually needs that Media Context waits for the shared Future.
+
 ## 4. Content identity and streaming SHA-256
 
 For binary uploads and Discord attachments, Character Relay computes SHA-256 while the file is already streaming through the resolver. It must not make a second pass over the file and must not load a large video into memory only to calculate the hash.
@@ -87,9 +125,41 @@ For public platforms, stable canonical source IDs should be preferred before dow
 
 - `youtube:<video-id>`
 - `bilibili:<bvid>`
-- `x:<post-id>:<media-index>`
+- `x:<post-id>`
+- `tiktok:<video-id>`
 
 Binary SHA-256 remains the fallback and deduplication identity for attachments or sources without a trustworthy canonical ID.
+
+### 4.1 URL Content Resolver
+
+A posted link is not automatically a multimodal-provider request. URLs first pass through a provider-neutral Content Resolver that classifies the source and derives the cheapest reusable identity available before network-heavy extraction.
+
+```text
+URL
+ -> canonicalize / remove tracking fragments
+ -> classify source
+    ├─ article
+    ├─ direct image
+    ├─ direct video/audio
+    ├─ social post/video
+    └─ unresolved/partial
+ -> canonical source key
+ -> extraction/media pipeline
+```
+
+The static resolver can already derive canonical keys for common URL shapes such as YouTube, Bilibili, X/Twitter, TikTok, direct media extensions, and generic article URLs without performing a fetch.
+
+Short links and redirect-dependent sources (for example `b23.tv`) are marked `partial`; the live resolver follows redirects through the existing public-URL/SSRF guard before deciding the final source.
+
+Routing policy:
+
+- article -> text/web extractor first; only use vision if the page content requires it;
+- public video -> canonical ID -> metadata/subtitles/transcript first -> multimodal analysis only when needed;
+- direct image/video/audio -> safe streaming fetch -> SHA-256 -> shared Media Analysis;
+- social post -> platform resolver/`yt-dlp` where supported, then route extracted text/media accordingly;
+- unsupported/auth-required -> return explicit resolver status rather than repeatedly retrying.
+
+Article cache identity must account for changing content. Canonical URL is the source identity, while extracted content may also use ETag/Last-Modified/content hash plus a shorter TTL.
 
 ## 5. Cache TTL and cleanup
 
@@ -176,6 +246,7 @@ The initial implementation adds the provider-neutral request/result contract. Op
 - Shared Media Analysis contains only media-derived objective context.
 - Cache-hit status and global cache metadata are Superadmin-only observability.
 - Raw private Discord attachments are not retained merely for caching unless another product feature explicitly requires retention.
+- URL fetching must pass the existing public-destination/redirect SSRF guard before downloading content.
 - Deleting a Key Group removes its assignments and encrypted secret.
 
 ## 10. Delivery sequence
@@ -188,37 +259,43 @@ The initial implementation adds the provider-neutral request/result contract. Op
 4. Add streaming SHA-256 helper for attachment pipelines. ✅
 5. Add global Media Analysis persistence with TTL, bounded cleanup, and sliding-access refresh. ✅
 6. Add provider-neutral Media Understanding and Image Generation contracts. ✅
-7. Add Portal Key Group management and multi-Character bulk-apply UI. 🚧
+7. Add Media Analysis single-flight state, cross-worker processing lease, and in-process Future sharing. ✅
+8. Add static URL classification/canonical source-key resolver foundation. ✅
+9. Add Portal Key Group management and multi-Character bulk-apply UI. 🚧
 
 ### Phase B — live Media Understanding
 
-8. Add Discord attachment/media resolver and compute SHA-256 during the existing stream.
-9. Add public media canonical-ID resolver and `yt-dlp` adapter for supported video sources.
-10. Add MiMo-V2.5 direct adapter and OpenRouter multimodal adapter.
-11. Inject shared Level-1 Media Context into `CharacterTurnContext` before Smart Output.
-12. Add deployment/account controls for whether characters may inspect image/video/audio media.
-13. Add Superadmin cache observability and manual purge controls.
+10. Add Discord attachment source-key dedupe before download and compute SHA-256 during the existing stream.
+11. Add network-backed public URL resolver with SSRF-safe redirect handling and `yt-dlp` adapter for supported video/social sources.
+12. Add article extraction path and short-lived article content identity/TTL.
+13. Add MiMo-V2.5 direct adapter and OpenRouter multimodal adapter.
+14. Inject shared Level-1 Media Context into `CharacterTurnContext` before Smart Output.
+15. Keep media resolution/inference outside the channel-wide Discord queue; only dependent Character turns await the shared Future.
+16. Add deployment/account controls for whether characters may inspect image/video/audio media.
+17. Add Superadmin cache observability, processing-state visibility, and manual purge controls.
 
 ### Phase C — Generate Image
 
-14. Register `image.generate` as an explicitly assignable Tool.
-15. Resolve the Character Card's `image_generation` Key Group/model.
-16. Keep the OpenRouter Image API adapter as one optional provider. ✅ foundation adapter
-17. Add direct provider adapters where useful (Cloudflare, MiniMax, Wan, etc.).
-18. Add Character reference-image handling and capability-aware model parameters.
-19. Deliver generated images through the current Discord identity while preserving Runtime permission/audit rules.
+18. Register `image.generate` as an explicitly assignable Tool.
+19. Resolve the Character Card's `image_generation` Key Group/model.
+20. Keep the OpenRouter Image API adapter as one optional provider. ✅ foundation adapter
+21. Add direct provider adapters where useful (Cloudflare, MiniMax, Wan, etc.).
+22. Add Character reference-image handling and capability-aware model parameters.
+23. Deliver generated images through the current Discord identity while preserving Runtime permission/audit rules.
 
 ### Phase D — deeper media
 
-20. Add Level-2 question-specific media analysis.
-21. Add Level-3 timestamp/segment cache entries for video.
-22. Measure hit rate, provider spend, latency, database size, and TTL effectiveness before adding Redis or another hot cache.
+24. Add Level-2 question-specific media analysis.
+25. Add Level-3 timestamp/segment cache entries for video.
+26. Measure hit rate, provider spend, latency, database size, processing contention, and TTL effectiveness before adding Redis or another hot cache.
 
 ## 11. Non-goals for V1
 
 - No mandatory OpenRouter dependency.
 - No per-bot duplicate media analysis.
+- No duplicate provider call while the same analysis identity is already processing.
 - No permanent raw-media archive just for cache hits.
 - No Redis until measured traffic justifies it.
 - No persona-specific text stored in global Media Analysis.
 - No automatic full-video analysis for every link merely because it appears in a channel.
+- No global Discord channel stall while one media item is being analyzed.
