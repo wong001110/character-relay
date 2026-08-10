@@ -24,6 +24,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
+        self.live_media_service: LiveMediaContextService | None
         if isinstance(live_media_service, LiveMediaContextService):
             self.live_media_service = EnhancedLiveMediaContextService.from_service(
                 live_media_service,
