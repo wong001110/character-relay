@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, cast
 from uuid import uuid4
@@ -17,6 +16,7 @@ from echo_masque.persistence.key_group_models import (
 )
 
 KeyGroupCapability = Literal["character", "media", "image_generation"]
+DefaultModelMap = dict[str, str] | dict[KeyGroupCapability, str]
 _VALID_CAPABILITIES = frozenset({"character", "media", "image_generation"})
 
 
@@ -34,7 +34,7 @@ def _capability(value: str) -> KeyGroupCapability:
     return cast(KeyGroupCapability, normalized)
 
 
-def _models_json(values: Mapping[str, str] | None) -> str:
+def _models_json(values: DefaultModelMap | None) -> str:
     normalized: dict[str, str] = {}
     for raw_capability, raw_model in (values or {}).items():
         capability = _capability(raw_capability)
@@ -71,7 +71,7 @@ class KeyGroupRepository:
         name: str,
         provider: str,
         base_url: str = "",
-        default_models: Mapping[str, str] | None = None,
+        default_models: DefaultModelMap | None = None,
     ) -> ProviderKeyGroupRecord:
         record = ProviderKeyGroupRecord(
             id=str(uuid4()),
@@ -114,7 +114,7 @@ class KeyGroupRepository:
         name: str,
         provider: str,
         base_url: str,
-        default_models: Mapping[str, str] | None,
+        default_models: DefaultModelMap | None,
     ) -> ProviderKeyGroupRecord | None:
         with self.database.session() as session:
             record = session.scalar(
