@@ -61,6 +61,15 @@ from echo_masque.persistence.interaction_repository import (
     InteractionConflict,
     InteractionRepository,
 )
+from echo_masque.persistence.key_group_models import (
+    CharacterKeyGroupAssignmentRecord,
+    ProviderKeyGroupRecord,
+)
+from echo_masque.persistence.key_group_repository import (
+    KeyGroupCapability,
+    KeyGroupRepository,
+    ResolvedKeyGroup,
+)
 from echo_masque.persistence.knowledge_models import (
     KnowledgeBaseRecord,
     KnowledgeChunkRecord,
@@ -125,6 +134,7 @@ __all__ = [
     "CalibrationDatasetRecord",
     "CalibrationRepository",
     "CharacterDeploymentRecord",
+    "CharacterKeyGroupAssignmentRecord",
     "CharacterSemanticProfileRecord",
     "ConditionWatchRecord",
     "ConditionWatchRepository",
@@ -156,6 +166,8 @@ __all__ = [
     "InteractionRepository",
     "JudgeEvaluationRecord",
     "JudgePredictionRecord",
+    "KeyGroupCapability",
+    "KeyGroupRepository",
     "KnowledgeBaseRecord",
     "KnowledgeChunkRecord",
     "KnowledgeDocumentRecord",
@@ -164,9 +176,11 @@ __all__ = [
     "MatrixRepository",
     "PlatformConnectionRecord",
     "PortableCalibrationRepository",
+    "ProviderKeyGroupRecord",
     "ProviderTraceRecord",
     "ProviderTraceRepository",
     "Repository",
+    "ResolvedKeyGroup",
     "RuntimeOperationRecord",
     "RuntimeSideEffectRecord",
     "RuntimeStepRecord",
