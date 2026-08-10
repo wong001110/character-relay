@@ -10,7 +10,11 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 
 from echo_masque.api.connector_schemas import DiscordConnectorReplyView, DiscordInboundMessage
-from echo_masque.character_invite_runtime import current_character_invite_proposal
+from echo_masque.character_invite_runtime import (
+    CharacterInviteTurnState,
+    activate_character_invite_turn,
+    current_character_invite_turn,
+)
 from echo_masque.connector_runtime import (
     DiscordConnectorRuntime,
     PreparedCharacterTurn,
@@ -23,6 +27,7 @@ from echo_masque.orchestration.trace import (
     RuntimeTraceSink,
     TraceNodeKind,
 )
+from echo_masque.providers.trace import provider_trace_scope
 from echo_masque.smart_output import SmartMentionPart
 from echo_masque.targets import PromptModelToolTurn
 
@@ -75,6 +80,7 @@ class CharacterTurnGraphContext:
     orchestration_version: str = "langgraph-phase-3"
     resolved: ResolvedCharacterTurn | None = None
     prepared: PreparedCharacterTurn | None = None
+    invite_turn_state: CharacterInviteTurnState | None = None
     tool_turn: PromptModelToolTurn | None = None
     response: TargetResponse | None = None
     output: ResolvedCharacterOutput | None = None
@@ -208,6 +214,15 @@ def _build_context(
         )
         raise
     context.prepared = prepared
+    invite_turn_state = current_character_invite_turn()
+    if (
+        invite_turn_state is not None
+        and invite_turn_state.turn_token == prepared.smart_context.invite_turn_token
+        and invite_turn_state.deployment_id == prepared.resolved.deployment.id
+    ):
+        context.invite_turn_state = invite_turn_state
+    else:
+        context.invite_turn_state = None
     rag_status: StageStatus = "completed" if prepared.turn_context is not None else "skipped"
     _emit(
         state,
@@ -232,15 +247,21 @@ async def _invoke_model(
         raise RuntimeError("Character Turn graph lost prepared context.")
     response: TargetResponse | None
     try:
-        if context.tool_turn is None:
-            context.tool_turn = await context.runtime.start_character_tool_turn(prepared)
-        if context.tool_turn is None:
-            response = await context.runtime.invoke_character_model(prepared)
-        else:
-            response = await context.runtime.advance_character_tool_model(
-                prepared,
-                context.tool_turn,
-            )
+        deployment = prepared.resolved.deployment
+        with provider_trace_scope(
+            owner_id=deployment.owner_id,
+            deployment_id=deployment.id,
+            character_card_id=prepared.resolved.card.id,
+        ):
+            if context.tool_turn is None:
+                context.tool_turn = await context.runtime.start_character_tool_turn(prepared)
+            if context.tool_turn is None:
+                response = await context.runtime.invoke_character_model(prepared)
+            else:
+                response = await context.runtime.advance_character_tool_model(
+                    prepared,
+                    context.tool_turn,
+                )
     except Exception as exc:
         _emit(
             state,
@@ -323,6 +344,8 @@ async def _execute_tools(
     if prepared is None or turn is None:
         raise RuntimeError("Character Turn graph lost its pending Tool session.")
     try:
+        if context.invite_turn_state is not None:
+            activate_character_invite_turn(context.invite_turn_state)
         executed_count = await context.runtime.execute_character_tools(prepared, turn)
     except Exception as exc:
         _emit(
@@ -370,10 +393,18 @@ async def _resolve_smart_output(
     if context.prepared is None or context.response is None:
         raise RuntimeError("Character Turn graph lost model output before Smart Output.")
     try:
-        output = await context.runtime.resolve_character_output(
-            context.prepared,
-            context.response,
-        )
+        if context.invite_turn_state is not None:
+            activate_character_invite_turn(context.invite_turn_state)
+        deployment = context.prepared.resolved.deployment
+        with provider_trace_scope(
+            owner_id=deployment.owner_id,
+            deployment_id=deployment.id,
+            character_card_id=context.prepared.resolved.card.id,
+        ):
+            output = await context.runtime.resolve_character_output(
+                context.prepared,
+                context.response,
+            )
     except Exception as exc:
         _emit(
             state,
@@ -531,15 +562,17 @@ class CharacterTurnGraphRunner:
                 if isinstance(part, SmartMentionPart)
                 and part.mention.startswith("deployment:")
             )
-            if context.prepared is not None:
-                proposal = current_character_invite_proposal(
-                    context.prepared.smart_context.invite_turn_token
-                )
-                if (
-                    proposal is not None
-                    and proposal.candidate_deployment_id in mentioned
-                ):
-                    invite_candidate = proposal.candidate_deployment_id
+            proposal = (
+                context.invite_turn_state.proposals[0]
+                if context.invite_turn_state is not None
+                and context.invite_turn_state.proposals
+                else None
+            )
+            if (
+                proposal is not None
+                and proposal.candidate_deployment_id in mentioned
+            ):
+                invite_candidate = proposal.candidate_deployment_id
         return CharacterTurnGraphResult(
             state=result,
             reply=context.reply,

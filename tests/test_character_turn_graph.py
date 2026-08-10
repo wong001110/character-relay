@@ -8,6 +8,7 @@ from pydantic import SecretStr
 
 from echo_masque.api import create_app
 from echo_masque.api.connector_schemas import DiscordInboundMessage
+from echo_masque.character_invite_runtime import current_character_invite_turn
 from echo_masque.config import Settings
 from echo_masque.domain import TargetResponse
 from echo_masque.orchestration import CharacterTurnGraphRunner, RuntimeTraceEvent
@@ -183,6 +184,18 @@ def test_character_turn_graph_routes_model_tool_model_explicitly(
     client = TestClient(app)
     connection, deployment = seed(app, client)
     incoming = payload(connection, deployment, mentioned_bot=True)
+    incoming = incoming.model_copy(
+        update={
+            "mentionable_participants": [
+                {
+                    "ref": "deployment:deployment-zhi",
+                    "display_name": "Zhi",
+                    "kind": "character",
+                }
+            ]
+        }
+    )
+    incoming = DiscordInboundMessage.model_validate(incoming.model_dump())
     runtime = app.state.discord_connector_runtime
     session = SimpleNamespace(tool_rounds=0, pending_tool_calls=(), traces=[])
     model_steps = 0
@@ -204,6 +217,12 @@ def test_character_turn_graph_routes_model_tool_model_explicitly(
 
     async def execute_tools(prepared: object, turn: object) -> int:
         del prepared
+        invite_state = current_character_invite_turn()
+        assert invite_state is not None
+        assert invite_state.deployment_id == deployment["id"]
+        participant = invite_state.participant("p1")
+        assert participant is not None
+        assert participant.ref == "deployment:deployment-zhi"
         current = turn
         current.pending_tool_calls = ()
         current.traces.append("completed")
