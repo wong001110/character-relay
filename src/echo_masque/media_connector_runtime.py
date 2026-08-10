@@ -9,6 +9,7 @@ from echo_masque.connector_runtime import DiscordConnectorRuntime, PreparedChara
 from echo_masque.domain import TargetResponse
 from echo_masque.live_media import LiveMediaContextService, LiveMediaResult, media_prompt_guidance
 from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
+from echo_masque.providers.trace import provider_trace_scope
 from echo_masque.targets import PromptModelToolTurn
 
 _MEDIA_RESULT_TTL_SECONDS = 300.0
@@ -62,11 +63,16 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         if cached is not None and cached[0] > now:
             result = cached[1]
         else:
-            result = await service.contexts_for_turn(
+            with provider_trace_scope(
                 owner_id=deployment.owner_id,
+                deployment_id=deployment.id,
                 character_card_id=resolved.card.id,
-                payload=payload,
-            )
+            ):
+                result = await service.contexts_for_turn(
+                    owner_id=deployment.owner_id,
+                    character_card_id=resolved.card.id,
+                    payload=payload,
+                )
             self._media_turn_results[key] = (
                 now + _MEDIA_RESULT_TTL_SECONDS,
                 result,
