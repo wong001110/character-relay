@@ -127,7 +127,9 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
                         source_key=source.source_key,
                     )
                 if resolved.has_context:
-                    raise ValueError("Platform media has transcript/metadata but no direct media URL.")
+                    raise ValueError(
+                        "Platform media has transcript/metadata but no direct media URL."
+                    )
         return await super()._resolve_public_media(source)
 
     async def _article_context(
