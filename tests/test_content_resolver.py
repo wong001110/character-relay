@@ -33,7 +33,8 @@ def test_short_link_requires_network_resolution_later() -> None:
 
     assert source.platform == "bilibili"
     assert source.status == "partial"
-    assert source.kind == "unknown"
+    assert source.kind == "video"
+    assert source.media_type == "video"
 
 
 def test_direct_media_and_generic_article_are_classified_without_fetching() -> None:
