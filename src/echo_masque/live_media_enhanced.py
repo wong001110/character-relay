@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.browser_runtime import BrowserCapabilityManager, BrowserToolUnavailable
@@ -13,7 +14,6 @@ from echo_masque.live_media import (
     LiveMediaContextService,
 )
 from echo_masque.media_runtime import MediaAnalysis
-from echo_masque.network_safety import PublicUrlRejected
 from echo_masque.tool_external import ExternalToolFailed
 
 _ARTICLE_MAX_CHARS = 7000
@@ -28,9 +28,9 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
 
     def __init__(
         self,
-        *args: object,
+        *args: Any,
         browser_runtime: BrowserCapabilityManager | None = None,
-        **kwargs: object,
+        **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self.browser_runtime = browser_runtime
@@ -83,7 +83,7 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
         self,
         source: ResolvedContentSource,
     ) -> LiveMediaContext | None:
-        """Use HTTP first, then Chromium for JS-heavy/anti-bot pages such as Zhihu."""
+        """Use HTTP first, then Chromium for JavaScript-heavy or anti-bot pages."""
 
         cached = self.media_repository.get(
             media_key=source.source_key,
@@ -117,7 +117,7 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
             needs_browser = bool(fetched.get("needs_browser_render")) or (
                 0 < len(text) < _MIN_USEFUL_HTTP_CHARS
             )
-        except (ExternalToolFailed, PublicUrlRejected, ValueError):
+        except (ExternalToolFailed, ValueError):
             needs_browser = True
 
         browser = self.browser_runtime
@@ -133,7 +133,7 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
                     text = rendered_text.strip()
                 if isinstance(rendered_title, str) and rendered_title.strip():
                     title = rendered_title.strip()
-            except (BrowserToolUnavailable, PublicUrlRejected, ValueError):
+            except (BrowserToolUnavailable, ValueError):
                 pass
 
         if not text:
