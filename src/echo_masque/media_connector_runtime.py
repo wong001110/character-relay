@@ -8,6 +8,7 @@ from typing import Any
 from echo_masque.connector_runtime import DiscordConnectorRuntime, PreparedCharacterTurn
 from echo_masque.domain import TargetResponse
 from echo_masque.live_media import LiveMediaContextService, LiveMediaResult, media_prompt_guidance
+from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
 from echo_masque.targets import PromptModelToolTurn
 
 _MEDIA_RESULT_TTL_SECONDS = 300.0
@@ -23,7 +24,14 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.live_media_service = live_media_service
+        self.live_media_service = (
+            EnhancedLiveMediaContextService.from_service(
+                live_media_service,
+                browser_runtime=self.tool_registry.browser,
+            )
+            if live_media_service is not None
+            else None
+        )
         self._media_turn_results: dict[tuple[str, str], tuple[float, LiveMediaResult]] = {}
 
     async def invoke_character_model(
