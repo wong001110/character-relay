@@ -54,13 +54,14 @@ from echo_masque.condition_watch_runtime import (
 )
 from echo_masque.condition_watch_service import ConditionWatchService
 from echo_masque.config import Settings, get_settings
-from echo_masque.connector_runtime import DiscordConnectorRuntime
 from echo_masque.context_layer import ContextOrchestrator
 from echo_masque.coverage_analytics import CoverageAnalyticsService
 from echo_masque.credentials import CredentialVault
 from echo_masque.discord_inventory import DiscordInventoryService
 from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
 from echo_masque.judge_evaluation import JudgeEvaluationService
+from echo_masque.live_media import LiveMediaContextService
+from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
 from echo_masque.orchestration import (
     CharacterTurnGraphRunner,
     ConditionWatchGraphRunner,
@@ -79,8 +80,10 @@ from echo_masque.persistence import (
     EvaluationRepository,
     ExpressionRepository,
     InteractionRepository,
+    KeyGroupRepository,
     KnowledgeRepository,
     MatrixRepository,
+    MediaAnalysisRepository,
     ProviderTraceRepository,
     Repository,
     ScheduledReminderRepository,
@@ -91,6 +94,7 @@ from echo_masque.persistence import (
 )
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.prompt_inspector import CharacterPromptInspector
+from echo_masque.provider_credentials import KeyGroupProviderCredentialResolver
 from echo_masque.providers.trace import configure_provider_trace_sink
 from echo_masque.public_demo import PublicDemoService
 from echo_masque.public_demo_middleware import PublicDemoReadOnlyMiddleware
@@ -202,6 +206,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     target_access_repository = TargetAccessRepository(database)
     credential_store = CredentialVault(auth_repository, resolved)
+    key_group_repository = KeyGroupRepository(database)
+    media_analysis_repository = MediaAnalysisRepository(database)
+    media_credential_resolver = KeyGroupProviderCredentialResolver(
+        key_group_repository,
+        credential_store,
+    )
+    live_media_service = LiveMediaContextService(
+        media_repository=media_analysis_repository,
+        credential_resolver=media_credential_resolver,
+        discord_bot_token=resolved.discord_tool_bot_token,
+    )
     scheduled_reminder_delivery = ScheduledReminderDeliveryService(
         scheduled_reminder_repository,
         deployment_repository,
@@ -240,13 +255,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         processor=condition_watch_graph_runner,
         poll_seconds=resolved.condition_watch_poll_seconds,
     )
-    discord_connector_runtime = DiscordConnectorRuntime(
+    discord_connector_runtime = MediaAwareDiscordConnectorRuntime(
         repository,
         deployment_repository,
         credential_store,
         context_orchestrator=context_orchestrator,
         deployment_tool_repository=deployment_tool_repository,
         tool_registry=tool_registry,
+        live_media_service=live_media_service,
     )
     character_turn_graph_runner = (
         CharacterTurnGraphRunner(
@@ -401,6 +417,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.context_orchestrator = context_orchestrator
     app.state.provider_trace_repository = provider_trace_repository
     app.state.durable_runtime_repository = durable_runtime_repository
+    app.state.key_group_repository = key_group_repository
+    app.state.media_analysis_repository = media_analysis_repository
+    app.state.live_media_service = live_media_service
     app.state.discord_connector_runtime = discord_connector_runtime
     app.state.character_turn_graph_runner = character_turn_graph_runner
     app.state.social_turn_graph_runner = social_turn_graph_runner
