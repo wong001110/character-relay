@@ -319,10 +319,10 @@ export function RuntimeTraceViewer({ onClose }: { onClose: () => void }) {
                 <div><dt>{zh ? "Timeline 事件" : "Timeline events"}</dt><dd>{selected.event_count}</dd></div>
               </dl>
               <div className="provider-trace-json-stack">
-                {selected.events.map((event) => (
+                {selected.events.map((event, index) => (
                   <section key={event.id} className="provider-trace-json-card">
                     <div className="provider-trace-badge-row">
-                      <strong>#{event.sequence} · {event.node_name}</strong>
+                      <strong>#{index + 1} · {event.node_name}</strong>
                       <span className={`provider-trace-status trace-${event.status}`}>{event.status}</span>
                     </div>
                     <p>{nodeDescription(event.node_name, zh)}</p>
