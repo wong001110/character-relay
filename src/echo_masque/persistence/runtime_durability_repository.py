@@ -391,6 +391,8 @@ class DurableRuntimeRepository:
             operation = session.get(RuntimeOperationRecord, operation_id)
             if step is None or operation is None:
                 return
+            if step.status == "delivered" or operation.status == "completed":
+                return
             if step.delivery_claim_nonce and step.delivery_claim_nonce != claim_nonce:
                 return
             step.status = "uncertain"

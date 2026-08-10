@@ -25,6 +25,15 @@ import type {
   DiscordWebhookStatusReport
 } from "./types.js";
 import type { DiscordPortalParticipationProfile } from "./smartParticipation.js";
+import type {
+  DiscordDeliveryAckRequest,
+  DiscordDeliveryClaim,
+  DiscordDeliveryClaimRequest,
+  DiscordDeliveryFailureRequest,
+  DiscordPendingSocialOperation,
+  DiscordSocialOperationClaim,
+  DiscordSocialOperationClaimRequest
+} from "./durableRuntime.js";
 
 export interface DiscordSemanticParticipationCandidate {
   deployment_id: string;
@@ -218,6 +227,61 @@ export class RelayClient {
   }): Promise<DiscordSemanticParticipationResult> {
     return this.request<DiscordSemanticParticipationResult>(
       "/api/smart-participation/semantic-score",
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
+  }
+
+  async claimSocialTurnOperation(
+    payload: DiscordSocialOperationClaimRequest
+  ): Promise<DiscordSocialOperationClaim> {
+    return this.request<DiscordSocialOperationClaim>(
+      "/api/connectors/discord/social-turns/operations/claim",
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
+  }
+
+  async listPendingSocialTurnOperations(): Promise<DiscordPendingSocialOperation[]> {
+    const query = new URLSearchParams({ connection_id: this.connectionId });
+    return this.request<DiscordPendingSocialOperation[]>(
+      `/api/connectors/discord/social-turns/operations/pending?${query.toString()}`
+    );
+  }
+
+  async claimSocialTurnDelivery(
+    payload: DiscordDeliveryClaimRequest
+  ): Promise<DiscordDeliveryClaim> {
+    return this.request<DiscordDeliveryClaim>(
+      "/api/connectors/discord/social-turns/delivery/claim",
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
+  }
+
+  async acknowledgeSocialTurnDelivery(
+    payload: DiscordDeliveryAckRequest
+  ): Promise<DiscordSocialOperationClaim> {
+    return this.request<DiscordSocialOperationClaim>(
+      "/api/connectors/discord/social-turns/delivery/ack",
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
+  }
+
+  async markSocialTurnDeliveryUncertain(
+    payload: DiscordDeliveryFailureRequest
+  ): Promise<void> {
+    await this.request<void>(
+      "/api/connectors/discord/social-turns/delivery/uncertain",
       {
         method: "POST",
         body: JSON.stringify({ connection_id: this.connectionId, ...payload })
