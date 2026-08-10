@@ -6,13 +6,15 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 TraceNodeKind = Literal[
+    "decision",
     "context",
     "retrieval",
-    "decision",
     "agentic",
     "capability",
-    "side_effect",
     "authority",
+    "state",
+    "side_effect",
+    "foundation",
 ]
 TraceEventStatus = Literal["started", "completed", "failed"]
 
