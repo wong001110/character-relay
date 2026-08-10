@@ -1,13 +1,13 @@
 import json
 from pathlib import Path
 
-from echo_masque.orchestration.trace import RuntimeTraceEvent
 from echo_masque.persistence import (
     Database,
     DurableRuntimeRepository,
     RuntimeOperationRecord,
     RuntimeStepRecord,
 )
+from echo_masque.runtime_trace import RuntimeTraceEvent
 
 
 def repository(path: Path) -> tuple[Database, DurableRuntimeRepository]:

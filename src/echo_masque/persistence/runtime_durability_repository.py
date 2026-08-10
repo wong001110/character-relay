@@ -9,7 +9,6 @@ from typing import Literal
 
 from sqlalchemy import and_, delete, or_, select
 
-from echo_masque.orchestration.trace import RuntimeTraceEvent
 from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.runtime_durability_models import (
@@ -19,6 +18,7 @@ from echo_masque.persistence.runtime_durability_models import (
     RuntimeTraceEventRecord,
     RuntimeTraceRunRecord,
 )
+from echo_masque.runtime_trace import RuntimeTraceEvent
 
 OperationStatus = Literal["active", "awaiting_delivery", "completed", "uncertain", "failed"]
 SideEffectClaimStatus = Literal["granted", "replay", "uncertain"]

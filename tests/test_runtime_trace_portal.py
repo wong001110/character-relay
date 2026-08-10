@@ -6,7 +6,7 @@ from pydantic import SecretStr
 
 from echo_masque.api import create_app
 from echo_masque.config import Settings
-from echo_masque.orchestration.trace import RuntimeTraceEvent
+from echo_masque.runtime_trace import RuntimeTraceEvent
 
 SUPER_EMAIL = "runtime-trace-super@example.com"
 SUPER_PASSWORD = "RuntimeTraceSuper2026!"
