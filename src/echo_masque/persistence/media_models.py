@@ -33,7 +33,9 @@ class MediaAnalysisRecord(Base):
     status: Mapped[str] = mapped_column(String(20), default="ready", nullable=False)
     result_json: Mapped[str] = mapped_column(Text, default="", nullable=False)
     lease_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_accessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
