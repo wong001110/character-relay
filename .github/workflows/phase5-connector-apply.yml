@@ -1,0 +1,216 @@
+name: Phase 5 durable Discord connector apply
+
+on:
+  push:
+    branches:
+      - agent/langgraph-phase-5-durable-runtime
+    paths:
+      - .github/workflows/phase5-connector-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/langgraph-phase-5-durable-runtime
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Patch durable Connector flow
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path: str, old: str, new: str, count: int = 1) -> None:
+              target = Path(path)
+              text = target.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'marker not found in {path}: {old[:140]!r}')
+              target.write_text(text.replace(old, new, count), encoding='utf-8')
+
+          # TypeScript request/reply correlation remains optional for rolling compatibility.
+          path = 'connectors/discord/src/types.ts'
+          replace(
+              path,
+              '  expression_candidates: DiscordExpressionCandidate[];\n}\n\nexport type DiscordSocialTurnOrigin',
+              '  expression_candidates: DiscordExpressionCandidate[];\n'
+              '  runtime_operation_id?: string;\n'
+              '  runtime_step_id?: string;\n'
+              '}\n\nexport type DiscordSocialTurnOrigin',
+          )
+          replace(
+              path,
+              '  cursor?: DiscordSocialTurnCursor | null;\n}\n\nexport interface DiscordSocialTurnStepReply {',
+              '  cursor?: DiscordSocialTurnCursor | null;\n'
+              '  operation_id?: string;\n'
+              '  runtime_step_id?: string;\n'
+              '}\n\nexport interface DiscordSocialTurnStepReply {',
+          )
+          replace(
+              path,
+              '  mentioned_character_deployment_ids: string[];\n}\n\nexport interface DiscordReply {',
+              '  mentioned_character_deployment_ids: string[];\n'
+              '  operation_id?: string;\n'
+              '  step_id?: string;\n'
+              '  step_index?: number;\n'
+              '  durable_status?: "none" | "generated" | "replayed" | "delivered";\n'
+              '  delivery_required?: boolean;\n'
+              '}\n\nexport interface DiscordReply {',
+          )
+
+          # RelayClient durable Core contracts.
+          path = 'connectors/discord/src/relayClient.ts'
+          replace(
+              path,
+              'import type { DiscordPortalParticipationProfile } from "./smartParticipation.js";\n',
+              'import type { DiscordPortalParticipationProfile } from "./smartParticipation.js";\n'
+              'import type {\n'
+              '  DiscordDeliveryAckRequest,\n'
+              '  DiscordDeliveryClaim,\n'
+              '  DiscordDeliveryClaimRequest,\n'
+              '  DiscordDeliveryFailureRequest,\n'
+              '  DiscordPendingSocialOperation,\n'
+              '  DiscordSocialOperationClaim,\n'
+              '  DiscordSocialOperationClaimRequest\n'
+              '} from "./durableRuntime.js";\n',
+          )
+          marker = '''  async processSocialTurnStep(\n    request: Omit<DiscordSocialTurnStepRequest, "payload"> & {\n      payload: Omit<DiscordInboundMessage, "connection_id">;\n    }\n  ): Promise<DiscordSocialTurnStepReply> {\n'''
+          durable_methods = '''  async claimSocialTurnOperation(\n    payload: DiscordSocialOperationClaimRequest\n  ): Promise<DiscordSocialOperationClaim> {\n    return this.request<DiscordSocialOperationClaim>(\n      "/api/connectors/discord/social-turns/operations/claim",\n      {\n        method: "POST",\n        body: JSON.stringify({ connection_id: this.connectionId, ...payload })\n      }\n    );\n  }\n\n  async listPendingSocialTurnOperations(): Promise<DiscordPendingSocialOperation[]> {\n    const query = new URLSearchParams({ connection_id: this.connectionId });\n    return this.request<DiscordPendingSocialOperation[]>(\n      `/api/connectors/discord/social-turns/operations/pending?${query.toString()}`\n    );\n  }\n\n  async claimSocialTurnDelivery(\n    payload: DiscordDeliveryClaimRequest\n  ): Promise<DiscordDeliveryClaim> {\n    return this.request<DiscordDeliveryClaim>(\n      "/api/connectors/discord/social-turns/delivery/claim",\n      {\n        method: "POST",\n        body: JSON.stringify({ connection_id: this.connectionId, ...payload })\n      }\n    );\n  }\n\n  async acknowledgeSocialTurnDelivery(\n    payload: DiscordDeliveryAckRequest\n  ): Promise<DiscordSocialOperationClaim> {\n    return this.request<DiscordSocialOperationClaim>(\n      "/api/connectors/discord/social-turns/delivery/ack",\n      {\n        method: "POST",\n        body: JSON.stringify({ connection_id: this.connectionId, ...payload })\n      }\n    );\n  }\n\n  async markSocialTurnDeliveryUncertain(\n    payload: DiscordDeliveryFailureRequest\n  ): Promise<void> {\n    await this.request<void>(\n      "/api/connectors/discord/social-turns/delivery/uncertain",\n      {\n        method: "POST",\n        body: JSON.stringify({ connection_id: this.connectionId, ...payload })\n      }\n    );\n  }\n\n'''
+          replace(path, marker, durable_methods + marker)
+
+          # Do not downgrade a delivery that Core already acknowledged if the ACK response was lost.
+          path = 'src/echo_masque/persistence/runtime_durability_repository.py'
+          replace(
+              path,
+              '            if step.delivery_claim_nonce and step.delivery_claim_nonce != claim_nonce:\n                return\n            step.status = "uncertain"\n',
+              '            if step.status == "delivered" or operation.status == "completed":\n'
+              '                return\n'
+              '            if step.delivery_claim_nonce and step.delivery_claim_nonce != claim_nonce:\n'
+              '                return\n'
+              '            step.status = "uncertain"\n',
+          )
+
+          # Connector imports durable identity + delivery nonce.
+          path = 'connectors/discord/src/index.ts'
+          replace(
+              path,
+              'import { createServer } from "node:http";\n',
+              'import { randomUUID } from "node:crypto";\nimport { createServer } from "node:http";\n',
+          )
+          replace(
+              path,
+              'import { ContextBuffer } from "./contextBuffer.js";\n',
+              'import { ContextBuffer } from "./contextBuffer.js";\n'
+              'import {\n'
+              '  socialOperationId,\n'
+              '  type DiscordSocialOperationClaim,\n'
+              '  type DiscordSocialOperationClaimRequest\n'
+              '} from "./durableRuntime.js";\n',
+          )
+          replace(
+              path,
+              'async function processMessage(message: Message): Promise<void> {\n'
+              '  const botUser = client.user;\n'
+              '  if (!message.inGuild() || message.author.bot || !botUser) return;\n'
+              '  if (processedMessages.has(message.id)) return;\n'
+              '  processedMessages.set(message.id, Date.now());\n',
+              'async function processMessage(\n'
+              '  message: Message,\n'
+              '  options?: { recovery?: boolean }\n'
+              '): Promise<void> {\n'
+              '  const botUser = client.user;\n'
+              '  if (!message.inGuild() || message.author.bot || !botUser) return;\n'
+              '  if (processedMessages.has(message.id) && !options?.recovery) return;\n'
+              '  processedMessages.set(message.id, Date.now());\n',
+          )
+
+          old = '''    let socialCursor: DiscordSocialTurnCursor | null = null;\n    let socialNextTurn: DiscordSocialPendingTurn | null = socialTurnEnabled\n      ? {\n          deployment_id: socialInitialDeploymentIds[0] ?? "",\n          origin: "selected",\n          depth: 0,\n          source_deployment_id: ""\n        }\n      : null;\n    const socialSources = new Map<\n      string,\n      { text: string; sentMessageIds: string[] }\n    >();\n    const legacyQueue = [...eligibleDeployments];\n'''
+          new = '''    let socialCursor: DiscordSocialTurnCursor | null = null;\n    let socialNextTurn: DiscordSocialPendingTurn | null = null;\n    let socialOperation: DiscordSocialOperationClaim | null = null;\n    let durableOperationId = "";\n    let socialClaimRequest: DiscordSocialOperationClaimRequest | null = null;\n    const socialSources = new Map<\n      string,\n      { text: string; sentMessageIds: string[] }\n    >();\n    const applyDurableOperation = (operation: DiscordSocialOperationClaim): void => {\n      socialOperation = operation;\n      socialCursor = operation.cursor;\n      socialNextTurn = operation.next_turn ?? null;\n      socialSources.clear();\n      for (const source of operation.sources) {\n        socialSources.set(source.deployment_id, {\n          text: source.text,\n          sentMessageIds: source.sent_message_ids\n        });\n      }\n    };\n    if (socialTurnEnabled) {\n      durableOperationId = socialOperationId({\n        connectionId: config.relayConnectionId,\n        guildId: guildMessage.guildId,\n        channelId: location.channelId,\n        threadId: location.threadId,\n        sourceMessageId: guildMessage.id\n      });\n      socialClaimRequest = {\n        operation_id: durableOperationId,\n        guild_id: guildMessage.guildId,\n        channel_id: location.channelId,\n        thread_id: location.threadId,\n        source_message_id: guildMessage.id,\n        initial_deployment_ids: socialInitialDeploymentIds,\n        available_deployment_ids: socialAvailableDeploymentIds,\n        continuation_budget: config.botTagMaxResponses,\n        max_depth: config.botTagMaxDepth\n      };\n      const claimed = await relay.claimSocialTurnOperation(socialClaimRequest);\n      applyDurableOperation(claimed);\n      if (claimed.status === "uncertain" || claimed.status === "failed") {\n        reportDiscordEvent({\n          level: "warning",\n          eventType: "durable_social_turn_blocked",\n          message: "Durable Social Turn requires reconciliation before another Discord side effect.",\n          guildId: guildMessage.guildId,\n          guildName: guildMessage.guild.name,\n          channelId: location.channelId,\n          channelName: location.channelName,\n          threadId: location.threadId,\n          threadName: location.threadName,\n          sourceMessageId: guildMessage.id,\n          details: {\n            operation_id: durableOperationId,\n            status: claimed.status,\n            last_error: claimed.last_error\n          }\n        });\n        return;\n      }\n      if (claimed.status === "completed") return;\n    }\n    const legacyQueue = [...eligibleDeployments];\n'''
+          replace(path, old, new)
+
+          replace(
+              path,
+              '              max_depth: config.botTagMaxDepth,\n              cursor: socialCursor\n',
+              '              max_depth: config.botTagMaxDepth,\n'
+              '              cursor: socialCursor,\n'
+              '              operation_id: durableOperationId\n',
+          )
+          replace(
+              path,
+              '      if (socialStep) {\n'
+              '        socialCursor = socialStep.cursor;\n'
+              '        socialNextTurn = socialStep.next_turn ?? null;\n'
+              '      }\n',
+              '      if (socialStep && !socialStep.delivery_required) {\n'
+              '        socialCursor = socialStep.cursor;\n'
+              '        socialNextTurn = socialStep.next_turn ?? null;\n'
+              '      }\n',
+          )
+
+          old = '''      let execution: ExpressionExecutionResult | SmartOutputExecutionResult;\n      try {\n        execution = reply.smart_output\n'''
+          new = '''      let execution: ExpressionExecutionResult | SmartOutputExecutionResult;\n      let deliveryClaimNonce = "";\n      let deliveryClaimed = false;\n      try {\n        if (\n          socialTurnEnabled &&\n          socialStep?.delivery_required &&\n          socialStep.step_id &&\n          socialClaimRequest\n        ) {\n          deliveryClaimNonce = randomUUID();\n          const deliveryClaim = await relay.claimSocialTurnDelivery({\n            operation_id: durableOperationId,\n            step_id: socialStep.step_id,\n            claim_nonce: deliveryClaimNonce\n          });\n          if (deliveryClaim.claim_status === "uncertain") {\n            throw new Error("Durable Discord delivery is uncertain; refusing to resend.");\n          }\n          if (deliveryClaim.claim_status === "already_delivered") {\n            applyDurableOperation(\n              await relay.claimSocialTurnOperation(socialClaimRequest)\n            );\n            continue;\n          }\n          deliveryClaimed = true;\n        }\n        execution = reply.smart_output\n'''
+          replace(path, old, new)
+
+          marker = '''          : await executeCharacterOutput(\n              guildMessage,\n              deployment,\n              reply.text\n                ? normalizeBotTagReply(\n                    candidates,\n                    reply.text,\n                    deployment.deployment_id,\n                    config.groupAddressAliases\n                  ).displayText.trim()\n                : "",\n              reply.expression,\n              preparedExpression,\n              botUser.id\n            );\n'''
+          addition = marker + '''        if (\n          deliveryClaimed &&\n          socialStep?.step_id &&\n          socialCursor\n        ) {\n          const acknowledged = await relay.acknowledgeSocialTurnDelivery({\n            operation_id: durableOperationId,\n            step_id: socialStep.step_id,\n            claim_nonce: deliveryClaimNonce,\n            deployment_id: deployment.deployment_id,\n            cursor: socialStep.cursor,\n            sent_message_ids: execution.sentMessageIds,\n            outgoing_text: execution.outgoingText,\n            applied: execution.applied\n          });\n          applyDurableOperation(acknowledged);\n        }\n'''
+          replace(path, marker, addition)
+
+          replace(
+              path,
+              '      } catch (error) {\n        reportDiscordEvent({\n',
+              '      } catch (error) {\n'
+              '        if (deliveryClaimed && socialStep?.step_id) {\n'
+              '          await relay\n'
+              '            .markSocialTurnDeliveryUncertain({\n'
+              '              operation_id: durableOperationId,\n'
+              '              step_id: socialStep.step_id,\n'
+              '              claim_nonce: deliveryClaimNonce,\n'
+              '              error: error instanceof Error ? error.message : String(error)\n'
+              '            })\n'
+              '            .catch(() => undefined);\n'
+              '        }\n'
+              '        reportDiscordEvent({\n',
+              1,
+          )
+
+          old = '''      if (socialTurnEnabled) {\n        if (outgoingText || sentMessageIds.length) {\n          socialSources.set(deployment.deployment_id, {\n            text: outgoingText,\n            sentMessageIds\n          });\n        } else if (socialCursor) {\n          socialCursor.pending_turns = socialCursor.pending_turns.filter(\n            (item) => item.source_deployment_id !== deployment.deployment_id\n          );\n          socialNextTurn = socialCursor.pending_turns[0] ?? null;\n        }\n      } else {\n'''
+          new = '''      if (socialTurnEnabled) {\n        if (!durableOperationId) {\n          if (outgoingText || sentMessageIds.length) {\n            socialSources.set(deployment.deployment_id, {\n              text: outgoingText,\n              sentMessageIds\n            });\n          } else if (socialCursor) {\n            socialCursor.pending_turns = socialCursor.pending_turns.filter(\n              (item) => item.source_deployment_id !== deployment.deployment_id\n            );\n            socialNextTurn = socialCursor.pending_turns[0] ?? null;\n          }\n        }\n      } else {\n'''
+          replace(path, old, new)
+
+          # Restart recovery replays the original Discord source event through the same stable operation ID.
+          health_marker = 'const healthServer = createServer((request, response) => {\n'
+          recovery = '''async function resumePendingSocialTurns(): Promise<void> {\n  const pending = await relay.listPendingSocialTurnOperations();\n  for (const operation of pending) {\n    try {\n      const guild =\n        client.guilds.cache.get(operation.guild_id) ??\n        (await client.guilds.fetch(operation.guild_id));\n      const channel = await guild.channels.fetch(operation.channel_id);\n      if (!channel || !channel.isTextBased() || !("messages" in channel)) {\n        throw new Error("Durable Social Turn source channel is unavailable.");\n      }\n      const source = await channel.messages.fetch(operation.source_message_id);\n      if (!source.inGuild()) {\n        throw new Error("Durable Social Turn source message is not a Guild message.");\n      }\n      await processMessage(source, { recovery: true });\n      reportDiscordEvent({\n        level: "info",\n        eventType: "durable_social_turn_resume_queued",\n        message: "A durable Social Turn was queued for checkpoint resume.",\n        guildId: operation.guild_id,\n        channelId: operation.channel_id,\n        threadId: operation.thread_id,\n        sourceMessageId: operation.source_message_id,\n        details: {\n          operation_id: operation.operation_id,\n          operation_status: operation.status\n        }\n      });\n    } catch (error) {\n      log("Unable to resume durable Social Turn.", {\n        operationId: operation.operation_id,\n        sourceMessageId: operation.source_message_id,\n        error: error instanceof Error ? error.message : String(error)\n      });\n    }\n  }\n}\n\n'''
+          replace(path, health_marker, recovery + health_marker)
+
+          sync_marker = '''      if (recovered) {\n        log("Discord connector state synchronized.", {\n          discordUser: readyClient.user.tag,\n          connectionId: config.relayConnectionId,\n          activeDeployments: flattenDeployments(deployments).length,\n          activeDestinations: deployments.size\n        });\n      }\n'''
+          sync_new = '''      if (recovered) {\n        log("Discord connector state synchronized.", {\n          discordUser: readyClient.user.tag,\n          connectionId: config.relayConnectionId,\n          activeDeployments: flattenDeployments(deployments).length,\n          activeDestinations: deployments.size\n        });\n        await resumePendingSocialTurns().catch((error: unknown) => {\n          lastError = error instanceof Error ? error.message : String(error);\n          log("Durable Social Turn recovery scan failed.", { error: lastError });\n        });\n      }\n'''
+          replace(path, sync_marker, sync_new)
+          PY
+      - name: Validate Connector and Core typing
+        run: |
+          cd connectors/discord
+          npm install
+          npm run typecheck
+          npm test
+          npm run build
+          cd ../..
+          python -m pip install -e '.[dev]'
+          ruff check src/echo_masque
+          mypy src/echo_masque
+      - name: Remove one-shot workflow
+        run: git rm .github/workflows/phase5-connector-apply.yml
+      - name: Commit durable Connector flow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: add durable Discord Social Turn delivery"
+          git push origin HEAD:agent/langgraph-phase-5-durable-runtime
