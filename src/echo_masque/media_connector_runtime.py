@@ -104,7 +104,15 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         if not result.contexts:
             self._inject_guidance(prepared, unavailable_media_guidance(payload))
             return
-        self._inject_guidance(prepared, watched_media_guidance(result.contexts))
+        guidance = (
+            *watched_media_guidance(result.contexts),
+            (
+                "Evidence boundary: do not infer scenes, speech, demonstrations, or conclusions "
+                "that are absent from the observations below. A video title/description or web "
+                "page preview alone is not evidence that you watched the full video."
+            ),
+        )
+        self._inject_guidance(prepared, guidance)
 
     async def _attention_for_turn(
         self,
