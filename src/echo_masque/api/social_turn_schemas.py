@@ -48,6 +48,8 @@ class DiscordSocialTurnStepRequest(BaseModel):
     continuation_budget: int = Field(default=8, ge=0, le=30)
     max_depth: int = Field(default=4, ge=1, le=12)
     cursor: DiscordSocialTurnCursor | None = None
+    operation_id: str = Field(default="", max_length=64)
+    runtime_step_id: str = Field(default="", max_length=64)
 
 
 class DiscordSocialTurnStepView(BaseModel):
@@ -63,6 +65,11 @@ class DiscordSocialTurnStepView(BaseModel):
     stop_reason: str = ""
     invite_candidate_deployment_id: str = ""
     mentioned_character_deployment_ids: list[str] = Field(default_factory=list, max_length=20)
+    operation_id: str = ""
+    step_id: str = ""
+    step_index: int = 0
+    durable_status: Literal["none", "generated", "replayed", "delivered"] = "none"
+    delivery_required: bool = False
 
 
 __all__ = [

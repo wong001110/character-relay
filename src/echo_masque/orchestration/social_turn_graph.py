@@ -41,6 +41,7 @@ class SocialTurnGraphState(TypedDict, total=False):
     graph_run_id: str
     graph_name: Literal["social_turn"]
     orchestration_version: str
+    operation_id: str
     status: SocialGraphStatus
     participation_status: SocialStageStatus
     character_turn_status: SocialStageStatus
@@ -97,6 +98,8 @@ def _emit(
             node_name=node_name,
             node_kind=node_kind,
             status=status,
+            operation_id=state.get("operation_id", ""),
+            deployment_id=state.get("current_deployment_id", ""),
             changed_keys=changed_keys,
             metadata=metadata,
             error=error[:300],
@@ -188,7 +191,13 @@ async def _run_character_turn(
         status="started",
     )
     try:
-        result = await context.character_runner.run(context.request.payload)
+        character_payload = context.request.payload.model_copy(
+            update={
+                "runtime_operation_id": context.request.operation_id,
+                "runtime_step_id": context.request.runtime_step_id,
+            }
+        )
+        result = await context.character_runner.run(character_payload)
     except Exception as exc:
         _emit(
             state,
@@ -361,6 +370,7 @@ class SocialTurnGraphRunner:
             "graph_run_id": str(uuid4()),
             "graph_name": "social_turn",
             "orchestration_version": context.orchestration_version,
+            "operation_id": request.operation_id,
             "status": "pending",
             "participation_status": "not_started",
             "character_turn_status": "not_started",

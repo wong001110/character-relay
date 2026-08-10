@@ -232,6 +232,8 @@ class DiscordConnectorRuntime:
             trigger_text=payload.text,
             initiator_is_bot=payload.author_is_bot,
             initiator_user_id=payload.author_id,
+            operation_id=payload.runtime_operation_id,
+            step_id=payload.runtime_step_id,
         )
         return PreparedCharacterTurn(
             resolved=resolved,

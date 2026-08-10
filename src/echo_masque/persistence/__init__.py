@@ -77,6 +77,16 @@ from echo_masque.persistence.portable_calibration_repository import (
 from echo_masque.persistence.provider_trace_models import ProviderTraceRecord
 from echo_masque.persistence.provider_trace_repository import ProviderTraceRepository
 from echo_masque.persistence.repository import Repository
+from echo_masque.persistence.runtime_durability_models import (
+    RuntimeOperationRecord,
+    RuntimeSideEffectRecord,
+    RuntimeStepRecord,
+    RuntimeTraceEventRecord,
+    RuntimeTraceRunRecord,
+)
+from echo_masque.persistence.runtime_durability_repository import (
+    DurableRuntimeRepository,
+)
 from echo_masque.persistence.scheduled_reminder_models import ScheduledReminderRecord
 from echo_masque.persistence.scheduled_reminder_repository import ScheduledReminderRepository
 from echo_masque.persistence.smart_participation_models import (
@@ -139,6 +149,7 @@ __all__ = [
     "DiscordServerProfileRecord",
     "DiscordStickerSemanticRecord",
     "DiscordWebhookBindingRecord",
+    "DurableRuntimeRepository",
     "EvaluationRepository",
     "ExpressionRepository",
     "InteractionConflict",
@@ -156,6 +167,11 @@ __all__ = [
     "ProviderTraceRecord",
     "ProviderTraceRepository",
     "Repository",
+    "RuntimeOperationRecord",
+    "RuntimeSideEffectRecord",
+    "RuntimeStepRecord",
+    "RuntimeTraceEventRecord",
+    "RuntimeTraceRunRecord",
     "ScheduledReminderRecord",
     "ScheduledReminderRepository",
     "SmartParticipationFeedbackRecord",

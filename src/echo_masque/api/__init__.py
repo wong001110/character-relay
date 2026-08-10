@@ -32,6 +32,7 @@ from echo_masque.api.routes import (
     prompt_inspector_router,
     provider_traces_router,
     reports_router,
+    runtime_traces_router,
     scheduled_reminders_router,
     smart_participation_router,
     targets_router,
@@ -74,6 +75,7 @@ from echo_masque.persistence import (
     DeploymentRepository,
     DeploymentToolRepository,
     DiscordIdentityRepository,
+    DurableRuntimeRepository,
     EvaluationRepository,
     ExpressionRepository,
     InteractionRepository,
@@ -135,6 +137,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     discord_identity_repository = DiscordIdentityRepository(database)
     scheduled_reminder_repository = ScheduledReminderRepository(database)
     condition_watch_repository = ConditionWatchRepository(database)
+    durable_runtime_repository = DurableRuntimeRepository(database)
     browser_runtime = BrowserCapabilityManager(
         BrowserRuntimeSettings(
             enabled=resolved.browser_tools_enabled,
@@ -153,6 +156,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         condition_watch_repository=condition_watch_repository,
         condition_watch_enabled=True,
         discord_bot_token=resolved.discord_tool_bot_token,
+        side_effect_store=durable_runtime_repository,
     )
     interaction_repository = InteractionRepository(database)
     expression_repository = ExpressionRepository(database)
@@ -224,6 +228,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             condition_watch_repository,
             evaluator=condition_watch_evaluator,
             notifier=condition_watch_notifier,
+            trace_sink=durable_runtime_repository,
         )
         if resolved.langgraph_allows("condition_watch")
         else None
@@ -244,12 +249,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tool_registry=tool_registry,
     )
     character_turn_graph_runner = (
-        CharacterTurnGraphRunner(discord_connector_runtime)
+        CharacterTurnGraphRunner(
+            discord_connector_runtime,
+            trace_sink=durable_runtime_repository,
+        )
         if resolved.langgraph_allows("character_turn")
         else None
     )
     social_turn_graph_runner = (
-        SocialTurnGraphRunner(character_turn_graph_runner)
+        SocialTurnGraphRunner(
+            character_turn_graph_runner,
+            trace_sink=durable_runtime_repository,
+        )
         if (
             character_turn_graph_runner is not None
             and resolved.langgraph_allows("social_turn")
@@ -389,6 +400,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.knowledge_repository = knowledge_repository
     app.state.context_orchestrator = context_orchestrator
     app.state.provider_trace_repository = provider_trace_repository
+    app.state.durable_runtime_repository = durable_runtime_repository
     app.state.discord_connector_runtime = discord_connector_runtime
     app.state.character_turn_graph_runner = character_turn_graph_runner
     app.state.social_turn_graph_runner = social_turn_graph_runner
@@ -417,6 +429,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(accounts_router)
     app.include_router(admin_router)
     app.include_router(provider_traces_router)
+    app.include_router(runtime_traces_router)
     app.include_router(authoring_router)
     app.include_router(authoring_archive_router)
     app.include_router(authoring_generation_router)

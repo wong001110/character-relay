@@ -295,6 +295,8 @@ export interface DiscordInboundMessage {
   interaction_target_display_name: string;
   expression_run_id: string;
   expression_candidates: DiscordExpressionCandidate[];
+  runtime_operation_id?: string;
+  runtime_step_id?: string;
 }
 
 export type DiscordSocialTurnOrigin = "selected" | "invite" | "mention";
@@ -321,6 +323,8 @@ export interface DiscordSocialTurnStepRequest {
   continuation_budget: number;
   max_depth: number;
   cursor?: DiscordSocialTurnCursor | null;
+  operation_id?: string;
+  runtime_step_id?: string;
 }
 
 export interface DiscordSocialTurnStepReply {
@@ -332,6 +336,11 @@ export interface DiscordSocialTurnStepReply {
   stop_reason: string;
   invite_candidate_deployment_id: string;
   mentioned_character_deployment_ids: string[];
+  operation_id?: string;
+  step_id?: string;
+  step_index?: number;
+  durable_status?: "none" | "generated" | "replayed" | "delivered";
+  delivery_required?: boolean;
 }
 
 export interface DiscordReply {

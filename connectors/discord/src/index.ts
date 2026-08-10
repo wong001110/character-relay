@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 
 import {
@@ -11,6 +12,11 @@ import {
 
 import { loadConfig } from "./config.js";
 import { ContextBuffer } from "./contextBuffer.js";
+import {
+  socialOperationId,
+  type DiscordSocialOperationClaim,
+  type DiscordSocialOperationClaimRequest
+} from "./durableRuntime.js";
 import { detectBotMention, stripBotMentionTokens } from "./mentionDetection.js";
 import {
   expressionCandidate,
@@ -1712,10 +1718,13 @@ async function processInteractionSession(
   return true;
 }
 
-async function processMessage(message: Message): Promise<void> {
+async function processMessage(
+  message: Message,
+  options?: { recovery?: boolean }
+): Promise<void> {
   const botUser = client.user;
   if (!message.inGuild() || message.author.bot || !botUser) return;
-  if (processedMessages.has(message.id)) return;
+  if (processedMessages.has(message.id) && !options?.recovery) return;
   processedMessages.set(message.id, Date.now());
 
   const guildMessage = message;
@@ -2090,18 +2099,69 @@ async function processMessage(message: Message): Promise<void> {
       ])
     ];
     let socialCursor: DiscordSocialTurnCursor | null = null;
-    let socialNextTurn: DiscordSocialPendingTurn | null = socialTurnEnabled
-      ? {
-          deployment_id: socialInitialDeploymentIds[0] ?? "",
-          origin: "selected",
-          depth: 0,
-          source_deployment_id: ""
-        }
-      : null;
+    let socialNextTurn: DiscordSocialPendingTurn | null = null;
+    let socialOperation: DiscordSocialOperationClaim | null = null;
+    let durableOperationId = "";
+    let socialClaimRequest: DiscordSocialOperationClaimRequest | null = null;
     const socialSources = new Map<
       string,
       { text: string; sentMessageIds: string[] }
     >();
+    const applyDurableOperation = (operation: DiscordSocialOperationClaim): void => {
+      socialOperation = operation;
+      socialCursor = operation.cursor;
+      socialNextTurn = operation.next_turn ?? null;
+      socialSources.clear();
+      for (const source of operation.sources) {
+        socialSources.set(source.deployment_id, {
+          text: source.text,
+          sentMessageIds: source.sent_message_ids
+        });
+      }
+    };
+    if (socialTurnEnabled) {
+      durableOperationId = socialOperationId({
+        connectionId: config.relayConnectionId,
+        guildId: guildMessage.guildId,
+        channelId: location.channelId,
+        threadId: location.threadId,
+        sourceMessageId: guildMessage.id
+      });
+      socialClaimRequest = {
+        operation_id: durableOperationId,
+        guild_id: guildMessage.guildId,
+        channel_id: location.channelId,
+        thread_id: location.threadId,
+        source_message_id: guildMessage.id,
+        initial_deployment_ids: socialInitialDeploymentIds,
+        available_deployment_ids: socialAvailableDeploymentIds,
+        continuation_budget: config.botTagMaxResponses,
+        max_depth: config.botTagMaxDepth
+      };
+      const claimed = await relay.claimSocialTurnOperation(socialClaimRequest);
+      applyDurableOperation(claimed);
+      if (claimed.status === "uncertain" || claimed.status === "failed") {
+        reportDiscordEvent({
+          level: "warning",
+          eventType: "durable_social_turn_blocked",
+          message: "Durable Social Turn requires reconciliation before another Discord side effect.",
+          guildId: guildMessage.guildId,
+          guildName: guildMessage.guild.name,
+          channelId: location.channelId,
+          channelName: location.channelName,
+          threadId: location.threadId,
+          threadName: location.threadName,
+          sourceMessageId: guildMessage.id,
+          details: {
+            operation_id: durableOperationId,
+            status: claimed.status,
+            last_error: claimed.last_error
+          }
+        });
+        return;
+      }
+      if (claimed.status === "completed") return;
+    }
     const legacyQueue = [...eligibleDeployments];
     let processedResponses = 0;
     while (
@@ -2250,12 +2310,13 @@ async function processMessage(message: Message): Promise<void> {
               available_deployment_ids: socialAvailableDeploymentIds,
               continuation_budget: config.botTagMaxResponses,
               max_depth: config.botTagMaxDepth,
-              cursor: socialCursor
+              cursor: socialCursor,
+              operation_id: durableOperationId
             })),
             socialStep.reply
           )
         : await relay.processMessage(inboundPayload);
-      if (socialStep) {
+      if (socialStep && !socialStep.delivery_required) {
         socialCursor = socialStep.cursor;
         socialNextTurn = socialStep.next_turn ?? null;
       }
@@ -2321,7 +2382,32 @@ async function processMessage(message: Message): Promise<void> {
         continue;
       }
       let execution: ExpressionExecutionResult | SmartOutputExecutionResult;
+      let deliveryClaimNonce = "";
+      let deliveryClaimed = false;
       try {
+        if (
+          socialTurnEnabled &&
+          socialStep?.delivery_required &&
+          socialStep.step_id &&
+          socialClaimRequest
+        ) {
+          deliveryClaimNonce = randomUUID();
+          const deliveryClaim = await relay.claimSocialTurnDelivery({
+            operation_id: durableOperationId,
+            step_id: socialStep.step_id,
+            claim_nonce: deliveryClaimNonce
+          });
+          if (deliveryClaim.claim_status === "uncertain") {
+            throw new Error("Durable Discord delivery is uncertain; refusing to resend.");
+          }
+          if (deliveryClaim.claim_status === "already_delivered") {
+            applyDurableOperation(
+              await relay.claimSocialTurnOperation(socialClaimRequest)
+            );
+            continue;
+          }
+          deliveryClaimed = true;
+        }
         execution = reply.smart_output
           ? await executeSmartOutput(
               guildMessage,
@@ -2347,7 +2433,34 @@ async function processMessage(message: Message): Promise<void> {
               preparedExpression,
               botUser.id
             );
+        if (
+          deliveryClaimed &&
+          socialStep?.step_id &&
+          socialCursor
+        ) {
+          const acknowledged = await relay.acknowledgeSocialTurnDelivery({
+            operation_id: durableOperationId,
+            step_id: socialStep.step_id,
+            claim_nonce: deliveryClaimNonce,
+            deployment_id: deployment.deployment_id,
+            cursor: socialStep.cursor,
+            sent_message_ids: execution.sentMessageIds,
+            outgoing_text: execution.outgoingText,
+            applied: execution.applied
+          });
+          applyDurableOperation(acknowledged);
+        }
       } catch (error) {
+        if (deliveryClaimed && socialStep?.step_id) {
+          await relay
+            .markSocialTurnDeliveryUncertain({
+              operation_id: durableOperationId,
+              step_id: socialStep.step_id,
+              claim_nonce: deliveryClaimNonce,
+              error: error instanceof Error ? error.message : String(error)
+            })
+            .catch(() => undefined);
+        }
         reportDiscordEvent({
           level: "error",
           eventType: "delivery_error",
@@ -2448,16 +2561,18 @@ async function processMessage(message: Message): Promise<void> {
         latencyMs: reply.latency_ms ?? null
       });
       if (socialTurnEnabled) {
-        if (outgoingText || sentMessageIds.length) {
-          socialSources.set(deployment.deployment_id, {
-            text: outgoingText,
-            sentMessageIds
-          });
-        } else if (socialCursor) {
-          socialCursor.pending_turns = socialCursor.pending_turns.filter(
-            (item) => item.source_deployment_id !== deployment.deployment_id
-          );
-          socialNextTurn = socialCursor.pending_turns[0] ?? null;
+        if (!durableOperationId) {
+          if (outgoingText || sentMessageIds.length) {
+            socialSources.set(deployment.deployment_id, {
+              text: outgoingText,
+              sentMessageIds
+            });
+          } else if (socialCursor) {
+            socialCursor.pending_turns = socialCursor.pending_turns.filter(
+              (item) => item.source_deployment_id !== deployment.deployment_id
+            );
+            socialNextTurn = socialCursor.pending_turns[0] ?? null;
+          }
         }
       } else {
         await continueBotTagConversation(
@@ -2476,6 +2591,46 @@ async function processMessage(message: Message): Promise<void> {
       }
     }
   });
+}
+
+async function resumePendingSocialTurns(): Promise<void> {
+  const pending = await relay.listPendingSocialTurnOperations();
+  for (const operation of pending) {
+    try {
+      const guild =
+        client.guilds.cache.get(operation.guild_id) ??
+        (await client.guilds.fetch(operation.guild_id));
+      const sourceChannelId = operation.thread_id || operation.channel_id;
+      const channel = await guild.channels.fetch(sourceChannelId);
+      if (!channel || !channel.isTextBased() || !("messages" in channel)) {
+        throw new Error("Durable Social Turn source channel is unavailable.");
+      }
+      const source = await channel.messages.fetch(operation.source_message_id);
+      if (!source.inGuild()) {
+        throw new Error("Durable Social Turn source message is not a Guild message.");
+      }
+      await processMessage(source, { recovery: true });
+      reportDiscordEvent({
+        level: "info",
+        eventType: "durable_social_turn_resume_queued",
+        message: "A durable Social Turn was queued for checkpoint resume.",
+        guildId: operation.guild_id,
+        channelId: operation.channel_id,
+        threadId: operation.thread_id,
+        sourceMessageId: operation.source_message_id,
+        details: {
+          operation_id: operation.operation_id,
+          operation_status: operation.status
+        }
+      });
+    } catch (error) {
+      log("Unable to resume durable Social Turn.", {
+        operationId: operation.operation_id,
+        sourceMessageId: operation.source_message_id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
 }
 
 const healthServer = createServer((request, response) => {
@@ -2565,6 +2720,10 @@ client.once(Events.ClientReady, (readyClient) => {
           connectionId: config.relayConnectionId,
           activeDeployments: flattenDeployments(deployments).length,
           activeDestinations: deployments.size
+        });
+        await resumePendingSocialTurns().catch((error: unknown) => {
+          lastError = error instanceof Error ? error.message : String(error);
+          log("Durable Social Turn recovery scan failed.", { error: lastError });
         });
       }
     },

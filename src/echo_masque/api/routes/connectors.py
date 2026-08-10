@@ -39,7 +39,18 @@ from echo_masque.api.expression_schemas import (
     ExpressionRetrievalView,
     ExpressionRetrieveRequest,
 )
+from echo_masque.api.runtime_durability_schemas import (
+    DiscordDeliveryAckRequest,
+    DiscordDeliveryClaimRequest,
+    DiscordDeliveryClaimView,
+    DiscordDeliveryFailureRequest,
+    DiscordPendingSocialOperation,
+    DiscordSocialOperationClaimRequest,
+    DiscordSocialOperationView,
+    RuntimeOperationStatus,
+)
 from echo_masque.api.social_turn_schemas import (
+    DiscordSocialTurnCursor,
     DiscordSocialTurnStepRequest,
     DiscordSocialTurnStepView,
 )
@@ -53,6 +64,7 @@ from echo_masque.orchestration import (
 from echo_masque.persistence import (
     DeploymentRepository,
     DiscordIdentityRepository,
+    DurableRuntimeRepository,
     ExpressionRepository,
     InteractionRepository,
     Repository,
@@ -115,6 +127,7 @@ def credential_store(request: Request) -> CredentialVault:
 def connector_runtime(request: Request) -> DiscordConnectorRuntime:
     return cast(DiscordConnectorRuntime, request.app.state.discord_connector_runtime)
 
+
 def character_turn_graph_runner(
     request: Request,
 ) -> CharacterTurnGraphRunner | None:
@@ -123,11 +136,16 @@ def character_turn_graph_runner(
         request.app.state.character_turn_graph_runner,
     )
 
+
 def social_turn_graph_runner(request: Request) -> SocialTurnGraphRunner | None:
     return cast(
         SocialTurnGraphRunner | None,
         request.app.state.social_turn_graph_runner,
     )
+
+
+def durable_runtime_repository(request: Request) -> DurableRuntimeRepository:
+    return cast(DurableRuntimeRepository, request.app.state.durable_runtime_repository)
 
 
 @router.get("/deployments", response_model=list[DiscordConnectorDeploymentView])
@@ -469,9 +487,6 @@ def resolve_discord_sticker(
     )
 
 
-
-
-
 def expression_content(request: Request, record: object) -> ExpressionContent:
     item = cast("DiscordExpressionSemanticRecord", record)
     expressions = expression_repository(request)
@@ -590,6 +605,150 @@ def complete_interaction_run(
         raise HTTPException(status_code=404, detail="Interaction run not found.")
 
 
+@router.post(
+    "/social-turns/operations/claim",
+    response_model=DiscordSocialOperationView,
+)
+def claim_social_turn_operation(
+    payload: DiscordSocialOperationClaimRequest,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> DiscordSocialOperationView:
+    _authorize_connector(request, authorization)
+    deployments = deployment_repository(request)
+    records = deployments.list_connector_deployments(
+        platform="discord",
+        connection_id=payload.connection_id,
+    )
+    first = next(
+        (item for item in records if item.id == payload.initial_deployment_ids[0]),
+        None,
+    )
+    if first is None:
+        raise HTTPException(
+            status_code=404, detail="Initial Social Turn deployment is unavailable."
+        )
+    try:
+        record = durable_runtime_repository(request).claim_social_operation(
+            operation_id=payload.operation_id,
+            owner_id=first.owner_id,
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+            source_message_id=payload.source_message_id,
+            initial_deployment_ids=payload.initial_deployment_ids,
+            available_deployment_ids=payload.available_deployment_ids,
+            continuation_budget=payload.continuation_budget,
+            max_depth=payload.max_depth,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return DiscordSocialOperationView.from_record(record)
+
+
+@router.get(
+    "/social-turns/operations/pending",
+    response_model=list[DiscordPendingSocialOperation],
+)
+def pending_social_turn_operations(
+    request: Request,
+    connection_id: str = Query(min_length=1, max_length=64),
+    authorization: Annotated[str | None, Header()] = None,
+) -> list[DiscordPendingSocialOperation]:
+    _authorize_connector(request, authorization)
+    records = durable_runtime_repository(request).pending_social_operations(
+        connection_id=connection_id,
+        limit=20,
+    )
+    return [DiscordPendingSocialOperation.from_record(item) for item in records]
+
+
+@router.post(
+    "/social-turns/delivery/claim",
+    response_model=DiscordDeliveryClaimView,
+)
+def claim_social_turn_delivery(
+    payload: DiscordDeliveryClaimRequest,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> DiscordDeliveryClaimView:
+    _authorize_connector(request, authorization)
+    repository = durable_runtime_repository(request)
+    operation = repository.get_operation(payload.operation_id)
+    if operation is None or operation.connection_id != payload.connection_id:
+        raise HTTPException(status_code=404, detail="Durable Social Turn operation not found.")
+    try:
+        claim_status, _step = repository.claim_delivery(
+            operation_id=payload.operation_id,
+            step_id=payload.step_id,
+            claim_nonce=payload.claim_nonce,
+        )
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    refreshed = repository.get_operation(payload.operation_id)
+    if refreshed is None:
+        raise HTTPException(status_code=404, detail="Durable Social Turn operation not found.")
+    return DiscordDeliveryClaimView(
+        claim_status=claim_status,
+        operation_status=cast(RuntimeOperationStatus, refreshed.status),
+        operation_id=payload.operation_id,
+        step_id=payload.step_id,
+    )
+
+
+@router.post(
+    "/social-turns/delivery/ack",
+    response_model=DiscordSocialOperationView,
+)
+def acknowledge_social_turn_delivery(
+    payload: DiscordDeliveryAckRequest,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> DiscordSocialOperationView:
+    _authorize_connector(request, authorization)
+    repository = durable_runtime_repository(request)
+    operation = repository.get_operation(payload.operation_id)
+    if operation is None or operation.connection_id != payload.connection_id:
+        raise HTTPException(status_code=404, detail="Durable Social Turn operation not found.")
+    try:
+        updated = repository.acknowledge_delivery(
+            operation_id=payload.operation_id,
+            step_id=payload.step_id,
+            claim_nonce=payload.claim_nonce,
+            cursor_json=payload.cursor.model_dump_json(),
+            sent_message_ids=payload.sent_message_ids,
+            outgoing_text=payload.outgoing_text,
+            applied=payload.applied,
+            deployment_id=payload.deployment_id,
+        )
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return DiscordSocialOperationView.from_record(updated)
+
+
+@router.post(
+    "/social-turns/delivery/uncertain",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def mark_social_turn_delivery_uncertain(
+    payload: DiscordDeliveryFailureRequest,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    _authorize_connector(request, authorization)
+    repository = durable_runtime_repository(request)
+    operation = repository.get_operation(payload.operation_id)
+    if operation is None or operation.connection_id != payload.connection_id:
+        raise HTTPException(status_code=404, detail="Durable Social Turn operation not found.")
+    repository.mark_delivery_uncertain(
+        operation_id=payload.operation_id,
+        step_id=payload.step_id,
+        claim_nonce=payload.claim_nonce,
+        error=payload.error,
+    )
+
+
 @router.post("/social-turns/step", response_model=DiscordSocialTurnStepView)
 async def process_social_turn_step(
     payload: DiscordSocialTurnStepRequest,
@@ -603,12 +762,100 @@ async def process_social_turn_step(
             status_code=status.HTTP_409_CONFLICT,
             detail="Social Turn LangGraph orchestration is not enabled.",
         )
+    if not payload.operation_id:
+        try:
+            return await runner(payload)
+        except ConnectorRuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    repository = durable_runtime_repository(request)
+    operation = repository.get_operation(payload.operation_id)
+    if operation is None or operation.connection_id != payload.payload.connection_id:
+        raise HTTPException(
+            status_code=409, detail="Durable Social Turn operation was not claimed."
+        )
+    if operation.status == "completed":
+        raise HTTPException(status_code=409, detail="Durable Social Turn operation is completed.")
+    if operation.status == "uncertain":
+        raise HTTPException(
+            status_code=409,
+            detail="Durable Social Turn operation requires delivery reconciliation.",
+        )
+
+    checkpoint = DiscordSocialTurnCursor.model_validate_json(operation.cursor_json)
+    if not checkpoint.pending_turns:
+        raise HTTPException(status_code=409, detail="Durable Social Turn checkpoint is complete.")
+    current = checkpoint.pending_turns[0]
+    if payload.payload.deployment_id != current.deployment_id:
+        raise HTTPException(
+            status_code=409, detail="Social Turn payload is stale for its checkpoint."
+        )
+    request_hash = repository.stable_hash(
+        payload.operation_id,
+        checkpoint.step_index,
+        current.deployment_id,
+    )
     try:
-        return await runner(payload)
-    except ConnectorRuntimeError as exc:
+        preparation, step = repository.prepare_social_step(
+            operation_id=payload.operation_id,
+            step_index=checkpoint.step_index,
+            deployment_id=current.deployment_id,
+            request_hash=request_hash,
+        )
+    except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    if preparation == "replay":
+        cached = DiscordSocialTurnStepView.model_validate_json(step.response_json)
+        return cached.model_copy(update={"durable_status": "replayed"})
+    if preparation == "in_progress":
+        raise HTTPException(
+            status_code=503, detail="Durable Social Turn generation is in progress."
+        )
+    if preparation == "uncertain":
+        raise HTTPException(status_code=409, detail="Durable Social Turn step is uncertain.")
+
+    run_request = payload.model_copy(
+        update={
+            "cursor": checkpoint,
+            "runtime_step_id": step.step_id,
+        }
+    )
+    try:
+        view = await runner(run_request)
+    except Exception as exc:
+        repository.fail_social_step(step.step_id, str(exc))
+        if isinstance(exc, (ConnectorRuntimeError, ValueError)):
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise
+
+    smart_output = view.reply.smart_output
+    delivery_required = not (
+        view.reply.action == "silent"
+        or (smart_output is not None and smart_output.action == "ignore")
+        or (smart_output is None and not view.reply.text and view.reply.expression.action == "none")
+    )
+    durable_view = view.model_copy(
+        update={
+            "operation_id": payload.operation_id,
+            "step_id": step.step_id,
+            "step_index": checkpoint.step_index,
+            "durable_status": "generated",
+            "delivery_required": delivery_required,
+        }
+    )
+    repository.complete_social_step_generation(
+        step_id=step.step_id,
+        response_json=durable_view.model_dump_json(),
+        cursor_json=durable_view.cursor.model_dump_json(),
+        delivery_required=delivery_required,
+    )
+    return durable_view
+
 
 @router.post("/messages", response_model=DiscordConnectorReplyView)
 async def process_discord_message(

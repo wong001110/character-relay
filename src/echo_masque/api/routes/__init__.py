@@ -23,6 +23,7 @@ from echo_masque.api.routes.matrices import router as matrices_router
 from echo_masque.api.routes.prompt_inspector import router as prompt_inspector_router
 from echo_masque.api.routes.provider_traces import router as provider_traces_router
 from echo_masque.api.routes.reports import router as reports_router
+from echo_masque.api.routes.runtime_traces import router as runtime_traces_router
 from echo_masque.api.routes.scheduled_reminders import router as scheduled_reminders_router
 from echo_masque.api.routes.smart_participation import router as smart_participation_router
 from echo_masque.api.routes.targets import router as targets_router
@@ -54,6 +55,7 @@ __all__ = [
     "prompt_inspector_router",
     "provider_traces_router",
     "reports_router",
+    "runtime_traces_router",
     "scheduled_reminders_router",
     "smart_participation_router",
     "targets_router",

@@ -287,6 +287,8 @@ class DiscordInboundMessage(BaseModel):
     interaction_target_display_name: str = Field(default="", max_length=160)
     expression_run_id: str = Field(default="", max_length=64)
     expression_candidates: list[ExpressionCandidate] = Field(default_factory=list, max_length=10)
+    runtime_operation_id: str = Field(default="", max_length=64)
+    runtime_step_id: str = Field(default="", max_length=64)
 
 
 class DiscordConnectorReplyView(BaseModel):
