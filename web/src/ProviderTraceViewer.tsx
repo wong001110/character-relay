@@ -37,7 +37,32 @@ export function ProviderTraceAccessButton({ onOpen }: { onOpen: () => void }) {
 function categoryLabel(category: ProviderTraceCategory, zh: boolean): string {
   if (category === "tool_calling") return "Tool Calling";
   if (category === "character_turn") return zh ? "角色回合" : "Character Turn";
+  if (category === "media_understanding") {
+    return zh ? "媒体理解" : "Media Understanding";
+  }
   return zh ? "模型调用" : "Model Call";
+}
+
+function mediaValue(input: Record<string, unknown>, key: string): string {
+  const value = input[key];
+  if (value === null || value === undefined || value === "") return "—";
+  return String(value);
+}
+
+function mediaListLabel(trace: ProviderTraceSummary, zh: boolean): string | null {
+  if (trace.category !== "media_understanding") return null;
+  const kind = mediaValue(trace.media_input, "media_type");
+  const filename = mediaValue(trace.media_input, "filename");
+  const host = mediaValue(trace.media_input, "source_host");
+  const kindLabel =
+    kind === "image"
+      ? zh ? "图片" : "Image"
+      : kind === "video"
+        ? zh ? "视频" : "Video"
+        : kind;
+  return [kindLabel, filename !== "—" ? filename : null, host !== "—" ? host : null]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 export function ProviderTraceViewer({
@@ -283,8 +308,8 @@ export function ProviderTraceViewer({
           <h1>{zh ? "Provider 请求与响应" : "Provider requests and responses"}</h1>
           <p>
             {zh
-              ? "Trace 只保存在 Character Relay 数据库。列表现在按账户与类型在服务器端筛选，详情只在选中时读取。API Key 与 Authorization Header 不会被保存。时间统一按马来西亚时间（MYT）显示。"
-              : "Traces stay in Character Relay. Lists are filtered by account and category on the server, while full payloads load only when selected. API keys and Authorization headers are never stored. Times are shown in Malaysia time (MYT)."}
+              ? "Provider Trace 记录实际发出的外部模型请求，包括角色模型、Tool Calling 与 Media Understanding。Runtime Trace 是整轮执行的节点时间线；一条 Runtime Trace 可能对应多条 Provider Trace。Cache hit 不会伪造 Provider Trace，因为那一轮没有再次调用外部模型。API Key 与 Authorization Header 不会被保存。"
+              : "Provider Trace records actual outbound model calls, including Character models, Tool Calling, and Media Understanding. Runtime Trace is the node timeline for the whole turn, so one Runtime Trace may correspond to several Provider Traces. Cache hits do not create fake Provider Traces because no external model was called again. API keys and Authorization headers are never stored."}
           </p>
         </div>
         <div className="provider-trace-header-actions">
@@ -325,6 +350,9 @@ export function ProviderTraceViewer({
             }
           >
             <option value="all">{zh ? "全部类型" : "All categories"}</option>
+            <option value="media_understanding">
+              {zh ? "媒体理解" : "Media Understanding"}
+            </option>
             <option value="tool_calling">Tool Calling</option>
             <option value="character_turn">{zh ? "角色回合" : "Character Turn"}</option>
             <option value="model_call">{zh ? "模型调用" : "Model Call"}</option>
@@ -352,7 +380,7 @@ export function ProviderTraceViewer({
             onKeyDown={(event) => {
               if (event.key === "Enter") applyFilters();
             }}
-            placeholder="deepseek-v4-flash"
+            placeholder="xiaomi/mimo-v2.5"
           />
         </label>
         <button type="button" className="paper-button" onClick={applyFilters}>
@@ -383,44 +411,48 @@ export function ProviderTraceViewer({
               <strong>{zh ? "没有符合筛选的 Provider Trace" : "No matching provider traces"}</strong>
               <p>
                 {zh
-                  ? "下一次模型调用或 Tool Calling 后会出现在这里。"
-                  : "The next model or Tool Calling request will appear here."}
+                  ? "下一次实际模型、Tool Calling 或 Media Understanding 调用后会出现在这里。"
+                  : "The next actual model, Tool Calling, or Media Understanding request will appear here."}
               </p>
             </div>
           ) : (
             <>
-              {traces.map((trace) => (
-                <button
-                  type="button"
-                  key={trace.trace_id}
-                  className={`provider-trace-list-item ${
-                    selectedId === trace.trace_id ? "is-active" : ""
-                  }`}
-                  onClick={() => setSelectedId(trace.trace_id)}
-                >
-                  <div className="provider-trace-badge-row">
-                    <span className={`provider-trace-category category-${trace.category}`}>
-                      {categoryLabel(trace.category, zh)}
-                    </span>
-                    <span className={`provider-trace-status trace-${trace.status}`}>
-                      {trace.status}
-                    </span>
-                  </div>
-                  <strong>{trace.request_model || "unknown model"}</strong>
-                  <small>{accountLabel(trace.owner_id)}</small>
-                  {trace.tool_names.length > 0 && (
-                    <small className="provider-trace-tool-names">
-                      {trace.tool_names.join(" · ")}
+              {traces.map((trace) => {
+                const mediaLabel = mediaListLabel(trace, zh);
+                return (
+                  <button
+                    type="button"
+                    key={trace.trace_id}
+                    className={`provider-trace-list-item ${
+                      selectedId === trace.trace_id ? "is-active" : ""
+                    }`}
+                    onClick={() => setSelectedId(trace.trace_id)}
+                  >
+                    <div className="provider-trace-badge-row">
+                      <span className={`provider-trace-category category-${trace.category}`}>
+                        {categoryLabel(trace.category, zh)}
+                      </span>
+                      <span className={`provider-trace-status trace-${trace.status}`}>
+                        {trace.status}
+                      </span>
+                    </div>
+                    <strong>{trace.request_model || "unknown model"}</strong>
+                    {mediaLabel && <small>{mediaLabel}</small>}
+                    <small>{accountLabel(trace.owner_id)}</small>
+                    {trace.tool_names.length > 0 && (
+                      <small className="provider-trace-tool-names">
+                        {trace.tool_names.join(" · ")}
+                      </small>
+                    )}
+                    <small>{formatPortalTimestamp(trace.created_at, zh)}</small>
+                    <small>
+                      {trace.latency_ms ?? "—"} ms · {trace.input_tokens ?? "—"} /{" "}
+                      {trace.output_tokens ?? "—"} tokens
                     </small>
-                  )}
-                  <small>{formatPortalTimestamp(trace.created_at, zh)}</small>
-                  <small>
-                    {trace.latency_ms ?? "—"} ms · {trace.input_tokens ?? "—"} /{" "}
-                    {trace.output_tokens ?? "—"} tokens
-                  </small>
-                  <code>{trace.trace_id.slice(0, 12)}</code>
-                </button>
-              ))}
+                    <code>{trace.trace_id.slice(0, 12)}</code>
+                  </button>
+                );
+              })}
               <nav
                 className="library-pagination"
                 style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 12 }}
@@ -491,6 +523,27 @@ export function ProviderTraceViewer({
                 <div><dt>Character</dt><dd>{selected.character_card_id || "—"}</dd></div>
                 <div><dt>Created</dt><dd>{formatPortalTimestamp(selected.created_at, zh)}</dd></div>
               </dl>
+
+              {selected.category === "media_understanding" && (
+                <section className="provider-trace-json-section">
+                  <div><h3>{zh ? "Media Understanding 输入" : "Media Understanding input"}</h3></div>
+                  <dl className="provider-trace-meta">
+                    <div><dt>{zh ? "媒体类型" : "Media type"}</dt><dd>{mediaValue(selected.media_input, "media_type")}</dd></div>
+                    <div><dt>{zh ? "输入格式" : "Input part"}</dt><dd>{mediaValue(selected.media_input, "input_part_type")}</dd></div>
+                    <div><dt>{zh ? "文件名" : "Filename"}</dt><dd>{mediaValue(selected.media_input, "filename")}</dd></div>
+                    <div><dt>MIME</dt><dd>{mediaValue(selected.media_input, "mime_type")}</dd></div>
+                    <div><dt>{zh ? "大小" : "Size"}</dt><dd>{mediaValue(selected.media_input, "size_bytes")}</dd></div>
+                    <div><dt>Source host</dt><dd>{mediaValue(selected.media_input, "source_host")}</dd></div>
+                    <div><dt>Media key</dt><dd>{mediaValue(selected.media_input, "media_key")}</dd></div>
+                    <div><dt>Source URI</dt><dd>{mediaValue(selected.media_input, "source_uri")}</dd></div>
+                  </dl>
+                  <p>
+                    {zh
+                      ? "这里表示 Vision/Video 请求确实发给了外部 Provider。Source URI 已移除 query/fragment；API Key 不会进入 Trace。"
+                      : "This confirms that a Vision/Video request was actually sent to the external provider. Source URI query/fragment data is removed, and API keys never enter the trace."}
+                  </p>
+                </section>
+              )}
 
               <TraceJson title={zh ? "发送给 Provider 的 Request" : "Request sent to provider"} value={selected.request} />
               {selected.retries.length > 0 && (
