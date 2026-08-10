@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from functools import partial
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -97,20 +98,23 @@ class MediaUnderstandingService:
             if task is None:
                 task = asyncio.create_task(self._analyze_singleflight(asset))
                 self._inflight[identity] = task
-                task.add_done_callback(
-                    lambda completed, key=identity: asyncio.create_task(
-                        self._clear_inflight(key, completed)
-                    )
-                )
+                task.add_done_callback(partial(self._schedule_clear, identity))
             else:
                 joined_existing = True
         analysis, reused = await asyncio.shield(task)
         return analysis, reused or joined_existing
 
+    def _schedule_clear(
+        self,
+        identity: str,
+        completed: asyncio.Future[tuple[MediaAnalysis, bool]],
+    ) -> None:
+        asyncio.create_task(self._clear_inflight(identity, completed))
+
     async def _clear_inflight(
         self,
         identity: str,
-        completed: asyncio.Task[tuple[MediaAnalysis, bool]],
+        completed: asyncio.Future[tuple[MediaAnalysis, bool]],
     ) -> None:
         async with self._inflight_lock:
             if self._inflight.get(identity) is completed:
