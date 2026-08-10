@@ -1,0 +1,291 @@
+name: Hotfix LangGraph runtime context
+
+on:
+  push:
+    branches:
+      - fix/langgraph-runtime-context-rebind
+    paths:
+      - .github/workflows/hotfix-langgraph-runtime-context.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/langgraph-runtime-context-rebind
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Patch graph context rebinding
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/echo_masque/orchestration/character_turn_graph.py')
+          text = path.read_text(encoding='utf-8')
+
+          old = 'from echo_masque.character_invite_runtime import current_character_invite_proposal\n'
+          new = (
+              'from echo_masque.character_invite_runtime import (\n'
+              '    CharacterInviteTurnState,\n'
+              '    activate_character_invite_turn,\n'
+              '    current_character_invite_turn,\n'
+              ')\n'
+          )
+          if old not in text:
+              raise SystemExit('invite import marker not found')
+          text = text.replace(old, new, 1)
+
+          old = 'from echo_masque.orchestration.trace import (\n'
+          new = 'from echo_masque.providers.trace import provider_trace_scope\n' + old
+          if old not in text:
+              raise SystemExit('provider trace import marker not found')
+          text = text.replace(old, new, 1)
+
+          old = '    prepared: PreparedCharacterTurn | None = None\n    tool_turn: PromptModelToolTurn | None = None\n'
+          new = (
+              '    prepared: PreparedCharacterTurn | None = None\n'
+              '    invite_turn_state: CharacterInviteTurnState | None = None\n'
+              '    tool_turn: PromptModelToolTurn | None = None\n'
+          )
+          if old not in text:
+              raise SystemExit('graph context field marker not found')
+          text = text.replace(old, new, 1)
+
+          old = '    context.prepared = prepared\n    rag_status: StageStatus = "completed" if prepared.turn_context is not None else "skipped"\n'
+          new = (
+              '    context.prepared = prepared\n'
+              '    invite_turn_state = current_character_invite_turn()\n'
+              '    if (\n'
+              '        invite_turn_state is not None\n'
+              '        and invite_turn_state.turn_token == prepared.smart_context.invite_turn_token\n'
+              '        and invite_turn_state.deployment_id == prepared.resolved.deployment.id\n'
+              '    ):\n'
+              '        context.invite_turn_state = invite_turn_state\n'
+              '    else:\n'
+              '        context.invite_turn_state = None\n'
+              '    rag_status: StageStatus = "completed" if prepared.turn_context is not None else "skipped"\n'
+          )
+          if old not in text:
+              raise SystemExit('prepare capture marker not found')
+          text = text.replace(old, new, 1)
+
+          old = (
+              '    response: TargetResponse | None\n'
+              '    try:\n'
+              '        if context.tool_turn is None:\n'
+              '            context.tool_turn = await context.runtime.start_character_tool_turn(prepared)\n'
+              '        if context.tool_turn is None:\n'
+              '            response = await context.runtime.invoke_character_model(prepared)\n'
+              '        else:\n'
+              '            response = await context.runtime.advance_character_tool_model(\n'
+              '                prepared,\n'
+              '                context.tool_turn,\n'
+              '            )\n'
+          )
+          new = (
+              '    response: TargetResponse | None\n'
+              '    try:\n'
+              '        deployment = prepared.resolved.deployment\n'
+              '        with provider_trace_scope(\n'
+              '            owner_id=deployment.owner_id,\n'
+              '            deployment_id=deployment.id,\n'
+              '            character_card_id=prepared.resolved.card.id,\n'
+              '        ):\n'
+              '            if context.tool_turn is None:\n'
+              '                context.tool_turn = await context.runtime.start_character_tool_turn(prepared)\n'
+              '            if context.tool_turn is None:\n'
+              '                response = await context.runtime.invoke_character_model(prepared)\n'
+              '            else:\n'
+              '                response = await context.runtime.advance_character_tool_model(\n'
+              '                    prepared,\n'
+              '                    context.tool_turn,\n'
+              '                )\n'
+          )
+          if old not in text:
+              raise SystemExit('model provider scope marker not found')
+          text = text.replace(old, new, 1)
+
+          old = '    try:\n        executed_count = await context.runtime.execute_character_tools(prepared, turn)\n'
+          new = (
+              '    try:\n'
+              '        if context.invite_turn_state is not None:\n'
+              '            activate_character_invite_turn(context.invite_turn_state)\n'
+              '        executed_count = await context.runtime.execute_character_tools(prepared, turn)\n'
+          )
+          if old not in text:
+              raise SystemExit('tool rebind marker not found')
+          text = text.replace(old, new, 1)
+
+          old = (
+              '    try:\n'
+              '        output = await context.runtime.resolve_character_output(\n'
+              '            context.prepared,\n'
+              '            context.response,\n'
+              '        )\n'
+          )
+          new = (
+              '    try:\n'
+              '        if context.invite_turn_state is not None:\n'
+              '            activate_character_invite_turn(context.invite_turn_state)\n'
+              '        deployment = context.prepared.resolved.deployment\n'
+              '        with provider_trace_scope(\n'
+              '            owner_id=deployment.owner_id,\n'
+              '            deployment_id=deployment.id,\n'
+              '            character_card_id=context.prepared.resolved.card.id,\n'
+              '        ):\n'
+              '            output = await context.runtime.resolve_character_output(\n'
+              '                context.prepared,\n'
+              '                context.response,\n'
+              '            )\n'
+          )
+          if old not in text:
+              raise SystemExit('smart output provider scope marker not found')
+          text = text.replace(old, new, 1)
+
+          old = (
+              '            if context.prepared is not None:\n'
+              '                proposal = current_character_invite_proposal(\n'
+              '                    context.prepared.smart_context.invite_turn_token\n'
+              '                )\n'
+              '                if (\n'
+              '                    proposal is not None\n'
+              '                    and proposal.candidate_deployment_id in mentioned\n'
+              '                ):\n'
+              '                    invite_candidate = proposal.candidate_deployment_id\n'
+          )
+          new = (
+              '            proposal = (\n'
+              '                context.invite_turn_state.proposals[0]\n'
+              '                if context.invite_turn_state is not None\n'
+              '                and context.invite_turn_state.proposals\n'
+              '                else None\n'
+              '            )\n'
+              '            if (\n'
+              '                proposal is not None\n'
+              '                and proposal.candidate_deployment_id in mentioned\n'
+              '            ):\n'
+              '                invite_candidate = proposal.candidate_deployment_id\n'
+          )
+          if old not in text:
+              raise SystemExit('proposal result marker not found')
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+
+          test = Path('tests/test_character_turn_graph.py')
+          text = test.read_text(encoding='utf-8')
+          old = 'from echo_masque.config import Settings\n'
+          new = (
+              'from echo_masque.character_invite_runtime import current_character_invite_turn\n'
+              'from echo_masque.config import Settings\n'
+          )
+          if old not in text:
+              raise SystemExit('test invite import marker not found')
+          text = text.replace(old, new, 1)
+          old = (
+              '    incoming = payload(connection, deployment, mentioned_bot=True)\n'
+              '    runtime = app.state.discord_connector_runtime\n'
+              '    session = SimpleNamespace(tool_rounds=0, pending_tool_calls=(), traces=[])\n'
+          )
+          new = (
+              '    incoming = payload(connection, deployment, mentioned_bot=True)\n'
+              '    incoming = incoming.model_copy(\n'
+              '        update={\n'
+              '            "mentionable_participants": [\n'
+              '                {\n'
+              '                    "ref": "deployment:deployment-zhi",\n'
+              '                    "display_name": "Zhi",\n'
+              '                    "kind": "character",\n'
+              '                }\n'
+              '            ]\n'
+              '        }\n'
+              '    )\n'
+              '    incoming = DiscordInboundMessage.model_validate(incoming.model_dump())\n'
+              '    runtime = app.state.discord_connector_runtime\n'
+              '    session = SimpleNamespace(tool_rounds=0, pending_tool_calls=(), traces=[])\n'
+          )
+          if old not in text:
+              raise SystemExit('test payload marker not found')
+          text = text.replace(old, new, 1)
+          old = (
+              '    async def execute_tools(prepared: object, turn: object) -> int:\n'
+              '        del prepared\n'
+              '        current = turn\n'
+          )
+          new = (
+              '    async def execute_tools(prepared: object, turn: object) -> int:\n'
+              '        del prepared\n'
+              '        invite_state = current_character_invite_turn()\n'
+              '        assert invite_state is not None\n'
+              '        assert invite_state.deployment_id == deployment["id"]\n'
+              '        participant = invite_state.participant("p1")\n'
+              '        assert participant is not None\n'
+              '        assert participant.ref == "deployment:deployment-zhi"\n'
+              '        current = turn\n'
+          )
+          if old not in text:
+              raise SystemExit('test execute marker not found')
+          text = text.replace(old, new, 1)
+          test.write_text(text, encoding='utf-8')
+
+          scope_test = Path('tests/test_provider_trace_scope.py')
+          text = scope_test.read_text(encoding='utf-8')
+          if 'import pytest\n' not in text:
+              text = text.replace('import httpx\n', 'import httpx\nimport pytest\n', 1)
+          old = 'def settings(path: Path) -> Settings:\n    return Settings(\n'
+          new = (
+              'def settings(path: Path, *, langgraph_mode: str = "off") -> Settings:\n'
+              '    return Settings(\n'
+          )
+          if old not in text:
+              raise SystemExit('scope settings marker not found')
+          text = text.replace(old, new, 1)
+          old = '        connector_shared_secret=SecretStr(CONNECTOR_SECRET),\n    )\n'
+          new = (
+              '        connector_shared_secret=SecretStr(CONNECTOR_SECRET),\n'
+              '        langgraph_mode=langgraph_mode,  # type: ignore[arg-type]\n'
+              '    )\n'
+          )
+          if old not in text:
+              raise SystemExit('scope mode marker not found')
+          text = text.replace(old, new, 1)
+          old = 'def test_discord_provider_traces_inherit_deployment_account_scope(tmp_path: Path) -> None:\n    app = create_app(settings(tmp_path / "provider-trace-scope.db"))\n'
+          new = (
+              '@pytest.mark.parametrize("langgraph_mode", ["off", "character_turn"])\n'
+              'def test_discord_provider_traces_inherit_deployment_account_scope(\n'
+              '    tmp_path: Path,\n'
+              '    langgraph_mode: str,\n'
+              ') -> None:\n'
+              '    app = create_app(\n'
+              '        settings(\n'
+              '            tmp_path / f"provider-trace-scope-{langgraph_mode}.db",\n'
+              '            langgraph_mode=langgraph_mode,\n'
+              '        )\n'
+              '    )\n'
+          )
+          if old not in text:
+              raise SystemExit('scope test marker not found')
+          text = text.replace(old, new, 1)
+          scope_test.write_text(text, encoding='utf-8')
+          PY
+      - name: Install test dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Targeted validation
+        run: |
+          ruff check src/echo_masque/orchestration/character_turn_graph.py tests/test_character_turn_graph.py tests/test_provider_trace_scope.py
+          mypy src/echo_masque
+          pytest -q tests/test_character_turn_graph.py tests/test_provider_trace_scope.py
+      - name: Remove one-shot workflow
+        run: git rm .github/workflows/hotfix-langgraph-runtime-context.yml
+      - name: Commit hotfix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: rebind LangGraph runtime context across nodes"
+          git push origin HEAD:fix/langgraph-runtime-context-rebind
