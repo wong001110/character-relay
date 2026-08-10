@@ -237,7 +237,7 @@ def test_public_article_link_is_extracted_without_media_key_group() -> None:
     assert result.contexts[0].source_key == "url:https://9.9.9.9/article"
 
 
-def test_article_uses_browser_fallback_when_http_page_is_not_useful() -> None:
+def test_article_uses_browser_fallback_when_jina_and_http_are_not_useful() -> None:
     database = Database("sqlite://")
     database.initialize()
     media_repository = MediaAnalysisRepository(database)
@@ -255,7 +255,7 @@ def test_article_uses_browser_fallback_when_http_page_is_not_useful() -> None:
         async def fetch_rendered_page(self, url: str, max_chars: int) -> dict[str, object]:
             self.calls += 1
             assert url == "https://9.9.9.9/question/123"
-            assert max_chars == 7000
+            assert max_chars == 14_000
             return {
                 "ok": True,
                 "title": "Rendered Zhihu-style answer",
@@ -263,6 +263,8 @@ def test_article_uses_browser_fallback_when_http_page_is_not_useful() -> None:
             }
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "r.jina.ai":
+            return httpx.Response(503, text="Reader temporarily unavailable")
         assert request.url.host == "9.9.9.9"
         return httpx.Response(
             200,
@@ -293,7 +295,7 @@ def test_article_uses_browser_fallback_when_http_page_is_not_useful() -> None:
     assert (
         media_repository.get(
             media_key="url:https://9.9.9.9/question/123",
-            analysis_version="article-v2",
+            analysis_version="article-http-v1",
             provider="content-extractor",
             model="http-browser-v1",
         )
