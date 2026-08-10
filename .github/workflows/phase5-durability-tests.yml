@@ -1,4 +1,4 @@
-name: Phase 5 durability regressions
+name: Phase 5 durability regressions v2
 
 on:
   push:
