@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from urllib.parse import urlparse
 
 import httpx
 from pydantic import SecretStr
@@ -46,7 +47,7 @@ class OpenAICompatibleMultimodalProvider:
         timeout_seconds: float = 180.0,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        self._provider_id = provider_id.strip() or "custom"
+        normalized_provider = provider_id.strip() or "custom"
         self._api_key = api_key
         self._model = model.strip()
         self._base_url = base_url.rstrip("/")
@@ -56,6 +57,11 @@ class OpenAICompatibleMultimodalProvider:
             raise ValueError("Media Understanding model cannot be blank.")
         if not self._base_url:
             raise ValueError("Media Understanding base URL cannot be blank.")
+        if normalized_provider.casefold() in {"custom", "openai_compatible"}:
+            endpoint_host = urlparse(self._base_url).netloc.casefold() or "endpoint"
+            self._provider_id = f"{normalized_provider}@{endpoint_host}"[:80]
+        else:
+            self._provider_id = normalized_provider
 
     @property
     def provider_id(self) -> str:
@@ -95,7 +101,6 @@ class OpenAICompatibleMultimodalProvider:
             "model": self._model,
             "temperature": 0.1,
             "max_tokens": 1400,
-            "response_format": {"type": "json_object"},
             "messages": [
                 {
                     "role": "user",
