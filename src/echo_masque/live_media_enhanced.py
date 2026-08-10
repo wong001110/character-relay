@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import SecretStr
 
@@ -152,6 +152,7 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
             analysis_version=_ARTICLE_ANALYSIS_VERSION,
             provider=_ARTICLE_PROVIDER,
             model=_ARTICLE_MODEL,
+            ttl=_ARTICLE_TTL,
         )
         if cached is not None:
             try:
@@ -174,7 +175,11 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
                 value
                 for value in (
                     f"Published: {article.published_time}" if article.published_time else "",
-                    "Extracted with Jina ReaderLM-v2" if article.structured else "Extracted with Jina Reader",
+                    (
+                        "Extracted with Jina ReaderLM-v2"
+                        if article.structured
+                        else "Extracted with Jina Reader"
+                    ),
                 )
                 if value
             )
@@ -212,6 +217,7 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
             analysis_version=_HTTP_FALLBACK_VERSION,
             provider=_HTTP_FALLBACK_PROVIDER,
             model=_HTTP_FALLBACK_MODEL,
+            ttl=_ARTICLE_TTL,
         )
         if cached is not None:
             try:
@@ -286,14 +292,13 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
     def _analysis_context(
         self,
         source_key: str,
-        kind: str,
+        kind: Literal["image", "video", "article"],
         label: str,
         analysis: MediaAnalysis,
     ) -> LiveMediaContext:
-        normalized_kind = "article" if kind == "article" else "video" if kind == "video" else "image"
-        base = super()._analysis_context(source_key, normalized_kind, label, analysis)
+        base = super()._analysis_context(source_key, kind, label, analysis)
         platform = self._platform_context.get(source_key)
-        if platform is None or normalized_kind != "video":
+        if platform is None or kind != "video":
             return base
 
         summary_parts = [value for value in (platform.title, base.summary) if value]
@@ -325,7 +330,10 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
         platform: PlatformMediaResolution,
     ) -> LiveMediaContext:
         summary_parts = [value for value in (platform.title, platform.description) if value]
-        summary = " — ".join(summary_parts)[:12_000] or f"Public video from {source.platform}"
+        summary = (
+            " — ".join(summary_parts)[:12_000]
+            or f"Public video from {source.platform}"
+        )
         details = []
         if platform.uploader:
             details.append(f"Uploader: {platform.uploader}")
