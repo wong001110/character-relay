@@ -24,14 +24,14 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.live_media_service = (
-            EnhancedLiveMediaContextService.from_service(
+        if isinstance(live_media_service, LiveMediaContextService):
+            self.live_media_service = EnhancedLiveMediaContextService.from_service(
                 live_media_service,
                 browser_runtime=self.tool_registry.browser,
             )
-            if live_media_service is not None
-            else None
-        )
+        else:
+            # Preserve test doubles and alternate injectable service implementations.
+            self.live_media_service = live_media_service
         self._media_turn_results: dict[tuple[str, str], tuple[float, LiveMediaResult]] = {}
 
     async def invoke_character_model(
