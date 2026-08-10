@@ -6,6 +6,7 @@ import asyncio
 import html
 import json
 import re
+import shutil
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any
@@ -202,9 +203,37 @@ class YtDlpMediaResolver:
             transcript_source=transcript_source,
         )
 
-    @staticmethod
-    def _extract_info(url: str) -> dict[str, Any]:
+    @classmethod
+    def _extract_info(cls, url: str) -> dict[str, Any]:
         import yt_dlp
+
+        options = cls._yt_dlp_options()
+        try:
+            return cls._extract_with_options(yt_dlp, url, options)
+        except Exception as exc:
+            if not cls._should_retry_bilibili_with_impersonation(url, exc):
+                raise
+
+        retry_options = dict(options)
+        retry_options["impersonate"] = "chrome"
+        try:
+            return cls._extract_with_options(yt_dlp, url, retry_options)
+        except Exception:
+            # Bilibili currently returns HTTP 412 from its playurl API for some server
+            # environments even when yt-dlp itself is otherwise correctly configured.
+            # The caller deliberately falls back to page/Jina context instead of making
+            # the entire Character turn fail.
+            return {}
+
+    @staticmethod
+    def _yt_dlp_options() -> dict[str, Any]:
+        node_path = shutil.which("node")
+        deno_path = shutil.which("deno")
+        js_runtimes: dict[str, dict[str, str | None]] = {}
+        if deno_path:
+            js_runtimes["deno"] = {"path": deno_path}
+        if node_path:
+            js_runtimes["node"] = {"path": node_path}
 
         options: dict[str, Any] = {
             "quiet": True,
@@ -216,9 +245,18 @@ class YtDlpMediaResolver:
             "extractor_retries": 2,
             "fragment_retries": 1,
             "ignore_no_formats_error": True,
-            "js_runtimes": {"node": {}},
         }
-        with yt_dlp.YoutubeDL(options) as ydl:
+        if js_runtimes:
+            options["js_runtimes"] = js_runtimes
+        return options
+
+    @staticmethod
+    def _extract_with_options(
+        yt_dlp_module: Any,
+        url: str,
+        options: dict[str, Any],
+    ) -> dict[str, Any]:
+        with yt_dlp_module.YoutubeDL(options) as ydl:
             raw = ydl.extract_info(url, download=False)
             sanitized = ydl.sanitize_info(raw)
         if not isinstance(sanitized, dict):
@@ -229,6 +267,12 @@ class YtDlpMediaResolver:
                 if isinstance(item, dict):
                     return {str(key): value for key, value in item.items()}
         return {str(key): value for key, value in sanitized.items()}
+
+    @staticmethod
+    def _should_retry_bilibili_with_impersonation(url: str, exc: Exception) -> bool:
+        host = (urlparse(url).hostname or "").casefold().rstrip(".")
+        is_bilibili = host == "bilibili.com" or host.endswith(".bilibili.com")
+        return is_bilibili and "412" in str(exc)
 
     async def _select_media_url(self, info: dict[str, Any]) -> tuple[str, str]:
         candidates: list[dict[str, Any]] = []
@@ -302,115 +346,139 @@ class YtDlpMediaResolver:
                     )
         return None
 
-    @staticmethod
-    def _preferred_language(values: dict[str, Any]) -> str:
-        available = [key for key in values if isinstance(key, str) and key != "live_chat"]
+    @classmethod
+    def _preferred_language(cls, values: dict[str, Any]) -> str:
+        available = [str(key) for key in values]
         for preferred in _LANGUAGE_PRIORITY:
-            for language in available:
-                if language.casefold() == preferred.casefold():
-                    return language
-        for prefix in ("zh", "en"):
-            for language in available:
-                if language.casefold().startswith(prefix):
-                    return language
+            exact = next((item for item in available if item.casefold() == preferred.casefold()), None)
+            if exact:
+                return exact
+        for preferred in _LANGUAGE_PRIORITY:
+            prefix = preferred.split("-", 1)[0].casefold()
+            match = next(
+                (item for item in available if item.casefold().split("-", 1)[0] == prefix),
+                None,
+            )
+            if match:
+                return match
         return available[0] if available else ""
 
     @staticmethod
     def _subtitle_format_score(ext: str) -> int:
-        order = {"json3": 5, "vtt": 4, "srt": 3, "ttml": 2, "srv3": 1}
-        return order.get(ext.casefold(), 0)
+        return {"json3": 6, "srv3": 5, "vtt": 4, "ttml": 3, "srt": 2}.get(ext.casefold(), 1)
 
-    async def _fetch_transcript(self, subtitle: _SubtitleCandidate) -> str:
+    async def _fetch_transcript(self, candidate: _SubtitleCandidate) -> str:
         try:
-            current = await self.url_guard.validate(subtitle.url)
+            validated = await self.url_guard.validate(candidate.url)
         except PublicUrlRejected:
             return ""
-        headers = {"User-Agent": "CharacterRelay/0.4 SubtitleResolver"}
         try:
             async with httpx.AsyncClient(
-                timeout=httpx.Timeout(15.0),
+                timeout=httpx.Timeout(20.0),
                 transport=self.http_transport,
                 follow_redirects=False,
-                headers=headers,
             ) as client:
-                for _ in range(4):
-                    response = await client.get(current)
-                    if response.status_code in {301, 302, 303, 307, 308}:
-                        location = response.headers.get("location", "").strip()
-                        if not location:
-                            return ""
-                        current = await self.url_guard.validate(urljoin(current, location))
-                        continue
-                    if response.is_error or len(response.content) > _MAX_SUBTITLE_BYTES:
-                        return ""
-                    return self._parse_subtitle(response.content, subtitle.ext)
-        except (httpx.HTTPError, PublicUrlRejected, ValueError):
+                response = await client.get(validated, headers={"Accept": "*/*"})
+        except httpx.HTTPError:
             return ""
-        return ""
+        if response.is_redirect:
+            location = response.headers.get("location", "").strip()
+            if not location:
+                return ""
+            redirected = urljoin(validated, location)
+            try:
+                redirected = await self.url_guard.validate(redirected)
+            except PublicUrlRejected:
+                return ""
+            try:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(20.0),
+                    transport=self.http_transport,
+                    follow_redirects=False,
+                ) as client:
+                    response = await client.get(redirected, headers={"Accept": "*/*"})
+            except httpx.HTTPError:
+                return ""
+        if response.is_error:
+            return ""
+        content = response.content[: _MAX_SUBTITLE_BYTES + 1]
+        if len(content) > _MAX_SUBTITLE_BYTES:
+            return ""
+        return self._subtitle_text(content, candidate.ext)
 
     @classmethod
-    def _parse_subtitle(cls, content: bytes, ext: str) -> str:
-        text = content.decode("utf-8", errors="replace")
-        if ext.casefold() == "json3":
-            try:
-                data = json.loads(text)
-            except json.JSONDecodeError:
-                return ""
-            lines: list[str] = []
-            events = data.get("events") if isinstance(data, dict) else None
-            if isinstance(events, list):
-                for event in events:
-                    if not isinstance(event, dict):
-                        continue
-                    segments = event.get("segs")
-                    if not isinstance(segments, list):
-                        continue
-                    line = "".join(
-                        str(segment.get("utf8", ""))
-                        for segment in segments
-                        if isinstance(segment, dict)
-                    ).strip()
-                    if line:
-                        lines.append(line)
-            return cls._normalize_transcript(lines)
+    def _subtitle_text(cls, content: bytes, ext: str) -> str:
+        try:
+            text = content.decode("utf-8", errors="replace")
+        except Exception:
+            return ""
+        normalized = ext.casefold()
+        if normalized == "json3":
+            return cls._json3_text(text)
+        if normalized in {"srv1", "srv2", "srv3"}:
+            text = re.sub(r"<[^>]+>", " ", text)
+        elif normalized in {"vtt", "srt", "ttml"}:
+            text = re.sub(r"<[^>]+>", " ", text)
+            text = re.sub(r"^WEBVTT.*$", " ", text, flags=re.MULTILINE)
+            text = re.sub(r"^\d+$", " ", text, flags=re.MULTILINE)
+            text = re.sub(
+                r"^\s*\d{1,2}:\d{2}:\d{2}[.,]\d{3}\s*-->.*$",
+                " ",
+                text,
+                flags=re.MULTILINE,
+            )
+            text = re.sub(
+                r"^\s*\d{1,2}:\d{2}[.,]\d{3}\s*-->.*$",
+                " ",
+                text,
+                flags=re.MULTILINE,
+            )
+        return cls._clean_transcript(text)
 
-        cleaned = re.sub(r"<[^>]+>", "", text)
-        lines = []
-        for raw in cleaned.splitlines():
-            line = html.unescape(raw).strip()
-            if not line:
+    @classmethod
+    def _json3_text(cls, text: str) -> str:
+        try:
+            body = json.loads(text)
+        except json.JSONDecodeError:
+            return ""
+        if not isinstance(body, dict):
+            return ""
+        events = body.get("events")
+        if not isinstance(events, list):
+            return ""
+        parts: list[str] = []
+        for event in events:
+            if not isinstance(event, dict):
                 continue
-            if line.startswith(("WEBVTT", "Kind:", "Language:")):
+            segs = event.get("segs")
+            if not isinstance(segs, list):
                 continue
-            if re.fullmatch(r"\d+", line):
-                continue
-            if "-->" in line:
-                continue
-            if line.startswith("NOTE"):
-                continue
-            lines.append(line)
-        return cls._normalize_transcript(lines)
+            phrase = "".join(
+                str(segment.get("utf8") or "")
+                for segment in segs
+                if isinstance(segment, dict)
+            )
+            if phrase.strip():
+                parts.append(phrase.strip())
+        return cls._clean_transcript(" ".join(parts))
 
     @staticmethod
-    def _normalize_transcript(lines: list[str]) -> str:
-        normalized: list[str] = []
-        previous = ""
-        for raw in lines:
-            line = re.sub(r"\s+", " ", raw).strip()
-            if not line or line == previous:
-                continue
-            previous = line
-            normalized.append(line)
-            if sum(len(item) + 1 for item in normalized) >= _MAX_TRANSCRIPT_CHARS:
-                break
-        return "\n".join(normalized)[:_MAX_TRANSCRIPT_CHARS]
+    def _clean_transcript(text: str) -> str:
+        cleaned = html.unescape(text)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned[:_MAX_TRANSCRIPT_CHARS]
 
     @staticmethod
-    def _duration(value: Any) -> int | None:
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+    def _text(value: object, maximum: int) -> str:
+        if value is None:
+            return ""
+        text = str(value).replace("\x00", "").strip()
+        return text[:maximum]
+
+    @staticmethod
+    def _duration(value: object) -> int | None:
+        if isinstance(value, bool):
             return None
-        return max(0, int(value))
-
-    @staticmethod
-    def _text(value: Any, limit: int) -> str:
-        return value.strip()[:limit] if isinstance(value, str) else ""
+        if isinstance(value, (int, float)) and value >= 0:
+            return int(value)
+        return None
