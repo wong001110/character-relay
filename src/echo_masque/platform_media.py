@@ -350,7 +350,10 @@ class YtDlpMediaResolver:
     def _preferred_language(cls, values: dict[str, Any]) -> str:
         available = [str(key) for key in values]
         for preferred in _LANGUAGE_PRIORITY:
-            exact = next((item for item in available if item.casefold() == preferred.casefold()), None)
+            exact = next(
+                (item for item in available if item.casefold() == preferred.casefold()),
+                None,
+            )
             if exact:
                 return exact
         for preferred in _LANGUAGE_PRIORITY:
