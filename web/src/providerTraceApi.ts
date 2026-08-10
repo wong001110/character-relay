@@ -2,6 +2,7 @@ export type ProviderTraceStatus = "pending" | "succeeded" | "error";
 export type ProviderTraceCategory =
   | "tool_calling"
   | "character_turn"
+  | "media_attention"
   | "media_understanding"
   | "model_call";
 
