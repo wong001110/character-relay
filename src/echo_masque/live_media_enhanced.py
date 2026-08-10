@@ -9,12 +9,13 @@ from pydantic import SecretStr
 
 from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.browser_runtime import BrowserCapabilityManager, BrowserToolUnavailable
-from echo_masque.content_resolver import ResolvedContentSource
+from echo_masque.content_resolver import ResolvedContentSource, resolve_static_url
 from echo_masque.jina_reader import JinaReaderClient, JinaReaderUnavailable
 from echo_masque.live_media import (
     DiscordAttachment,
     LiveMediaContext,
     LiveMediaContextService,
+    LiveMediaResult,
     _ResolvedAsset,
 )
 from echo_masque.media_runtime import MediaAnalysis, MediaAsset
@@ -31,6 +32,7 @@ _HTTP_FALLBACK_VERSION = "article-http-v1"
 _HTTP_FALLBACK_PROVIDER = "content-extractor"
 _HTTP_FALLBACK_MODEL = "http-browser-v1"
 _MIN_USEFUL_HTTP_CHARS = 300
+_MAX_PLATFORM_TEXT_LINKS = 3
 
 
 class EnhancedLiveMediaContextService(LiveMediaContextService):
@@ -77,6 +79,79 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
             url_guard=service.url_guard,
             browser_runtime=browser_runtime,
             jina_api_key=jina_api_key,
+        )
+
+    async def contexts_for_turn(
+        self,
+        *,
+        owner_id: str,
+        character_card_id: str,
+        payload: DiscordInboundMessage,
+    ) -> LiveMediaResult:
+        """Let yt-dlp transcript/metadata work even without a multimodal provider key."""
+
+        credential = self.credential_resolver.resolve(
+            owner_id=owner_id,
+            character_card_id=character_card_id,
+            capability="media",
+        )
+        if credential is not None:
+            return await super().contexts_for_turn(
+                owner_id=owner_id,
+                character_card_id=character_card_id,
+                payload=payload,
+            )
+
+        platform_contexts: list[LiveMediaContext] = []
+        consumed_urls: list[str] = []
+        platform_failures = 0
+        for raw_url in self._extract_urls(payload.text)[:_MAX_PLATFORM_TEXT_LINKS]:
+            try:
+                source = resolve_static_url(raw_url)
+            except ValueError:
+                continue
+            if source.kind != "video" or not self.platform_resolver.supports(
+                source.canonical_url
+            ):
+                continue
+            context = await self._article_context(source)
+            if context is None:
+                platform_failures += 1
+                continue
+            platform_contexts.append(context)
+            consumed_urls.append(raw_url)
+
+        if not platform_contexts:
+            return await super().contexts_for_turn(
+                owner_id=owner_id,
+                character_card_id=character_card_id,
+                payload=payload,
+            )
+
+        remainder_text = payload.text
+        for raw_url in consumed_urls:
+            remainder_text = remainder_text.replace(raw_url, " ")
+        remainder_payload = payload.model_copy(update={"text": remainder_text.strip()})
+        remainder = await super().contexts_for_turn(
+            owner_id=owner_id,
+            character_card_id=character_card_id,
+            payload=remainder_payload,
+        )
+        combined = tuple([*platform_contexts, *remainder.contexts][:5])
+        remainder_failed = remainder.status in {"failed", "partial"} or (
+            remainder.status == "skipped"
+            and remainder.reason == "media_key_group_not_configured"
+        )
+        partial = bool(platform_failures or remainder_failed)
+        return LiveMediaResult(
+            status="partial" if partial else "completed",
+            reason=(
+                "platform_text_context_with_partial_failures"
+                if partial
+                else "platform_text_context"
+            ),
+            contexts=combined,
+            cache_hits=remainder.cache_hits,
         )
 
     async def _discord_attachments(
