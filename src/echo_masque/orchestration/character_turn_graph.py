@@ -48,6 +48,7 @@ class CharacterTurnGraphState(TypedDict, total=False):
     graph_run_id: str
     graph_name: Literal["character_turn"]
     orchestration_version: str
+    operation_id: str
     status: GraphStatus
     outcome: CharacterTurnOutcome
     owner_id: str
@@ -116,6 +117,10 @@ def _emit(
             node_name=node_name,
             node_kind=node_kind,
             status=status,
+            operation_id=state.get("operation_id", ""),
+            owner_id=state.get("owner_id", ""),
+            deployment_id=state.get("deployment_id", ""),
+            character_card_id=state.get("character_card_id", ""),
             changed_keys=changed_keys,
             metadata=metadata,
             error=error[:300],
@@ -532,6 +537,7 @@ class CharacterTurnGraphRunner:
             "graph_run_id": str(uuid4()),
             "graph_name": "character_turn",
             "orchestration_version": context.orchestration_version,
+            "operation_id": payload.runtime_operation_id,
             "status": "pending",
             "outcome": "pending",
             "deployment_id": payload.deployment_id,

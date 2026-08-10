@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import math
 import re
@@ -10,7 +11,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
-from typing import Literal
+from typing import Literal, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, model_validator
@@ -81,6 +82,28 @@ class ToolExecutionContext:
     trigger_text: str = ""
     initiator_is_bot: bool = False
     initiator_user_id: str = ""
+    operation_id: str = ""
+    step_id: str = ""
+
+
+class SideEffectIdempotencyStore(Protocol):
+    def claim_side_effect(
+        self,
+        *,
+        operation_id: str,
+        step_id: str,
+        deployment_id: str,
+        tool_id: str,
+        arguments_hash: str,
+    ) -> tuple[str, str, str, dict[str, object]]: ...
+
+    def complete_side_effect(
+        self,
+        *,
+        idempotency_key: str,
+        content: str,
+        trace: dict[str, object],
+    ) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -334,6 +357,7 @@ class ToolRegistry:
         discord_bot_token: SecretStr | None = None,
         http_transport: object | None = None,
         url_guard: PublicUrlGuard | None = None,
+        side_effect_store: SideEffectIdempotencyStore | None = None,
     ) -> None:
         # httpx transports are accepted as object here to keep this core registry independent
         # from httpx's incomplete public typing surface; ExternalToolRuntime validates usage.
@@ -346,6 +370,7 @@ class ToolRegistry:
             url_guard=url_guard,
         )
         self.reminders = reminder_repository
+        self.side_effect_store = side_effect_store
         self.external = ExternalToolRuntime(
             discord_bot_token=discord_bot_token,
             http_transport=transport,
@@ -836,37 +861,89 @@ class ToolRegistry:
             if not isinstance(raw_arguments, dict):
                 raise ValueError("Tool arguments must be a JSON object.")
             arguments = {str(key): value for key, value in raw_arguments.items()}
-            content = await self._execute_tool(tool_id, arguments, context)
-        except (
-            json.JSONDecodeError,
-            ValidationError,
-            ExternalToolRejected,
-            ValueError,
-            TypeError,
-            KeyError,
-        ) as exc:
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
             return self._error_result(
                 tool_id=tool_id,
                 status="rejected",
                 error=str(exc)[:300],
                 started=started,
             )
+
+        idempotency_key = ""
+        if (
+            registered.catalog.side_effect
+            and self.side_effect_store is not None
+            and context.operation_id
+            and context.step_id
+        ):
+            canonical = json.dumps(
+                arguments,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            arguments_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+            claim, idempotency_key, replay_content, replay_trace = (
+                self.side_effect_store.claim_side_effect(
+                    operation_id=context.operation_id,
+                    step_id=context.step_id,
+                    deployment_id=context.deployment_id,
+                    tool_id=tool_id,
+                    arguments_hash=arguments_hash,
+                )
+            )
+            if claim == "replay":
+                try:
+                    trace = ToolExecutionTrace.model_validate(replay_trace)
+                except ValidationError:
+                    trace = ToolExecutionTrace(tool_id=tool_id, status="completed")
+                return ToolExecutionResult(content=replay_content, trace=trace)
+            if claim != "granted":
+                return self._error_result(
+                    tool_id=tool_id,
+                    status="rejected",
+                    error="side_effect_execution_uncertain",
+                    started=started,
+                )
+
+        try:
+            content = await self._execute_tool(tool_id, arguments, context)
+            result = ToolExecutionResult(
+                content=content,
+                trace=ToolExecutionTrace(
+                    tool_id=tool_id,
+                    status="completed",
+                    duration_ms=round((perf_counter() - started) * 1000),
+                ),
+            )
+        except (
+            ValidationError,
+            ExternalToolRejected,
+            ValueError,
+            TypeError,
+            KeyError,
+        ) as exc:
+            result = self._error_result(
+                tool_id=tool_id,
+                status="rejected",
+                error=str(exc)[:300],
+                started=started,
+            )
         except (ExternalToolFailed, BrowserToolUnavailable) as exc:
-            return self._error_result(
+            result = self._error_result(
                 tool_id=tool_id,
                 status="failed",
                 error=str(exc)[:300],
                 started=started,
             )
 
-        return ToolExecutionResult(
-            content=content,
-            trace=ToolExecutionTrace(
-                tool_id=tool_id,
-                status="completed",
-                duration_ms=round((perf_counter() - started) * 1000),
-            ),
-        )
+        if idempotency_key and self.side_effect_store is not None:
+            self.side_effect_store.complete_side_effect(
+                idempotency_key=idempotency_key,
+                content=result.content,
+                trace=result.trace.model_dump(),
+            )
+        return result
 
     async def _execute_tool(
         self,

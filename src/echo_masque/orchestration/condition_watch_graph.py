@@ -82,6 +82,8 @@ def _emit(
             node_name=node_name,
             node_kind=node_kind,
             status=status,
+            owner_id=context.watch.owner_id,
+            deployment_id=context.watch.deployment_id,
             changed_keys=changed_keys,
             metadata=metadata,
             error=error[:300],

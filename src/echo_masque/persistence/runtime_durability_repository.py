@@ -82,7 +82,9 @@ class DurableRuntimeRepository:
         continuation_budget: int,
         max_depth: int,
     ) -> dict[str, object]:
-        unique = list(dict.fromkeys(item.strip() for item in initial_deployment_ids if item.strip()))
+        unique = list(
+            dict.fromkeys(item.strip() for item in initial_deployment_ids if item.strip())
+        )
         return {
             "pending_turns": [
                 {
@@ -156,7 +158,9 @@ class DurableRuntimeRepository:
             )
             supplied = (connection_id, guild_id, channel_id, thread_id, source_message_id)
             if identity != supplied:
-                raise ValueError("Runtime operation identity does not match its original Discord event.")
+                raise ValueError(
+                    "Runtime operation identity does not match its original Discord event."
+                )
             if record.owner_id and owner_id and record.owner_id != owner_id:
                 raise ValueError("Runtime operation owner does not match the selected deployment.")
             if record.status in {"active", "awaiting_delivery"}:
@@ -206,7 +210,9 @@ class DurableRuntimeRepository:
             if operation.status == "completed":
                 raise ValueError("Durable Social Turn operation is already completed.")
             if operation.status == "uncertain":
-                raise RuntimeError("Durable Social Turn operation requires delivery reconciliation.")
+                raise RuntimeError(
+                    "Durable Social Turn operation requires delivery reconciliation."
+                )
 
             step = session.get(RuntimeStepRecord, step_id)
             if step is None:
@@ -226,7 +232,9 @@ class DurableRuntimeRepository:
                 return "execute", step
 
             if step.request_hash != request_hash:
-                raise ValueError("Durable Social Turn retry does not match the original step request.")
+                raise ValueError(
+                    "Durable Social Turn retry does not match the original step request."
+                )
             if step.status in {"generated", "delivery_claimed", "silent"} and step.response_json:
                 return "replay", step
             if step.status == "generating":
@@ -492,7 +500,9 @@ class DurableRuntimeRepository:
         now = datetime.now(UTC)
         with self.database.session() as session:
             generating = list(
-                session.scalars(select(RuntimeStepRecord).where(RuntimeStepRecord.status == "generating"))
+                session.scalars(
+                    select(RuntimeStepRecord).where(RuntimeStepRecord.status == "generating")
+                )
             )
             for step in generating:
                 step.status = "failed"
@@ -517,7 +527,9 @@ class DurableRuntimeRepository:
 
             side_effects = list(
                 session.scalars(
-                    select(RuntimeSideEffectRecord).where(RuntimeSideEffectRecord.status == "claimed")
+                    select(RuntimeSideEffectRecord).where(
+                        RuntimeSideEffectRecord.status == "claimed"
+                    )
                 )
             )
             for item in side_effects:
@@ -578,6 +590,7 @@ class DurableRuntimeRepository:
                     owner_id=event.owner_id,
                     deployment_id=event.deployment_id,
                     character_card_id=event.character_card_id,
+                    event_count=0,
                     created_at=now,
                     updated_at=now,
                 )
@@ -589,7 +602,7 @@ class DurableRuntimeRepository:
             run.deployment_id = event.deployment_id or run.deployment_id
             run.character_card_id = event.character_card_id or run.character_card_id
             run.last_node = event.node_name
-            run.event_count += 1
+            run.event_count = (run.event_count or 0) + 1
             run.updated_at = now
             if event.status == "failed":
                 run.status = "failed"

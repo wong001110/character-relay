@@ -33,6 +33,10 @@ class RuntimeTraceEvent:
     node_name: str
     node_kind: TraceNodeKind
     status: TraceEventStatus
+    operation_id: str = ""
+    owner_id: str = ""
+    deployment_id: str = ""
+    character_card_id: str = ""
     changed_keys: tuple[str, ...] = ()
     metadata: tuple[tuple[str, str], ...] = ()
     error: str = ""

@@ -8,10 +8,10 @@ from echo_masque.api.dependencies import SuperAdminUserDependency
 from echo_masque.api.runtime_durability_schemas import (
     RuntimeTraceAccessView,
     RuntimeTraceClearResult,
+    RuntimeTraceEventView,
     RuntimeTracePage,
     RuntimeTraceSummary,
     RuntimeTraceView,
-    RuntimeTraceEventView,
 )
 from echo_masque.auth import SYSTEM_RUNTIME_USER_ID
 from echo_masque.persistence import AuthRepository, Database, DurableRuntimeRepository
