@@ -61,6 +61,15 @@ from echo_masque.persistence.interaction_repository import (
     InteractionConflict,
     InteractionRepository,
 )
+from echo_masque.persistence.key_group_models import (
+    CharacterKeyGroupAssignmentRecord,
+    ProviderKeyGroupRecord,
+)
+from echo_masque.persistence.key_group_repository import (
+    KeyGroupCapability,
+    KeyGroupRepository,
+    ResolvedKeyGroup,
+)
 from echo_masque.persistence.knowledge_models import (
     KnowledgeBaseRecord,
     KnowledgeChunkRecord,
@@ -71,6 +80,8 @@ from echo_masque.persistence.knowledge_repository import (
     KnowledgeRetrievalResult,
 )
 from echo_masque.persistence.matrix_repository import MatrixRepository
+from echo_masque.persistence.media_models import MediaAnalysisRecord
+from echo_masque.persistence.media_repository import MediaAnalysisRepository
 from echo_masque.persistence.portable_calibration_repository import (
     PortableCalibrationRepository,
 )
@@ -125,6 +136,7 @@ __all__ = [
     "CalibrationDatasetRecord",
     "CalibrationRepository",
     "CharacterDeploymentRecord",
+    "CharacterKeyGroupAssignmentRecord",
     "CharacterSemanticProfileRecord",
     "ConditionWatchRecord",
     "ConditionWatchRepository",
@@ -156,17 +168,23 @@ __all__ = [
     "InteractionRepository",
     "JudgeEvaluationRecord",
     "JudgePredictionRecord",
+    "KeyGroupCapability",
+    "KeyGroupRepository",
     "KnowledgeBaseRecord",
     "KnowledgeChunkRecord",
     "KnowledgeDocumentRecord",
     "KnowledgeRepository",
     "KnowledgeRetrievalResult",
     "MatrixRepository",
+    "MediaAnalysisRecord",
+    "MediaAnalysisRepository",
     "PlatformConnectionRecord",
     "PortableCalibrationRepository",
+    "ProviderKeyGroupRecord",
     "ProviderTraceRecord",
     "ProviderTraceRepository",
     "Repository",
+    "ResolvedKeyGroup",
     "RuntimeOperationRecord",
     "RuntimeSideEffectRecord",
     "RuntimeStepRecord",
