@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.sql import Select
 
 from echo_masque.persistence.media_models import MediaAnalysisRecord
 from echo_masque.persistence.media_repository import MediaAnalysisRepository
@@ -51,7 +52,7 @@ class MediaAnalysisSingleFlight:
         analysis_version: str,
         provider: str,
         model: str,
-    ):
+    ) -> Select[tuple[MediaAnalysisRecord]]:
         return select(MediaAnalysisRecord).where(
             MediaAnalysisRecord.media_key == media_key,
             MediaAnalysisRecord.analysis_version == analysis_version,
