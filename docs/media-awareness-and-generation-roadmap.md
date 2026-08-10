@@ -180,38 +180,39 @@ The initial implementation adds the provider-neutral request/result contract. Op
 
 ## 10. Delivery sequence
 
-### Phase A — foundation (current)
+### Phase A — foundation
 
-1. Add account-owned Key Group metadata and encrypted group credentials. 🚧
-2. Add per-Character capability assignment and bulk apply. 🚧
-3. Resolve character credentials as direct-card override -> assigned Key Group fallback. 🚧
-4. Add streaming SHA-256 helper for attachment pipelines. 🚧
-5. Add global Media Analysis persistence with TTL, bounded cleanup, and sliding-access refresh. 🚧
-6. Add provider-neutral Media Understanding and Image Generation contracts. 🚧
+1. Add account-owned Key Group metadata and encrypted group credentials. ✅
+2. Add per-Character capability assignment and bulk apply backend API. ✅
+3. Resolve character credentials as direct-card override -> assigned Key Group fallback. ✅
+4. Add streaming SHA-256 helper for attachment pipelines. ✅
+5. Add global Media Analysis persistence with TTL, bounded cleanup, and sliding-access refresh. ✅
+6. Add provider-neutral Media Understanding and Image Generation contracts. ✅
+7. Add Portal Key Group management and multi-Character bulk-apply UI. 🚧
 
 ### Phase B — live Media Understanding
 
-7. Add Discord attachment/media resolver and compute SHA-256 during the existing stream.
-8. Add public media canonical-ID resolver and `yt-dlp` adapter for supported video sources.
-9. Add MiMo-V2.5 direct adapter and OpenRouter multimodal adapter.
-10. Inject shared Level-1 Media Context into `CharacterTurnContext` before Smart Output.
-11. Add deployment/account controls for whether characters may inspect image/video/audio media.
-12. Add Superadmin cache observability and manual purge controls.
+8. Add Discord attachment/media resolver and compute SHA-256 during the existing stream.
+9. Add public media canonical-ID resolver and `yt-dlp` adapter for supported video sources.
+10. Add MiMo-V2.5 direct adapter and OpenRouter multimodal adapter.
+11. Inject shared Level-1 Media Context into `CharacterTurnContext` before Smart Output.
+12. Add deployment/account controls for whether characters may inspect image/video/audio media.
+13. Add Superadmin cache observability and manual purge controls.
 
 ### Phase C — Generate Image
 
-13. Register `image.generate` as an explicitly assignable Tool.
-14. Resolve the Character Card's `image_generation` Key Group/model.
-15. Add OpenRouter Image API adapter as one optional provider.
-16. Add direct provider adapters where useful (Cloudflare, MiniMax, Wan, etc.).
-17. Add Character reference-image handling and capability-aware model parameters.
-18. Deliver generated images through the current Discord identity while preserving Runtime permission/audit rules.
+14. Register `image.generate` as an explicitly assignable Tool.
+15. Resolve the Character Card's `image_generation` Key Group/model.
+16. Keep the OpenRouter Image API adapter as one optional provider. ✅ foundation adapter
+17. Add direct provider adapters where useful (Cloudflare, MiniMax, Wan, etc.).
+18. Add Character reference-image handling and capability-aware model parameters.
+19. Deliver generated images through the current Discord identity while preserving Runtime permission/audit rules.
 
 ### Phase D — deeper media
 
-19. Add Level-2 question-specific media analysis.
-20. Add Level-3 timestamp/segment cache entries for video.
-21. Measure hit rate, provider spend, latency, database size, and TTL effectiveness before adding Redis or another hot cache.
+20. Add Level-2 question-specific media analysis.
+21. Add Level-3 timestamp/segment cache entries for video.
+22. Measure hit rate, provider spend, latency, database size, and TTL effectiveness before adding Redis or another hot cache.
 
 ## 11. Non-goals for V1
 
