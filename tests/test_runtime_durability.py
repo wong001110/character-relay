@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from echo_masque.orchestration import RuntimeTraceEvent
+from echo_masque.orchestration.trace import RuntimeTraceEvent
 from echo_masque.persistence import (
     Database,
     DurableRuntimeRepository,
