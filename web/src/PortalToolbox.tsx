@@ -6,10 +6,18 @@ import { useI18n } from "./i18n";
 import { PaperModal } from "./NotebookUI";
 import { providerTraceApi } from "./providerTraceApi";
 import { ProviderTraceViewer } from "./ProviderTraceViewer";
+import { runtimeTraceApi } from "./runtimeTraceApi";
+import { RuntimeTraceViewer } from "./RuntimeTraceViewer";
 import { ScheduledRemindersPanel } from "./ScheduledRemindersPanel";
 import { ToolCallingTestPanel } from "./ToolCallingTestPanel";
 
-type ToolboxSection = "actions" | "schedule" | "account" | "provider" | "tooltest";
+type ToolboxSection =
+  | "actions"
+  | "schedule"
+  | "account"
+  | "provider"
+  | "runtime"
+  | "tooltest";
 
 interface Props {
   user: AuthUser;
@@ -37,6 +45,7 @@ export function PortalToolbox({
   const [open, setOpen] = useState(false);
   const [section, setSection] = useState<ToolboxSection>("actions");
   const [providerTraceAllowed, setProviderTraceAllowed] = useState(false);
+  const [runtimeTraceAllowed, setRuntimeTraceAllowed] = useState(false);
 
   useEffect(() => {
     if (user.role !== "admin" || publicDemo) {
@@ -49,6 +58,21 @@ export function PortalToolbox({
       .then(() => setProviderTraceAllowed(true))
       .catch(() => {
         if (!controller.signal.aborted) setProviderTraceAllowed(false);
+      });
+    return () => controller.abort();
+  }, [user.id, user.role, publicDemo]);
+
+  useEffect(() => {
+    if (user.role !== "admin" || publicDemo) {
+      setRuntimeTraceAllowed(false);
+      return;
+    }
+    const controller = new AbortController();
+    void runtimeTraceApi
+      .access(controller.signal)
+      .then(() => setRuntimeTraceAllowed(true))
+      .catch(() => {
+        if (!controller.signal.aborted) setRuntimeTraceAllowed(false);
       });
     return () => controller.abort();
   }, [user.id, user.role, publicDemo]);
@@ -135,6 +159,15 @@ export function PortalToolbox({
                 Provider Trace
               </button>
             )}
+            {runtimeTraceAllowed && (
+              <button
+                type="button"
+                className={section === "runtime" ? "is-active" : ""}
+                onClick={() => setSection("runtime")}
+              >
+                Runtime Trace
+              </button>
+            )}
           </nav>
 
           {section === "actions" && (
@@ -167,6 +200,17 @@ export function PortalToolbox({
                     {zh
                       ? "Super Admin 直接执行真实 Runtime Tool，确认 Tool 本身能否正常 completed / rejected / failed。"
                       : "Super Admin can execute a real Runtime Tool directly to verify completed / rejected / failed behavior."}
+                  </small>
+                </button>
+              )}
+              {runtimeTraceAllowed && (
+                <button type="button" onClick={() => setSection("runtime")}>
+                  <span className="toolbox-sticker sticker-mint">TRACE</span>
+                  <strong>{zh ? "Runtime Trace Explorer" : "Runtime Trace Explorer"}</strong>
+                  <small>
+                    {zh
+                      ? "查看 LangGraph 节点、operation_id、恢复与 durable execution 状态。"
+                      : "Inspect LangGraph nodes, operation IDs, recovery, and durable execution state."}
                   </small>
                 </button>
               )}
@@ -233,6 +277,10 @@ export function PortalToolbox({
 
           {section === "provider" && providerTraceAllowed && !publicDemo && (
             <ProviderTraceViewer embedded onClose={() => setSection("actions")} />
+          )}
+
+          {section === "runtime" && runtimeTraceAllowed && !publicDemo && (
+            <RuntimeTraceViewer onClose={() => setSection("actions")} />
           )}
         </PaperModal>
       )}
