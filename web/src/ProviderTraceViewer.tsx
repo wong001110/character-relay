@@ -37,6 +37,7 @@ export function ProviderTraceAccessButton({ onOpen }: { onOpen: () => void }) {
 function categoryLabel(category: ProviderTraceCategory, zh: boolean): string {
   if (category === "tool_calling") return "Tool Calling";
   if (category === "character_turn") return zh ? "角色回合" : "Character Turn";
+  if (category === "media_attention") return zh ? "媒体注意力" : "Media Attention";
   if (category === "media_understanding") {
     return zh ? "媒体理解" : "Media Understanding";
   }
@@ -308,8 +309,8 @@ export function ProviderTraceViewer({
           <h1>{zh ? "Provider 请求与响应" : "Provider requests and responses"}</h1>
           <p>
             {zh
-              ? "Provider Trace 记录实际发出的外部模型请求，包括角色模型、Tool Calling 与 Media Understanding。Runtime Trace 是整轮执行的节点时间线；一条 Runtime Trace 可能对应多条 Provider Trace。Cache hit 不会伪造 Provider Trace，因为那一轮没有再次调用外部模型。API Key 与 Authorization Header 不会被保存。"
-              : "Provider Trace records actual outbound model calls, including Character models, Tool Calling, and Media Understanding. Runtime Trace is the node timeline for the whole turn, so one Runtime Trace may correspond to several Provider Traces. Cache hits do not create fake Provider Traces because no external model was called again. API keys and Authorization headers are never stored."}
+              ? "Provider Trace 记录实际发出的外部模型请求，包括角色模型、媒体注意力决策、Tool Calling 与 Media Understanding。Runtime Trace 是整轮执行的节点时间线；一条 Runtime Trace 可能对应多条 Provider Trace。Cache hit 不会伪造 Provider Trace，因为那一轮没有再次调用外部模型。API Key 与 Authorization Header 不会被保存。"
+              : "Provider Trace records actual outbound model calls, including Character models, Media Attention decisions, Tool Calling, and Media Understanding. Runtime Trace is the node timeline for the whole turn, so one Runtime Trace may correspond to several Provider Traces. Cache hits do not create fake Provider Traces because no external model was called again. API keys and Authorization headers are never stored."}
           </p>
         </div>
         <div className="provider-trace-header-actions">
@@ -350,6 +351,7 @@ export function ProviderTraceViewer({
             }
           >
             <option value="all">{zh ? "全部类型" : "All categories"}</option>
+            <option value="media_attention">{zh ? "媒体注意力" : "Media Attention"}</option>
             <option value="media_understanding">
               {zh ? "媒体理解" : "Media Understanding"}
             </option>
@@ -411,8 +413,8 @@ export function ProviderTraceViewer({
               <strong>{zh ? "没有符合筛选的 Provider Trace" : "No matching provider traces"}</strong>
               <p>
                 {zh
-                  ? "下一次实际模型、Tool Calling 或 Media Understanding 调用后会出现在这里。"
-                  : "The next actual model, Tool Calling, or Media Understanding request will appear here."}
+                  ? "下一次实际模型、媒体注意力、Tool Calling 或 Media Understanding 调用后会出现在这里。"
+                  : "The next actual model, Media Attention, Tool Calling, or Media Understanding request will appear here."}
               </p>
             </div>
           ) : (
@@ -523,6 +525,17 @@ export function ProviderTraceViewer({
                 <div><dt>Character</dt><dd>{selected.character_card_id || "—"}</dd></div>
                 <div><dt>Created</dt><dd>{formatPortalTimestamp(selected.created_at, zh)}</dd></div>
               </dl>
+
+              {selected.category === "media_attention" && (
+                <section className="provider-trace-json-section">
+                  <div><h3>{zh ? "角色是否决定查看" : "Character attention decision"}</h3></div>
+                  <p>
+                    {zh
+                      ? "这是角色在真正下载、字幕提取或 Vision 之前做的私有 watch / skip 决策。skip 时后续 Media Understanding 不会运行。"
+                      : "This is the Character's private watch/skip decision before downloads, transcript extraction, or Vision. A skip prevents Media Understanding from running."}
+                  </p>
+                </section>
+              )}
 
               {selected.category === "media_understanding" && (
                 <section className="provider-trace-json-section">
