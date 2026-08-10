@@ -170,6 +170,7 @@ class MediaAnalysisSingleFlight:
                     last_accessed_at=current,
                     expires_at=current + self.repository.ttl,
                 )
+                .execution_options(synchronize_session=False)
             )
             if int(getattr(result, "rowcount", 0) or 0) == 1:
                 session.commit()
@@ -221,6 +222,7 @@ class MediaAnalysisSingleFlight:
                     last_accessed_at=current,
                     expires_at=current + self.repository.ttl,
                 )
+                .execution_options(synchronize_session=False)
             )
             if int(getattr(result, "rowcount", 0) or 0) != 1:
                 session.rollback()
@@ -254,6 +256,7 @@ class MediaAnalysisSingleFlight:
                     last_accessed_at=current,
                     expires_at=current + self.repository.ttl,
                 )
+                .execution_options(synchronize_session=False)
             )
             session.commit()
 
