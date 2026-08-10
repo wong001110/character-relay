@@ -1,0 +1,63 @@
+name: Phase 5 durable core apply v2
+
+on:
+  push:
+    branches:
+      - agent/langgraph-phase-5-durable-runtime
+    paths:
+      - .github/workflows/phase5-core-apply-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/langgraph-phase-5-durable-runtime
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Reuse corrected Phase 5 core patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/phase5-core-apply.yml').read_text(encoding='utf-8')
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n      - name: Install Python dependencies"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          lines = workflow[start:end].splitlines()
+          code = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in lines
+          )
+          code = code.replace(
+              "mentioned_character_deployment_ids: list[str] = Field(default_factory=list)",
+              "mentioned_character_deployment_ids: list[str] = Field(default_factory=list, max_length=20)",
+          )
+          exec(compile(code, 'phase5_core_patch.py', 'exec'))
+          PY
+      - name: Install Python dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Normalize and validate Python core
+        run: |
+          ruff check --fix src/echo_masque
+          ruff check src/echo_masque
+          mypy src/echo_masque
+          pytest -q tests/test_character_turn_graph.py tests/test_social_turn_graph.py tests/test_social_turn_graph_wiring.py tests/test_provider_trace_scope.py
+      - name: Remove one-shot workflows
+        run: |
+          git rm .github/workflows/phase5-core-apply.yml
+          git rm .github/workflows/phase5-core-apply-v2.yml
+      - name: Commit Phase 5 core slice
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: add Phase 5 durable runtime core"
+          git push origin HEAD:agent/langgraph-phase-5-durable-runtime
