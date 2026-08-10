@@ -18,7 +18,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
-RUN python -m pip install --no-cache-dir . \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg nodejs \
+    && python -m pip install --no-cache-dir . \
     && python -m playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=web /app/web/dist ./web/dist
