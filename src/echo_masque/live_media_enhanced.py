@@ -187,25 +187,31 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
                 source.canonical_url,
                 source_key=source.source_key,
             )
-            if resolved is not None:
-                self._platform_context[source.source_key] = resolved
-                if resolved.media_url:
-                    filename = resolved.media_id or resolved.title or source.platform
-                    if resolved.media_ext:
-                        filename = f"{filename}.{resolved.media_ext}"
-                    return _ResolvedAsset(
-                        asset=MediaAsset(
-                            media_key=source.source_key,
-                            media_type="video",
-                            filename=filename[:255],
-                            source_uri=resolved.media_url,
-                        ),
-                        source_key=source.source_key,
-                    )
-                if resolved.has_context:
-                    raise ValueError(
-                        "Platform media has transcript/metadata but no direct media URL."
-                    )
+            if resolved is None:
+                raise ValueError(
+                    "Platform extraction is unavailable; use article/page fallback."
+                )
+            self._platform_context[source.source_key] = resolved
+            if resolved.media_url:
+                filename = resolved.media_id or resolved.title or source.platform
+                if resolved.media_ext:
+                    filename = f"{filename}.{resolved.media_ext}"
+                return _ResolvedAsset(
+                    asset=MediaAsset(
+                        media_key=source.source_key,
+                        media_type="video",
+                        filename=filename[:255],
+                        source_uri=resolved.media_url,
+                    ),
+                    source_key=source.source_key,
+                )
+            if resolved.has_context:
+                raise ValueError(
+                    "Platform media has transcript/metadata but no direct media URL."
+                )
+            raise ValueError(
+                "Platform extraction returned no usable media; use article/page fallback."
+            )
         return await super()._resolve_public_media(source)
 
     async def _analyze(
