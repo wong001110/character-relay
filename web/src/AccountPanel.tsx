@@ -9,6 +9,7 @@ import {
   type InvitationView
 } from "./api";
 import { useI18n } from "./i18n";
+import { KeyGroupsPanel } from "./KeyGroupsPanel";
 
 interface Props {
   user: AuthUser;
@@ -326,6 +327,7 @@ export function AccountPanel({
 
         {tab === "data" && (
           <div className="account-section account-data-grid">
+            <KeyGroupsPanel />
             <article className="account-action-card">
               <h3>{t.export}</h3>
               <p>{t.exportHint}</p>
