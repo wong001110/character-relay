@@ -23,6 +23,7 @@ dependencies = [
   "pypdf>=5,<7",
   "sqlalchemy>=2.0,<3.0",
   "uvicorn[standard]>=0.34,<1.0",
+  "yt-dlp[default,curl-cffi]>=2026.6,<2027",
 ]
 
 [project.optional-dependencies]
@@ -102,3 +103,7 @@ disable_error_code = ["assignment", "arg-type", "redundant-cast", "var-annotated
 [[tool.mypy.overrides]]
 module = "echo_masque.tool_runtime"
 disable_error_code = ["assignment", "attr-defined"]
+
+[[tool.mypy.overrides]]
+module = ["yt_dlp", "yt_dlp.*"]
+ignore_missing_imports = true

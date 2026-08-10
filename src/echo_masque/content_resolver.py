@@ -60,7 +60,9 @@ def canonicalize_public_url(url: str) -> str:
     return urlunparse((parsed.scheme.casefold(), netloc, parsed.path or "/", "", query, ""))
 
 
-def _extension_kind(path: str) -> tuple[ContentKind, Literal["image", "video", "audio"] | None]:
+def _extension_kind(
+    path: str,
+) -> tuple[ContentKind, Literal["image", "video", "audio"] | None]:
     lowered = path.casefold()
     for extension in _IMAGE_EXTENSIONS:
         if lowered.endswith(extension):
@@ -72,6 +74,25 @@ def _extension_kind(path: str) -> tuple[ContentKind, Literal["image", "video", "
         if lowered.endswith(extension):
             return "audio", "audio"
     return "unknown", None
+
+
+def _platform_video(
+    *,
+    url: str,
+    canonical: str,
+    source_key: str,
+    platform: str,
+    status: ContentResolutionStatus = "available",
+) -> ResolvedContentSource:
+    return ResolvedContentSource(
+        source_url=url,
+        canonical_url=canonical,
+        source_key=source_key,
+        kind="video",
+        status=status,
+        platform=platform,
+        media_type="video",
+    )
 
 
 def resolve_static_url(url: str) -> ResolvedContentSource:
@@ -89,46 +110,39 @@ def resolve_static_url(url: str) -> ResolvedContentSource:
             match = re.match(r"^/(?:shorts|live|embed)/([^/?#]+)", path)
             video_id = match.group(1) if match else ""
         if video_id:
-            return ResolvedContentSource(
-                source_url=url,
-                canonical_url=canonical,
+            return _platform_video(
+                url=url,
+                canonical=canonical,
                 source_key=f"youtube:{video_id}",
-                kind="video",
                 platform="youtube",
-                media_type="video",
             )
     if host == "youtu.be":
         video_id = path.strip("/").split("/", 1)[0]
         if video_id:
-            return ResolvedContentSource(
-                source_url=url,
-                canonical_url=canonical,
+            return _platform_video(
+                url=url,
+                canonical=canonical,
                 source_key=f"youtube:{video_id}",
-                kind="video",
                 platform="youtube",
-                media_type="video",
             )
 
     if host.endswith("bilibili.com"):
         match = re.search(r"/(BV[0-9A-Za-z]+)", path, re.IGNORECASE)
         if match:
             bvid = match.group(1)
-            return ResolvedContentSource(
-                source_url=url,
-                canonical_url=canonical,
+            return _platform_video(
+                url=url,
+                canonical=canonical,
                 source_key=f"bilibili:{bvid}",
-                kind="video",
                 platform="bilibili",
-                media_type="video",
             )
     if host == "b23.tv":
-        return ResolvedContentSource(
-            source_url=url,
-            canonical_url=canonical,
+        return _platform_video(
+            url=url,
+            canonical=canonical,
             source_key=f"url:{canonical}",
-            kind="unknown",
-            status="partial",
             platform="bilibili",
+            status="partial",
         )
 
     if host in {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}:
@@ -144,14 +158,64 @@ def resolve_static_url(url: str) -> ResolvedContentSource:
 
     if host.endswith("tiktok.com"):
         match = re.search(r"/video/(\d+)", path)
+        source_key = f"tiktok:{match.group(1)}" if match else f"url:{canonical}"
+        return _platform_video(
+            url=url,
+            canonical=canonical,
+            source_key=source_key,
+            platform="tiktok",
+            status="available" if match else "partial",
+        )
+
+    if host == "fb.watch":
+        return _platform_video(
+            url=url,
+            canonical=canonical,
+            source_key=f"url:{canonical}",
+            platform="facebook",
+            status="partial",
+        )
+    if host.endswith("facebook.com") and (
+        "/reel/" in path or "/videos/" in path or path.startswith("/watch") or "v" in query
+    ):
+        media_id = query.get("v", "").strip()
+        match = re.search(r"/(?:reel|videos)/(\d+)", path)
+        media_id = media_id or (match.group(1) if match else "")
+        return _platform_video(
+            url=url,
+            canonical=canonical,
+            source_key=f"facebook:{media_id}" if media_id else f"url:{canonical}",
+            platform="facebook",
+            status="available" if media_id else "partial",
+        )
+
+    if host.endswith("instagram.com"):
+        match = re.search(r"/(?:reel|reels|tv)/([^/?#]+)", path)
         if match:
+            return _platform_video(
+                url=url,
+                canonical=canonical,
+                source_key=f"instagram:{match.group(1)}",
+                platform="instagram",
+            )
+        post = re.search(r"/p/([^/?#]+)", path)
+        if post:
             return ResolvedContentSource(
                 source_url=url,
                 canonical_url=canonical,
-                source_key=f"tiktok:{match.group(1)}",
-                kind="video",
-                platform="tiktok",
-                media_type="video",
+                source_key=f"instagram:{post.group(1)}",
+                kind="social_post",
+                platform="instagram",
+            )
+
+    if host.endswith("vimeo.com"):
+        match = re.search(r"/(\d+)(?:$|/)", path)
+        if match:
+            return _platform_video(
+                url=url,
+                canonical=canonical,
+                source_key=f"vimeo:{match.group(1)}",
+                platform="vimeo",
             )
 
     extension_kind, media_type = _extension_kind(path)
@@ -165,7 +229,6 @@ def resolve_static_url(url: str) -> ResolvedContentSource:
             media_type=media_type,
         )
 
-    # Generic HTTP(S) documents are treated as articles until an extractor reports otherwise.
     return ResolvedContentSource(
         source_url=url,
         canonical_url=canonical,

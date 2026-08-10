@@ -1,3 +1,5 @@
+FROM node:22-bookworm-slim AS node_runtime
+
 FROM node:22-alpine AS web
 WORKDIR /app/web
 COPY web/package.json ./
@@ -16,9 +18,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CHARACTER_RELAY_SEMANTIC_PARTICIPATION_ENABLED=true \
     CHARACTER_RELAY_SEMANTIC_EMBEDDING_CACHE_DIR=/data/embedding-models
 WORKDIR /app
+COPY --from=node_runtime /usr/local/bin/node /usr/local/bin/node
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
-RUN python -m pip install --no-cache-dir . \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg libatomic1 libstdc++6 \
+    && node --version \
+    && python -m pip install --no-cache-dir . \
     && python -m playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=web /app/web/dist ./web/dist

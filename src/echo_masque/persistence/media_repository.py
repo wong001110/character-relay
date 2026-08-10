@@ -39,8 +39,10 @@ class MediaAnalysisRepository:
         provider: str,
         model: str,
         now: datetime | None = None,
+        ttl: timedelta | None = None,
     ) -> MediaAnalysisRecord | None:
         current = now or datetime.now(UTC)
+        effective_ttl = ttl or self.ttl
         with self.database.session() as session:
             record = session.scalar(
                 select(MediaAnalysisRecord).where(
@@ -56,7 +58,7 @@ class MediaAnalysisRepository:
                 return None
             if current - _utc(record.last_accessed_at) >= self.access_refresh_after:
                 record.last_accessed_at = current
-                record.expires_at = current + self.ttl
+                record.expires_at = current + effective_ttl
                 session.commit()
                 session.refresh(record)
             return record
@@ -71,8 +73,10 @@ class MediaAnalysisRepository:
         model: str,
         result_json: str,
         now: datetime | None = None,
+        ttl: timedelta | None = None,
     ) -> MediaAnalysisRecord:
         current = now or datetime.now(UTC)
+        effective_ttl = ttl or self.ttl
         with self.database.session() as session:
             record = session.scalar(
                 select(MediaAnalysisRecord).where(
@@ -97,7 +101,7 @@ class MediaAnalysisRepository:
                     error=None,
                     created_at=current,
                     last_accessed_at=current,
-                    expires_at=current + self.ttl,
+                    expires_at=current + effective_ttl,
                 )
                 session.add(record)
             else:
@@ -108,7 +112,7 @@ class MediaAnalysisRepository:
                 record.lease_expires_at = None
                 record.error = None
                 record.last_accessed_at = current
-                record.expires_at = current + self.ttl
+                record.expires_at = current + effective_ttl
             session.commit()
             session.refresh(record)
             return record
