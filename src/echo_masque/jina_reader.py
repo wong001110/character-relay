@@ -222,7 +222,12 @@ class JinaReaderClient:
         if not cleaned:
             return title or "Public article"
         excerpt = cleaned[:900]
-        sentence_end = max(excerpt.rfind("。"), excerpt.rfind("！"), excerpt.rfind("？"), excerpt.rfind(". "))
+        sentence_end = max(
+            excerpt.rfind("\u3002"),
+            excerpt.rfind("\uff01"),
+            excerpt.rfind("\uff1f"),
+            excerpt.rfind(". "),
+        )
         if sentence_end >= 180:
             excerpt = excerpt[: sentence_end + 1]
         if title and not excerpt.casefold().startswith(title.casefold()):
