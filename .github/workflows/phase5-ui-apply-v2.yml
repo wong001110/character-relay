@@ -1,0 +1,57 @@
+name: Phase 5 Runtime Trace UI apply v2
+
+on:
+  push:
+    branches:
+      - agent/langgraph-phase-5-durable-runtime
+    paths:
+      - .github/workflows/phase5-ui-apply-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/langgraph-phase-5-durable-runtime
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Reuse Runtime Trace Toolbox patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/phase5-ui-apply.yml').read_text(encoding='utf-8')
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n      - name: Validate Web"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          code = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in workflow[start:end].splitlines()
+          )
+          exec(compile(code, 'phase5_ui_patch.py', 'exec'))
+          PY
+      - name: Validate Web
+        working-directory: web
+        run: |
+          npm install
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Remove one-shot workflows
+        run: |
+          git rm .github/workflows/phase5-ui-apply.yml
+          git rm .github/workflows/phase5-ui-apply-v2.yml
+      - name: Commit Runtime Trace UI
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: expose Runtime Trace Explorer in Toolbox"
+          git push origin HEAD:agent/langgraph-phase-5-durable-runtime
