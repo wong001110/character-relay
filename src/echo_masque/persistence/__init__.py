@@ -80,6 +80,8 @@ from echo_masque.persistence.knowledge_repository import (
     KnowledgeRetrievalResult,
 )
 from echo_masque.persistence.matrix_repository import MatrixRepository
+from echo_masque.persistence.media_models import MediaAnalysisRecord
+from echo_masque.persistence.media_repository import MediaAnalysisRepository
 from echo_masque.persistence.portable_calibration_repository import (
     PortableCalibrationRepository,
 )
@@ -174,6 +176,8 @@ __all__ = [
     "KnowledgeRepository",
     "KnowledgeRetrievalResult",
     "MatrixRepository",
+    "MediaAnalysisRecord",
+    "MediaAnalysisRepository",
     "PlatformConnectionRecord",
     "PortableCalibrationRepository",
     "ProviderKeyGroupRecord",
