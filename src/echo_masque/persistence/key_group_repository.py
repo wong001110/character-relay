@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, cast
 from uuid import uuid4
@@ -33,7 +34,7 @@ def _capability(value: str) -> KeyGroupCapability:
     return cast(KeyGroupCapability, normalized)
 
 
-def _models_json(values: dict[str, str] | None) -> str:
+def _models_json(values: Mapping[str, str] | None) -> str:
     normalized: dict[str, str] = {}
     for raw_capability, raw_model in (values or {}).items():
         capability = _capability(raw_capability)
@@ -70,7 +71,7 @@ class KeyGroupRepository:
         name: str,
         provider: str,
         base_url: str = "",
-        default_models: dict[str, str] | None = None,
+        default_models: Mapping[str, str] | None = None,
     ) -> ProviderKeyGroupRecord:
         record = ProviderKeyGroupRecord(
             id=str(uuid4()),
@@ -113,7 +114,7 @@ class KeyGroupRepository:
         name: str,
         provider: str,
         base_url: str,
-        default_models: dict[str, str] | None,
+        default_models: Mapping[str, str] | None,
     ) -> ProviderKeyGroupRecord | None:
         with self.database.session() as session:
             record = session.scalar(
