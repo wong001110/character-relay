@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 from echo_masque.media_hashing import StreamingSHA256, sha256_async_chunks, sha256_chunks
 from echo_masque.media_runtime import MediaAnalysis, MediaAsset, MediaUnderstandingService
+from echo_masque.media_singleflight import MediaAnalysisSingleFlight
 from echo_masque.persistence import Database, MediaAnalysisRepository
 
 
@@ -21,6 +22,19 @@ class FakeMediaProvider:
             objects=("cat", "laptop"),
             tone="humorous",
         )
+
+
+class BlockingMediaProvider(FakeMediaProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def analyze(self, asset: MediaAsset) -> MediaAnalysis:
+        self.calls += 1
+        self.started.set()
+        await self.release.wait()
+        return MediaAnalysis(summary=f"understood {asset.media_key}")
 
 
 def test_streaming_sha256_matches_single_pass_digest() -> None:
@@ -67,6 +81,59 @@ def test_media_analysis_is_shared_after_first_provider_call() -> None:
     assert second == first
     assert provider.calls == 1
     assert cache.count() == 1
+
+
+def test_concurrent_bots_join_the_same_in_flight_analysis() -> None:
+    async def scenario() -> None:
+        database = Database("sqlite://")
+        database.initialize()
+        cache = MediaAnalysisRepository(database)
+        provider = BlockingMediaProvider()
+        service = MediaUnderstandingService(cache, provider, poll_interval_seconds=0.1)
+        asset = MediaAsset(media_key="sha256:shared", media_type="image")
+
+        first_task = asyncio.create_task(service.analyze(asset))
+        await provider.started.wait()
+        second_task = asyncio.create_task(service.analyze(asset))
+        await asyncio.sleep(0)
+
+        assert provider.calls == 1
+        provider.release.set()
+        first, second = await asyncio.gather(first_task, second_task)
+
+        assert first[0] == second[0]
+        assert first[1] is False
+        assert second[1] is True
+        assert provider.calls == 1
+
+    asyncio.run(scenario())
+
+
+def test_processing_lease_prevents_duplicate_claim_and_can_be_reclaimed() -> None:
+    database = Database("sqlite://")
+    database.initialize()
+    cache = MediaAnalysisRepository(database)
+    singleflight = MediaAnalysisSingleFlight(
+        cache,
+        processing_lease=timedelta(minutes=3),
+    )
+    start = datetime(2026, 8, 10, 0, 0, tzinfo=UTC)
+    identity = {
+        "media_key": "sha256:lease",
+        "media_type": "video",
+        "analysis_version": "general-v1",
+        "provider": "fake",
+        "model": "vision",
+    }
+
+    first = singleflight.claim(**identity, now=start)
+    duplicate = singleflight.claim(**identity, now=start + timedelta(minutes=1))
+    reclaimed = singleflight.claim(**identity, now=start + timedelta(minutes=4))
+
+    assert first.status == "claimed"
+    assert duplicate.status == "processing"
+    assert reclaimed.status == "claimed"
+    assert reclaimed.lease_token != first.lease_token
 
 
 def test_media_cache_sliding_ttl_refreshes_sparingly_and_purges_expired() -> None:
