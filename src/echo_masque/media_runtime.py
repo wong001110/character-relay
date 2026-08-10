@@ -101,8 +101,12 @@ class MediaUnderstandingService:
                 task.add_done_callback(partial(self._schedule_clear, identity))
             else:
                 joined_existing = True
-        analysis, reused = await asyncio.shield(task)
-        return analysis, reused or joined_existing
+        try:
+            analysis, reused = await asyncio.shield(task)
+            return analysis, reused or joined_existing
+        finally:
+            if task.done():
+                await self._clear_inflight(identity, task)
 
     def _schedule_clear(
         self,
