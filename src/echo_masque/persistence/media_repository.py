@@ -39,8 +39,10 @@ class MediaAnalysisRepository:
         provider: str,
         model: str,
         now: datetime | None = None,
+        ttl: timedelta | None = None,
     ) -> MediaAnalysisRecord | None:
         current = now or datetime.now(UTC)
+        effective_ttl = ttl or self.ttl
         with self.database.session() as session:
             record = session.scalar(
                 select(MediaAnalysisRecord).where(
@@ -56,7 +58,7 @@ class MediaAnalysisRepository:
                 return None
             if current - _utc(record.last_accessed_at) >= self.access_refresh_after:
                 record.last_accessed_at = current
-                record.expires_at = current + self.ttl
+                record.expires_at = current + effective_ttl
                 session.commit()
                 session.refresh(record)
             return record
