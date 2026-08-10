@@ -1,13 +1,12 @@
 import asyncio
-from typing import Any
 
 from echo_masque.api.connector_schemas import (
     DiscordEmbedContent,
     DiscordInboundMessage,
 )
 from echo_masque.media_attention import CharacterMediaAttentionDecider, media_preview_lines
-from echo_masque.providers import ChatMessage, ProviderCompletion
 from echo_masque.provider_trace_classification import provider_trace_category
+from echo_masque.providers import ChatMessage, ProviderCompletion
 from echo_masque.targets import PromptModelConfig, PromptModelTarget
 
 
@@ -40,12 +39,12 @@ def payload() -> DiscordInboundMessage:
         channel_id="channel-1",
         author_id="user-1",
         author_display_name="Member",
-        text="安，那这个 B站链接呢？ https://www.bilibili.com/video/BV1abc/",
+        text="安, 那这个 B站链接呢? https://www.bilibili.com/video/BV1abc/",
         embeds=[
             DiscordEmbedContent(
                 embed_type="video",
                 url="https://www.bilibili.com/video/BV1abc/",
-                title="Cherry Studio V2 来了，超详细攻略 + 真实使用场景分享",
+                title="Cherry Studio V2 来了, 超详细攻略 + 真实使用场景分享",
                 description="视频播放量与作者简介的 Discord 可见预览。",
                 provider_name="哔哩哔哩",
                 author_name="技术爬爬虾",
