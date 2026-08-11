@@ -16,7 +16,9 @@ from echo_masque.image_generation import (
     ImageReference,
 )
 from echo_masque.network_safety import PublicUrlGuard, PublicUrlRejected
-from echo_masque.persistence.conversation_media_repository import ConversationMediaReferenceRepository
+from echo_masque.persistence.conversation_media_repository import (
+    ConversationMediaReferenceRepository,
+)
 from echo_masque.persistence.generated_media_repository import GeneratedMediaArtifactRepository
 from echo_masque.provider_credentials import (
     KeyGroupProviderCredentialResolver,
@@ -79,7 +81,9 @@ class ImageCreationRuntimeService:
         credential_resolver: KeyGroupProviderCredentialResolver,
         conversation_media_repository: ConversationMediaReferenceRepository,
         artifact_repository: GeneratedMediaArtifactRepository,
-        provider_factory: ImageGenerationProviderFactory = default_image_generation_provider_factory,
+        provider_factory: ImageGenerationProviderFactory = (
+            default_image_generation_provider_factory
+        ),
         http_transport: httpx.AsyncBaseTransport | None = None,
         url_guard: PublicUrlGuard | None = None,
     ) -> None:
@@ -123,7 +127,8 @@ class ImageCreationRuntimeService:
         )
         if payload.reference_mode != "none" and not references:
             raise ValueError(
-                "No previously perceived image with a reusable source is available for that reference."
+                "No previously perceived image with a reusable source is available "
+                "for that reference."
             )
 
         provider = self.provider_factory(credential)
