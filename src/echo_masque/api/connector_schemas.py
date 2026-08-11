@@ -292,6 +292,7 @@ class DiscordInboundMessage(BaseModel):
     emojis: list[ExpressionContent] = Field(default_factory=list, max_length=20)
     mentioned_bot: bool = False
     replied_to_bot: bool = False
+    reply_to_message_id: str = Field(default="", max_length=200)
     smart_candidate: bool = False
     author_is_bot: bool = False
     stickers: list[DiscordStickerContent] = Field(default_factory=list, max_length=3)
@@ -331,3 +332,4 @@ class DiscordConnectorReplyView(BaseModel):
     smart_output: DiscordSmartOutputView | None = None
     context_trace: CharacterContextTraceView | None = None
     tool_calls: list[ToolExecutionTrace] = Field(default_factory=list, max_length=8)
+    generated_artifact_ids: list[str] = Field(default_factory=list, max_length=4)
