@@ -21,6 +21,8 @@ interface Props {
   serverCatalog?: DiscordServerCatalog;
 }
 
+type InteractionNotebookTab = "templates" | "sessions";
+
 function discordUserId(value: string): string {
   return value.trim().replaceAll(/[<@!>]/gu, "");
 }
@@ -38,6 +40,7 @@ export function InteractionSessionsPanel({
   const [deployments, setDeployments] = useState<CharacterDeployment[]>([]);
   const [templates, setTemplates] = useState<InteractionTemplate[]>([]);
   const [sessions, setSessions] = useState<InteractionSession[]>([]);
+  const [notebookTab, setNotebookTab] = useState<InteractionNotebookTab>("templates");
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +90,7 @@ export function InteractionSessionsPanel({
   }
 
   useEffect(() => {
+    setNotebookTab("templates");
     setTemplateDrawerOpen(false);
     setEditingTemplate(null);
     setApplyingTemplate(null);
@@ -160,6 +164,7 @@ export function InteractionSessionsPanel({
       });
       setApplyingTemplate(null);
       await load();
+      setNotebookTab("sessions");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -208,145 +213,175 @@ export function InteractionSessionsPanel({
   }
 
   return (
-    <section className="interaction-module">
+    <section className="interaction-module interaction-notebook">
       {error && <p className="error-note interaction-error">{error}</p>}
-      <section className="paper-sheet interaction-panel">
-        <div className="panel-heading-row interaction-heading-row">
-          <div>
-            <p className="tape-label">INTERACTION TEMPLATES</p>
-            <h2>{zh ? "可复用的多角色互动规则" : "Reusable multi-character interaction rules"}</h2>
-            <p>
-              {zh
-                ? `Template 属于 ${serverProfile.guild_name}。它保存角色顺序与轮次；Apply 时才选择 Channel 和目标用户。`
-                : `Templates belong to ${serverProfile.guild_name}. They save character order and limits; Channel and target member are chosen when applied.`}
-            </p>
-          </div>
-          {!demoMode && (
-            <button
-              className="ink-button"
-              onClick={openNewTemplate}
-              disabled={activeDeployments.length < 2}
-            >
-              {zh ? "+ 新 Template" : "+ New Template"}
-            </button>
-          )}
-        </div>
 
-        {activeDeployments.length < 2 && (
-          <div className="interaction-server-warning">
-            {zh
-              ? "当前 Server 至少需要两个 Active Character Deployment，才能建立双角色 Template。"
-              : "This Server needs at least two active Character Deployments before a two-character Template can be created."}
-          </div>
-        )}
+      <aside className="interaction-notebook-tabs" aria-label={zh ? "互动记录分页" : "Interaction notebook pages"}>
+        <span className="interaction-tab-caption">INTERACTION</span>
+        <button
+          type="button"
+          className={notebookTab === "templates" ? "is-active" : ""}
+          onClick={() => setNotebookTab("templates")}
+        >
+          <strong>{zh ? "互动模板" : "Templates"}</strong>
+          <small>{templates.length}</small>
+        </button>
+        <button
+          type="button"
+          className={`is-child${notebookTab === "sessions" ? " is-active" : ""}`}
+          onClick={() => setNotebookTab("sessions")}
+        >
+          <strong>{zh ? "↳ Server Session" : "↳ Server Sessions"}</strong>
+          <small>{sessions.length}</small>
+        </button>
+      </aside>
 
-        {loading ? (
-          <p>{zh ? "读取 Template…" : "Loading Templates…"}</p>
-        ) : (
-          <div className="interaction-template-grid">
-            {templates.map((item) => (
-              <article className="interaction-template-card" key={item.id}>
-                <div className="interaction-template-title">
-                  <div>
-                    <small>ROAST TEMPLATE</small>
-                    <strong>{item.name}</strong>
-                  </div>
-                  <span className="interaction-intensity">{item.intensity}</span>
-                </div>
-                <div className="interaction-order-note">
-                  {item.participant_names.join(" → ")}
-                </div>
-                <dl className="interaction-template-metrics">
-                  <div><dt>{zh ? "轮次" : "Rounds"}</dt><dd>{item.rounds_per_trigger}</dd></div>
-                  <div><dt>{zh ? "回复" : "Replies"}</dt><dd>{item.maximum_replies_per_trigger}</dd></div>
-                  <div><dt>{zh ? "触发" : "Triggers"}</dt><dd>{item.maximum_triggers}</dd></div>
-                  <div><dt>{zh ? "冷却" : "Cooldown"}</dt><dd>{item.cooldown_seconds}s</dd></div>
-                </dl>
-                {!demoMode && (
-                  <div className="interaction-actions">
-                    <button
-                      className="ink-button compact-ink-button"
-                      onClick={() => setApplyingTemplate(item)}
-                      disabled={!availableChannels.length}
-                    >
-                      {zh ? "Apply 到 Server" : "Apply to Server"}
-                    </button>
-                    <button className="paper-button" onClick={() => openEditTemplate(item)}>
-                      {zh ? "编辑" : "Edit"}
-                    </button>
-                    <button
-                      className="text-button danger-text"
-                      onClick={() => void removeTemplate(item)}
-                    >
-                      {zh ? "删除" : "Delete"}
-                    </button>
-                  </div>
-                )}
-              </article>
-            ))}
-            {!templates.length && (
-              <div className="interaction-empty-card">
-                <strong>{zh ? "还没有 Interaction Template" : "No Interaction Templates yet"}</strong>
+      <div className="interaction-notebook-page">
+        {notebookTab === "templates" && (
+          <section className="paper-sheet interaction-panel interaction-template-page">
+            <div className="panel-heading-row interaction-heading-row">
+              <div>
+                <p className="tape-label">INTERACTION TEMPLATES</p>
+                <h2>{zh ? "可复用的多角色互动规则" : "Reusable multi-character interaction rules"}</h2>
                 <p>
                   {zh
-                    ? "先保存角色顺序和运行限制，之后可以重复 Apply 给不同 Channel 或目标用户。"
-                    : "Save character order and limits once, then apply the Template repeatedly to different Channels or target members."}
+                    ? `Template 属于 ${serverProfile.guild_name}。它保存角色顺序与轮次；Apply 后才会生成 Server Session。`
+                    : `Templates belong to ${serverProfile.guild_name}. They save character order and limits; applying one creates a Server Session.`}
                 </p>
               </div>
-            )}
-          </div>
-        )}
-      </section>
-
-      <section className="paper-sheet interaction-panel">
-        <div className="panel-heading-row interaction-heading-row">
-          <div>
-            <p className="tape-label">SERVER SESSIONS</p>
-            <h2>{zh ? "当前 Server 正在运行的 Session" : "Sessions applied to this Server"}</h2>
-            <p>
-              {zh
-                ? "运行计数、冷却、目标用户和状态属于 Session，不会修改原始 Template。"
-                : "Trigger counts, cooldown state, target member, and status belong to the Session and do not change the Template."}
-            </p>
-          </div>
-        </div>
-        <div className="interaction-card-grid">
-          {sessions.map((item) => (
-            <article className="interaction-card" key={item.id}>
-              <div className="interaction-card-heading">
-                <strong>Roast Session</strong>
-                <span className={`deployment-status status-${item.status}`}>{item.status}</span>
-              </div>
-              <p><b>{zh ? "目标" : "Target"}:</b> {item.target_display_name || item.target_user_id}</p>
-              <p><b>{zh ? "角色" : "Characters"}:</b> {item.participant_names.join(" → ")}</p>
-              <p><b>Channel:</b> #{item.channel_name}</p>
-              <p><b>{zh ? "轮次" : "Rounds"}:</b> {item.rounds_per_trigger} · {item.maximum_replies_per_trigger} {zh ? "条回复/触发" : "replies/trigger"}</p>
-              <p><b>{zh ? "触发" : "Triggers"}:</b> {item.completed_triggers} / {item.maximum_triggers}</p>
-              <p><b>{zh ? "冷却" : "Cooldown"}:</b> {item.cooldown_seconds}s · {minutes(item.duration_seconds)}m</p>
               {!demoMode && (
-                <div className="interaction-actions">
-                  {item.status !== "active" && (
-                    <button className="paper-button" disabled={working} onClick={() => void setStatus(item, "active")}>{zh ? "启用" : "Activate"}</button>
+                <button
+                  className="ink-button"
+                  onClick={openNewTemplate}
+                  disabled={activeDeployments.length < 2}
+                >
+                  {zh ? "+ 新 Template" : "+ New Template"}
+                </button>
+              )}
+            </div>
+
+            {activeDeployments.length < 2 && (
+              <div className="interaction-server-warning">
+                {zh
+                  ? "当前 Server 至少需要两个 Active Character Deployment，才能建立双角色 Template。"
+                  : "This Server needs at least two active Character Deployments before a two-character Template can be created."}
+              </div>
+            )}
+
+            {loading ? (
+              <p>{zh ? "读取 Template…" : "Loading Templates…"}</p>
+            ) : (
+              <div className="interaction-template-grid">
+                {templates.map((item) => (
+                  <article className="interaction-template-card" key={item.id}>
+                    <div className="interaction-template-title">
+                      <div>
+                        <small>INTERACTION TEMPLATE</small>
+                        <strong>{item.name}</strong>
+                      </div>
+                      <span className="interaction-intensity">{item.intensity}</span>
+                    </div>
+                    <div className="interaction-order-note">
+                      {item.participant_names.join(" → ")}
+                    </div>
+                    <dl className="interaction-template-metrics">
+                      <div><dt>{zh ? "轮次" : "Rounds"}</dt><dd>{item.rounds_per_trigger}</dd></div>
+                      <div><dt>{zh ? "回复" : "Replies"}</dt><dd>{item.maximum_replies_per_trigger}</dd></div>
+                      <div><dt>{zh ? "触发" : "Triggers"}</dt><dd>{item.maximum_triggers}</dd></div>
+                      <div><dt>{zh ? "冷却" : "Cooldown"}</dt><dd>{item.cooldown_seconds}s</dd></div>
+                    </dl>
+                    {!demoMode && (
+                      <div className="interaction-actions">
+                        <button
+                          className="ink-button compact-ink-button"
+                          onClick={() => setApplyingTemplate(item)}
+                          disabled={!availableChannels.length}
+                        >
+                          {zh ? "Apply / 建立 Session" : "Apply / Create Session"}
+                        </button>
+                        <button className="paper-button" onClick={() => openEditTemplate(item)}>
+                          {zh ? "编辑" : "Edit"}
+                        </button>
+                        <button
+                          className="text-button danger-text"
+                          onClick={() => void removeTemplate(item)}
+                        >
+                          {zh ? "删除" : "Delete"}
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                ))}
+                {!templates.length && (
+                  <div className="interaction-empty-card">
+                    <strong>{zh ? "还没有 Interaction Template" : "No Interaction Templates yet"}</strong>
+                    <p>
+                      {zh
+                        ? "先保存角色顺序和运行限制，之后可以重复 Apply 给不同 Channel 或目标用户。"
+                        : "Save character order and limits once, then apply the Template repeatedly to different Channels or target members."}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
+        {notebookTab === "sessions" && (
+          <section className="paper-sheet interaction-panel interaction-session-page">
+            <div className="panel-heading-row interaction-heading-row">
+              <div>
+                <p className="tape-label">SERVER SESSIONS</p>
+                <h2>{zh ? "由 Template 生成的 Server Session" : "Server Sessions created from Templates"}</h2>
+                <p>
+                  {zh
+                    ? "Session 是 Template 的运行实例。目标用户、Channel、冷却与触发计数只属于 Session，不会修改原始 Template。"
+                    : "A Session is a running instance of a Template. Target member, Channel, cooldown state, and trigger counts belong to the Session only."}
+                </p>
+              </div>
+              <button type="button" className="paper-button" onClick={() => setNotebookTab("templates")}>
+                {zh ? "查看 Template" : "Back to Templates"}
+              </button>
+            </div>
+            <div className="interaction-card-grid">
+              {sessions.map((item) => (
+                <article className="interaction-card" key={item.id}>
+                  <div className="interaction-card-heading">
+                    <strong>Server Session</strong>
+                    <span className={`deployment-status status-${item.status}`}>{item.status}</span>
+                  </div>
+                  <p><b>{zh ? "目标" : "Target"}:</b> {item.target_display_name || item.target_user_id}</p>
+                  <p><b>{zh ? "角色" : "Characters"}:</b> {item.participant_names.join(" → ")}</p>
+                  <p><b>Channel:</b> #{item.channel_name}</p>
+                  <p><b>{zh ? "轮次" : "Rounds"}:</b> {item.rounds_per_trigger} · {item.maximum_replies_per_trigger} {zh ? "条回复/触发" : "replies/trigger"}</p>
+                  <p><b>{zh ? "触发" : "Triggers"}:</b> {item.completed_triggers} / {item.maximum_triggers}</p>
+                  <p><b>{zh ? "冷却" : "Cooldown"}:</b> {item.cooldown_seconds}s · {minutes(item.duration_seconds)}m</p>
+                  {!demoMode && (
+                    <div className="interaction-actions">
+                      {item.status !== "active" && (
+                        <button className="paper-button" disabled={working} onClick={() => void setStatus(item, "active")}>{zh ? "启用" : "Activate"}</button>
+                      )}
+                      {item.status === "active" && (
+                        <button className="paper-button" disabled={working} onClick={() => void setStatus(item, "paused")}>{zh ? "暂停" : "Pause"}</button>
+                      )}
+                      {!['stopped', 'completed'].includes(item.status) && (
+                        <button className="paper-button" disabled={working} onClick={() => void setStatus(item, "stopped")}>{zh ? "停止" : "Stop"}</button>
+                      )}
+                      <button className="text-button danger-text" disabled={working} onClick={() => void removeSession(item)}>{zh ? "删除" : "Delete"}</button>
+                    </div>
                   )}
-                  {item.status === "active" && (
-                    <button className="paper-button" disabled={working} onClick={() => void setStatus(item, "paused")}>{zh ? "暂停" : "Pause"}</button>
-                  )}
-                  {!['stopped', 'completed'].includes(item.status) && (
-                    <button className="paper-button" disabled={working} onClick={() => void setStatus(item, "stopped")}>{zh ? "停止" : "Stop"}</button>
-                  )}
-                  <button className="text-button danger-text" disabled={working} onClick={() => void removeSession(item)}>{zh ? "删除" : "Delete"}</button>
+                </article>
+              ))}
+              {!loading && !sessions.length && (
+                <div className="interaction-empty-card compact">
+                  <strong>{zh ? "当前 Server 没有 Session" : "No Sessions in this Server"}</strong>
+                  <p>{zh ? "回到 Interaction Template，点击 Apply 建立 Session。" : "Return to Interaction Templates and Apply one to create a Session."}</p>
                 </div>
               )}
-            </article>
-          ))}
-          {!loading && !sessions.length && (
-            <div className="interaction-empty-card compact">
-              <strong>{zh ? "当前 Server 没有 Session" : "No Sessions in this Server"}</strong>
-              <p>{zh ? "从上方 Template 点击 Apply。" : "Apply a Template above to create one."}</p>
             </div>
-          )}
-        </div>
-      </section>
+          </section>
+        )}
+      </div>
 
       {templateDrawerOpen && !demoMode && (
         <div className="interaction-drawer-backdrop" onMouseDown={(event) => {
