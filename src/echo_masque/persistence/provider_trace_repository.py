@@ -31,10 +31,12 @@ class ProviderTraceRepository:
         *,
         retention_days: int = 7,
         maximum_records: int = 2000,
+        pending_timeout_seconds: int = 300,
     ) -> None:
         self.database = database
         self.retention_days = max(1, min(retention_days, 90))
         self.maximum_records = max(100, min(maximum_records, 10000))
+        self.pending_timeout_seconds = max(60, min(pending_timeout_seconds, 3600))
         self._backfill_indexes()
 
     def record_event(self, payload: dict[str, object]) -> None:
@@ -97,7 +99,10 @@ class ProviderTraceRepository:
 
     def get_trace(self, trace_id: str) -> ProviderTraceRecord | None:
         with self.database.session() as session:
-            return session.get(ProviderTraceRecord, trace_id)
+            self._reconcile_stale_pending(session, now=datetime.now(UTC))
+            record = session.get(ProviderTraceRecord, trace_id)
+            session.commit()
+            return record
 
     def list_traces(
         self,
@@ -111,6 +116,7 @@ class ProviderTraceRepository:
     ) -> list[ProviderTraceRecord]:
         bounded_limit = max(1, min(limit, 200))
         with self.database.session() as session:
+            self._reconcile_stale_pending(session, now=datetime.now(UTC))
             query = select(ProviderTraceRecord)
             query = self._apply_index_filters(
                 query,
@@ -126,7 +132,9 @@ class ProviderTraceRepository:
             if trace_id:
                 query = query.where(ProviderTraceRecord.trace_id == trace_id)
             query = query.order_by(ProviderTraceRecord.created_at.desc())
-            return list(session.scalars(query.limit(bounded_limit)))
+            records = list(session.scalars(query.limit(bounded_limit)))
+            session.commit()
+            return records
 
     def list_traces_page(
         self,
@@ -141,6 +149,7 @@ class ProviderTraceRepository:
     ) -> tuple[list[ProviderTraceRecord], str | None]:
         bounded_limit = max(1, min(limit, 100))
         with self.database.session() as session:
+            self._reconcile_stale_pending(session, now=datetime.now(UTC))
             query = select(ProviderTraceRecord)
             query = self._apply_index_filters(
                 query,
@@ -183,6 +192,7 @@ class ProviderTraceRepository:
                 if has_more and items
                 else None
             )
+            session.commit()
             return items, next_cursor
 
     def clear(self, *, owner_id: str | None = None) -> int:
@@ -234,6 +244,7 @@ class ProviderTraceRepository:
 
     def _backfill_indexes(self) -> None:
         with self.database.session() as session:
+            self._reconcile_stale_pending(session, now=datetime.now(UTC))
             records = list(session.scalars(select(ProviderTraceRecord)))
             for record in records:
                 if (
@@ -243,6 +254,51 @@ class ProviderTraceRepository:
                     record.status = "error"
                 self._sync_index(session, record)
             session.commit()
+
+    def _reconcile_stale_pending(self, session: Session, *, now: datetime) -> int:
+        cutoff = now - timedelta(seconds=self.pending_timeout_seconds)
+        stale = list(
+            session.scalars(
+                select(ProviderTraceRecord).where(
+                    ProviderTraceRecord.status == "pending",
+                    ProviderTraceRecord.updated_at < cutoff,
+                )
+            )
+        )
+        if not stale:
+            return 0
+        for record in stale:
+            started_at = self._as_utc(record.created_at)
+            latency_ms = max(0, round((now - started_at).total_seconds() * 1000))
+            payload: dict[str, object] = {
+                "event": "provider.error",
+                "trace_id": record.trace_id,
+                "endpoint": record.endpoint,
+                "model": record.request_model,
+                "status_code": None,
+                "reason": "trace_abandoned",
+                "detail": (
+                    "No terminal provider event was recorded before the trace deadline. "
+                    "The request may have been cancelled, interrupted, disconnected, or "
+                    "the runtime may have restarted while it was in flight."
+                ),
+                "latency_ms": latency_ms,
+                "trace_mode": record.trace_mode,
+                "owner_id": self._scope_value(record, "owner_id"),
+                "deployment_id": self._scope_value(record, "deployment_id"),
+                "character_card_id": self._scope_value(record, "character_card_id"),
+            }
+            record.status = "error"
+            record.error_json = json.dumps(
+                payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            record.latency_ms = latency_ms
+            record.updated_at = now
+            self._sync_index(session, record)
+        session.flush()
+        return len(stale)
 
     def _sync_index(self, session: Session, record: ProviderTraceRecord) -> None:
         index = session.get(ProviderTraceIndexRecord, record.trace_id)
@@ -361,3 +417,9 @@ class ProviderTraceRepository:
     @staticmethod
     def _optional_int(value: object) -> int | None:
         return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+    @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
