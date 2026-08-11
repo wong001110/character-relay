@@ -3,7 +3,11 @@ from __future__ import annotations
 from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.conversation_media import ConversationMediaReferenceService
 from echo_masque.live_media import LiveMediaContext
-from echo_masque.persistence import ConversationMediaReferenceRepository, Database, KnowledgeRepository
+from echo_masque.persistence import (
+    ConversationMediaReferenceRepository,
+    Database,
+    KnowledgeRepository,
+)
 from echo_masque.reader_cleanup import clean_public_reader_text
 
 
@@ -132,7 +136,7 @@ def test_media_semantic_recall_handles_implicit_reference_without_keyword() -> N
     memories = service.resolve_for_turn(
         deployment_id="deployment-1",
         character_card_id="card-1",
-        payload=inbound("follow-up", "你不觉得很像他吗？"),
+        payload=inbound("follow-up", "你不觉得很像他吗?"),
     )
 
     assert len(memories) == 1
@@ -143,8 +147,8 @@ def test_media_semantic_recall_handles_implicit_reference_without_keyword() -> N
 def test_public_reader_cleanup_removes_guest_popup_noise_but_keeps_article() -> None:
     result = clean_public_reader_text(
         "登录后继续\n扫码登录\n打开 App 阅读完整内容\n"
-        "这是文章标题\n这里是第一段真正的正文，解释产品设计和实现细节。\n"
-        "这里是第二段正文，仍然应该被保留。"
+        "这是文章标题\n这里是第一段真正的正文, 解释产品设计和实现细节。\n"
+        "这里是第二段正文, 仍然应该被保留。"
     )
 
     assert result.state == "cleaned"
