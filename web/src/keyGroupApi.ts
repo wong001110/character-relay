@@ -1,5 +1,7 @@
 export type KeyGroupCapability = "character" | "media" | "image_generation";
 
+export const AUTO_FREE_ANIME_MODEL = "auto:openrouter-free-anime";
+
 export interface ProviderKeyGroup {
   id: string;
   name: string;
@@ -23,8 +25,28 @@ export interface ProviderKeyGroupUpdate {
   name: string;
   provider: string;
   base_url: string;
-  api_key?: string;
+  api_key?: string | null;
   default_models: Partial<Record<KeyGroupCapability, string>>;
+}
+
+export interface ImageModelScoutCandidate {
+  model_id: string;
+  name: string;
+  description: string;
+  style_score: number;
+  style_matches: string[];
+  free_endpoint_count: number;
+  provider_names: string[];
+}
+
+export interface ImageModelScoutResult {
+  selected_model: string | null;
+  candidates: ImageModelScoutCandidate[];
+  checked_at: string;
+  total_image_models: number;
+  inspected_models: number;
+  from_cache: boolean;
+  cache_ttl_seconds: number;
 }
 
 export interface KeyGroupBulkApplyResult {
@@ -70,6 +92,10 @@ export const keyGroupApi = {
     }),
   remove: (groupId: string) =>
     request<void>(`/api/account/key-groups/${groupId}`, { method: "DELETE" }),
+  scoutImageModels: (groupId: string, refresh = false) =>
+    request<ImageModelScoutResult>(
+      `/api/account/key-groups/${groupId}/image-model-scout?refresh=${refresh ? "true" : "false"}`
+    ),
   bulkApply: (
     groupId: string,
     payload: {
