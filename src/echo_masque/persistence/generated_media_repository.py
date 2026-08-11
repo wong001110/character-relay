@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.generated_media_models import GeneratedMediaArtifactRecord
@@ -89,3 +89,23 @@ class GeneratedMediaArtifactRepository:
             )
             session.commit()
             return len(ids)
+
+    def claim_owner(self, source_owner_id: str, target_owner_id: str) -> int:
+        with self.database.session() as session:
+            result = session.execute(
+                update(GeneratedMediaArtifactRecord)
+                .where(GeneratedMediaArtifactRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
+            session.commit()
+            return int(getattr(result, "rowcount", 0) or 0)
+
+    def delete_owner(self, owner_id: str) -> int:
+        with self.database.session() as session:
+            result = session.execute(
+                delete(GeneratedMediaArtifactRecord).where(
+                    GeneratedMediaArtifactRecord.owner_id == owner_id
+                )
+            )
+            session.commit()
+            return int(getattr(result, "rowcount", 0) or 0)
