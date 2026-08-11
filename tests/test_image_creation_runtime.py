@@ -11,7 +11,9 @@ from echo_masque.image_generation import (
 )
 from echo_masque.live_media import LiveMediaContext
 from echo_masque.persistence import Database
-from echo_masque.persistence.conversation_media_repository import ConversationMediaReferenceRepository
+from echo_masque.persistence.conversation_media_repository import (
+    ConversationMediaReferenceRepository,
+)
 from echo_masque.persistence.generated_media_repository import GeneratedMediaArtifactRepository
 from echo_masque.provider_credentials import ResolvedProviderCredential
 
