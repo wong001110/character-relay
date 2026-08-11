@@ -1,0 +1,44 @@
+/* Deployment physical notebook polish: attached side tabs, paper labels, and deduplicated actions. */
+
+.portal-v2-page-frame .deployment-page > .deployment-header .deployment-header-actions .ink-button { display: none; }
+
+.portal-v2-page-frame .server-notebook-shell { grid-template-columns: 142px minmax(0, 1fr); gap: 0; align-items: stretch; }
+.portal-v2-page-frame .server-notebook-tabs { position: relative; z-index: 3; padding: 17px 0 18px 8px; border-right: 0; background: transparent; overflow: visible; }
+.portal-v2-page-frame .server-notebook-caption { display: block; margin: 0 0 11px 7px; color: #95839e; font: 700 .56rem var(--portal-pencil); letter-spacing: .12em; transform: rotate(-1.5deg); }
+.portal-v2-page-frame .server-notebook-tabs > button { position: relative; width: calc(100% + 14px); min-height: 61px; margin: 0 0 8px; padding: 10px 20px 10px 13px; border: 1px solid rgba(92,73,108,.15); border-right: 0; border-radius: 12px 0 0 12px; box-shadow: -3px 5px 10px rgba(74,57,84,.05), inset -8px 0 12px rgba(255,255,255,.18); transform: rotate(-.25deg); overflow: visible; }
+.portal-v2-page-frame .server-notebook-tabs > button:nth-of-type(2) { transform: translateX(4px) rotate(.25deg); }
+.portal-v2-page-frame .server-notebook-tabs > button:nth-of-type(3) { transform: translateX(1px) rotate(-.4deg); }
+.portal-v2-page-frame .server-notebook-tabs > button::after { content: ""; position: absolute; top: 8px; right: -5px; bottom: 8px; width: 8px; background: inherit; filter: brightness(.985); box-shadow: 4px 1px 6px rgba(62,48,72,.05); }
+.portal-v2-page-frame .server-notebook-tabs > button.is-active { width: calc(100% + 24px); z-index: 5; transform: none; box-shadow: -4px 6px 13px rgba(70,54,83,.07), 6px 0 0 rgba(255,250,240,.94); }
+.portal-v2-page-frame .server-notebook-tabs > button strong { font-size: .72rem; }
+.portal-v2-page-frame .server-notebook-hint { display: block; margin: 10px 10px 0 7px; color: #9b8c9e; font: .56rem/1.45 var(--portal-pencil); }
+.portal-v2-page-frame .server-notebook-content { position: relative; z-index: 2; min-width: 0; min-height: 500px; padding: 14px 14px 24px; border: 1px solid rgba(96,76,112,.14); border-radius: 0 17px 17px 17px; background: linear-gradient(rgba(255,251,243,.88), rgba(255,251,243,.9)), repeating-linear-gradient(0deg, transparent 0 30px, rgba(103,83,119,.045) 31px); box-shadow: 0 13px 28px rgba(76,60,87,.07); }
+
+.portal-v2-page-frame .interaction-notebook-shell { grid-template-columns: 136px minmax(0,1fr); gap: 0; align-items: stretch; }
+.portal-v2-page-frame .interaction-notebook-tabs { position: relative; z-index: 3; padding: 14px 0 14px 5px; border-right: 0; background: transparent; overflow: visible; }
+.portal-v2-page-frame .interaction-notebook-tabs > button { position: relative; width: calc(100% + 13px); margin: 0 0 8px; padding: 10px 18px 10px 12px; border-right: 0; border-radius: 11px 0 0 11px; box-shadow: -3px 4px 10px rgba(76,56,84,.05); }
+.portal-v2-page-frame .interaction-notebook-tabs > button.is-active { width: calc(100% + 22px); z-index: 4; box-shadow: -3px 5px 11px rgba(76,56,84,.06), 6px 0 0 rgba(255,250,240,.94); }
+.portal-v2-page-frame .interaction-notebook-tabs > button:nth-of-type(2) { width: calc(100% - 3px); margin-left: 13px; border-left: 2px solid rgba(203,135,165,.24); }
+.portal-v2-page-frame .interaction-notebook-tabs > button:nth-of-type(2)::before { content: "↳"; margin-right: 5px; color: #b3728f; font-family: var(--portal-pencil); }
+.portal-v2-page-frame .interaction-notebook-page { position: relative; z-index: 2; min-width: 0; padding: 14px 15px 20px; border: 1px solid rgba(100,78,113,.13); border-radius: 0 14px 14px 14px; background: rgba(255,251,244,.76); }
+
+.portal-v2-page-frame .deployment-page .tape-label { position: relative; isolation: isolate; display: inline-flex; width: fit-content; max-width: min(310px,82%); margin-left: 7px; padding: 6px 15px 6px 14px; border: 1px solid rgba(101,80,118,.11); border-radius: 2px 5px 3px 2px; clip-path: polygon(1.5% 5%, 99% 0, 97.8% 92%, 2.3% 100%, 0 54%); box-shadow: 3px 5px 0 rgba(70,55,82,.035), 0 4px 9px rgba(70,55,82,.05); transform: rotate(-1.25deg); font-size: .63rem; letter-spacing: .09em; }
+.portal-v2-page-frame .deployment-page .tape-label::before { content: ""; position: absolute; z-index: 2; width: 54px; height: 14px; left: 50%; top: -9px; transform: translateX(-50%) rotate(3deg); background: repeating-linear-gradient(45deg, rgba(255,255,255,.2) 0 5px, rgba(255,255,255,.06) 5px 10px), rgba(211,191,237,.64); border-left: 1px solid rgba(130,106,158,.08); border-right: 1px solid rgba(130,106,158,.08); box-shadow: 0 2px 4px rgba(76,59,87,.04); }
+.portal-v2-page-frame .deployment-page .server-workspace-heading .tape-label { background: #e5dafb; transform: rotate(-1.8deg); }
+.portal-v2-page-frame .deployment-page .knowledge-panel-heading .tape-label { background: #d7eee3; transform: rotate(.8deg); }
+.portal-v2-page-frame .deployment-page .interaction-heading-row .tape-label { background: #ffe1ac; transform: rotate(-1deg); }
+.portal-v2-page-frame .deployment-page .deployment-list-heading .tape-label { background: #e3d8fb; transform: rotate(.7deg); }
+.portal-v2-page-frame .deployment-page .connection-panel .tape-label { background: #d3ebdf; transform: rotate(-1.7deg); }
+.portal-v2-page-frame .deployment-page .server-workspace-heading .tape-label,
+.portal-v2-page-frame .deployment-page .knowledge-panel-heading .tape-label,
+.portal-v2-page-frame .deployment-page .interaction-heading-row .tape-label,
+.portal-v2-page-frame .deployment-page .deployment-list-heading .tape-label,
+.portal-v2-page-frame .deployment-page .connection-panel .tape-label { margin-top: -20px; margin-bottom: 7px; }
+
+@media (max-width: 900px) {
+  .portal-v2-page-frame .server-notebook-shell, .portal-v2-page-frame .interaction-notebook-shell { grid-template-columns: 1fr; gap: 8px; }
+  .portal-v2-page-frame .server-notebook-tabs, .portal-v2-page-frame .interaction-notebook-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 4px 4px 0; }
+  .portal-v2-page-frame .server-notebook-caption, .portal-v2-page-frame .server-notebook-hint { display: none; }
+  .portal-v2-page-frame .server-notebook-tabs > button, .portal-v2-page-frame .server-notebook-tabs > button.is-active, .portal-v2-page-frame .interaction-notebook-tabs > button, .portal-v2-page-frame .interaction-notebook-tabs > button.is-active, .portal-v2-page-frame .interaction-notebook-tabs > button:nth-of-type(2) { width: auto; min-width: 118px; margin: 0; transform: none; border-right: 1px solid rgba(92,73,108,.15); border-radius: 10px 10px 0 0; box-shadow: none; }
+  .portal-v2-page-frame .server-notebook-content, .portal-v2-page-frame .interaction-notebook-page { border-radius: 0 12px 12px 12px; }
+}
