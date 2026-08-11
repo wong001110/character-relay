@@ -1,10 +1,10 @@
 """Deterministic hybrid retrieval for Server Emoji and Sticker expressions.
 
-The first release intentionally avoids a heavyweight vector database. It combines
-metadata filtering, exact aliases, sparse semantic similarity, tags, confidence,
-and recent-use penalties. The public contract is stable enough to replace the
-sparse scorer with a dense embedding adapter later without changing Connector or
-workflow state schemas.
+Expression retrieval keeps exact aliases, sparse lexical similarity, metadata overlap,
+semantic confidence, and recent-use penalties while optionally accepting dense semantic
+scores from the shared embedding runtime. The pure scorer remains usable without an
+embedding model so development, tests, and degraded runtime paths keep deterministic
+fallback behavior.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 _WORD_PATTERN = re.compile(r"[a-z0-9_]+|[\u3400-\u9fff]+", re.IGNORECASE)
 _CJK_PATTERN = re.compile(r"^[\u3400-\u9fff]+$")
+_DENSE_FLOOR = 0.35
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +83,30 @@ def _overlap(left: set[str], right: set[str]) -> float:
     return len(left & right) / math.sqrt(len(left) * len(right))
 
 
+def expression_semantic_text(resource: ExpressionResource) -> str:
+    """Build stable positive-use semantics for dense retrieval.
+
+    ``avoid_when`` is deliberately excluded: embedding negative-use situations as positive
+    passage semantics would make an expression *more* similar to contexts where it should
+    not be selected. Negative constraints remain deterministic metadata for later policy use.
+    """
+
+    sections = (
+        ("Expression", resource.name),
+        ("Type", resource.resource_type),
+        ("Description", resource.description),
+        ("Intent", resource.semantic_intent),
+        ("Emotion", resource.semantic_emotion),
+        ("Meaning", resource.semantic_description),
+        ("Aliases", ", ".join(resource.aliases)),
+        ("Tags", ", ".join(resource.tags)),
+        ("Situations", "; ".join(resource.situations)),
+    )
+    return "\n".join(
+        f"{label}: {value.strip()}" for label, value in sections if value and value.strip()
+    )[:20_000]
+
+
 def _document(resource: ExpressionResource) -> str:
     return " ".join(
         (
@@ -97,6 +122,10 @@ def _document(resource: ExpressionResource) -> str:
     )
 
 
+def _dense_normalized(value: float) -> float:
+    return max(0.0, min(1.0, (value - _DENSE_FLOOR) / (1.0 - _DENSE_FLOOR)))
+
+
 def rank_expression_resources(
     resources: list[ExpressionResource],
     *,
@@ -104,9 +133,10 @@ def rank_expression_resources(
     allowed_actions: set[str],
     recent_resource_keys: set[str] | None = None,
     excluded_resource_keys: set[str] | None = None,
+    dense_scores: dict[str, float] | None = None,
     top_k: int = 6,
 ) -> list[ExpressionCandidate]:
-    """Return a deterministic Top-K list without sending the full dictionary to an LLM."""
+    """Return a deterministic Top-K list with optional shared dense semantic scores."""
 
     recent = recent_resource_keys or set()
     excluded = excluded_resource_keys or set()
@@ -122,7 +152,7 @@ def rank_expression_resources(
             continue
 
         document_counter = Counter(semantic_tokens(_document(resource)))
-        semantic = _cosine(query_counter, document_counter)
+        sparse_semantic = _cosine(query_counter, document_counter)
         metadata_tokens = set(
             semantic_tokens(
                 " ".join(
@@ -148,30 +178,54 @@ def rank_expression_resources(
 
         confidence = min(1.0, max(0.0, resource.semantic_confidence))
         recent_penalty = 0.24 if resource.key in recent else 0.0
-        score = (
-            semantic * 0.55
-            + metadata_overlap * 0.25
-            + exact * 0.15
-            + confidence * 0.05
-            - recent_penalty
-        )
+        dense_raw = dense_scores.get(resource.key) if dense_scores is not None else None
+        if dense_raw is None:
+            score = (
+                sparse_semantic * 0.55
+                + metadata_overlap * 0.25
+                + exact * 0.15
+                + confidence * 0.05
+                - recent_penalty
+            )
+            signals = {
+                "semantic": round(sparse_semantic, 6),
+                "metadata_overlap": round(metadata_overlap, 6),
+                "exact": exact,
+                "confidence": round(confidence, 6),
+                "recent_penalty": recent_penalty,
+            }
+        else:
+            dense = _dense_normalized(dense_raw)
+            score = (
+                dense * 0.45
+                + sparse_semantic * 0.20
+                + metadata_overlap * 0.15
+                + exact * 0.15
+                + confidence * 0.05
+                - recent_penalty
+            )
+            signals = {
+                "semantic": round(sparse_semantic, 6),
+                "sparse": round(sparse_semantic, 6),
+                "dense": round(dense_raw, 6),
+                "dense_normalized": round(dense, 6),
+                "metadata_overlap": round(metadata_overlap, 6),
+                "exact": exact,
+                "confidence": round(confidence, 6),
+                "recent_penalty": recent_penalty,
+            }
         ranked.append(
             ExpressionCandidate(
                 resource=resource,
                 score=round(score, 6),
-                signals={
-                    "semantic": round(semantic, 6),
-                    "metadata_overlap": round(metadata_overlap, 6),
-                    "exact": exact,
-                    "confidence": round(confidence, 6),
-                    "recent_penalty": recent_penalty,
-                },
+                signals=signals,
             )
         )
 
     ranked.sort(
         key=lambda item: (
             -item.score,
+            -item.signals.get("dense", 0.0),
             item.resource.resource_type,
             item.resource.name.casefold(),
             item.resource.resource_id,
