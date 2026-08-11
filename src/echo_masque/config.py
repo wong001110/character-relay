@@ -41,10 +41,10 @@ class Settings(BaseSettings):
     # modes keeps already-migrated workflows enabled; "off" is the global rollback state.
     langgraph_mode: LangGraphMode = "off"
 
-    # Shared semantic embedding runtime. semantic_embedding_enabled allows Knowledge RAG and
-    # Media Recall to use the same local multilingual E5 model without requiring Smart
-    # Participation itself to be enabled. Existing deployments that already enable semantic
-    # participation also keep the shared embedding runtime available for backward compatibility.
+    # Shared semantic embedding runtime. semantic_embedding_enabled allows Knowledge RAG,
+    # Media Recall, and Expression retrieval to use the same local multilingual E5 model
+    # without requiring Smart Participation itself to be enabled. Existing deployments that
+    # already enable semantic participation also keep the shared embedding runtime available.
     semantic_embedding_enabled: bool = False
     semantic_embedding_model: str = "intfloat/multilingual-e5-small"
     semantic_embedding_model_file: str = "onnx/model_O4.onnx"
@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     semantic_embedding_cache_dir: str = "./.cache/character-relay/embeddings"
     knowledge_semantic_retrieval_enabled: bool = True
     media_semantic_recall_enabled: bool = True
+    expression_semantic_retrieval_enabled: bool = True
 
     # Smart Participation V3 semantic relevance. Production explicitly enables this so
     # tests and source checkouts never download a model merely by creating a Character Card.
