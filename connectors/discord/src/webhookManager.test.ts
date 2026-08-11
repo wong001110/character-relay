@@ -35,6 +35,7 @@ function deployment(): DiscordDeployment {
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -109,6 +110,35 @@ describe("DiscordWebhookManager", () => {
       avatar_url: "https://example.com/ann.png",
       allowed_mentions: { parse: [] }
     });
+  });
+
+  it("falls back to the Character Card portrait when deployment avatar is blank", async () => {
+    vi.stubEnv("CHARACTER_RELAY_API_URL", "https://relay.example/");
+    const relay = {
+      reportWebhookStatus: vi.fn().mockResolvedValue(undefined)
+    } as unknown as RelayClient;
+    const item = deployment();
+    item.identity_avatar_url = "";
+    item.webhook_id = "webhook-1";
+    item.webhook_token = "token-1";
+    item.webhook_status = "active";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: "message-portrait" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+
+    const manager = new DiscordWebhookManager("bot-token", relay);
+    await expect(manager.send(item, ["portrait fallback"], "bot-1")).resolves.toEqual([
+      "message-portrait"
+    ]);
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body.avatar_url).toBe(
+      "https://relay.example/api/characters/portraits/character-1"
+    );
   });
 
   it("returns every chunk message id for persistent reply routing", async () => {
