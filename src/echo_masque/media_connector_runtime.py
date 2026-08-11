@@ -11,6 +11,7 @@ from echo_masque.connector_runtime import (
     PreparedCharacterTurn,
     ResolvedCharacterOutput,
 )
+from echo_masque.conversation_media import ConversationMediaReferenceService
 from echo_masque.domain import TargetResponse
 from echo_masque.live_media import LiveMediaContextService, LiveMediaResult
 from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
@@ -54,6 +55,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         *args: Any,
         live_media_service: LiveMediaContextService | None = None,
         media_attention_decider: MediaAttentionDecider | None = None,
+        conversation_media_service: ConversationMediaReferenceService | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -67,6 +69,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             # Preserve test doubles and alternate injectable service implementations.
             self.live_media_service = live_media_service
         self.media_attention_decider = media_attention_decider or CharacterMediaAttentionDecider()
+        self.conversation_media_service = conversation_media_service
         self._media_turn_results: dict[tuple[str, str], tuple[float, LiveMediaResult]] = {}
         self._media_attention_results: dict[
             tuple[str, str], tuple[float, MediaAttentionDecision]
@@ -166,6 +169,16 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         resolved = prepared.resolved
         deployment = resolved.deployment
         payload = resolved.payload
+
+        memory_service = self.conversation_media_service
+        if memory_service is not None:
+            memories = memory_service.resolve_for_turn(
+                deployment_id=deployment.id,
+                character_card_id=resolved.card.id,
+                payload=payload,
+            )
+            self._inject_guidance(prepared, memory_service.guidance(memories))
+
         if not has_shared_content(payload):
             return
 
@@ -256,6 +269,14 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
                 media_result_reason=result.reason,
             ),
         )
+        if memory_service is not None:
+            memory_service.remember_perceived(
+                owner_id=deployment.owner_id,
+                deployment_id=deployment.id,
+                character_card_id=resolved.card.id,
+                payload=payload,
+                contexts=result.contexts,
+            )
         guidance = (
             *watched_media_guidance(result.contexts, attention),
             (
@@ -378,8 +399,12 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             "Character media attention:",
             "Character media perception for this turn:",
             "Character media perception:",
+            "Remembered media perception from this conversation:",
         )
-        if any(marker in prepared.prompt for marker in markers):
+        first_line = guidance[0]
+        if first_line in prepared.prompt:
+            return
+        if first_line not in markers and any(marker in prepared.prompt for marker in markers):
             return
         block = "\n".join(guidance)
         final_line = "Return Smart Output now."
