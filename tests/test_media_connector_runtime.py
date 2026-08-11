@@ -32,8 +32,9 @@ class FakeLiveMediaService:
 
 
 class FakeAttentionDecider:
-    def __init__(self, action: str) -> None:
+    def __init__(self, action: str, stance: str = "truthful") -> None:
         self.action = action
+        self.stance = stance
         self.calls = 0
 
     async def decide(self, **_: object) -> MediaAttentionDecision:
@@ -41,6 +42,8 @@ class FakeAttentionDecider:
         return MediaAttentionDecision(
             action=cast(Any, self.action),
             reason=f"persona_{self.action}",
+            response_stance=cast(Any, self.stance),
+            stance_reason=f"persona_{self.stance}",
         )
 
 
@@ -89,6 +92,13 @@ def runtime_for(
     )
 
 
+def trace_metadata(
+    runtime: MediaAwareDiscordConnectorRuntime,
+    prepared: SimpleNamespace,
+) -> dict[str, str]:
+    return dict(runtime.epistemic_trace_metadata(cast(Any, prepared)))
+
+
 def test_media_context_is_injected_once_before_smart_output_instruction() -> None:
     service = FakeLiveMediaService()
     runtime = runtime_for(service)
@@ -111,9 +121,9 @@ def test_media_context_is_injected_once_before_smart_output_instruction() -> Non
     )
 
 
-def test_character_can_skip_media_without_running_understanding() -> None:
+def test_character_can_skip_and_bluff_without_running_understanding() -> None:
     service = FakeLiveMediaService()
-    attention = FakeAttentionDecider("skip")
+    attention = FakeAttentionDecider("skip", "bluff")
     runtime = runtime_for(service, attention)
     prepared = prepared_turn(prompt_target())
 
@@ -121,14 +131,19 @@ def test_character_can_skip_media_without_running_understanding() -> None:
 
     assert attention.calls == 1
     assert service.calls == 0
-    assert "You chose not to open/watch/read" in prepared.prompt
-    assert "technical limitations" in prepared.prompt
-    assert "Character media perception for this turn:" not in prepared.prompt
+    assert "actual_media_perception=skipped" in prepared.prompt
+    assert "free to be honest, evasive, bluff, lie, tease" in prepared.prompt
+    assert "Private media response stance for this turn: bluff" in prepared.prompt
+    metadata = trace_metadata(runtime, prepared)
+    assert metadata["actual_perception"] == "skipped"
+    assert metadata["response_stance"] == "bluff"
+    assert metadata["stance_grounding"] == "intentional_without_perception"
+    assert metadata["media_context_count"] == "0"
 
 
 def test_character_watch_runs_media_understanding_then_reacts_in_persona() -> None:
     service = FakeLiveMediaService()
-    attention = FakeAttentionDecider("watch")
+    attention = FakeAttentionDecider("watch", "truthful")
     runtime = runtime_for(service, attention)
     prepared = prepared_turn(prompt_target())
 
@@ -140,23 +155,33 @@ def test_character_watch_runs_media_understanding_then_reacts_in_persona() -> No
 
     assert attention.calls == 1
     assert service.calls == 1
-    assert "You chose to inspect/watch/read" in prepared.prompt
+    assert "actual_media_perception=perceived" in prepared.prompt
     assert "React from your own persona" in prepared.prompt
     assert "Do not default to a summary" in prepared.prompt
+    metadata = trace_metadata(runtime, prepared)
+    assert metadata["actual_perception"] == "perceived"
+    assert metadata["response_stance"] == "truthful"
+    assert metadata["stance_grounding"] == "grounded_in_perception"
+    assert metadata["media_context_count"] == "1"
 
 
-def test_failed_watch_does_not_turn_runtime_error_into_character_dialogue() -> None:
+def test_failed_watch_records_unavailable_without_exposing_runtime_error_to_character() -> None:
     service = FakeLiveMediaService(
         LiveMediaResult(status="failed", reason="media_resolution_failed")
     )
-    attention = FakeAttentionDecider("watch")
+    attention = FakeAttentionDecider("watch", "uncertain")
     runtime = runtime_for(service, attention)
     prepared = prepared_turn(prompt_target())
 
     asyncio.run(runtime._ensure_media_context(cast(Any, prepared)))
 
     assert service.calls == 1
-    assert "no reliable content observations are available" in prepared.prompt
-    assert "Do not pretend you watched/read it" in prepared.prompt
+    assert "actual_media_perception=unavailable" in prepared.prompt
+    assert "no reliable content observations became available" in prepared.prompt
     assert "Do not turn this into a support-style message" in prepared.prompt
     assert "media_resolution_failed" not in prepared.prompt
+    metadata = trace_metadata(runtime, prepared)
+    assert metadata["actual_perception"] == "unavailable"
+    assert metadata["response_stance"] == "uncertain"
+    assert metadata["stance_grounding"] == "speculative_without_perception"
+    assert metadata["media_result_reason"] == "media_resolution_failed"

@@ -12,6 +12,7 @@ export interface ProviderTraceSummary {
   category: ProviderTraceCategory;
   tool_names: string[];
   media_input: Record<string, unknown>;
+  media_attention: Record<string, unknown>;
   owner_id: string;
   deployment_id: string;
   character_card_id: string;

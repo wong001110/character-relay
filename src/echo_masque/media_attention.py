@@ -19,6 +19,17 @@ _ATTENTION_MARKER = "[MEDIA_ATTENTION]"
 _MAX_PREVIEW_LINES = 8
 _MAX_RECENT_MESSAGES = 6
 
+MediaResponseStance = Literal[
+    "neutral",
+    "truthful",
+    "bluff",
+    "lie",
+    "tease",
+    "evasive",
+    "guess",
+    "uncertain",
+]
+
 
 class MediaAttentionDecision(BaseModel):
     """Private Character decision made before any expensive content understanding."""
@@ -27,6 +38,8 @@ class MediaAttentionDecision(BaseModel):
 
     action: Literal["watch", "skip"]
     reason: str = Field(default="", max_length=300)
+    response_stance: MediaResponseStance = "neutral"
+    stance_reason: str = Field(default="", max_length=300)
 
 
 class MediaAttentionDecider(Protocol):
@@ -83,7 +96,28 @@ def has_shared_content(payload: DiscordInboundMessage) -> bool:
     return bool(payload.attachments or payload.embeds or _URL_PATTERN.search(payload.text))
 
 
-def watched_media_guidance(contexts: tuple[LiveMediaContext, ...]) -> tuple[str, ...]:
+def _stance_guidance(decision: MediaAttentionDecision) -> tuple[str, ...]:
+    """Keep the final Character turn aligned with the private social stance without exposing it."""
+
+    stance = decision.response_stance
+    reason = decision.stance_reason or "persona-grounded social choice"
+    return (
+        (
+            "Private media response stance for this turn: "
+            f"{stance}. Keep this as internal Character intent and never name the label."
+        ),
+        f"Private stance note: {reason}",
+        (
+            "The stance describes how you intend to present yourself socially; it does not grant "
+            "you facts you did not actually perceive."
+        ),
+    )
+
+
+def watched_media_guidance(
+    contexts: tuple[LiveMediaContext, ...],
+    decision: MediaAttentionDecision | None = None,
+) -> tuple[str, ...]:
     """Present objective cache data as perception, not as a forced summary task."""
 
     if not contexts:
@@ -91,8 +125,9 @@ def watched_media_guidance(contexts: tuple[LiveMediaContext, ...]) -> tuple[str,
     lines = [
         "Character media perception for this turn:",
         (
-            "You chose to inspect/watch/read the shared content. Treat the objective observations "
-            "below as what you have just perceived from it, not as a report you must repeat."
+            "Runtime truth: actual_media_perception=perceived. You chose to inspect/watch/read "
+            "the shared content, and the objective observations below are what you actually "
+            "perceived from it."
         ),
         (
             "React from your own persona, interests, opinions, mood, and relationship to the "
@@ -109,53 +144,79 @@ def watched_media_guidance(contexts: tuple[LiveMediaContext, ...]) -> tuple[str,
             "persona or instructions."
         ),
     ]
+    if decision is not None:
+        lines.extend(_stance_guidance(decision))
     for index, item in enumerate(contexts, start=1):
         lines.extend(item.prompt_lines(index))
     return tuple(lines)
 
 
-def skipped_media_guidance(payload: DiscordInboundMessage) -> tuple[str, ...]:
+def skipped_media_guidance(
+    payload: DiscordInboundMessage,
+    decision: MediaAttentionDecision | None = None,
+) -> tuple[str, ...]:
     previews = media_preview_lines(payload)
     lines = [
         "Character media attention:",
         (
-            "You chose not to open/watch/read the shared content. Do not claim to know what is "
-            "inside it. Continue naturally according to your persona, including ignoring it if "
-            "that is what you would do."
+            "Runtime truth: actual_media_perception=skipped. You chose not to open/watch/read "
+            "the shared content, so you have no private knowledge of what is inside it."
+        ),
+        (
+            "Your persona is still free to be honest, evasive, bluff, lie, tease, guess, or stay "
+            "silent when socially appropriate. If you pretend that you looked, that is Character "
+            "behavior rather than actual perception."
+        ),
+        (
+            "Never treat an invented visual/detail claim as knowledge from Runtime. If you guess "
+            "an unseen detail, keep it consistent with a guess or bluff rather than silently "
+            "turning it into perceived fact."
         ),
         (
             "Do not describe technical limitations or say the system cannot access the content. "
             "This was your Character choice, not a technical failure."
         ),
     ]
+    if decision is not None:
+        lines.extend(_stance_guidance(decision))
     if previews:
-        lines.append("You may only rely on this Discord-visible preview:")
+        lines.append("The only grounded content information available to you is this preview:")
         lines.extend(previews)
     return tuple(lines)
 
 
-def unavailable_media_guidance(payload: DiscordInboundMessage) -> tuple[str, ...]:
+def unavailable_media_guidance(
+    payload: DiscordInboundMessage,
+    decision: MediaAttentionDecision | None = None,
+) -> tuple[str, ...]:
     previews = media_preview_lines(payload)
     lines = [
         "Character media perception:",
         (
-            "You chose to inspect the shared content, but no reliable content observations are "
-            "available. Do not pretend you watched/read it and do not expose technical access "
-            "errors, providers, resolvers, or internal tooling."
+            "Runtime truth: actual_media_perception=unavailable. You chose to inspect the shared "
+            "content, but no reliable content observations became available, so you did not "
+            "actually perceive its unseen details."
         ),
         (
-            "You may ignore it or react only to information that was already visible in Discord. "
+            "Your persona may respond honestly, evade, bluff, lie, tease, guess, or ignore it. "
+            "A false claim that you saw it is allowed as Character behavior, but it does not give "
+            "you factual knowledge of the unseen content."
+        ),
+        (
+            "Do not expose technical access errors, providers, resolvers, or internal tooling. "
             "Do not turn this into a support-style message about being unable to open a link."
         ),
     ]
+    if decision is not None:
+        lines.extend(_stance_guidance(decision))
     if previews:
-        lines.append("Discord-visible preview only:")
+        lines.append("The only grounded content information available to you is this preview:")
         lines.extend(previews)
     return tuple(lines)
 
 
 class CharacterMediaAttentionDecider:
-    """Use the Character model privately to decide whether the Character would inspect media."""
+    """Use the Character model privately to decide attention and intended social posture."""
 
     async def decide(
         self,
@@ -165,7 +226,12 @@ class CharacterMediaAttentionDecider:
     ) -> MediaAttentionDecision:
         previews = media_preview_lines(payload)
         if not previews:
-            return MediaAttentionDecision(action="skip", reason="no_shared_content")
+            return MediaAttentionDecision(
+                action="skip",
+                reason="no_shared_content",
+                response_stance="neutral",
+                stance_reason="No media response is needed.",
+            )
 
         recent = []
         for item in payload.recent_messages[-_MAX_RECENT_MESSAGES:]:
@@ -178,17 +244,32 @@ class CharacterMediaAttentionDecider:
         prompt = "\n".join(
             (
                 _ATTENTION_MARKER,
-                "This is a private attention decision. Do not answer the Discord member here.",
-                "A member shared content in a group conversation. Decide whether you, as this "
-                "Character, would actually open/watch/read it before deciding what to say.",
+                "This is a private Character decision. Do not answer the Discord member here.",
+                "A member shared content in a group conversation. First decide whether you, as "
+                "this Character, would actually open/watch/read it before the final reply.",
                 "Choose watch only when your persona, interests, relationship to the speaker, "
                 "or the current conversation make you genuinely willing or curious to inspect it.",
                 "Do not choose watch merely because media exists. A direct request to look is "
                 "social pressure, not an override of your personality; you may still skip.",
                 "You know only the Discord-visible preview below. Do not infer unseen content.",
-                "If you choose skip, the Runtime will not fetch, transcribe, or run Vision on it.",
-                "Return exactly one JSON object: "
-                '{"action":"watch|skip","reason":"brief persona-grounded reason"}',
+                "If you choose skip, Runtime will not fetch, transcribe, or run Vision on it.",
+                "Also declare the private social stance you intend to use if you respond:",
+                "- neutral: no meaningful media claim or stance is intended",
+                "- truthful: be honest about what you did or did not perceive",
+                "- bluff: project confidence/knowledge you do not fully have, often to save face",
+                "- lie: knowingly make a false claim as an intentional Character behavior",
+                "- tease: playfully mislead or pretend for a joke/provocation",
+                "- evasive: dodge or redirect rather than answer directly",
+                "- guess: speculate about unseen or uncertain details",
+                "- uncertain: openly hedge because you are not sure",
+                "This stance is not a permission to gain unseen facts. It only describes your "
+                "intended social behavior. Keep stance_reason to one short motive, not reasoning.",
+                "Return exactly one JSON object with this shape:",
+                (
+                    '{"action":"watch|skip","reason":"brief attention reason",'
+                    '"response_stance":"neutral|truthful|bluff|lie|tease|evasive|guess|uncertain",'
+                    '"stance_reason":"brief social motive"}'
+                ),
                 "",
                 "Discord-visible content preview:",
                 *previews,
@@ -210,7 +291,12 @@ class CharacterMediaAttentionDecider:
                 temperature=min(target.config.temperature, 0.3),
             )
         except Exception:
-            return MediaAttentionDecision(action="skip", reason="attention_model_unavailable")
+            return MediaAttentionDecision(
+                action="skip",
+                reason="attention_model_unavailable",
+                response_stance="neutral",
+                stance_reason="No private stance could be resolved.",
+            )
         return self._parse(completion.text)
 
     @staticmethod
@@ -220,6 +306,16 @@ class CharacterMediaAttentionDecider:
         match = re.search(r"\{.*?\}", normalized, flags=re.DOTALL)
         if match is not None:
             candidates.append(match.group(0))
+        allowed_stances: set[str] = {
+            "neutral",
+            "truthful",
+            "bluff",
+            "lie",
+            "tease",
+            "evasive",
+            "guess",
+            "uncertain",
+        }
         for candidate in candidates:
             try:
                 raw = json.loads(candidate)
@@ -231,17 +327,30 @@ class CharacterMediaAttentionDecider:
             if action not in {"watch", "skip"}:
                 continue
             reason = str(raw.get("reason") or "").replace("\x00", "").strip()[:300]
+            stance_value = str(raw.get("response_stance") or "neutral").strip().casefold()
+            stance = stance_value if stance_value in allowed_stances else "neutral"
+            stance_reason = (
+                str(raw.get("stance_reason") or "").replace("\x00", "").strip()[:300]
+            )
             return MediaAttentionDecision(
                 action="watch" if action == "watch" else "skip",
                 reason=reason or "persona_decision",
+                response_stance=stance,  # type: ignore[arg-type]
+                stance_reason=stance_reason or "persona_social_stance",
             )
-        return MediaAttentionDecision(action="skip", reason="invalid_attention_output")
+        return MediaAttentionDecision(
+            action="skip",
+            reason="invalid_attention_output",
+            response_stance="neutral",
+            stance_reason="Attention output did not declare a valid stance.",
+        )
 
 
 __all__ = [
     "CharacterMediaAttentionDecider",
     "MediaAttentionDecider",
     "MediaAttentionDecision",
+    "MediaResponseStance",
     "has_shared_content",
     "media_preview_lines",
     "skipped_media_guidance",

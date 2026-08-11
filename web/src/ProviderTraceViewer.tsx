@@ -66,6 +66,32 @@ function mediaListLabel(trace: ProviderTraceSummary, zh: boolean): string | null
     .join(" · ");
 }
 
+function attentionStanceLabel(value: string, zh: boolean): string {
+  const labels: Record<string, [string, string]> = {
+    neutral: ["中性", "Neutral"],
+    truthful: ["诚实", "Truthful"],
+    bluff: ["虚张声势 / 装懂", "Bluff"],
+    lie: ["有意撒谎", "Lie"],
+    tease: ["逗弄 / 玩笑误导", "Tease"],
+    evasive: ["回避", "Evasive"],
+    guess: ["猜测", "Guess"],
+    uncertain: ["不确定", "Uncertain"]
+  };
+  const label = labels[value];
+  return label ? label[zh ? 0 : 1] : value || "—";
+}
+
+function attentionListLabel(trace: ProviderTraceSummary, zh: boolean): string | null {
+  if (trace.category !== "media_attention") return null;
+  const action = mediaValue(trace.media_attention, "action");
+  const stance = mediaValue(trace.media_attention, "response_stance");
+  const parts = [
+    action !== "—" ? action : null,
+    stance !== "—" ? attentionStanceLabel(stance, zh) : null
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : zh ? "等待结构化结果" : "Awaiting structured result";
+}
+
 export function ProviderTraceViewer({
   onClose,
   embedded = false
@@ -309,8 +335,8 @@ export function ProviderTraceViewer({
           <h1>{zh ? "Provider 请求与响应" : "Provider requests and responses"}</h1>
           <p>
             {zh
-              ? "Provider Trace 记录实际发出的外部模型请求，包括角色模型、媒体注意力决策、Tool Calling 与 Media Understanding。Runtime Trace 是整轮执行的节点时间线；一条 Runtime Trace 可能对应多条 Provider Trace。Cache hit 不会伪造 Provider Trace，因为那一轮没有再次调用外部模型。API Key 与 Authorization Header 不会被保存。"
-              : "Provider Trace records actual outbound model calls, including Character models, Media Attention decisions, Tool Calling, and Media Understanding. Runtime Trace is the node timeline for the whole turn, so one Runtime Trace may correspond to several Provider Traces. Cache hits do not create fake Provider Traces because no external model was called again. API keys and Authorization headers are never stored."}
+              ? "Provider Trace 记录实际发出的外部模型请求，包括角色模型、媒体注意力决策、Tool Calling 与 Media Understanding。Media Attention 会结构化显示角色的 watch / skip 与私下声明的社交姿态；它不是系统事后测谎。Runtime Trace 则记录角色实际上有没有获得 MediaContext。Cache hit 不会伪造 Provider Trace，因为那一轮没有再次调用外部模型。API Key 与 Authorization Header 不会被保存。"
+              : "Provider Trace records actual outbound model calls, including Character models, Media Attention decisions, Tool Calling, and Media Understanding. Media Attention shows structured watch/skip plus the Character's privately declared social stance; it is not a post-hoc lie detector. Runtime Trace records whether MediaContext was actually obtained. Cache hits do not create fake Provider Traces because no external model was called again. API keys and Authorization headers are never stored."}
           </p>
         </div>
         <div className="provider-trace-header-actions">
@@ -421,6 +447,7 @@ export function ProviderTraceViewer({
             <>
               {traces.map((trace) => {
                 const mediaLabel = mediaListLabel(trace, zh);
+                const attentionLabel = attentionListLabel(trace, zh);
                 return (
                   <button
                     type="button"
@@ -439,6 +466,7 @@ export function ProviderTraceViewer({
                       </span>
                     </div>
                     <strong>{trace.request_model || "unknown model"}</strong>
+                    {attentionLabel && <small>{attentionLabel}</small>}
                     {mediaLabel && <small>{mediaLabel}</small>}
                     <small>{accountLabel(trace.owner_id)}</small>
                     {trace.tool_names.length > 0 && (
@@ -528,12 +556,42 @@ export function ProviderTraceViewer({
 
               {selected.category === "media_attention" && (
                 <section className="provider-trace-json-section">
-                  <div><h3>{zh ? "角色是否决定查看" : "Character attention decision"}</h3></div>
+                  <div><h3>{zh ? "角色媒体注意力与社交姿态" : "Character media attention and stance"}</h3></div>
+                  <dl className="provider-trace-meta">
+                    <div>
+                      <dt>{zh ? "是否查看" : "Attention"}</dt>
+                      <dd>{mediaValue(selected.media_attention, "action")}</dd>
+                    </div>
+                    <div>
+                      <dt>{zh ? "声明的社交姿态" : "Declared social stance"}</dt>
+                      <dd>
+                        {attentionStanceLabel(
+                          mediaValue(selected.media_attention, "response_stance"),
+                          zh
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{zh ? "查看 / 跳过原因" : "Attention reason"}</dt>
+                      <dd>{mediaValue(selected.media_attention, "reason")}</dd>
+                    </div>
+                    <div>
+                      <dt>{zh ? "社交姿态备注" : "Stance note"}</dt>
+                      <dd>{mediaValue(selected.media_attention, "stance_reason")}</dd>
+                    </div>
+                  </dl>
                   <p>
                     {zh
-                      ? "这是角色在真正下载、字幕提取或 Vision 之前做的私有 watch / skip 决策。skip 时后续 Media Understanding 不会运行。"
-                      : "This is the Character's private watch/skip decision before downloads, transcript extraction, or Vision. A skip prevents Media Understanding from running."}
+                      ? "这是角色模型在真正下载、字幕提取或 Vision 之前做的私有选择。skip 时后续 Media Understanding 不会运行。bluff / lie / tease 等标签是角色自己声明的社交意图，不是系统事后根据台词做的测谎。要确认角色实际上有没有获得内容感知，请对照 Runtime Trace → Media Epistemic State。"
+                      : "This is the Character model's private choice before downloads, transcript extraction, or Vision. A skip prevents Media Understanding from running. Bluff/lie/tease are model-declared social intents, not post-hoc deception labels inferred from dialogue. Check Runtime Trace → Media Epistemic State to confirm whether content perception actually occurred."}
                   </p>
+                  {Object.keys(selected.media_attention).length === 0 && (
+                    <p>
+                      {zh
+                        ? "当前 Trace 没有保存结构化决定；这通常表示它来自旧版本、仍在 Pending，或 Provider Trace 处于 metadata-only 模式。"
+                        : "No structured decision was persisted for this trace. It may be from an older version, still pending, or recorded in metadata-only trace mode."}
+                    </p>
+                  )}
                 </section>
               )}
 
