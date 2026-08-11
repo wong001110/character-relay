@@ -72,7 +72,8 @@ def _normalize_portrait(raw: bytes) -> bytes:
     try:
         with Image.open(BytesIO(raw)) as source:
             image = ImageOps.exif_transpose(source)
-            if image.width <= 0 or image.height <= 0 or image.width * image.height > _MAX_PIXELS:
+            pixel_count = image.width * image.height
+            if image.width <= 0 or image.height <= 0 or pixel_count > _MAX_PIXELS:
                 raise ValueError("Character portrait dimensions are too large.")
             image.thumbnail((_MAX_EDGE, _MAX_EDGE), Image.Resampling.LANCZOS)
             if image.mode not in {"RGB", "RGBA"}:
@@ -102,12 +103,26 @@ def _placeholder_portrait(variant: str) -> bytes:
     # A quiet character-file silhouette rather than an application icon. It keeps the public
     # Discord fallback URL valid even before the creator uploads custom artwork.
     draw.ellipse((156, 86, 356, 286), fill=(255, 252, 246), outline=ink, width=10)
-    draw.polygon(((178, 116), (217, 54), (244, 128)), fill=(255, 252, 246), outline=ink)
-    draw.polygon(((268, 128), (298, 54), (338, 118)), fill=(255, 252, 246), outline=ink)
+    draw.polygon(
+        ((178, 116), (217, 54), (244, 128)),
+        fill=(255, 252, 246),
+        outline=ink,
+    )
+    draw.polygon(
+        ((268, 128), (298, 54), (338, 118)),
+        fill=(255, 252, 246),
+        outline=ink,
+    )
     draw.ellipse((211, 181, 230, 200), fill=ink)
     draw.ellipse((282, 181, 301, 200), fill=ink)
     draw.arc((238, 196, 276, 236), start=12, end=168, fill=ink, width=6)
-    draw.rounded_rectangle((117, 300, 395, 480), radius=88, fill=(255, 252, 246), outline=ink, width=10)
+    draw.rounded_rectangle(
+        (117, 300, 395, 480),
+        radius=88,
+        fill=(255, 252, 246),
+        outline=ink,
+        width=10,
+    )
     output = BytesIO()
     image.save(output, format="WEBP", quality=86, method=6)
     return output.getvalue()
@@ -121,7 +136,11 @@ def get_character_portrait(card_id: str, request: Request) -> Response:
     if card is None:
         raise HTTPException(status_code=404, detail="Character Card not found.")
     path = _portrait_path(request, card_id)
-    content = path.read_bytes() if path.is_file() else _placeholder_portrait(card.portrait_variant)
+    content = (
+        path.read_bytes()
+        if path.is_file()
+        else _placeholder_portrait(card.portrait_variant)
+    )
     return Response(
         content=content,
         media_type="image/webp",
@@ -141,7 +160,10 @@ def put_character_portrait(
     try:
         raw = base64.b64decode(payload.content_base64, validate=True)
     except (binascii.Error, ValueError) as exc:
-        raise HTTPException(status_code=422, detail="Portrait payload is not valid base64.") from exc
+        raise HTTPException(
+            status_code=422,
+            detail="Portrait payload is not valid base64.",
+        ) from exc
     try:
         processed = _normalize_portrait(raw)
     except ValueError as exc:
@@ -152,7 +174,9 @@ def put_character_portrait(
     temporary.write_bytes(processed)
     temporary.replace(path)
     version = time_ns()
-    return CharacterPortraitView(url=f"/api/characters/portraits/{card_id}?v={version}")
+    return CharacterPortraitView(
+        url=f"/api/characters/portraits/{card_id}?v={version}"
+    )
 
 
 @router.delete("/{card_id}/portrait", status_code=status.HTTP_204_NO_CONTENT)
