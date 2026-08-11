@@ -93,6 +93,7 @@ interface DiscordMessageApiEmbed {
 interface DiscordMessageMedia {
   attachments: ConnectorAttachment[];
   embeds: ConnectorEmbed[];
+  reply_to_message_id: string;
 }
 
 interface AttachmentCacheEntry extends DiscordMessageMedia {
@@ -389,13 +390,30 @@ export class RelayClient {
   private async withDiscordMedia<T extends Omit<DiscordInboundMessage, "connection_id">>(
     payload: T
   ): Promise<T & DiscordMessageMedia> {
-    if (payload.author_is_bot) return { ...payload, attachments: [], embeds: [] };
+    const fallbackReplyId = payload.reply_to_message_id ?? "";
+    if (payload.author_is_bot) {
+      return {
+        ...payload,
+        attachments: [],
+        embeds: [],
+        reply_to_message_id: fallbackReplyId
+      };
+    }
     const channelId = payload.thread_id || payload.channel_id;
     if (!channelId || !payload.message_id) {
-      return { ...payload, attachments: [], embeds: [] };
+      return {
+        ...payload,
+        attachments: [],
+        embeds: [],
+        reply_to_message_id: fallbackReplyId
+      };
     }
     const media = await this.discordMedia(channelId, payload.message_id);
-    return { ...payload, ...media };
+    return {
+      ...payload,
+      ...media,
+      reply_to_message_id: media.reply_to_message_id || fallbackReplyId
+    };
   }
 
   private async discordMedia(
@@ -403,12 +421,16 @@ export class RelayClient {
     messageId: string
   ): Promise<DiscordMessageMedia> {
     const token = process.env.DISCORD_BOT_TOKEN?.trim();
-    if (!token) return { attachments: [], embeds: [] };
+    if (!token) return { attachments: [], embeds: [], reply_to_message_id: "" };
     const cacheKey = `${channelId}:${messageId}`;
     const now = Date.now();
     const cached = this.attachmentCache.get(cacheKey);
     if (cached && cached.expiresAt > now) {
-      return { attachments: cached.attachments, embeds: cached.embeds };
+      return {
+        attachments: cached.attachments,
+        embeds: cached.embeds,
+        reply_to_message_id: cached.reply_to_message_id
+      };
     }
 
     let task = this.attachmentTasks.get(cacheKey);
@@ -451,10 +473,13 @@ export class RelayClient {
           }
         }
       );
-      if (!response.ok) return { attachments: [], embeds: [] };
+      if (!response.ok) {
+        return { attachments: [], embeds: [], reply_to_message_id: "" };
+      }
       const body = (await response.json()) as {
         attachments?: unknown;
         embeds?: unknown;
+        message_reference?: unknown;
       };
       const attachments = Array.isArray(body.attachments)
         ? body.attachments
@@ -501,9 +526,13 @@ export class RelayClient {
             })
             .filter((item): item is ConnectorEmbed => item !== null)
         : [];
-      return { attachments, embeds };
+      return {
+        attachments,
+        embeds,
+        reply_to_message_id: nestedString(body.message_reference, "message_id", 200)
+      };
     } catch {
-      return { attachments: [], embeds: [] };
+      return { attachments: [], embeds: [], reply_to_message_id: "" };
     }
   }
 
