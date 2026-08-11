@@ -1,0 +1,178 @@
+/* Discord is a single managed connection: show it as server context, not a separate CRUD panel. */
+
+.portal-v2-page-frame .deployment-sidebar {
+  display: none;
+}
+
+.portal-v2-page-frame .deployment-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.portal-v2-page-frame .server-workspace-selector-row {
+  grid-template-columns: minmax(220px, .52fr) minmax(0, 1.18fr) minmax(230px, .7fr);
+  gap: 11px;
+}
+
+.server-workspace-connection-note {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 4px 9px;
+  align-items: center;
+  padding: 10px 12px 9px;
+  border: 1px solid rgba(88, 101, 242, .16);
+  border-radius: 11px;
+  background:
+    linear-gradient(135deg, rgba(231, 228, 255, .92), rgba(255, 250, 240, .82)),
+    repeating-linear-gradient(0deg, transparent 0 24px, rgba(88, 101, 242, .035) 25px);
+  box-shadow: 3px 5px 0 rgba(76, 61, 91, .025);
+}
+
+.server-workspace-connection-note::before {
+  content: "DISCORD CONNECTION";
+  position: absolute;
+  top: -9px;
+  left: 12px;
+  padding: 3px 8px;
+  background: #d9d2ff;
+  color: #665789;
+  font: 700 .49rem var(--portal-pencil);
+  letter-spacing: .09em;
+  transform: rotate(-1.5deg);
+  box-shadow: 2px 3px 0 rgba(72, 56, 86, .03);
+}
+
+.server-workspace-connection-icon {
+  grid-row: 1 / 3;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: rgba(88, 101, 242, .14);
+  color: #5865f2;
+  font-size: .69rem;
+  font-weight: 900;
+}
+
+.server-workspace-connection-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.server-workspace-connection-copy strong {
+  font-size: .75rem;
+  color: #4f4560;
+}
+
+.server-workspace-connection-copy span,
+.server-workspace-connection-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #7b7085;
+  font-size: .58rem;
+}
+
+.server-workspace-connection-status {
+  justify-self: end;
+  align-self: start;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(45, 137, 91, .12);
+  color: #376a50;
+  font-size: .5rem;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.server-workspace-connection-status.status-offline,
+.server-workspace-connection-status.status-disconnected {
+  background: rgba(89, 92, 103, .11);
+  color: #686873;
+}
+
+.server-workspace-connection-status.status-error {
+  background: rgba(177, 62, 69, .12);
+  color: #8b2830;
+}
+
+.server-workspace-connection-policy {
+  grid-column: 2 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(88, 101, 242, .13);
+}
+
+.server-workspace-connection-policy small {
+  color: #897b8f;
+  font: .54rem/1.35 var(--portal-pencil);
+}
+
+.server-workspace-connection-policy button {
+  flex: 0 0 auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #6650a2;
+  font-size: .57rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.discord-connection-editor {
+  width: min(520px, 94vw);
+}
+
+.discord-connection-editor .server-drawer-form {
+  grid-template-columns: 1fr;
+}
+
+.discord-connection-readonly {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  padding: 12px 13px;
+  border-radius: 12px;
+  background: rgba(88, 101, 242, .08);
+}
+
+.discord-connection-readonly strong,
+.discord-connection-readonly span,
+.discord-connection-readonly small {
+  display: block;
+}
+
+.discord-connection-readonly span,
+.discord-connection-readonly small {
+  color: #7d7187;
+  font-size: .7rem;
+}
+
+@media (max-width: 1180px) {
+  .portal-v2-page-frame .server-workspace-selector-row {
+    grid-template-columns: minmax(210px, .55fr) minmax(0, 1.45fr);
+  }
+
+  .server-workspace-connection-note {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .portal-v2-page-frame .server-workspace-selector-row {
+    grid-template-columns: 1fr;
+  }
+
+  .server-workspace-connection-note {
+    grid-column: auto;
+  }
+}
