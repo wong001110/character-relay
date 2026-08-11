@@ -12,6 +12,7 @@ from echo_masque.persistence.provider_trace_models import ProviderTraceRecord
 from echo_masque.provider_trace_classification import (
     ProviderTraceCategory,
     provider_trace_category,
+    provider_trace_image_generation,
     provider_trace_media_attention,
     provider_trace_media_input,
     provider_trace_tool_names,
@@ -93,6 +94,7 @@ class ProviderTraceSummary(BaseModel):
     tool_names: list[str]
     media_input: dict[str, object]
     media_attention: dict[str, object]
+    image_generation: dict[str, object]
     failure_reason: str
     failure_detail: str
     owner_id: str
@@ -119,6 +121,10 @@ class ProviderTraceSummary(BaseModel):
             tool_names=provider_trace_tool_names(record.request_json, record.response_json),
             media_input=provider_trace_media_input(record.request_json),
             media_attention=provider_trace_media_attention(
+                record.request_json,
+                record.response_json,
+            ),
+            image_generation=provider_trace_image_generation(
                 record.request_json,
                 record.response_json,
             ),
