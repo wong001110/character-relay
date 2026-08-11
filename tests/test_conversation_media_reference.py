@@ -2,10 +2,17 @@ from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.conversation_media import ConversationMediaReferenceService
 from echo_masque.live_media import LiveMediaContext
 from echo_masque.persistence import Database
-from echo_masque.persistence.conversation_media_repository import ConversationMediaReferenceRepository
+from echo_masque.persistence.conversation_media_repository import (
+    ConversationMediaReferenceRepository,
+)
 
 
-def payload(*, message_id: str, text: str = "", reply_to_message_id: str = "") -> DiscordInboundMessage:
+def payload(
+    *,
+    message_id: str,
+    text: str = "",
+    reply_to_message_id: str = "",
+) -> DiscordInboundMessage:
     return DiscordInboundMessage(
         connection_id="conn-1",
         deployment_id="dep-1",
@@ -46,7 +53,7 @@ def test_perceived_media_can_be_rehydrated_by_reply_and_deictic_follow_up() -> N
         character_card_id="card-ann",
         payload=payload(
             message_id="message-follow-up",
-            text="右边那个是什么？",
+            text="右边那个是什么?",
             reply_to_message_id="message-image",
         ),
     )
@@ -56,7 +63,7 @@ def test_perceived_media_can_be_rehydrated_by_reply_and_deictic_follow_up() -> N
     recent = service.resolve_for_turn(
         deployment_id="dep-1",
         character_card_id="card-ann",
-        payload=payload(message_id="message-recent", text="刚才那张图右边是什么？"),
+        payload=payload(message_id="message-recent", text="刚才那张图右边是什么?"),
     )
     assert len(recent) == 1
     assert recent[0].message_id == "message-image"
@@ -86,7 +93,7 @@ def test_conversation_media_does_not_cross_character_epistemic_scope() -> None:
         character_card_id="card-ning",
         payload=payload(
             message_id="message-reply",
-            text="这张呢？",
+            text="这张呢?",
             reply_to_message_id="message-image",
         ),
     )
@@ -116,6 +123,6 @@ def test_unrelated_follow_up_does_not_implicitly_pull_recent_media() -> None:
     result = service.resolve_for_turn(
         deployment_id="dep-1",
         character_card_id="card-ann",
-        payload=payload(message_id="message-other", text="今天天气怎么样？"),
+        payload=payload(message_id="message-other", text="今天天气怎么样?"),
     )
     assert result == ()
