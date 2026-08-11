@@ -21,6 +21,7 @@ from echo_masque.live_media import (
 from echo_masque.media_runtime import MediaAnalysis, MediaAsset
 from echo_masque.platform_media import PlatformMediaResolution, YtDlpMediaResolver
 from echo_masque.provider_credentials import ResolvedProviderCredential
+from echo_masque.reader_cleanup import clean_public_reader_text
 from echo_masque.tool_external import ExternalToolFailed
 
 _ARTICLE_MAX_CHARS = 14_000
@@ -293,40 +294,45 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
         except JinaReaderUnavailable:
             article = None
         if article is not None:
-            details = tuple(
-                value
-                for value in (
-                    f"Published: {article.published_time}" if article.published_time else "",
-                    (
-                        "Extracted with Jina ReaderLM-v2"
-                        if article.structured
-                        else "Extracted with Jina Reader"
-                    ),
+            cleaned = clean_public_reader_text(
+                article.content,
+                max_chars=_ARTICLE_MAX_CHARS,
+            )
+            if cleaned.state != "guest_blocked" or len(cleaned.text) >= _MIN_USEFUL_HTTP_CHARS:
+                details = tuple(
+                    value
+                    for value in (
+                        f"Published: {article.published_time}" if article.published_time else "",
+                        (
+                            "Extracted with Jina ReaderLM-v2"
+                            if article.structured
+                            else "Extracted with Jina Reader"
+                        ),
+                    )
+                    if value
                 )
-                if value
-            )
-            analysis = MediaAnalysis(
-                summary=article.summary,
-                visible_text=article.content[:_ARTICLE_MAX_CHARS],
-                notable_details=details,
-                topics=(source.platform, "article"),
-            )
-            self.media_repository.put(
-                media_key=source.source_key,
-                media_type="article",
-                analysis_version=_ARTICLE_ANALYSIS_VERSION,
-                provider=_ARTICLE_PROVIDER,
-                model=_ARTICLE_MODEL,
-                result_json=analysis.model_dump_json(),
-                now=datetime.now(UTC),
-                ttl=_ARTICLE_TTL,
-            )
-            return self._analysis_context(
-                source.source_key,
-                "article",
-                article.title or source.platform,
-                analysis,
-            )
+                analysis = MediaAnalysis(
+                    summary=article.summary,
+                    visible_text=(cleaned.text or article.content)[:_ARTICLE_MAX_CHARS],
+                    notable_details=details,
+                    topics=(source.platform, "article"),
+                )
+                self.media_repository.put(
+                    media_key=source.source_key,
+                    media_type="article",
+                    analysis_version=_ARTICLE_ANALYSIS_VERSION,
+                    provider=_ARTICLE_PROVIDER,
+                    model=_ARTICLE_MODEL,
+                    result_json=analysis.model_dump_json(),
+                    now=datetime.now(UTC),
+                    ttl=_ARTICLE_TTL,
+                )
+                return self._analysis_context(
+                    source.source_key,
+                    "article",
+                    article.title or source.platform,
+                    analysis,
+                )
 
         return await self._local_article_fallback(source)
 
@@ -364,8 +370,12 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
             raw_title = fetched.get("title")
             text = raw_text.strip() if isinstance(raw_text, str) else ""
             title = raw_title.strip() if isinstance(raw_title, str) else ""
-            needs_browser = bool(fetched.get("needs_browser_render")) or (
-                0 < len(text) < _MIN_USEFUL_HTTP_CHARS
+            cleaned = clean_public_reader_text(text, max_chars=_ARTICLE_MAX_CHARS)
+            text = cleaned.text
+            needs_browser = (
+                cleaned.state == "guest_blocked"
+                or bool(fetched.get("needs_browser_render"))
+                or (0 < len(text) < _MIN_USEFUL_HTTP_CHARS)
             )
         except (ExternalToolFailed, ValueError):
             needs_browser = True
@@ -380,7 +390,17 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
                 rendered_text = rendered.get("text")
                 rendered_title = rendered.get("title")
                 if isinstance(rendered_text, str) and rendered_text.strip():
-                    text = rendered_text.strip()
+                    cleaned = clean_public_reader_text(
+                        rendered_text.strip(),
+                        max_chars=_ARTICLE_MAX_CHARS,
+                    )
+                    if (
+                        cleaned.state != "guest_blocked"
+                        or len(cleaned.text) >= _MIN_USEFUL_HTTP_CHARS
+                    ):
+                        text = cleaned.text
+                    else:
+                        text = ""
                 if isinstance(rendered_title, str) and rendered_title.strip():
                     title = rendered_title.strip()
             except (BrowserToolUnavailable, ValueError):
