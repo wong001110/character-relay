@@ -11,6 +11,7 @@ from echo_masque.generated_media_delivery import GeneratedMediaDeliveryService
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService, ImageGenerateToolInput
 from echo_masque.persistence import DeploymentRepository, DiscordIdentityRepository
 from echo_masque.providers import ChatToolCall, ProviderError
+from echo_masque.providers.trace import provider_trace_scope
 from echo_masque.server_time_tools import ServerAwareToolRegistry
 from echo_masque.tool_external import ExternalToolFailed, json_result
 from echo_masque.tool_runtime import (
@@ -154,17 +155,22 @@ class MediaToolRegistry(ServerAwareToolRegistry):
             "",
         )
         try:
-            artifact_ids = await self.image_creation_service.generate(
+            with provider_trace_scope(
                 owner_id=context.owner_id,
                 deployment_id=context.deployment_id,
                 character_card_id=context.character_card_id,
-                guild_id=context.guild_id,
-                channel_id=context.channel_id,
-                thread_id=context.thread_id,
-                message_id=context.message_id,
-                reply_to_message_id=reply_to_message_id,
-                payload=payload,
-            )
+            ):
+                artifact_ids = await self.image_creation_service.generate(
+                    owner_id=context.owner_id,
+                    deployment_id=context.deployment_id,
+                    character_card_id=context.character_card_id,
+                    guild_id=context.guild_id,
+                    channel_id=context.channel_id,
+                    thread_id=context.thread_id,
+                    message_id=context.message_id,
+                    reply_to_message_id=reply_to_message_id,
+                    payload=payload,
+                )
         except ProviderError as exc:
             raise ExternalToolFailed(
                 f"Image generation provider failed ({exc.reason_code})."
