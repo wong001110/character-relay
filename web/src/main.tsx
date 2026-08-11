@@ -9,6 +9,7 @@ import "./toolCalling.css";
 import "./portal-v2-refine.css";
 import "./deployment-notebook-v2.css";
 import "./deployment-notebook-tabs.css";
+import "./deployment-paper-tags.css";
 import { I18nProvider } from "./i18n";
 
 createRoot(document.getElementById("root")!).render(
