@@ -172,7 +172,8 @@ class OpenRouterImageModelScout:
         for endpoint in raw_endpoints:
             if not isinstance(endpoint, dict):
                 continue
-            if str(endpoint.get("provider_tag", "")).strip() != provider_tag:
+            tag = endpoint.get("provider_tag")
+            if not isinstance(tag, str) or tag.strip() != provider_tag:
                 continue
             if self._endpoint_is_completely_free(endpoint):
                 return provider_tag
@@ -255,7 +256,8 @@ class OpenRouterImageModelScout:
             item
             for item in endpoints
             if self._endpoint_is_completely_free(item)
-            and str(item.get("provider_tag", "")).strip()
+            and isinstance(item.get("provider_tag"), str)
+            and item["provider_tag"].strip()
         ]
         if not free_endpoints:
             return None
@@ -265,17 +267,14 @@ class OpenRouterImageModelScout:
         style_score, matches = self._style_score(model_id, name, description)
         providers = tuple(
             dict.fromkeys(
-                str(item.get("provider_name", "")).strip()
+                item["provider_name"].strip()
                 for item in free_endpoints
-                if str(item.get("provider_name", "")).strip()
+                if isinstance(item.get("provider_name"), str)
+                and item["provider_name"].strip()
             )
         )
         provider_tags = tuple(
-            dict.fromkeys(
-                str(item.get("provider_tag", "")).strip()
-                for item in free_endpoints
-                if str(item.get("provider_tag", "")).strip()
-            )
+            dict.fromkeys(item["provider_tag"].strip() for item in free_endpoints)
         )
         created_raw = model.get("created", 0)
         created = int(created_raw) if isinstance(created_raw, (int, float)) else 0
