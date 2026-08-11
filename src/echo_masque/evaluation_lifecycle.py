@@ -9,12 +9,14 @@ from echo_masque.persistence import (
     AuthRepository,
     CalibrationRepository,
     ConditionWatchRepository,
+    ConversationMediaReferenceRepository,
     Database,
     DeploymentRepository,
     DeploymentToolRepository,
     DiscordIdentityRepository,
     EvaluationRepository,
     ExpressionRepository,
+    GeneratedMediaArtifactRepository,
     InteractionRepository,
     KnowledgeRepository,
     ScheduledReminderRepository,
@@ -39,6 +41,8 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         deployment_tool_repository: DeploymentToolRepository | None = None,
         scheduled_reminder_repository: ScheduledReminderRepository | None = None,
         condition_watch_repository: ConditionWatchRepository | None = None,
+        conversation_media_repository: ConversationMediaReferenceRepository | None = None,
+        generated_media_repository: GeneratedMediaArtifactRepository | None = None,
     ) -> None:
         super().__init__(
             database,
@@ -66,6 +70,12 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             smart_participation_repository or SmartParticipationRepository(database)
         )
         self.knowledge_repository = knowledge_repository or KnowledgeRepository(database)
+        self.conversation_media_repository = (
+            conversation_media_repository or ConversationMediaReferenceRepository(database)
+        )
+        self.generated_media_repository = (
+            generated_media_repository or GeneratedMediaArtifactRepository(database)
+        )
 
     def delete_account(self, user_id: str, *, email: str) -> dict[str, int]:
         evaluation_counts = self.evaluation_repository.delete_owner(user_id)
@@ -77,6 +87,8 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         reminder_count = self.scheduled_reminder_repository.delete_owner(user_id)
         watch_count = self.condition_watch_repository.delete_owner(user_id)
         deployment_tool_count = self.deployment_tool_repository.delete_owner(user_id)
+        conversation_media_count = self.conversation_media_repository.delete_owner(user_id)
+        generated_media_count = self.generated_media_repository.delete_owner(user_id)
         deployment_counts = self.deployment_repository.delete_owner(user_id)
         deleted = super().delete_account(user_id, email=email)
         return {
@@ -90,6 +102,8 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "scheduled_reminders": reminder_count,
             "condition_watches": watch_count,
             "deployment_tool_profiles": deployment_tool_count,
+            "conversation_media_references": conversation_media_count,
+            "generated_media_artifacts": generated_media_count,
             **deployment_counts,
         }
 
@@ -141,6 +155,14 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "local-user",
             actor_user_id,
         )
+        conversation_media_count = self.conversation_media_repository.claim_owner(
+            "local-user",
+            actor_user_id,
+        )
+        generated_media_count = self.generated_media_repository.claim_owner(
+            "local-user",
+            actor_user_id,
+        )
         combined = {
             **base_counts,
             **evaluation_counts,
@@ -148,6 +170,8 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "deployment_tool_profiles": deployment_tool_count,
             "scheduled_reminders": reminder_count,
             "condition_watches": watch_count,
+            "conversation_media_references": conversation_media_count,
+            "generated_media_artifacts": generated_media_count,
             **identity_counts,
             **interaction_counts,
             **expression_counts,
