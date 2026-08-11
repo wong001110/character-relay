@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import base64
 import binascii
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from time import time_ns
 from typing import cast
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
 from echo_masque.api.dependencies import CurrentUserDependency
@@ -29,6 +30,12 @@ _MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 _MAX_OUTPUT_BYTES = 3 * 1024 * 1024
 _MAX_PIXELS = 20_000_000
 _MAX_EDGE = 1024
+_PLACEHOLDER_PALETTES = {
+    "lavender": ((237, 229, 255), (128, 106, 166)),
+    "rose": ((252, 229, 236), (168, 101, 126)),
+    "mint": ((225, 243, 233), (91, 139, 114)),
+    "night": ((229, 228, 241), (82, 78, 112)),
+}
 
 
 class CharacterPortraitUpload(BaseModel):
@@ -84,19 +91,41 @@ def _normalize_portrait(raw: bytes) -> bytes:
     return data
 
 
+@lru_cache(maxsize=4)
+def _placeholder_portrait(variant: str) -> bytes:
+    background, ink = _PLACEHOLDER_PALETTES.get(
+        variant,
+        _PLACEHOLDER_PALETTES["lavender"],
+    )
+    image = Image.new("RGB", (512, 512), background)
+    draw = ImageDraw.Draw(image)
+    # A quiet character-file silhouette rather than an application icon. It keeps the public
+    # Discord fallback URL valid even before the creator uploads custom artwork.
+    draw.ellipse((156, 86, 356, 286), fill=(255, 252, 246), outline=ink, width=10)
+    draw.polygon(((178, 116), (217, 54), (244, 128)), fill=(255, 252, 246), outline=ink)
+    draw.polygon(((268, 128), (298, 54), (338, 118)), fill=(255, 252, 246), outline=ink)
+    draw.ellipse((211, 181, 230, 200), fill=ink)
+    draw.ellipse((282, 181, 301, 200), fill=ink)
+    draw.arc((238, 196, 276, 236), start=12, end=168, fill=ink, width=6)
+    draw.rounded_rectangle((117, 300, 395, 480), radius=88, fill=(255, 252, 246), outline=ink, width=10)
+    output = BytesIO()
+    image.save(output, format="WEBP", quality=86, method=6)
+    return output.getvalue()
+
+
 @router.get("/portraits/{card_id}")
 def get_character_portrait(card_id: str, request: Request) -> Response:
     # The image URL is intentionally public because Discord must be able to fetch it as a
     # webhook avatar. Card IDs are opaque UUIDs and deleted cards are never served.
-    if _repository(request).get_character_card(card_id) is None:
+    card = _repository(request).get_character_card(card_id)
+    if card is None:
         raise HTTPException(status_code=404, detail="Character Card not found.")
     path = _portrait_path(request, card_id)
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="Character portrait not configured.")
+    content = path.read_bytes() if path.is_file() else _placeholder_portrait(card.portrait_variant)
     return Response(
-        content=path.read_bytes(),
+        content=content,
         media_type="image/webp",
-        headers={"Cache-Control": "public, max-age=60, must-revalidate"},
+        headers={"Cache-Control": "public, max-age=30, must-revalidate"},
     )
 
 
