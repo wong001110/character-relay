@@ -1,0 +1,654 @@
+/* Second notebook pass: denser character files, scrollable research panes, themed scrollbars. */
+
+/* Theme scrollbars: quiet enough for long diagnostics, but no longer browser-default chrome. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #a991dd #f4eee3;
+}
+
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+*::-webkit-scrollbar-track {
+  background:
+    repeating-linear-gradient(0deg, #f8f3e9 0 7px, #f1eadf 7px 14px);
+  border-radius: 999px;
+  border: 1px solid rgba(104, 83, 121, .08);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #c8b7ef, #a890de);
+  border: 2px solid #f8f2e8;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(104, 78, 153, .12);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #bca8ec, #977bd5);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Character Library becomes a shelf workspace: files on the left, filing tools in the margin. */
+.portal-v2-page-frame .character-library-v2 {
+  width: min(1520px, 100%);
+}
+
+.character-library-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 286px;
+  gap: 18px;
+  align-items: start;
+}
+
+.character-library-main {
+  min-width: 0;
+}
+
+.character-library-heading {
+  min-height: 150px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  margin-bottom: 18px;
+  padding: 14px 12px 20px;
+  border-bottom: 1px dashed rgba(103, 83, 121, .2);
+}
+
+.character-library-heading h1 {
+  margin: 14px 0 6px;
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  line-height: 1;
+}
+
+.character-library-heading p {
+  max-width: 720px;
+  margin: 0;
+  color: #7d7186;
+  line-height: 1.55;
+}
+
+.character-library-count-note {
+  flex: 0 0 132px;
+  min-height: 112px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  padding: 13px 10px;
+  background: #fff0c5;
+  border: 1px solid rgba(133, 103, 89, .13);
+  box-shadow: 7px 8px 0 rgba(99, 77, 105, .04);
+  transform: rotate(1.2deg);
+  color: #6d596c;
+  text-align: center;
+}
+
+.character-library-count-note::before {
+  content: "";
+  position: absolute;
+  width: 66px;
+  height: 18px;
+  margin-top: -122px;
+  background: rgba(218, 196, 247, .7);
+  transform: rotate(-4deg);
+}
+
+.character-library-count-note span,
+.character-library-count-note small {
+  font-family: var(--portal-pencil);
+}
+
+.character-library-count-note span {
+  font-size: .58rem;
+  letter-spacing: .12em;
+  color: #8a7483;
+}
+
+.character-library-count-note strong {
+  margin: 2px 0;
+  font: 700 2.75rem/1 Georgia, serif;
+}
+
+.character-library-count-note small {
+  font-size: .62rem;
+  color: #8a7782;
+}
+
+.character-file-grid {
+  grid-template-columns: repeat(auto-fill, minmax(245px, 1fr)) !important;
+  gap: 16px !important;
+  align-items: start !important;
+}
+
+.portal-v2-page-frame .character-file-grid .character-card,
+.portal-v2-page-frame .character-file-grid .blank-card {
+  min-height: 388px;
+  max-width: none;
+}
+
+.portal-v2-page-frame .character-file-grid .character-card {
+  --card-accent: #a78ddd;
+  --card-accent-soft: #eee7ff;
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--card-accent) 34%, #d4ccbf);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--card-accent-soft) 72%, #fffaf2) 0 30%, #fffaf2 68%);
+  box-shadow: 0 10px 24px rgba(75, 59, 87, .09);
+}
+
+.portal-v2-page-frame .character-file-grid .character-card:hover {
+  box-shadow: 0 16px 32px rgba(75, 59, 87, .14);
+}
+
+.portal-v2-page-frame .character-file-grid .portrait-lavender {
+  --card-accent: #a58bdd;
+  --card-accent-soft: #e7ddff;
+}
+
+.portal-v2-page-frame .character-file-grid .portrait-rose {
+  --card-accent: #d895ad;
+  --card-accent-soft: #f6dce6;
+}
+
+.portal-v2-page-frame .character-file-grid .portrait-mint {
+  --card-accent: #87bca8;
+  --card-accent-soft: #dcefe7;
+}
+
+.portal-v2-page-frame .character-file-grid .portrait-night {
+  --card-accent: #777087;
+  --card-accent-soft: #ded8e7;
+}
+
+.portal-v2-page-frame .character-file-grid .character-card .card-tape {
+  width: 78px;
+  height: 22px;
+  top: -9px;
+  left: calc(50% - 39px);
+}
+
+.portal-v2-page-frame .character-file-grid .portrait-window {
+  height: 148px;
+  border-radius: 11px;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 21px, rgba(91, 76, 108, .045) 22px),
+    linear-gradient(145deg, color-mix(in srgb, var(--card-accent-soft) 88%, white), color-mix(in srgb, var(--card-accent) 52%, white));
+}
+
+.portal-v2-page-frame .character-file-grid .portrait-window img {
+  height: 123px;
+}
+
+.portal-v2-page-frame .character-file-grid .portrait-window span {
+  bottom: 8px;
+  right: 8px;
+  padding: 4px 7px;
+  font-size: .54rem;
+  color: #584a61;
+}
+
+.portal-v2-page-frame .character-file-grid .card-copy {
+  padding: 12px 4px 7px;
+}
+
+.portal-v2-page-frame .character-file-grid .card-index {
+  margin-bottom: 5px;
+  color: color-mix(in srgb, var(--card-accent) 72%, #5f5366) !important;
+}
+
+.portal-v2-page-frame .character-file-grid .card-copy h3 {
+  margin-bottom: 4px;
+  font-size: 1.38rem;
+}
+
+.portal-v2-page-frame .character-file-grid .card-copy > p:not(.card-index) {
+  min-height: 30px;
+  margin-bottom: 8px;
+  font-size: .75rem;
+  line-height: 1.35;
+}
+
+.portal-v2-page-frame .character-file-grid .chip-row {
+  gap: 4px;
+}
+
+.portal-v2-page-frame .character-file-grid .chip-row span {
+  padding: 4px 7px;
+  background: color-mix(in srgb, var(--card-accent-soft) 72%, #fffaf2);
+  font-size: .61rem;
+}
+
+.portal-v2-page-frame .character-file-grid .card-notes {
+  padding: 7px 3px;
+  gap: 3px 8px;
+  font-size: .64rem;
+}
+
+.portal-v2-page-frame .character-file-grid .card-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding-top: 9px;
+}
+
+.portal-v2-page-frame .character-file-grid .card-actions .paper-button,
+.portal-v2-page-frame .character-file-grid .card-actions .enter-room {
+  min-height: 33px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: .63rem;
+}
+
+.portal-v2-page-frame .character-file-grid .card-actions .enter-room {
+  grid-column: 1 / -1;
+  background: color-mix(in srgb, var(--card-accent) 58%, #493f52);
+}
+
+.portal-v2-page-frame .character-file-grid .blank-card {
+  padding: 20px;
+  background:
+    repeating-linear-gradient(0deg, rgba(255,255,255,.18) 0 25px, rgba(125,105,140,.04) 26px),
+    rgba(255, 250, 242, .4);
+}
+
+.character-library-tools {
+  position: sticky;
+  top: 94px;
+  max-height: calc(100vh - 116px);
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 3px 3px 12px;
+}
+
+.character-library-tools-note,
+.character-library-filter-note,
+.character-library-tag-note,
+.character-library-create-note {
+  border: 1px solid rgba(101, 82, 115, .14);
+  box-shadow: 5px 7px 0 rgba(78, 62, 87, .035);
+}
+
+.character-library-tools-note {
+  position: relative;
+  padding: 17px 16px;
+  background: #ffe7b6;
+  transform: rotate(-.35deg);
+}
+
+.character-library-tools-note::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  right: 20px;
+  width: 60px;
+  height: 17px;
+  background: rgba(210, 193, 246, .72);
+  transform: rotate(3deg);
+}
+
+.character-library-tools-note > span,
+.character-library-tag-note > span {
+  font: 700 .61rem var(--portal-pencil);
+  letter-spacing: .09em;
+  color: #897488;
+}
+
+.character-library-tools-note strong {
+  display: block;
+  margin: 7px 0 5px;
+  font: 700 1rem Georgia, serif;
+}
+
+.character-library-tools-note small {
+  display: block;
+  color: #82727d;
+  font-size: .68rem;
+  line-height: 1.45;
+}
+
+.character-library-filter-note {
+  display: grid;
+  gap: 10px;
+  padding: 15px;
+  background: rgba(255, 250, 240, .88);
+}
+
+.character-library-filter-note .notebook-field {
+  gap: 4px;
+}
+
+.character-library-filter-note label,
+.character-library-filter-note .notebook-field > span {
+  font-size: .66rem;
+}
+
+.character-library-filter-note input,
+.character-library-filter-note select {
+  min-height: 38px;
+  padding: 8px 9px;
+  font-size: .72rem;
+}
+
+.character-library-filter-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 7px;
+  border-top: 1px dashed rgba(104, 83, 119, .16);
+}
+
+.character-library-filter-summary span {
+  color: #88798d;
+  font-size: .61rem;
+}
+
+.character-library-filter-summary button {
+  border: 0;
+  background: transparent;
+  color: #715c9e;
+  font-size: .64rem;
+  font-weight: 800;
+}
+
+.character-library-tag-note {
+  padding: 14px;
+  background: #eee7ff;
+  transform: rotate(.25deg);
+}
+
+.character-library-tag-note > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 9px;
+}
+
+.character-library-tag-note button {
+  border: 1px solid rgba(100, 82, 121, .13);
+  border-radius: 999px;
+  padding: 5px 7px;
+  background: rgba(255,255,255,.55);
+  color: #705f82;
+  font-size: .61rem;
+}
+
+.character-library-tag-note button.is-active {
+  background: #7e67ce;
+  color: white;
+}
+
+.character-library-create-note {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 3px 9px;
+  align-items: center;
+  padding: 13px 14px;
+  background: #dff0e7;
+  color: #496557;
+  text-align: left;
+  transform: rotate(-.18deg);
+}
+
+.character-library-create-note > span {
+  grid-row: 1 / 3;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.62);
+  font-size: 1.3rem;
+}
+
+.character-library-create-note strong {
+  font-size: .76rem;
+}
+
+.character-library-create-note small {
+  color: #6a8073;
+  font-size: .6rem;
+}
+
+/* Toolbox is a viewport-sized research desk. Sidebars and content panes scroll independently. */
+.toolbox-v2-workspace {
+  height: calc(100vh - 122px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.toolbox-v2-sidebar {
+  position: static;
+  top: auto;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.toolbox-v2-sidebar-top {
+  flex: 0 0 auto;
+}
+
+.toolbox-v2-sidebar nav {
+  display: grid;
+  gap: 3px;
+}
+
+.toolbox-v2-nav-label {
+  margin: 10px 11px 2px;
+  color: #9b8ca2;
+  font: 700 .55rem var(--portal-pencil);
+  letter-spacing: .13em;
+}
+
+.toolbox-v2-sidebar nav button {
+  padding-block: 9px;
+}
+
+.toolbox-v2-lab-note {
+  margin-top: auto;
+  flex: 0 0 auto;
+}
+
+.toolbox-v2-main {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.toolbox-v2-main > :not(.behavior-notebook-shell) {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.behavior-notebook-shell {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.behavior-run-sidebar {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.behavior-side-title,
+.behavior-run-search {
+  flex: 0 0 auto;
+}
+
+.behavior-run-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 8px;
+}
+
+.behavior-notebook-page {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.behavior-notebook-body {
+  min-height: 0;
+}
+
+.behavior-main-column,
+.behavior-observation-margin {
+  min-height: 0;
+}
+
+/* Trace pages keep their diagnostics, but lose some oversized SaaS whitespace inside the desk. */
+.toolbox-v2-main .provider-trace-page,
+.toolbox-v2-main .provider-trace-embedded {
+  padding: 14px 16px 20px;
+}
+
+.toolbox-v2-main .provider-trace-header {
+  margin-bottom: 10px;
+}
+
+.toolbox-v2-main .provider-trace-header h1 {
+  margin-bottom: 6px;
+  font-size: clamp(1.85rem, 3.2vw, 2.8rem);
+  line-height: 1.03;
+}
+
+.toolbox-v2-main .provider-trace-header p {
+  max-width: 980px;
+  margin-bottom: 0;
+  color: #7b7082;
+  font-size: .79rem;
+  line-height: 1.5;
+}
+
+.toolbox-v2-main .provider-trace-controls {
+  padding: 13px 15px;
+}
+
+.toolbox-v2-main .scheduled-reminders-panel {
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px 18px 24px;
+}
+
+.toolbox-v2-main .scheduled-reminders-header h2 {
+  font-size: clamp(1.7rem, 3vw, 2.5rem);
+}
+
+.toolbox-v2-main .scheduled-reminders-header > div > p:last-child {
+  max-width: 900px;
+  font-size: .8rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 1180px) {
+  .character-library-layout {
+    grid-template-columns: minmax(0, 1fr) 250px;
+  }
+
+  .character-file-grid {
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .character-library-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .character-library-tools {
+    position: static;
+    max-height: none;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .character-library-filter-note {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .character-library-filter-summary {
+    grid-column: 1 / -1;
+  }
+
+  .toolbox-v2-workspace {
+    height: auto;
+    overflow: visible;
+  }
+
+  .toolbox-v2-sidebar {
+    height: auto;
+    overflow: visible;
+  }
+
+  .toolbox-v2-main {
+    height: auto;
+    min-height: 650px;
+    overflow: visible;
+  }
+
+  .toolbox-v2-main > :not(.behavior-notebook-shell),
+  .behavior-notebook-page {
+    height: auto;
+    overflow: visible;
+  }
+
+  .behavior-notebook-shell {
+    height: auto;
+    overflow: visible;
+  }
+
+  .behavior-run-sidebar {
+    overflow: visible;
+  }
+
+  .behavior-run-list {
+    flex: none;
+    max-height: 270px;
+  }
+}
+
+@media (max-width: 650px) {
+  .character-library-heading {
+    min-height: 0;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .character-library-count-note {
+    align-self: flex-end;
+    min-height: 92px;
+  }
+
+  .character-library-tools {
+    grid-template-columns: 1fr;
+  }
+
+  .character-library-filter-note {
+    grid-template-columns: 1fr;
+  }
+
+  .character-file-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
