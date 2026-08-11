@@ -130,9 +130,13 @@ class Settings(BaseSettings):
 
     @property
     def semantic_embedding_runtime_enabled(self) -> bool:
-        """Keep old semantic-participation deployments compatible with shared embeddings."""
+        """Enable shared embeddings lazily in production and through explicit feature flags."""
 
-        return self.semantic_embedding_enabled or self.semantic_participation_enabled
+        return (
+            self.environment == "production"
+            or self.semantic_embedding_enabled
+            or self.semantic_participation_enabled
+        )
 
 
 @lru_cache
