@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { AuthUser } from "./api";
+import { useI18n } from "./i18n";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 
 export type PortalSection =
@@ -38,7 +39,8 @@ export function PortalShell({
   onNavigate,
   children
 }: Props) {
-  const zh = document.documentElement.lang.toLowerCase().startsWith("zh");
+  const { language } = useI18n();
+  const zh = language === "zh-CN";
   const initials = user.display_name.trim().slice(0, 1).toUpperCase() || "C";
 
   return (
