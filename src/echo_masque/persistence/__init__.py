@@ -53,6 +53,8 @@ from echo_masque.persistence.expression_models import (
     DiscordExpressionSemanticRecord,
 )
 from echo_masque.persistence.expression_repository import ExpressionRepository
+from echo_masque.persistence.generated_media_models import GeneratedMediaArtifactRecord
+from echo_masque.persistence.generated_media_repository import GeneratedMediaArtifactRepository
 from echo_masque.persistence.interaction_models import (
     DiscordInteractionRunRecord,
     DiscordInteractionSessionRecord,
@@ -168,6 +170,8 @@ __all__ = [
     "DurableRuntimeRepository",
     "EvaluationRepository",
     "ExpressionRepository",
+    "GeneratedMediaArtifactRecord",
+    "GeneratedMediaArtifactRepository",
     "InteractionConflict",
     "InteractionRepository",
     "JudgeEvaluationRecord",
