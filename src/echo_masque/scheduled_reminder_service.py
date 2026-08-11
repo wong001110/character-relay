@@ -49,8 +49,9 @@ class ScheduledReminderDeliveryService:
         self.retry_seconds = max(5, retry_seconds)
         self.max_attempts = max(1, max_attempts)
         self.http_transport = http_transport
-        self.media_retention_service = media_retention_service or MediaRetentionService.for_database(
-            repository.database
+        self.media_retention_service = (
+            media_retention_service
+            or MediaRetentionService.for_database(repository.database)
         )
         self._task: asyncio.Task[None] | None = None
 
