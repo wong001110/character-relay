@@ -235,7 +235,10 @@ class GeneratedMediaDeliveryService:
         except Exception as exc:
             # The media is already delivered. Never turn bookkeeping into a duplicate-send retry.
             logger.warning(
-                "Unable to persist generated-image message route: deployment=%s message=%s error=%s",
+                (
+                    "Unable to persist generated-image message route: "
+                    "deployment=%s message=%s error=%s"
+                ),
                 deployment.id,
                 message_id,
                 exc,
