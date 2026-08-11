@@ -4,6 +4,7 @@ export type ProviderTraceCategory =
   | "character_turn"
   | "media_attention"
   | "media_understanding"
+  | "image_generation"
   | "model_call";
 
 export interface ProviderTraceSummary {
@@ -13,11 +14,15 @@ export interface ProviderTraceSummary {
   tool_names: string[];
   media_input: Record<string, unknown>;
   media_attention: Record<string, unknown>;
+  image_generation: Record<string, unknown>;
   failure_reason: string;
   failure_detail: string;
   owner_id: string;
   deployment_id: string;
   character_card_id: string;
+  operation_id: string;
+  graph_run_id: string;
+  runtime_node: string;
   trace_mode: string;
   endpoint: string;
   request_model: string;
