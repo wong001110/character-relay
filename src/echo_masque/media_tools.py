@@ -28,6 +28,7 @@ class MediaToolRegistry(ServerAwareToolRegistry):
         super().__init__(*args, **kwargs)
         self.image_creation_service = image_creation_service
         self._generated_by_turn: dict[tuple[str, str], tuple[str, ...]] = {}
+        self._reply_reference_by_turn: dict[tuple[str, str], str] = {}
         image_available = image_creation_service is not None
         image_tool = _tool(
             tool_id="image.generate",
@@ -124,6 +125,10 @@ class MediaToolRegistry(ServerAwareToolRegistry):
         if self.image_creation_service is None:
             raise ValueError("Image Generation Runtime is unavailable.")
         payload = ImageGenerateToolInput.model_validate(arguments)
+        reply_to_message_id = self._reply_reference_by_turn.get(
+            (context.deployment_id, context.message_id),
+            "",
+        )
         artifact_ids = await self.image_creation_service.generate(
             owner_id=context.owner_id,
             deployment_id=context.deployment_id,
@@ -132,7 +137,7 @@ class MediaToolRegistry(ServerAwareToolRegistry):
             channel_id=context.channel_id,
             thread_id=context.thread_id,
             message_id=context.message_id,
-            reply_to_message_id=context.reply_to_message_id,
+            reply_to_message_id=reply_to_message_id,
             payload=payload,
         )
         return json_result(
@@ -141,6 +146,22 @@ class MediaToolRegistry(ServerAwareToolRegistry):
             count=len(artifact_ids),
             delivery="Character Relay will attach the generated image after this turn.",
         )
+
+    def set_turn_reply_reference(
+        self,
+        *,
+        deployment_id: str,
+        message_id: str,
+        reply_to_message_id: str,
+    ) -> None:
+        key = (deployment_id, message_id)
+        if reply_to_message_id:
+            self._reply_reference_by_turn[key] = reply_to_message_id
+        else:
+            self._reply_reference_by_turn.pop(key, None)
+        if len(self._reply_reference_by_turn) > 2000:
+            for stale in list(self._reply_reference_by_turn)[:500]:
+                self._reply_reference_by_turn.pop(stale, None)
 
     def generated_artifact_ids(self, context: ToolExecutionContext) -> tuple[str, ...]:
         return self._generated_by_turn.get((context.deployment_id, context.message_id), ())
