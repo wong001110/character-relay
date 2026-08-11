@@ -55,13 +55,16 @@ from echo_masque.condition_watch_runtime import (
 from echo_masque.condition_watch_service import ConditionWatchService
 from echo_masque.config import Settings, get_settings
 from echo_masque.context_layer import ContextOrchestrator
+from echo_masque.conversation_media import ConversationMediaReferenceService
 from echo_masque.coverage_analytics import CoverageAnalyticsService
 from echo_masque.credentials import CredentialVault
 from echo_masque.discord_inventory import DiscordInventoryService
 from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
+from echo_masque.image_creation_runtime import ImageCreationRuntimeService
 from echo_masque.judge_evaluation import JudgeEvaluationService
 from echo_masque.live_media_scoped import KeyGroupScopedLiveMediaContextService
 from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
+from echo_masque.media_tools import MediaToolRegistry
 from echo_masque.orchestration import (
     CharacterTurnGraphRunner,
     ConditionWatchGraphRunner,
@@ -72,6 +75,7 @@ from echo_masque.persistence import (
     AuthRepository,
     CalibrationRepository,
     ConditionWatchRepository,
+    ConversationMediaReferenceRepository,
     Database,
     DeploymentRepository,
     DeploymentToolRepository,
@@ -79,6 +83,7 @@ from echo_masque.persistence import (
     DurableRuntimeRepository,
     EvaluationRepository,
     ExpressionRepository,
+    GeneratedMediaArtifactRepository,
     InteractionRepository,
     KeyGroupRepository,
     KnowledgeRepository,
@@ -101,7 +106,6 @@ from echo_masque.public_demo_middleware import PublicDemoReadOnlyMiddleware
 from echo_masque.public_demo_quota import PublicDemoQuotaService
 from echo_masque.scheduled_reminder_service import ScheduledReminderDeliveryService
 from echo_masque.semantic_participation import CharacterParticipationSemanticService
-from echo_masque.server_time_tools import ServerAwareToolRegistry
 from echo_masque.services import MatrixService, RuntimeService, TrialService
 from echo_masque.smart_participation_generation import SmartParticipationGenerationService
 from echo_masque.template_sharing import EvaluationTemplateService
@@ -154,14 +158,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             navigation_timeout_ms=resolved.browser_navigation_timeout_ms,
         )
     )
-    tool_registry = ServerAwareToolRegistry(
-        browser_runtime=browser_runtime,
-        reminder_repository=scheduled_reminder_repository,
-        condition_watch_repository=condition_watch_repository,
-        condition_watch_enabled=True,
-        discord_bot_token=resolved.discord_tool_bot_token,
-        side_effect_store=durable_runtime_repository,
-    )
     interaction_repository = InteractionRepository(database)
     expression_repository = ExpressionRepository(database)
     smart_participation_repository = SmartParticipationRepository(database)
@@ -208,9 +204,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     credential_store = CredentialVault(auth_repository, resolved)
     key_group_repository = KeyGroupRepository(database)
     media_analysis_repository = MediaAnalysisRepository(database)
+    conversation_media_repository = ConversationMediaReferenceRepository(database)
+    generated_media_repository = GeneratedMediaArtifactRepository(database)
     media_credential_resolver = KeyGroupProviderCredentialResolver(
         key_group_repository,
         credential_store,
+    )
+    conversation_media_service = ConversationMediaReferenceService(
+        conversation_media_repository
+    )
+    image_creation_service = ImageCreationRuntimeService(
+        credential_resolver=media_credential_resolver,
+        conversation_media_repository=conversation_media_repository,
+        artifact_repository=generated_media_repository,
+    )
+    tool_registry = MediaToolRegistry(
+        browser_runtime=browser_runtime,
+        reminder_repository=scheduled_reminder_repository,
+        condition_watch_repository=condition_watch_repository,
+        condition_watch_enabled=True,
+        discord_bot_token=resolved.discord_tool_bot_token,
+        side_effect_store=durable_runtime_repository,
+        image_creation_service=image_creation_service,
     )
     live_media_service = KeyGroupScopedLiveMediaContextService(
         media_repository=media_analysis_repository,
@@ -263,6 +278,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         deployment_tool_repository=deployment_tool_repository,
         tool_registry=tool_registry,
         live_media_service=live_media_service,
+        conversation_media_service=conversation_media_service,
     )
     character_turn_graph_runner = (
         CharacterTurnGraphRunner(
@@ -419,6 +435,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.durable_runtime_repository = durable_runtime_repository
     app.state.key_group_repository = key_group_repository
     app.state.media_analysis_repository = media_analysis_repository
+    app.state.conversation_media_repository = conversation_media_repository
+    app.state.generated_media_repository = generated_media_repository
+    app.state.image_creation_service = image_creation_service
     app.state.live_media_service = live_media_service
     app.state.discord_connector_runtime = discord_connector_runtime
     app.state.character_turn_graph_runner = character_turn_graph_runner
