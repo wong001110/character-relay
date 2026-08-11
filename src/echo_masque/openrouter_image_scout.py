@@ -60,6 +60,7 @@ class ImageModelCandidate:
     style_matches: tuple[str, ...]
     free_endpoint_count: int
     provider_names: tuple[str, ...]
+    provider_tags: tuple[str, ...]
     created: int = 0
 
 
@@ -206,8 +207,14 @@ class OpenRouterImageModelScout:
             return None
         raw_endpoints = payload.get("endpoints", []) if isinstance(payload, dict) else []
         endpoints = [item for item in raw_endpoints if isinstance(item, dict)]
+        # A free endpoint is only safe for automatic use when OpenRouter exposes a provider_tag.
+        # Runtime pins to that exact tag and disables fallbacks so another paid endpoint cannot
+        # be selected for the same model ID.
         free_endpoints = [
-            item for item in endpoints if self._endpoint_is_completely_free(item)
+            item
+            for item in endpoints
+            if self._endpoint_is_completely_free(item)
+            and str(item.get("provider_tag", "")).strip()
         ]
         if not free_endpoints:
             return None
@@ -222,6 +229,13 @@ class OpenRouterImageModelScout:
                 if str(item.get("provider_name", "")).strip()
             )
         )
+        provider_tags = tuple(
+            dict.fromkeys(
+                str(item.get("provider_tag", "")).strip()
+                for item in free_endpoints
+                if str(item.get("provider_tag", "")).strip()
+            )
+        )
         created_raw = model.get("created", 0)
         created = int(created_raw) if isinstance(created_raw, (int, float)) else 0
         return ImageModelCandidate(
@@ -232,6 +246,7 @@ class OpenRouterImageModelScout:
             style_matches=matches,
             free_endpoint_count=len(free_endpoints),
             provider_names=providers,
+            provider_tags=provider_tags,
             created=created,
         )
 
@@ -291,11 +306,14 @@ class AutomaticFreeAnimeImageProvider:
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         result = await self.scout.discover(self.credential)
-        if result.selected_model is None:
+        if result.selected_model is None or not result.candidates:
             raise ValueError(
                 "No truly free OpenRouter image-generation model is available right now. "
                 "Character Relay will not fall back to a paid model automatically."
             )
+        selected = result.candidates[0]
+        if selected.model_id != result.selected_model or not selected.provider_tags:
+            raise ValueError("Free image-model discovery did not return a pinnable endpoint.")
         credential = resolve_automatic_image_model(
             self.credential,
             result.selected_model,
@@ -305,6 +323,8 @@ class AutomaticFreeAnimeImageProvider:
             api_key=credential.api_key,
             model=credential.model,
             base_url=credential.base_url.strip() or _DEFAULT_OPENROUTER_BASE_URL,
+            provider_only=(selected.provider_tags[0],),
+            allow_fallbacks=False,
         )
         return await provider.generate(request)
 
