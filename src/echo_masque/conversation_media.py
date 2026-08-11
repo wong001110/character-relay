@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.live_media import LiveMediaContext
 from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord
-from echo_masque.persistence.conversation_media_repository import ConversationMediaReferenceRepository
+from echo_masque.persistence.conversation_media_repository import (
+    ConversationMediaReferenceRepository,
+)
 
 _DEICTIC_MEDIA = re.compile(
     r"(?:"
