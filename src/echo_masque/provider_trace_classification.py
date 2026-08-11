@@ -14,6 +14,16 @@ ProviderTraceCategory = Literal[
 ]
 _MEDIA_TRACE_MARKER = "[MEDIA_UNDERSTANDING]"
 _MEDIA_ATTENTION_MARKER = "[MEDIA_ATTENTION]"
+_MEDIA_ATTENTION_STANCES = {
+    "neutral",
+    "truthful",
+    "bluff",
+    "lie",
+    "tease",
+    "evasive",
+    "guess",
+    "uncertain",
+}
 
 
 def _object(value: str) -> dict[str, object]:
@@ -53,6 +63,31 @@ def _request_text(request: dict[str, object]) -> str:
     return ""
 
 
+def _embedded_json_object(value: str) -> dict[str, object]:
+    """Parse one model-authored JSON object even when harmless prose surrounds it."""
+
+    normalized = value.strip()
+    if not normalized:
+        return {}
+    try:
+        decoded = json.loads(normalized)
+    except json.JSONDecodeError:
+        start = normalized.find("{")
+        if start < 0:
+            return {}
+        try:
+            decoded, _ = json.JSONDecoder().raw_decode(normalized[start:])
+        except json.JSONDecodeError:
+            return {}
+    return cast(dict[str, object], decoded) if isinstance(decoded, dict) else {}
+
+
+def _bounded_string(value: object, maximum: int = 300) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.replace("\x00", "").strip()[:maximum]
+
+
 def provider_trace_media_input(request_json: str) -> dict[str, object]:
     """Return bounded media metadata embedded by the multimodal provider trace."""
 
@@ -85,6 +120,37 @@ def provider_trace_media_input(request_json: str) -> dict[str, object]:
         if str(key) in allowed
         and isinstance(value, (str, int, float, bool, type(None)))
     }
+
+
+def provider_trace_media_attention(
+    request_json: str,
+    response_json: str,
+) -> dict[str, object]:
+    """Return the private watch/skip and declared stance from one attention provider call."""
+
+    request = _object(request_json)
+    if not _request_text(request).strip().startswith(_MEDIA_ATTENTION_MARKER):
+        return {}
+    response = _object(response_json)
+    response_text = response.get("response_text")
+    if not isinstance(response_text, str):
+        # Metadata-only trace mode intentionally does not persist model-authored content.
+        return {}
+    decoded = _embedded_json_object(response_text)
+    action = _bounded_string(decoded.get("action"), 20).casefold()
+    if action not in {"watch", "skip"}:
+        return {}
+    result: dict[str, object] = {"action": action}
+    reason = _bounded_string(decoded.get("reason"))
+    if reason:
+        result["reason"] = reason
+    stance = _bounded_string(decoded.get("response_stance"), 30).casefold()
+    if stance in _MEDIA_ATTENTION_STANCES:
+        result["response_stance"] = stance
+    stance_reason = _bounded_string(decoded.get("stance_reason"))
+    if stance_reason:
+        result["stance_reason"] = stance_reason
+    return result
 
 
 def provider_trace_tool_names(request_json: str, response_json: str) -> list[str]:
@@ -129,6 +195,7 @@ def provider_trace_category(request_json: str, response_json: str) -> ProviderTr
 __all__ = [
     "ProviderTraceCategory",
     "provider_trace_category",
+    "provider_trace_media_attention",
     "provider_trace_media_input",
     "provider_trace_tool_names",
 ]
