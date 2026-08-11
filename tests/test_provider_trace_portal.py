@@ -99,6 +99,9 @@ def test_provider_trace_portal_is_bootstrap_super_admin_only(tmp_path: Path) -> 
             "owner_id": "",
             "deployment_id": "",
             "character_card_id": "",
+            "operation_id": "",
+            "graph_run_id": "",
+            "runtime_node": "",
             "trace_mode": "content",
             "endpoint": "https://api.deepseek.com/v1/chat/completions",
             "request_model": "deepseek-v4-flash",
@@ -308,3 +311,44 @@ def test_provider_trace_category_and_owner_filters_are_server_side(tmp_path: Pat
     assert cleared.json() == {"deleted_count": 1}
     remaining = client.get("/api/admin/provider-traces/page").json()["items"]
     assert [item["trace_id"] for item in remaining] == ["trace-other"]
+
+
+def test_provider_trace_exposes_runtime_correlation_for_behavior_notebook(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "provider-trace-correlation.db"))
+    repository = app.state.provider_trace_repository
+    correlation = {
+        "operation_id": "operation-42",
+        "graph_run_id": "graph-run-42",
+        "runtime_node": "turn_model",
+    }
+    repository.record_event(
+        {
+            "event": "provider.request",
+            "trace_id": "trace-correlated",
+            "endpoint": "https://api.deepseek.com/v1/chat/completions",
+            "model": "deepseek-v4-flash",
+            "trace_mode": "metadata",
+            **correlation,
+        }
+    )
+    repository.record_event(
+        {
+            "event": "provider.response",
+            "trace_id": "trace-correlated",
+            "endpoint": "https://api.deepseek.com/v1/chat/completions",
+            "response_model": "deepseek-v4-flash",
+            "status_code": 200,
+            "trace_mode": "metadata",
+            **correlation,
+        }
+    )
+
+    client = TestClient(app)
+    login(client, SUPER_EMAIL, SUPER_PASSWORD)
+    response = client.get("/api/admin/provider-traces/trace-correlated")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["operation_id"] == "operation-42"
+    assert payload["graph_run_id"] == "graph-run-42"
+    assert payload["runtime_node"] == "turn_model"
