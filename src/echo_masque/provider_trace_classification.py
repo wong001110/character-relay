@@ -10,10 +10,13 @@ ProviderTraceCategory = Literal[
     "character_turn",
     "media_attention",
     "media_understanding",
+    "image_generation",
     "model_call",
 ]
 _MEDIA_TRACE_MARKER = "[MEDIA_UNDERSTANDING]"
 _MEDIA_ATTENTION_MARKER = "[MEDIA_ATTENTION]"
+_IMAGE_GENERATION_MARKER = "[IMAGE_GENERATION]"
+_IMAGE_GENERATION_RESULT_MARKER = "[IMAGE_GENERATION_RESULT]"
 _MEDIA_ATTENTION_STANCES = {
     "neutral",
     "truthful",
@@ -88,21 +91,24 @@ def _bounded_string(value: object, maximum: int = 300) -> str:
     return value.replace("\x00", "").strip()[:maximum]
 
 
-def provider_trace_media_input(request_json: str) -> dict[str, object]:
-    """Return bounded media metadata embedded by the multimodal provider trace."""
-
-    text = _request_text(_object(request_json)).strip()
-    if not text.startswith(_MEDIA_TRACE_MARKER):
+def _marked_payload(text: str, marker: str) -> dict[str, object]:
+    normalized = text.strip()
+    if not normalized.startswith(marker):
         return {}
-    _, separator, payload = text.partition("\n")
+    _, separator, payload = normalized.partition("\n")
     if not separator or not payload.strip():
         return {}
     try:
         decoded = json.loads(payload)
     except json.JSONDecodeError:
         return {}
-    if not isinstance(decoded, dict):
-        return {}
+    return cast(dict[str, object], decoded) if isinstance(decoded, dict) else {}
+
+
+def provider_trace_media_input(request_json: str) -> dict[str, object]:
+    """Return bounded media metadata embedded by the multimodal provider trace."""
+
+    decoded = _marked_payload(_request_text(_object(request_json)), _MEDIA_TRACE_MARKER)
     allowed = {
         "operation",
         "media_type",
@@ -120,6 +126,41 @@ def provider_trace_media_input(request_json: str) -> dict[str, object]:
         if str(key) in allowed
         and isinstance(value, (str, int, float, bool, type(None)))
     }
+
+
+def provider_trace_image_generation(
+    request_json: str,
+    response_json: str,
+) -> dict[str, object]:
+    """Return bounded non-prompt metadata for one image-generation provider call."""
+
+    request = _marked_payload(
+        _request_text(_object(request_json)),
+        _IMAGE_GENERATION_MARKER,
+    )
+    if not request:
+        return {}
+    result: dict[str, object] = {}
+    request_keys = {
+        "operation",
+        "prompt_chars",
+        "aspect_ratio",
+        "resolution",
+        "image_count",
+        "reference_count",
+    }
+    for key, value in request.items():
+        if key in request_keys and isinstance(value, (str, int, float, bool, type(None))):
+            result[key] = value
+
+    response = _object(response_json)
+    response_text = response.get("response_text")
+    if isinstance(response_text, str):
+        generated = _marked_payload(response_text, _IMAGE_GENERATION_RESULT_MARKER)
+        image_count = generated.get("image_count")
+        if isinstance(image_count, int) and not isinstance(image_count, bool) and image_count >= 0:
+            result["result_count"] = image_count
+    return result
 
 
 def provider_trace_media_attention(
@@ -174,6 +215,8 @@ def provider_trace_category(request_json: str, response_json: str) -> ProviderTr
         return "media_attention"
     if provider_trace_media_input(request_json):
         return "media_understanding"
+    if provider_trace_image_generation(request_json, response_json):
+        return "image_generation"
 
     roles = _string_list(request.get("message_roles"))
     tool_names = provider_trace_tool_names(request_json, response_json)
@@ -195,6 +238,7 @@ def provider_trace_category(request_json: str, response_json: str) -> ProviderTr
 __all__ = [
     "ProviderTraceCategory",
     "provider_trace_category",
+    "provider_trace_image_generation",
     "provider_trace_media_attention",
     "provider_trace_media_input",
     "provider_trace_tool_names",
