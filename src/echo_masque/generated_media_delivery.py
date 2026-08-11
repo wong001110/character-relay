@@ -12,11 +12,13 @@ from pydantic import SecretStr
 
 from echo_masque.credentials import CredentialVault
 from echo_masque.persistence import (
+    ConversationMediaReferenceRepository,
     DeploymentRepository,
     DiscordIdentityRepository,
     GeneratedMediaArtifactRepository,
 )
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
+from echo_masque.persistence.generated_media_models import GeneratedMediaArtifactRecord
 
 _DISCORD_API = "https://discord.com/api/v10"
 _WEBHOOK_SCOPE = "discord_webhook"
@@ -41,6 +43,7 @@ class GeneratedMediaDeliveryService:
         *,
         discord_bot_token: SecretStr | None = None,
         http_transport: httpx.AsyncBaseTransport | None = None,
+        conversation_media_repository: ConversationMediaReferenceRepository | None = None,
     ) -> None:
         self.artifacts = artifact_repository
         self.deployments = deployment_repository
@@ -48,6 +51,10 @@ class GeneratedMediaDeliveryService:
         self.credentials = credential_store
         self.discord_bot_token = discord_bot_token
         self.http_transport = http_transport
+        self.conversation_media = (
+            conversation_media_repository
+            or ConversationMediaReferenceRepository(artifact_repository.database)
+        )
 
     async def deliver(
         self,
@@ -82,6 +89,13 @@ class GeneratedMediaDeliveryService:
                 thread_id=thread_id,
                 message_id=result.message_id,
                 webhook_id="",
+            )
+            self._remember_generated_reference(
+                artifact,
+                deployment,
+                channel_id=channel_id,
+                thread_id=thread_id,
+                result=result,
             )
             return result
 
@@ -135,6 +149,13 @@ class GeneratedMediaDeliveryService:
             thread_id=thread_id,
             message_id=result.message_id,
             webhook_id=binding.webhook_id,
+        )
+        self._remember_generated_reference(
+            artifact,
+            deployment,
+            channel_id=channel_id,
+            thread_id=thread_id,
+            result=result,
         )
         return result
 
@@ -217,6 +238,42 @@ class GeneratedMediaDeliveryService:
                 "Unable to persist generated-image message route: deployment=%s message=%s error=%s",
                 deployment.id,
                 message_id,
+                exc,
+            )
+
+    def _remember_generated_reference(
+        self,
+        artifact: GeneratedMediaArtifactRecord,
+        deployment: CharacterDeploymentRecord,
+        *,
+        channel_id: str,
+        thread_id: str,
+        result: GeneratedMediaDeliveryResult,
+    ) -> None:
+        if not result.attachment_url:
+            return
+        try:
+            self.conversation_media.remember_generated_reference(
+                owner_id=deployment.owner_id,
+                deployment_id=deployment.id,
+                character_card_id=artifact.character_card_id,
+                guild_id=deployment.workspace_id,
+                channel_id=channel_id,
+                thread_id=thread_id,
+                message_id=result.message_id,
+                source_key=f"generated:{artifact.media_key}",
+                label=artifact.filename,
+                source_uri=result.attachment_url,
+            )
+        except Exception as exc:
+            # The image is already delivered. Reference bookkeeping must never cause a retry.
+            logger.warning(
+                (
+                    "Unable to persist generated-image reference: "
+                    "deployment=%s message=%s error=%s"
+                ),
+                deployment.id,
+                result.message_id,
                 exc,
             )
 
