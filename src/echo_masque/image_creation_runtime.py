@@ -5,11 +5,16 @@ from __future__ import annotations
 import base64
 import binascii
 from typing import Literal, Protocol
+from urllib.parse import urljoin
 
 import httpx
 from pydantic import BaseModel, Field, model_validator
 
-from echo_masque.image_generation import ImageGenerationRequest, ImageReference
+from echo_masque.image_generation import (
+    ImageGenerationProvider,
+    ImageGenerationRequest,
+    ImageReference,
+)
 from echo_masque.network_safety import PublicUrlGuard, PublicUrlRejected
 from echo_masque.persistence.conversation_media_repository import ConversationMediaReferenceRepository
 from echo_masque.persistence.generated_media_repository import GeneratedMediaArtifactRepository
@@ -20,6 +25,7 @@ from echo_masque.provider_credentials import (
 from echo_masque.providers.openrouter_image import OpenRouterImageGenerationProvider
 
 _MAX_GENERATED_IMAGE_BYTES = 8 * 1024 * 1024
+_MAX_REDIRECTS = 4
 
 
 class ImageGenerateToolInput(BaseModel):
@@ -39,12 +45,12 @@ class ImageGenerateToolInput(BaseModel):
 
 
 class ImageGenerationProviderFactory(Protocol):
-    def __call__(self, credential: ResolvedProviderCredential) -> OpenRouterImageGenerationProvider: ...
+    def __call__(self, credential: ResolvedProviderCredential) -> ImageGenerationProvider: ...
 
 
 def default_image_generation_provider_factory(
     credential: ResolvedProviderCredential,
-) -> OpenRouterImageGenerationProvider:
+) -> ImageGenerationProvider:
     provider = credential.provider.casefold().strip()
     base_url = credential.base_url.strip()
     if provider == "openrouter":
@@ -132,7 +138,11 @@ class ImageCreationRuntimeService:
         )
         artifact_ids: list[str] = []
         for index, image in enumerate(result.images[:1], start=1):
-            content, mime_type = await self._materialize(image.b64_json, image.url, image.media_type)
+            content, mime_type = await self._materialize(
+                image.b64_json,
+                image.url,
+                image.media_type,
+            )
             extension = self._extension(mime_type)
             media_key = self._media_key(content)
             record = self.artifact_repository.create(
@@ -211,27 +221,8 @@ class ImageCreationRuntimeService:
                 content = base64.b64decode(b64_json, validate=True)
             except (ValueError, binascii.Error) as exc:
                 raise ValueError("Image provider returned invalid base64 image data.") from exc
-            mime_type = declared_mime or self._sniff_mime(content)
         elif url:
-            try:
-                safe_url = await self.url_guard.validate(url)
-            except PublicUrlRejected as exc:
-                raise ValueError("Generated image URL failed public URL validation.") from exc
-            try:
-                async with httpx.AsyncClient(
-                    timeout=httpx.Timeout(30.0),
-                    transport=self.http_transport,
-                    follow_redirects=True,
-                ) as client:
-                    response = await client.get(safe_url)
-            except httpx.HTTPError as exc:
-                raise ValueError("Generated image download failed.") from exc
-            if response.is_error:
-                raise ValueError(
-                    f"Generated image download returned HTTP {response.status_code}."
-                )
-            content = response.content
-            mime_type = response.headers.get("content-type", declared_mime).split(";", 1)[0]
+            content = await self._download_generated_image(url)
         else:
             raise ValueError("Image provider returned neither base64 data nor a URL.")
 
@@ -240,9 +231,40 @@ class ImageCreationRuntimeService:
         sniffed = self._sniff_mime(content)
         if not sniffed:
             raise ValueError("Generated artifact is not a supported image format.")
-        if not mime_type.startswith("image/"):
-            mime_type = sniffed
-        return content, mime_type
+        # Byte signature is authoritative; do not trust a provider's declared MIME blindly.
+        return content, sniffed
+
+    async def _download_generated_image(self, url: str) -> bytes:
+        try:
+            current = await self.url_guard.validate(url)
+        except PublicUrlRejected as exc:
+            raise ValueError("Generated image URL failed public URL validation.") from exc
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(30.0),
+                transport=self.http_transport,
+                follow_redirects=False,
+            ) as client:
+                for redirect_index in range(_MAX_REDIRECTS + 1):
+                    response = await client.get(current)
+                    if response.status_code in {301, 302, 303, 307, 308}:
+                        if redirect_index >= _MAX_REDIRECTS:
+                            raise ValueError("Generated image exceeded the redirect limit.")
+                        location = response.headers.get("location", "").strip()
+                        if not location:
+                            raise ValueError("Generated image redirect omitted a destination.")
+                        current = await self.url_guard.validate(urljoin(current, location))
+                        continue
+                    if response.is_error:
+                        raise ValueError(
+                            f"Generated image download returned HTTP {response.status_code}."
+                        )
+                    if len(response.content) > _MAX_GENERATED_IMAGE_BYTES:
+                        raise ValueError("Generated image exceeds the 8 MB delivery limit.")
+                    return response.content
+        except (httpx.HTTPError, PublicUrlRejected) as exc:
+            raise ValueError("Generated image download failed safely.") from exc
+        raise ValueError("Generated image could not be downloaded.")
 
     @staticmethod
     def _sniff_mime(content: bytes) -> str:
