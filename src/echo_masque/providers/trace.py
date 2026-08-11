@@ -25,6 +25,9 @@ class _ProviderTraceScope:
     owner_id: str = ""
     deployment_id: str = ""
     character_card_id: str = ""
+    operation_id: str = ""
+    graph_run_id: str = ""
+    runtime_node: str = ""
 
 
 _TRACE_SCOPE: ContextVar[_ProviderTraceScope | None] = ContextVar(
@@ -46,6 +49,9 @@ def provider_trace_scope(
     owner_id: str | None = None,
     deployment_id: str | None = None,
     character_card_id: str | None = None,
+    operation_id: str | None = None,
+    graph_run_id: str | None = None,
+    runtime_node: str | None = None,
 ) -> Iterator[None]:
     """Bind account/runtime identifiers to provider traces for the current async context."""
 
@@ -59,6 +65,15 @@ def provider_trace_scope(
             character_card_id.strip()
             if character_card_id is not None
             else current.character_card_id
+        ),
+        operation_id=(
+            operation_id.strip() if operation_id is not None else current.operation_id
+        ),
+        graph_run_id=(
+            graph_run_id.strip() if graph_run_id is not None else current.graph_run_id
+        ),
+        runtime_node=(
+            runtime_node.strip() if runtime_node is not None else current.runtime_node
         ),
     )
     token = _TRACE_SCOPE.set(scope)
@@ -166,6 +181,9 @@ class ProviderTrace:
     owner_id: str = ""
     deployment_id: str = ""
     character_card_id: str = ""
+    operation_id: str = ""
+    graph_run_id: str = ""
+    runtime_node: str = ""
 
     @classmethod
     def start(
@@ -189,6 +207,9 @@ class ProviderTrace:
             owner_id=scope.owner_id,
             deployment_id=scope.deployment_id,
             character_card_id=scope.character_card_id,
+            operation_id=scope.operation_id,
+            graph_run_id=scope.graph_run_id,
+            runtime_node=scope.runtime_node,
         )
         if mode == "off":
             return trace
@@ -299,6 +320,9 @@ class ProviderTrace:
             "owner_id": self.owner_id,
             "deployment_id": self.deployment_id,
             "character_card_id": self.character_card_id,
+            "operation_id": self.operation_id,
+            "graph_run_id": self.graph_run_id,
+            "runtime_node": self.runtime_node,
         }
 
 

@@ -21,11 +21,14 @@ import { EvaluationLab } from "./EvaluationLab";
 import { useI18n } from "./i18n";
 import { MatrixWorkspace } from "./MatrixWorkspace";
 import { PackRunLauncher } from "./PackRunLauncher";
-import { PortalToolbox } from "./PortalToolbox";
+import { PortalDashboard } from "./PortalDashboard";
+import { PortalShell, type PortalSection } from "./PortalShell";
 import { PromptInspector } from "./PromptInspector";
 import { isPublicDemoUser } from "./publicDemo";
+import { SettingsWorkspace } from "./SettingsWorkspace";
 import { TemplateLab } from "./TemplateLab";
 import { TestRoom } from "./TestRoom";
+import { ToolboxWorkspace } from "./ToolboxWorkspace";
 import { WorkspaceHub } from "./WorkspaceHub";
 import "./styles.css";
 import "./polish.css";
@@ -34,6 +37,7 @@ import "./deployments.css";
 import "./provider-traces.css";
 import "./notebook-ui.css";
 import "./admin-runtimes.css";
+import "./portal-v2.css";
 
 const SHOW_ADVANCED_LABS = false;
 
@@ -46,6 +50,7 @@ export default function App() {
   const [cards, setCards] = useState<CharacterCard[]>([]);
   const [targets, setTargets] = useState<TargetView[]>([]);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
+  const [section, setSection] = useState<PortalSection>("dashboard");
   const [activeCard, setActiveCard] = useState<CharacterCard | null>(null);
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<CharacterCard | null>(null);
@@ -53,7 +58,6 @@ export default function App() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [matrixOpen, setMatrixOpen] = useState(false);
-  const [deploymentsOpen, setDeploymentsOpen] = useState(false);
   const [deploymentCharacterId, setDeploymentCharacterId] = useState<string | null>(null);
   const [authoringOpen, setAuthoringOpen] = useState(false);
   const [calibrationOpen, setCalibrationOpen] = useState(false);
@@ -124,6 +128,7 @@ export default function App() {
     setCards([]);
     setTargets([]);
     setRuntime(null);
+    setSection("dashboard");
     setActiveCard(null);
     setCreatorOpen(false);
     setEditingCard(null);
@@ -131,7 +136,6 @@ export default function App() {
     setAdminOpen(false);
     setWorkspaceOpen(false);
     setMatrixOpen(false);
-    setDeploymentsOpen(false);
     setDeploymentCharacterId(null);
     setAuthoringOpen(false);
     setCalibrationOpen(false);
@@ -186,28 +190,35 @@ export default function App() {
     setError(language === "zh-CN" ? "需要管理员账户。" : "An Admin account is required.");
   }
 
-  function openDeployments(characterId: string | null = null) {
-    setDeploymentCharacterId(characterId);
-    setDeploymentsOpen(true);
+  function navigate(next: PortalSection) {
+    setSection(next);
+    setWorkspaceOpen(false);
+    setMatrixOpen(false);
+    if (next !== "characters") {
+      setActiveCard(null);
+      setPromptCard(null);
+    }
+    if (next !== "deployments") setDeploymentCharacterId(null);
   }
 
-  function withAccount(content: ReactNode) {
+  function openDeployments(characterId: string | null = null) {
+    setDeploymentCharacterId(characterId);
+    navigate("deployments");
+  }
+
+  function withShell(content: ReactNode, active: PortalSection = section) {
+    if (!user) return content;
     return (
       <>
-        {content}
-        {user && (
-          <PortalToolbox
-            user={user}
-            publicDemo={publicDemo}
-            onDeployments={() => openDeployments()}
-            onWorkspace={() => setWorkspaceOpen(true)}
-            onMatrix={() => setMatrixOpen(true)}
-            onAdmin={openAdmin}
-            onLogout={logout}
-            onAccountDeleted={accountDeleted}
-          />
-        )}
-        {adminOpen && user?.role === "admin" && (
+        <PortalShell
+          active={active}
+          user={user}
+          publicDemo={publicDemo}
+          onNavigate={navigate}
+        >
+          {content}
+        </PortalShell>
+        {adminOpen && user.role === "admin" && (
           <AdminSettings
             onClose={() => setAdminOpen(false)}
             onUpdated={runtimeUpdated}
@@ -256,49 +267,53 @@ export default function App() {
   }
 
   if (SHOW_ADVANCED_LABS && templateOpen && user) {
-    return withAccount(
+    return withShell(
       <TemplateLab
         cards={cards}
         onClose={() => {
           setTemplateOpen(false);
           void load();
         }}
-      />
+      />,
+      "toolbox"
     );
   }
   if (SHOW_ADVANCED_LABS && coverageOpen && user) {
-    return withAccount(
+    return withShell(
       <CoverageLab
         cards={cards}
         onClose={() => {
           setCoverageOpen(false);
           void load();
         }}
-      />
+      />,
+      "toolbox"
     );
   }
   if (SHOW_ADVANCED_LABS && evaluationOpen && user) {
-    return withAccount(
+    return withShell(
       <EvaluationLab
         onClose={() => {
           setEvaluationOpen(false);
           void load();
         }}
-      />
+      />,
+      "toolbox"
     );
   }
   if (SHOW_ADVANCED_LABS && calibrationOpen && user) {
-    return withAccount(
+    return withShell(
       <CalibrationLab
         onClose={() => {
           setCalibrationOpen(false);
           void load();
         }}
-      />
+      />,
+      "toolbox"
     );
   }
   if (SHOW_ADVANCED_LABS && authoringOpen && user) {
-    return withAccount(
+    return withShell(
       <AuthoringLab
         user={user}
         cards={cards}
@@ -306,22 +321,24 @@ export default function App() {
           setAuthoringOpen(false);
           void load();
         }}
-      />
+      />,
+      "toolbox"
     );
   }
   if (matrixOpen) {
-    return withAccount(
+    return withShell(
       <MatrixWorkspace
         cards={cards}
         onClose={() => {
           setMatrixOpen(false);
           void load();
         }}
-      />
+      />,
+      "toolbox"
     );
   }
   if (workspaceOpen) {
-    return withAccount(
+    return withShell(
       <div className={publicDemo ? "demo-read-only" : undefined}>
         <WorkspaceHub
           cards={cards}
@@ -331,27 +348,73 @@ export default function App() {
           }}
         />
         <PackRunLauncher cards={cards} />
-      </div>
+      </div>,
+      "toolbox"
     );
   }
-  if (deploymentsOpen) {
-    return withAccount(
+
+  const editingTarget = editingCard
+    ? targets.find((item) => item.id === editingCard.target_id) ?? null
+    : null;
+
+  if (section === "dashboard") {
+    return withShell(
+      <PortalDashboard
+        cards={cards}
+        runtime={runtime}
+        onNavigate={navigate}
+        onCreateCharacter={() => {
+          setSection("characters");
+          setEditingCard(null);
+          setCreatorOpen(true);
+        }}
+      />,
+      "dashboard"
+    );
+  }
+
+  if (section === "deployments") {
+    return withShell(
       <DeploymentCenter
         cards={cards}
         initialCharacterId={deploymentCharacterId}
         demoMode={publicDemo}
-        onClose={() => {
-          setDeploymentsOpen(false);
-          setDeploymentCharacterId(null);
-        }}
-      />
+        onClose={() => navigate("characters")}
+      />,
+      "deployments"
+    );
+  }
+
+  if (section === "toolbox") {
+    return withShell(
+      <ToolboxWorkspace
+        cards={cards}
+        admin={user?.role === "admin"}
+        publicDemo={publicDemo}
+        onOpenLab={() => setWorkspaceOpen(true)}
+        onOpenMatrix={() => setMatrixOpen(true)}
+      />,
+      "toolbox"
+    );
+  }
+
+  if (section === "settings" && user) {
+    return withShell(
+      <SettingsWorkspace
+        user={user}
+        publicDemo={publicDemo}
+        onAdmin={openAdmin}
+        onLogout={logout}
+        onAccountDeleted={accountDeleted}
+      />,
+      "settings"
     );
   }
 
   if (activeCard) {
     const target = targets.find((item) => item.id === activeCard.target_id);
     if (!target) {
-      return withAccount(
+      return withShell(
         <main className="room-page">
           <section className="paper-sheet missing-binding">
             <h1>{t("app.bindingMissingTitle")}</h1>
@@ -360,24 +423,23 @@ export default function App() {
               {t("app.returnShelf")}
             </button>
           </section>
-        </main>
+        </main>,
+        "characters"
       );
     }
-    return withAccount(
+    return withShell(
       <TestRoom
         card={activeCard}
         target={target}
         runtime={runtime}
         onBack={() => setActiveCard(null)}
         onAdmin={openAdmin}
-      />
+      />,
+      "characters"
     );
   }
 
-  const editingTarget = editingCard
-    ? targets.find((item) => item.id === editingCard.target_id) ?? null
-    : null;
-  return withAccount(
+  return withShell(
     <>
       <CharacterShelf
         cards={cards}
@@ -410,6 +472,7 @@ export default function App() {
       {promptCard && (
         <PromptInspector card={promptCard} onClose={() => setPromptCard(null)} />
       )}
-    </>
+    </>,
+    "characters"
   );
 }

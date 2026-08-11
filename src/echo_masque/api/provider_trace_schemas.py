@@ -100,6 +100,9 @@ class ProviderTraceSummary(BaseModel):
     owner_id: str
     deployment_id: str
     character_card_id: str
+    operation_id: str
+    graph_run_id: str
+    runtime_node: str
     trace_mode: str
     endpoint: str
     request_model: str
@@ -133,6 +136,9 @@ class ProviderTraceSummary(BaseModel):
             owner_id=_scope_value(record, "owner_id"),
             deployment_id=_scope_value(record, "deployment_id"),
             character_card_id=_scope_value(record, "character_card_id"),
+            operation_id=_scope_value(record, "operation_id"),
+            graph_run_id=_scope_value(record, "graph_run_id"),
+            runtime_node=_scope_value(record, "runtime_node"),
             trace_mode=record.trace_mode,
             endpoint=record.endpoint,
             request_model=record.request_model,

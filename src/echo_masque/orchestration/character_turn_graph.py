@@ -206,7 +206,16 @@ def _build_context(
     if context.resolved is None:
         raise RuntimeError("Character Turn graph lost resolved runtime dependencies.")
     try:
-        prepared = context.runtime.prepare_character_turn(context.resolved)
+        deployment = context.resolved.deployment
+        with provider_trace_scope(
+            owner_id=deployment.owner_id,
+            deployment_id=deployment.id,
+            character_card_id=context.resolved.card.id,
+            operation_id=state.get("operation_id", ""),
+            graph_run_id=state.get("graph_run_id", ""),
+            runtime_node="turn_context",
+        ):
+            prepared = context.runtime.prepare_character_turn(context.resolved)
     except Exception as exc:
         _emit(
             state,
@@ -257,6 +266,9 @@ async def _invoke_model(
             owner_id=deployment.owner_id,
             deployment_id=deployment.id,
             character_card_id=prepared.resolved.card.id,
+            operation_id=state.get("operation_id", ""),
+            graph_run_id=state.get("graph_run_id", ""),
+            runtime_node="turn_model",
         ):
             if context.tool_turn is None:
                 context.tool_turn = await context.runtime.start_character_tool_turn(prepared)
@@ -405,6 +417,9 @@ async def _resolve_smart_output(
             owner_id=deployment.owner_id,
             deployment_id=deployment.id,
             character_card_id=context.prepared.resolved.card.id,
+            operation_id=state.get("operation_id", ""),
+            graph_run_id=state.get("graph_run_id", ""),
+            runtime_node="turn_smart_output",
         ):
             output = await context.runtime.resolve_character_output(
                 context.prepared,
