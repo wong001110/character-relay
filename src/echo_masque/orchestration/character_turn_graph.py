@@ -422,6 +422,23 @@ async def _resolve_smart_output(
         )
         raise
     context.output = output
+
+    epistemic_metadata: tuple[tuple[str, str], ...] = ()
+    metadata_provider = getattr(context.runtime, "epistemic_trace_metadata", None)
+    if callable(metadata_provider):
+        candidate = metadata_provider(context.prepared)
+        if isinstance(candidate, tuple):
+            epistemic_metadata = candidate
+    if epistemic_metadata:
+        _emit(
+            state,
+            context,
+            node_name="turn_media_epistemic",
+            node_kind="state",
+            status="completed",
+            metadata=epistemic_metadata,
+        )
+
     _emit(
         state,
         context,
@@ -574,10 +591,7 @@ class CharacterTurnGraphRunner:
                 and context.invite_turn_state.proposals
                 else None
             )
-            if (
-                proposal is not None
-                and proposal.candidate_deployment_id in mentioned
-            ):
+            if proposal is not None and proposal.candidate_deployment_id in mentioned:
                 invite_candidate = proposal.candidate_deployment_id
         return CharacterTurnGraphResult(
             state=result,
