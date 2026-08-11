@@ -1,4 +1,4 @@
-"""Persistence and deterministic retrieval for Character Relay RAG knowledge."""
+"""Persistence and hybrid retrieval for Character Relay RAG knowledge."""
 
 from __future__ import annotations
 
@@ -10,10 +10,12 @@ from uuid import uuid4
 from sqlalchemy import delete, select, update
 from sqlalchemy.engine import CursorResult
 
+from echo_masque.config import get_settings
 from echo_masque.knowledge_retrieval import (
     KnowledgeCandidate,
     KnowledgeResource,
     rank_knowledge_resources,
+    score_sparse_knowledge_resources,
 )
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.knowledge_models import (
@@ -22,6 +24,17 @@ from echo_masque.persistence.knowledge_models import (
     KnowledgeDocumentRecord,
 )
 from echo_masque.persistence.models import CharacterCardRecord
+from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
+from echo_masque.semantic_participation import (
+    FastEmbedSemanticEncoder,
+    SemanticEmbeddingUnavailable,
+    SemanticEncoder,
+    _cosine as dense_cosine,
+)
+
+_KNOWLEDGE_VECTOR_NAMESPACE = "knowledge-chunk"
+_DENSE_FLOOR = 0.35
+_HYBRID_MINIMUM = 0.12
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,10 +102,146 @@ def chunk_document(
 
 
 class KnowledgeRepository:
-    """Owner-scoped Knowledge Base CRUD plus RAG V1 sparse retrieval."""
+    """Owner-scoped Knowledge Base CRUD plus sparse+dense hybrid RAG retrieval."""
 
-    def __init__(self, database: Database) -> None:
+    def __init__(
+        self,
+        database: Database,
+        *,
+        semantic_encoder: SemanticEncoder | None = None,
+        semantic_enabled: bool | None = None,
+    ) -> None:
         self.database = database
+        settings = get_settings()
+        self._settings = settings
+        self._semantic_encoder = semantic_encoder
+        self._semantic_enabled = (
+            semantic_enabled
+            if semantic_enabled is not None
+            else (
+                settings.semantic_embedding_runtime_enabled
+                and settings.knowledge_semantic_retrieval_enabled
+            )
+        )
+        self._semantic_vectors = SemanticVectorRepository(database)
+
+    def _encoder(self) -> SemanticEncoder:
+        if self._semantic_encoder is None:
+            if not self._semantic_enabled:
+                raise SemanticEmbeddingUnavailable("Semantic Knowledge retrieval is disabled.")
+            self._semantic_encoder = FastEmbedSemanticEncoder(
+                model_name=self._settings.semantic_embedding_model,
+                model_file=self._settings.semantic_embedding_model_file,
+                cache_dir=self._settings.semantic_embedding_cache_dir,
+                dimension=self._settings.semantic_embedding_dimension,
+            )
+        return self._semantic_encoder
+
+    @staticmethod
+    def _resource_semantic_text(resource: KnowledgeResource) -> str:
+        return f"Title: {resource.document_title}\n{resource.content}"[:20_000]
+
+    def _ensure_resource_vector(self, owner_id: str, resource: KnowledgeResource) -> list[float]:
+        encoder = self._encoder()
+        semantic_text = self._resource_semantic_text(resource)
+        source_hash = self._semantic_vectors.source_hash(
+            semantic_text,
+            encoder.model_name,
+            encoder.dimension,
+        )
+        cached = self._semantic_vectors.get(
+            owner_id=owner_id,
+            namespace=_KNOWLEDGE_VECTOR_NAMESPACE,
+            resource_id=resource.chunk_id,
+            model_name=encoder.model_name,
+            dimension=encoder.dimension,
+            source_hash=source_hash,
+        )
+        if cached is not None:
+            return cached
+        vector = encoder.embed_passage(semantic_text)
+        self._semantic_vectors.upsert(
+            owner_id=owner_id,
+            namespace=_KNOWLEDGE_VECTOR_NAMESPACE,
+            resource_id=resource.chunk_id,
+            semantic_text=semantic_text,
+            model_name=encoder.model_name,
+            dimension=encoder.dimension,
+            vector=vector,
+        )
+        return vector
+
+    def _hybrid_rank(
+        self,
+        *,
+        owner_id: str,
+        resources: list[KnowledgeResource],
+        query: str,
+        top_k: int,
+    ) -> list[KnowledgeCandidate]:
+        if not self._semantic_enabled:
+            return rank_knowledge_resources(resources, query=query, top_k=top_k)
+        sparse = score_sparse_knowledge_resources(resources, query=query)
+        if not sparse:
+            return []
+        try:
+            encoder = self._encoder()
+            query_vector = encoder.embed_query(query)
+        except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
+            return rank_knowledge_resources(resources, query=query, top_k=top_k)
+
+        ranked: list[KnowledgeCandidate] = []
+        dense_count = 0
+        for candidate in sparse:
+            try:
+                vector = self._ensure_resource_vector(owner_id, candidate.resource)
+            except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
+                continue
+            dense_raw = dense_cosine(query_vector, vector)
+            dense_count += 1
+            dense_normalized = max(
+                0.0,
+                min(1.0, (dense_raw - _DENSE_FLOOR) / (1.0 - _DENSE_FLOOR)),
+            )
+            exact = candidate.signals.get("exact", 0.0)
+            hybrid = round(
+                dense_normalized * 0.68 + candidate.score * 0.27 + exact * 0.05,
+                6,
+            )
+            if hybrid < _HYBRID_MINIMUM:
+                continue
+            ranked.append(
+                KnowledgeCandidate(
+                    resource=candidate.resource,
+                    score=hybrid,
+                    signals={
+                        **candidate.signals,
+                        "sparse": candidate.score,
+                        "dense": round(dense_raw, 6),
+                        "dense_normalized": round(dense_normalized, 6),
+                    },
+                )
+            )
+        if dense_count == 0:
+            return rank_knowledge_resources(resources, query=query, top_k=top_k)
+        ranked.sort(
+            key=lambda item: (
+                -item.score,
+                -item.signals.get("dense", 0.0),
+                item.resource.document_title.casefold(),
+                item.resource.chunk_index,
+                item.resource.chunk_id,
+            )
+        )
+        return ranked[: max(1, min(top_k, 8))]
+
+    def _delete_chunk_vectors(self, owner_id: str, chunk_ids: list[str]) -> None:
+        for chunk_id in chunk_ids:
+            self._semantic_vectors.delete_resource(
+                owner_id=owner_id,
+                namespace=_KNOWLEDGE_VECTOR_NAMESPACE,
+                resource_id=chunk_id,
+            )
 
     def _require_character(self, character_card_id: str, owner_id: str) -> None:
         if not character_card_id:
@@ -238,6 +387,14 @@ class KnowledgeRepository:
             record = session.get(KnowledgeBaseRecord, base_id)
             if record is None or record.owner_id != owner_id:
                 return False
+            chunk_ids = list(
+                session.scalars(
+                    select(KnowledgeChunkRecord.id).where(
+                        KnowledgeChunkRecord.owner_id == owner_id,
+                        KnowledgeChunkRecord.knowledge_base_id == base_id,
+                    )
+                )
+            )
             session.execute(
                 delete(KnowledgeChunkRecord).where(
                     KnowledgeChunkRecord.owner_id == owner_id,
@@ -252,7 +409,8 @@ class KnowledgeRepository:
             )
             session.delete(record)
             session.commit()
-            return True
+        self._delete_chunk_vectors(owner_id, chunk_ids)
+        return True
 
     def create_document(
         self,
@@ -328,6 +486,14 @@ class KnowledgeRepository:
             record = session.get(KnowledgeDocumentRecord, document_id)
             if record is None or record.owner_id != owner_id:
                 return False
+            chunk_ids = list(
+                session.scalars(
+                    select(KnowledgeChunkRecord.id).where(
+                        KnowledgeChunkRecord.owner_id == owner_id,
+                        KnowledgeChunkRecord.document_id == document_id,
+                    )
+                )
+            )
             session.execute(
                 delete(KnowledgeChunkRecord).where(
                     KnowledgeChunkRecord.owner_id == owner_id,
@@ -336,7 +502,8 @@ class KnowledgeRepository:
             )
             session.delete(record)
             session.commit()
-            return True
+        self._delete_chunk_vectors(owner_id, chunk_ids)
+        return True
 
     @staticmethod
     def _base_matches_turn(
@@ -418,7 +585,12 @@ class KnowledgeRepository:
             )
             for item in records
         ]
-        ranked = rank_knowledge_resources(resources, query=query, top_k=top_k)
+        ranked = self._hybrid_rank(
+            owner_id=owner_id,
+            resources=resources,
+            query=query,
+            top_k=top_k,
+        )
         return KnowledgeRetrievalResult(
             eligible_base_count=len(eligible),
             candidate_chunk_count=len(resources),
@@ -437,11 +609,16 @@ class KnowledgeRepository:
                 delete(KnowledgeBaseRecord).where(KnowledgeBaseRecord.owner_id == owner_id)
             )
             session.commit()
-            return {
+            result = {
                 "knowledge_chunks": _cursor_rowcount(chunk_result),
                 "knowledge_documents": _cursor_rowcount(document_result),
                 "knowledge_bases": _cursor_rowcount(base_result),
             }
+        self._semantic_vectors.delete_namespace(
+            owner_id=owner_id,
+            namespace=_KNOWLEDGE_VECTOR_NAMESPACE,
+        )
+        return result
 
     def claim_owner(self, source_owner_id: str, target_owner_id: str) -> dict[str, int]:
         with self.database.session() as session:
@@ -461,8 +638,15 @@ class KnowledgeRepository:
                 .values(owner_id=target_owner_id)
             )
             session.commit()
-            return {
+            result = {
                 "knowledge_bases": _cursor_rowcount(base_result),
                 "knowledge_documents": _cursor_rowcount(document_result),
                 "knowledge_chunks": _cursor_rowcount(chunk_result),
             }
+        # Vectors are a cache. Drop the old owner-scoped copies and lazily rebuild them for
+        # the claimed owner rather than coupling account migration to vector persistence.
+        self._semantic_vectors.delete_namespace(
+            owner_id=source_owner_id,
+            namespace=_KNOWLEDGE_VECTOR_NAMESPACE,
+        )
+        return result

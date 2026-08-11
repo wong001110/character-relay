@@ -10,9 +10,12 @@ from sqlalchemy import delete, select, update
 
 from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
 
 if TYPE_CHECKING:
     from echo_masque.live_media import LiveMediaContext
+
+_MEDIA_VECTOR_NAMESPACE = "conversation-media"
 
 
 class ConversationMediaReferenceRepository:
@@ -26,6 +29,7 @@ class ConversationMediaReferenceRepository:
     ) -> None:
         self.database = database
         self.ttl = ttl
+        self.semantic_vectors = SemanticVectorRepository(database)
 
     def remember(
         self,
@@ -198,7 +202,7 @@ class ConversationMediaReferenceRepository:
                         ConversationMediaReferenceRecord.expires_at > current,
                     )
                     .order_by(ConversationMediaReferenceRecord.created_at.desc())
-                    .limit(max(1, min(limit, 10)))
+                    .limit(max(1, min(limit, 20)))
                 )
             )
 
@@ -206,23 +210,30 @@ class ConversationMediaReferenceRepository:
         current = now or datetime.now(UTC)
         bounded = max(1, min(limit, 5000))
         with self.database.session() as session:
-            ids = list(
+            records = list(
                 session.scalars(
-                    select(ConversationMediaReferenceRecord.id)
+                    select(ConversationMediaReferenceRecord)
                     .where(ConversationMediaReferenceRecord.expires_at <= current)
                     .order_by(ConversationMediaReferenceRecord.expires_at.asc())
                     .limit(bounded)
                 )
             )
-            if not ids:
+            if not records:
                 return 0
+            ids = [item.id for item in records]
             session.execute(
                 delete(ConversationMediaReferenceRecord).where(
                     ConversationMediaReferenceRecord.id.in_(ids)
                 )
             )
             session.commit()
-            return len(ids)
+        for item in records:
+            self.semantic_vectors.delete_resource(
+                owner_id=item.owner_id,
+                namespace=_MEDIA_VECTOR_NAMESPACE,
+                resource_id=item.id,
+            )
+        return len(records)
 
     def claim_owner(self, source_owner_id: str, target_owner_id: str) -> int:
         with self.database.session() as session:
@@ -232,7 +243,13 @@ class ConversationMediaReferenceRepository:
                 .values(owner_id=target_owner_id)
             )
             session.commit()
-            return int(getattr(result, "rowcount", 0) or 0)
+            count = int(getattr(result, "rowcount", 0) or 0)
+        # Semantic vectors are a cache; rebuild them lazily for the claimed owner.
+        self.semantic_vectors.delete_namespace(
+            owner_id=source_owner_id,
+            namespace=_MEDIA_VECTOR_NAMESPACE,
+        )
+        return count
 
     def delete_owner(self, owner_id: str) -> int:
         with self.database.session() as session:
@@ -242,4 +259,9 @@ class ConversationMediaReferenceRepository:
                 )
             )
             session.commit()
-            return int(getattr(result, "rowcount", 0) or 0)
+            count = int(getattr(result, "rowcount", 0) or 0)
+        self.semantic_vectors.delete_namespace(
+            owner_id=owner_id,
+            namespace=_MEDIA_VECTOR_NAMESPACE,
+        )
+        return count

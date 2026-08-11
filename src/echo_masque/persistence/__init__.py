@@ -106,6 +106,8 @@ from echo_masque.persistence.runtime_durability_repository import (
 )
 from echo_masque.persistence.scheduled_reminder_models import ScheduledReminderRecord
 from echo_masque.persistence.scheduled_reminder_repository import ScheduledReminderRepository
+from echo_masque.persistence.semantic_vector_models import SemanticVectorRecord
+from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
 from echo_masque.persistence.smart_participation_models import (
     CharacterSemanticProfileRecord,
     SmartParticipationFeedbackRecord,
@@ -202,6 +204,8 @@ __all__ = [
     "RuntimeTraceRunRecord",
     "ScheduledReminderRecord",
     "ScheduledReminderRepository",
+    "SemanticVectorRecord",
+    "SemanticVectorRepository",
     "SmartParticipationFeedbackRecord",
     "SmartParticipationProfileRecord",
     "SmartParticipationRepository",

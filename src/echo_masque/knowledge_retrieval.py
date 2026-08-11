@@ -1,4 +1,4 @@
-"""Deterministic sparse retrieval for Character Relay RAG V1."""
+"""Deterministic sparse and hybrid-friendly retrieval helpers for Character Relay RAG."""
 
 from __future__ import annotations
 
@@ -43,14 +43,12 @@ def _overlap(left: set[str], right: set[str]) -> float:
     return len(left & right) / math.sqrt(len(left) * len(right))
 
 
-def rank_knowledge_resources(
+def score_sparse_knowledge_resources(
     resources: list[KnowledgeResource],
     *,
     query: str,
-    top_k: int = 4,
-    minimum_score: float = 0.05,
 ) -> list[KnowledgeCandidate]:
-    """Rank already-authorized knowledge chunks without an LLM or vector database."""
+    """Score all authorized chunks so a dense retriever can hybrid-rerank them later."""
 
     normalized_query = normalize_text(query)
     query_counter = Counter(semantic_tokens(query))
@@ -58,7 +56,7 @@ def rank_knowledge_resources(
     if not query_tokens:
         return []
 
-    ranked: list[KnowledgeCandidate] = []
+    scored: list[KnowledgeCandidate] = []
     for resource in resources:
         document = f"{resource.document_title} {resource.content}"
         document_counter = Counter(semantic_tokens(document))
@@ -68,11 +66,8 @@ def rank_knowledge_resources(
         exact = 0.0
         if normalized_query and normalized_query in normalized_document:
             exact = 1.0
-        score = semantic * 0.72 + overlap * 0.18 + exact * 0.10
-        score = round(score, 6)
-        if score < minimum_score:
-            continue
-        ranked.append(
+        score = round(semantic * 0.72 + overlap * 0.18 + exact * 0.10, 6)
+        scored.append(
             KnowledgeCandidate(
                 resource=resource,
                 score=score,
@@ -83,7 +78,23 @@ def rank_knowledge_resources(
                 },
             )
         )
+    return scored
 
+
+def rank_knowledge_resources(
+    resources: list[KnowledgeResource],
+    *,
+    query: str,
+    top_k: int = 4,
+    minimum_score: float = 0.05,
+) -> list[KnowledgeCandidate]:
+    """Rank already-authorized knowledge chunks without an LLM or vector database."""
+
+    ranked = [
+        item
+        for item in score_sparse_knowledge_resources(resources, query=query)
+        if item.score >= minimum_score
+    ]
     ranked.sort(
         key=lambda item: (
             -item.score,
