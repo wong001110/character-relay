@@ -41,13 +41,21 @@ class Settings(BaseSettings):
     # modes keeps already-migrated workflows enabled; "off" is the global rollback state.
     langgraph_mode: LangGraphMode = "off"
 
-    # Smart Participation V3 semantic relevance. Production explicitly enables this so
-    # tests and source checkouts never download a model merely by creating a Character Card.
-    semantic_participation_enabled: bool = False
+    # Shared semantic embedding runtime. semantic_embedding_enabled allows Knowledge RAG and
+    # Media Recall to use the same local multilingual E5 model without requiring Smart
+    # Participation itself to be enabled. Existing deployments that already enable semantic
+    # participation also keep the shared embedding runtime available for backward compatibility.
+    semantic_embedding_enabled: bool = False
     semantic_embedding_model: str = "intfloat/multilingual-e5-small"
     semantic_embedding_model_file: str = "onnx/model_O4.onnx"
     semantic_embedding_dimension: int = 384
     semantic_embedding_cache_dir: str = "./.cache/character-relay/embeddings"
+    knowledge_semantic_retrieval_enabled: bool = True
+    media_semantic_recall_enabled: bool = True
+
+    # Smart Participation V3 semantic relevance. Production explicitly enables this so
+    # tests and source checkouts never download a model merely by creating a Character Card.
+    semantic_participation_enabled: bool = False
 
     # Browser Capability. Chromium launches lazily on first use, stays warm briefly for
     # repeated search/read calls, then closes automatically when idle or after hard limits.
@@ -119,6 +127,12 @@ class Settings(BaseSettings):
         """Return whether the cumulative rollout mode includes a workflow."""
 
         return _LANGGRAPH_MODE_RANK[self.langgraph_mode] >= _LANGGRAPH_MODE_RANK[workflow]
+
+    @property
+    def semantic_embedding_runtime_enabled(self) -> bool:
+        """Keep old semantic-participation deployments compatible with shared embeddings."""
+
+        return self.semantic_embedding_enabled or self.semantic_participation_enabled
 
 
 @lru_cache
