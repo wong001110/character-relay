@@ -1,0 +1,982 @@
+/*
+ * Deployment scrapbook pages
+ *
+ * The Server Notebook is intentionally a physical-paper workspace rather than a
+ * dashboard.  The outer tabs belong to the paper edge; each page is one large
+ * sheet with smaller notes, slips and taped cards placed on top of it.
+ */
+
+/* -------------------------------------------------------------------------- */
+/* Notebook sheet + physical side tabs                                        */
+/* -------------------------------------------------------------------------- */
+
+.portal-v2-page-frame .server-notebook-shell {
+  grid-template-columns: 174px minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+  margin-top: 18px;
+}
+
+.portal-v2-page-frame .server-notebook-tabs {
+  position: sticky;
+  top: 92px;
+  z-index: 8;
+  align-self: start;
+  padding: 31px 0 24px 4px;
+  overflow: visible;
+}
+
+.portal-v2-page-frame .server-notebook-caption {
+  margin: 0 0 17px 12px;
+  color: #8c7898;
+  font: 700 .58rem var(--portal-pencil);
+  letter-spacing: .14em;
+  transform: rotate(-1.2deg);
+}
+
+.portal-v2-page-frame .server-notebook-tabs > button {
+  position: relative;
+  width: calc(100% + 8px);
+  min-height: 72px;
+  margin: 0 0 9px;
+  padding: 12px 23px 12px 15px;
+  border: 1px solid rgba(91, 72, 105, .16);
+  border-right: 0;
+  border-radius: 12px 0 0 12px;
+  clip-path: polygon(0 3%, 96% 0, 100% 9%, 99% 92%, 95% 100%, 2% 98%);
+  box-shadow: -4px 6px 12px rgba(65, 49, 76, .06), inset -8px 0 10px rgba(255,255,255,.17);
+  transform: translateX(7px) rotate(-.35deg);
+}
+
+.portal-v2-page-frame .server-notebook-tabs > button:nth-of-type(1) {
+  background: #e8ddff;
+}
+
+.portal-v2-page-frame .server-notebook-tabs > button:nth-of-type(2) {
+  background: #dcefe5;
+  transform: translateX(13px) rotate(.38deg);
+}
+
+.portal-v2-page-frame .server-notebook-tabs > button:nth-of-type(3) {
+  background: #f8dfe8;
+  transform: translateX(8px) rotate(-.3deg);
+}
+
+.portal-v2-page-frame .server-notebook-tabs > button::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: -9px;
+  bottom: 8px;
+  width: 16px;
+  background: inherit;
+  filter: brightness(.995);
+  box-shadow: 5px 1px 7px rgba(68, 52, 78, .045);
+}
+
+.portal-v2-page-frame .server-notebook-tabs > button::after {
+  content: "";
+  position: absolute;
+  right: 16px;
+  top: -5px;
+  width: 41px;
+  height: 10px;
+  background: rgba(255,255,255,.28);
+  transform: rotate(3deg);
+  border-left: 1px solid rgba(99,82,115,.05);
+  border-right: 1px solid rgba(99,82,115,.05);
+}
+
+.portal-v2-page-frame .server-notebook-tabs > button.is-active {
+  width: calc(100% + 24px);
+  z-index: 10;
+  color: #4e3d66;
+  border-color: rgba(100, 76, 134, .25);
+  box-shadow: -5px 8px 15px rgba(67, 50, 79, .075), 15px 0 0 #fffaf0;
+  transform: translateX(5px) rotate(0deg);
+}
+
+.portal-v2-page-frame .server-notebook-tabs > button:nth-of-type(2).is-active {
+  transform: translateX(9px) rotate(0deg);
+}
+
+.portal-v2-page-frame .server-notebook-tabs > button:nth-of-type(3).is-active {
+  transform: translateX(5px) rotate(0deg);
+}
+
+.portal-v2-page-frame .server-notebook-tabs > button strong {
+  font-size: .76rem;
+}
+
+.portal-v2-page-frame .server-notebook-tabs > button small {
+  min-width: 24px;
+  padding: 3px 6px;
+  border: 0;
+  background: rgba(255,255,255,.56);
+}
+
+.portal-v2-page-frame .server-notebook-hint {
+  margin: 18px 16px 0 11px;
+  color: #9a899e;
+  font: .56rem/1.45 var(--portal-pencil);
+  transform: rotate(-1deg);
+}
+
+.portal-v2-page-frame .server-notebook-content {
+  position: relative;
+  z-index: 3;
+  min-width: 0;
+  min-height: 690px;
+  padding: 27px 30px 42px;
+  border: 1px solid rgba(94, 74, 108, .14);
+  border-radius: 2px 15px 15px 2px;
+  background:
+    linear-gradient(rgba(255,250,240,.93), rgba(255,250,240,.93)),
+    repeating-linear-gradient(0deg, transparent 0 31px, rgba(101, 78, 114, .052) 32px),
+    repeating-linear-gradient(90deg, transparent 0 79px, rgba(176, 123, 135, .018) 80px);
+  box-shadow:
+    10px 11px 0 rgba(235,225,209,.72),
+    0 16px 32px rgba(72, 54, 82, .075);
+}
+
+.portal-v2-page-frame .server-notebook-content::before {
+  content: "";
+  position: absolute;
+  inset: 8px -8px -8px 8px;
+  z-index: -1;
+  border: 1px solid rgba(103, 82, 113, .08);
+  background: #f7efe3;
+  transform: rotate(.12deg);
+}
+
+/* All inner page panels sit directly on this notebook sheet. */
+.portal-v2-page-frame .server-notebook-content > .knowledge-panel,
+.portal-v2-page-frame .server-notebook-content > .interaction-notebook {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Characters / Deployment List wireframe                                     */
+/* -------------------------------------------------------------------------- */
+
+/* Flatten the old nested product panels into the single notebook sheet. */
+.portal-v2-page-frame .server-notebook-content:has(> .deployment-summary-grid) {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: 17px;
+  row-gap: 15px;
+  align-content: start;
+}
+
+.portal-v2-page-frame .server-notebook-content:has(> .deployment-summary-grid) > .deployment-layout,
+.portal-v2-page-frame .server-notebook-content:has(> .deployment-summary-grid) .deployment-main,
+.portal-v2-page-frame .server-notebook-content:has(> .deployment-summary-grid) .deployment-list-sheet {
+  display: contents;
+}
+
+.portal-v2-page-frame .server-notebook-content:has(> .deployment-summary-grid) .deployment-list-heading {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-height: 72px;
+  margin: 0 0 2px;
+  padding: 1px 3px 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 16px;
+  align-items: end;
+  border: 0;
+  border-bottom: 1px dashed rgba(103, 81, 113, .16);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-list-heading .tape-label {
+  margin: -14px 0 7px 2px;
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-list-heading h2 {
+  margin: 0;
+  font-size: clamp(1.42rem, 2vw, 1.82rem);
+  line-height: 1.08;
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-list-heading > span {
+  align-self: center;
+  padding-top: 10px;
+  color: #8a798f;
+  font: 700 .65rem var(--portal-pencil);
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-list-heading .ink-button {
+  align-self: center;
+  padding: 9px 13px;
+  border-radius: 999px 999px 999px 8px;
+  transform: rotate(.4deg);
+  box-shadow: 3px 4px 0 rgba(76, 57, 89, .07);
+}
+
+/* Summary notes are four separate slips, not one dashboard KPI bar. */
+.portal-v2-page-frame .server-notebook-content > .deployment-summary-grid {
+  grid-column: 1 / 10;
+  grid-row: 2;
+  width: auto;
+  max-width: none;
+  margin: 2px 0 11px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 13px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-summary-card {
+  position: relative;
+  min-height: 105px;
+  padding: 20px 15px 13px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  border: 1px solid rgba(118, 91, 94, .12);
+  border-radius: 3px 8px 5px 3px;
+  background: #fff0bd !important;
+  box-shadow: 4px 6px 0 rgba(75, 57, 80, .035), 0 7px 14px rgba(72, 54, 76, .04) !important;
+  transform: rotate(-.5deg);
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-summary-card:nth-child(2) {
+  background: #eadfff !important;
+  transform: rotate(.45deg);
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-summary-card:nth-child(3) {
+  background: #dcefe5 !important;
+  transform: rotate(-.25deg);
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-summary-card:nth-child(4) {
+  background: #f8dfe7 !important;
+  transform: rotate(.35deg);
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-summary-card::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  width: 48px;
+  height: 14px;
+  transform: translateX(-50%) rotate(2deg);
+  background: rgba(220, 194, 141, .42);
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-summary-card:nth-child(2)::before {
+  background: rgba(198, 181, 236, .5);
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-summary-card:nth-child(3)::before {
+  background: rgba(172, 211, 192, .52);
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-summary-card:nth-child(4)::before {
+  background: rgba(235, 183, 200, .5);
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-summary-card span {
+  font-size: .58rem;
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-summary-card strong {
+  font-size: 1.55rem;
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-summary-card small {
+  font-size: .56rem;
+}
+
+/* Filter is a compact tool slip tucked into the upper-right corner. */
+.portal-v2-page-frame .server-notebook-content .deployment-filters {
+  grid-column: 10 / -1;
+  grid-row: 2;
+  align-self: center;
+  justify-self: stretch;
+  width: auto;
+  margin: 2px 0 11px;
+  padding: 13px 13px 11px;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  border: 1px solid rgba(105, 81, 128, .13);
+  border-radius: 3px 10px 5px 3px;
+  background: #e8ddff;
+  box-shadow: 4px 6px 0 rgba(76, 58, 89, .035);
+  transform: rotate(.18deg);
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-filters::before {
+  content: "FILTER NOTE";
+  display: block;
+  grid-column: 1 / -1;
+  margin: -5px 0 0;
+  color: #8d789d;
+  font: 700 .52rem var(--portal-pencil);
+  letter-spacing: .1em;
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-filters label {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-filters select {
+  min-height: 34px;
+  border-radius: 7px;
+  background: rgba(255,255,255,.65);
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-table {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px 17px;
+  margin-top: 9px;
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-row {
+  min-width: 0;
+  min-height: 258px;
+  border-radius: 4px 10px 6px 4px;
+  box-shadow: 7px 9px 0 rgba(78, 61, 86, .035), 0 10px 20px rgba(70, 53, 79, .05);
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-row:nth-child(4n + 2) {
+  transform: rotate(-.35deg);
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-row:nth-child(4n + 3) {
+  transform: translateY(2px) rotate(.28deg);
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-row:nth-child(4n + 4) {
+  transform: rotate(-.18deg);
+}
+
+.portal-v2-page-frame .server-notebook-content .pagination {
+  grid-column: 1 / -1;
+  grid-row: 4;
+}
+
+.portal-v2-page-frame .server-notebook-content .deployment-empty {
+  grid-column: 1 / -1;
+  grid-row: 3;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Knowledge page                                                             */
+/* -------------------------------------------------------------------------- */
+
+.portal-v2-page-frame .server-notebook-content > .knowledge-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+}
+
+.portal-v2-page-frame .knowledge-panel-heading {
+  margin: 0 0 19px;
+  padding: 0 2px 13px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 22px;
+  align-items: start;
+  border-bottom: 1px dashed rgba(80, 109, 91, .16);
+}
+
+.portal-v2-page-frame .knowledge-panel-heading .tape-label {
+  margin: -13px 0 8px 0 !important;
+}
+
+.portal-v2-page-frame .knowledge-panel-heading h2 {
+  margin: 0 0 4px;
+  font-size: clamp(1.45rem, 2.2vw, 1.95rem);
+}
+
+.portal-v2-page-frame .knowledge-panel-heading p:last-child {
+  max-width: 750px;
+  margin: 0;
+  font-size: .72rem;
+}
+
+.portal-v2-page-frame .knowledge-panel-heading > .paper-button {
+  margin-top: 3px;
+  padding: 9px 13px;
+  border-radius: 3px 10px 4px 3px;
+  background: #dcefe5;
+  transform: rotate(.5deg);
+  box-shadow: 3px 4px 0 rgba(61, 86, 70, .04);
+}
+
+.portal-v2-page-frame .knowledge-create-form {
+  position: relative;
+  margin: 0 0 22px auto;
+  width: min(720px, 100%);
+  padding: 19px;
+  border: 1px solid rgba(92, 75, 108, .12);
+  border-radius: 3px 10px 5px 3px;
+  background: #f3eaff;
+  box-shadow: 6px 8px 0 rgba(76, 58, 88, .035);
+}
+
+.portal-v2-page-frame .knowledge-create-form::before {
+  content: "NEW KNOWLEDGE NOTE";
+  position: absolute;
+  top: -10px;
+  left: 20px;
+  padding: 4px 9px;
+  background: #d9c9f5;
+  color: #735f86;
+  font: 700 .5rem var(--portal-pencil);
+  letter-spacing: .08em;
+  transform: rotate(-1.2deg);
+}
+
+.portal-v2-page-frame .knowledge-layout {
+  display: grid;
+  grid-template-columns: minmax(245px, .34fr) minmax(0, .76fr);
+  gap: 28px;
+  align-items: stretch;
+}
+
+.portal-v2-page-frame .knowledge-base-list {
+  position: relative;
+  min-height: 355px;
+  padding: 20px 16px 18px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  border: 1px solid rgba(105, 83, 121, .13);
+  border-radius: 4px 9px 5px 3px;
+  background:
+    linear-gradient(rgba(238,230,255,.78), rgba(255,249,239,.86)),
+    repeating-linear-gradient(0deg, transparent 0 26px, rgba(104,82,122,.035) 27px);
+  box-shadow: 7px 8px 0 rgba(77, 59, 89, .035);
+  transform: rotate(-.18deg);
+}
+
+.portal-v2-page-frame .knowledge-base-list::before {
+  content: "KNOWLEDGE FILES";
+  position: absolute;
+  top: -10px;
+  left: 22px;
+  padding: 4px 10px;
+  background: #d3c3ef;
+  color: #6d5c80;
+  font: 700 .51rem var(--portal-pencil);
+  letter-spacing: .09em;
+  transform: rotate(1.2deg);
+}
+
+.portal-v2-page-frame .knowledge-base-card {
+  padding: 12px 12px 10px;
+  border: 1px solid rgba(95, 76, 112, .12);
+  border-radius: 3px 8px 4px 3px;
+  background: rgba(255,251,243,.78);
+  box-shadow: 3px 4px 0 rgba(79,61,91,.025);
+}
+
+.portal-v2-page-frame .knowledge-base-card:nth-child(even) {
+  transform: rotate(.25deg);
+}
+
+.portal-v2-page-frame .knowledge-base-card.is-selected {
+  background: #fff4c9;
+  border-color: rgba(164, 124, 80, .2);
+  box-shadow: 4px 5px 0 rgba(90,66,84,.035);
+}
+
+.portal-v2-page-frame .knowledge-document-panel {
+  position: relative;
+  min-height: 355px;
+  padding: 20px 22px 20px;
+  border: 1px solid rgba(84, 103, 91, .13);
+  border-radius: 4px 10px 5px 3px;
+  background:
+    linear-gradient(rgba(245,250,245,.82), rgba(255,250,240,.9)),
+    repeating-linear-gradient(0deg, transparent 0 28px, rgba(78,109,91,.035) 29px);
+  box-shadow: 7px 9px 0 rgba(64, 85, 72, .03);
+  transform: rotate(.1deg);
+}
+
+.portal-v2-page-frame .knowledge-document-panel::before {
+  content: "DOCUMENTS";
+  position: absolute;
+  top: -10px;
+  left: 28px;
+  padding: 4px 10px;
+  background: #bfe1d0;
+  color: #52705f;
+  font: 700 .51rem var(--portal-pencil);
+  letter-spacing: .09em;
+  transform: rotate(-.8deg);
+}
+
+.portal-v2-page-frame .knowledge-document-panel > .panel-heading-row {
+  margin-bottom: 13px;
+}
+
+.portal-v2-page-frame .knowledge-base-description {
+  padding: 12px 14px;
+  border-left: 3px solid rgba(115, 89, 138, .3);
+  background: rgba(236,228,244,.45);
+  transform: rotate(-.12deg);
+}
+
+.portal-v2-page-frame .knowledge-document-list article {
+  background: rgba(255,255,255,.28);
+  border-bottom: 1px dashed rgba(91, 81, 96, .15);
+}
+
+.portal-v2-page-frame .knowledge-playground {
+  position: relative;
+  margin-top: 31px;
+  padding: 20px 20px 18px;
+  border: 1px solid rgba(81, 101, 120, .13);
+  border-radius: 3px 11px 5px 3px;
+  background:
+    linear-gradient(rgba(230,241,249,.76), rgba(255,249,238,.9)),
+    repeating-linear-gradient(0deg, transparent 0 27px, rgba(67,96,119,.036) 28px);
+  box-shadow: 7px 8px 0 rgba(64, 77, 92, .03);
+  transform: rotate(-.08deg);
+}
+
+.portal-v2-page-frame .knowledge-playground::before {
+  content: "RAG PLAYGROUND";
+  position: absolute;
+  top: -10px;
+  left: 30px;
+  padding: 4px 10px;
+  background: #c7dce8;
+  color: #566d7a;
+  font: 700 .51rem var(--portal-pencil);
+  letter-spacing: .09em;
+  transform: rotate(1deg);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Interactions page                                                          */
+/* -------------------------------------------------------------------------- */
+
+/* The outer Characters / Knowledge / Interactions tabs are the notebook tabs.
+ * The nested Template/Session selector becomes a small page action instead of
+ * a second sidebar. */
+.portal-v2-page-frame .interaction-module.interaction-notebook {
+  position: relative;
+  display: block;
+  max-width: none;
+  margin: 0;
+}
+
+.portal-v2-page-frame .interaction-notebook > .interaction-error {
+  margin-bottom: 14px;
+}
+
+.portal-v2-page-frame .interaction-notebook-tabs {
+  position: absolute;
+  top: 53px;
+  right: 2px;
+  z-index: 12;
+  display: block;
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.portal-v2-page-frame .interaction-notebook-tabs .interaction-tab-caption,
+.portal-v2-page-frame .interaction-notebook-tabs > button:first-of-type {
+  display: none;
+}
+
+.portal-v2-page-frame .interaction-notebook-tabs > button.is-child {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 8px 12px;
+  display: inline-flex;
+  gap: 7px;
+  border: 1px solid rgba(121, 78, 99, .13);
+  border-radius: 3px 9px 4px 3px;
+  background: #f8dfe8;
+  color: #745666;
+  box-shadow: 3px 4px 0 rgba(90, 63, 78, .035);
+  transform: rotate(.45deg);
+}
+
+.portal-v2-page-frame .interaction-notebook-tabs > button.is-child::before {
+  content: "";
+  width: 28px;
+  height: 9px;
+  margin-right: 1px;
+  background: rgba(231,177,196,.45);
+  transform: rotate(-2deg);
+}
+
+.portal-v2-page-frame .interaction-notebook-tabs > button.is-child::after {
+  display: none;
+}
+
+.portal-v2-page-frame .interaction-notebook-tabs > button.is-child.is-active {
+  display: none;
+}
+
+.portal-v2-page-frame .interaction-notebook-page {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+
+.portal-v2-page-frame .interaction-notebook-page .interaction-panel {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.portal-v2-page-frame .interaction-notebook-page .interaction-heading-row {
+  min-height: 104px;
+  margin: 0 0 23px;
+  padding: 0 177px 13px 2px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: start;
+  border-bottom: 1px dashed rgba(118, 76, 98, .15);
+}
+
+.portal-v2-page-frame .interaction-notebook-page .interaction-heading-row .tape-label {
+  margin: -13px 0 8px 0 !important;
+}
+
+.portal-v2-page-frame .interaction-notebook-page .interaction-heading-row h2 {
+  margin: 0 0 4px;
+  font-size: clamp(1.45rem, 2.2vw, 1.95rem);
+}
+
+.portal-v2-page-frame .interaction-notebook-page .interaction-heading-row p:last-child {
+  max-width: 780px;
+  margin: 0;
+  font-size: .72rem;
+}
+
+.portal-v2-page-frame .interaction-template-page .interaction-heading-row > .ink-button {
+  position: absolute;
+  top: 3px;
+  right: 2px;
+  padding: 10px 14px;
+  border-radius: 999px 999px 999px 8px;
+  transform: rotate(-.35deg);
+}
+
+.portal-v2-page-frame .interaction-session-page .interaction-heading-row {
+  padding-right: 2px;
+}
+
+.portal-v2-page-frame .interaction-session-page .interaction-heading-row > .paper-button {
+  justify-self: end;
+  padding: 8px 12px;
+  background: #e9dfff;
+  transform: rotate(.35deg);
+}
+
+.portal-v2-page-frame .interaction-server-warning {
+  margin: -8px 0 22px;
+  padding: 12px 15px;
+  border: 1px dashed rgba(164, 119, 82, .18);
+  border-radius: 3px 8px 4px 3px;
+  background: #fff0bd;
+  transform: rotate(-.15deg);
+}
+
+.portal-v2-page-frame .interaction-notebook-page .interaction-template-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px 22px;
+  margin-top: 10px;
+}
+
+.portal-v2-page-frame .interaction-template-card {
+  position: relative;
+  min-width: 0;
+  min-height: 245px;
+  padding: 22px 18px 16px;
+  border: 1px solid rgba(104, 79, 116, .13);
+  border-radius: 4px 10px 5px 3px;
+  background:
+    linear-gradient(180deg, rgba(236,226,255,.8), rgba(255,249,239,.93) 48%);
+  box-shadow: 7px 9px 0 rgba(75, 57, 84, .035), 0 9px 18px rgba(67, 50, 77, .045);
+  transform: rotate(-.25deg);
+}
+
+.portal-v2-page-frame .interaction-template-card::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 65px;
+  height: 17px;
+  transform: translateX(-50%) rotate(2deg);
+  background: rgba(200,183,232,.55);
+}
+
+.portal-v2-page-frame .interaction-template-card:nth-child(3n + 2) {
+  background: linear-gradient(180deg, rgba(248,222,232,.82), rgba(255,249,239,.93) 48%);
+  transform: translateY(2px) rotate(.32deg);
+}
+
+.portal-v2-page-frame .interaction-template-card:nth-child(3n + 2)::before {
+  background: rgba(235,181,201,.55);
+}
+
+.portal-v2-page-frame .interaction-template-card:nth-child(3n + 3) {
+  background: linear-gradient(180deg, rgba(220,240,230,.83), rgba(255,249,239,.93) 48%);
+  transform: rotate(-.15deg);
+}
+
+.portal-v2-page-frame .interaction-template-card:nth-child(3n + 3)::before {
+  background: rgba(171,212,193,.56);
+}
+
+.portal-v2-page-frame .interaction-template-metrics {
+  margin-top: 14px;
+  padding-top: 11px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px 15px;
+  border-top: 1px dashed rgba(105, 83, 113, .15);
+}
+
+.portal-v2-page-frame .interaction-template-metrics > div {
+  min-width: 0;
+  padding: 4px 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+}
+
+.portal-v2-page-frame .interaction-template-metrics dt {
+  color: #89798f;
+  font: .57rem var(--portal-pencil);
+}
+
+.portal-v2-page-frame .interaction-template-metrics dd {
+  font-size: .72rem;
+}
+
+.portal-v2-page-frame .interaction-notebook-page .interaction-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.portal-v2-page-frame .interaction-card {
+  position: relative;
+  min-height: 220px;
+  padding: 19px 17px 15px;
+  border-radius: 4px 9px 5px 3px;
+  background: #fff0c9;
+  box-shadow: 6px 8px 0 rgba(77, 58, 86, .035);
+}
+
+.portal-v2-page-frame .interaction-card::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: 28px;
+  width: 58px;
+  height: 14px;
+  background: rgba(222,191,134,.48);
+  transform: rotate(-2deg);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Responsive                                                                 */
+/* -------------------------------------------------------------------------- */
+
+@media (max-width: 1320px) {
+  .portal-v2-page-frame .server-notebook-content > .deployment-summary-grid {
+    grid-column: 1 / -1;
+  }
+
+  .portal-v2-page-frame .server-notebook-content .deployment-filters {
+    grid-column: 8 / -1;
+    grid-row: 3;
+    margin-top: -2px;
+  }
+
+  .portal-v2-page-frame .server-notebook-content .deployment-table {
+    grid-row: 4;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .portal-v2-page-frame .server-notebook-content .pagination {
+    grid-row: 5;
+  }
+}
+
+@media (max-width: 1080px) {
+  .portal-v2-page-frame .server-notebook-shell {
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
+
+  .portal-v2-page-frame .server-notebook-content {
+    padding: 24px 22px 38px;
+  }
+
+  .portal-v2-page-frame .server-notebook-content .deployment-table,
+  .portal-v2-page-frame .interaction-notebook-page .interaction-template-grid,
+  .portal-v2-page-frame .interaction-notebook-page .interaction-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .portal-v2-page-frame .knowledge-layout {
+    grid-template-columns: minmax(220px, .4fr) minmax(0, .6fr);
+    gap: 18px;
+  }
+}
+
+@media (max-width: 900px) {
+  .portal-v2-page-frame .server-notebook-shell {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .portal-v2-page-frame .server-notebook-tabs {
+    position: static;
+    display: flex;
+    gap: 7px;
+    padding: 0 8px;
+    overflow-x: auto;
+  }
+
+  .portal-v2-page-frame .server-notebook-caption,
+  .portal-v2-page-frame .server-notebook-hint {
+    display: none;
+  }
+
+  .portal-v2-page-frame .server-notebook-tabs > button,
+  .portal-v2-page-frame .server-notebook-tabs > button.is-active,
+  .portal-v2-page-frame .server-notebook-tabs > button:nth-of-type(2),
+  .portal-v2-page-frame .server-notebook-tabs > button:nth-of-type(3),
+  .portal-v2-page-frame .server-notebook-tabs > button:nth-of-type(2).is-active,
+  .portal-v2-page-frame .server-notebook-tabs > button:nth-of-type(3).is-active {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 132px;
+    min-height: 50px;
+    margin: 0;
+    padding: 8px 11px;
+    border-right: 1px solid rgba(91,72,105,.16);
+    border-radius: 9px 9px 0 0;
+    clip-path: none;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .portal-v2-page-frame .server-notebook-tabs > button::before,
+  .portal-v2-page-frame .server-notebook-tabs > button::after {
+    display: none;
+  }
+
+  .portal-v2-page-frame .server-notebook-content {
+    min-height: 600px;
+    padding: 24px 17px 34px;
+    border-radius: 2px 11px 11px 11px;
+  }
+
+  .portal-v2-page-frame .server-notebook-content > .deployment-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .portal-v2-page-frame .server-notebook-content .deployment-filters {
+    grid-column: 1 / -1;
+    justify-self: end;
+    width: min(360px, 100%);
+  }
+
+  .portal-v2-page-frame .knowledge-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-v2-page-frame .knowledge-base-list,
+  .portal-v2-page-frame .knowledge-document-panel {
+    min-height: 260px;
+  }
+
+  .portal-v2-page-frame .interaction-notebook-tabs {
+    top: 51px;
+    right: 0;
+  }
+
+  .portal-v2-page-frame .interaction-notebook-page .interaction-heading-row {
+    padding-right: 158px;
+  }
+}
+
+@media (max-width: 680px) {
+  .portal-v2-page-frame .server-notebook-content .deployment-table,
+  .portal-v2-page-frame .interaction-notebook-page .interaction-template-grid,
+  .portal-v2-page-frame .interaction-notebook-page .interaction-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-v2-page-frame .server-notebook-content > .deployment-summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .portal-v2-page-frame .server-notebook-content .deployment-list-heading {
+    grid-template-columns: 1fr auto;
+  }
+
+  .portal-v2-page-frame .server-notebook-content .deployment-list-heading > span {
+    display: none;
+  }
+
+  .portal-v2-page-frame .knowledge-panel-heading,
+  .portal-v2-page-frame .interaction-notebook-page .interaction-heading-row {
+    grid-template-columns: 1fr;
+    padding-right: 0;
+  }
+
+  .portal-v2-page-frame .knowledge-panel-heading > .paper-button {
+    justify-self: start;
+  }
+
+  .portal-v2-page-frame .interaction-template-page .interaction-heading-row > .ink-button {
+    position: static;
+    justify-self: start;
+  }
+
+  .portal-v2-page-frame .interaction-notebook-tabs {
+    position: static;
+    margin: 0 0 13px;
+    text-align: right;
+  }
+
+  .portal-v2-page-frame .interaction-notebook-tabs > button.is-child {
+    transform: none;
+  }
+}

@@ -11,6 +11,7 @@ import "./deployment-notebook-v2.css";
 import "./deployment-notebook-tabs.css";
 import "./deployment-paper-tags.css";
 import "./discord-connection-workspace.css";
+import "./deployment-scrapbook-pages.css";
 import { I18nProvider } from "./i18n";
 
 createRoot(document.getElementById("root")!).render(
