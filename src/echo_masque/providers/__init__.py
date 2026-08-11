@@ -14,7 +14,9 @@ from echo_masque.providers.errors import (
     ProviderAuthenticationError,
     ProviderError,
     ProviderProtocolError,
+    ProviderRateLimitError,
     ProviderTimeoutError,
+    ProviderUnavailableError,
 )
 from echo_masque.providers.mock import MockChatProvider
 from echo_masque.providers.openai_compatible import OpenAICompatibleProvider
@@ -34,6 +36,8 @@ __all__ = [
     "ProviderCompletion",
     "ProviderError",
     "ProviderProtocolError",
+    "ProviderRateLimitError",
     "ProviderTimeoutError",
+    "ProviderUnavailableError",
     "ToolCapableChatProvider",
 ]
