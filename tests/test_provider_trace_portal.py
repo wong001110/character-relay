@@ -93,6 +93,7 @@ def test_provider_trace_portal_is_bootstrap_super_admin_only(tmp_path: Path) -> 
             "tool_names": [],
             "media_input": {},
             "media_attention": {},
+            "image_generation": {},
             "failure_reason": "",
             "failure_detail": "",
             "owner_id": "",
