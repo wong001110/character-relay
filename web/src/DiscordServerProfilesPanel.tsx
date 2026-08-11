@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 
 import {
   deploymentApi,
+  type ConnectionMode,
   type DiscordCatalogChannel,
   type DiscordServerCatalog,
   type DiscordServerProfile,
@@ -73,6 +74,10 @@ export function DiscordServerProfilesPanel({
   const [serverTimezone, setServerTimezone] = useState(browserTimezone());
   const [excludedChannels, setExcludedChannels] = useState<Set<string>>(new Set());
   const [excludedCategories, setExcludedCategories] = useState<Set<string>>(new Set());
+  const [connectionEditorOpen, setConnectionEditorOpen] = useState(false);
+  const [connectionDisplayName, setConnectionDisplayName] = useState("");
+  const [connectionMode, setConnectionMode] = useState<ConnectionMode>("managed");
+  const [connectionExternalAccountId, setConnectionExternalAccountId] = useState("");
 
   const availableServers = useMemo(
     () => catalog.filter((server) => server.connection_id === connectionId),
@@ -83,6 +88,9 @@ export function DiscordServerProfilesPanel({
   const selectedConnection = connections.find(
     (item) => item.id === selectedProfile?.connection_id
   );
+  const workspaceConnection = selectedConnection ?? discordConnections[0];
+  const connectionShared = workspaceConnection?.metadata.shared_connection === true;
+  const canEditConnection = Boolean(workspaceConnection && !demoMode && !connectionShared);
   const selectedServerCatalog = selectedProfile
     ? catalog.find(
         (item) =>
@@ -132,6 +140,38 @@ export function DiscordServerProfilesPanel({
     setDrawerOpen(false);
     setEditing(null);
     setDrawerTab("settings");
+  }
+
+  function openConnectionEditor() {
+    if (!workspaceConnection || !canEditConnection) return;
+    setConnectionDisplayName(workspaceConnection.display_name);
+    setConnectionMode(workspaceConnection.connection_mode);
+    setConnectionExternalAccountId(workspaceConnection.external_account_id);
+    setConnectionEditorOpen(true);
+  }
+
+  function closeConnectionEditor() {
+    setConnectionEditorOpen(false);
+  }
+
+  async function saveConnection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!workspaceConnection || !canEditConnection) return;
+    try {
+      setWorking(true);
+      onError("");
+      await deploymentApi.updateConnection(workspaceConnection.id, {
+        display_name: connectionDisplayName.trim() || "Character Relay Discord Bot",
+        connection_mode: connectionMode,
+        external_account_id: connectionExternalAccountId.trim()
+      });
+      closeConnectionEditor();
+      await onChanged();
+    } catch (reason) {
+      onError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setWorking(false);
+    }
   }
 
   function changeConnection(nextConnectionId: string) {
@@ -285,9 +325,7 @@ export function DiscordServerProfilesPanel({
                 <div>
                   <strong>{selectedProfile.guild_name}</strong>
                   <span>{selectedProfile.name}</span>
-                  <small>
-                    {selectedConnection?.display_name ?? "Discord"} · ID {selectedProfile.guild_id}
-                  </small>
+                  <small>ID {selectedProfile.guild_id}</small>
                 </div>
                 <div className="server-workspace-stats">
                   <div className="server-workspace-stat">
@@ -308,20 +346,87 @@ export function DiscordServerProfilesPanel({
                 {zh ? "选择 Server 后才会显示运行配置。" : "Select a Server to open its runtime workspace."}
               </div>
             )}
+
+            <div className="server-workspace-connection-note">
+              <div className="server-workspace-connection-icon" aria-hidden="true">D</div>
+              <div className="server-workspace-connection-copy">
+                <strong>Discord</strong>
+                <span>{workspaceConnection?.display_name ?? "Character Relay Discord Bot"}</span>
+                <small>
+                  {workspaceConnection
+                    ? `${workspaceConnection.connection_mode} · ${workspaceConnection.last_seen_at ? (zh ? "已连接运行" : "connector seen") : (zh ? "等待 Connector" : "waiting for connector")}`
+                    : zh
+                      ? "固定托管连接"
+                      : "Fixed managed connection"}
+                </small>
+              </div>
+              {workspaceConnection && (
+                <span className={`server-workspace-connection-status status-${workspaceConnection.status}`}>
+                  {workspaceConnection.status.replaceAll("_", " ")}
+                </span>
+              )}
+              <div className="server-workspace-connection-policy">
+                <small>
+                  {connectionShared
+                    ? zh
+                      ? "固定 Discord 连接 · 由 Super Admin 管理"
+                      : "Fixed Discord connection · managed by Super Admin"
+                    : zh
+                      ? "固定 Discord 连接 · 不需要为每个 Server 新增"
+                      : "Fixed Discord connection · shared across Server workspaces"}
+                </small>
+                {canEditConnection && (
+                  <button type="button" onClick={openConnectionEditor}>
+                    {zh ? "编辑连接" : "Edit connection"}
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         ) : (
-          <div className="server-workspace-placeholder large">
-            <strong>{zh ? "还没有 Server 配置" : "No Server profiles yet"}</strong>
-            <p>
-              {!catalog.length
-                ? zh
-                  ? "等待 Discord Connector 上线并同步可见 Server。"
-                  : "Bring the Discord Connector online so visible Servers can be synchronized."
-                : zh
-                  ? "添加一个已同步 Server，之后所有功能都会以它为范围。"
-                  : "Add a synchronized Server; it becomes the scope for every runtime feature."}
-            </p>
-          </div>
+          <>
+            <div className="server-workspace-placeholder large">
+              <strong>{zh ? "还没有 Server 配置" : "No Server profiles yet"}</strong>
+              <p>
+                {!catalog.length
+                  ? zh
+                    ? "等待 Discord Connector 上线并同步可见 Server。"
+                    : "Bring the Discord Connector online so visible Servers can be synchronized."
+                  : zh
+                    ? "添加一个已同步 Server，之后所有功能都会以它为范围。"
+                    : "Add a synchronized Server; it becomes the scope for every runtime feature."}
+              </p>
+            </div>
+            {workspaceConnection && (
+              <div className="server-workspace-connection-note">
+                <div className="server-workspace-connection-icon" aria-hidden="true">D</div>
+                <div className="server-workspace-connection-copy">
+                  <strong>Discord</strong>
+                  <span>{workspaceConnection.display_name}</span>
+                  <small>{workspaceConnection.connection_mode}</small>
+                </div>
+                <span className={`server-workspace-connection-status status-${workspaceConnection.status}`}>
+                  {workspaceConnection.status.replaceAll("_", " ")}
+                </span>
+                <div className="server-workspace-connection-policy">
+                  <small>
+                    {connectionShared
+                      ? zh
+                        ? "固定 Discord 连接 · 由 Super Admin 管理"
+                        : "Fixed Discord connection · managed by Super Admin"
+                      : zh
+                        ? "固定 Discord 连接"
+                        : "Fixed Discord connection"}
+                  </small>
+                  {canEditConnection && (
+                    <button type="button" onClick={openConnectionEditor}>
+                      {zh ? "编辑连接" : "Edit connection"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </section>
 
@@ -538,6 +643,78 @@ export function DiscordServerProfilesPanel({
                 onError={onError}
               />
             )}
+          </div>
+        </PaperDrawer>
+      )}
+
+      {connectionEditorOpen && workspaceConnection && canEditConnection && (
+        <PaperDrawer
+          onClose={closeConnectionEditor}
+          ariaLabel={zh ? "编辑固定 Discord 连接" : "Edit fixed Discord connection"}
+          className="discord-connection-drawer"
+        >
+          <div className="server-drawer discord-connection-editor">
+            <header className="server-drawer-header">
+              <div>
+                <p className="tape-label">DISCORD CONNECTION</p>
+                <h2>{zh ? "固定托管连接" : "Fixed managed connection"}</h2>
+                <p>
+                  {zh
+                    ? "Character Relay 只使用这一条 Discord Bot 连接；这里只允许 Super Admin 调整连接元数据。"
+                    : "Character Relay uses one Discord Bot connection. Only the Super Admin can edit its connection metadata."}
+                </p>
+              </div>
+              <button className="drawer-close-button" type="button" onClick={closeConnectionEditor}>
+                {zh ? "关闭" : "Close"}
+              </button>
+            </header>
+            <form className="server-drawer-form" onSubmit={saveConnection}>
+              <div className="discord-connection-readonly drawer-form-wide">
+                <div className="server-workspace-connection-icon" aria-hidden="true">D</div>
+                <div>
+                  <strong>Discord</strong>
+                  <span>{workspaceConnection.id}</span>
+                </div>
+                <small>{workspaceConnection.status}</small>
+              </div>
+              <label className="drawer-form-wide">
+                {zh ? "连接显示名称" : "Connection display name"}
+                <input
+                  value={connectionDisplayName}
+                  onChange={(event) => setConnectionDisplayName(event.currentTarget.value)}
+                  maxLength={120}
+                  required
+                />
+              </label>
+              <label className="drawer-form-wide">
+                {zh ? "运行方式" : "Run mode"}
+                <select
+                  value={connectionMode}
+                  onChange={(event) => setConnectionMode(event.currentTarget.value as ConnectionMode)}
+                >
+                  <option value="managed">{zh ? "托管" : "Managed"}</option>
+                  <option value="local">{zh ? "本地" : "Local"}</option>
+                </select>
+              </label>
+              <label className="drawer-form-wide">
+                {zh ? "Discord Bot / 外部账号 ID" : "Discord Bot / external account ID"}
+                <input
+                  value={connectionExternalAccountId}
+                  onChange={(event) => setConnectionExternalAccountId(event.currentTarget.value)}
+                  maxLength={200}
+                />
+              </label>
+              <div className="server-drawer-footer drawer-form-wide">
+                <small>
+                  {zh
+                    ? "不提供新增或删除 Connection；Server 只会复用这条固定 Discord 连接。"
+                    : "Connections cannot be added or deleted here; Server workspaces reuse this fixed Discord connection."}
+                </small>
+                <button className="ink-button" disabled={working}>
+                  {working ? (zh ? "保存中…" : "Saving…") : zh ? "保存连接" : "Save connection"}
+                </button>
+              </div>
+            </form>
           </div>
         </PaperDrawer>
       )}
