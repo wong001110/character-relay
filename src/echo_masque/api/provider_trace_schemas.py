@@ -21,12 +21,16 @@ TraceStatus = Literal["pending", "succeeded", "error"]
 
 _FAILURE_EXPLANATIONS = {
     "provider_timeout": "The provider did not return a response before the configured timeout.",
-    "provider_unavailable": "The provider could not be reached or remained unavailable after retries.",
+    "provider_unavailable": (
+        "The provider could not be reached or remained unavailable after retries."
+    ),
     "provider_rate_limited": "The provider continued to rate-limit the request after retries.",
     "provider_authentication_rejected": "The provider rejected the configured credential.",
     "provider_protocol_error": "The provider returned a response Character Relay could not use.",
     "provider_http_error": "The provider returned a non-success HTTP response.",
-    "invalid_response_payload": "The provider response did not match the expected chat-completion shape.",
+    "invalid_response_payload": (
+        "The provider response did not match the expected chat-completion shape."
+    ),
     "empty_content": "The provider returned neither visible content nor a Tool call.",
     "request_cancelled": "The in-flight provider task was cancelled before it completed.",
     "provider_client_error": "The provider client failed before a usable response was produced.",
