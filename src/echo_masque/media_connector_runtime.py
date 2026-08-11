@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from time import monotonic
 from typing import Any, Literal
 
+from echo_masque.api.connector_schemas import DiscordConnectorReplyView
 from echo_masque.connector_runtime import (
     DiscordConnectorRuntime,
     PreparedCharacterTurn,
     ResolvedCharacterOutput,
+    ResolvedCharacterTurn,
 )
 from echo_masque.conversation_media import ConversationMediaReferenceService
 from echo_masque.domain import TargetResponse
@@ -66,7 +68,6 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
                 browser_runtime=self.tool_registry.browser,
             )
         else:
-            # Preserve test doubles and alternate injectable service implementations.
             self.live_media_service = live_media_service
         self.media_attention_decider = media_attention_decider or CharacterMediaAttentionDecider()
         self.conversation_media_service = conversation_media_service
@@ -78,6 +79,20 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             tuple[str, str], tuple[float, MediaEpistemicSnapshot]
         ] = {}
 
+    def prepare_character_turn(
+        self,
+        resolved: ResolvedCharacterTurn,
+    ) -> PreparedCharacterTurn:
+        prepared = super().prepare_character_turn(resolved)
+        setter = getattr(self.tool_registry, "set_turn_reply_reference", None)
+        if callable(setter):
+            setter(
+                deployment_id=resolved.deployment.id,
+                message_id=resolved.payload.message_id,
+                reply_to_message_id=resolved.payload.reply_to_message_id,
+            )
+        return prepared
+
     async def invoke_character_model(
         self,
         prepared: PreparedCharacterTurn,
@@ -86,10 +101,6 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         try:
             return await super().invoke_character_model(prepared)
         except ProviderError as exc:
-            # The base Runtime historically marked every model exception as a deployment
-            # error. A timeout/rate-limit/provider outage is only a failed turn. Convert it
-            # into a valid silent Smart Output so the Discord connector does not retry the
-            # whole non-idempotent generation request.
             self._isolate_provider_failure(prepared, exc)
             return self._provider_failure_response(exc)
 
@@ -119,12 +130,8 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         output = await super().resolve_character_output(prepared, response)
         provider_failure = response.trace.get("provider_failure")
         if isinstance(provider_failure, str) and provider_failure:
-            # Preserve the reason in the connector response while keeping the Discord-facing
-            # action silent. This is operational state, not Character dialogue.
             output.smart_reason = f"provider_turn_failed:{provider_failure}"
         elif output.smart_reason == "smart_output_retry_failed":
-            # A failed formatting-repair provider call is also turn-scoped. The original
-            # answer was already produced, so it must not disable the deployment.
             deployment = prepared.resolved.deployment
             self.deployment_repository.update_deployment(
                 deployment.id,
@@ -134,15 +141,26 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             )
         return output
 
+    def authorize_character_output(
+        self,
+        prepared: PreparedCharacterTurn,
+        output: ResolvedCharacterOutput,
+    ) -> DiscordConnectorReplyView:
+        view = super().authorize_character_output(prepared, output)
+        getter = getattr(self.tool_registry, "generated_artifact_ids", None)
+        if not callable(getter):
+            return view
+        artifact_ids = getter(prepared.tool_context)
+        if not artifact_ids:
+            return view
+        return view.model_copy(update={"generated_artifact_ids": list(artifact_ids)[:4]})
+
     def _isolate_provider_failure(
         self,
         prepared: PreparedCharacterTurn,
         exc: ProviderError,
     ) -> None:
         if exc.deployment_fatal:
-            # Credential rejection is persistent until configuration changes. Keep the
-            # base Runtime's deployment error state, but still return a controlled silent
-            # turn instead of surfacing an HTTP 502 to Discord.
             return
         deployment = prepared.resolved.deployment
         detail = str(exc).replace("\x00", "").strip()
@@ -300,7 +318,6 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
 
         target = prepared.resolved.target
         if not isinstance(target, PromptModelTarget):
-            # Deterministic/test targets have no persona model capable of an attention decision.
             decision = MediaAttentionDecision(
                 action="watch",
                 reason="non_prompt_target",
@@ -330,8 +347,6 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         self,
         prepared: PreparedCharacterTurn,
     ) -> tuple[tuple[str, str], ...]:
-        """Return bounded Superadmin Runtime Trace metadata for the current media turn."""
-
         resolved = prepared.resolved
         key = (resolved.deployment.id, resolved.payload.message_id)
         cached = self._media_epistemic_states.get(key)
