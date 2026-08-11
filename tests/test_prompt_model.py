@@ -98,7 +98,7 @@ def test_authentication_error_does_not_echo_secret() -> None:
     asyncio.run(run())
 
 
-def test_timeout_retries_and_raises_explicit_error() -> None:
+def test_full_read_timeout_is_terminal_and_raises_explicit_error() -> None:
     attempts = 0
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -125,4 +125,4 @@ def test_timeout_retries_and_raises_explicit_error() -> None:
             raise AssertionError("timeout error expected")
 
     asyncio.run(run())
-    assert attempts == 2
+    assert attempts == 1
