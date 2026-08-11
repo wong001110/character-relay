@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from sqlalchemy import delete, select
 
-from echo_masque.live_media import LiveMediaContext
 from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord
 from echo_masque.persistence.database import Database
+
+if TYPE_CHECKING:
+    from echo_masque.live_media import LiveMediaContext
 
 
 class ConversationMediaReferenceRepository:
