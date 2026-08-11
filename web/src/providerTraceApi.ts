@@ -1,11 +1,17 @@
 export type ProviderTraceStatus = "pending" | "succeeded" | "error";
-export type ProviderTraceCategory = "tool_calling" | "character_turn" | "model_call";
+export type ProviderTraceCategory =
+  | "tool_calling"
+  | "character_turn"
+  | "media_attention"
+  | "media_understanding"
+  | "model_call";
 
 export interface ProviderTraceSummary {
   trace_id: string;
   status: ProviderTraceStatus;
   category: ProviderTraceCategory;
   tool_names: string[];
+  media_input: Record<string, unknown>;
   owner_id: string;
   deployment_id: string;
   character_card_id: string;

@@ -1,7 +1,7 @@
 from echo_masque.api.connector_schemas import DiscordInboundMessage
 
 
-def test_discord_inbound_message_accepts_attachment_metadata() -> None:
+def test_discord_inbound_message_accepts_attachment_and_embed_metadata() -> None:
     payload = DiscordInboundMessage.model_validate(
         {
             "connection_id": "conn-1",
@@ -23,9 +23,22 @@ def test_discord_inbound_message_accepts_attachment_metadata() -> None:
                     "height": 480,
                 }
             ],
+            "embeds": [
+                {
+                    "embed_type": "video",
+                    "url": "https://www.bilibili.com/video/BV1abc/",
+                    "title": "Cherry Studio V2 来了, 超详细攻略",
+                    "description": "真实使用场景分享",
+                    "provider_name": "哔哩哔哩",
+                    "author_name": "技术爬爬虾",
+                }
+            ],
         }
     )
 
     assert payload.attachments[0].attachment_id == "attachment-1"
     assert payload.attachments[0].content_type == "image/png"
     assert payload.attachments[0].size_bytes == 12345
+    assert payload.embeds[0].embed_type == "video"
+    assert payload.embeds[0].provider_name == "哔哩哔哩"
+    assert "Cherry Studio V2" in payload.embeds[0].title

@@ -253,6 +253,17 @@ class DiscordAttachmentContent(BaseModel):
     height: int | None = Field(default=None, ge=0, le=100_000)
 
 
+class DiscordEmbedContent(BaseModel):
+    """Human-visible Discord link preview metadata used before deciding to inspect content."""
+
+    embed_type: str = Field(default="", max_length=80)
+    url: str = Field(default="", max_length=3000)
+    title: str = Field(default="", max_length=500)
+    description: str = Field(default="", max_length=2000)
+    provider_name: str = Field(default="", max_length=200)
+    author_name: str = Field(default="", max_length=200)
+
+
 class DiscordContextMessage(BaseModel):
     message_id: str = Field(min_length=1, max_length=200)
     author_id: str = Field(min_length=1, max_length=200)
@@ -285,6 +296,7 @@ class DiscordInboundMessage(BaseModel):
     author_is_bot: bool = False
     stickers: list[DiscordStickerContent] = Field(default_factory=list, max_length=3)
     attachments: list[DiscordAttachmentContent] = Field(default_factory=list, max_length=10)
+    embeds: list[DiscordEmbedContent] = Field(default_factory=list, max_length=10)
     available_characters: list[str] = Field(default_factory=list, max_length=30)
     mentionable_participants: list[DiscordActionParticipant] = Field(
         default_factory=list, max_length=20
