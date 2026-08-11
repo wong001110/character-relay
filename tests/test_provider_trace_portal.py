@@ -89,6 +89,7 @@ def test_provider_trace_portal_is_bootstrap_super_admin_only(tmp_path: Path) -> 
             "category": "model_call",
             "tool_names": [],
             "media_input": {},
+            "media_attention": {},
             "owner_id": "",
             "deployment_id": "",
             "character_card_id": "",
