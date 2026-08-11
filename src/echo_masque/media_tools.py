@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from echo_masque.generated_media_delivery import GeneratedMediaDeliveryService
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService, ImageGenerateToolInput
 from echo_masque.providers import ChatToolCall, ProviderError
 from echo_masque.server_time_tools import ServerAwareToolRegistry
@@ -23,20 +24,24 @@ class MediaToolRegistry(ServerAwareToolRegistry):
         self,
         *args: Any,
         image_creation_service: ImageCreationRuntimeService | None = None,
+        generated_media_delivery: GeneratedMediaDeliveryService | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self.image_creation_service = image_creation_service
+        self.generated_media_delivery = generated_media_delivery
         self._generated_by_turn: dict[tuple[str, str], tuple[str, ...]] = {}
         self._reply_reference_by_turn: dict[tuple[str, str], str] = {}
-        image_available = image_creation_service is not None
+        image_available = (
+            image_creation_service is not None and generated_media_delivery is not None
+        )
         image_tool = _tool(
             tool_id="image.generate",
             display_name="Generate Image",
             description=(
-                "Generate one image as a real Character side effect using the Character's assigned "
-                "Image Generation Key Group. Conversation references are allowed only when that "
-                "Character actually perceived the referenced image."
+                "Generate and deliver one image as a real Character side effect using the "
+                "Character's assigned Image Generation Key Group. Conversation references are "
+                "allowed only when that Character actually perceived the referenced image."
             ),
             category="image",
             operation="write",
@@ -45,8 +50,9 @@ class MediaToolRegistry(ServerAwareToolRegistry):
             provider_name="image_generate",
             provider_description=(
                 "Create and share one image when doing so fits the Character and conversation. "
-                "Describe the desired result in prompt. Runtime owns provider/model selection. "
-                "Use reference_mode=current/reply/recent only for a previously perceived image."
+                "Describe the desired result in prompt. Runtime owns provider/model selection and "
+                "delivers the image through this Character's Discord identity. Use "
+                "reference_mode=current/reply/recent only for a previously perceived image."
             ),
             parameters={
                 "type": "object",
@@ -81,7 +87,9 @@ class MediaToolRegistry(ServerAwareToolRegistry):
             },
             available=image_available,
             availability_reason=(
-                "" if image_available else "Image Generation Runtime is not configured."
+                ""
+                if image_available
+                else "Image Generation or Discord media delivery Runtime is not configured."
             ),
         )
         self._by_id[image_tool.catalog.id] = image_tool
@@ -123,7 +131,7 @@ class MediaToolRegistry(ServerAwareToolRegistry):
         if tool_id != "image.generate":
             return await super()._execute_tool(tool_id, arguments, context)
         self._require_discord(context)
-        if self.image_creation_service is None:
+        if self.image_creation_service is None or self.generated_media_delivery is None:
             raise ValueError("Image Generation Runtime is unavailable.")
         payload = ImageGenerateToolInput.model_validate(arguments)
         reply_to_message_id = self._reply_reference_by_turn.get(
@@ -143,16 +151,34 @@ class MediaToolRegistry(ServerAwareToolRegistry):
                 payload=payload,
             )
         except ProviderError as exc:
-            # Image generation is a Tool side effect. A provider outage/timeout must fail the
-            # Tool call, not disable the Character deployment or abort the whole turn.
             raise ExternalToolFailed(
                 f"Image generation provider failed ({exc.reason_code})."
             ) from exc
+
+        message_ids: list[str] = []
+        attachment_urls: list[str] = []
+        try:
+            for artifact_id in artifact_ids:
+                delivered = await self.generated_media_delivery.deliver(
+                    owner_id=context.owner_id,
+                    deployment_id=context.deployment_id,
+                    channel_id=context.channel_id,
+                    thread_id=context.thread_id,
+                    artifact_id=artifact_id,
+                )
+                message_ids.append(delivered.message_id)
+                if delivered.attachment_url:
+                    attachment_urls.append(delivered.attachment_url)
+        except RuntimeError as exc:
+            raise ExternalToolFailed(str(exc)) from exc
+
         return json_result(
             ok=True,
             artifact_ids=list(artifact_ids),
+            discord_message_ids=message_ids,
+            attachment_urls=attachment_urls,
             count=len(artifact_ids),
-            delivery="Character Relay will attach the generated image after this turn.",
+            delivered=True,
         )
 
     def set_turn_reply_reference(
