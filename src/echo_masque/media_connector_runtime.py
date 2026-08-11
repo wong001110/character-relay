@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from time import monotonic
-from typing import Any
+from typing import Any, Literal
 
 from echo_masque.connector_runtime import DiscordConnectorRuntime, PreparedCharacterTurn
 from echo_masque.domain import TargetResponse
@@ -13,6 +14,7 @@ from echo_masque.media_attention import (
     CharacterMediaAttentionDecider,
     MediaAttentionDecider,
     MediaAttentionDecision,
+    MediaResponseStance,
     has_shared_content,
     skipped_media_guidance,
     unavailable_media_guidance,
@@ -22,6 +24,21 @@ from echo_masque.providers.trace import provider_trace_scope
 from echo_masque.targets import PromptModelTarget, PromptModelToolTurn
 
 _MEDIA_RESULT_TTL_SECONDS = 300.0
+MediaEpistemicState = Literal["skipped", "perceived", "unavailable"]
+
+
+@dataclass(frozen=True, slots=True)
+class MediaEpistemicSnapshot:
+    """Runtime truth for one Character's relationship to shared content in one turn."""
+
+    state: MediaEpistemicState
+    attention_action: Literal["watch", "skip"]
+    attention_reason: str
+    response_stance: MediaResponseStance
+    stance_reason: str
+    context_count: int = 0
+    cache_hits: int = 0
+    media_result_reason: str = ""
 
 
 class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
@@ -49,6 +66,9 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         self._media_attention_results: dict[
             tuple[str, str], tuple[float, MediaAttentionDecision]
         ] = {}
+        self._media_epistemic_states: dict[
+            tuple[str, str], tuple[float, MediaEpistemicSnapshot]
+        ] = {}
 
     async def invoke_character_model(
         self,
@@ -65,9 +85,6 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         return await super().start_character_tool_turn(prepared)
 
     async def _ensure_media_context(self, prepared: PreparedCharacterTurn) -> None:
-        service = self.live_media_service
-        if service is None:
-            return
         resolved = prepared.resolved
         deployment = resolved.deployment
         payload = resolved.payload
@@ -78,7 +95,35 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         now = monotonic()
         attention = await self._attention_for_turn(prepared, key=key, now=now)
         if attention.action == "skip":
-            self._inject_guidance(prepared, skipped_media_guidance(payload))
+            self._record_epistemic(
+                key,
+                now,
+                MediaEpistemicSnapshot(
+                    state="skipped",
+                    attention_action="skip",
+                    attention_reason=attention.reason,
+                    response_stance=attention.response_stance,
+                    stance_reason=attention.stance_reason,
+                ),
+            )
+            self._inject_guidance(prepared, skipped_media_guidance(payload, attention))
+            return
+
+        service = self.live_media_service
+        if service is None:
+            self._record_epistemic(
+                key,
+                now,
+                MediaEpistemicSnapshot(
+                    state="unavailable",
+                    attention_action="watch",
+                    attention_reason=attention.reason,
+                    response_stance=attention.response_stance,
+                    stance_reason=attention.stance_reason,
+                    media_result_reason="media_service_unavailable",
+                ),
+            )
+            self._inject_guidance(prepared, unavailable_media_guidance(payload, attention))
             return
 
         cached = self._media_turn_results.get(key)
@@ -102,10 +147,39 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             self._cleanup_cache(self._media_turn_results, now)
 
         if not result.contexts:
-            self._inject_guidance(prepared, unavailable_media_guidance(payload))
+            self._record_epistemic(
+                key,
+                now,
+                MediaEpistemicSnapshot(
+                    state="unavailable",
+                    attention_action="watch",
+                    attention_reason=attention.reason,
+                    response_stance=attention.response_stance,
+                    stance_reason=attention.stance_reason,
+                    context_count=0,
+                    cache_hits=result.cache_hits,
+                    media_result_reason=result.reason,
+                ),
+            )
+            self._inject_guidance(prepared, unavailable_media_guidance(payload, attention))
             return
+
+        self._record_epistemic(
+            key,
+            now,
+            MediaEpistemicSnapshot(
+                state="perceived",
+                attention_action="watch",
+                attention_reason=attention.reason,
+                response_stance=attention.response_stance,
+                stance_reason=attention.stance_reason,
+                context_count=len(result.contexts),
+                cache_hits=result.cache_hits,
+                media_result_reason=result.reason,
+            ),
+        )
         guidance = (
-            *watched_media_guidance(result.contexts),
+            *watched_media_guidance(result.contexts, attention),
             (
                 "Evidence boundary: do not infer scenes, speech, demonstrations, or conclusions "
                 "that are absent from the observations below. A video title/description or web "
@@ -128,7 +202,12 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         target = prepared.resolved.target
         if not isinstance(target, PromptModelTarget):
             # Deterministic/test targets have no persona model capable of an attention decision.
-            decision = MediaAttentionDecision(action="watch", reason="non_prompt_target")
+            decision = MediaAttentionDecision(
+                action="watch",
+                reason="non_prompt_target",
+                response_stance="truthful",
+                stance_reason="Deterministic target follows resolved content directly.",
+            )
         else:
             deployment = prepared.resolved.deployment
             with provider_trace_scope(
@@ -148,6 +227,68 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         self._cleanup_cache(self._media_attention_results, now)
         return decision
 
+    def epistemic_trace_metadata(
+        self,
+        prepared: PreparedCharacterTurn,
+    ) -> tuple[tuple[str, str], ...]:
+        """Return bounded Superadmin Runtime Trace metadata for the current media turn."""
+
+        resolved = prepared.resolved
+        key = (resolved.deployment.id, resolved.payload.message_id)
+        cached = self._media_epistemic_states.get(key)
+        if cached is None or cached[0] <= monotonic():
+            return ()
+        snapshot = cached[1]
+        return (
+            ("actual_perception", snapshot.state),
+            ("attention_action", snapshot.attention_action),
+            ("attention_reason", snapshot.attention_reason[:300]),
+            ("response_stance", snapshot.response_stance),
+            ("stance_reason", snapshot.stance_reason[:300]),
+            ("stance_grounding", self._stance_grounding(snapshot.state, snapshot.response_stance)),
+            ("media_context_count", str(snapshot.context_count)),
+            ("media_cache_hits", str(snapshot.cache_hits)),
+            ("media_result_reason", snapshot.media_result_reason[:300]),
+        )
+
+    def _record_epistemic(
+        self,
+        key: tuple[str, str],
+        now: float,
+        snapshot: MediaEpistemicSnapshot,
+    ) -> None:
+        self._media_epistemic_states[key] = (
+            now + _MEDIA_RESULT_TTL_SECONDS,
+            snapshot,
+        )
+        self._cleanup_cache(self._media_epistemic_states, now)
+
+    @staticmethod
+    def _stance_grounding(state: MediaEpistemicState, stance: MediaResponseStance) -> str:
+        if stance == "neutral":
+            return "no_explicit_media_stance"
+        if stance == "truthful":
+            return (
+                "grounded_in_perception"
+                if state == "perceived"
+                else "honest_about_limited_perception"
+            )
+        if stance in {"bluff", "lie", "tease"}:
+            return (
+                "intentional_social_distortion_with_perception"
+                if state == "perceived"
+                else "intentional_without_perception"
+            )
+        if stance == "evasive":
+            return "evasive"
+        if stance in {"guess", "uncertain"}:
+            return (
+                "speculative_with_perception"
+                if state == "perceived"
+                else "speculative_without_perception"
+            )
+        return "unclassified"
+
     @staticmethod
     def _inject_guidance(
         prepared: PreparedCharacterTurn,
@@ -158,6 +299,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         markers = (
             "Character media attention:",
             "Character media perception for this turn:",
+            "Character media perception:",
         )
         if any(marker in prepared.prompt for marker in markers):
             return
@@ -181,3 +323,10 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         stale = [key for key, value in cache.items() if value[0] <= now]
         for key in stale:
             cache.pop(key, None)
+
+
+__all__ = [
+    "MediaAwareDiscordConnectorRuntime",
+    "MediaEpistemicSnapshot",
+    "MediaEpistemicState",
+]
