@@ -11,6 +11,7 @@ import httpx
 from pydantic import SecretStr
 
 from echo_masque.credentials import CredentialVault
+from echo_masque.media_retention import MediaRetentionService
 from echo_masque.persistence import DeploymentRepository, DiscordIdentityRepository
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.scheduled_reminder_models import ScheduledReminderRecord
@@ -37,6 +38,7 @@ class ScheduledReminderDeliveryService:
         retry_seconds: int = 30,
         max_attempts: int = 3,
         http_transport: httpx.AsyncBaseTransport | None = None,
+        media_retention_service: MediaRetentionService | None = None,
     ) -> None:
         self.repository = repository
         self.deployment_repository = deployment_repository
@@ -47,6 +49,10 @@ class ScheduledReminderDeliveryService:
         self.retry_seconds = max(5, retry_seconds)
         self.max_attempts = max(1, max_attempts)
         self.http_transport = http_transport
+        self.media_retention_service = (
+            media_retention_service
+            or MediaRetentionService.for_database(repository.database)
+        )
         self._task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
@@ -54,6 +60,7 @@ class ScheduledReminderDeliveryService:
             return
         self.repository.recover_interrupted()
         self.repository.purge_orphans()
+        await self.media_retention_service.start()
         self._task = asyncio.create_task(
             self._run(),
             name="character-relay-reminder-delivery",
@@ -62,11 +69,11 @@ class ScheduledReminderDeliveryService:
     async def stop(self) -> None:
         task = self._task
         self._task = None
-        if task is None:
-            return
-        task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        await self.media_retention_service.stop()
 
     async def deliver_due_once(self) -> int:
         records = self.repository.claim_due(limit=20)

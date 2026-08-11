@@ -16,6 +16,7 @@ from echo_masque.api.routes.coverage import router as coverage_router
 from echo_masque.api.routes.deployments import router as deployments_router
 from echo_masque.api.routes.discord_identities import router as discord_identities_router
 from echo_masque.api.routes.evaluations import router as evaluations_router
+from echo_masque.api.routes.generated_media import router as generated_media_router
 from echo_masque.api.routes.health import router as health_router
 from echo_masque.api.routes.interactions import router as interactions_router
 from echo_masque.api.routes.knowledge import router as knowledge_router
@@ -32,6 +33,10 @@ from echo_masque.api.routes.tools import router as tools_router
 from echo_masque.api.routes.transcripts import router as transcripts_router
 from echo_masque.api.routes.trials import router as trials_router
 from echo_masque.api.routes.workspace import router as workspace_router
+
+# Generated binary artifacts are an internal Discord connector sub-route. Keep them under the
+# existing authenticated connector prefix without adding another top-level router to create_app.
+connectors_router.include_router(generated_media_router)
 
 __all__ = [
     "accounts_router",

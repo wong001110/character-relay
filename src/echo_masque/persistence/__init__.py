@@ -18,6 +18,10 @@ from echo_masque.persistence.calibration_repository import (
 )
 from echo_masque.persistence.condition_watch_models import ConditionWatchRecord
 from echo_masque.persistence.condition_watch_repository import ConditionWatchRepository
+from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord
+from echo_masque.persistence.conversation_media_repository import (
+    ConversationMediaReferenceRepository,
+)
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
@@ -51,6 +55,8 @@ from echo_masque.persistence.expression_models import (
     DiscordExpressionSemanticRecord,
 )
 from echo_masque.persistence.expression_repository import ExpressionRepository
+from echo_masque.persistence.generated_media_models import GeneratedMediaArtifactRecord
+from echo_masque.persistence.generated_media_repository import GeneratedMediaArtifactRepository
 from echo_masque.persistence.interaction_models import (
     DiscordInteractionRunRecord,
     DiscordInteractionSessionRecord,
@@ -140,6 +146,8 @@ __all__ = [
     "CharacterSemanticProfileRecord",
     "ConditionWatchRecord",
     "ConditionWatchRepository",
+    "ConversationMediaReferenceRecord",
+    "ConversationMediaReferenceRepository",
     "Database",
     "DeploymentConflict",
     "DeploymentMessageAliasRecord",
@@ -164,6 +172,8 @@ __all__ = [
     "DurableRuntimeRepository",
     "EvaluationRepository",
     "ExpressionRepository",
+    "GeneratedMediaArtifactRecord",
+    "GeneratedMediaArtifactRepository",
     "InteractionConflict",
     "InteractionRepository",
     "JudgeEvaluationRecord",
