@@ -20,12 +20,16 @@ from echo_masque.persistence.expression_models import (
     DiscordExpressionRunRecord,
     DiscordExpressionSemanticRecord,
 )
-from echo_masque.persistence.expression_repository import ExpressionRepository as BaseExpressionRepository
+from echo_masque.persistence.expression_repository import (
+    ExpressionRepository as BaseExpressionRepository,
+)
 from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
 from echo_masque.semantic_participation import (
     FastEmbedSemanticEncoder,
     SemanticEmbeddingUnavailable,
     SemanticEncoder,
+)
+from echo_masque.semantic_participation import (
     _cosine as dense_cosine,
 )
 
