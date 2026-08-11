@@ -1,5 +1,7 @@
 """HTTP and Connector schemas for Server expression retrieval workflows."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Literal
 
