@@ -9,7 +9,7 @@ from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, 
 from echo_masque.api.routes.connectors import _authorize_connector
 from echo_masque.persistence import GeneratedMediaArtifactRepository
 
-router = APIRouter(prefix="/api/connectors/discord", tags=["connectors"])
+router = APIRouter(tags=["connectors"])
 
 
 def _repository(request: Request) -> GeneratedMediaArtifactRepository:
