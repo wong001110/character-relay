@@ -61,7 +61,10 @@ def test_media_preview_includes_discord_visible_embed_before_watching() -> None:
 
 
 def test_attention_decision_uses_persona_without_mutating_character_history() -> None:
-    provider = FakeProvider('{"action":"watch","reason":"This topic matches my interests."}')
+    provider = FakeProvider(
+        '{"action":"watch","reason":"This topic matches my interests.",'
+        '"response_stance":"truthful","stance_reason":"I genuinely want to discuss it."}'
+    )
     target = PromptModelTarget(
         config=PromptModelConfig(
             name="Ann",
@@ -80,6 +83,8 @@ def test_attention_decision_uses_persona_without_mutating_character_history() ->
     )
 
     assert decision.action == "watch"
+    assert decision.response_stance == "truthful"
+    assert decision.stance_reason == "I genuinely want to discuss it."
     assert target.history == ()
     assert len(provider.calls) == 1
     messages, model, temperature = provider.calls[0]
@@ -88,13 +93,36 @@ def test_attention_decision_uses_persona_without_mutating_character_history() ->
     assert messages[0].role == "system"
     assert "selective and curious" in messages[0].content
     assert messages[1].content.startswith("[MEDIA_ATTENTION]")
+    assert "response_stance" in messages[1].content
     assert "Cherry Studio V2" in messages[1].content
+
+
+def test_skip_can_declare_bluff_without_granting_unseen_knowledge() -> None:
+    decision = CharacterMediaAttentionDecider._parse(
+        '{"action":"skip","reason":"I do not actually want to inspect it.",'
+        '"response_stance":"bluff","stance_reason":"I would rather save face."}'
+    )
+
+    assert decision.action == "skip"
+    assert decision.response_stance == "bluff"
+    assert decision.stance_reason == "I would rather save face."
+
+
+def test_legacy_attention_shape_remains_compatible_with_neutral_stance() -> None:
+    decision = CharacterMediaAttentionDecider._parse(
+        '{"action":"watch","reason":"I am curious."}'
+    )
+
+    assert decision.action == "watch"
+    assert decision.response_stance == "neutral"
+    assert decision.stance_reason == "persona_social_stance"
 
 
 def test_invalid_attention_output_fails_closed_to_skip() -> None:
     decision = CharacterMediaAttentionDecider._parse("I would probably watch it.")
     assert decision.action == "skip"
     assert decision.reason == "invalid_attention_output"
+    assert decision.response_stance == "neutral"
 
 
 def test_provider_trace_classifies_media_attention_separately() -> None:
