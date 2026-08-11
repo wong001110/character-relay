@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from contextlib import suppress
 from dataclasses import dataclass
 
 from echo_masque.api.connector_schemas import DiscordInboundMessage
@@ -152,12 +153,8 @@ class ConversationMediaReferenceService:
                 source_uri=source_uris[index] if index < len(source_uris) else "",
             )
             if self._semantic_enabled:
-                try:
+                with suppress(SemanticEmbeddingUnavailable, ValueError, RuntimeError):
                     self._ensure_vector(owner_id=owner_id, record=record, context=context)
-                except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
-                    # Media memory must remain available through reply/recency even if semantic
-                    # embedding is temporarily unavailable.
-                    pass
 
     @staticmethod
     def _contextual_query(payload: DiscordInboundMessage) -> str:
