@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from pydantic import SecretStr
+
 from echo_masque.generated_media_delivery import GeneratedMediaDeliveryService
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService, ImageGenerateToolInput
+from echo_masque.persistence import DeploymentRepository, DiscordIdentityRepository
 from echo_masque.providers import ChatToolCall, ProviderError
 from echo_masque.server_time_tools import ServerAwareToolRegistry
 from echo_masque.tool_external import ExternalToolFailed, json_result
@@ -27,8 +30,20 @@ class MediaToolRegistry(ServerAwareToolRegistry):
         generated_media_delivery: GeneratedMediaDeliveryService | None = None,
         **kwargs: Any,
     ) -> None:
+        raw_bot_token = kwargs.get("discord_bot_token")
         super().__init__(*args, **kwargs)
         self.image_creation_service = image_creation_service
+        if generated_media_delivery is None and image_creation_service is not None:
+            database = image_creation_service.artifact_repository.database
+            generated_media_delivery = GeneratedMediaDeliveryService(
+                image_creation_service.artifact_repository,
+                DeploymentRepository(database),
+                DiscordIdentityRepository(database),
+                image_creation_service.credential_resolver.credential_vault,
+                discord_bot_token=(
+                    raw_bot_token if isinstance(raw_bot_token, SecretStr) else None
+                ),
+            )
         self.generated_media_delivery = generated_media_delivery
         self._generated_by_turn: dict[tuple[str, str], tuple[str, ...]] = {}
         self._reply_reference_by_turn: dict[tuple[str, str], str] = {}
