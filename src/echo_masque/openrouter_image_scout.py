@@ -16,7 +16,9 @@ from urllib.parse import quote
 
 import httpx
 
+from echo_masque.image_generation import ImageGenerationRequest, ImageGenerationResult
 from echo_masque.provider_credentials import ResolvedProviderCredential
+from echo_masque.providers.openrouter_image import OpenRouterImageGenerationProvider
 
 AUTO_FREE_ANIME_MODEL = "auto:openrouter-free-anime"
 _DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -99,7 +101,8 @@ class OpenRouterImageModelScout:
     ) -> ImageModelScoutResult:
         if credential.provider.casefold().strip() != "openrouter":
             raise OpenRouterImageScoutError(
-                "Automatic free image-model discovery currently requires an OpenRouter Key Group."
+                "Automatic free image-model discovery currently requires "
+                "an OpenRouter Key Group."
             )
 
         cache_key = credential.key_group_id
@@ -121,7 +124,9 @@ class OpenRouterImageModelScout:
             )
             if len(self._cache) > 200:
                 self._cache = {
-                    key: value for key, value in self._cache.items() if value.expires_at > now
+                    key: value
+                    for key, value in self._cache.items()
+                    if value.expires_at > now
                 }
             return result
 
@@ -155,7 +160,9 @@ class OpenRouterImageModelScout:
                     return_exceptions=True,
                 )
         except (httpx.HTTPError, ValueError, TypeError) as exc:
-            raise OpenRouterImageScoutError("OpenRouter image-model discovery failed.") from exc
+            raise OpenRouterImageScoutError(
+                "OpenRouter image-model discovery failed."
+            ) from exc
 
         candidates = [item for item in inspected if isinstance(item, ImageModelCandidate)]
         candidates.sort(
@@ -188,7 +195,8 @@ class OpenRouterImageModelScout:
             if not separator or not author or not slug:
                 return None
             endpoint_path = (
-                f"/api/v1/images/models/{quote(author, safe='')}/{quote(slug, safe='')}/endpoints"
+                "/api/v1/images/models/"
+                f"{quote(author, safe='')}/{quote(slug, safe='')}/endpoints"
             )
         try:
             response = await client.get(endpoint_path)
@@ -198,7 +206,9 @@ class OpenRouterImageModelScout:
             return None
         raw_endpoints = payload.get("endpoints", []) if isinstance(payload, dict) else []
         endpoints = [item for item in raw_endpoints if isinstance(item, dict)]
-        free_endpoints = [item for item in endpoints if self._endpoint_is_completely_free(item)]
+        free_endpoints = [
+            item for item in endpoints if self._endpoint_is_completely_free(item)
+        ]
         if not free_endpoints:
             return None
 
@@ -244,7 +254,11 @@ class OpenRouterImageModelScout:
         return saw_price
 
     @staticmethod
-    def _style_score(model_id: str, name: str, description: str) -> tuple[int, tuple[str, ...]]:
+    def _style_score(
+        model_id: str,
+        name: str,
+        description: str,
+    ) -> tuple[int, tuple[str, ...]]:
         haystack = " ".join((model_id, name, description)).casefold()
         score = 0
         matches: list[str] = []
@@ -253,6 +267,46 @@ class OpenRouterImageModelScout:
                 score += weight
                 matches.append(keyword)
         return score, tuple(matches[:6])
+
+
+class AutomaticFreeAnimeImageProvider:
+    """Resolve one free image endpoint at call time, with no paid fallback."""
+
+    def __init__(
+        self,
+        credential: ResolvedProviderCredential,
+        *,
+        scout: OpenRouterImageModelScout | None = None,
+    ) -> None:
+        self.credential = credential
+        self.scout = scout or default_openrouter_image_model_scout
+
+    @property
+    def provider_id(self) -> str:
+        return "openrouter"
+
+    @property
+    def model(self) -> str:
+        return AUTO_FREE_ANIME_MODEL
+
+    async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+        result = await self.scout.discover(self.credential)
+        if result.selected_model is None:
+            raise ValueError(
+                "No truly free OpenRouter image-generation model is available right now. "
+                "Character Relay will not fall back to a paid model automatically."
+            )
+        credential = resolve_automatic_image_model(
+            self.credential,
+            result.selected_model,
+        )
+        provider = OpenRouterImageGenerationProvider(
+            provider_id="openrouter",
+            api_key=credential.api_key,
+            model=credential.model,
+            base_url=credential.base_url.strip() or _DEFAULT_OPENROUTER_BASE_URL,
+        )
+        return await provider.generate(request)
 
 
 def resolve_automatic_image_model(
@@ -269,6 +323,7 @@ default_openrouter_image_model_scout = OpenRouterImageModelScout()
 
 __all__ = [
     "AUTO_FREE_ANIME_MODEL",
+    "AutomaticFreeAnimeImageProvider",
     "ImageModelCandidate",
     "ImageModelScoutResult",
     "OpenRouterImageModelScout",
