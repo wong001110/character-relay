@@ -19,6 +19,24 @@ from echo_masque.provider_trace_classification import (
 
 TraceStatus = Literal["pending", "succeeded", "error"]
 
+_FAILURE_EXPLANATIONS = {
+    "provider_timeout": "The provider did not return a response before the configured timeout.",
+    "provider_unavailable": "The provider could not be reached or remained unavailable after retries.",
+    "provider_rate_limited": "The provider continued to rate-limit the request after retries.",
+    "provider_authentication_rejected": "The provider rejected the configured credential.",
+    "provider_protocol_error": "The provider returned a response Character Relay could not use.",
+    "provider_http_error": "The provider returned a non-success HTTP response.",
+    "invalid_response_payload": "The provider response did not match the expected chat-completion shape.",
+    "empty_content": "The provider returned neither visible content nor a Tool call.",
+    "request_cancelled": "The in-flight provider task was cancelled before it completed.",
+    "provider_client_error": "The provider client failed before a usable response was produced.",
+    "trace_abandoned": (
+        "No terminal provider event was recorded before the trace deadline. The request may have "
+        "been cancelled, disconnected, interrupted, or the runtime may have restarted."
+    ),
+    "tool_result_failed": "This model step followed a Tool result that Runtime marked as failed.",
+}
+
 
 def _json_object(value: str) -> dict[str, object]:
     try:
@@ -46,6 +64,24 @@ def _scope_value(record: ProviderTraceRecord, key: str) -> str:
     return ""
 
 
+def _failure(record: ProviderTraceRecord) -> tuple[str, str]:
+    if record.status != "error":
+        return "", ""
+    error = _json_object(record.error_json)
+    raw_reason = error.get("reason")
+    reason = raw_reason.strip()[:160] if isinstance(raw_reason, str) else ""
+    if not reason:
+        reason = "tool_result_failed" if not error else "provider_error"
+    raw_detail = error.get("detail")
+    detail = raw_detail.strip()[:1000] if isinstance(raw_detail, str) else ""
+    if not detail:
+        detail = _FAILURE_EXPLANATIONS.get(
+            reason,
+            "The provider call ended in an error. Inspect the bounded error payload for details.",
+        )
+    return reason, detail
+
+
 class ProviderTraceSummary(BaseModel):
     trace_id: str
     status: TraceStatus
@@ -53,6 +89,8 @@ class ProviderTraceSummary(BaseModel):
     tool_names: list[str]
     media_input: dict[str, object]
     media_attention: dict[str, object]
+    failure_reason: str
+    failure_detail: str
     owner_id: str
     deployment_id: str
     character_card_id: str
@@ -69,6 +107,7 @@ class ProviderTraceSummary(BaseModel):
 
     @classmethod
     def from_record(cls, record: ProviderTraceRecord) -> ProviderTraceSummary:
+        failure_reason, failure_detail = _failure(record)
         return cls(
             trace_id=record.trace_id,
             status=cast(TraceStatus, record.status),
@@ -79,6 +118,8 @@ class ProviderTraceSummary(BaseModel):
                 record.request_json,
                 record.response_json,
             ),
+            failure_reason=failure_reason,
+            failure_detail=failure_detail,
             owner_id=_scope_value(record, "owner_id"),
             deployment_id=_scope_value(record, "deployment_id"),
             character_card_id=_scope_value(record, "character_card_id"),
