@@ -77,12 +77,12 @@ def clean_public_reader_text(text: str, *, max_chars: int = 14_000) -> ReaderCle
     cleaned = "\n".join(kept).strip()[:max_chars]
     lowered = text.casefold()
     strong_markers = sum(marker in lowered for marker in _STRONG_GUEST_MARKERS)
-    meaningful_lines = sum(1 for line in kept if len(line) >= 20)
+    meaningful_lines = sum(1 for line in kept if len(line) >= 8)
     guest_blocked = bool(
         strong_markers >= 2
         and (
             not cleaned
-            or (len(cleaned) < 180 and meaningful_lines <= 1)
+            or (len(cleaned) < 120 and meaningful_lines == 0)
         )
     )
     if guest_blocked:
