@@ -19,6 +19,14 @@ export interface ProviderKeyGroupCreate {
   default_models: Partial<Record<KeyGroupCapability, string>>;
 }
 
+export interface ProviderKeyGroupUpdate {
+  name: string;
+  provider: string;
+  base_url: string;
+  api_key?: string;
+  default_models: Partial<Record<KeyGroupCapability, string>>;
+}
+
 export interface KeyGroupBulkApplyResult {
   applied: number;
 }
@@ -53,6 +61,11 @@ export const keyGroupApi = {
   create: (payload: ProviderKeyGroupCreate) =>
     request<ProviderKeyGroup>("/api/account/key-groups", {
       method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  update: (groupId: string, payload: ProviderKeyGroupUpdate) =>
+    request<ProviderKeyGroup>(`/api/account/key-groups/${groupId}`, {
+      method: "PUT",
       body: JSON.stringify(payload)
     }),
   remove: (groupId: string) =>
