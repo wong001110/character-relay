@@ -49,8 +49,8 @@ from echo_masque.persistence.evaluation_models import (
     JudgePredictionRecord,
 )
 from echo_masque.persistence.evaluation_repository import EvaluationRepository
+from echo_masque.persistence.expression_hybrid_repository import HybridExpressionRepository
 from echo_masque.persistence.expression_hybrid_repository import (
-    HybridExpressionRepository,
     HybridExpressionRepository as ExpressionRepository,
 )
 from echo_masque.persistence.expression_models import (
