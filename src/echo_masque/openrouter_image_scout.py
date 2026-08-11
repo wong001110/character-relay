@@ -1,7 +1,8 @@
 """Discover genuinely free OpenRouter image models with an anime-first preference.
 
-The scout is intentionally lazy. It only refreshes when requested by Settings or when an
-Image Generation Key Group uses the automatic model sentinel and its cache is stale.
+The full catalog is cached to avoid needless provider traffic. Before a generated image is
+actually requested, the selected provider endpoint is re-checked so stale catalog data cannot
+silently turn automatic free mode into a paid request.
 """
 
 from __future__ import annotations
@@ -131,6 +132,54 @@ class OpenRouterImageModelScout:
                 }
             return result
 
+    async def validate_candidate(
+        self,
+        credential: ResolvedProviderCredential,
+        candidate: ImageModelCandidate,
+    ) -> str:
+        """Re-check the exact pinned endpoint immediately before a generated image request."""
+
+        if credential.provider.casefold().strip() != "openrouter":
+            raise OpenRouterImageScoutError(
+                "Automatic free image-model validation requires an OpenRouter Key Group."
+            )
+        if not candidate.provider_tags:
+            raise OpenRouterImageScoutError(
+                "The selected free image endpoint no longer has a pinnable provider tag."
+            )
+        provider_tag = candidate.provider_tags[0]
+        base_url = credential.base_url.strip() or _DEFAULT_OPENROUTER_BASE_URL
+        headers = {
+            "Authorization": f"Bearer {credential.api_key.get_secret_value()}",
+            "Accept": "application/json",
+        }
+        try:
+            async with httpx.AsyncClient(
+                base_url=base_url.rstrip("/") + "/",
+                headers=headers,
+                timeout=httpx.Timeout(8.0),
+                transport=self.http_transport,
+                follow_redirects=True,
+            ) as client:
+                response = await client.get(self._endpoint_path(candidate.model_id))
+                response.raise_for_status()
+                payload = response.json()
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise OpenRouterImageScoutError(
+                "Could not re-check the selected free image endpoint before generation."
+            ) from exc
+        raw_endpoints = payload.get("endpoints", []) if isinstance(payload, dict) else []
+        for endpoint in raw_endpoints:
+            if not isinstance(endpoint, dict):
+                continue
+            if str(endpoint.get("provider_tag", "")).strip() != provider_tag:
+                continue
+            if self._endpoint_is_completely_free(endpoint):
+                return provider_tag
+        raise OpenRouterImageScoutError(
+            "The selected OpenRouter image endpoint is no longer verified as free."
+        )
+
     async def _fetch(self, credential: ResolvedProviderCredential) -> ImageModelScoutResult:
         base_url = credential.base_url.strip() or _DEFAULT_OPENROUTER_BASE_URL
         headers = {
@@ -190,15 +239,7 @@ class OpenRouterImageModelScout:
         model_id = str(model.get("id", "")).strip()
         if not model_id:
             return None
-        endpoint_path = str(model.get("endpoints", "")).strip()
-        if not endpoint_path:
-            author, separator, slug = model_id.partition("/")
-            if not separator or not author or not slug:
-                return None
-            endpoint_path = (
-                "/api/v1/images/models/"
-                f"{quote(author, safe='')}/{quote(slug, safe='')}/endpoints"
-            )
+        endpoint_path = str(model.get("endpoints", "")).strip() or self._endpoint_path(model_id)
         try:
             response = await client.get(endpoint_path)
             response.raise_for_status()
@@ -249,6 +290,13 @@ class OpenRouterImageModelScout:
             provider_tags=provider_tags,
             created=created,
         )
+
+    @staticmethod
+    def _endpoint_path(model_id: str) -> str:
+        author, separator, slug = model_id.partition("/")
+        if not separator or not author or not slug:
+            raise OpenRouterImageScoutError("OpenRouter image model ID is not routable.")
+        return f"/api/v1/images/models/{quote(author, safe='')}/{quote(slug, safe='')}/endpoints"
 
     @staticmethod
     def _endpoint_is_completely_free(endpoint: dict[str, Any]) -> bool:
@@ -304,7 +352,7 @@ class AutomaticFreeAnimeImageProvider:
     def model(self) -> str:
         return AUTO_FREE_ANIME_MODEL
 
-    async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+    async def _selected_candidate(self) -> tuple[ImageModelCandidate, str]:
         result = await self.scout.discover(self.credential)
         if result.selected_model is None or not result.candidates:
             raise ValueError(
@@ -314,16 +362,39 @@ class AutomaticFreeAnimeImageProvider:
         selected = result.candidates[0]
         if selected.model_id != result.selected_model or not selected.provider_tags:
             raise ValueError("Free image-model discovery did not return a pinnable endpoint.")
+        try:
+            provider_tag = await self.scout.validate_candidate(self.credential, selected)
+        except OpenRouterImageScoutError:
+            # The cached candidate changed. Refresh the full shortlist once so another newly-free
+            # anime-friendly model can take over without requiring a manual Settings visit.
+            refreshed = await self.scout.discover(self.credential, force_refresh=True)
+            if refreshed.selected_model is None or not refreshed.candidates:
+                raise ValueError(
+                    "No safely verified free OpenRouter image endpoint is available right now."
+                )
+            selected = refreshed.candidates[0]
+            if selected.model_id != refreshed.selected_model or not selected.provider_tags:
+                raise ValueError("Free image-model refresh did not return a pinnable endpoint.")
+            try:
+                provider_tag = await self.scout.validate_candidate(self.credential, selected)
+            except OpenRouterImageScoutError as exc:
+                raise ValueError(
+                    "The refreshed OpenRouter image endpoint could not be verified as free."
+                ) from exc
+        return selected, provider_tag
+
+    async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+        selected, provider_tag = await self._selected_candidate()
         credential = resolve_automatic_image_model(
             self.credential,
-            result.selected_model,
+            selected.model_id,
         )
         provider = OpenRouterImageGenerationProvider(
             provider_id="openrouter",
             api_key=credential.api_key,
             model=credential.model,
             base_url=credential.base_url.strip() or _DEFAULT_OPENROUTER_BASE_URL,
-            provider_only=(selected.provider_tags[0],),
+            provider_only=(provider_tag,),
             allow_fallbacks=False,
         )
         return await provider.generate(request)
