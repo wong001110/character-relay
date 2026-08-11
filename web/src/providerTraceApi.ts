@@ -13,6 +13,8 @@ export interface ProviderTraceSummary {
   tool_names: string[];
   media_input: Record<string, unknown>;
   media_attention: Record<string, unknown>;
+  failure_reason: string;
+  failure_detail: string;
   owner_id: string;
   deployment_id: string;
   character_card_id: string;
