@@ -1,0 +1,85 @@
+.portrait-window {
+  position: relative;
+  overflow: hidden;
+}
+
+.portrait-window > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.character-card .portrait-window > img[src*="character-silhouette"] {
+  object-fit: contain;
+  padding: 22px;
+  opacity: .72;
+}
+
+.character-portrait-actions {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 3;
+  display: flex;
+  gap: 5px;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: 140ms ease;
+}
+
+.character-card:hover .character-portrait-actions,
+.character-card:focus-within .character-portrait-actions {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.character-portrait-upload,
+.character-portrait-remove {
+  min-height: 27px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 8px;
+  border: 1px solid rgba(91, 72, 105, .16);
+  border-radius: 4px 9px 5px 8px;
+  background: rgba(255, 250, 240, .93);
+  color: #64546f;
+  box-shadow: 2px 3px 0 rgba(74, 55, 82, .06);
+  font: 700 .55rem/1.1 var(--portal-pencil);
+  cursor: pointer;
+  transform: rotate(-1deg);
+}
+
+.character-portrait-remove {
+  transform: rotate(1deg);
+}
+
+.character-portrait-upload input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.character-portrait-upload:hover,
+.character-portrait-remove:hover {
+  background: #f0e8ff;
+}
+
+.character-portrait-message {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-left: 3px solid #b49ce5;
+  background: rgba(239, 232, 255, .72);
+  color: #665874;
+  font-size: .68rem;
+}
+
+@media (hover: none) {
+  .character-portrait-actions {
+    opacity: 1;
+    transform: none;
+  }
+}

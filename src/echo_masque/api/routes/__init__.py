@@ -9,6 +9,7 @@ from echo_masque.api.routes.authoring_generation import (
     router as authoring_generation_router,
 )
 from echo_masque.api.routes.calibration import router as calibration_router
+from echo_masque.api.routes.character_portraits import router as character_portraits_router
 from echo_masque.api.routes.characters import router as characters_router
 from echo_masque.api.routes.comparisons import router as comparisons_router
 from echo_masque.api.routes.connectors import router as connectors_router
@@ -33,6 +34,10 @@ from echo_masque.api.routes.tools import router as tools_router
 from echo_masque.api.routes.transcripts import router as transcripts_router
 from echo_masque.api.routes.trials import router as trials_router
 from echo_masque.api.routes.workspace import router as workspace_router
+
+# Character portraits are part of the Character Card resource. Keep upload/delete behind the
+# normal Character auth boundary while the nested GET stays public for Discord avatar fetches.
+characters_router.include_router(character_portraits_router)
 
 # Generated binary artifacts are an internal Discord connector sub-route. Keep them under the
 # existing authenticated connector prefix without adding another top-level router to create_app.

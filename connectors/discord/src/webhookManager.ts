@@ -16,6 +16,16 @@ interface DiscordApiMessage {
 const DISCORD_API = "https://discord.com/api/v10";
 const WEBHOOK_NAME = "Character Relay";
 
+function identityAvatarUrl(deployment: DiscordDeployment): string {
+  const custom = deployment.identity_avatar_url.trim();
+  if (custom) return custom;
+  const relayBaseUrl = process.env.CHARACTER_RELAY_API_URL?.trim().replace(/\/$/, "") ?? "";
+  if (!relayBaseUrl) return "";
+  return `${relayBaseUrl}/api/characters/portraits/${encodeURIComponent(
+    deployment.character_card_id
+  )}`;
+}
+
 export class DiscordWebhookManager {
   constructor(
     private readonly botToken: string,
@@ -201,15 +211,14 @@ export class DiscordWebhookManager {
     }
     const bytes = await asset.arrayBuffer();
     const mediaType = asset.headers.get("content-type") || "application/octet-stream";
+    const avatarUrl = identityAvatarUrl(deployment);
     const form = new FormData();
     form.append(
       "payload_json",
       JSON.stringify({
         ...(content ? { content } : {}),
         username: deployment.identity_display_name.slice(0, 80),
-        ...(deployment.identity_avatar_url
-          ? { avatar_url: deployment.identity_avatar_url }
-          : {}),
+        ...(avatarUrl ? { avatar_url: avatarUrl } : {}),
         allowed_mentions: allowedUserIds.length
           ? { parse: [], users: allowedUserIds }
           : { parse: [] },
@@ -241,6 +250,7 @@ export class DiscordWebhookManager {
     if (deployment.thread_id) {
       url.searchParams.set("thread_id", deployment.thread_id);
     }
+    const avatarUrl = identityAvatarUrl(deployment);
     return fetch(url, {
       method: "POST",
       signal: AbortSignal.timeout(30_000),
@@ -248,9 +258,7 @@ export class DiscordWebhookManager {
       body: JSON.stringify({
         content,
         username: deployment.identity_display_name.slice(0, 80),
-        ...(deployment.identity_avatar_url
-          ? { avatar_url: deployment.identity_avatar_url }
-          : {}),
+        ...(avatarUrl ? { avatar_url: avatarUrl } : {}),
         allowed_mentions: allowedUserIds.length
           ? { parse: [], users: allowedUserIds }
           : { parse: [] }

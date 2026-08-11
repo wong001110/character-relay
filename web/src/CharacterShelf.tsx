@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { CharacterCard } from "./api";
+import { CharacterPortrait } from "./CharacterPortrait";
+import { characterPortraitApi } from "./characterPortraitApi";
 import { useI18n } from "./i18n";
 import {
   NotebookField,
@@ -47,6 +49,9 @@ export function CharacterShelf({
   const [sort, setSort] = useState("newest");
   const [page, setPage] = useState(1);
   const [semanticCard, setSemanticCard] = useState<CharacterCard | null>(null);
+  const [portraitVersions, setPortraitVersions] = useState<Record<string, number>>({});
+  const [portraitWorking, setPortraitWorking] = useState<string | null>(null);
+  const [portraitMessage, setPortraitMessage] = useState<string | null>(null);
 
   const tags = useMemo(
     () => [...new Set(cards.flatMap((card) => card.tags))].sort((a, b) => a.localeCompare(b)),
@@ -95,6 +100,41 @@ export function CharacterShelf({
     setSort("newest");
   }
 
+  async function uploadPortrait(card: CharacterCard, file: File | null) {
+    if (!file) return;
+    try {
+      setPortraitWorking(card.id);
+      setPortraitMessage(null);
+      await characterPortraitApi.upload(card.id, file);
+      setPortraitVersions((current) => ({ ...current, [card.id]: Date.now() }));
+      setPortraitMessage(
+        zh
+          ? `已更新 ${card.display_name} 的角色图片。未设置 Deployment icon 时，Discord 会继承这张图片。`
+          : `Updated ${card.display_name}'s portrait. Discord inherits it when the Deployment has no custom icon.`
+      );
+    } catch (reason) {
+      setPortraitMessage(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setPortraitWorking(null);
+    }
+  }
+
+  async function removePortrait(card: CharacterCard) {
+    try {
+      setPortraitWorking(card.id);
+      setPortraitMessage(null);
+      await characterPortraitApi.remove(card.id);
+      setPortraitVersions((current) => ({ ...current, [card.id]: Date.now() }));
+      setPortraitMessage(
+        zh ? `已移除 ${card.display_name} 的角色图片。` : `Removed ${card.display_name}'s portrait.`
+      );
+    } catch (reason) {
+      setPortraitMessage(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setPortraitWorking(null);
+    }
+  }
+
   return (
     <main className="notebook-shell character-library-v2">
       <section className="character-library-layout">
@@ -131,6 +171,7 @@ export function CharacterShelf({
           </header>
 
           {error && <p className="error-note">{error}</p>}
+          {portraitMessage && <p className="character-portrait-message">{portraitMessage}</p>}
 
           {cards.length === 0 ? (
             <section className="empty-library paper-sheet">
@@ -153,8 +194,43 @@ export function CharacterShelf({
                   >
                     <div className="card-tape" />
                     <div className="portrait-window">
-                      <img src="/assets/character-silhouette.svg" alt="" />
+                      <CharacterPortrait
+                        cardId={card.id}
+                        version={portraitVersions[card.id] ?? 0}
+                        alt={card.display_name}
+                      />
                       <span>{t(subjectKeys[card.subject_type])}</span>
+                      {!demoMode && (
+                        <div className="character-portrait-actions">
+                          <label className="character-portrait-upload">
+                            {portraitWorking === card.id
+                              ? zh
+                                ? "处理中…"
+                                : "Working…"
+                              : zh
+                                ? "更换图片"
+                                : "Change image"}
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp,image/gif"
+                              disabled={portraitWorking === card.id}
+                              onChange={(event) => {
+                                const file = event.currentTarget.files?.[0] ?? null;
+                                void uploadPortrait(card, file);
+                                event.currentTarget.value = "";
+                              }}
+                            />
+                          </label>
+                          <button
+                            className="character-portrait-remove"
+                            type="button"
+                            disabled={portraitWorking === card.id}
+                            onClick={() => void removePortrait(card)}
+                          >
+                            {zh ? "移除" : "Remove"}
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <div className="card-copy">
                       <p className="card-index">
