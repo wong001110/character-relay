@@ -326,7 +326,6 @@ export function ProviderTraceViewer({
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   }
-
   return (
     <main className={`provider-trace-page${embedded ? " provider-trace-embedded" : ""}`}>
       <header className="provider-trace-header">
@@ -466,6 +465,7 @@ export function ProviderTraceViewer({
                       </span>
                     </div>
                     <strong>{trace.request_model || "unknown model"}</strong>
+                    {trace.failure_reason && <small>⚠ {trace.failure_reason}</small>}
                     {attentionLabel && <small>{attentionLabel}</small>}
                     {mediaLabel && <small>{mediaLabel}</small>}
                     <small>{accountLabel(trace.owner_id)}</small>
@@ -553,6 +553,33 @@ export function ProviderTraceViewer({
                 <div><dt>Character</dt><dd>{selected.character_card_id || "—"}</dd></div>
                 <div><dt>Created</dt><dd>{formatPortalTimestamp(selected.created_at, zh)}</dd></div>
               </dl>
+
+              {selected.status === "pending" && (
+                <section className="provider-trace-json-section">
+                  <div><h3>{zh ? "请求仍在等待终止结果" : "Request is still awaiting a terminal result"}</h3></div>
+                  <p>
+                    {zh
+                      ? "PENDING 表示 Character Relay 已记录 provider.request，但目前还没有收到 provider.response 或 provider.error。正常请求完成后会变成 Succeeded 或 Error；如果 5 分钟后仍没有任何终止事件，刷新 Trace 时会自动改为 Error / trace_abandoned，并说明它可能被取消、断线、中断或在 Runtime 重启时遗失。"
+                      : "PENDING means Character Relay recorded provider.request but has not yet recorded provider.response or provider.error. A normal request becomes Succeeded or Error. If no terminal event exists after five minutes, refreshing traces reconciles it to Error / trace_abandoned and explains that it may have been cancelled, disconnected, interrupted, or lost during a Runtime restart."}
+                  </p>
+                </section>
+              )}
+
+              {selected.status === "error" && (
+                <section className="provider-trace-json-section">
+                  <div><h3>{zh ? "失败原因" : "Failure summary"}</h3></div>
+                  <dl className="provider-trace-meta">
+                    <div>
+                      <dt>{zh ? "Reason" : "Reason"}</dt>
+                      <dd>{selected.failure_reason || "provider_error"}</dd>
+                    </div>
+                    <div>
+                      <dt>{zh ? "发生了什么" : "What happened"}</dt>
+                      <dd>{selected.failure_detail || (zh ? "Provider 调用以错误结束。" : "The provider call ended in an error.")}</dd>
+                    </div>
+                  </dl>
+                </section>
+              )}
 
               {selected.category === "media_attention" && (
                 <section className="provider-trace-json-section">
