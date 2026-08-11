@@ -3,12 +3,13 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 ExpressionResourceType = Literal["emoji", "sticker"]
 ExpressionAction = Literal["none", "inline", "reaction", "sticker"]
 ExpressionNodeStatus = Literal["running", "completed", "failed", "skipped"]
 ExpressionRunStatus = Literal["running", "completed", "failed", "skipped"]
+ExpressionRetrievalBackend = Literal["hybrid_sparse_v1", "hybrid_dense_sparse_v2"]
 
 
 def default_expression_actions() -> list[Literal["inline", "reaction", "sticker"]]:
@@ -112,8 +113,14 @@ class ExpressionRetrieveRequest(BaseModel):
 class ExpressionRetrievalView(BaseModel):
     run_id: str
     attempt: int
-    retrieval_backend: Literal["hybrid_sparse_v1"] = "hybrid_sparse_v1"
+    retrieval_backend: ExpressionRetrievalBackend = "hybrid_sparse_v1"
     candidates: list[ExpressionCandidate]
+
+    @model_validator(mode="after")
+    def infer_retrieval_backend(self) -> ExpressionRetrievalView:
+        if any("dense" in item.signals for item in self.candidates):
+            self.retrieval_backend = "hybrid_dense_sparse_v2"
+        return self
 
 
 class ExpressionNodeReport(BaseModel):
