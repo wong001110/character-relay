@@ -1,4 +1,4 @@
-"""Optional OpenRouter Image API adapter behind the provider-neutral image contract."""
+"""OpenAI-compatible Image API adapter behind the provider-neutral image contract."""
 
 from __future__ import annotations
 
@@ -18,24 +18,28 @@ from echo_masque.providers.errors import (
 
 
 class OpenRouterImageGenerationProvider:
-    """Generate images through OpenRouter without making OpenRouter a runtime dependency."""
-
-    provider_id = "openrouter"
+    """Generate through an OpenAI-compatible image endpoint; OpenRouter remains optional."""
 
     def __init__(
         self,
         *,
         api_key: SecretStr,
         model: str,
+        provider_id: str = "openrouter",
         base_url: str = "https://openrouter.ai/api/v1",
         timeout_seconds: float = 120.0,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        self._provider_id = provider_id.strip() or "openrouter"
         self._api_key = api_key
         self._model = model.strip()
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout_seconds
         self._transport = transport
+
+    @property
+    def provider_id(self) -> str:
+        return self._provider_id
 
     @property
     def model(self) -> str:
