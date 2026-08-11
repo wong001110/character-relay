@@ -152,6 +152,70 @@ class HybridExpressionRepository(BaseExpressionRepository):
             scores[resource.key] = dense_cosine(query_vector, vector)
         return scores
 
+    def _retrieval_inputs(
+        self,
+        *,
+        connection_id: str,
+        guild_id: str,
+        source_message_id: str,
+        deployment_id: str,
+        run_id: str | None,
+    ) -> tuple[str, list[DiscordExpressionSemanticRecord], set[str]]:
+        """Load immutable retrieval inputs before opening vector-cache write sessions."""
+
+        with self.database.session() as session:
+            connection = self._connection(session, connection_id)
+            deployment = session.get(CharacterDeploymentRecord, deployment_id)
+            if (
+                deployment is None
+                or deployment.connection_id != connection_id
+                or deployment.owner_id != connection.owner_id
+            ):
+                raise KeyError("deployment")
+
+            excluded_run_id = ""
+            if run_id:
+                existing_run = session.get(DiscordExpressionRunRecord, run_id)
+                if existing_run is None or existing_run.connection_id != connection_id:
+                    raise KeyError("run")
+                excluded_run_id = existing_run.id
+            else:
+                existing_run = session.scalar(
+                    select(DiscordExpressionRunRecord).where(
+                        DiscordExpressionRunRecord.connection_id == connection_id,
+                        DiscordExpressionRunRecord.source_message_id == source_message_id,
+                        DiscordExpressionRunRecord.deployment_id == deployment_id,
+                    )
+                )
+                if existing_run is not None:
+                    excluded_run_id = existing_run.id
+
+            resources = list(
+                session.scalars(
+                    select(DiscordExpressionSemanticRecord).where(
+                        DiscordExpressionSemanticRecord.owner_id == connection.owner_id,
+                        DiscordExpressionSemanticRecord.connection_id == connection_id,
+                        DiscordExpressionSemanticRecord.guild_id == guild_id,
+                    )
+                )
+            )
+            recent_conditions = [
+                DiscordExpressionRunRecord.owner_id == connection.owner_id,
+                DiscordExpressionRunRecord.deployment_id == deployment_id,
+                DiscordExpressionRunRecord.selected_resource_key != "",
+            ]
+            if excluded_run_id:
+                recent_conditions.append(DiscordExpressionRunRecord.id != excluded_run_id)
+            recent_keys = set(
+                session.scalars(
+                    select(DiscordExpressionRunRecord.selected_resource_key)
+                    .where(*recent_conditions)
+                    .order_by(DiscordExpressionRunRecord.updated_at.desc())
+                    .limit(5)
+                )
+            )
+            return connection.owner_id, resources, recent_keys
+
     def retrieve(
         self,
         *,
@@ -166,6 +230,39 @@ class HybridExpressionRepository(BaseExpressionRepository):
         top_k: int,
         run_id: str | None = None,
     ) -> tuple[DiscordExpressionRunRecord, list[dict[str, object]]]:
+        # SemanticVectorRepository intentionally owns short independent sessions. Resolve dense
+        # vectors before mutating the durable Expression workflow so SQLite never sees nested
+        # cache writes inside a pending run transaction (important for in-memory and single-
+        # connection deployments as well as deterministic tests).
+        owner_id, resources, recent_keys = self._retrieval_inputs(
+            connection_id=connection_id,
+            guild_id=guild_id,
+            source_message_id=source_message_id,
+            deployment_id=deployment_id,
+            run_id=run_id,
+        )
+        allowed = set(allowed_actions)
+        excluded = set(excluded_resource_keys)
+        dense_scores = self._dense_scores(
+            owner_id=owner_id,
+            records=resources,
+            query=query,
+            allowed_actions=allowed,
+            excluded_resource_keys=excluded,
+        )
+        backend = "hybrid_dense_sparse_v2" if dense_scores is not None else "hybrid_sparse_v1"
+        ranked = rank_expression_resources(
+            [self._resource(item) for item in resources],
+            query=query,
+            allowed_actions=allowed,
+            recent_resource_keys=recent_keys,
+            excluded_resource_keys=excluded,
+            dense_scores=dense_scores,
+            top_k=top_k,
+        )
+        candidates = [self.candidate_dict(item) for item in ranked]
+        query_tokens = semantic_tokens(query)
+
         with self.database.session() as session:
             connection = self._connection(session, connection_id)
             deployment = session.get(CharacterDeploymentRecord, deployment_id)
@@ -202,31 +299,6 @@ class HybridExpressionRepository(BaseExpressionRepository):
                     session.add(run)
                     session.flush()
 
-            resources = list(
-                session.scalars(
-                    select(DiscordExpressionSemanticRecord).where(
-                        DiscordExpressionSemanticRecord.owner_id == connection.owner_id,
-                        DiscordExpressionSemanticRecord.connection_id == connection_id,
-                        DiscordExpressionSemanticRecord.guild_id == guild_id,
-                    )
-                )
-            )
-            recent_keys = set(
-                session.scalars(
-                    select(DiscordExpressionRunRecord.selected_resource_key)
-                    .where(
-                        DiscordExpressionRunRecord.owner_id == connection.owner_id,
-                        DiscordExpressionRunRecord.deployment_id == deployment_id,
-                        DiscordExpressionRunRecord.selected_resource_key != "",
-                        DiscordExpressionRunRecord.id != run.id,
-                    )
-                    .order_by(DiscordExpressionRunRecord.updated_at.desc())
-                    .limit(5)
-                )
-            )
-            query_tokens = semantic_tokens(query)
-            allowed = set(allowed_actions)
-            excluded = set(excluded_resource_keys)
             self._append_node(
                 session,
                 run=run,
@@ -244,27 +316,6 @@ class HybridExpressionRepository(BaseExpressionRepository):
                     "recent_resource_keys": sorted(recent_keys),
                 },
             )
-
-            dense_scores = self._dense_scores(
-                owner_id=connection.owner_id,
-                records=resources,
-                query=query,
-                allowed_actions=allowed,
-                excluded_resource_keys=excluded,
-            )
-            backend = (
-                "hybrid_dense_sparse_v2" if dense_scores is not None else "hybrid_sparse_v1"
-            )
-            ranked = rank_expression_resources(
-                [self._resource(item) for item in resources],
-                query=query,
-                allowed_actions=allowed,
-                recent_resource_keys=recent_keys,
-                excluded_resource_keys=excluded,
-                dense_scores=dense_scores,
-                top_k=top_k,
-            )
-            candidates = [self.candidate_dict(item) for item in ranked]
             self._append_node(
                 session,
                 run=run,
