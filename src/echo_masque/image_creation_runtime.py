@@ -16,6 +16,10 @@ from echo_masque.image_generation import (
     ImageReference,
 )
 from echo_masque.network_safety import PublicUrlGuard, PublicUrlRejected
+from echo_masque.openrouter_image_scout import (
+    AUTO_FREE_ANIME_MODEL,
+    AutomaticFreeAnimeImageProvider,
+)
 from echo_masque.persistence.conversation_media_repository import (
     ConversationMediaReferenceRepository,
 )
@@ -56,6 +60,8 @@ def default_image_generation_provider_factory(
     provider = credential.provider.casefold().strip()
     base_url = credential.base_url.strip()
     if provider == "openrouter":
+        if credential.model == AUTO_FREE_ANIME_MODEL:
+            return AutomaticFreeAnimeImageProvider(credential)
         base_url = base_url or "https://openrouter.ai/api/v1"
     elif provider in {"custom", "openai", "openai_compatible"}:
         if not base_url:

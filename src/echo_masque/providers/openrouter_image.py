@@ -36,6 +36,8 @@ class OpenRouterImageGenerationProvider:
         base_url: str = "https://openrouter.ai/api/v1",
         timeout_seconds: float = 120.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        provider_only: tuple[str, ...] = (),
+        allow_fallbacks: bool = True,
     ) -> None:
         self._provider_id = provider_id.strip() or "openrouter"
         self._api_key = api_key
@@ -43,6 +45,8 @@ class OpenRouterImageGenerationProvider:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout_seconds
         self._transport = transport
+        self._provider_only = tuple(item.strip() for item in provider_only if item.strip())
+        self._allow_fallbacks = allow_fallbacks
 
     @property
     def provider_id(self) -> str:
@@ -101,6 +105,11 @@ class OpenRouterImageGenerationProvider:
                 }
                 for reference in request.references
             ]
+        if self._provider_only:
+            payload["provider"] = {
+                "only": list(self._provider_only),
+                "allow_fallbacks": self._allow_fallbacks,
+            }
 
         headers = {
             "Authorization": f"Bearer {self._api_key.get_secret_value()}",
