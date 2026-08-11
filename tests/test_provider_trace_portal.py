@@ -1,3 +1,5 @@
+import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -6,6 +8,7 @@ from pydantic import SecretStr
 
 from echo_masque.api import create_app
 from echo_masque.config import Settings
+from echo_masque.persistence.provider_trace_models import ProviderTraceRecord
 
 SUPER_EMAIL = "super-admin@example.com"
 SUPER_PASSWORD = "SuperAdminTrace2026!"
@@ -90,6 +93,8 @@ def test_provider_trace_portal_is_bootstrap_super_admin_only(tmp_path: Path) -> 
             "tool_names": [],
             "media_input": {},
             "media_attention": {},
+            "failure_reason": "",
+            "failure_detail": "",
             "owner_id": "",
             "deployment_id": "",
             "character_card_id": "",
@@ -155,6 +160,47 @@ def test_provider_trace_portal_is_bootstrap_super_admin_only(tmp_path: Path) -> 
     assert cleared.status_code == 200
     assert cleared.json() == {"deleted_count": 1}
     assert super_client.get("/api/admin/provider-traces").json() == []
+
+
+def test_stale_pending_provider_trace_becomes_explained_error(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "provider-trace-stale.db"))
+    repository = app.state.provider_trace_repository
+    repository.record_event(
+        {
+            "event": "provider.request",
+            "trace_id": "trace-stale",
+            "endpoint": "https://api.deepseek.com/v1/chat/completions",
+            "model": "deepseek-v4-flash",
+            "trace_mode": "summary",
+            "owner_id": "owner-1",
+            "deployment_id": "deployment-1",
+            "character_card_id": "character-1",
+            "latest_message": {"role": "user", "content": "Hello"},
+        }
+    )
+    old = datetime.now(UTC) - timedelta(minutes=10)
+    with app.state.database.session() as session:
+        record = session.get(ProviderTraceRecord, "trace-stale")
+        assert record is not None
+        record.created_at = old
+        record.updated_at = old
+        session.commit()
+
+    client = TestClient(app)
+    login(client, SUPER_EMAIL, SUPER_PASSWORD)
+    response = client.get("/api/admin/provider-traces/trace-stale")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["status"] == "error"
+    assert payload["failure_reason"] == "trace_abandoned"
+    assert "No terminal provider event" in payload["failure_detail"]
+    error = payload["error"]
+    assert error["reason"] == "trace_abandoned"
+    assert error["deployment_id"] == "deployment-1"
+    assert json.loads(app.state.provider_trace_repository.get_trace("trace-stale").error_json)[
+        "reason"
+    ] == "trace_abandoned"
 
 
 def test_provider_trace_cursor_pagination_uses_summary_payload(tmp_path: Path) -> None:

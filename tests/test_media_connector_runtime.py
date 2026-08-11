@@ -5,6 +5,7 @@ from typing import Any, cast
 from echo_masque.live_media import LiveMediaContext, LiveMediaResult
 from echo_masque.media_attention import MediaAttentionDecision
 from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
+from echo_masque.providers.errors import ProviderTimeoutError
 from echo_masque.targets import PromptModelConfig, PromptModelTarget
 
 
@@ -47,7 +48,32 @@ class FakeAttentionDecider:
         )
 
 
-def prompt_target() -> PromptModelTarget:
+class FakeDeploymentRepository:
+    def __init__(self) -> None:
+        self.errors: list[tuple[str, str]] = []
+        self.updates: list[dict[str, object]] = []
+
+    def record_deployment_error(self, deployment_id: str, message: str) -> None:
+        self.errors.append((deployment_id, message))
+
+    def update_deployment(
+        self,
+        deployment_id: str,
+        owner_id: str,
+        **values: object,
+    ) -> object:
+        self.updates.append(
+            {"deployment_id": deployment_id, "owner_id": owner_id, **values}
+        )
+        return object()
+
+
+class TimeoutProvider:
+    async def complete(self, **_: object) -> object:
+        raise ProviderTimeoutError("DeepSeek did not respond before timeout.")
+
+
+def prompt_target(provider: object | None = None) -> PromptModelTarget:
     config = PromptModelConfig(
         name="Character",
         provider="test",
@@ -57,7 +83,7 @@ def prompt_target() -> PromptModelTarget:
     )
     return PromptModelTarget(
         config=config,
-        provider=cast(Any, object()),
+        provider=cast(Any, provider or object()),
         runtime_system_prompt="You are a selective, opinionated Character.",
     )
 
@@ -76,16 +102,18 @@ def prepared_turn(target: object | None = None) -> SimpleNamespace:
             ),
         ),
         prompt="Recent conversation:\nhello\nReturn Smart Output now.",
+        enabled_tools=(),
     )
 
 
 def runtime_for(
     service: FakeLiveMediaService,
     attention: FakeAttentionDecider | None = None,
+    deployment_repository: object | None = None,
 ) -> MediaAwareDiscordConnectorRuntime:
     return MediaAwareDiscordConnectorRuntime(
         cast(Any, object()),
-        cast(Any, object()),
+        cast(Any, deployment_repository or object()),
         cast(Any, object()),
         live_media_service=cast(Any, service),
         media_attention_decider=cast(Any, attention) if attention is not None else None,
@@ -185,3 +213,23 @@ def test_failed_watch_records_unavailable_without_exposing_runtime_error_to_char
     assert metadata["response_stance"] == "uncertain"
     assert metadata["stance_grounding"] == "speculative_without_perception"
     assert metadata["media_result_reason"] == "media_resolution_failed"
+
+
+def test_transient_provider_failure_returns_silent_control_without_disabling_deployment() -> None:
+    service = FakeLiveMediaService()
+    attention = FakeAttentionDecider("skip", "truthful")
+    deployments = FakeDeploymentRepository()
+    runtime = runtime_for(service, attention, deployments)
+    prepared = prepared_turn(prompt_target(TimeoutProvider()))
+
+    response = asyncio.run(runtime.invoke_character_model(cast(Any, prepared)))
+
+    assert response.text == '[[CR_OUTPUT {"action":"ignore"}]]'
+    assert response.trace["provider_failure"] == "provider_timeout"
+    # Base Runtime records the exception first; the Media-aware production Runtime then
+    # restores a transient provider failure to active turn health.
+    assert deployments.errors == [
+        ("deployment-1", "DeepSeek did not respond before timeout.")
+    ]
+    assert deployments.updates[-1]["status"] == "active"
+    assert str(deployments.updates[-1]["last_error"]).startswith("provider_timeout:")

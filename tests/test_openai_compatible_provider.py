@@ -12,7 +12,11 @@ from echo_masque.providers import (
     ChatToolFunction,
     OpenAICompatibleProvider,
 )
-from echo_masque.providers.errors import ProviderProtocolError
+from echo_masque.providers.errors import (
+    ProviderProtocolError,
+    ProviderTimeoutError,
+    ProviderUnavailableError,
+)
 from echo_masque.providers.trace import configure_provider_trace_sink
 
 
@@ -240,3 +244,62 @@ def test_repeated_empty_content_raises_protocol_error() -> None:
     ):
         _run(provider)
     assert calls == 2
+
+
+def test_read_timeout_is_terminal_and_records_reason() -> None:
+    events: list[dict[str, object]] = []
+    configure_provider_trace_sink(events.append)
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.ReadTimeout("DeepSeek did not respond", request=request)
+
+    try:
+        provider = OpenAICompatibleProvider(
+            base_url="https://api.deepseek.com",
+            api_key=SecretStr("secret"),
+            max_retries=2,
+            transport=httpx.MockTransport(handler),
+        )
+        with pytest.raises(ProviderTimeoutError, match="did not respond"):
+            _run(provider)
+    finally:
+        configure_provider_trace_sink(None)
+
+    assert calls == 1
+    assert not any(item["event"] == "provider.response" for item in events)
+    error = next(item for item in events if item["event"] == "provider.error")
+    assert error["reason"] == "provider_timeout"
+    assert "ReadTimeout" in str(error["detail"])
+
+
+def test_network_failure_retries_then_records_terminal_unavailable() -> None:
+    events: list[dict[str, object]] = []
+    configure_provider_trace_sink(events.append)
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.ConnectError("connection refused", request=request)
+
+    try:
+        provider = OpenAICompatibleProvider(
+            base_url="https://api.deepseek.com",
+            api_key=SecretStr("secret"),
+            max_retries=1,
+            transport=httpx.MockTransport(handler),
+        )
+        with pytest.raises(ProviderUnavailableError, match="could not be reached"):
+            _run(provider)
+    finally:
+        configure_provider_trace_sink(None)
+
+    assert calls == 2
+    retry = next(item for item in events if item["event"] == "provider.retry")
+    assert retry["reason"] == "network_error"
+    error = next(item for item in events if item["event"] == "provider.error")
+    assert error["reason"] == "provider_unavailable"
+    assert "ConnectError" in str(error["detail"])

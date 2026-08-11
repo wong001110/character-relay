@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from time import monotonic
 from typing import Any, Literal
 
-from echo_masque.connector_runtime import DiscordConnectorRuntime, PreparedCharacterTurn
+from echo_masque.connector_runtime import (
+    DiscordConnectorRuntime,
+    PreparedCharacterTurn,
+    ResolvedCharacterOutput,
+)
 from echo_masque.domain import TargetResponse
 from echo_masque.live_media import LiveMediaContextService, LiveMediaResult
 from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
@@ -20,6 +24,7 @@ from echo_masque.media_attention import (
     unavailable_media_guidance,
     watched_media_guidance,
 )
+from echo_masque.providers import ProviderError
 from echo_masque.providers.trace import provider_trace_scope
 from echo_masque.targets import PromptModelTarget, PromptModelToolTurn
 
@@ -75,7 +80,15 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         prepared: PreparedCharacterTurn,
     ) -> TargetResponse:
         await self._ensure_media_context(prepared)
-        return await super().invoke_character_model(prepared)
+        try:
+            return await super().invoke_character_model(prepared)
+        except ProviderError as exc:
+            # The base Runtime historically marked every model exception as a deployment
+            # error. A timeout/rate-limit/provider outage is only a failed turn. Convert it
+            # into a valid silent Smart Output so the Discord connector does not retry the
+            # whole non-idempotent generation request.
+            self._isolate_provider_failure(prepared, exc)
+            return self._provider_failure_response(exc)
 
     async def start_character_tool_turn(
         self,
@@ -83,6 +96,71 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
     ) -> PromptModelToolTurn | None:
         await self._ensure_media_context(prepared)
         return await super().start_character_tool_turn(prepared)
+
+    async def advance_character_tool_model(
+        self,
+        prepared: PreparedCharacterTurn,
+        turn: PromptModelToolTurn,
+    ) -> TargetResponse | None:
+        try:
+            return await super().advance_character_tool_model(prepared, turn)
+        except ProviderError as exc:
+            self._isolate_provider_failure(prepared, exc)
+            return self._provider_failure_response(exc)
+
+    async def resolve_character_output(
+        self,
+        prepared: PreparedCharacterTurn,
+        response: TargetResponse,
+    ) -> ResolvedCharacterOutput:
+        output = await super().resolve_character_output(prepared, response)
+        provider_failure = response.trace.get("provider_failure")
+        if isinstance(provider_failure, str) and provider_failure:
+            # Preserve the reason in the connector response while keeping the Discord-facing
+            # action silent. This is operational state, not Character dialogue.
+            output.smart_reason = f"provider_turn_failed:{provider_failure}"
+        elif output.smart_reason == "smart_output_retry_failed":
+            # A failed formatting-repair provider call is also turn-scoped. The original
+            # answer was already produced, so it must not disable the deployment.
+            deployment = prepared.resolved.deployment
+            self.deployment_repository.update_deployment(
+                deployment.id,
+                deployment.owner_id,
+                status="active",
+                last_error="smart_output_retry_failed",
+            )
+        return output
+
+    def _isolate_provider_failure(
+        self,
+        prepared: PreparedCharacterTurn,
+        exc: ProviderError,
+    ) -> None:
+        if exc.deployment_fatal:
+            # Credential rejection is persistent until configuration changes. Keep the
+            # base Runtime's deployment error state, but still return a controlled silent
+            # turn instead of surfacing an HTTP 502 to Discord.
+            return
+        deployment = prepared.resolved.deployment
+        detail = str(exc).replace("\x00", "").strip()
+        last_error = exc.reason_code if not detail else f"{exc.reason_code}: {detail}"
+        self.deployment_repository.update_deployment(
+            deployment.id,
+            deployment.owner_id,
+            status="active",
+            last_error=last_error[:2000],
+        )
+
+    @staticmethod
+    def _provider_failure_response(exc: ProviderError) -> TargetResponse:
+        return TargetResponse(
+            text='[[CR_OUTPUT {"action":"ignore"}]]',
+            latency_ms=0,
+            trace={
+                "provider_failure": exc.reason_code,
+                "provider_failure_transient": exc.transient,
+            },
+        )
 
     async def _ensure_media_context(self, prepared: PreparedCharacterTurn) -> None:
         resolved = prepared.resolved

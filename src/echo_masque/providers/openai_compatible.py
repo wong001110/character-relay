@@ -15,8 +15,11 @@ from echo_masque.providers.base import (
 )
 from echo_masque.providers.errors import (
     ProviderAuthenticationError,
+    ProviderError,
     ProviderProtocolError,
+    ProviderRateLimitError,
     ProviderTimeoutError,
+    ProviderUnavailableError,
 )
 from echo_masque.providers.trace import ProviderTrace
 
@@ -65,6 +68,12 @@ class OpenAICompatibleProvider:
         if message.tool_calls:
             value["tool_calls"] = [item.model_dump() for item in message.tool_calls]
         return value
+
+    @staticmethod
+    def _request_error_detail(exc: httpx.RequestError) -> str:
+        name = type(exc).__name__
+        message = str(exc).replace("\x00", "").strip()
+        return f"{name}: {message[:700]}" if message else name
 
     async def complete(
         self,
@@ -121,7 +130,6 @@ class OpenAICompatibleProvider:
             "Authorization": f"Bearer {self._api_key.get_secret_value()}",
             "Content-Type": "application/json",
         }
-        last_timeout: Exception | None = None
         started = perf_counter()
         trace = ProviderTrace.start(
             endpoint=self.endpoint,
@@ -131,120 +139,219 @@ class OpenAICompatibleProvider:
             available_tool_names=tuple(item.function.name for item in tools),
         )
 
-        async with httpx.AsyncClient(
-            timeout=self._timeout,
-            transport=self._transport,
-        ) as client:
-            for attempt in range(self._max_retries + 1):
-                try:
-                    response = await client.post(self.endpoint, json=payload, headers=headers)
-                except httpx.TimeoutException as exc:
-                    last_timeout = exc
-                    if attempt >= self._max_retries:
-                        trace.error(reason="timeout")
-                        raise ProviderTimeoutError("Model provider timed out.") from exc
-                    trace.retry(attempt=attempt + 1, reason="timeout")
-                    await asyncio.sleep(0)
-                    continue
+        try:
+            async with httpx.AsyncClient(
+                timeout=self._timeout,
+                transport=self._transport,
+            ) as client:
+                for attempt in range(self._max_retries + 1):
+                    try:
+                        response = await client.post(self.endpoint, json=payload, headers=headers)
+                    except httpx.TimeoutException as exc:
+                        # A full read timeout can already consume most of the Discord request
+                        # budget. Repeating it would make one provider stall look like a hung
+                        # deployment and may trigger duplicate connector requests.
+                        trace.error(
+                            reason=ProviderTimeoutError.reason_code,
+                            detail=self._request_error_detail(exc),
+                        )
+                        raise ProviderTimeoutError(
+                            "Model provider did not respond before the request timeout."
+                        ) from exc
+                    except httpx.RequestError as exc:
+                        if attempt < self._max_retries:
+                            trace.retry(
+                                attempt=attempt + 1,
+                                reason="network_error",
+                            )
+                            await asyncio.sleep(0)
+                            continue
+                        trace.error(
+                            reason=ProviderUnavailableError.reason_code,
+                            detail=self._request_error_detail(exc),
+                        )
+                        raise ProviderUnavailableError(
+                            "Model provider could not be reached."
+                        ) from exc
 
-                if response.status_code in {401, 403}:
-                    trace.error(
-                        reason="authentication_rejected",
-                        status_code=response.status_code,
-                    )
-                    raise ProviderAuthenticationError("Model provider rejected the credential.")
-                if response.status_code >= 500 and attempt < self._max_retries:
-                    trace.retry(
-                        attempt=attempt + 1,
-                        reason="server_error",
-                        status_code=response.status_code,
-                    )
-                    await asyncio.sleep(0)
-                    continue
-                if response.is_error:
-                    trace.error(
-                        reason="http_error",
-                        status_code=response.status_code,
-                        response_body=response.text,
-                    )
-                    raise ProviderProtocolError(
-                        f"Model provider returned HTTP {response.status_code}."
-                    )
+                    if response.status_code in {401, 403}:
+                        trace.error(
+                            reason=ProviderAuthenticationError.reason_code,
+                            status_code=response.status_code,
+                            detail="The provider rejected the configured credential.",
+                        )
+                        raise ProviderAuthenticationError(
+                            "Model provider rejected the credential."
+                        )
 
-                try:
-                    body = response.json()
-                    choice = body["choices"][0]
-                    message = choice["message"]
-                    raw_content = message.get("content")
-                    if raw_content is None:
-                        text = ""
-                    elif isinstance(raw_content, str):
-                        text = raw_content
-                    else:
-                        raise TypeError("Chat-completion content must be a string or null.")
-                    raw_tool_calls = message.get("tool_calls", [])
-                    if raw_tool_calls is None:
-                        raw_tool_calls = []
-                    if not isinstance(raw_tool_calls, list):
-                        raise TypeError("Chat-completion tool_calls must be a list.")
-                    tool_calls = tuple(ChatToolCall.model_validate(item) for item in raw_tool_calls)
-                    usage = body.get("usage", {})
-                    if not isinstance(usage, dict):
-                        raise TypeError("Chat-completion usage must be an object.")
-                except (KeyError, IndexError, TypeError, ValueError) as exc:
-                    trace.error(
-                        reason="invalid_response_payload",
-                        status_code=response.status_code,
-                        response_body=response.text,
-                    )
-                    raise ProviderProtocolError(
-                        "Model provider returned an invalid chat-completion payload."
-                    ) from exc
+                    if response.status_code == 429:
+                        if attempt < self._max_retries:
+                            trace.retry(
+                                attempt=attempt + 1,
+                                reason="rate_limited",
+                                status_code=response.status_code,
+                            )
+                            await asyncio.sleep(0)
+                            continue
+                        trace.error(
+                            reason=ProviderRateLimitError.reason_code,
+                            status_code=response.status_code,
+                            response_body=response.text,
+                            detail="The provider rate limit remained active after retries.",
+                        )
+                        raise ProviderRateLimitError(
+                            "Model provider rate limit was exceeded."
+                        )
 
-                response_model = str(body.get("model", model))
-                input_tokens = usage.get("prompt_tokens")
-                output_tokens = usage.get("completion_tokens")
-                finish_reason = choice.get("finish_reason")
+                    if response.status_code >= 500:
+                        if attempt < self._max_retries:
+                            trace.retry(
+                                attempt=attempt + 1,
+                                reason="server_error",
+                                status_code=response.status_code,
+                            )
+                            await asyncio.sleep(0)
+                            continue
+                        trace.error(
+                            reason=ProviderUnavailableError.reason_code,
+                            status_code=response.status_code,
+                            response_body=response.text,
+                            detail=(
+                                f"The provider returned HTTP {response.status_code} after retries."
+                            ),
+                        )
+                        raise ProviderUnavailableError(
+                            f"Model provider remained unavailable (HTTP {response.status_code})."
+                        )
 
-                if not text.strip() and not tool_calls:
-                    if attempt < self._max_retries:
-                        trace.retry(
-                            attempt=attempt + 1,
+                    if response.status_code == 408:
+                        trace.error(
+                            reason=ProviderTimeoutError.reason_code,
+                            status_code=response.status_code,
+                            response_body=response.text,
+                            detail="The provider returned HTTP 408 Request Timeout.",
+                        )
+                        raise ProviderTimeoutError("Model provider returned HTTP 408.")
+
+                    if response.is_error:
+                        trace.error(
+                            reason="provider_http_error",
+                            status_code=response.status_code,
+                            response_body=response.text,
+                            detail=f"The provider returned HTTP {response.status_code}.",
+                        )
+                        raise ProviderProtocolError(
+                            f"Model provider returned HTTP {response.status_code}."
+                        )
+
+                    try:
+                        body = response.json()
+                        choice = body["choices"][0]
+                        message = choice["message"]
+                        raw_content = message.get("content")
+                        if raw_content is None:
+                            text = ""
+                        elif isinstance(raw_content, str):
+                            text = raw_content
+                        else:
+                            raise TypeError("Chat-completion content must be a string or null.")
+                        raw_tool_calls = message.get("tool_calls", [])
+                        if raw_tool_calls is None:
+                            raw_tool_calls = []
+                        if not isinstance(raw_tool_calls, list):
+                            raise TypeError("Chat-completion tool_calls must be a list.")
+                        tool_calls = tuple(
+                            ChatToolCall.model_validate(item) for item in raw_tool_calls
+                        )
+                        usage = body.get("usage", {})
+                        if not isinstance(usage, dict):
+                            raise TypeError("Chat-completion usage must be an object.")
+                    except (KeyError, IndexError, TypeError, ValueError) as exc:
+                        trace.error(
+                            reason="invalid_response_payload",
+                            status_code=response.status_code,
+                            response_body=response.text,
+                            detail=f"Invalid chat-completion payload: {type(exc).__name__}.",
+                        )
+                        raise ProviderProtocolError(
+                            "Model provider returned an invalid chat-completion payload."
+                        ) from exc
+
+                    response_model = str(body.get("model", model))
+                    input_tokens = usage.get("prompt_tokens")
+                    output_tokens = usage.get("completion_tokens")
+                    finish_reason = choice.get("finish_reason")
+
+                    if not text.strip() and not tool_calls:
+                        if attempt < self._max_retries:
+                            trace.retry(
+                                attempt=attempt + 1,
+                                reason="empty_content",
+                                status_code=response.status_code,
+                            )
+                            await asyncio.sleep(0)
+                            continue
+                        trace.error(
                             reason="empty_content",
                             status_code=response.status_code,
+                            detail="The provider returned no visible content or tool call.",
                         )
-                        await asyncio.sleep(0)
-                        continue
-                    trace.error(
-                        reason="empty_content",
+                        raise ProviderProtocolError(
+                            "Model provider returned empty chat-completion content."
+                        )
+
+                    trace_text = text
+                    if not trace_text and tool_calls:
+                        names = ", ".join(item.function.name for item in tool_calls)
+                        trace_text = f"[tool calls: {names}]"
+                    trace.response(
                         status_code=response.status_code,
+                        response_model=response_model,
+                        text=trace_text,
+                        input_tokens=input_tokens if isinstance(input_tokens, int) else None,
+                        output_tokens=output_tokens if isinstance(output_tokens, int) else None,
+                        finish_reason=(
+                            str(finish_reason) if finish_reason is not None else None
+                        ),
+                        tool_call_names=tuple(item.function.name for item in tool_calls),
                     )
-                    raise ProviderProtocolError(
-                        "Model provider returned empty chat-completion content."
+                    return ProviderCompletion(
+                        text=text,
+                        model=response_model,
+                        latency_ms=round((perf_counter() - started) * 1000),
+                        input_tokens=input_tokens if isinstance(input_tokens, int) else None,
+                        output_tokens=output_tokens if isinstance(output_tokens, int) else None,
+                        finish_reason=(
+                            str(finish_reason) if finish_reason is not None else None
+                        ),
+                        tool_calls=tool_calls,
                     )
 
-                trace_text = text
-                if not trace_text and tool_calls:
-                    names = ", ".join(item.function.name for item in tool_calls)
-                    trace_text = f"[tool calls: {names}]"
-                trace.response(
-                    status_code=response.status_code,
-                    response_model=response_model,
-                    text=trace_text,
-                    input_tokens=input_tokens if isinstance(input_tokens, int) else None,
-                    output_tokens=output_tokens if isinstance(output_tokens, int) else None,
-                    finish_reason=(str(finish_reason) if finish_reason is not None else None),
-                    tool_call_names=tuple(item.function.name for item in tool_calls),
-                )
-                return ProviderCompletion(
-                    text=text,
-                    model=response_model,
-                    latency_ms=round((perf_counter() - started) * 1000),
-                    input_tokens=input_tokens if isinstance(input_tokens, int) else None,
-                    output_tokens=output_tokens if isinstance(output_tokens, int) else None,
-                    finish_reason=(str(finish_reason) if finish_reason is not None else None),
-                    tool_calls=tool_calls,
-                )
-
-        trace.error(reason="timeout")
-        raise ProviderTimeoutError("Model provider timed out.") from last_timeout
+            # The loop always returns or raises. Keep an explicit terminal guard in case a
+            # future retry refactor changes that invariant.
+            trace.error(
+                reason=ProviderUnavailableError.reason_code,
+                detail="Provider retry loop ended without a response.",
+            )
+            raise ProviderUnavailableError("Model provider returned no terminal result.")
+        except asyncio.CancelledError:
+            trace.error(
+                reason="request_cancelled",
+                detail="The provider task was cancelled before a terminal response was recorded.",
+            )
+            raise
+        except ProviderError:
+            raise
+        except Exception as exc:
+            detail = str(exc).replace("\x00", "").strip()
+            trace.error(
+                reason="provider_client_error",
+                detail=(
+                    f"{type(exc).__name__}: {detail[:700]}"
+                    if detail
+                    else type(exc).__name__
+                ),
+            )
+            raise ProviderProtocolError(
+                "Model provider call failed before a valid response was produced."
+            ) from exc

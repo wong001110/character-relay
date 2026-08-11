@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Literal, Protocol
@@ -18,6 +19,7 @@ _URL_PATTERN = re.compile(r"https?://[^\s<>\]\[(){}\"']+", re.IGNORECASE)
 _ATTENTION_MARKER = "[MEDIA_ATTENTION]"
 _MAX_PREVIEW_LINES = 8
 _MAX_RECENT_MESSAGES = 6
+_ATTENTION_TIMEOUT_SECONDS = 8.0
 
 MediaResponseStance = Literal[
     "neutral",
@@ -282,13 +284,16 @@ class CharacterMediaAttentionDecider:
             )
         )
         try:
-            completion = await target.provider.complete(
-                messages=(
-                    ChatMessage(role="system", content=target.runtime_system_prompt),
-                    ChatMessage(role="user", content=prompt),
+            completion = await asyncio.wait_for(
+                target.provider.complete(
+                    messages=(
+                        ChatMessage(role="system", content=target.runtime_system_prompt),
+                        ChatMessage(role="user", content=prompt),
+                    ),
+                    model=target.config.model,
+                    temperature=min(target.config.temperature, 0.3),
                 ),
-                model=target.config.model,
-                temperature=min(target.config.temperature, 0.3),
+                timeout=_ATTENTION_TIMEOUT_SECONDS,
             )
         except Exception:
             return MediaAttentionDecision(

@@ -271,6 +271,7 @@ class ProviderTrace:
         reason: str,
         status_code: int | None = None,
         response_body: str = "",
+        detail: str = "",
     ) -> None:
         if self.mode == "off":
             return
@@ -285,6 +286,10 @@ class ProviderTrace:
             "trace_mode": self.mode,
             **self._scope_payload(),
         }
+        if detail:
+            # Failure diagnostics are intentionally bounded even in metadata mode. They
+            # describe the failure class, not prompt or response content.
+            event["detail"] = _preview(detail, min(self.max_chars, 1000))
         if response_body and self.mode in {"summary", "content"}:
             event["response_body"] = _preview(response_body, self.max_chars)
         _emit(event)
