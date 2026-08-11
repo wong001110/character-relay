@@ -21,10 +21,10 @@ function nodeDescription(nodeName: string, zh: boolean): string {
     turn_resolve: ["解析 Discord 消息、Deployment、Character Card 与 Target", "Resolve the Discord message, deployment, Character Card, and target"],
     turn_context: ["建立最近对话、RAG / Context 与 Smart Output 上下文", "Build recent conversation, RAG/context, and Smart Output context"],
     turn_model: ["执行角色模型回合；Media Context 会在模型调用前注入", "Run the Character model step; Media Context is injected immediately before the model call"],
-    turn_tool: ["执行 Runtime 授权的 Tool Calling", "Execute Runtime-authorized Tool Calling"],
-    turn_resolve_output: ["解析 / 修复 Smart Output", "Parse or repair Smart Output"],
-    turn_authorize: ["Runtime 做最终权限与输出授权", "Apply final Runtime authorization"],
-    turn_complete: ["结束当前 Character Turn", "Complete the Character Turn"],
+    turn_tool_execution: ["执行 Runtime 授权的 Tool Calling", "Execute Runtime-authorized Tool Calling"],
+    turn_media_epistemic: ["记录角色这一轮实际上有没有看，以及准备如何对外表现", "Record what the Character actually perceived and the private social stance it chose"],
+    turn_smart_output: ["解析 / 修复 Smart Output", "Parse or repair Smart Output"],
+    turn_authority: ["Runtime 做最终权限与输出授权", "Apply final Runtime authorization"],
     resolve: ["解析当前运行输入", "Resolve the current runtime input"],
     context: ["建立当前运行上下文", "Build runtime context"],
     model: ["调用模型", "Invoke the model"],
@@ -34,6 +34,107 @@ function nodeDescription(nodeName: string, zh: boolean): string {
   };
   const value = descriptions[nodeName];
   return value ? value[zh ? 0 : 1] : zh ? "Runtime 执行节点" : "Runtime execution node";
+}
+
+function metadataRecord(metadata: Array<[string, string]>): Record<string, string> {
+  return Object.fromEntries(metadata);
+}
+
+function groundingDescription(value: string, zh: boolean): string {
+  const labels: Record<string, [string, string]> = {
+    no_explicit_media_stance: ["没有明确媒体立场", "No explicit media stance"],
+    grounded_in_perception: ["有真实感知支撑", "Grounded in actual perception"],
+    honest_about_limited_perception: ["诚实承认没有完整感知", "Honest about limited/no perception"],
+    intentional_social_distortion_with_perception: ["看过，但有意扭曲 / 表演", "Intentional social distortion despite having perception"],
+    intentional_without_perception: ["没有看，但有意装作 / 误导", "Intentional claim without actual perception"],
+    evasive: ["回避是否看过或内容细节", "Evasive about perception/content"],
+    speculative_with_perception: ["看过但仍在猜测", "Speculative despite having perception"],
+    speculative_without_perception: ["没有看，基于猜测或不确定性回应", "Speculative without actual perception"],
+    unclassified: ["未分类", "Unclassified"]
+  };
+  const label = labels[value];
+  return label ? label[zh ? 0 : 1] : value || "—";
+}
+
+function stanceLabel(value: string, zh: boolean): string {
+  const labels: Record<string, [string, string]> = {
+    neutral: ["中性 / 无声明", "Neutral / none"],
+    truthful: ["诚实", "Truthful"],
+    bluff: ["虚张声势 / 装懂", "Bluff"],
+    lie: ["有意撒谎", "Lie"],
+    tease: ["故意逗弄 / 玩笑误导", "Tease"],
+    evasive: ["回避", "Evasive"],
+    guess: ["猜测", "Guess"],
+    uncertain: ["不确定", "Uncertain"]
+  };
+  const label = labels[value];
+  return label ? label[zh ? 0 : 1] : value || "—";
+}
+
+function perceptionLabel(value: string, zh: boolean): string {
+  if (value === "perceived") return zh ? "已实际感知" : "Perceived";
+  if (value === "skipped") return zh ? "主动没看" : "Skipped";
+  if (value === "unavailable") return zh ? "想看但没有获得可靠内容" : "Unavailable after choosing to inspect";
+  return value || "—";
+}
+
+function MediaEpistemicDetails({
+  metadata,
+  zh
+}: {
+  metadata: Array<[string, string]>;
+  zh: boolean;
+}) {
+  const value = metadataRecord(metadata);
+  return (
+    <div className="runtime-epistemic-panel">
+      <p>
+        <strong>{zh ? "Runtime 真相" : "Runtime truth"}</strong>
+        {" · "}
+        {perceptionLabel(value.actual_perception, zh)}
+      </p>
+      <dl className="provider-trace-meta-grid">
+        <div>
+          <dt>{zh ? "实际感知" : "Actual perception"}</dt>
+          <dd>{perceptionLabel(value.actual_perception, zh)}</dd>
+        </div>
+        <div>
+          <dt>{zh ? "注意力决定" : "Attention"}</dt>
+          <dd>{value.attention_action || "—"}</dd>
+        </div>
+        <div>
+          <dt>{zh ? "角色声明的社交意图" : "Declared social stance"}</dt>
+          <dd>{stanceLabel(value.response_stance, zh)}</dd>
+        </div>
+        <div>
+          <dt>{zh ? "感知与说法关系" : "Stance grounding"}</dt>
+          <dd>{groundingDescription(value.stance_grounding, zh)}</dd>
+        </div>
+        <div>
+          <dt>{zh ? "Media Context 数" : "Media contexts"}</dt>
+          <dd>{value.media_context_count ?? "0"}</dd>
+        </div>
+        <div>
+          <dt>{zh ? "Cache hit" : "Cache hits"}</dt>
+          <dd>{value.media_cache_hits ?? "0"}</dd>
+        </div>
+      </dl>
+      {value.attention_reason && (
+        <p><strong>{zh ? "为什么看 / 不看：" : "Why inspect / skip: "}</strong>{value.attention_reason}</p>
+      )}
+      {value.stance_reason && (
+        <p><strong>{zh ? "社交意图备注：" : "Stance note: "}</strong>{value.stance_reason}</p>
+      )}
+      {value.media_result_reason && (
+        <p><strong>{zh ? "内容解析状态：" : "Content resolution: "}</strong>{value.media_result_reason}</p>
+      )}
+      <p>
+        {zh
+          ? "“角色声明的社交意图”来自角色模型在 Media Attention 阶段的私有选择，不是 Runtime 事后猜测或独立测谎结果。Runtime 真相只负责记录它实际上有没有获得内容感知。"
+          : "Declared social stance is the Character model's private choice from the Media Attention step, not a post-hoc lie detector. Runtime truth only records whether content perception actually occurred."}
+      </p>
+    </div>
+  );
 }
 
 export function RuntimeTraceViewer({ onClose }: { onClose: () => void }) {
@@ -168,6 +269,11 @@ export function RuntimeTraceViewer({ onClose }: { onClose: () => void }) {
             {zh
               ? "把这里当成一轮 Character Relay 执行的 Timeline：从解析消息、建立 Context、执行模型 / Tool，到授权输出。它回答的是“这一轮按什么顺序走过哪些 Runtime 节点”。Provider Trace 则回答“其中实际向哪些外部模型发了请求”。因此一条 Runtime Trace 可以对应多条 Provider Trace。"
               : "Treat this as the timeline for one Character Relay execution: message resolution, context building, model/Tool execution, and output authorization. It answers which Runtime nodes ran and in what order. Provider Trace answers which external model requests were actually made inside that run, so one Runtime Trace can correspond to multiple Provider Traces."}
+          </p>
+          <p>
+            {zh
+              ? "Media Epistemic State 会额外告诉你角色实际上有没有看，以及它私下选择了诚实、bluff、撒谎、逗弄、回避、猜测或不确定中的哪种社交姿态。这里的姿态是角色模型自己声明的意图，不是系统事后测谎。"
+              : "Media Epistemic State additionally shows whether the Character actually perceived the content and whether it privately chose a truthful, bluffing, lying, teasing, evasive, guessing, or uncertain stance. The stance is model-declared intent, not a post-hoc lie detector."}
           </p>
           <p>
             {zh
@@ -330,9 +436,11 @@ export function RuntimeTraceViewer({ onClose }: { onClose: () => void }) {
                     {event.changed_keys.length > 0 && (
                       <p>{zh ? "State changed" : "State changed"}: {event.changed_keys.join(" · ")}</p>
                     )}
-                    {event.metadata.length > 0 && (
+                    {event.node_name === "turn_media_epistemic" ? (
+                      <MediaEpistemicDetails metadata={event.metadata} zh={zh} />
+                    ) : event.metadata.length > 0 ? (
                       <p>{event.metadata.map(([key, value]) => `${key}=${value}`).join(" · ")}</p>
-                    )}
+                    ) : null}
                     {event.error && <p className="error-note">{event.error}</p>}
                   </section>
                 ))}
