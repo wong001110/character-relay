@@ -6,9 +6,9 @@ import json
 from typing import Any
 
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService, ImageGenerateToolInput
-from echo_masque.providers import ChatToolCall
+from echo_masque.providers import ChatToolCall, ProviderError
 from echo_masque.server_time_tools import ServerAwareToolRegistry
-from echo_masque.tool_external import json_result
+from echo_masque.tool_external import ExternalToolFailed, json_result
 from echo_masque.tool_runtime import (
     ToolExecutionContext,
     ToolExecutionResult,
@@ -111,6 +111,7 @@ class MediaToolRegistry(ServerAwareToolRegistry):
                 ids = tuple(str(item) for item in raw if isinstance(item, str) and item)
                 if ids:
                     self._generated_by_turn[(context.deployment_id, context.message_id)] = ids[:4]
+                    self._trim_turn_map(self._generated_by_turn)
         return result
 
     async def _execute_tool(
@@ -129,17 +130,24 @@ class MediaToolRegistry(ServerAwareToolRegistry):
             (context.deployment_id, context.message_id),
             "",
         )
-        artifact_ids = await self.image_creation_service.generate(
-            owner_id=context.owner_id,
-            deployment_id=context.deployment_id,
-            character_card_id=context.character_card_id,
-            guild_id=context.guild_id,
-            channel_id=context.channel_id,
-            thread_id=context.thread_id,
-            message_id=context.message_id,
-            reply_to_message_id=reply_to_message_id,
-            payload=payload,
-        )
+        try:
+            artifact_ids = await self.image_creation_service.generate(
+                owner_id=context.owner_id,
+                deployment_id=context.deployment_id,
+                character_card_id=context.character_card_id,
+                guild_id=context.guild_id,
+                channel_id=context.channel_id,
+                thread_id=context.thread_id,
+                message_id=context.message_id,
+                reply_to_message_id=reply_to_message_id,
+                payload=payload,
+            )
+        except ProviderError as exc:
+            # Image generation is a Tool side effect. A provider outage/timeout must fail the
+            # Tool call, not disable the Character deployment or abort the whole turn.
+            raise ExternalToolFailed(
+                f"Image generation provider failed ({exc.reason_code})."
+            ) from exc
         return json_result(
             ok=True,
             artifact_ids=list(artifact_ids),
@@ -159,12 +167,17 @@ class MediaToolRegistry(ServerAwareToolRegistry):
             self._reply_reference_by_turn[key] = reply_to_message_id
         else:
             self._reply_reference_by_turn.pop(key, None)
-        if len(self._reply_reference_by_turn) > 2000:
-            for stale in list(self._reply_reference_by_turn)[:500]:
-                self._reply_reference_by_turn.pop(stale, None)
+        self._trim_turn_map(self._reply_reference_by_turn)
 
     def generated_artifact_ids(self, context: ToolExecutionContext) -> tuple[str, ...]:
         return self._generated_by_turn.get((context.deployment_id, context.message_id), ())
+
+    @staticmethod
+    def _trim_turn_map(values: dict[tuple[str, str], Any]) -> None:
+        if len(values) <= 2000:
+            return
+        for stale in list(values)[:500]:
+            values.pop(stale, None)
 
 
 __all__ = ["MediaToolRegistry"]
