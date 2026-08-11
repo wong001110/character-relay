@@ -278,6 +278,7 @@ export interface DiscordInboundMessage {
   emojis: DiscordExpressionContent[];
   mentioned_bot: boolean;
   replied_to_bot: boolean;
+  reply_to_message_id: string;
   smart_candidate: boolean;
   author_is_bot: boolean;
   stickers: DiscordStickerContent[];
@@ -357,6 +358,7 @@ export interface DiscordReply {
   smart_output?: DiscordSmartOutput | null;
   context_trace?: DiscordContextTrace | null;
   tool_calls: DiscordToolExecutionTrace[];
+  generated_artifact_ids: string[];
 }
 
 export type DiscordConnectorEventLevel = "info" | "warning" | "error";
