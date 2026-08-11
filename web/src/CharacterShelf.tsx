@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { CharacterCard } from "./api";
 import { useI18n } from "./i18n";
-import { LanguageSwitcher } from "./LanguageSwitcher";
 import {
   NotebookField,
   NotebookInput,
@@ -79,6 +78,7 @@ export function CharacterShelf({
   }, [cards, query, subject, tag, sort]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageCards = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const activeFilterCount = Number(Boolean(query.trim())) + Number(subject !== "all") + Number(tag !== "all");
 
   useEffect(() => {
     setPage(1);
@@ -88,195 +88,236 @@ export function CharacterShelf({
     if (page > pageCount) setPage(pageCount);
   }, [page, pageCount]);
 
+  function clearFilters() {
+    setQuery("");
+    setSubject("all");
+    setTag("all");
+    setSort("newest");
+  }
+
   return (
-    <main className="notebook-shell">
-      <header className="journal-header">
-        <div className="brand-lockup">
-          <img
-            className="brand-wordmark"
-            src="/assets/brand/character-relay-wordmark.png"
-            alt="Character Relay"
-          />
-          <div>
-            <p className="kicker">
-              {zh ? "AI 角色创建、测试与跨平台部署" : "AI character creation, testing, and deployment"}
-            </p>
-            <h1 className="brand-accessible-title">Character Relay</h1>
-            <p>
-              {zh
-                ? "创建一次，验证角色，再把稳定版本带进真实群聊。"
-                : "Create once, validate the character, and bring stable versions into real conversations."}
-            </p>
-          </div>
-        </div>
-        <div className="header-actions shelf-primary-actions">
-          <LanguageSwitcher />
-          {demoMode && <span className="status-chip pass">PUBLIC DEMO</span>}
-          {!demoMode && (
-            <button className="ink-button" onClick={onCreate}>
-              {t("shelf.newCard")}
-            </button>
+    <main className="notebook-shell character-library-v2">
+      <section className="character-library-layout">
+        <div className="character-library-main">
+          <header className="character-library-heading">
+            <div>
+              <span className="portal-v2-tape">
+                {demoMode ? "READ-ONLY CHARACTER FILES" : "CHARACTER STUDIO"}
+              </span>
+              <h1>
+                {zh ? "角色档案架" : "Character files"}
+              </h1>
+              <p>
+                {demoMode
+                  ? zh
+                    ? "浏览共享角色档案、Prompt、语义配置与部署结构。"
+                    : "Browse the shared character files, prompts, semantic profiles, and deployment structure."
+                  : zh
+                    ? "把每个角色当成一份持续完善的档案：创作、测试、部署，再从真实行为继续修订。"
+                    : "Treat every character as a living file: create, test, deploy, then refine it from real behavior."}
+              </p>
+            </div>
+            <aside className="character-library-count-note" aria-label={t("shelf.cardsFiled")}>
+              <span>{zh ? "FILED" : "FILED"}</span>
+              <strong>{filtered.length}</strong>
+              <small>
+                {filtered.length === cards.length
+                  ? t("shelf.cardsFiled")
+                  : zh
+                    ? `共 ${cards.length} 张角色卡`
+                    : `of ${cards.length} character cards`}
+              </small>
+            </aside>
+          </header>
+
+          {error && <p className="error-note">{error}</p>}
+
+          {cards.length === 0 ? (
+            <section className="empty-library paper-sheet">
+              <img src="/assets/brand/character-relay-mark.png" alt="" />
+              <h2>{t("shelf.emptyTitle")}</h2>
+              <p>{t("shelf.emptyHelp")}</p>
+              {!demoMode && (
+                <button className="ink-button" onClick={onCreate}>
+                  {t("shelf.newCard")}
+                </button>
+              )}
+            </section>
+          ) : (
+            <>
+              <section className="card-grid character-file-grid" aria-label={t("shelf.cardsAria")}>
+                {pageCards.map((card, index) => (
+                  <article
+                    className={`character-card portrait-${card.portrait_variant}`}
+                    key={card.id}
+                  >
+                    <div className="card-tape" />
+                    <div className="portrait-window">
+                      <img src="/assets/character-silhouette.svg" alt="" />
+                      <span>{t(subjectKeys[card.subject_type])}</span>
+                    </div>
+                    <div className="card-copy">
+                      <p className="card-index">
+                        {t("shelf.file")} / {String((page - 1) * PAGE_SIZE + index + 1).padStart(2, "0")}
+                      </p>
+                      <h3>{card.display_name}</h3>
+                      <p>{card.subtitle}</p>
+                      <div className="chip-row">
+                        {card.traits.slice(0, 3).map((trait) => (
+                          <span key={trait}>{trait}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="card-notes">
+                      <span>{t("shelf.boundTarget")}</span>
+                      <strong>{card.target_id.slice(0, 12)}</strong>
+                      <span>{t("shelf.preferredRooms")}</span>
+                      <strong>{card.preferred_suites.length}</strong>
+                    </div>
+                    <div className="card-actions">
+                      {!demoMode && (
+                        <button className="paper-button" onClick={() => onEdit(card)}>
+                          {t("shelf.edit")}
+                        </button>
+                      )}
+                      <button className="paper-button" onClick={() => onPrompt(card)}>
+                        {zh ? "真实 Prompt" : "View Prompt"}
+                      </button>
+                      <button className="paper-button" onClick={() => setSemanticCard(card)}>
+                        Semantic Profile
+                      </button>
+                      <button className="paper-button" onClick={() => onDeploy(card)}>
+                        {zh ? "部署" : "Deploy"}
+                      </button>
+                      <button className="enter-room" onClick={() => onEnter(card)}>
+                        {zh ? "测试角色" : "Test Character"}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+
+                {!demoMode && page === pageCount && (
+                  <button className="blank-card" onClick={onCreate}>
+                    <span className="plus-mark">+</span>
+                    <strong>{t("shelf.createAnother")}</strong>
+                    <small>{t("shelf.bindHelp")}</small>
+                  </button>
+                )}
+              </section>
+
+              {filtered.length === 0 && (
+                <section className="no-results paper-sheet">
+                  <h3>{t("shelf.noResults")}</h3>
+                  <p>{t("shelf.noResultsHelp")}</p>
+                </section>
+              )}
+
+              {pageCount > 1 && (
+                <nav className="library-pagination" aria-label={t("shelf.pagination")}>
+                  <button
+                    className="paper-button"
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    disabled={page === 1}
+                  >
+                    {t("shelf.previous")}
+                  </button>
+                  <span>{t("shelf.page", { page, pages: pageCount })}</span>
+                  <button
+                    className="paper-button"
+                    onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                    disabled={page === pageCount}
+                  >
+                    {t("shelf.next")}
+                  </button>
+                </nav>
+              )}
+            </>
           )}
         </div>
-      </header>
 
-      <section className="shelf-intro paper-sheet">
-        <div>
-          <p className="tape-label">{demoMode ? "READ-ONLY DEMO" : "CHARACTER STUDIO"}</p>
-          <h2>
-            {zh
-              ? "把角色卡从创作资产，变成可测试、可发布、可部署的角色。"
-              : "Turn Character Cards into testable, publishable, deployable characters."}
-          </h2>
-          <p>
-            {demoMode
-              ? zh
-                ? "共享测试账户已预载角色卡、测试场景与测试包。可以查看 Prompt、进入 Echo Masque 测试房并查看部署结构，但不能修改共享内容。"
-                : "This shared account includes Character Cards, Scenarios, and Test Packs. You can inspect prompts, enter the Echo Masque test room, and view deployment structure, but shared content cannot be changed."
-              : zh
-                ? "角色库只保留创作与角色级操作。部署、测试、账户和诊断工具集中在右下角的猫咪工具箱。"
-                : "The shelf stays focused on character work. Deployment, testing, account, and diagnostic tools are collected in the cat toolbox at the bottom right."}
-          </p>
-        </div>
-        <div className="shelf-count">
-          <strong>{cards.length}</strong>
-          <span>{t("shelf.cardsFiled")}</span>
-        </div>
-      </section>
+        <aside className="character-library-tools" aria-label={t("shelf.filters")}>
+          <div className="character-library-tools-note">
+            <span>{zh ? "档案工具" : "SHELF TOOLS"}</span>
+            <strong>{zh ? "找角色，不要找表格。" : "Find a character, not a spreadsheet."}</strong>
+            <small>
+              {zh
+                ? "搜索和筛选固定放在页边，角色卡只负责展示角色本身。"
+                : "Search and filters stay in the margin so the character cards can stay about the characters."}
+            </small>
+          </div>
 
-      <section className="library-toolbar paper-sheet" aria-label={t("shelf.filters")}>
-        <NotebookField className="library-search" label={t("shelf.search")}>
-          <NotebookInput
-            value={query}
-            onChange={(event) => setQuery(event.currentTarget.value)}
-            placeholder={t("shelf.searchPlaceholder")}
-          />
-        </NotebookField>
-        <NotebookField label={t("shelf.subjectFilter")}>
-          <NotebookSelect value={subject} onChange={(event) => setSubject(event.currentTarget.value)}>
-            <option value="all">{t("shelf.allSubjects")}</option>
-            <option value="companion">{t("subject.companion")}</option>
-            <option value="npc">{t("subject.npc")}</option>
-            <option value="assistant">{t("subject.assistant")}</option>
-            <option value="custom">{t("subject.custom")}</option>
-          </NotebookSelect>
-        </NotebookField>
-        <NotebookField label={t("shelf.tagFilter")}>
-          <NotebookSelect value={tag} onChange={(event) => setTag(event.currentTarget.value)}>
-            <option value="all">{t("shelf.allTags")}</option>
-            {tags.map((item) => (
-              <option value={item} key={item}>{item}</option>
-            ))}
-          </NotebookSelect>
-        </NotebookField>
-        <NotebookField label={t("shelf.sort")}>
-          <NotebookSelect value={sort} onChange={(event) => setSort(event.currentTarget.value)}>
-            <option value="newest">{t("shelf.newest")}</option>
-            <option value="oldest">{t("shelf.oldest")}</option>
-            <option value="name">{t("shelf.nameSort")}</option>
-          </NotebookSelect>
-        </NotebookField>
-      </section>
+          <section className="character-library-filter-note">
+            <NotebookField label={t("shelf.search")}>
+              <NotebookInput
+                value={query}
+                onChange={(event) => setQuery(event.currentTarget.value)}
+                placeholder={t("shelf.searchPlaceholder")}
+              />
+            </NotebookField>
+            <NotebookField label={t("shelf.subjectFilter")}>
+              <NotebookSelect value={subject} onChange={(event) => setSubject(event.currentTarget.value)}>
+                <option value="all">{t("shelf.allSubjects")}</option>
+                <option value="companion">{t("subject.companion")}</option>
+                <option value="npc">{t("subject.npc")}</option>
+                <option value="assistant">{t("subject.assistant")}</option>
+                <option value="custom">{t("subject.custom")}</option>
+              </NotebookSelect>
+            </NotebookField>
+            <NotebookField label={t("shelf.tagFilter")}>
+              <NotebookSelect value={tag} onChange={(event) => setTag(event.currentTarget.value)}>
+                <option value="all">{t("shelf.allTags")}</option>
+                {tags.map((item) => (
+                  <option value={item} key={item}>{item}</option>
+                ))}
+              </NotebookSelect>
+            </NotebookField>
+            <NotebookField label={t("shelf.sort")}>
+              <NotebookSelect value={sort} onChange={(event) => setSort(event.currentTarget.value)}>
+                <option value="newest">{t("shelf.newest")}</option>
+                <option value="oldest">{t("shelf.oldest")}</option>
+                <option value="name">{t("shelf.nameSort")}</option>
+              </NotebookSelect>
+            </NotebookField>
 
-      {error && <p className="error-note">{error}</p>}
-
-      {cards.length === 0 ? (
-        <section className="empty-library paper-sheet">
-          <img src="/assets/brand/character-relay-mark.png" alt="" />
-          <h2>{t("shelf.emptyTitle")}</h2>
-          <p>{t("shelf.emptyHelp")}</p>
-          {!demoMode && <button className="ink-button" onClick={onCreate}>{t("shelf.newCard")}</button>}
-        </section>
-      ) : (
-        <>
-          <section className="card-grid" aria-label={t("shelf.cardsAria")}>
-            {pageCards.map((card, index) => (
-              <article
-                className={`character-card portrait-${card.portrait_variant}`}
-                key={card.id}
-              >
-                <div className="card-tape" />
-                <div className="portrait-window">
-                  <img src="/assets/character-silhouette.svg" alt="" />
-                  <span>{t(subjectKeys[card.subject_type])}</span>
-                </div>
-                <div className="card-copy">
-                  <p className="card-index">
-                    {t("shelf.file")} / {String((page - 1) * PAGE_SIZE + index + 1).padStart(2, "0")}
-                  </p>
-                  <h3>{card.display_name}</h3>
-                  <p>{card.subtitle}</p>
-                  <div className="chip-row">
-                    {card.traits.slice(0, 3).map((trait) => (
-                      <span key={trait}>{trait}</span>
-                    ))}
-                  </div>
-                </div>
-                <div className="card-notes">
-                  <span>{t("shelf.boundTarget")}</span>
-                  <strong>{card.target_id.slice(0, 12)}</strong>
-                  <span>{t("shelf.preferredRooms")}</span>
-                  <strong>{card.preferred_suites.length}</strong>
-                </div>
-                <div className="card-actions">
-                  {!demoMode && (
-                    <button className="paper-button" onClick={() => onEdit(card)}>
-                      {t("shelf.edit")}
-                    </button>
-                  )}
-                  <button className="paper-button" onClick={() => onPrompt(card)}>
-                    {zh ? "真实 Prompt" : "View Prompt"}
-                  </button>
-                  <button className="paper-button" onClick={() => setSemanticCard(card)}>
-                    Semantic Profile
-                  </button>
-                  <button className="paper-button" onClick={() => onDeploy(card)}>
-                    {zh ? "部署" : "Deploy"}
-                  </button>
-                  <button className="enter-room" onClick={() => onEnter(card)}>
-                    {zh ? "测试角色" : "Test Character"}
-                  </button>
-                </div>
-              </article>
-            ))}
-
-            {!demoMode && page === pageCount && (
-              <button className="blank-card" onClick={onCreate}>
-                <span className="plus-mark">+</span>
-                <strong>{t("shelf.createAnother")}</strong>
-                <small>{t("shelf.bindHelp")}</small>
+            <div className="character-library-filter-summary">
+              <span>
+                {zh
+                  ? `${activeFilterCount} 个筛选条件 · ${filtered.length} 个结果`
+                  : `${activeFilterCount} active filters · ${filtered.length} results`}
+              </span>
+              <button type="button" onClick={clearFilters} disabled={activeFilterCount === 0 && sort === "newest"}>
+                {zh ? "重置" : "Reset"}
               </button>
-            )}
+            </div>
           </section>
 
-          {filtered.length === 0 && (
-            <section className="no-results paper-sheet">
-              <h3>{t("shelf.noResults")}</h3>
-              <p>{t("shelf.noResultsHelp")}</p>
+          {tags.length > 0 && (
+            <section className="character-library-tag-note">
+              <span>{zh ? "常用标签" : "FILED TAGS"}</span>
+              <div>
+                {tags.slice(0, 8).map((item) => (
+                  <button
+                    type="button"
+                    className={tag === item ? "is-active" : ""}
+                    onClick={() => setTag(tag === item ? "all" : item)}
+                    key={item}
+                  >
+                    #{item}
+                  </button>
+                ))}
+              </div>
             </section>
           )}
 
-          {pageCount > 1 && (
-            <nav className="library-pagination" aria-label={t("shelf.pagination")}>
-              <button
-                className="paper-button"
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-                disabled={page === 1}
-              >
-                {t("shelf.previous")}
-              </button>
-              <span>{t("shelf.page", { page, pages: pageCount })}</span>
-              <button
-                className="paper-button"
-                onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
-                disabled={page === pageCount}
-              >
-                {t("shelf.next")}
-              </button>
-            </nav>
+          {!demoMode && (
+            <button className="character-library-create-note" type="button" onClick={onCreate}>
+              <span>＋</span>
+              <strong>{t("shelf.newCard")}</strong>
+              <small>{zh ? "建立新的角色档案" : "File a new character"}</small>
+            </button>
           )}
-        </>
-      )}
+        </aside>
+      </section>
 
       {semanticCard && (
         <SemanticProfilePanel
