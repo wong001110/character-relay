@@ -130,3 +130,69 @@ def test_multimodal_provider_uses_video_url_for_video_asset() -> None:
         "video_url": {"url": "https://www.youtube.com/watch?v=abc123"},
     }
     assert result.summary == "A short UI demo video."
+
+
+def test_multimodal_provider_uses_local_keyframes_instead_of_platform_video_url() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "summary": "Sampled frames show a cooking demonstration.",
+                                    "visible_text": "Step 2",
+                                    "people": ["one presenter"],
+                                    "objects": ["pan"],
+                                    "notable_details": ["The pan appears in later samples."],
+                                    "topics": ["cooking"],
+                                    "tone": "instructional",
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    provider = OpenAICompatibleMultimodalProvider(
+        provider_id="openrouter",
+        api_key=SecretStr("or-key"),
+        model="xiaomi/mimo-v2.5",
+        base_url="https://openrouter.ai/api/v1",
+        transport=httpx.MockTransport(handler),
+    )
+    frames = (
+        "data:image/jpeg;base64,QUFB",
+        "data:image/jpeg;base64,QkJC",
+    )
+    result = asyncio.run(
+        provider.analyze(
+            MediaAsset(
+                media_key="url:bilibili:platform-keyframes-v1",
+                media_type="video",
+                source_uri="https://www.bilibili.com/video/BV1test",
+                keyframe_uris=frames,
+                keyframe_timestamps_seconds=(5.0, 15.0),
+            )
+        )
+    )
+
+    body = captured["body"]
+    assert isinstance(body, dict)
+    messages = body["messages"]
+    assert isinstance(messages, list)
+    content = messages[0]["content"]
+    assert isinstance(content, list)
+    assert "chronological sampled keyframes" in content[0]["text"]
+    assert content[1:] == [
+        {"type": "image_url", "image_url": {"url": frames[0]}},
+        {"type": "image_url", "image_url": {"url": frames[1]}},
+    ]
+    assert not any(item.get("type") == "video_url" for item in content)
+    assert result.summary == "Sampled frames show a cooking demonstration."
