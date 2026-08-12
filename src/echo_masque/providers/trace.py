@@ -163,8 +163,6 @@ def _emit(payload: dict[str, object]) -> None:
     try:
         sink(payload)
     except Exception:
-        # Observability must never break a provider request. Persistence failures stay
-        # silent here rather than leaking private trace content to process logs.
         return
 
 
@@ -194,6 +192,8 @@ class ProviderTrace:
         temperature: float,
         messages: tuple[ChatMessage, ...],
         available_tool_names: tuple[str, ...] = (),
+        tool_schema_count: int = 0,
+        tool_schema_chars: int = 0,
     ) -> ProviderTrace:
         mode = _trace_mode()
         scope = _TRACE_SCOPE.get() or _ProviderTraceScope()
@@ -227,6 +227,8 @@ class ProviderTrace:
             "message_chars": sum(len(item.content) for item in messages),
             "system_message_chars": system_chars,
             "available_tool_names": list(dict.fromkeys(available_tool_names)),
+            "tool_schema_count": max(0, tool_schema_count),
+            "tool_schema_chars": max(0, tool_schema_chars),
             "prior_tool_call_names": prior_tools,
             "tool_result_count": sum(1 for item in messages if item.role == "tool"),
             "trace_mode": mode,
@@ -308,8 +310,6 @@ class ProviderTrace:
             **self._scope_payload(),
         }
         if detail:
-            # Failure diagnostics are intentionally bounded even in metadata mode. They
-            # describe the failure class, not prompt or response content.
             event["detail"] = _preview(detail, min(self.max_chars, 1000))
         if response_body and self.mode in {"summary", "content"}:
             event["response_body"] = _preview(response_body, self.max_chars)
