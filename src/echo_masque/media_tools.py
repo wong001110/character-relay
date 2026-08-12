@@ -9,6 +9,7 @@ from pydantic import SecretStr
 
 from echo_masque.generated_media_delivery import GeneratedMediaDeliveryService
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService, ImageGenerateToolInput
+from echo_masque.image_generation import CANONICAL_ASPECT_RATIOS
 from echo_masque.persistence import DeploymentRepository, DiscordIdentityRepository
 from echo_masque.providers import ChatToolCall, ProviderError
 from echo_masque.providers.trace import provider_trace_scope
@@ -80,8 +81,12 @@ class MediaToolRegistry(ServerAwareToolRegistry):
                     },
                     "aspect_ratio": {
                         "type": "string",
-                        "maxLength": 20,
+                        "enum": list(CANONICAL_ASPECT_RATIOS),
                         "default": "1:1",
+                        "description": (
+                            "Canonical Character Relay image aspect ratio. Use auto only when "
+                            "the provider should choose the ratio."
+                        ),
                     },
                     "resolution": {
                         "type": "string",

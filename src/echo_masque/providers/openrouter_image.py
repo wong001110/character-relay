@@ -8,6 +8,7 @@ import httpx
 from pydantic import SecretStr
 
 from echo_masque.image_generation import (
+    CANONICAL_ASPECT_RATIOS,
     GeneratedImage,
     ImageGenerationRequest,
     ImageGenerationResult,
@@ -63,6 +64,10 @@ class OpenRouterImageGenerationProvider:
         return f"{self._base_url}/api/v1/images"
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+        if request.aspect_ratio not in CANONICAL_ASPECT_RATIOS:
+            raise ProviderProtocolError(
+                "Image generation request used a non-canonical aspect ratio."
+            )
         trace = ProviderTrace.start(
             endpoint=self.endpoint,
             model=self._model,
@@ -93,7 +98,9 @@ class OpenRouterImageGenerationProvider:
             "prompt": request.prompt,
             "n": request.n,
         }
-        if request.aspect_ratio:
+        # `auto` is the provider-neutral signal to let the adapter/provider choose.
+        # Do not mutate one explicit ratio into another ratio silently.
+        if request.aspect_ratio != "auto":
             payload["aspect_ratio"] = request.aspect_ratio
         if request.resolution:
             payload["resolution"] = request.resolution

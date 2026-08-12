@@ -1,6 +1,7 @@
 """Minimal OpenAI-compatible chat provider."""
 
 import asyncio
+import json
 from time import perf_counter
 from urllib.parse import urlparse
 
@@ -112,18 +113,27 @@ class OpenAICompatibleProvider:
         temperature: float,
         tools: tuple[ChatToolDefinition, ...],
     ) -> ProviderCompletion:
+        tool_payloads = [item.model_dump() for item in tools]
+        tool_schema_chars = (
+            len(
+                json.dumps(
+                    tool_payloads,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            )
+            if tool_payloads
+            else 0
+        )
         payload: dict[str, object] = {
             "model": model,
             "temperature": temperature,
             "messages": [self._message_payload(item) for item in messages],
         }
-        if tools:
-            payload["tools"] = [item.model_dump() for item in tools]
+        if tool_payloads:
+            payload["tools"] = tool_payloads
             payload["tool_choice"] = "auto"
         if self._uses_deepseek_api:
-            # DeepSeek currently defaults chat completions to thinking mode. Character
-            # Relay expects a direct user-visible answer from this low-latency adapter,
-            # so explicitly request non-thinking mode instead of consuming hidden CoT.
             payload["thinking"] = {"type": "disabled"}
 
         headers = {
@@ -137,6 +147,8 @@ class OpenAICompatibleProvider:
             temperature=temperature,
             messages=messages,
             available_tool_names=tuple(item.function.name for item in tools),
+            tool_schema_count=len(tool_payloads),
+            tool_schema_chars=tool_schema_chars,
         )
 
         try:
@@ -148,9 +160,6 @@ class OpenAICompatibleProvider:
                     try:
                         response = await client.post(self.endpoint, json=payload, headers=headers)
                     except httpx.TimeoutException as exc:
-                        # A full read timeout can already consume most of the Discord request
-                        # budget. Repeating it would make one provider stall look like a hung
-                        # deployment and may trigger duplicate connector requests.
                         trace.error(
                             reason=ProviderTimeoutError.reason_code,
                             detail=self._request_error_detail(exc),
@@ -327,8 +336,6 @@ class OpenAICompatibleProvider:
                         tool_calls=tool_calls,
                     )
 
-            # The loop always returns or raises. Keep an explicit terminal guard in case a
-            # future retry refactor changes that invariant.
             trace.error(
                 reason=ProviderUnavailableError.reason_code,
                 detail="Provider retry loop ended without a response.",

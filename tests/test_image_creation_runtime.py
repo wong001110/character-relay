@@ -1,15 +1,17 @@
 import asyncio
 import base64
 
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService, ImageGenerateToolInput
 from echo_masque.image_generation import (
+    CANONICAL_ASPECT_RATIOS,
     GeneratedImage,
     ImageGenerationRequest,
     ImageGenerationResult,
 )
 from echo_masque.live_media import LiveMediaContext
+from echo_masque.media_tools import MediaToolRegistry
 from echo_masque.persistence import Database
 from echo_masque.persistence.conversation_media_repository import (
     ConversationMediaReferenceRepository,
@@ -103,6 +105,38 @@ def test_generated_base64_image_becomes_short_lived_artifact() -> None:
     assert artifact.mime_type == "image/png"
     assert artifact.media_key.startswith("sha256:")
     assert provider.requests[0].references == ()
+    assert provider.requests[0].aspect_ratio == "1:1"
+
+
+def test_image_tool_input_accepts_only_canonical_aspect_ratios() -> None:
+    for ratio in CANONICAL_ASPECT_RATIOS:
+        payload = ImageGenerateToolInput(prompt="Draw a cat.", aspect_ratio=ratio)
+        assert payload.aspect_ratio == ratio
+
+    for invalid in ("16:10", "4:6"):
+        try:
+            ImageGenerateToolInput(prompt="Draw a cat.", aspect_ratio=invalid)  # type: ignore[arg-type]
+        except ValidationError as exc:
+            assert "aspect_ratio" in str(exc)
+        else:
+            raise AssertionError(f"non-canonical ratio {invalid} should be rejected")
+
+
+def test_image_generate_provider_schema_exposes_ratio_enum() -> None:
+    registry = MediaToolRegistry(
+        image_creation_service=object(),  # type: ignore[arg-type]
+        generated_media_delivery=object(),  # type: ignore[arg-type]
+    )
+    tools = registry.provider_tools(("image.generate",))
+    assert len(tools) == 1
+    parameters = tools[0].function.parameters
+    properties = parameters["properties"]
+    assert isinstance(properties, dict)
+    aspect_ratio = properties["aspect_ratio"]
+    assert isinstance(aspect_ratio, dict)
+    assert aspect_ratio["type"] == "string"
+    assert aspect_ratio["enum"] == list(CANONICAL_ASPECT_RATIOS)
+    assert aspect_ratio["default"] == "1:1"
 
 
 def test_reply_reference_uses_only_character_perceived_image() -> None:

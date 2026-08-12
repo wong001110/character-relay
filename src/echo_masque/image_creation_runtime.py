@@ -11,6 +11,7 @@ import httpx
 from pydantic import BaseModel, Field, model_validator
 
 from echo_masque.image_generation import (
+    CanonicalAspectRatio,
     ImageGenerationProvider,
     ImageGenerationRequest,
     ImageReference,
@@ -38,14 +39,13 @@ class ImageGenerateToolInput(BaseModel):
     """Intent-level Tool input; provider/model details remain Runtime-owned."""
 
     prompt: str = Field(min_length=1, max_length=4000)
-    aspect_ratio: str = Field(default="1:1", max_length=20)
+    aspect_ratio: CanonicalAspectRatio = "1:1"
     resolution: str = Field(default="", max_length=30)
     reference_mode: Literal["none", "current", "reply", "recent"] = "none"
 
     @model_validator(mode="after")
     def normalize(self) -> ImageGenerateToolInput:
         self.prompt = self.prompt.strip()
-        self.aspect_ratio = self.aspect_ratio.strip() or "1:1"
         self.resolution = self.resolution.strip()
         return self
 
@@ -242,7 +242,6 @@ class ImageCreationRuntimeService:
         sniffed = self._sniff_mime(content)
         if not sniffed:
             raise ValueError("Generated artifact is not a supported image format.")
-        # Byte signature is authoritative; do not trust a provider's declared MIME blindly.
         return content, sniffed
 
     async def _download_generated_image(self, url: str) -> bytes:

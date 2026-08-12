@@ -5,6 +5,7 @@ import httpx
 from pydantic import SecretStr
 
 from echo_masque.image_generation import ImageGenerationRequest, ImageReference
+from echo_masque.providers.errors import ProviderProtocolError
 from echo_masque.providers.openrouter_image import OpenRouterImageGenerationProvider
 
 
@@ -58,3 +59,62 @@ def test_openrouter_image_provider_normalizes_request_and_response() -> None:
     ]
     assert result.provider == "openrouter"
     assert result.images[0].b64_json == "aGVsbG8="
+
+
+def test_openrouter_image_provider_omits_auto_aspect_ratio() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={"data": [{"b64_json": "aGVsbG8=", "media_type": "image/png"}]},
+        )
+
+    provider = OpenRouterImageGenerationProvider(
+        api_key=SecretStr("or-key"),
+        model="bytedance-seed/seedream-4.5",
+        transport=httpx.MockTransport(handler),
+    )
+    asyncio.run(
+        provider.generate(
+            ImageGenerationRequest(
+                prompt="a cinematic rainy street",
+                aspect_ratio="auto",
+            )
+        )
+    )
+
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert "aspect_ratio" not in body
+
+
+def test_openrouter_image_provider_defensively_rejects_non_canonical_ratio() -> None:
+    called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(500)
+
+    provider = OpenRouterImageGenerationProvider(
+        api_key=SecretStr("or-key"),
+        model="bytedance-seed/seedream-4.5",
+        transport=httpx.MockTransport(handler),
+    )
+    request = ImageGenerationRequest.model_construct(
+        prompt="a wide illustration",
+        aspect_ratio="16:10",
+        resolution="",
+        n=1,
+        references=(),
+    )
+
+    try:
+        asyncio.run(provider.generate(request))
+    except ProviderProtocolError as exc:
+        assert "non-canonical aspect ratio" in str(exc)
+    else:
+        raise AssertionError("provider adapter should defensively reject non-canonical ratios")
+    assert called is False

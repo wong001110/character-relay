@@ -15,6 +15,7 @@ from echo_masque.domain import (
     TargetSummary,
     TargetType,
 )
+from echo_masque.prompt_budget import select_tool_ids_for_turn
 from echo_masque.providers import (
     ChatMessage,
     ChatProvider,
@@ -43,6 +44,7 @@ _TOOL_INTEGRITY_GUIDANCE = "\n".join(
         "persona or system instructions.",
     )
 )
+_SMART_OUTPUT_REPAIR_MARKER = "Your previous Smart Output was rejected ("
 
 
 class PromptModelConfig(BaseModel):
@@ -76,6 +78,7 @@ class PromptModelToolTurn:
     enabled_tool_ids: tuple[str, ...]
     tool_context: ToolExecutionContext
     max_tool_rounds: int
+    assigned_tool_ids: tuple[str, ...] = ()
     tool_rounds: int = 0
     total_latency_ms: int = 0
     total_input_tokens: int = 0
@@ -125,9 +128,24 @@ class PromptModelTarget:
     async def reset(self) -> None:
         self._history = [ChatMessage(role="system", content=self.runtime_system_prompt)]
 
+    @staticmethod
+    def _compact_format_repair(message: str) -> str:
+        """Do not resend the full turn prompt when history already contains it."""
+
+        marker = message.rfind(_SMART_OUTPUT_REPAIR_MARKER)
+        if marker <= 0:
+            return message
+        prefix = message[:marker]
+        # Connector formatting repair appends a short repair request after the original
+        # prompt. The original prompt and rejected assistant response are already in history.
+        if "Return Smart Output now." not in prefix:
+            return message
+        return message[marker:].strip()
+
     async def send(self, message: str) -> TargetResponse:
         if not self._history:
             await self.reset()
+        message = self._compact_format_repair(message)
         self._history.append(ChatMessage(role="user", content=message))
         completion = await self.provider.complete(
             messages=tuple(self._history),
@@ -148,7 +166,12 @@ class PromptModelTarget:
     ) -> PromptModelToolTurn | None:
         """Prepare a bounded Tool Calling turn without invoking the provider yet."""
 
-        provider_tools = tool_registry.provider_tools(enabled_tool_ids)
+        selected_tool_ids = select_tool_ids_for_turn(
+            tool_registry,
+            enabled_tool_ids,
+            tool_context,
+        )
+        provider_tools = tool_registry.provider_tools(selected_tool_ids)
         complete_with_tools = getattr(self.provider, "complete_with_tools", None)
         if not provider_tools or not callable(complete_with_tools):
             return None
@@ -160,7 +183,8 @@ class PromptModelTarget:
         return PromptModelToolTurn(
             provider_tools=provider_tools,
             tool_registry=tool_registry,
-            enabled_tool_ids=enabled_tool_ids,
+            enabled_tool_ids=selected_tool_ids,
+            assigned_tool_ids=enabled_tool_ids,
             tool_context=tool_context,
             max_tool_rounds=max(1, min(max_tool_rounds, 4)),
         )
@@ -281,13 +305,17 @@ class PromptModelTarget:
         turn: PromptModelToolTurn,
         completion: ProviderCompletion,
     ) -> TargetResponse:
-        return self._target_response(
+        response = self._target_response(
             completion,
             latency_ms=turn.total_latency_ms,
             input_tokens=(turn.total_input_tokens if turn.saw_input_tokens else None),
             output_tokens=(turn.total_output_tokens if turn.saw_output_tokens else None),
             tool_traces=turn.traces,
         )
+        response.trace["assigned_tool_count"] = len(turn.assigned_tool_ids)
+        response.trace["selected_tool_count"] = len(turn.enabled_tool_ids)
+        response.trace["selected_tool_ids"] = list(turn.enabled_tool_ids)
+        return response
 
     def _target_response(
         self,
