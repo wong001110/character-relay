@@ -2,9 +2,30 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
+
+CanonicalAspectRatio = Literal[
+    "auto",
+    "1:1",
+    "2:3",
+    "3:2",
+    "3:4",
+    "4:3",
+    "9:16",
+    "16:9",
+]
+CANONICAL_ASPECT_RATIOS: tuple[CanonicalAspectRatio, ...] = (
+    "auto",
+    "1:1",
+    "2:3",
+    "3:2",
+    "3:4",
+    "4:3",
+    "9:16",
+    "16:9",
+)
 
 
 class ImageReference(BaseModel):
@@ -18,7 +39,7 @@ class ImageGenerationRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     prompt: str = Field(min_length=1, max_length=8000)
-    aspect_ratio: str = Field(default="1:1", max_length=20)
+    aspect_ratio: CanonicalAspectRatio = "1:1"
     resolution: str = Field(default="", max_length=30)
     n: int = Field(default=1, ge=1, le=10)
     references: tuple[ImageReference, ...] = ()
@@ -58,3 +79,15 @@ class ImageGenerationService:
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         return await self.provider.generate(request)
+
+
+__all__ = [
+    "CANONICAL_ASPECT_RATIOS",
+    "CanonicalAspectRatio",
+    "GeneratedImage",
+    "ImageGenerationProvider",
+    "ImageGenerationRequest",
+    "ImageGenerationResult",
+    "ImageGenerationService",
+    "ImageReference",
+]
