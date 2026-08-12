@@ -42,7 +42,7 @@ class UnavailableEncoder:
 
 
 def _semantic_settings():
-    return get_settings().model_copy(update={"semantic_embedding_runtime_enabled": True})
+    return get_settings().model_copy(update={"environment": "production"})
 
 
 def _tool_context(text: str) -> ToolExecutionContext:
@@ -96,7 +96,8 @@ def test_smart_output_guidance_is_dynamic_and_compact() -> None:
     assert "action=react" not in plain
     assert "action=sticker" not in plain
     assert "Retrieved Server expressions" not in plain
-    assert plain.count("[[CR_OUTPUT") == 2
+    assert plain.count("Message shape: [[CR_OUTPUT") == 1
+    assert plain.count("Silence shape: [[CR_OUTPUT") == 1
 
     expressive = "\n".join(_smart_context().prompt_guidance([_expression_candidate()]))
     assert "ignore, message, react" in expressive
@@ -279,5 +280,4 @@ def test_format_repair_does_not_repeat_the_full_turn_prompt() -> None:
 
 
 def test_unused_protocol_error_import_stays_false() -> None:
-    # Keep this module from accidentally turning provider-level failures into selector logic.
     assert issubclass(ProviderProtocolError, Exception)
