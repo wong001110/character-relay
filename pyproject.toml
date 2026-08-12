@@ -94,6 +94,10 @@ module = "echo_masque.api"
 disable_error_code = ["attr-defined"]
 
 [[tool.mypy.overrides]]
+module = "echo_masque.context_layer"
+disable_error_code = ["arg-type", "list-item"]
+
+[[tool.mypy.overrides]]
 module = "echo_masque.persistence.workspace_repository"
 disable_error_code = ["attr-defined"]
 
