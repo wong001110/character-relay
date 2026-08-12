@@ -19,6 +19,7 @@ from echo_masque.live_media import (
     _ResolvedAsset,
 )
 from echo_masque.media_runtime import MediaAnalysis, MediaAsset
+from echo_masque.platform_keyframes import PlatformKeyframeExtractor
 from echo_masque.platform_media import PlatformMediaResolution, YtDlpMediaResolver
 from echo_masque.provider_credentials import ResolvedProviderCredential
 from echo_masque.reader_cleanup import clean_public_reader_text
@@ -34,10 +35,11 @@ _HTTP_FALLBACK_PROVIDER = "content-extractor"
 _HTTP_FALLBACK_MODEL = "http-browser-v1"
 _MIN_USEFUL_HTTP_CHARS = 300
 _MAX_PLATFORM_TEXT_LINKS = 3
+_PLATFORM_KEYFRAME_VERSION = "platform-keyframes-v1"
 
 
 class EnhancedLiveMediaContextService(LiveMediaContextService):
-    """Prefer connector metadata, yt-dlp platform extraction, and Jina Reader articles."""
+    """Prefer connector metadata, local platform sampling, and Jina Reader articles."""
 
     def __init__(
         self,
@@ -46,6 +48,7 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
         jina_api_key: SecretStr | None = None,
         jina_reader: JinaReaderClient | None = None,
         platform_resolver: YtDlpMediaResolver | None = None,
+        platform_keyframe_extractor: PlatformKeyframeExtractor | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -58,6 +61,9 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
         self.platform_resolver = platform_resolver or YtDlpMediaResolver(
             url_guard=self.url_guard,
             http_transport=self.http_transport,
+        )
+        self.platform_keyframe_extractor = (
+            platform_keyframe_extractor or PlatformKeyframeExtractor()
         )
         self._platform_context: dict[str, PlatformMediaResolution] = {}
 
@@ -181,7 +187,7 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
         return await super()._discord_attachments(payload)
 
     async def _resolve_public_media(self, source: ResolvedContentSource) -> _ResolvedAsset:
-        """Resolve platform page URLs to direct media before giving them to a vision model."""
+        """Sample platform video locally so remote providers never fetch protected CDN streams."""
 
         if self.platform_resolver.supports(source.canonical_url):
             resolved = await self.platform_resolver.resolve(
@@ -194,21 +200,25 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
                 )
             self._platform_context[source.source_key] = resolved
             if resolved.media_url:
-                filename = resolved.media_id or resolved.title or source.platform
-                if resolved.media_ext:
-                    filename = f"{filename}.{resolved.media_ext}"
-                return _ResolvedAsset(
-                    asset=MediaAsset(
-                        media_key=source.source_key,
-                        media_type="video",
-                        filename=filename[:255],
-                        source_uri=resolved.media_url,
-                    ),
-                    source_key=source.source_key,
-                )
+                keyframes = await self.platform_keyframe_extractor.extract(resolved)
+                if keyframes is not None and keyframes.frame_data_uris:
+                    media_key = f"{source.source_key}:{_PLATFORM_KEYFRAME_VERSION}"
+                    self._platform_context[media_key] = resolved
+                    filename = resolved.media_id or resolved.title or source.platform
+                    return _ResolvedAsset(
+                        asset=MediaAsset(
+                            media_key=media_key,
+                            media_type="video",
+                            filename=f"{filename}_keyframes"[:255],
+                            source_uri=resolved.canonical_url or source.canonical_url,
+                            keyframe_uris=keyframes.frame_data_uris,
+                            keyframe_timestamps_seconds=keyframes.timestamps_seconds,
+                        ),
+                        source_key=source.source_key,
+                    )
             if resolved.has_context:
                 raise ValueError(
-                    "Platform media has transcript/metadata but no direct media URL."
+                    "Platform visual sampling unavailable; use transcript/metadata fallback."
                 )
             raise ValueError(
                 "Platform extraction returned no usable media; use article/page fallback."
