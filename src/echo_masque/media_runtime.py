@@ -27,6 +27,8 @@ class MediaAsset(BaseModel):
     filename: str = Field(default="", max_length=255)
     source_uri: str = Field(default="", max_length=4096)
     size_bytes: int | None = Field(default=None, ge=0)
+    keyframe_uris: tuple[str, ...] = ()
+    keyframe_timestamps_seconds: tuple[float, ...] = ()
 
 
 class MediaAnalysis(BaseModel):
