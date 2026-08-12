@@ -48,6 +48,13 @@ _LANGUAGE_PRIORITY = (
     "en-GB",
     "en",
 )
+_SAFE_MEDIA_HEADER_NAMES = {
+    "accept": "Accept",
+    "accept-language": "Accept-Language",
+    "origin": "Origin",
+    "referer": "Referer",
+    "user-agent": "User-Agent",
+}
 
 
 class PlatformMediaResolution(BaseModel):
@@ -65,6 +72,7 @@ class PlatformMediaResolution(BaseModel):
     duration_seconds: int | None = Field(default=None, ge=0)
     media_url: str = Field(default="", max_length=4096)
     media_ext: str = Field(default="", max_length=20)
+    media_headers: tuple[tuple[str, str], ...] = ()
     transcript: str = Field(default="", max_length=_MAX_TRANSCRIPT_CHARS)
     transcript_language: str = Field(default="", max_length=80)
     transcript_source: str = Field(default="", max_length=40)
@@ -176,7 +184,7 @@ class YtDlpMediaResolver:
         description = self._text(info.get("description"), _MAX_DESCRIPTION_CHARS)
         media_id = self._text(info.get("id"), 300)
         duration = self._duration(info.get("duration"))
-        media_url, media_ext = await self._select_media_url(info)
+        media_url, media_ext, media_headers = await self._select_media_url(info)
         subtitle = self._select_subtitle(info)
         transcript = ""
         transcript_language = ""
@@ -198,6 +206,7 @@ class YtDlpMediaResolver:
             duration_seconds=duration,
             media_url=media_url,
             media_ext=media_ext,
+            media_headers=media_headers,
             transcript=transcript,
             transcript_language=transcript_language,
             transcript_source=transcript_source,
@@ -274,7 +283,10 @@ class YtDlpMediaResolver:
         is_bilibili = host == "bilibili.com" or host.endswith(".bilibili.com")
         return is_bilibili and "412" in str(exc)
 
-    async def _select_media_url(self, info: dict[str, Any]) -> tuple[str, str]:
+    async def _select_media_url(
+        self,
+        info: dict[str, Any],
+    ) -> tuple[str, str, tuple[tuple[str, str], ...]]:
         candidates: list[dict[str, Any]] = []
         formats = info.get("formats")
         if isinstance(formats, list):
@@ -315,8 +327,28 @@ class YtDlpMediaResolver:
                 continue
             if len(validated) > 4096:
                 continue
-            return validated, self._text(item.get("ext"), 20)
-        return "", ""
+            headers = self._safe_media_headers(
+                info.get("http_headers"),
+                item.get("http_headers"),
+            )
+            return validated, self._text(item.get("ext"), 20), headers
+        return "", "", ()
+
+    @classmethod
+    def _safe_media_headers(cls, *raw_headers: object) -> tuple[tuple[str, str], ...]:
+        values: dict[str, tuple[str, str]] = {}
+        for raw in raw_headers:
+            if not isinstance(raw, dict):
+                continue
+            for raw_name, raw_value in raw.items():
+                name = cls._text(raw_name, 80)
+                canonical = _SAFE_MEDIA_HEADER_NAMES.get(name.casefold())
+                if canonical is None:
+                    continue
+                value = cls._text(raw_value, 1000).replace("\r", " ").replace("\n", " ").strip()
+                if value:
+                    values[canonical.casefold()] = (canonical, value)
+        return tuple(values[key] for key in sorted(values))
 
     @classmethod
     def _select_subtitle(cls, info: dict[str, Any]) -> _SubtitleCandidate | None:
