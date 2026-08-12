@@ -17,6 +17,10 @@ class FakeYtDlpMediaResolver(YtDlpMediaResolver):
             "duration": 95,
             "webpage_url": "https://www.youtube.com/watch?v=abc123",
             "extractor_key": "Youtube",
+            "http_headers": {
+                "User-Agent": "Character Relay Test",
+                "Cookie": "must-not-propagate",
+            },
             "formats": [
                 {
                     "url": "https://1.1.1.1/video.mp4",
@@ -25,6 +29,10 @@ class FakeYtDlpMediaResolver(YtDlpMediaResolver):
                     "acodec": "mp4a",
                     "ext": "mp4",
                     "height": 720,
+                    "http_headers": {
+                        "Referer": "https://www.youtube.com/",
+                        "Authorization": "must-not-propagate",
+                    },
                 }
             ],
             "subtitles": {
@@ -63,6 +71,10 @@ def test_ytdlp_resolver_returns_direct_media_and_transcript_without_video_downlo
 
     assert result is not None
     assert result.media_url == "https://1.1.1.1/video.mp4"
+    assert result.media_headers == (
+        ("Referer", "https://www.youtube.com/"),
+        ("User-Agent", "Character Relay Test"),
+    )
     assert result.title == "Resolver demo"
     assert result.uploader == "Example Channel"
     assert result.duration_seconds == 95
