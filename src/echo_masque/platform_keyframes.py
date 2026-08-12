@@ -164,7 +164,7 @@ class PlatformKeyframeExtractor:
                 process.communicate(),
                 timeout=self.timeout_seconds,
             )
-        except (OSError, asyncio.TimeoutError):
+        except (OSError, TimeoutError):
             if process is not None:
                 try:
                     process.kill()
