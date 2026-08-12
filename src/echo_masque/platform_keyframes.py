@@ -43,7 +43,9 @@ class PlatformKeyframeExtractor:
         max_frame_bytes: int = 1_000_000,
         cache_seconds: float = 60 * 60,
     ) -> None:
-        self.ffmpeg_path = ffmpeg_path if ffmpeg_path is not None else (shutil.which("ffmpeg") or "")
+        self.ffmpeg_path = (
+            ffmpeg_path if ffmpeg_path is not None else (shutil.which("ffmpeg") or "")
+        )
         self.timeout_seconds = max(1.0, timeout_seconds)
         self.max_frames = min(max(max_frames, 1), 6)
         self.max_frame_bytes = min(max(max_frame_bytes, 64 * 1024), 2 * 1024 * 1024)
@@ -151,6 +153,7 @@ class PlatformKeyframeExtractor:
                 "pipe:1",
             )
         )
+        process: asyncio.subprocess.Process | None = None
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
@@ -162,11 +165,12 @@ class PlatformKeyframeExtractor:
                 timeout=self.timeout_seconds,
             )
         except (OSError, asyncio.TimeoutError):
-            try:
-                process.kill()  # type: ignore[possibly-undefined]
-                await process.communicate()  # type: ignore[possibly-undefined]
-            except (OSError, UnboundLocalError):
-                pass
+            if process is not None:
+                try:
+                    process.kill()
+                    await process.communicate()
+                except OSError:
+                    pass
             return None
         if process.returncode != 0 or not stdout:
             return None
