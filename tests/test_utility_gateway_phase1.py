@@ -69,72 +69,71 @@ def test_utility_gateway_rejects_duplicate_members_and_non_free_pool_members() -
 def test_admin_can_manage_utility_credentials_without_secret_echo(tmp_path: Path) -> None:
     database_path = tmp_path / "utility-gateway.db"
     app = create_app(settings(database_path))
-    admin = TestClient(app)
-    member_client = TestClient(app)
-    login_admin(admin)
 
-    registered = member_client.post(
-        "/api/auth/register",
-        json={
-            "email": "utility-member@example.com",
-            "display_name": "Member",
-            "password": ADMIN_PASSWORD,
-        },
-    )
-    assert registered.status_code == 201
-    assert member_client.get("/api/admin/runtime/utility-credentials").status_code == 403
+    with TestClient(app) as client:
+        registered = client.post(
+            "/api/auth/register",
+            json={
+                "email": "utility-member@example.com",
+                "display_name": "Member",
+                "password": ADMIN_PASSWORD,
+            },
+        )
+        assert registered.status_code == 201
+        assert client.get("/api/admin/runtime/utility-credentials").status_code == 403
 
-    current = admin.get("/api/admin/runtime")
-    assert current.status_code == 200
-    config = current.json()["config"]
-    config["utility_gateway"]["members"] = [utility_member()]
-    saved = admin.put("/api/admin/runtime", json=config)
-    assert saved.status_code == 200
+        login_admin(client)
+        current = client.get("/api/admin/runtime")
+        assert current.status_code == 200
+        config = current.json()["config"]
+        config["utility_gateway"]["members"] = [utility_member()]
+        saved = client.put("/api/admin/runtime", json=config)
+        assert saved.status_code == 200
 
-    initial_status = admin.get("/api/admin/runtime/utility-credentials")
-    assert initial_status.status_code == 200
-    assert initial_status.json() == [
-        {"member_id": "groq_free", "configured": False, "source": "missing"}
-    ]
+        initial_status = client.get("/api/admin/runtime/utility-credentials")
+        assert initial_status.status_code == 200
+        assert initial_status.json() == [
+            {"member_id": "groq_free", "configured": False, "source": "missing"}
+        ]
 
-    assert admin.put(
-        "/api/admin/runtime/utility-credentials/missing_member",
-        json={"api_key": "not-used"},
-    ).status_code == 404
+        assert client.put(
+            "/api/admin/runtime/utility-credentials/missing_member",
+            json={"api_key": "not-used"},
+        ).status_code == 404
 
-    secret = "utility-secret-never-return-to-browser"
-    configured = admin.put(
-        "/api/admin/runtime/utility-credentials/groq_free",
-        json={"api_key": secret},
-    )
-    assert configured.status_code == 200
-    assert configured.json() == {
-        "member_id": "groq_free",
-        "configured": True,
-        "source": "vault",
-    }
-    assert secret not in configured.text
-    assert secret not in admin.get("/api/admin/runtime").text
+        secret = "utility-secret-never-return-to-browser"
+        configured = client.put(
+            "/api/admin/runtime/utility-credentials/groq_free",
+            json={"api_key": secret},
+        )
+        assert configured.status_code == 200
+        assert configured.json() == {
+            "member_id": "groq_free",
+            "configured": True,
+            "source": "vault",
+        }
+        assert secret not in configured.text
+        assert secret not in client.get("/api/admin/runtime").text
 
-    record = app.state.auth_repository.get_credential(
-        owner_id=SYSTEM_RUNTIME_USER_ID,
-        scope_kind=CredentialVault.runtime_scope_kind,
-        scope_id="utility:groq_free",
-    )
-    assert record is not None
-    assert secret not in record.encrypted_value
-    assert secret.encode("utf-8") not in database_path.read_bytes()
+        record = app.state.auth_repository.get_credential(
+            owner_id=SYSTEM_RUNTIME_USER_ID,
+            scope_kind=CredentialVault.runtime_scope_kind,
+            scope_id="utility:groq_free",
+        )
+        assert record is not None
+        assert secret not in record.encrypted_value
+        assert secret.encode("utf-8") not in database_path.read_bytes()
 
-    config = admin.get("/api/admin/runtime").json()["config"]
-    config["utility_gateway"]["members"] = []
-    removed = admin.put("/api/admin/runtime", json=config)
-    assert removed.status_code == 200
-    assert admin.get("/api/admin/runtime/utility-credentials").json() == []
-    assert app.state.auth_repository.get_credential(
-        owner_id=SYSTEM_RUNTIME_USER_ID,
-        scope_kind=CredentialVault.runtime_scope_kind,
-        scope_id="utility:groq_free",
-    ) is None
+        config = client.get("/api/admin/runtime").json()["config"]
+        config["utility_gateway"]["members"] = []
+        removed = client.put("/api/admin/runtime", json=config)
+        assert removed.status_code == 200
+        assert client.get("/api/admin/runtime/utility-credentials").json() == []
+        assert app.state.auth_repository.get_credential(
+            owner_id=SYSTEM_RUNTIME_USER_ID,
+            scope_kind=CredentialVault.runtime_scope_kind,
+            scope_id="utility:groq_free",
+        ) is None
 
 
 def test_runtime_migrates_pre_gateway_config_to_disabled_gateway(tmp_path: Path) -> None:
