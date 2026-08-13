@@ -9,7 +9,7 @@ from time import perf_counter
 from urllib.parse import urlparse
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field
 
 from echo_masque.admin_runtime import SemanticJudgeEndpoint, SemanticRoutingJudgeProfile
 from echo_masque.config import Settings
@@ -47,7 +47,9 @@ class SemanticRoutingJudgeService:
     @staticmethod
     def _endpoint(base_url: str) -> str:
         root = base_url.rstrip("/")
-        return f"{root}/chat/completions" if root.endswith("/v1") else f"{root}/v1/chat/completions"
+        if root.endswith("/v1"):
+            return f"{root}/chat/completions"
+        return f"{root}/v1/chat/completions"
 
     @staticmethod
     def _deepseek(base_url: str) -> bool:
@@ -104,7 +106,14 @@ class SemanticRoutingJudgeService:
                 return None, "invalid_content"
             parsed = self._parse(content)
             return parsed, "ok" if parsed is not None else "invalid_json"
-        except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
+        except (
+            httpx.HTTPError,
+            KeyError,
+            IndexError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ):
             return None, "provider_error"
 
     @staticmethod
@@ -117,15 +126,39 @@ class SemanticRoutingJudgeService:
         sparse_score: float,
     ) -> str:
         routes = "\n".join(f"- {item}" for item in route_labels[:8]) or "- none"
-        context = contextual_query if contextual_query != current_message else "(same as current)"
+        context = (
+            contextual_query
+            if contextual_query != current_message
+            else "(same as current)"
+        )
         return (
             "Decide whether Knowledge should be injected into the CURRENT turn.\n\n"
             f"CURRENT MESSAGE:\n{current_message[:1800]}\n\n"
-            f"PRIOR/CONTEXTUAL QUERY (continuity evidence only):\n{context[:2200]}\n\n"
+            "PRIOR/CONTEXTUAL QUERY (continuity evidence only):\n"
+            f"{context[:2200]}\n\n"
             f"ELIGIBLE KNOWLEDGE ROUTES:\n{routes}\n\n"
             f"E5 dense score: {dense_score:.6f}\n"
             f"Sparse score: {sparse_score:.6f}\n\n"
             "Return JSON only."
+        )
+
+    def _decision(
+        self,
+        *,
+        payload: RagJudgePayload,
+        model: str,
+        tier: str,
+        attempts: int,
+        started: float,
+    ) -> RagJudgeDecision:
+        return RagJudgeDecision(
+            need_knowledge=payload.need_knowledge,
+            confidence=payload.confidence,
+            reason=payload.reason,
+            model=model,
+            tier=tier,
+            attempts=attempts,
+            latency_ms=round((perf_counter() - started) * 1000),
         )
 
     def decide(
@@ -148,9 +181,7 @@ class SemanticRoutingJudgeService:
             sparse_score=sparse_score,
         )
         started = perf_counter()
-        attempts = 0
-
-        attempts += 1
+        attempts = 1
         primary, primary_status = self._call(
             endpoint=config.primary,
             credential_kind="semantic_primary",
@@ -158,14 +189,12 @@ class SemanticRoutingJudgeService:
             prompt=prompt,
         )
         if primary is not None and primary.confidence >= config.confidence_threshold:
-            return RagJudgeDecision(
-                need_knowledge=primary.need_knowledge,
-                confidence=primary.confidence,
-                reason=primary.reason,
+            return self._decision(
+                payload=primary,
                 model=config.primary.model,
                 tier="primary",
                 attempts=attempts,
-                latency_ms=round((perf_counter() - started) * 1000),
+                started=started,
             )
 
         if primary is None and primary_status not in {"invalid_json", "invalid_content"}:
@@ -177,14 +206,12 @@ class SemanticRoutingJudgeService:
                 prompt=prompt,
             )
             if fallback is not None and fallback.confidence >= config.confidence_threshold:
-                return RagJudgeDecision(
-                    need_knowledge=fallback.need_knowledge,
-                    confidence=fallback.confidence,
-                    reason=fallback.reason,
+                return self._decision(
+                    payload=fallback,
                     model=config.availability_fallback.model,
                     tier="availability",
                     attempts=attempts,
-                    latency_ms=round((perf_counter() - started) * 1000),
+                    started=started,
                 )
 
         attempts += 1
@@ -194,16 +221,14 @@ class SemanticRoutingJudgeService:
             config=config,
             prompt=prompt,
         )
-        if quality is None:
+        if quality is None or quality.confidence < config.confidence_threshold:
             return None
-        return RagJudgeDecision(
-            need_knowledge=quality.need_knowledge,
-            confidence=quality.confidence,
-            reason=quality.reason,
+        return self._decision(
+            payload=quality,
             model=config.quality_escalation.model,
             tier="quality",
             attempts=attempts,
-            latency_ms=round((perf_counter() - started) * 1000),
+            started=started,
         )
 
 
