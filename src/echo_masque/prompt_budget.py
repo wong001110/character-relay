@@ -14,6 +14,7 @@ from echo_masque.semantic_participation import (
     SemanticEncoder,
     _cosine,
 )
+from echo_masque.semantic_turn_runtime import SemanticTurnSignalStore
 from echo_masque.smart_output import SmartOutputContext, _expression_aliases
 
 if TYPE_CHECKING:
@@ -236,6 +237,11 @@ def select_tool_ids_for_turn(
     if not query:
         return ("character.invite",) if "character.invite" in available and _character_invite_available(context) else ()
 
+    turn_signals = SemanticTurnSignalStore.get(context.deployment_id, context.message_id)
+    continuation_tool_ids = set(
+        turn_signals.continuation_tool_ids if turn_signals is not None else ()
+    )
+
     forced: list[str] = []
     for tool_id in available:
         item = catalog[tool_id]
@@ -244,18 +250,19 @@ def select_tool_ids_for_turn(
                 forced.append(tool_id)
             continue
         explicit = _explicit_intent(tool_id, query)
-        # Real writes and persistent watches require a clear user-side intent before their
-        # schemas are exposed. Runtime still validates every eventual call.
-        if item.side_effect and not explicit:
+        continuation = tool_id in continuation_tool_ids
+        # Side-effect schemas require either current explicit intent or a scoped semantic pending
+        # continuation. Runtime still validates assignment/availability/execution authority later.
+        if item.side_effect and not explicit and not continuation:
             continue
-        if explicit:
+        if explicit or continuation:
             forced.append(tool_id)
 
     try:
         active_encoder = encoder or _tool_encoder(resolved)
         query_vector = active_encoder.embed_query(query)
     except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
-        # Embedding outages must not remove capabilities; fall back to the prior assigned set.
+        # Embedding outages must not remove capabilities; fall back to assigned/available tools.
         return available
 
     scored: list[tuple[float, str]] = []
