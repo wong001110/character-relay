@@ -2,26 +2,35 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from echo_masque.config import Settings, get_settings
+from echo_masque.conversation_topic import ConversationTopicMemoryService
 from echo_masque.knowledge_retrieval import KnowledgeCandidate
 from echo_masque.knowledge_route_gate import KnowledgeRouteDecision, KnowledgeRouteGate
+from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
+from echo_masque.persistence.deployment_tool_repository import DeploymentToolRepository
 from echo_masque.persistence.knowledge_repository import KnowledgeRepository
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.prompt_budget import BudgetSmartOutputContext
+from echo_masque.semantic_turn_runtime import SemanticTurnSignals, SemanticTurnSignalStore
 from echo_masque.server_time import (
     activate_server_timezone,
     current_server_timezone,
     server_local_now,
 )
 from echo_masque.smart_output import SmartOutputContext
+from echo_masque.tool_continuation import ToolContinuationService
 
 if TYPE_CHECKING:
     from echo_masque.api.connector_schemas import DiscordInboundMessage
     from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
+
+logger = logging.getLogger(__name__)
 
 
 class KnowledgeContextTraceItem(BaseModel):
@@ -65,6 +74,11 @@ class CharacterContextTraceView(BaseModel):
     conversation_message_count: int = Field(default=0, ge=0, le=30)
     conversation_chars: int = Field(default=0, ge=0)
     conversation_token_budget: int = Field(default=0, ge=0)
+    topic_id: str = ""
+    topic_status: str = ""
+    topic_message_count: int = Field(default=0, ge=0)
+    continuation_tool_ids: list[str] = Field(default_factory=list, max_length=8)
+    blocked_side_effect_intents: list[str] = Field(default_factory=list, max_length=8)
     selected: list[KnowledgeContextTraceItem] = Field(default_factory=list, max_length=8)
 
 
@@ -110,7 +124,7 @@ class CharacterTurnContext:
 
 
 class ContextOrchestrator:
-    """Assemble Smart Output references and scoped RAG knowledge under fixed budgets."""
+    """Assemble Smart Output, semantic turn state, and scoped RAG under fixed budgets."""
 
     def __init__(
         self,
@@ -120,10 +134,23 @@ class ContextOrchestrator:
         knowledge_token_budget: int = 1200,
         conversation_token_budget: int = 1800,
         knowledge_route_gate: KnowledgeRouteGate | None = None,
+        settings: Settings | None = None,
+        topic_memory: ConversationTopicMemoryService | None = None,
+        tool_continuation_service: ToolContinuationService | None = None,
     ) -> None:
         self.knowledge_repository = knowledge_repository
         self.server_runtime_repository = ServerRuntimeRepository(knowledge_repository.database)
         self.knowledge_route_gate = knowledge_route_gate or KnowledgeRouteGate(knowledge_repository)
+        self.settings = settings or get_settings()
+        self.deployment_tool_repository = DeploymentToolRepository(knowledge_repository.database)
+        self.topic_memory = topic_memory or ConversationTopicMemoryService(
+            ConversationTopicRepository(knowledge_repository.database),
+            settings=self.settings,
+        )
+        self.tool_continuation_service = tool_continuation_service or ToolContinuationService(
+            self.topic_memory,
+            settings=self.settings,
+        )
         self.knowledge_top_k = max(1, min(knowledge_top_k, 8))
         self.knowledge_token_budget = max(200, min(knowledge_token_budget, 4000))
         self.conversation_token_budget = max(400, min(conversation_token_budget, 4000))
@@ -255,6 +282,56 @@ class ContextOrchestrator:
         payload.recent_messages = [*selected, current]
         return len(selected), used
 
+    def _prepare_semantic_turn(
+        self,
+        *,
+        payload: DiscordInboundMessage,
+        deployment: CharacterDeploymentRecord,
+    ) -> SemanticTurnSignals | None:
+        if not self.settings.semantic_embedding_runtime_enabled:
+            return None
+        try:
+            assigned = self.deployment_tool_repository.get_enabled_tools_for_runtime(deployment.id)
+            plan = self.tool_continuation_service.plan_turn(
+                owner_id=deployment.owner_id,
+                payload=payload,
+                character_card_id=deployment.character_card_id,
+                deployment_id=deployment.id,
+                assigned_tool_ids=assigned,
+            )
+            signals = SemanticTurnSignals(
+                deployment_id=deployment.id,
+                message_id=payload.message_id,
+                topic_id=plan.topic.id if plan.topic is not None else "",
+                continuation_tool_ids=plan.continuation_tool_ids,
+                detected_side_effect_intents=plan.detected_side_effect_intents,
+                blocked_side_effect_intents=plan.blocked_side_effect_intents,
+                continuity_reason=plan.continuity_reason,
+                retry_score=plan.retry_score,
+            )
+            SemanticTurnSignalStore.put(signals)
+            return signals
+        except Exception as exc:
+            # Topic/continuation memory is an optimization layer. It must never make a Character
+            # turn unavailable if persistence or semantic inference degrades.
+            logger.warning(
+                "Semantic turn preparation skipped deployment=%s message=%s error=%s",
+                deployment.id,
+                payload.message_id,
+                exc,
+            )
+            return None
+
+    @staticmethod
+    def _semantic_trace_values(signals: SemanticTurnSignals | None) -> dict[str, object]:
+        if signals is None:
+            return {}
+        return {
+            "topic_id": signals.topic_id,
+            "continuation_tool_ids": list(signals.continuation_tool_ids[:8]),
+            "blocked_side_effect_intents": list(signals.blocked_side_effect_intents[:8]),
+        }
+
     @staticmethod
     def _gate_trace_values(decision: KnowledgeRouteDecision) -> dict[str, object]:
         return {
@@ -303,6 +380,11 @@ class ContextOrchestrator:
         deployment: CharacterDeploymentRecord,
         character_name: str,
     ) -> CharacterTurnContext:
+        semantic_signals = self._prepare_semantic_turn(
+            payload=payload,
+            deployment=deployment,
+        )
+        semantic_trace = self._semantic_trace_values(semantic_signals)
         conversation_message_count, conversation_chars = self._apply_conversation_budget(payload)
         timezone = self.server_runtime_repository.resolve_timezone(
             owner_id=deployment.owner_id,
@@ -325,6 +407,7 @@ class ContextOrchestrator:
                     rag_status="skipped",
                     rag_reason="empty_query",
                     knowledge_token_budget=self.knowledge_token_budget,
+                    **semantic_trace,
                 ),
             )
 
@@ -350,6 +433,7 @@ class ContextOrchestrator:
                         rag_reason="no_matching_knowledge_base",
                         query_chars=len(current_query),
                         knowledge_token_budget=self.knowledge_token_budget,
+                        **semantic_trace,
                         **self._gate_trace_values(gate),
                     ),
                 )
@@ -383,6 +467,7 @@ class ContextOrchestrator:
                                 carryover_message_count=contextual_count,
                                 query_chars=len(contextual_query),
                                 knowledge_token_budget=self.knowledge_token_budget,
+                                **semantic_trace,
                                 **self._gate_trace_values(contextual_gate),
                             ),
                         )
@@ -397,6 +482,7 @@ class ContextOrchestrator:
                             rag_reason="knowledge_gate_not_relevant",
                             query_chars=len(current_query),
                             knowledge_token_budget=self.knowledge_token_budget,
+                            **semantic_trace,
                             **self._gate_trace_values(gate),
                         ),
                     )
@@ -457,6 +543,7 @@ class ContextOrchestrator:
                     carryover_message_count=carryover_message_count,
                     query_chars=len(final_query),
                     knowledge_token_budget=self.knowledge_token_budget,
+                    **semantic_trace,
                 ),
             )
 
@@ -479,6 +566,7 @@ class ContextOrchestrator:
                     fallback_hit_count=fallback_hit_count,
                     query_chars=len(final_query),
                     knowledge_token_budget=self.knowledge_token_budget,
+                    **semantic_trace,
                     **self._gate_trace_values(gate),
                 ),
             )
@@ -516,6 +604,7 @@ class ContextOrchestrator:
                 rag_gate_score=round(gate.best_score, 6),
                 rag_gate_sparse_score=round(gate.best_sparse_score, 6),
                 rag_gate_dense_score=round(gate.best_dense_score, 6),
+                **semantic_trace,
                 selected=[
                     KnowledgeContextTraceItem(
                         knowledge_base_id=item.resource.knowledge_base_id,
