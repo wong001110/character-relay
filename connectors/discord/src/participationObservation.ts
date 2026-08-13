@@ -1,3 +1,4 @@
+import { RelayClient } from "./relayClient.js";
 import type {
   SmartParticipationDecision,
   SmartParticipationCandidateScore
@@ -114,3 +115,33 @@ export function takeParticipationObservation(
 export function resetParticipationObservations(): void {
   pending.clear();
 }
+
+let transportInstalled = false;
+
+function installObservationTransport(): void {
+  if (transportInstalled) return;
+  transportInstalled = true;
+
+  const processMessage = RelayClient.prototype.processMessage;
+  RelayClient.prototype.processMessage = async function (payload) {
+    const observation = takeParticipationObservation(payload.deployment_id);
+    const observedPayload = observation
+      ? ({ ...payload, participation_observation: observation } as typeof payload)
+      : payload;
+    return processMessage.call(this, observedPayload);
+  };
+
+  const processSocialTurnStep = RelayClient.prototype.processSocialTurnStep;
+  RelayClient.prototype.processSocialTurnStep = async function (request) {
+    const observation = takeParticipationObservation(request.payload.deployment_id);
+    const observedPayload = observation
+      ? ({
+          ...request.payload,
+          participation_observation: observation
+        } as typeof request.payload)
+      : request.payload;
+    return processSocialTurnStep.call(this, { ...request, payload: observedPayload });
+  };
+}
+
+installObservationTransport();
