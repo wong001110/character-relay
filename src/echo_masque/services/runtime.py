@@ -26,21 +26,32 @@ from echo_masque.persistence.models import UserRecord
 from echo_masque.testers import AdaptiveTesterConfig
 
 RuntimeKind = Literal[
-    "adaptive", "judge", "semantic_primary", "semantic_availability", "semantic_quality"
+    "adaptive",
+    "judge",
+    "semantic_primary",
+    "semantic_availability",
+    "semantic_quality",
 ]
 SemanticCredentialKind = Literal[
-    "semantic_primary", "semantic_availability", "semantic_quality"
+    "semantic_primary",
+    "semantic_availability",
+    "semantic_quality",
 ]
 
 
 class RuntimeService:
-    def __init__(self, repository: Repository, settings: Settings,
-                 credential_vault: CredentialVault | None = None,
-                 legacy_store: RuntimeCredentialStore | None = None) -> None:
+    def __init__(
+        self,
+        repository: Repository,
+        settings: Settings,
+        credential_vault: CredentialVault | None = None,
+        legacy_store: RuntimeCredentialStore | None = None,
+    ) -> None:
         self.repository = repository
         self.settings = settings
         self.credential_vault = credential_vault or CredentialVault(
-            AuthRepository(repository.database), settings
+            AuthRepository(repository.database),
+            settings,
         )
         self.legacy_store = legacy_store or RuntimeCredentialStore()
 
@@ -66,7 +77,12 @@ class RuntimeService:
         except (json.JSONDecodeError, TypeError, ValueError):
             return AdminRuntimeConfig()
 
-    def save(self, config: AdminRuntimeConfig, *, actor_user_id: str | None = None) -> AdminRuntimeConfig:
+    def save(
+        self,
+        config: AdminRuntimeConfig,
+        *,
+        actor_user_id: str | None = None,
+    ) -> AdminRuntimeConfig:
         self.repository.save_admin_runtime(config.model_dump(mode="json"))
         if actor_user_id is not None:
             self.credential_vault.repository.audit(
@@ -77,8 +93,14 @@ class RuntimeService:
             )
         return config
 
-    def set_credential(self, kind: RuntimeKind, value: SecretStr, *, actor_user_id: str,
-                       legacy: bool = False) -> None:
+    def set_credential(
+        self,
+        kind: RuntimeKind,
+        value: SecretStr,
+        *,
+        actor_user_id: str,
+        legacy: bool = False,
+    ) -> None:
         if legacy and self._legacy_allowed:
             self.legacy_store.set(kind, value)
             return
@@ -91,8 +113,13 @@ class RuntimeService:
             resource_type="admin_runtime",
         )
 
-    def clear_credential(self, kind: RuntimeKind, *, actor_user_id: str,
-                         legacy: bool = False) -> None:
+    def clear_credential(
+        self,
+        kind: RuntimeKind,
+        *,
+        actor_user_id: str,
+        legacy: bool = False,
+    ) -> None:
         if legacy and self._legacy_allowed:
             self.legacy_store.delete(kind)
             return
@@ -107,7 +134,10 @@ class RuntimeService:
     def rotate_credentials(self, *, actor_user_id: str) -> int:
         return self.credential_vault.rotate_all(actor_user_id=actor_user_id)
 
-    def credential(self, kind: RuntimeKind) -> tuple[SecretStr | None, CredentialSource]:
+    def credential(
+        self,
+        kind: RuntimeKind,
+    ) -> tuple[SecretStr | None, CredentialSource]:
         legacy = self.legacy_store.get(kind)
         if legacy is not None and self._legacy_allowed:
             return legacy, "memory"
@@ -132,7 +162,10 @@ class RuntimeService:
             return environment, "environment"
         return None, "missing"
 
-    def semantic_credential(self, kind: SemanticCredentialKind) -> tuple[SecretStr | None, CredentialSource]:
+    def semantic_credential(
+        self,
+        kind: SemanticCredentialKind,
+    ) -> tuple[SecretStr | None, CredentialSource]:
         value, source = self.credential(kind)
         if value is not None:
             return value, source
@@ -143,11 +176,21 @@ class RuntimeService:
         return self.credential("judge")
 
     @staticmethod
-    def _endpoint_status(*, enabled: bool, endpoint: SemanticJudgeEndpoint,
-                         credential: SecretStr | None, source: CredentialSource) -> AgentRuntimeStatus:
+    def _endpoint_status(
+        *,
+        enabled: bool,
+        endpoint: SemanticJudgeEndpoint,
+        credential: SecretStr | None,
+        source: CredentialSource,
+    ) -> AgentRuntimeStatus:
         return AgentRuntimeStatus(
             enabled=enabled,
-            configured=bool(enabled and endpoint.base_url and endpoint.model and credential is not None),
+            configured=bool(
+                enabled
+                and endpoint.base_url
+                and endpoint.model
+                and credential is not None
+            ),
             provider=endpoint.provider,
             model=endpoint.model,
             credential_source=source,
@@ -158,38 +201,59 @@ class RuntimeService:
         adaptive_key, adaptive_source = self.credential("adaptive")
         judge_key, judge_source = self.credential("judge")
         primary_key, primary_source = self.semantic_credential("semantic_primary")
-        availability_key, availability_source = self.semantic_credential("semantic_availability")
+        availability_key, availability_source = self.semantic_credential(
+            "semantic_availability"
+        )
         quality_key, quality_source = self.semantic_credential("semantic_quality")
-        semantic_enabled = config.semantic_routing.enabled and config.semantic_routing.rag_enabled
+        semantic_enabled = (
+            config.semantic_routing.enabled and config.semantic_routing.rag_enabled
+        )
         return RuntimeStatus(
             admin_available=self._has_interactive_admin(),
             adaptive=AgentRuntimeStatus(
                 enabled=config.adaptive.enabled,
-                configured=bool(config.adaptive.enabled and config.adaptive.base_url and
-                                config.adaptive.model and config.adaptive.system_prompt and
-                                adaptive_key is not None),
+                configured=bool(
+                    config.adaptive.enabled
+                    and config.adaptive.base_url
+                    and config.adaptive.model
+                    and config.adaptive.system_prompt
+                    and adaptive_key is not None
+                ),
                 provider=config.adaptive.provider,
                 model=config.adaptive.model,
                 credential_source=adaptive_source,
             ),
             judge=AgentRuntimeStatus(
                 enabled=config.judge.enabled,
-                configured=bool(config.judge.enabled and config.judge.base_url and
-                                config.judge.model and config.judge.system_prompt and
-                                judge_key is not None),
+                configured=bool(
+                    config.judge.enabled
+                    and config.judge.base_url
+                    and config.judge.model
+                    and config.judge.system_prompt
+                    and judge_key is not None
+                ),
                 provider=config.judge.provider,
                 model=config.judge.model,
                 credential_source=judge_source,
             ),
             semantic_primary=self._endpoint_status(
-                enabled=semantic_enabled, endpoint=config.semantic_routing.primary,
-                credential=primary_key, source=primary_source),
+                enabled=semantic_enabled,
+                endpoint=config.semantic_routing.primary,
+                credential=primary_key,
+                source=primary_source,
+            ),
             semantic_availability=self._endpoint_status(
-                enabled=semantic_enabled, endpoint=config.semantic_routing.availability_fallback,
-                credential=availability_key, source=availability_source),
+                enabled=semantic_enabled,
+                endpoint=config.semantic_routing.availability_fallback,
+                credential=availability_key,
+                source=availability_source,
+            ),
             semantic_quality=self._endpoint_status(
-                enabled=semantic_enabled, endpoint=config.semantic_routing.quality_escalation,
-                credential=quality_key, source=quality_source),
+                enabled=semantic_enabled,
+                endpoint=config.semantic_routing.quality_escalation,
+                credential=quality_key,
+                source=quality_source,
+            ),
             default_judge_mode=config.default_judge_mode,
         )
 
@@ -202,20 +266,30 @@ class RuntimeService:
         if not config.enabled or key is None:
             return None
         return AdaptiveTesterConfig(
-            provider=config.provider, base_url=config.base_url, model=config.model,
-            system_prompt=config.system_prompt, temperature=config.temperature,
-            max_turns=config.max_turns, api_key=key,
+            provider=config.provider,
+            base_url=config.base_url,
+            model=config.model,
+            system_prompt=config.system_prompt,
+            temperature=config.temperature,
+            max_turns=config.max_turns,
+            api_key=key,
         )
 
     @property
     def _legacy_allowed(self) -> bool:
-        return self.settings.environment != "production" and self.settings.legacy_local_user_enabled
+        return (
+            self.settings.environment != "production"
+            and self.settings.legacy_local_user_enabled
+        )
 
     def _has_interactive_admin(self) -> bool:
         with self.repository.database.session() as session:
             count = session.scalar(
-                select(func.count()).select_from(UserRecord).where(
-                    UserRecord.role == "admin", UserRecord.is_active.is_(True),
+                select(func.count())
+                .select_from(UserRecord)
+                .where(
+                    UserRecord.role == "admin",
+                    UserRecord.is_active.is_(True),
                     UserRecord.id != SYSTEM_RUNTIME_USER_ID,
                 )
             )
