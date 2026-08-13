@@ -7,10 +7,11 @@ from typing import Literal, cast
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
-from echo_masque.admin_runtime import AdminRuntimeConfig, RuntimeStatus
+from echo_masque.admin_runtime import AdminRuntimeConfig, CredentialSource, RuntimeStatus
 from echo_masque.api.dependencies import AdminUserDependency
 from echo_masque.api.schemas import AdminRuntimeView, RuntimeCredentialConfigure
-from echo_masque.credentials import CredentialVaultUnavailable
+from echo_masque.auth import SYSTEM_RUNTIME_USER_ID
+from echo_masque.credentials import CredentialVault, CredentialVaultUnavailable
 from echo_masque.services import RuntimeService
 
 router = APIRouter(tags=["runtime"])
@@ -21,12 +22,46 @@ class CredentialRotationView(BaseModel):
     key_version: str
 
 
+class UtilityCredentialStatus(BaseModel):
+    member_id: str
+    configured: bool
+    source: CredentialSource
+
+
 def runtime_service(request: Request) -> RuntimeService:
     return cast(RuntimeService, request.app.state.runtime_service)
 
 
 def legacy_admin_request(request: Request) -> bool:
     return bool(getattr(request.state, "legacy_admin", False))
+
+
+def _utility_scope_id(member_id: str) -> str:
+    return f"utility:{member_id}"
+
+
+def _require_utility_member(service: RuntimeService, member_id: str) -> None:
+    if not any(member.id == member_id for member in service.config().utility_gateway.members):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Utility Gateway member not found.",
+        )
+
+
+def _utility_credential_status(
+    service: RuntimeService,
+    member_id: str,
+) -> UtilityCredentialStatus:
+    configured = service.credential_vault.has_scope(
+        owner_id=SYSTEM_RUNTIME_USER_ID,
+        scope_kind=CredentialVault.runtime_scope_kind,
+        scope_id=_utility_scope_id(member_id),
+    )
+    return UtilityCredentialStatus(
+        member_id=member_id,
+        configured=configured,
+        source="vault" if configured else "missing",
+    )
 
 
 @router.get("/api/runtime/status", response_model=RuntimeStatus)
@@ -96,6 +131,71 @@ def clear_runtime_credential(
         legacy=legacy_admin_request(request),
     )
     return AdminRuntimeView(config=service.config(), status=service.status())
+
+
+@router.get(
+    "/api/admin/runtime/utility-credentials",
+    response_model=list[UtilityCredentialStatus],
+)
+def list_utility_credentials(
+    request: Request,
+    admin: AdminUserDependency,
+) -> list[UtilityCredentialStatus]:
+    service = runtime_service(request)
+    return [
+        _utility_credential_status(service, member.id)
+        for member in service.config().utility_gateway.members
+    ]
+
+
+@router.put(
+    "/api/admin/runtime/utility-credentials/{member_id}",
+    response_model=UtilityCredentialStatus,
+)
+def configure_utility_credential(
+    member_id: str,
+    payload: RuntimeCredentialConfigure,
+    request: Request,
+    admin: AdminUserDependency,
+) -> UtilityCredentialStatus:
+    service = runtime_service(request)
+    _require_utility_member(service, member_id)
+    try:
+        service.credential_vault.set_scope(
+            owner_id=SYSTEM_RUNTIME_USER_ID,
+            scope_kind=CredentialVault.runtime_scope_kind,
+            scope_id=_utility_scope_id(member_id),
+            value=payload.api_key,
+            actor_user_id=admin.id,
+            resource_type="utility_gateway",
+        )
+    except CredentialVaultUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    return _utility_credential_status(service, member_id)
+
+
+@router.delete(
+    "/api/admin/runtime/utility-credentials/{member_id}",
+    response_model=UtilityCredentialStatus,
+)
+def clear_utility_credential(
+    member_id: str,
+    request: Request,
+    admin: AdminUserDependency,
+) -> UtilityCredentialStatus:
+    service = runtime_service(request)
+    _require_utility_member(service, member_id)
+    service.credential_vault.delete_scope(
+        owner_id=SYSTEM_RUNTIME_USER_ID,
+        scope_kind=CredentialVault.runtime_scope_kind,
+        scope_id=_utility_scope_id(member_id),
+        actor_user_id=admin.id,
+        resource_type="utility_gateway",
+    )
+    return _utility_credential_status(service, member_id)
 
 
 @router.post(
