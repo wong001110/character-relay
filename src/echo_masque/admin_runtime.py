@@ -26,11 +26,12 @@ DEFAULT_JUDGE_PROMPT = (
 )
 
 DEFAULT_SEMANTIC_ROUTING_PROMPT = (
-    "You are Character Relay's runtime routing judge. Decide whether the CURRENT Discord turn "
-    "needs the supplied Knowledge context. Prefer no Knowledge for greetings, banter, reactions, "
-    "media/tool requests, unrelated social conversation, or a topic switch. Use prior topic context "
-    "only when the current message genuinely continues or clarifies that knowledge question. Return "
-    "only strict JSON: {\"need_knowledge\":boolean,\"confidence\":0..1,\"reason\":string}."
+    "You are Character Relay's runtime routing judge. Decide whether the CURRENT "
+    "Discord turn needs the supplied Knowledge context. Prefer no Knowledge for greetings, "
+    "banter, reactions, media/tool requests, unrelated social conversation, or a topic switch. "
+    "Use prior topic context only when the current message genuinely continues or clarifies "
+    "that knowledge question. Return only strict JSON: "
+    "{\"need_knowledge\":boolean,\"confidence\":0..1,\"reason\":string}."
 )
 
 
@@ -55,14 +56,22 @@ class JudgeRuntimeProfile(BaseModel):
     model: str = "deepseek-v4-flash"
     system_prompt: str = DEFAULT_JUDGE_PROMPT
     temperature: float = Field(default=0.0, ge=0.0, le=1.0)
-    rubric_version: str = Field(default="character-integrity-v1", min_length=1, max_length=120)
+    rubric_version: str = Field(
+        default="character-integrity-v1",
+        min_length=1,
+        max_length=120,
+    )
 
 
 class SemanticJudgeEndpoint(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     provider: ProviderId = "openrouter"
-    base_url: str = Field(default="https://openrouter.ai/api", min_length=1, max_length=500)
+    base_url: str = Field(
+        default="https://openrouter.ai/api",
+        min_length=1,
+        max_length=500,
+    )
     model: str = Field(min_length=1, max_length=240)
 
 
@@ -97,7 +106,7 @@ class SemanticRoutingJudgeProfile(BaseModel):
     max_output_tokens: int = Field(default=96, ge=24, le=256)
 
     @model_validator(mode="after")
-    def validate_thresholds(self) -> "SemanticRoutingJudgeProfile":
+    def validate_thresholds(self) -> SemanticRoutingJudgeProfile:
         if self.rag_off_threshold >= self.rag_on_threshold:
             raise ValueError("rag_off_threshold must be lower than rag_on_threshold")
         return self
