@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Literal, TypedDict, cast
 from uuid import uuid4
@@ -28,6 +29,7 @@ from echo_masque.orchestration.trace import (
     TraceNodeKind,
 )
 from echo_masque.providers.trace import provider_trace_scope
+from echo_masque.semantic_turn_runtime import SemanticTurnSignalStore
 from echo_masque.smart_output import SmartMentionPart
 from echo_masque.targets import PromptModelToolTurn
 
@@ -237,7 +239,47 @@ def _build_context(
         context.invite_turn_state = invite_turn_state
     else:
         context.invite_turn_state = None
+
     rag_status: StageStatus = "completed" if prepared.turn_context is not None else "skipped"
+    metadata: list[tuple[str, str]] = [
+        ("rag_pipeline", "available" if prepared.turn_context is not None else "none"),
+        ("source_message_id", context.payload.message_id[:200]),
+    ]
+    signals = SemanticTurnSignalStore.get(deployment.id, context.payload.message_id)
+    topic = context.runtime.context_orchestrator.topic_memory.active_for_turn(
+        owner_id=deployment.owner_id,
+        payload=context.payload,
+    )
+    if topic is not None:
+        metadata.extend(
+            (
+                ("topic_id", topic.id),
+                ("topic_label", topic.topic_label[:240]),
+                ("topic_status", topic.status),
+                ("topic_message_count", str(topic.message_count)),
+            )
+        )
+    if signals is not None:
+        metadata.extend(
+            (
+                ("continuity_reason", signals.continuity_reason[:80]),
+                ("retry_score", f"{signals.retry_score:.6f}"),
+            )
+        )
+    if context.payload.participation_observation is not None:
+        metadata.append(
+            (
+                "participation_observation",
+                json.dumps(
+                    context.payload.participation_observation.model_dump(
+                        mode="json",
+                        exclude_none=True,
+                    ),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )[:12000],
+            )
+        )
     _emit(
         state,
         context,
@@ -245,7 +287,7 @@ def _build_context(
         node_kind="context",
         status="completed",
         changed_keys=("context_status", "rag_status"),
-        metadata=(("rag_pipeline", "available" if prepared.turn_context is not None else "none"),),
+        metadata=tuple((key, value) for key, value in metadata if value),
     )
     return {"context_status": "completed", "rag_status": rag_status}
 
