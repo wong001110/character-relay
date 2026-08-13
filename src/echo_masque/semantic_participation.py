@@ -6,11 +6,13 @@ import hashlib
 import logging
 import math
 import struct
+from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
+from time import monotonic
 from typing import ClassVar, Literal, Protocol
 
 from echo_masque.config import Settings
@@ -24,6 +26,8 @@ from echo_masque.persistence.smart_participation_repository import (
 logger = logging.getLogger(__name__)
 
 SemanticProfileStatus = Literal["disabled", "not_created", "ready", "stale", "invalid"]
+ModelKey = tuple[str, str, str, int]
+QueryCacheKey = tuple[ModelKey, str]
 
 
 class SemanticEmbeddingUnavailable(RuntimeError):
@@ -40,17 +44,27 @@ class SemanticEncoder(Protocol):
 
 
 class FastEmbedSemanticEncoder:
-    """Lazy FastEmbed wrapper with one shared model session per embedding configuration.
+    """Process-shared FastEmbed runtime with a bounded short-lived query-vector cache.
 
     Repository/services may keep small encoder wrappers for dependency isolation, but the heavy
-    FastEmbed/TextEmbedding runtime is process-scoped. This prevents Knowledge, Expressions,
-    Media Recall, Smart Participation, and future semantic consumers from each retaining their
-    own ONNX model session in RAM.
+    FastEmbed/TextEmbedding runtime is process-scoped. Query vectors are also shared for a short
+    TTL using only a SHA-256 digest plus the vector, so the same Discord message can be reused by
+    Smart Participation, Tool Retrieval, RAG, Expressions, and Media Recall without retaining raw
+    message text in the cache.
     """
 
-    _shared_models: ClassVar[dict[tuple[str, str, str, int], object]] = {}
+    _shared_models: ClassVar[dict[ModelKey, object]] = {}
     _shared_lock: ClassVar[Lock] = Lock()
     _shared_load_count: ClassVar[int] = 0
+
+    _query_vectors: ClassVar[
+        OrderedDict[QueryCacheKey, tuple[float, tuple[float, ...]]]
+    ] = OrderedDict()
+    _query_lock: ClassVar[Lock] = Lock()
+    _query_cache_ttl_seconds: ClassVar[float] = 120.0
+    _query_cache_max_entries: ClassVar[int] = 256
+    _query_cache_hit_count: ClassVar[int] = 0
+    _query_cache_miss_count: ClassVar[int] = 0
 
     def __init__(
         self,
@@ -65,7 +79,7 @@ class FastEmbedSemanticEncoder:
         self.cache_dir = cache_dir
         self.dimension = dimension
 
-    def _model_key(self) -> tuple[str, str, str, int]:
+    def _model_key(self) -> ModelKey:
         return (self.model_name, self.model_file, self.cache_dir, self.dimension)
 
     def _build_model(self) -> object:
@@ -142,12 +156,31 @@ class FastEmbedSemanticEncoder:
         return FastEmbedSemanticEncoder._shared_load_count
 
     @classmethod
+    def query_cache_entry_count(cls) -> int:
+        """Return currently retained short-lived query vectors."""
+
+        with FastEmbedSemanticEncoder._query_lock:
+            return len(FastEmbedSemanticEncoder._query_vectors)
+
+    @classmethod
+    def query_cache_hit_count(cls) -> int:
+        return FastEmbedSemanticEncoder._query_cache_hit_count
+
+    @classmethod
+    def query_cache_miss_count(cls) -> int:
+        return FastEmbedSemanticEncoder._query_cache_miss_count
+
+    @classmethod
     def _reset_shared_models_for_test(cls) -> None:
-        """Drop process-scoped test runtimes. Production code must never call this."""
+        """Drop process-scoped test runtimes and query cache. Production code must never call this."""
 
         with FastEmbedSemanticEncoder._shared_lock:
             FastEmbedSemanticEncoder._shared_models.clear()
             FastEmbedSemanticEncoder._shared_load_count = 0
+        with FastEmbedSemanticEncoder._query_lock:
+            FastEmbedSemanticEncoder._query_vectors.clear()
+            FastEmbedSemanticEncoder._query_cache_hit_count = 0
+            FastEmbedSemanticEncoder._query_cache_miss_count = 0
 
     def _embed(self, text: str, prefix: str) -> list[float]:
         model = self._load_model()
@@ -165,11 +198,48 @@ class FastEmbedSemanticEncoder:
             )
         return vector
 
+    def _query_cache_key(self, text: str) -> QueryCacheKey:
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        return (self._model_key(), digest)
+
     def embed_passage(self, text: str) -> list[float]:
         return self._embed(text, "passage")
 
     def embed_query(self, text: str) -> list[float]:
-        return self._embed(text, "query")
+        """Embed one query, reusing recent identical text across semantic consumers."""
+
+        cache_key = self._query_cache_key(text)
+        now = monotonic()
+        with FastEmbedSemanticEncoder._query_lock:
+            cached = FastEmbedSemanticEncoder._query_vectors.get(cache_key)
+            if cached is not None:
+                expires_at, vector = cached
+                if expires_at > now:
+                    FastEmbedSemanticEncoder._query_vectors.move_to_end(cache_key)
+                    FastEmbedSemanticEncoder._query_cache_hit_count += 1
+                    return list(vector)
+                del FastEmbedSemanticEncoder._query_vectors[cache_key]
+            FastEmbedSemanticEncoder._query_cache_miss_count += 1
+
+        vector = self._embed(text, "query")
+        frozen = tuple(vector)
+        expires_at = monotonic() + FastEmbedSemanticEncoder._query_cache_ttl_seconds
+        with FastEmbedSemanticEncoder._query_lock:
+            expired = [
+                key
+                for key, (expiry, _) in FastEmbedSemanticEncoder._query_vectors.items()
+                if expiry <= now
+            ]
+            for key in expired:
+                FastEmbedSemanticEncoder._query_vectors.pop(key, None)
+            FastEmbedSemanticEncoder._query_vectors[cache_key] = (expires_at, frozen)
+            FastEmbedSemanticEncoder._query_vectors.move_to_end(cache_key)
+            while (
+                len(FastEmbedSemanticEncoder._query_vectors)
+                > FastEmbedSemanticEncoder._query_cache_max_entries
+            ):
+                FastEmbedSemanticEncoder._query_vectors.popitem(last=False)
+        return list(frozen)
 
 
 @dataclass(frozen=True)
