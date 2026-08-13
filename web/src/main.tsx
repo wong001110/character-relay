@@ -14,6 +14,7 @@ import "./discord-connection-workspace.css";
 import "./deployment-scrapbook-pages.css";
 import "./character-portraits.css";
 import "./key-groups-notebook.css";
+import "./key-groups-bulk-apply-v2.css";
 import { I18nProvider } from "./i18n";
 
 createRoot(document.getElementById("root")!).render(
