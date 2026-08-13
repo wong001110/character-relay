@@ -108,7 +108,7 @@ class KnowledgeRouteGate:
         return [
             item
             for item in self.knowledge_repository.list_bases(owner_id)
-            if self.knowledge_repository._base_matches_turn(  # noqa: SLF001
+            if self.knowledge_repository._base_matches_turn(
                 item,
                 connection_id=connection_id,
                 guild_id=guild_id,
