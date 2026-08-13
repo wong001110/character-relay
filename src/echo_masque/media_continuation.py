@@ -1,4 +1,4 @@
-"""Semantic continuation for shared media that a Character previously chose not to inspect."""
+"""Semantic continuation for shared media a Character previously chose not to inspect."""
 
 from __future__ import annotations
 
@@ -15,7 +15,9 @@ from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.config import Settings, get_settings
 from echo_masque.content_resolver import resolve_static_url
 from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord
-from echo_masque.persistence.conversation_media_repository import ConversationMediaReferenceRepository
+from echo_masque.persistence.conversation_media_repository import (
+    ConversationMediaReferenceRepository,
+)
 from echo_masque.semantic_participation import (
     FastEmbedSemanticEncoder,
     SemanticEmbeddingUnavailable,
@@ -86,7 +88,7 @@ class SkippedMediaContinuationService:
 
     @classmethod
     def _source_key(cls, topic_id: str, source_uri: str) -> str:
-        digest = hashlib.sha256(source_uri.encode("utf-8")).hexdigest()
+        digest = hashlib.sha256(source_uri.encode()).hexdigest()
         return f"{cls._topic_prefix(topic_id)}{digest}"[:500]
 
     @staticmethod
@@ -98,16 +100,24 @@ class SkippedMediaContinuationService:
     @classmethod
     def _sources(cls, payload: DiscordInboundMessage) -> list[tuple[str, str, str]]:
         values: list[tuple[str, str, str]] = []
-        for item in payload.attachments[:6]:
-            if cls._visible_image_attachment(item.content_type, item.filename):
+        for attachment in payload.attachments[:6]:
+            if cls._visible_image_attachment(
+                attachment.content_type,
+                attachment.filename,
+            ):
                 continue
-            kind = "video" if item.content_type.casefold().startswith("video/") else "media"
-            if item.url.strip():
-                values.append((item.url.strip(), kind, item.filename.strip() or "Discord attachment"))
-        for item in payload.embeds[:6]:
-            uri = item.url.strip()
+            kind = (
+                "video"
+                if attachment.content_type.casefold().startswith("video/")
+                else "media"
+            )
+            if attachment.url.strip():
+                label = attachment.filename.strip() or "Discord attachment"
+                values.append((attachment.url.strip(), kind, label))
+        for embed in payload.embeds[:6]:
+            uri = embed.url.strip()
             if uri:
-                label = item.title.strip() or item.provider_name.strip() or "Shared link"
+                label = embed.title.strip() or embed.provider_name.strip() or "Shared link"
                 values.append((uri, "link", label))
         trailing = ".,!?;:\uff0c\u3002\uff01\uff1f\uff1b\uff1a"
         for match in _URL_PATTERN.findall(payload.text):
@@ -162,12 +172,11 @@ class SkippedMediaContinuationService:
                     )
                 )
                 if record is None:
+                    stable_id = (
+                        f"{deployment_id}:{character_card_id}:{payload.message_id}:{source_key}"
+                    )
                     record = ConversationMediaReferenceRecord(
-                        id=hashlib.sha256(
-                            f"{deployment_id}:{character_card_id}:{payload.message_id}:{source_key}".encode(
-                                "utf-8"
-                            )
-                        ).hexdigest(),
+                        id=hashlib.sha256(stable_id.encode()).hexdigest(),
                         owner_id=owner_id,
                         deployment_id=deployment_id,
                         character_card_id=character_card_id,
@@ -264,7 +273,11 @@ class SkippedMediaContinuationService:
             return None
         if payload.reply_to_message_id:
             exact = next(
-                (item for item in records if item.message_id == payload.reply_to_message_id),
+                (
+                    item
+                    for item in records
+                    if item.message_id == payload.reply_to_message_id
+                ),
                 None,
             )
             if exact is not None:
@@ -289,7 +302,7 @@ class SkippedMediaContinuationService:
         current_payload: DiscordInboundMessage,
         reference: SkippedMediaReference,
     ) -> DiscordInboundMessage:
-        """Rebuild a fetchable payload without pretending the old content is in the new message."""
+        """Rebuild a fetchable payload without pretending old content is in the new message."""
 
         return current_payload.model_copy(
             update={
