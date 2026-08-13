@@ -14,6 +14,9 @@ class SemanticTurnSignals:
     deployment_id: str
     message_id: str
     topic_id: str = ""
+    topic_label: str = ""
+    topic_summary: str = ""
+    topic_message_count: int = 0
     continuation_tool_ids: tuple[str, ...] = ()
     detected_side_effect_intents: tuple[str, ...] = ()
     blocked_side_effect_intents: tuple[str, ...] = ()
@@ -22,7 +25,7 @@ class SemanticTurnSignals:
 
 
 class SemanticTurnSignalStore:
-    """Bounded TTL store; no raw message text is retained."""
+    """Bounded TTL store; raw Discord message text and Tool arguments are never retained."""
 
     _entries: ClassVar[
         OrderedDict[tuple[str, str], tuple[float, SemanticTurnSignals]]
@@ -56,6 +59,24 @@ class SemanticTurnSignalStore:
                 return None
             cls._entries.move_to_end(key)
             return signals
+
+    @classmethod
+    def topic_capsule(cls, topic_id: str) -> tuple[str, str, int] | None:
+        """Return the newest bounded prompt-safe capsule for a topic id."""
+
+        if not topic_id:
+            return None
+        now = monotonic()
+        with cls._lock:
+            cls._purge_locked(now)
+            for _, signals in reversed(cls._entries.values()):
+                if signals.topic_id == topic_id:
+                    return (
+                        signals.topic_label[:240],
+                        signals.topic_summary[:800],
+                        max(0, signals.topic_message_count),
+                    )
+        return None
 
     @classmethod
     def _purge_locked(cls, now: float) -> None:
