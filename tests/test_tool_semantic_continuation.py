@@ -32,7 +32,7 @@ class _SemanticEncoder:
             return [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
         if "start a new unrelated" in normalized or "换个话题" in normalized:
             return [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
-        if "image" in normalized or "cat" in normalized or "猫" in normalized:
+        if "image" in normalized or "cat image" in normalized or "猫" in normalized:
             return [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         if "weather" in normalized:
             return [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
