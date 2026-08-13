@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from typing import Literal, Protocol
+from typing import ClassVar, Literal, Protocol
 
 from echo_masque.config import Settings
 from echo_masque.persistence.models import CharacterCardRecord
@@ -40,7 +40,17 @@ class SemanticEncoder(Protocol):
 
 
 class FastEmbedSemanticEncoder:
-    """Lazy FastEmbed wrapper for multilingual E5 without a PyTorch runtime."""
+    """Lazy FastEmbed wrapper with one shared model session per embedding configuration.
+
+    Repository/services may keep small encoder wrappers for dependency isolation, but the heavy
+    FastEmbed/TextEmbedding runtime is process-scoped. This prevents Knowledge, Expressions,
+    Media Recall, Smart Participation, and future semantic consumers from each retaining their
+    own ONNX model session in RAM.
+    """
+
+    _shared_models: ClassVar[dict[tuple[str, str, str, int], object]] = {}
+    _shared_lock: ClassVar[Lock] = Lock()
+    _shared_load_count: ClassVar[int] = 0
 
     def __init__(
         self,
@@ -54,46 +64,90 @@ class FastEmbedSemanticEncoder:
         self.model_file = model_file
         self.cache_dir = cache_dir
         self.dimension = dimension
-        self._model: object | None = None
-        self._lock = Lock()
+
+    def _model_key(self) -> tuple[str, str, str, int]:
+        return (self.model_name, self.model_file, self.cache_dir, self.dimension)
+
+    def _build_model(self) -> object:
+        """Build one heavy FastEmbed runtime. Separated for deterministic unit tests."""
+
+        from fastembed import TextEmbedding
+        from fastembed.common.model_description import (
+            ModelSource,
+            PoolingType,
+        )
+
+        Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+        supported = {
+            item["model"]
+            for item in TextEmbedding.list_supported_models()
+            if isinstance(item, dict) and isinstance(item.get("model"), str)
+        }
+        if self.model_name not in supported:
+            TextEmbedding.add_custom_model(
+                model=self.model_name,
+                pooling=PoolingType.MEAN,
+                normalization=True,
+                sources=ModelSource(hf=self.model_name),
+                dim=self.dimension,
+                model_file=self.model_file,
+            )
+        return TextEmbedding(
+            model_name=self.model_name,
+            cache_dir=self.cache_dir,
+        )
 
     def _load_model(self) -> object:
-        if self._model is not None:
-            return self._model
-        with self._lock:
-            if self._model is not None:
-                return self._model
+        key = self._model_key()
+        model = FastEmbedSemanticEncoder._shared_models.get(key)
+        if model is not None:
+            return model
+        with FastEmbedSemanticEncoder._shared_lock:
+            model = FastEmbedSemanticEncoder._shared_models.get(key)
+            if model is not None:
+                return model
             try:
-                from fastembed import TextEmbedding
-                from fastembed.common.model_description import (
-                    ModelSource,
-                    PoolingType,
-                )
-
-                Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-                supported = {
-                    item["model"]
-                    for item in TextEmbedding.list_supported_models()
-                    if isinstance(item, dict) and isinstance(item.get("model"), str)
-                }
-                if self.model_name not in supported:
-                    TextEmbedding.add_custom_model(
-                        model=self.model_name,
-                        pooling=PoolingType.MEAN,
-                        normalization=True,
-                        sources=ModelSource(hf=self.model_name),
-                        dim=self.dimension,
-                        model_file=self.model_file,
-                    )
-                self._model = TextEmbedding(
-                    model_name=self.model_name,
-                    cache_dir=self.cache_dir,
-                )
-                return self._model
+                model = self._build_model()
             except Exception as exc:  # pragma: no cover - environment/network dependent
                 raise SemanticEmbeddingUnavailable(
                     f"Semantic embedding model is unavailable: {exc}"
                 ) from exc
+            FastEmbedSemanticEncoder._shared_models[key] = model
+            FastEmbedSemanticEncoder._shared_load_count += 1
+            logger.info(
+                "Loaded shared semantic embedding runtime model=%s dimension=%s "
+                "shared_model_count=%s",
+                self.model_name,
+                self.dimension,
+                len(FastEmbedSemanticEncoder._shared_models),
+            )
+            return model
+
+    @property
+    def model_loaded(self) -> bool:
+        """Return whether this encoder configuration already has a process-shared runtime."""
+
+        return self._model_key() in FastEmbedSemanticEncoder._shared_models
+
+    @classmethod
+    def shared_model_count(cls) -> int:
+        """Return the number of heavy embedding runtimes currently retained by this process."""
+
+        return len(FastEmbedSemanticEncoder._shared_models)
+
+    @classmethod
+    def shared_load_count(cls) -> int:
+        """Return cumulative successful shared runtime loads, primarily for diagnostics/tests."""
+
+        return FastEmbedSemanticEncoder._shared_load_count
+
+    @classmethod
+    def _reset_shared_models_for_test(cls) -> None:
+        """Drop process-scoped test runtimes. Production code must never call this."""
+
+        with FastEmbedSemanticEncoder._shared_lock:
+            FastEmbedSemanticEncoder._shared_models.clear()
+            FastEmbedSemanticEncoder._shared_load_count = 0
 
     def _embed(self, text: str, prefix: str) -> list[float]:
         model = self._load_model()
