@@ -60,6 +60,9 @@ class ToolContinuationPlan:
     """Turn-local Tool relevance derived from persistent topic state."""
 
     topic: ConversationTopicSnapshot | None
+    prior_topic_label: str = ""
+    prior_topic_summary: str = ""
+    prior_topic_message_count: int = 0
     continuation_tool_ids: tuple[str, ...] = ()
     detected_side_effect_intents: tuple[str, ...] = ()
     blocked_side_effect_intents: tuple[str, ...] = ()
@@ -242,8 +245,22 @@ class ToolContinuationService:
                 if action.tool_id in assigned
             )
 
+        same_topic_prior = (
+            active_snapshot
+            if active_snapshot is not None
+            and continuity is not None
+            and continuity.same_topic
+            and topic is not None
+            and topic.id == active_snapshot.id
+            else None
+        )
         return ToolContinuationPlan(
             topic=topic,
+            prior_topic_label=(same_topic_prior.topic_label if same_topic_prior is not None else ""),
+            prior_topic_summary=(same_topic_prior.summary if same_topic_prior is not None else ""),
+            prior_topic_message_count=(
+                same_topic_prior.message_count if same_topic_prior is not None else 0
+            ),
             continuation_tool_ids=tuple(dict.fromkeys(continuation_ids)),
             detected_side_effect_intents=detected,
             blocked_side_effect_intents=tuple(blocked),
