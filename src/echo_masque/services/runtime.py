@@ -134,9 +134,13 @@ class RuntimeService:
 
     def semantic_credential(self, kind: SemanticCredentialKind) -> tuple[SecretStr | None, CredentialSource]:
         value, source = self.credential(kind)
-        if value is not None or kind == "semantic_primary":
+        if value is not None:
             return value, source
-        return self.credential("semantic_primary")
+        if kind != "semantic_primary":
+            value, source = self.credential("semantic_primary")
+            if value is not None:
+                return value, source
+        return self.credential("judge")
 
     @staticmethod
     def _endpoint_status(*, enabled: bool, endpoint: SemanticJudgeEndpoint,
