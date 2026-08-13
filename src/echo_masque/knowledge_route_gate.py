@@ -222,6 +222,15 @@ class KnowledgeRouteGate:
             thread_id=thread_id,
             character_card_id=character_card_id,
         )
+        # Semantic-off environments keep the exact legacy retrieval path. This avoids changing
+        # development/test behavior and makes the gate a production semantic optimization rather
+        # than a new mandatory dependency.
+        if not self._semantic_enabled:
+            return KnowledgeRouteDecision(
+                status="disabled",
+                should_retrieve=True,
+                eligible_base_count=len(eligible),
+            )
         if not eligible:
             return KnowledgeRouteDecision(
                 status="no_eligible_bases",
@@ -232,12 +241,6 @@ class KnowledgeRouteGate:
             return KnowledgeRouteDecision(
                 status="not_relevant",
                 should_retrieve=False,
-                eligible_base_count=len(eligible),
-            )
-        if not self._semantic_enabled:
-            return KnowledgeRouteDecision(
-                status="disabled",
-                should_retrieve=True,
                 eligible_base_count=len(eligible),
             )
 
