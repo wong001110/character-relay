@@ -103,6 +103,22 @@ class CharacterTurnContext:
                 "different place or timezone."
             ),
         ]
+        capsule = SemanticTurnSignalStore.topic_capsule(self.trace.topic_id)
+        if capsule is not None:
+            topic_label, topic_summary, _ = capsule
+            if topic_label and topic_summary:
+                lines.extend(
+                    (
+                        "Active conversation topic capsule:",
+                        f"Topic: {topic_label}",
+                        f"Bounded prior context: {topic_summary}",
+                        (
+                            "Use this capsule only to preserve continuity with earlier turns. "
+                            "The latest triggering message and supplied recent transcript remain "
+                            "the authoritative current context."
+                        ),
+                    )
+                )
         if not self.knowledge:
             return tuple(lines)
         lines.extend(
@@ -124,15 +140,15 @@ class CharacterTurnContext:
 
 
 class ContextOrchestrator:
-    """Assemble Smart Output, semantic turn state, and scoped RAG under fixed budgets."""
+    """Assemble Smart Output, semantic turn state, and scoped RAG under bounded budgets."""
 
     def __init__(
         self,
         knowledge_repository: KnowledgeRepository,
         *,
         knowledge_top_k: int = 4,
-        knowledge_token_budget: int = 1200,
-        conversation_token_budget: int = 1800,
+        knowledge_token_budget: int = 800,
+        conversation_token_budget: int = 700,
         knowledge_route_gate: KnowledgeRouteGate | None = None,
         settings: Settings | None = None,
         topic_memory: ConversationTopicMemoryService | None = None,
@@ -201,7 +217,7 @@ class ContextOrchestrator:
 
     @staticmethod
     def _estimate_tokens(value: str) -> int:
-        # Provider-neutral approximation. Prompt Budget V1 intentionally avoids tokenizer deps.
+        # Provider-neutral approximation. Prompt Budget V2 intentionally avoids tokenizer deps.
         return max(1, (len(value) + 3) // 4)
 
     @staticmethod
@@ -282,6 +298,18 @@ class ContextOrchestrator:
         payload.recent_messages = [*selected, current]
         return len(selected), used
 
+    @staticmethod
+    def _prior_topic_summary(summary: str, message_count: int) -> str:
+        """Return capsule context from turns before the current trigger."""
+
+        if message_count <= 1 or not summary.strip():
+            return ""
+        lines = [line for line in summary.splitlines() if line.strip()]
+        if len(lines) <= 1:
+            return ""
+        # Topic Memory deterministically appends the current observed message as the last line.
+        return "\n".join(lines[:-1])[-800:]
+
     def _prepare_semantic_turn(
         self,
         *,
@@ -299,10 +327,18 @@ class ContextOrchestrator:
                 deployment_id=deployment.id,
                 assigned_tool_ids=assigned,
             )
+            topic = plan.topic
             signals = SemanticTurnSignals(
                 deployment_id=deployment.id,
                 message_id=payload.message_id,
-                topic_id=plan.topic.id if plan.topic is not None else "",
+                topic_id=topic.id if topic is not None else "",
+                topic_label=topic.topic_label if topic is not None else "",
+                topic_summary=(
+                    self._prior_topic_summary(topic.summary, topic.message_count)
+                    if topic is not None
+                    else ""
+                ),
+                topic_message_count=topic.message_count if topic is not None else 0,
                 continuation_tool_ids=plan.continuation_tool_ids,
                 detected_side_effect_intents=plan.detected_side_effect_intents,
                 blocked_side_effect_intents=plan.blocked_side_effect_intents,
@@ -328,6 +364,8 @@ class ContextOrchestrator:
             return {}
         return {
             "topic_id": signals.topic_id,
+            "topic_status": "active" if signals.topic_id else "",
+            "topic_message_count": signals.topic_message_count,
             "continuation_tool_ids": list(signals.continuation_tool_ids[:8]),
             "blocked_side_effect_intents": list(signals.blocked_side_effect_intents[:8]),
         }
