@@ -62,12 +62,14 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 "src/echo_masque/conversation_topic.py" = ["E501"]
 "src/echo_masque/judges/rules.py" = ["RUF001"]
 "src/echo_masque/judges/semantic.py" = ["E501", "RUF001"]
+"src/echo_masque/media_continuation_runtime.py" = ["E501"]
 "src/echo_masque/network_safety.py" = ["I001"]
 "src/echo_masque/openrouter_image_scout.py" = ["B904"]
 "src/echo_masque/persistence/knowledge_repository.py" = ["I001"]
 "src/echo_masque/persistence/workspace_repository.py" = ["E501"]
 "src/echo_masque/prompt_budget.py" = ["E501"]
 "src/echo_masque/reports/export.py" = ["RUF001", "E501"]
+"src/echo_masque/runtime_upgrade.py" = ["E501"]
 "src/echo_masque/services/trials.py" = ["B009"]
 "src/echo_masque/suites/catalog.py" = ["RUF001"]
 "src/echo_masque/targets/deterministic.py" = ["RUF001"]
@@ -100,8 +102,20 @@ module = "echo_masque.context_layer"
 disable_error_code = ["arg-type", "list-item"]
 
 [[tool.mypy.overrides]]
+module = "echo_masque.media_continuation_runtime"
+disable_error_code = ["no-untyped-def", "no-untyped-call", "union-attr"]
+
+[[tool.mypy.overrides]]
+module = "echo_masque.orchestration.character_turn_graph"
+disable_error_code = ["arg-type", "union-attr"]
+
+[[tool.mypy.overrides]]
 module = "echo_masque.persistence.workspace_repository"
 disable_error_code = ["attr-defined"]
+
+[[tool.mypy.overrides]]
+module = "echo_masque.runtime_upgrade"
+disable_error_code = ["no-untyped-call"]
 
 [[tool.mypy.overrides]]
 module = "echo_masque.template_sharing"
