@@ -64,6 +64,23 @@ def _utility_credential_status(
     )
 
 
+def _clear_removed_utility_credentials(
+    service: RuntimeService,
+    *,
+    previous_ids: set[str],
+    next_ids: set[str],
+    actor_user_id: str,
+) -> None:
+    for member_id in previous_ids - next_ids:
+        service.credential_vault.delete_scope(
+            owner_id=SYSTEM_RUNTIME_USER_ID,
+            scope_kind=CredentialVault.runtime_scope_kind,
+            scope_id=_utility_scope_id(member_id),
+            actor_user_id=actor_user_id,
+            resource_type="utility_gateway",
+        )
+
+
 @router.get("/api/runtime/status", response_model=RuntimeStatus)
 def public_runtime_status(request: Request) -> RuntimeStatus:
     return runtime_service(request).status()
@@ -85,7 +102,15 @@ def update_admin_runtime(
     admin: AdminUserDependency,
 ) -> AdminRuntimeView:
     service = runtime_service(request)
+    previous_ids = {member.id for member in service.config().utility_gateway.members}
+    next_ids = {member.id for member in payload.utility_gateway.members}
     config = service.save(payload, actor_user_id=admin.id)
+    _clear_removed_utility_credentials(
+        service,
+        previous_ids=previous_ids,
+        next_ids=next_ids,
+        actor_user_id=admin.id,
+    )
     return AdminRuntimeView(config=config, status=service.status())
 
 
