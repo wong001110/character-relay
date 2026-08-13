@@ -172,7 +172,10 @@ class FastEmbedSemanticEncoder:
 
     @classmethod
     def _reset_shared_models_for_test(cls) -> None:
-        """Drop process-scoped test runtimes and query cache. Production code must never call this."""
+        """Drop process-scoped test runtimes and query cache.
+
+        Production code must never call this.
+        """
 
         with FastEmbedSemanticEncoder._shared_lock:
             FastEmbedSemanticEncoder._shared_models.clear()
