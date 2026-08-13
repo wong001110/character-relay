@@ -1,4 +1,4 @@
-"""Admin-managed, secret-free Adaptive Tester and Semantic Judge profiles."""
+"""Admin-managed, secret-free AI runtime profiles."""
 
 from __future__ import annotations
 
@@ -10,7 +10,27 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 ProviderId = Literal["deepseek", "openai", "openrouter", "custom"]
 JudgeModeValue = Literal["rules", "semantic", "hybrid"]
 CredentialSource = Literal["vault", "memory", "environment", "missing"]
-RUNTIME_DEFAULTS_VERSION = 3
+UtilityProviderId = Literal[
+    "openrouter",
+    "groq",
+    "cerebras",
+    "cloudflare",
+    "mistral",
+    "sambanova",
+    "gemini",
+    "custom",
+]
+UtilityCapability = Literal[
+    "semantic_judge",
+    "topic_intelligence",
+    "memory_intelligence",
+    "knowledge_wiki",
+    "context_compiler",
+    "media_understanding",
+    "structured_summary",
+]
+UtilityRoutingStrategy = Literal["best_available", "fixed_priority"]
+RUNTIME_DEFAULTS_VERSION = 4
 
 DEFAULT_ADAPTIVE_PROMPT = (
     "You are an adversarial but bounded AI character tester. Generate exactly one "
@@ -112,6 +132,57 @@ class SemanticRoutingJudgeProfile(BaseModel):
         return self
 
 
+class UtilityProviderMember(BaseModel):
+    """One free-first provider/model member in the system Utility Gateway."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{1,63}$")
+    name: str = Field(min_length=1, max_length=120)
+    enabled: bool = True
+    provider: UtilityProviderId
+    base_url: str = Field(min_length=1, max_length=500)
+    model: str = Field(min_length=1, max_length=240)
+    capabilities: tuple[UtilityCapability, ...] = Field(min_length=1)
+    free_only: bool = True
+    priority: int = Field(default=50, ge=1, le=100)
+
+
+class UtilityPaidFallback(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = False
+    provider: Literal["openrouter"] = "openrouter"
+    base_url: str = Field(
+        default="https://openrouter.ai/api",
+        min_length=1,
+        max_length=500,
+    )
+    model: str = Field(default="qwen/qwen3-8b", min_length=1, max_length=240)
+    daily_budget_usd: float = Field(default=0.20, ge=0.0, le=1000.0)
+    monthly_budget_usd: float = Field(default=2.0, ge=0.0, le=10000.0)
+
+
+class UtilityGatewayProfile(BaseModel):
+    """Provider-neutral Utility Gateway policy. Provider telemetry arrives in Phase 2."""
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = False
+    routing_strategy: UtilityRoutingStrategy = "best_available"
+    members: tuple[UtilityProviderMember, ...] = Field(default=(), max_length=32)
+    paid_fallback: UtilityPaidFallback = Field(default_factory=UtilityPaidFallback)
+
+    @model_validator(mode="after")
+    def validate_members(self) -> UtilityGatewayProfile:
+        ids = [member.id for member in self.members]
+        if len(ids) != len(set(ids)):
+            raise ValueError("utility gateway member ids must be unique")
+        if any(not member.free_only for member in self.members):
+            raise ValueError("free pool members must remain FREE ONLY")
+        return self
+
+
 class AdminRuntimeConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -120,6 +191,7 @@ class AdminRuntimeConfig(BaseModel):
     semantic_routing: SemanticRoutingJudgeProfile = Field(
         default_factory=SemanticRoutingJudgeProfile
     )
+    utility_gateway: UtilityGatewayProfile = Field(default_factory=UtilityGatewayProfile)
     default_judge_mode: JudgeModeValue = "hybrid"
     defaults_version: int = RUNTIME_DEFAULTS_VERSION
 
