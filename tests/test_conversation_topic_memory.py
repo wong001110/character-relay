@@ -15,9 +15,16 @@ class _TopicEncoder:
     @staticmethod
     def _vector(text: str) -> list[float]:
         normalized = text.casefold()
-        if "retry the previous" in normalized or "再试试" in normalized or "再来一次" in normalized:
+        if (
+            "retry the previous" in normalized
+            or "continue the same previous" in normalized
+            or "cancel, stop, abandon" in normalized
+            or "clarify, correct" in normalized
+            or "再试试" in normalized
+            or "再来一次" in normalized
+        ):
             return [0.0, 1.0, 0.0, 0.0]
-        if "switch_topic" in normalized or "start a new unrelated" in normalized or "换个话题" in normalized:
+        if "start a new unrelated" in normalized or "换个话题" in normalized:
             return [0.0, 0.0, 0.0, 1.0]
         if "cat" in normalized or "猫" in normalized or "image" in normalized:
             return [1.0, 0.0, 0.0, 0.0]
