@@ -17,27 +17,26 @@ from echo_masque.tool_runtime import ToolCatalogItem, ToolExecutionContext
 
 class _SemanticEncoder:
     model_name = "test/continuation-e5"
-    dimension = 4
+    dimension = 7
 
     @staticmethod
     def _vector(text: str) -> list[float]:
         normalized = text.casefold()
-        if (
-            "retry the previous" in normalized
-            or "continue the same previous" in normalized
-            or "cancel, stop, abandon" in normalized
-            or "clarify, correct" in normalized
-            or "再试试" in normalized
-            or "再来一次" in normalized
-        ):
-            return [0.0, 1.0, 0.0, 0.0]
+        if "retry the previous" in normalized or "再试试" in normalized or "再来一次" in normalized:
+            return [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        if "continue the same previous" in normalized:
+            return [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+        if "cancel, stop, abandon" in normalized:
+            return [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+        if "clarify, correct" in normalized:
+            return [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
         if "start a new unrelated" in normalized or "换个话题" in normalized:
-            return [0.0, 0.0, 0.0, 1.0]
+            return [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
         if "image" in normalized or "cat" in normalized or "猫" in normalized:
-            return [1.0, 0.0, 0.0, 0.0]
+            return [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         if "weather" in normalized:
-            return [0.0, 0.0, 1.0, 0.0]
-        return [0.25, 0.25, 0.25, 0.25]
+            return [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+        return [1.0 / 7.0] * 7
 
     def embed_query(self, text: str) -> list[float]:
         return self._vector(text)
