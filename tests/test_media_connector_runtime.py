@@ -31,7 +31,7 @@ class FakeLiveMediaService:
                     kind="video",
                     label="Shared video",
                     summary="A short comedy clip about a game character.",
-                    visible_text="旅行者：我是爷们",
+                    visible_text="旅行者: 我是爷们",
                     notable_details=("The clip is presented as a meme.",),
                 ),
             ),
@@ -167,7 +167,7 @@ def link_payload() -> DiscordInboundMessage:
         channel_id="channel-1",
         author_id="user-1",
         author_display_name="Juen",
-        text="【旅行者：我是爷们-哔哩哔哩】 https://b23.tv/example",
+        text="【旅行者: 我是爷们-哔哩哔哩】 https://b23.tv/example",
     )
 
 
@@ -215,7 +215,7 @@ def register_payload(
     runtime: MediaAwareDiscordConnectorRuntime,
     prepared: SimpleNamespace,
 ) -> None:
-    setter = getattr(runtime.tool_registry, "set_turn_media_payload")
+    setter = cast(Any, runtime.tool_registry).set_turn_media_payload
     setter(
         deployment_id="deployment-1",
         message_id="message-1",
