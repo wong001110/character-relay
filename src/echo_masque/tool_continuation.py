@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from echo_masque.config import Settings, get_settings
 from echo_masque.conversation_topic import (
+    ConversationPendingAction,
     ConversationTopicMemoryService,
     ConversationTopicSnapshot,
     TopicContinuityDecision,
@@ -178,7 +179,7 @@ class ToolContinuationService:
             self.topic_memory.snapshot(active_record) if active_record is not None else None
         )
         continuity: TopicContinuityDecision | None = None
-        pending_before = ()
+        pending_before: tuple[ConversationPendingAction, ...] = ()
         if active_record is not None and not payload.author_is_bot:
             continuity = self.topic_memory.classify_continuity(
                 text=payload.text,
