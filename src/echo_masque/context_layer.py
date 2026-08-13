@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from echo_masque.knowledge_retrieval import KnowledgeCandidate
+from echo_masque.knowledge_route_gate import KnowledgeRouteDecision, KnowledgeRouteGate
 from echo_masque.persistence.knowledge_repository import KnowledgeRepository
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.prompt_budget import BudgetSmartOutputContext
@@ -40,6 +41,17 @@ class CharacterContextTraceView(BaseModel):
 
     rag_status: Literal["skipped", "completed", "failed"] = "skipped"
     rag_reason: str = ""
+    rag_gate_status: Literal[
+        "not_checked",
+        "no_eligible_bases",
+        "disabled",
+        "matched",
+        "not_relevant",
+        "unavailable",
+    ] = "not_checked"
+    rag_gate_score: float = 0.0
+    rag_gate_sparse_score: float = 0.0
+    rag_gate_dense_score: float = 0.0
     retrieval_mode: Literal["current", "contextual_fallback"] = "current"
     carryover_message_count: int = Field(default=0, ge=0, le=2)
     initial_hit_count: int = Field(default=0, ge=0)
@@ -107,9 +119,11 @@ class ContextOrchestrator:
         knowledge_top_k: int = 4,
         knowledge_token_budget: int = 1200,
         conversation_token_budget: int = 1800,
+        knowledge_route_gate: KnowledgeRouteGate | None = None,
     ) -> None:
         self.knowledge_repository = knowledge_repository
         self.server_runtime_repository = ServerRuntimeRepository(knowledge_repository.database)
+        self.knowledge_route_gate = knowledge_route_gate or KnowledgeRouteGate(knowledge_repository)
         self.knowledge_top_k = max(1, min(knowledge_top_k, 8))
         self.knowledge_token_budget = max(200, min(knowledge_token_budget, 4000))
         self.conversation_token_budget = max(400, min(conversation_token_budget, 4000))
@@ -241,6 +255,16 @@ class ContextOrchestrator:
         payload.recent_messages = [*selected, current]
         return len(selected), used
 
+    @staticmethod
+    def _gate_trace_values(decision: KnowledgeRouteDecision) -> dict[str, object]:
+        return {
+            "rag_gate_status": decision.status,
+            "rag_gate_score": round(decision.best_score, 6),
+            "rag_gate_sparse_score": round(decision.best_sparse_score, 6),
+            "rag_gate_dense_score": round(decision.best_dense_score, 6),
+            "eligible_base_count": decision.eligible_base_count,
+        }
+
     def _trace(
         self,
         *,
@@ -253,6 +277,23 @@ class ContextOrchestrator:
             conversation_chars=conversation_chars,
             conversation_token_budget=self.conversation_token_budget,
             **values,
+        )
+
+    def _route_decision(
+        self,
+        *,
+        payload: DiscordInboundMessage,
+        deployment: CharacterDeploymentRecord,
+        query: str,
+    ) -> KnowledgeRouteDecision:
+        return self.knowledge_route_gate.decide(
+            owner_id=deployment.owner_id,
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+            character_card_id=deployment.character_card_id,
+            query=query,
         )
 
     def build(
@@ -290,8 +331,76 @@ class ContextOrchestrator:
         retrieval_mode: Literal["current", "contextual_fallback"] = "current"
         carryover_message_count = 0
         final_query = current_query
+        initial_hit_count = 0
 
         try:
+            gate = self._route_decision(
+                payload=payload,
+                deployment=deployment,
+                query=current_query,
+            )
+            if gate.status == "no_eligible_bases":
+                return CharacterTurnContext(
+                    smart_output=smart_output,
+                    knowledge=(),
+                    trace=self._trace(
+                        conversation_message_count=conversation_message_count,
+                        conversation_chars=conversation_chars,
+                        rag_status="skipped",
+                        rag_reason="no_matching_knowledge_base",
+                        query_chars=len(current_query),
+                        knowledge_token_budget=self.knowledge_token_budget,
+                        **self._gate_trace_values(gate),
+                    ),
+                )
+
+            if not gate.should_retrieve:
+                contextual_query, contextual_count = self._contextual_retrieval_query(
+                    payload,
+                    current_query,
+                )
+                if contextual_count and contextual_query != current_query:
+                    contextual_gate = self._route_decision(
+                        payload=payload,
+                        deployment=deployment,
+                        query=contextual_query,
+                    )
+                    if contextual_gate.should_retrieve:
+                        gate = contextual_gate
+                        retrieval_mode = "contextual_fallback"
+                        carryover_message_count = contextual_count
+                        final_query = contextual_query
+                    else:
+                        return CharacterTurnContext(
+                            smart_output=smart_output,
+                            knowledge=(),
+                            trace=self._trace(
+                                conversation_message_count=conversation_message_count,
+                                conversation_chars=conversation_chars,
+                                rag_status="skipped",
+                                rag_reason="knowledge_gate_not_relevant",
+                                retrieval_mode="current",
+                                carryover_message_count=contextual_count,
+                                query_chars=len(contextual_query),
+                                knowledge_token_budget=self.knowledge_token_budget,
+                                **self._gate_trace_values(contextual_gate),
+                            ),
+                        )
+                else:
+                    return CharacterTurnContext(
+                        smart_output=smart_output,
+                        knowledge=(),
+                        trace=self._trace(
+                            conversation_message_count=conversation_message_count,
+                            conversation_chars=conversation_chars,
+                            rag_status="skipped",
+                            rag_reason="knowledge_gate_not_relevant",
+                            query_chars=len(current_query),
+                            knowledge_token_budget=self.knowledge_token_budget,
+                            **self._gate_trace_values(gate),
+                        ),
+                    )
+
             result = self.knowledge_repository.retrieve_for_turn(
                 owner_id=deployment.owner_id,
                 connection_id=payload.connection_id,
@@ -299,29 +408,42 @@ class ContextOrchestrator:
                 channel_id=payload.channel_id,
                 thread_id=payload.thread_id,
                 character_card_id=deployment.character_card_id,
-                query=current_query,
+                query=final_query,
                 top_k=self.knowledge_top_k,
             )
-            initial_hit_count = len(result.candidates)
+            if retrieval_mode == "current":
+                initial_hit_count = len(result.candidates)
 
-            if result.eligible_base_count > 0 and not result.candidates:
-                contextual_query, carryover_message_count = self._contextual_retrieval_query(
+            if (
+                retrieval_mode == "current"
+                and result.eligible_base_count > 0
+                and not result.candidates
+            ):
+                contextual_query, contextual_count = self._contextual_retrieval_query(
                     payload,
                     current_query,
                 )
-                if carryover_message_count and contextual_query != current_query:
-                    retrieval_mode = "contextual_fallback"
-                    final_query = contextual_query
-                    result = self.knowledge_repository.retrieve_for_turn(
-                        owner_id=deployment.owner_id,
-                        connection_id=payload.connection_id,
-                        guild_id=payload.guild_id,
-                        channel_id=payload.channel_id,
-                        thread_id=payload.thread_id,
-                        character_card_id=deployment.character_card_id,
+                if contextual_count and contextual_query != current_query:
+                    contextual_gate = self._route_decision(
+                        payload=payload,
+                        deployment=deployment,
                         query=contextual_query,
-                        top_k=self.knowledge_top_k,
                     )
+                    if contextual_gate.should_retrieve:
+                        gate = contextual_gate
+                        retrieval_mode = "contextual_fallback"
+                        carryover_message_count = contextual_count
+                        final_query = contextual_query
+                        result = self.knowledge_repository.retrieve_for_turn(
+                            owner_id=deployment.owner_id,
+                            connection_id=payload.connection_id,
+                            guild_id=payload.guild_id,
+                            channel_id=payload.channel_id,
+                            thread_id=payload.thread_id,
+                            character_card_id=deployment.character_card_id,
+                            query=contextual_query,
+                            top_k=self.knowledge_top_k,
+                        )
         except Exception:
             return CharacterTurnContext(
                 smart_output=smart_output,
@@ -357,6 +479,7 @@ class ContextOrchestrator:
                     fallback_hit_count=fallback_hit_count,
                     query_chars=len(final_query),
                     knowledge_token_budget=self.knowledge_token_budget,
+                    **self._gate_trace_values(gate),
                 ),
             )
 
@@ -389,6 +512,10 @@ class ContextOrchestrator:
                 selected_chunk_count=len(selected),
                 selected_knowledge_tokens=selected_tokens,
                 knowledge_token_budget=self.knowledge_token_budget,
+                rag_gate_status=gate.status,
+                rag_gate_score=round(gate.best_score, 6),
+                rag_gate_sparse_score=round(gate.best_sparse_score, 6),
+                rag_gate_dense_score=round(gate.best_dense_score, 6),
                 selected=[
                     KnowledgeContextTraceItem(
                         knowledge_base_id=item.resource.knowledge_base_id,
