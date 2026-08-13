@@ -138,7 +138,7 @@ export function CredentialModal(props: Props) {
           </label>
           <p className="secret-note">{t("credential.security")}</p>
           <div className="form-actions">
-            {utility?.configured && (
+            {utility && (
               <button
                 type="button"
                 className="paper-button"
