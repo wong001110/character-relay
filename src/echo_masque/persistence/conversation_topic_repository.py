@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import delete, select, update
+from sqlalchemy.sql.elements import ColumnElement
 
 from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
 from echo_masque.persistence.database import Database
@@ -30,7 +31,7 @@ class ConversationTopicRepository:
         guild_id: str,
         channel_id: str,
         thread_id: str,
-    ) -> tuple[object, ...]:
+    ) -> tuple[ColumnElement[bool], ...]:
         return (
             ConversationTopicRecord.owner_id == owner_id,
             ConversationTopicRecord.platform == platform,
