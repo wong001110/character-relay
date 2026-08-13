@@ -13,6 +13,7 @@ from echo_masque.api.expression_schemas import (
 )
 from echo_masque.config import LangGraphMode
 from echo_masque.context_layer import CharacterContextTraceView
+from echo_masque.participation_observation import ParticipationObservation
 from echo_masque.smart_output import (
     DiscordActionParticipant,
     DiscordSmartOutputView,
@@ -314,6 +315,7 @@ class DiscordInboundMessage(BaseModel):
     interaction_target_display_name: str = Field(default="", max_length=160)
     expression_run_id: str = Field(default="", max_length=64)
     expression_candidates: list[ExpressionCandidate] = Field(default_factory=list, max_length=10)
+    participation_observation: ParticipationObservation | None = None
     runtime_operation_id: str = Field(default="", max_length=64)
     runtime_step_id: str = Field(default="", max_length=64)
 
