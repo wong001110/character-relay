@@ -76,12 +76,13 @@ class MediaToolRegistry(ServerAwareToolRegistry):
             side_effect=False,
             provider_name="media_inspect",
             provider_description=(
-                "Inspect the shared media/link in the current triggering Discord message only when "
-                "this Character genuinely wants or needs unseen content before choosing its final "
-                "Discord action. Do not call merely because media exists. If the visible preview is "
-                "enough, or the Character is not interested, skip this Tool and respond/ignore "
-                "naturally. For the current shared media/link, prefer this Tool over generic web or "
-                "file tools because it returns Runtime-grounded media observations."
+                "Inspect the shared media/link in the current triggering Discord message only "
+                "when this Character genuinely wants or needs unseen content before choosing "
+                "its final Discord action. Do not call merely because media exists. If the "
+                "visible preview is enough, or the Character is not interested, skip this Tool "
+                "and respond/ignore naturally. For the current shared media/link, prefer this "
+                "Tool over generic web or file tools because it returns Runtime-grounded media "
+                "observations."
             ),
             parameters={
                 "type": "object",
