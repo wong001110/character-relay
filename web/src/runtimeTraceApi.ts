@@ -38,6 +38,24 @@ export interface RuntimeTracePage {
   has_more: boolean;
 }
 
+interface ParticipationCandidateObservation {
+  deployment_id: string;
+  character_name?: string;
+  score: number | null;
+  minimum_score: number;
+  eligible: boolean;
+  semantic_relevance: number | null;
+  signals: Record<string, number>;
+}
+
+interface ParticipationObservation {
+  source: string;
+  reason: string;
+  selected_deployment_ids: string[];
+  candidates: ParticipationCandidateObservation[];
+  minimum_margin: number | null;
+}
+
 async function errorMessage(response: Response): Promise<string> {
   const raw = await response.text();
   try {
@@ -60,6 +78,95 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) throw new Error(await errorMessage(response));
   return response.json() as Promise<T>;
+}
+
+function parseParticipation(value: string | undefined): ParticipationObservation | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as ParticipationObservation;
+    return parsed && Array.isArray(parsed.selected_deployment_ids) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function signalSummary(signals: Record<string, number>): string {
+  return Object.entries(signals)
+    .filter(([, score]) => score !== 0)
+    .map(([name, score]) => `${name} ${score > 0 ? "+" : ""}${score}`)
+    .join(", ");
+}
+
+function expandTurnContext(event: RuntimeTraceEvent): RuntimeTraceEvent {
+  if (event.node_name !== "turn_context") return event;
+  const raw = Object.fromEntries(event.metadata);
+  const expanded: Array<[string, string]> = [];
+  if (raw.topic_label || raw.topic_id) {
+    const suffix = [raw.topic_status, raw.topic_message_count && `${raw.topic_message_count} msgs`]
+      .filter(Boolean)
+      .join(" · ");
+    expanded.push(["Topic", `${raw.topic_label || raw.topic_id}${suffix ? ` · ${suffix}` : ""}`]);
+  }
+  if (raw.continuity_reason) {
+    const retry = Number(raw.retry_score || "0");
+    expanded.push([
+      "Continuity",
+      `${raw.continuity_reason}${retry > 0 ? ` · retry ${retry.toFixed(3)}` : ""}`
+    ]);
+  }
+  if (raw.recalled_media === "available") {
+    expanded.push([
+      "Media continuity",
+      `restored skipped source · message ${raw.recalled_media_source_message_id || "—"}`
+    ]);
+  }
+
+  const participation = parseParticipation(raw.participation_observation);
+  if (participation) {
+    expanded.push([
+      "Selection",
+      `${participation.source} / ${participation.reason}${
+        participation.minimum_margin !== null
+          ? ` · margin ${participation.minimum_margin}`
+          : ""
+      }`
+    ]);
+    for (const candidate of participation.candidates) {
+      const selected = participation.selected_deployment_ids.includes(candidate.deployment_id);
+      const semantic =
+        candidate.semantic_relevance === null
+          ? ""
+          : ` · semantic ${candidate.semantic_relevance.toFixed(3)}`;
+      const signals = signalSummary(candidate.signals);
+      expanded.push([
+        `Speaker · ${candidate.character_name || candidate.deployment_id}`,
+        `${selected ? "SELECTED" : candidate.eligible ? "candidate" : "blocked"} · score ${
+          candidate.score ?? "—"
+        } / ${candidate.minimum_score}${semantic}${signals ? ` · ${signals}` : ""}`
+      ]);
+    }
+    if (!participation.candidates.length) {
+      expanded.push([
+        "Speaker routing",
+        "explicit Tag / Reply / Character selection; no synthetic Smart Participation score"
+      ]);
+    }
+  }
+
+  const diagnosticKeys = [
+    "rag_pipeline",
+    "source_message_id",
+    "recalled_media",
+    "recalled_media_source_message_id"
+  ];
+  for (const key of diagnosticKeys) {
+    if (raw[key]) expanded.push([key, raw[key]]);
+  }
+  return { ...event, metadata: expanded.length ? expanded : event.metadata };
+}
+
+function expandRuntimeTrace(view: RuntimeTraceView): RuntimeTraceView {
+  return { ...view, events: view.events.map(expandTurnContext) };
 }
 
 export const runtimeTraceApi = {
@@ -92,10 +199,12 @@ export const runtimeTraceApi = {
       { signal: options.signal }
     );
   },
-  detail: (graphRunId: string, signal?: AbortSignal) =>
-    request<RuntimeTraceView>(
-      `/api/admin/runtime-traces/${encodeURIComponent(graphRunId)}`,
-      { signal }
+  detail: async (graphRunId: string, signal?: AbortSignal) =>
+    expandRuntimeTrace(
+      await request<RuntimeTraceView>(
+        `/api/admin/runtime-traces/${encodeURIComponent(graphRunId)}`,
+        { signal }
+      )
     ),
   clear: (ownerId?: string) => {
     const selected = ownerId?.trim() ?? "";
