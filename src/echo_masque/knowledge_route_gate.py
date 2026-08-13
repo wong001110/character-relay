@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from echo_masque.config import Settings, get_settings
 from echo_masque.knowledge_retrieval import KnowledgeResource, score_sparse_knowledge_resources
+from echo_masque.persistence import Repository
 from echo_masque.persistence.knowledge_models import KnowledgeBaseRecord, KnowledgeChunkRecord
 from echo_masque.persistence.knowledge_repository import KnowledgeRepository
 from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
@@ -18,6 +19,7 @@ from echo_masque.semantic_participation import (
     SemanticEncoder,
     _cosine,
 )
+from echo_masque.semantic_routing_judge import RagJudgeDecision, SemanticRoutingJudgeService
 
 _ROUTE_VECTOR_NAMESPACE = "knowledge-base-route"
 _ROUTE_SPARSE_STRONG = 0.08
@@ -47,6 +49,12 @@ class KnowledgeRouteDecision:
     best_sparse_score: float = 0.0
     best_dense_score: float = 0.0
     matched_knowledge_base_id: str = ""
+    judge_model: str = ""
+    judge_tier: str = ""
+    judge_confidence: float = 0.0
+    judge_reason: str = ""
+    judge_attempts: int = 0
+    judge_latency_ms: int = 0
 
     @property
     def best_score(self) -> float:
@@ -54,14 +62,7 @@ class KnowledgeRouteDecision:
 
 
 class KnowledgeRouteGate:
-    """Route a turn to Knowledge without scanning every authorized chunk.
-
-    The gate reads bounded metadata and a small first-chunk sample from each eligible Knowledge
-    Base. Strong lexical overlap may enable retrieval without an embedding call. Otherwise the
-    process-shared E5 runtime scores a compact base route profile. If semantic inference is
-    unavailable, the gate fails open so Knowledge functionality does not disappear during a
-    transient embedding outage.
-    """
+    """Route a turn to Knowledge without scanning every authorized chunk."""
 
     def __init__(
         self,
@@ -84,6 +85,10 @@ class KnowledgeRouteGate:
             )
         )
         self._vectors = SemanticVectorRepository(self.database)
+        self._routing_judge = SemanticRoutingJudgeService(
+            Repository(self.database),
+            self.settings,
+        )
 
     def _get_encoder(self) -> SemanticEncoder:
         if self._encoder is None:
@@ -202,6 +207,19 @@ class KnowledgeRouteGate:
         )
         return vector
 
+    @staticmethod
+    def _judge_values(decision: RagJudgeDecision | None) -> dict[str, object]:
+        if decision is None:
+            return {}
+        return {
+            "judge_model": decision.model,
+            "judge_tier": decision.tier,
+            "judge_confidence": round(decision.confidence, 6),
+            "judge_reason": decision.reason[:240],
+            "judge_attempts": decision.attempts,
+            "judge_latency_ms": decision.latency_ms,
+        }
+
     def decide(
         self,
         *,
@@ -213,6 +231,8 @@ class KnowledgeRouteGate:
         character_card_id: str,
         query: str,
     ) -> KnowledgeRouteDecision:
+        raw_lines = [item.strip() for item in query.splitlines() if item.strip()]
+        current_message = raw_lines[-1] if raw_lines else " ".join(query.split())
         normalized = " ".join(query.split())[:4000]
         eligible = self._eligible_bases(
             owner_id=owner_id,
@@ -222,9 +242,6 @@ class KnowledgeRouteGate:
             thread_id=thread_id,
             character_card_id=character_card_id,
         )
-        # Semantic-off environments keep the exact legacy retrieval path. This avoids changing
-        # development/test behavior and makes the gate a production semantic optimization rather
-        # than a new mandatory dependency.
         if not self._semantic_enabled:
             return KnowledgeRouteDecision(
                 status="disabled",
@@ -245,6 +262,12 @@ class KnowledgeRouteGate:
             )
 
         routes = [(base, self._route_text(base)) for base in eligible]
+        route_labels = tuple(
+            f"{base.name}: {base.description.strip()}"[:500]
+            if base.description.strip()
+            else base.name[:500]
+            for base, _ in routes
+        )
         sparse_scores = [
             (self._sparse_score(base, route_text, normalized), base)
             for base, route_text in routes
@@ -271,18 +294,39 @@ class KnowledgeRouteGate:
                 )
                 dense_scores.append((_cosine(query_vector, route_vector), base))
         except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
+            routing = self._routing_judge.runtime.semantic_routing_config()
+            retrieve = best_sparse >= _ROUTE_SPARSE_STRONG if routing.enabled else True
             return KnowledgeRouteDecision(
                 status="unavailable",
-                should_retrieve=True,
+                should_retrieve=retrieve,
                 eligible_base_count=len(eligible),
                 best_sparse_score=round(best_sparse, 6),
             )
 
         best_dense, dense_base = max(dense_scores, key=lambda item: item[0])
-        matched = best_dense >= _ROUTE_DENSE_MINIMUM or (
+        legacy_matched = best_dense >= _ROUTE_DENSE_MINIMUM or (
             best_dense >= _ROUTE_DENSE_WITH_SPARSE_MINIMUM
             and best_sparse >= _ROUTE_SPARSE_SUPPORT
         )
+        routing = self._routing_judge.runtime.semantic_routing_config()
+        judge: RagJudgeDecision | None = None
+        if routing.enabled and routing.rag_enabled:
+            if best_dense >= routing.rag_on_threshold:
+                matched = True
+            elif best_dense <= routing.rag_off_threshold and best_sparse < _ROUTE_SPARSE_SUPPORT:
+                matched = False
+            else:
+                judge = self._routing_judge.decide(
+                    current_message=current_message,
+                    contextual_query=normalized,
+                    route_labels=route_labels,
+                    dense_score=best_dense,
+                    sparse_score=best_sparse,
+                )
+                matched = judge.need_knowledge if judge is not None else legacy_matched
+        else:
+            matched = legacy_matched
+
         return KnowledgeRouteDecision(
             status="matched" if matched else "not_relevant",
             should_retrieve=matched,
@@ -290,6 +334,7 @@ class KnowledgeRouteGate:
             best_sparse_score=round(best_sparse, 6),
             best_dense_score=round(best_dense, 6),
             matched_knowledge_base_id=dense_base.id if matched else "",
+            **self._judge_values(judge),
         )
 
 
