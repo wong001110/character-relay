@@ -6,6 +6,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from threading import Lock
 from time import monotonic
+from typing import ClassVar
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,10 +24,12 @@ class SemanticTurnSignals:
 class SemanticTurnSignalStore:
     """Bounded TTL store; no raw message text is retained."""
 
-    _entries: OrderedDict[tuple[str, str], tuple[float, SemanticTurnSignals]] = OrderedDict()
-    _lock = Lock()
-    _ttl_seconds = 180.0
-    _max_entries = 512
+    _entries: ClassVar[
+        OrderedDict[tuple[str, str], tuple[float, SemanticTurnSignals]]
+    ] = OrderedDict()
+    _lock: ClassVar[Lock] = Lock()
+    _ttl_seconds: ClassVar[float] = 180.0
+    _max_entries: ClassVar[int] = 512
 
     @classmethod
     def put(cls, signals: SemanticTurnSignals) -> None:
@@ -66,4 +69,4 @@ class SemanticTurnSignalStore:
             cls._entries.clear()
 
 
-__all__ = ["SemanticTurnSignals", "SemanticTurnSignalStore"]
+__all__ = ["SemanticTurnSignalStore", "SemanticTurnSignals"]
