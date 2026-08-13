@@ -1,3 +1,8 @@
+import {
+  recordExplicitParticipation,
+  recordParticipationDecision,
+  resetParticipationObservations
+} from "./participationObservation.js";
 import type { DiscordDeployment } from "./types.js";
 
 export type SmartParticipationStyle = "quiet" | "balanced" | "active";
@@ -734,6 +739,7 @@ function decision(
     candidates
   };
   if (runtimeConfig.enabled) logDecision(value, messageLength);
+  recordParticipationDecision(value, runtimeConfig.minimumMargin);
   return value;
 }
 
@@ -941,6 +947,7 @@ export function coordinateExplicitSmartParticipants(
   clearPending(deployments);
   queueSelection(primary, "explicit", now);
   if (!interject) {
+    recordExplicitParticipation([primary]);
     return {
       deployments: [primary],
       turns: [{ deployment: primary, role: "primary", order: 1 }],
@@ -949,6 +956,7 @@ export function coordinateExplicitSmartParticipants(
   }
 
   queueSelection(interject, "proactive", now);
+  recordExplicitParticipation([interject, primary]);
   return {
     deployments: [interject, primary],
     turns: [
@@ -1041,6 +1049,7 @@ export function markExplicitSmartSelections(
   deployments: DiscordDeployment[],
   now = Date.now()
 ): void {
+  recordExplicitParticipation(deployments);
   clearPending(deployments);
   for (const deployment of deployments) {
     if (deployment.participation_mode === "smart") {
@@ -1079,4 +1088,5 @@ export function resetSmartParticipationState(): void {
   pendingSmartSelections.clear();
   proactiveSelections = [];
   turnAdmissions = [];
+  resetParticipationObservations();
 }
