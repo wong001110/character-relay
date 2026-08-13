@@ -1,4 +1,9 @@
-"""Discord Connector Runtime extension for persona-driven shared content perception."""
+"""Discord Connector Runtime extension for shared-content perception.
+
+Visible image attachments remain passively perceived. Links, videos, and other non-visible
+shared content are now inspected through a Runtime-owned Tool only when the Character model
+requests it during the normal Character turn. This avoids a separate Media Attention LLM pass.
+"""
 
 from __future__ import annotations
 
@@ -21,21 +26,13 @@ from echo_masque.conversation_media import ConversationMediaReferenceService
 from echo_masque.domain import TargetResponse
 from echo_masque.live_media import LiveMediaContext, LiveMediaContextService, LiveMediaResult
 from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
-from echo_masque.media_attention import (
-    CharacterMediaAttentionDecider,
-    MediaAttentionDecider,
-    MediaAttentionDecision,
-    MediaResponseStance,
-    has_shared_content,
-    skipped_media_guidance,
-    unavailable_media_guidance,
-    watched_media_guidance,
-)
+from echo_masque.media_attention import MediaResponseStance, has_shared_content
 from echo_masque.providers import ProviderError
 from echo_masque.providers.trace import provider_trace_scope
 from echo_masque.targets import PromptModelTarget, PromptModelToolTurn
 
 _MEDIA_RESULT_TTL_SECONDS = 300.0
+_MEDIA_INSPECT_TOOL_ID = "media.inspect"
 _IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif")
 MediaEpistemicState = Literal["skipped", "perceived", "unavailable"]
 
@@ -103,18 +100,41 @@ def _passive_image_unavailable_guidance(payload: DiscordInboundMessage) -> tuple
     return tuple(lines)
 
 
+def _active_media_choice_guidance() -> tuple[str, ...]:
+    return (
+        "Character media inspection choice:",
+        (
+            "A shared link/video/other non-visible item is present. You are not required to open "
+            "it. If your persona is genuinely interested or you need unseen details before choosing "
+            "your final Discord action, call media_inspect."
+        ),
+        (
+            "If you do not call media_inspect, treat unseen details as unknown and decide from the "
+            "Discord-visible preview and conversation only. It is valid to ignore, react, or reply "
+            "without inspecting."
+        ),
+        (
+            "For the current shared media/link, use media_inspect rather than generic web/file "
+            "tools when you need the actual content."
+        ),
+    )
+
+
 class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
-    """Passively perceive visible images while keeping links/videos persona-controlled."""
+    """Passively perceive visible images and inspect links/videos only through Tool Calling."""
 
     def __init__(
         self,
         *args: Any,
         live_media_service: LiveMediaContextService | None = None,
-        media_attention_decider: MediaAttentionDecider | None = None,
+        media_attention_decider: Any | None = None,
         conversation_media_service: ConversationMediaReferenceService | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
+        # Kept as a compatibility-only constructor argument for older tests/callers. The
+        # dedicated Media Attention model pass is intentionally no longer used.
+        del media_attention_decider
         self.live_media_service: LiveMediaContextService | None
         if isinstance(live_media_service, LiveMediaContextService):
             self.live_media_service = EnhancedLiveMediaContextService.from_service(
@@ -123,17 +143,17 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             )
         else:
             self.live_media_service = live_media_service
-        self.media_attention_decider = media_attention_decider or CharacterMediaAttentionDecider()
         self.conversation_media_service = conversation_media_service
         self._media_turn_results: dict[
             tuple[str, str, str], tuple[float, LiveMediaResult]
         ] = {}
-        self._media_attention_results: dict[
-            tuple[str, str], tuple[float, MediaAttentionDecision]
-        ] = {}
         self._media_epistemic_states: dict[
             tuple[str, str], tuple[float, MediaEpistemicSnapshot]
         ] = {}
+
+        setter = getattr(self.tool_registry, "set_live_media_service", None)
+        if callable(setter):
+            setter(self.live_media_service)
 
     def prepare_character_turn(
         self,
@@ -147,6 +167,15 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
                 message_id=resolved.payload.message_id,
                 reply_to_message_id=resolved.payload.reply_to_message_id,
             )
+
+        media_setter = getattr(self.tool_registry, "set_turn_media_payload", None)
+        if callable(media_setter):
+            active_payload = self._active_shared_payload(resolved.payload)
+            media_setter(
+                deployment_id=resolved.deployment.id,
+                message_id=resolved.payload.message_id,
+                payload=active_payload,
+            )
         return prepared
 
     async def invoke_character_model(
@@ -154,18 +183,60 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         prepared: PreparedCharacterTurn,
     ) -> TargetResponse:
         await self._ensure_media_context(prepared)
+        target = prepared.resolved.target
         try:
+            if isinstance(target, PromptModelTarget) and self._media_inspection_enabled(prepared):
+                enabled = self._enabled_tools_with_media(prepared)
+                return await target.send_with_tools(
+                    prepared.prompt,
+                    tool_registry=self.tool_registry,
+                    enabled_tool_ids=enabled,
+                    tool_context=prepared.tool_context,
+                    max_tool_rounds=2,
+                    forced_tool_ids=(_MEDIA_INSPECT_TOOL_ID,),
+                )
             return await super().invoke_character_model(prepared)
         except ProviderError as exc:
+            # The base path already records Provider errors; the direct media-tool path does not.
+            if isinstance(target, PromptModelTarget) and self._media_inspection_enabled(prepared):
+                self.deployment_repository.record_deployment_error(
+                    prepared.resolved.deployment.id,
+                    str(exc),
+                )
             self._isolate_provider_failure(prepared, exc)
             return self._provider_failure_response(exc)
+        except Exception as exc:
+            if isinstance(target, PromptModelTarget) and self._media_inspection_enabled(prepared):
+                self.deployment_repository.record_deployment_error(
+                    prepared.resolved.deployment.id,
+                    str(exc),
+                )
+            raise
 
     async def start_character_tool_turn(
         self,
         prepared: PreparedCharacterTurn,
     ) -> PromptModelToolTurn | None:
         await self._ensure_media_context(prepared)
-        return await super().start_character_tool_turn(prepared)
+        target = prepared.resolved.target
+        if not isinstance(target, PromptModelTarget) or not self._media_inspection_enabled(prepared):
+            return await super().start_character_tool_turn(prepared)
+
+        try:
+            return await target.start_tool_turn(
+                prepared.prompt,
+                tool_registry=self.tool_registry,
+                enabled_tool_ids=self._enabled_tools_with_media(prepared),
+                tool_context=prepared.tool_context,
+                max_tool_rounds=2,
+                forced_tool_ids=(_MEDIA_INSPECT_TOOL_ID,),
+            )
+        except Exception as exc:
+            self.deployment_repository.record_deployment_error(
+                prepared.resolved.deployment.id,
+                str(exc),
+            )
+            raise
 
     async def advance_character_tool_model(
         self,
@@ -177,6 +248,25 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         except ProviderError as exc:
             self._isolate_provider_failure(prepared, exc)
             return self._provider_failure_response(exc)
+
+    async def execute_character_tools(
+        self,
+        prepared: PreparedCharacterTurn,
+        turn: PromptModelToolTurn,
+    ) -> int:
+        before = len(turn.traces)
+        executed = await super().execute_character_tools(prepared, turn)
+        media_traces = [
+            item for item in turn.traces[before:] if item.tool_id == _MEDIA_INSPECT_TOOL_ID
+        ]
+        if media_traces:
+            getter = getattr(self.tool_registry, "media_inspection_result", None)
+            result = getter(prepared.tool_context) if callable(getter) else None
+            if isinstance(result, LiveMediaResult):
+                self._apply_media_inspection_result(prepared, result)
+            elif any(item.status != "completed" for item in media_traces):
+                self._record_failed_media_tool(prepared)
+        return executed
 
     async def resolve_character_output(
         self,
@@ -195,6 +285,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
                 status="active",
                 last_error="smart_output_retry_failed",
             )
+        self._finalize_media_epistemic(prepared, output)
         return output
 
     def authorize_character_output(
@@ -257,6 +348,25 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         active_payload = payload.model_copy(update={"attachments": other_attachments})
         return passive_payload, active_payload
 
+    @classmethod
+    def _active_shared_payload(
+        cls,
+        payload: DiscordInboundMessage,
+    ) -> DiscordInboundMessage | None:
+        _, active_payload = cls._split_passive_images(payload)
+        return active_payload if has_shared_content(active_payload) else None
+
+    def _media_inspection_enabled(self, prepared: PreparedCharacterTurn) -> bool:
+        if self.live_media_service is None:
+            return False
+        if self._active_shared_payload(prepared.resolved.payload) is None:
+            return False
+        return self.tool_registry.tool_id_for_provider_name("media_inspect") == _MEDIA_INSPECT_TOOL_ID
+
+    @staticmethod
+    def _enabled_tools_with_media(prepared: PreparedCharacterTurn) -> tuple[str, ...]:
+        return tuple(dict.fromkeys((*prepared.enabled_tools, _MEDIA_INSPECT_TOOL_ID)))
+
     async def _media_result_for_payload(
         self,
         prepared: PreparedCharacterTurn,
@@ -289,6 +399,8 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         return result
 
     async def _ensure_media_context(self, prepared: PreparedCharacterTurn) -> None:
+        """Inject memory/passive images only; active links/videos are Tool-driven."""
+
         resolved = prepared.resolved
         deployment = resolved.deployment
         payload = resolved.payload
@@ -358,150 +470,149 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             )
             return
 
-        attention = await self._attention_for_turn(
-            prepared,
-            payload=active_payload,
-            key=key,
-            now=now,
-        )
-        if attention.action == "skip":
+        # Active shared content is intentionally not fetched here. The normal Character model
+        # call gets media_inspect and can either return CR_OUTPUT immediately (one Character call)
+        # or request inspection, which then enters the existing Tool loop.
+        self._inject_guidance(prepared, _active_media_choice_guidance())
+        if passive_payload is not None:
             self._record_epistemic(
                 key,
                 now,
                 MediaEpistemicSnapshot(
-                    state="perceived" if passive_contexts else "skipped",
-                    attention_action="skip",
-                    attention_reason=attention.reason,
-                    response_stance=attention.response_stance,
-                    stance_reason=attention.stance_reason,
-                    context_count=len(passive_contexts),
-                    cache_hits=passive_cache_hits,
-                    media_result_reason=(
-                        "passive_image_perceived_active_skipped"
-                        if passive_contexts
-                        else "active_content_skipped"
+                    state="perceived" if passive_contexts else "unavailable",
+                    attention_action="passive",
+                    attention_reason="visible_image_attachment",
+                    response_stance="truthful" if passive_contexts else "neutral",
+                    stance_reason=(
+                        "Visible image perception is already grounded; other shared content has "
+                        "not been inspected yet."
                     ),
-                ),
-            )
-            self._inject_guidance(prepared, skipped_media_guidance(active_payload, attention))
-            return
-
-        if self.live_media_service is None:
-            self._record_epistemic(
-                key,
-                now,
-                MediaEpistemicSnapshot(
-                    state="perceived" if passive_contexts else "unavailable",
-                    attention_action="watch",
-                    attention_reason=attention.reason,
-                    response_stance=attention.response_stance,
-                    stance_reason=attention.stance_reason,
                     context_count=len(passive_contexts),
                     cache_hits=passive_cache_hits,
-                    media_result_reason="media_service_unavailable",
+                    media_result_reason=passive_reason,
                 ),
             )
-            self._inject_guidance(prepared, unavailable_media_guidance(active_payload, attention))
-            return
 
-        result = await self._media_result_for_payload(
-            prepared,
-            payload=active_payload,
-            scope="active-content",
-            now=now,
-        )
-        active_contexts = result.contexts
-        all_contexts = tuple([*passive_contexts, *active_contexts])
-        total_cache_hits = passive_cache_hits + result.cache_hits
+    def _apply_media_inspection_result(
+        self,
+        prepared: PreparedCharacterTurn,
+        result: LiveMediaResult,
+    ) -> None:
+        resolved = prepared.resolved
+        deployment = resolved.deployment
+        key = (deployment.id, resolved.payload.message_id)
+        now = monotonic()
+        previous = self._current_epistemic(key)
+        base_count = previous.context_count if previous is not None else 0
+        base_cache_hits = previous.cache_hits if previous is not None else 0
+        active_payload = self._active_shared_payload(resolved.payload)
+        active_contexts = tuple(result.contexts)
 
-        if not active_contexts:
-            self._record_epistemic(
-                key,
-                now,
-                MediaEpistemicSnapshot(
-                    state="perceived" if passive_contexts else "unavailable",
-                    attention_action="watch",
-                    attention_reason=attention.reason,
-                    response_stance=attention.response_stance,
-                    stance_reason=attention.stance_reason,
-                    context_count=len(passive_contexts),
-                    cache_hits=total_cache_hits,
-                    media_result_reason=result.reason,
-                ),
-            )
-            self._inject_guidance(prepared, unavailable_media_guidance(active_payload, attention))
-            return
+        if active_contexts and active_payload is not None:
+            memory_service = self.conversation_media_service
+            if memory_service is not None:
+                memory_service.remember_perceived(
+                    owner_id=deployment.owner_id,
+                    deployment_id=deployment.id,
+                    character_card_id=resolved.card.id,
+                    payload=active_payload,
+                    contexts=active_contexts,
+                )
 
+        perceived = bool(active_contexts)
         self._record_epistemic(
             key,
             now,
             MediaEpistemicSnapshot(
-                state="perceived",
+                state=(
+                    "perceived"
+                    if perceived or base_count > 0
+                    else "unavailable"
+                ),
                 attention_action="watch",
-                attention_reason=attention.reason,
-                response_stance=attention.response_stance,
-                stance_reason=attention.stance_reason,
-                context_count=len(all_contexts),
-                cache_hits=total_cache_hits,
+                attention_reason="Character requested media inspection before final output.",
+                response_stance="neutral",
+                stance_reason=(
+                    "No separate Media Attention model pass; final social behavior is decided by "
+                    "the Character model after the Tool result."
+                ),
+                context_count=base_count + len(active_contexts),
+                cache_hits=base_cache_hits + result.cache_hits,
                 media_result_reason=result.reason,
             ),
         )
-        if memory_service is not None:
-            memory_service.remember_perceived(
-                owner_id=deployment.owner_id,
-                deployment_id=deployment.id,
-                character_card_id=resolved.card.id,
-                payload=active_payload,
-                contexts=active_contexts,
-            )
-        guidance = (
-            *watched_media_guidance(active_contexts, attention),
-            (
-                "Evidence boundary: do not infer scenes, speech, demonstrations, or conclusions "
-                "that are absent from the observations below. A video title/description or web "
-                "page preview alone is not evidence that you watched the full video."
+
+    def _record_failed_media_tool(self, prepared: PreparedCharacterTurn) -> None:
+        resolved = prepared.resolved
+        key = (resolved.deployment.id, resolved.payload.message_id)
+        previous = self._current_epistemic(key)
+        self._record_epistemic(
+            key,
+            monotonic(),
+            MediaEpistemicSnapshot(
+                state=("perceived" if previous and previous.context_count > 0 else "unavailable"),
+                attention_action="watch",
+                attention_reason="Character requested media inspection before final output.",
+                response_stance="neutral",
+                stance_reason="Media inspection Tool did not complete successfully.",
+                context_count=previous.context_count if previous else 0,
+                cache_hits=previous.cache_hits if previous else 0,
+                media_result_reason="media_inspect_tool_failed",
             ),
         )
-        self._inject_guidance(prepared, guidance)
 
-    async def _attention_for_turn(
+    def _finalize_media_epistemic(
         self,
         prepared: PreparedCharacterTurn,
-        *,
-        payload: DiscordInboundMessage,
-        key: tuple[str, str],
-        now: float,
-    ) -> MediaAttentionDecision:
-        cached = self._media_attention_results.get(key)
-        if cached is not None and cached[0] > now:
-            return cached[1]
-
-        target = prepared.resolved.target
-        if not isinstance(target, PromptModelTarget):
-            decision = MediaAttentionDecision(
-                action="watch",
-                reason="non_prompt_target",
-                response_stance="truthful",
-                stance_reason="Deterministic target follows resolved content directly.",
-            )
-        else:
-            deployment = prepared.resolved.deployment
-            with provider_trace_scope(
-                owner_id=deployment.owner_id,
-                deployment_id=deployment.id,
-                character_card_id=prepared.resolved.card.id,
-            ):
-                decision = await self.media_attention_decider.decide(
-                    target=target,
-                    payload=payload,
-                )
-
-        self._media_attention_results[key] = (
-            now + _MEDIA_RESULT_TTL_SECONDS,
-            decision,
+        output: ResolvedCharacterOutput,
+    ) -> None:
+        if self._active_shared_payload(prepared.resolved.payload) is None:
+            return
+        key = (
+            prepared.resolved.deployment.id,
+            prepared.resolved.payload.message_id,
         )
-        self._cleanup_cache(self._media_attention_results, now)
-        return decision
+        traces = output.tool_traces
+        if any(item.tool_id == _MEDIA_INSPECT_TOOL_ID for item in traces):
+            if self._current_epistemic(key) is None:
+                self._record_failed_media_tool(prepared)
+            return
+
+        previous = self._current_epistemic(key)
+        passive_count = previous.context_count if previous is not None else 0
+        passive_cache_hits = previous.cache_hits if previous is not None else 0
+        self._record_epistemic(
+            key,
+            monotonic(),
+            MediaEpistemicSnapshot(
+                state="perceived" if passive_count > 0 else "skipped",
+                attention_action="skip",
+                attention_reason=(
+                    "Character completed the turn without requesting media inspection."
+                ),
+                response_stance="neutral",
+                stance_reason=(
+                    "No separate Media Attention model pass; the Character chose its final action "
+                    "without opening the unseen content."
+                ),
+                context_count=passive_count,
+                cache_hits=passive_cache_hits,
+                media_result_reason=(
+                    "passive_image_perceived_active_skipped"
+                    if passive_count > 0
+                    else "active_content_not_inspected"
+                ),
+            ),
+        )
+
+    def _current_epistemic(
+        self,
+        key: tuple[str, str],
+    ) -> MediaEpistemicSnapshot | None:
+        cached = self._media_epistemic_states.get(key)
+        if cached is None or cached[0] <= monotonic():
+            return None
+        return cached[1]
 
     def epistemic_trace_metadata(
         self,
@@ -509,10 +620,9 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
     ) -> tuple[tuple[str, str], ...]:
         resolved = prepared.resolved
         key = (resolved.deployment.id, resolved.payload.message_id)
-        cached = self._media_epistemic_states.get(key)
-        if cached is None or cached[0] <= monotonic():
+        snapshot = self._current_epistemic(key)
+        if snapshot is None:
             return ()
-        snapshot = cached[1]
         return (
             ("actual_perception", snapshot.state),
             ("attention_action", snapshot.attention_action),
@@ -572,6 +682,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             return
         markers = (
             "Character passive image perception:",
+            "Character media inspection choice:",
             "Character media attention:",
             "Character media perception for this turn:",
             "Character media perception:",
