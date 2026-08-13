@@ -105,8 +105,8 @@ def _active_media_choice_guidance() -> tuple[str, ...]:
         "Character media inspection choice:",
         (
             "A shared link/video/other non-visible item is present. You are not required to open "
-            "it. If your persona is genuinely interested or you need unseen details before choosing "
-            "your final Discord action, call media_inspect."
+            "it. If your persona is genuinely interested or you need unseen details before "
+            "choosing your final Discord action, call media_inspect."
         ),
         (
             "If you do not call media_inspect, treat unseen details as unknown and decide from the "
@@ -219,7 +219,10 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
     ) -> PromptModelToolTurn | None:
         await self._ensure_media_context(prepared)
         target = prepared.resolved.target
-        if not isinstance(target, PromptModelTarget) or not self._media_inspection_enabled(prepared):
+        if (
+            not isinstance(target, PromptModelTarget)
+            or not self._media_inspection_enabled(prepared)
+        ):
             return await super().start_character_tool_turn(prepared)
 
         try:
@@ -361,7 +364,10 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             return False
         if self._active_shared_payload(prepared.resolved.payload) is None:
             return False
-        return self.tool_registry.tool_id_for_provider_name("media_inspect") == _MEDIA_INSPECT_TOOL_ID
+        return (
+            self.tool_registry.tool_id_for_provider_name("media_inspect")
+            == _MEDIA_INSPECT_TOOL_ID
+        )
 
     @staticmethod
     def _enabled_tools_with_media(prepared: PreparedCharacterTurn) -> tuple[str, ...]:
