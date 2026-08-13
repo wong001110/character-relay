@@ -1,12 +1,22 @@
 import asyncio
+import json
 from types import SimpleNamespace
 from typing import Any, cast
 
+from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.live_media import LiveMediaContext, LiveMediaResult
-from echo_masque.media_attention import MediaAttentionDecision
 from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
+from echo_masque.media_tools import MediaToolRegistry
+from echo_masque.providers import (
+    ChatMessage,
+    ChatToolCall,
+    ChatToolDefinition,
+    ChatToolFunctionCall,
+    ProviderCompletion,
+)
 from echo_masque.providers.errors import ProviderTimeoutError
 from echo_masque.targets import PromptModelConfig, PromptModelTarget
+from echo_masque.tool_runtime import ToolExecutionContext
 
 
 class FakeLiveMediaService:
@@ -17,12 +27,12 @@ class FakeLiveMediaService:
             reason="ok",
             contexts=(
                 LiveMediaContext(
-                    source_key="sha256:abc",
-                    kind="image",
-                    label="cat.png",
-                    summary="An orange cat is sitting on a laptop.",
-                    visible_text="Build failed",
-                    notable_details=("One paw is on the keyboard.",),
+                    source_key="bilibili:test",
+                    kind="video",
+                    label="Shared video",
+                    summary="A short comedy clip about a game character.",
+                    visible_text="旅行者：我是爷们",
+                    notable_details=("The clip is presented as a meme.",),
                 ),
             ),
         )
@@ -30,22 +40,6 @@ class FakeLiveMediaService:
     async def contexts_for_turn(self, **_: object) -> LiveMediaResult:
         self.calls += 1
         return self.result
-
-
-class FakeAttentionDecider:
-    def __init__(self, action: str, stance: str = "truthful") -> None:
-        self.action = action
-        self.stance = stance
-        self.calls = 0
-
-    async def decide(self, **_: object) -> MediaAttentionDecision:
-        self.calls += 1
-        return MediaAttentionDecision(
-            action=cast(Any, self.action),
-            reason=f"persona_{self.action}",
-            response_stance=cast(Any, self.stance),
-            stance_reason=f"persona_{self.stance}",
-        )
 
 
 class FakeDeploymentRepository:
@@ -68,12 +62,88 @@ class FakeDeploymentRepository:
         return object()
 
 
+class SkipMediaProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.seen_tools: list[str] = []
+
+    async def complete(self, **_: object) -> ProviderCompletion:
+        raise AssertionError("Tool-capable media turn should use complete_with_tools.")
+
+    async def complete_with_tools(
+        self,
+        *,
+        messages: tuple[ChatMessage, ...],
+        model: str,
+        temperature: float,
+        tools: tuple[ChatToolDefinition, ...],
+    ) -> ProviderCompletion:
+        del messages, temperature
+        self.calls += 1
+        self.seen_tools = [item.function.name for item in tools]
+        return ProviderCompletion(
+            text='[[CR_OUTPUT {"action":"ignore"}]]',
+            model=model,
+            latency_ms=5,
+            finish_reason="stop",
+        )
+
+
+class InspectMediaProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.seen_tool_result = ""
+
+    async def complete(self, **_: object) -> ProviderCompletion:
+        raise AssertionError("Media inspection should remain inside the bounded Tool loop.")
+
+    async def complete_with_tools(
+        self,
+        *,
+        messages: tuple[ChatMessage, ...],
+        model: str,
+        temperature: float,
+        tools: tuple[ChatToolDefinition, ...],
+    ) -> ProviderCompletion:
+        del temperature
+        self.calls += 1
+        assert "media_inspect" in [item.function.name for item in tools]
+        if self.calls == 1:
+            return ProviderCompletion(
+                text="",
+                model=model,
+                latency_ms=4,
+                finish_reason="tool_calls",
+                tool_calls=(
+                    ChatToolCall(
+                        id="call-media",
+                        function=ChatToolFunctionCall(
+                            name="media_inspect",
+                            arguments="{}",
+                        ),
+                    ),
+                ),
+            )
+
+        tool_message = next(item for item in reversed(messages) if item.role == "tool")
+        self.seen_tool_result = tool_message.content
+        payload = json.loads(tool_message.content)
+        assert payload["perception"] == "perceived"
+        assert payload["observations"][0]["kind"] == "video"
+        return ProviderCompletion(
+            text='[[CR_OUTPUT {"action":"message","content":[{"text":"这什么鬼啦"}]}]]',
+            model=model,
+            latency_ms=6,
+            finish_reason="stop",
+        )
+
+
 class TimeoutProvider:
     async def complete(self, **_: object) -> object:
         raise ProviderTimeoutError("DeepSeek did not respond before timeout.")
 
 
-def prompt_target(provider: object | None = None) -> PromptModelTarget:
+def prompt_target(provider: object) -> PromptModelTarget:
     config = PromptModelConfig(
         name="Character",
         provider="test",
@@ -83,40 +153,73 @@ def prompt_target(provider: object | None = None) -> PromptModelTarget:
     )
     return PromptModelTarget(
         config=config,
-        provider=cast(Any, provider or object()),
+        provider=cast(Any, provider),
         runtime_system_prompt="You are a selective, opinionated Character.",
     )
 
 
-def prepared_turn(target: object | None = None) -> SimpleNamespace:
+def link_payload() -> DiscordInboundMessage:
+    return DiscordInboundMessage(
+        connection_id="connection-1",
+        deployment_id="deployment-1",
+        message_id="message-1",
+        guild_id="guild-1",
+        channel_id="channel-1",
+        author_id="user-1",
+        author_display_name="Juen",
+        text="【旅行者：我是爷们-哔哩哔哩】 https://b23.tv/example",
+    )
+
+
+def prepared_turn(target: object) -> SimpleNamespace:
+    payload = link_payload()
     return SimpleNamespace(
         resolved=SimpleNamespace(
             deployment=SimpleNamespace(id="deployment-1", owner_id="owner-1"),
             card=SimpleNamespace(id="card-1"),
-            target=target or object(),
-            payload=SimpleNamespace(
-                message_id="message-1",
-                text="@Ann 看看这个 https://example.com/cat.png",
-                attachments=[],
-                embeds=[],
-            ),
+            target=target,
+            payload=payload,
         ),
         prompt="Recent conversation:\nhello\nReturn Smart Output now.",
         enabled_tools=(),
+        tool_context=ToolExecutionContext(
+            owner_id="owner-1",
+            deployment_id="deployment-1",
+            character_card_id="card-1",
+            platform="discord",
+            connection_id="connection-1",
+            guild_id="guild-1",
+            channel_id="channel-1",
+            message_id="message-1",
+            trigger_text=payload.text,
+        ),
     )
 
 
 def runtime_for(
     service: FakeLiveMediaService,
-    attention: FakeAttentionDecider | None = None,
     deployment_repository: object | None = None,
 ) -> MediaAwareDiscordConnectorRuntime:
-    return MediaAwareDiscordConnectorRuntime(
+    registry = MediaToolRegistry()
+    runtime = MediaAwareDiscordConnectorRuntime(
         cast(Any, object()),
-        cast(Any, deployment_repository or object()),
+        cast(Any, deployment_repository or FakeDeploymentRepository()),
         cast(Any, object()),
+        tool_registry=registry,
         live_media_service=cast(Any, service),
-        media_attention_decider=cast(Any, attention) if attention is not None else None,
+    )
+    return runtime
+
+
+def register_payload(
+    runtime: MediaAwareDiscordConnectorRuntime,
+    prepared: SimpleNamespace,
+) -> None:
+    setter = getattr(runtime.tool_registry, "set_turn_media_payload")
+    setter(
+        deployment_id="deployment-1",
+        message_id="message-1",
+        payload=prepared.resolved.payload,
     )
 
 
@@ -127,107 +230,95 @@ def trace_metadata(
     return dict(runtime.epistemic_trace_metadata(cast(Any, prepared)))
 
 
-def test_media_context_is_injected_once_before_smart_output_instruction() -> None:
+def test_link_preview_does_not_run_media_understanding_before_character_decision() -> None:
     service = FakeLiveMediaService()
     runtime = runtime_for(service)
-    prepared = prepared_turn()
-
-    async def run() -> None:
-        await runtime._ensure_media_context(cast(Any, prepared))
-        await runtime._ensure_media_context(cast(Any, prepared))
-
-    asyncio.run(run())
-
-    assert service.calls == 1
-    assert "Character media perception for this turn:" in prepared.prompt
-    assert "An orange cat is sitting on a laptop." in prepared.prompt
-    assert "Visible/readable text: Build failed" in prepared.prompt
-    assert "Do not default to a summary" in prepared.prompt
-    assert prepared.prompt.endswith("Return Smart Output now.")
-    assert prepared.prompt.index("Character media perception") < prepared.prompt.index(
-        "Return Smart Output now."
-    )
-
-
-def test_character_can_skip_and_bluff_without_running_understanding() -> None:
-    service = FakeLiveMediaService()
-    attention = FakeAttentionDecider("skip", "bluff")
-    runtime = runtime_for(service, attention)
-    prepared = prepared_turn(prompt_target())
+    prepared = prepared_turn(prompt_target(SkipMediaProvider()))
+    register_payload(runtime, prepared)
 
     asyncio.run(runtime._ensure_media_context(cast(Any, prepared)))
 
-    assert attention.calls == 1
     assert service.calls == 0
-    assert "actual_media_perception=skipped" in prepared.prompt
-    assert "free to be honest, evasive, bluff, lie, tease" in prepared.prompt
-    assert "Private media response stance for this turn: bluff" in prepared.prompt
+    assert "Character media inspection choice:" in prepared.prompt
+    assert "call media_inspect" in prepared.prompt
+
+
+def test_skip_and_ignore_is_one_character_call_and_zero_media_calls() -> None:
+    service = FakeLiveMediaService()
+    provider = SkipMediaProvider()
+    runtime = runtime_for(service)
+    prepared = prepared_turn(prompt_target(provider))
+    register_payload(runtime, prepared)
+
+    turn = asyncio.run(runtime.start_character_tool_turn(cast(Any, prepared)))
+    assert turn is not None
+    response = asyncio.run(runtime.advance_character_tool_model(cast(Any, prepared), turn))
+
+    assert response is not None
+    assert response.text == '[[CR_OUTPUT {"action":"ignore"}]]'
+    assert provider.calls == 1
+    assert provider.seen_tools == ["media_inspect"]
+    assert service.calls == 0
+
+    runtime._finalize_media_epistemic(
+        cast(Any, prepared),
+        cast(Any, SimpleNamespace(tool_traces=[])),
+    )
     metadata = trace_metadata(runtime, prepared)
     assert metadata["actual_perception"] == "skipped"
-    assert metadata["response_stance"] == "bluff"
-    assert metadata["stance_grounding"] == "intentional_without_perception"
-    assert metadata["media_context_count"] == "0"
+    assert metadata["attention_action"] == "skip"
+    assert metadata["media_result_reason"] == "active_content_not_inspected"
 
 
-def test_character_watch_runs_media_understanding_then_reacts_in_persona() -> None:
+def test_interested_character_calls_media_api_only_after_media_tool_request() -> None:
     service = FakeLiveMediaService()
-    attention = FakeAttentionDecider("watch", "truthful")
-    runtime = runtime_for(service, attention)
-    prepared = prepared_turn(prompt_target())
+    provider = InspectMediaProvider()
+    runtime = runtime_for(service)
+    prepared = prepared_turn(prompt_target(provider))
+    register_payload(runtime, prepared)
 
-    async def run() -> None:
-        await runtime._ensure_media_context(cast(Any, prepared))
-        await runtime._ensure_media_context(cast(Any, prepared))
+    turn = asyncio.run(runtime.start_character_tool_turn(cast(Any, prepared)))
+    assert turn is not None
 
-    asyncio.run(run())
+    first = asyncio.run(runtime.advance_character_tool_model(cast(Any, prepared), turn))
+    assert first is None
+    assert provider.calls == 1
+    assert service.calls == 0
 
-    assert attention.calls == 1
+    assert asyncio.run(runtime.execute_character_tools(cast(Any, prepared), turn)) == 1
     assert service.calls == 1
-    assert "actual_media_perception=perceived" in prepared.prompt
-    assert "React from your own persona" in prepared.prompt
-    assert "Do not default to a summary" in prepared.prompt
+
+    second = asyncio.run(runtime.advance_character_tool_model(cast(Any, prepared), turn))
+    assert second is not None
+    assert provider.calls == 2
+    assert provider.seen_tool_result
+    assert second.text.startswith("[[CR_OUTPUT")
+
     metadata = trace_metadata(runtime, prepared)
     assert metadata["actual_perception"] == "perceived"
-    assert metadata["response_stance"] == "truthful"
-    assert metadata["stance_grounding"] == "grounded_in_perception"
+    assert metadata["attention_action"] == "watch"
     assert metadata["media_context_count"] == "1"
+    assert metadata["media_result_reason"] == "ok"
 
 
-def test_failed_watch_records_unavailable_without_exposing_runtime_error_to_character() -> None:
-    service = FakeLiveMediaService(
-        LiveMediaResult(status="failed", reason="media_resolution_failed")
-    )
-    attention = FakeAttentionDecider("watch", "uncertain")
-    runtime = runtime_for(service, attention)
-    prepared = prepared_turn(prompt_target())
-
-    asyncio.run(runtime._ensure_media_context(cast(Any, prepared)))
-
-    assert service.calls == 1
-    assert "actual_media_perception=unavailable" in prepared.prompt
-    assert "no reliable content observations became available" in prepared.prompt
-    assert "Do not turn this into a support-style message" in prepared.prompt
-    assert "media_resolution_failed" not in prepared.prompt
-    metadata = trace_metadata(runtime, prepared)
-    assert metadata["actual_perception"] == "unavailable"
-    assert metadata["response_stance"] == "uncertain"
-    assert metadata["stance_grounding"] == "speculative_without_perception"
-    assert metadata["media_result_reason"] == "media_resolution_failed"
+def test_runtime_owned_media_tool_is_hidden_from_manual_tool_catalog() -> None:
+    registry = MediaToolRegistry()
+    ids = {item.id for item in registry.catalog()}
+    assert "media.inspect" not in ids
+    assert registry.tool_id_for_provider_name("media_inspect") == "media.inspect"
 
 
 def test_transient_provider_failure_returns_silent_control_without_disabling_deployment() -> None:
     service = FakeLiveMediaService()
-    attention = FakeAttentionDecider("skip", "truthful")
     deployments = FakeDeploymentRepository()
-    runtime = runtime_for(service, attention, deployments)
+    runtime = runtime_for(service, deployments)
     prepared = prepared_turn(prompt_target(TimeoutProvider()))
+    register_payload(runtime, prepared)
 
     response = asyncio.run(runtime.invoke_character_model(cast(Any, prepared)))
 
     assert response.text == '[[CR_OUTPUT {"action":"ignore"}]]'
     assert response.trace["provider_failure"] == "provider_timeout"
-    # Base Runtime records the exception first; the Media-aware production Runtime then
-    # restores a transient provider failure to active turn health.
     assert deployments.errors == [
         ("deployment-1", "DeepSeek did not respond before timeout.")
     ]
