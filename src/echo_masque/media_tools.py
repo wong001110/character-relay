@@ -1,4 +1,4 @@
-"""Media creation Tool extensions for the server-aware Runtime registry."""
+"""Media Tool extensions for the server-aware Runtime registry."""
 
 from __future__ import annotations
 
@@ -7,23 +7,28 @@ from typing import Any
 
 from pydantic import SecretStr
 
+from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.generated_media_delivery import GeneratedMediaDeliveryService
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService, ImageGenerateToolInput
 from echo_masque.image_generation import CANONICAL_ASPECT_RATIOS
+from echo_masque.live_media import LiveMediaContextService, LiveMediaResult
 from echo_masque.persistence import DeploymentRepository, DiscordIdentityRepository
 from echo_masque.providers import ChatToolCall, ProviderError
 from echo_masque.providers.trace import provider_trace_scope
 from echo_masque.server_time_tools import ServerAwareToolRegistry
 from echo_masque.tool_external import ExternalToolFailed, json_result
 from echo_masque.tool_runtime import (
+    ToolCatalogItem,
     ToolExecutionContext,
     ToolExecutionResult,
     _tool,
 )
 
+_MEDIA_INSPECT_TOOL_ID = "media.inspect"
+
 
 class MediaToolRegistry(ServerAwareToolRegistry):
-    """Add explicitly assignable media-creation capabilities without provider coupling."""
+    """Add media creation plus one Runtime-owned shared-content inspection capability."""
 
     def __init__(
         self,
@@ -47,8 +52,47 @@ class MediaToolRegistry(ServerAwareToolRegistry):
                 ),
             )
         self.generated_media_delivery = generated_media_delivery
+        self.live_media_service: LiveMediaContextService | None = None
         self._generated_by_turn: dict[tuple[str, str], tuple[str, ...]] = {}
         self._reply_reference_by_turn: dict[tuple[str, str], str] = {}
+        self._shared_payload_by_turn: dict[
+            tuple[str, str], DiscordInboundMessage
+        ] = {}
+        self._inspected_media_by_turn: dict[
+            tuple[str, str], LiveMediaResult
+        ] = {}
+
+        inspect_tool = _tool(
+            tool_id=_MEDIA_INSPECT_TOOL_ID,
+            display_name="Inspect Shared Media",
+            description=(
+                "Privately open/watch/read the media or link in the current triggering Discord "
+                "message. Runtime exposes this only for the current turn; it is not a manually "
+                "assignable Deployment capability."
+            ),
+            category="media",
+            operation="read",
+            risk="low",
+            side_effect=False,
+            provider_name="media_inspect",
+            provider_description=(
+                "Inspect the shared media/link in the current triggering Discord message only "
+                "when this Character genuinely wants or needs unseen content before choosing "
+                "its final Discord action. Do not call merely because media exists. If the "
+                "visible preview is enough, or the Character is not interested, skip this Tool "
+                "and respond/ignore naturally. For the current shared media/link, prefer this "
+                "Tool over generic web or file tools because it returns Runtime-grounded media "
+                "observations."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        )
+        self._by_id[inspect_tool.catalog.id] = inspect_tool
+        self._by_provider_name[inspect_tool.catalog.provider_function_name] = inspect_tool
+
         image_available = (
             image_creation_service is not None and generated_media_delivery is not None
         )
@@ -116,6 +160,32 @@ class MediaToolRegistry(ServerAwareToolRegistry):
         self._by_id[image_tool.catalog.id] = image_tool
         self._by_provider_name[image_tool.catalog.provider_function_name] = image_tool
 
+    def catalog(self) -> tuple[ToolCatalogItem, ...]:
+        """Keep Runtime-owned media inspection out of manual Deployment Tool assignment."""
+
+        return tuple(
+            item for item in super().catalog() if item.id != _MEDIA_INSPECT_TOOL_ID
+        )
+
+    def set_live_media_service(self, service: LiveMediaContextService | None) -> None:
+        self.live_media_service = service
+
+    def set_turn_media_payload(
+        self,
+        *,
+        deployment_id: str,
+        message_id: str,
+        payload: DiscordInboundMessage | None,
+    ) -> None:
+        key = (deployment_id, message_id)
+        self._inspected_media_by_turn.pop(key, None)
+        if payload is None:
+            self._shared_payload_by_turn.pop(key, None)
+        else:
+            self._shared_payload_by_turn[key] = payload
+        self._trim_turn_map(self._shared_payload_by_turn)
+        self._trim_turn_map(self._inspected_media_by_turn)
+
     async def execute(
         self,
         call: ChatToolCall,
@@ -149,6 +219,8 @@ class MediaToolRegistry(ServerAwareToolRegistry):
         arguments: dict[str, object],
         context: ToolExecutionContext,
     ) -> str:
+        if tool_id == _MEDIA_INSPECT_TOOL_ID:
+            return await self._inspect_shared_media(context)
         if tool_id != "image.generate":
             return await super()._execute_tool(tool_id, arguments, context)
         self._require_discord(context)
@@ -205,6 +277,78 @@ class MediaToolRegistry(ServerAwareToolRegistry):
             attachment_urls=attachment_urls,
             count=len(artifact_ids),
             delivered=True,
+        )
+
+    async def _inspect_shared_media(self, context: ToolExecutionContext) -> str:
+        self._require_discord(context)
+        key = (context.deployment_id, context.message_id)
+        cached = self._inspected_media_by_turn.get(key)
+        if cached is not None:
+            return self._media_result_content(cached)
+
+        service = self.live_media_service
+        payload = self._shared_payload_by_turn.get(key)
+        if service is None:
+            result = LiveMediaResult(status="failed", reason="media_service_unavailable")
+            self._inspected_media_by_turn[key] = result
+            return self._media_result_content(result)
+        if payload is None:
+            result = LiveMediaResult(status="failed", reason="media_payload_unavailable")
+            self._inspected_media_by_turn[key] = result
+            return self._media_result_content(result)
+
+        try:
+            with provider_trace_scope(
+                owner_id=context.owner_id,
+                deployment_id=context.deployment_id,
+                character_card_id=context.character_card_id,
+                operation_id=context.operation_id,
+                runtime_node="turn_tool_execution",
+            ):
+                result = await service.contexts_for_turn(
+                    owner_id=context.owner_id,
+                    character_card_id=context.character_card_id,
+                    payload=payload,
+                )
+        except Exception as exc:
+            raise ExternalToolFailed("Shared media inspection could not be completed.") from exc
+
+        self._inspected_media_by_turn[key] = result
+        self._trim_turn_map(self._inspected_media_by_turn)
+        return self._media_result_content(result)
+
+    @staticmethod
+    def _media_result_content(result: LiveMediaResult) -> str:
+        observations = [
+            {
+                "kind": item.kind,
+                "label": item.label,
+                "summary": item.summary[:8000],
+                "visible_text": item.visible_text[:6000],
+                "notable_details": list(item.notable_details[:12]),
+            }
+            for item in result.contexts[:2]
+        ]
+        perceived = bool(observations)
+        return json_result(
+            ok=perceived,
+            perception="perceived" if perceived else "unavailable",
+            reason=result.reason,
+            cache_hits=result.cache_hits,
+            observations=observations,
+            guidance=(
+                "Treat only these observations as grounded unseen-content facts. React from the "
+                "Character persona; do not mention media_inspect, providers, cache, extraction, "
+                "Vision, or Runtime internals. If perception is unavailable, do not invent details."
+            ),
+        )
+
+    def media_inspection_result(
+        self,
+        context: ToolExecutionContext,
+    ) -> LiveMediaResult | None:
+        return self._inspected_media_by_turn.get(
+            (context.deployment_id, context.message_id)
         )
 
     def set_turn_reply_reference(

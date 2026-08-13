@@ -136,8 +136,6 @@ class PromptModelTarget:
         if marker <= 0:
             return message
         prefix = message[:marker]
-        # Connector formatting repair appends a short repair request after the original
-        # prompt. The original prompt and rejected assistant response are already in history.
         if "Return Smart Output now." not in prefix:
             return message
         return message[marker:].strip()
@@ -163,14 +161,28 @@ class PromptModelTarget:
         enabled_tool_ids: tuple[str, ...],
         tool_context: ToolExecutionContext,
         max_tool_rounds: int = 2,
+        forced_tool_ids: tuple[str, ...] = (),
     ) -> PromptModelToolTurn | None:
-        """Prepare a bounded Tool Calling turn without invoking the provider yet."""
+        """Prepare a bounded Tool Calling turn without invoking the provider yet.
 
-        selected_tool_ids = select_tool_ids_for_turn(
-            tool_registry,
-            enabled_tool_ids,
-            tool_context,
+        ``forced_tool_ids`` is reserved for Runtime-owned, turn-local capabilities that must be
+        visible even when semantic Tool Retrieval would normally omit them. Authorization still
+        requires the Tool id to be present in ``enabled_tool_ids``.
+        """
+
+        selected = list(
+            select_tool_ids_for_turn(
+                tool_registry,
+                enabled_tool_ids,
+                tool_context,
+            )
         )
+        enabled = set(enabled_tool_ids)
+        for tool_id in forced_tool_ids:
+            if tool_id in enabled and tool_id not in selected:
+                selected.append(tool_id)
+        selected_tool_ids = tuple(selected)
+
         provider_tools = tool_registry.provider_tools(selected_tool_ids)
         complete_with_tools = getattr(self.provider, "complete_with_tools", None)
         if not provider_tools or not callable(complete_with_tools):
@@ -271,6 +283,7 @@ class PromptModelTarget:
         enabled_tool_ids: tuple[str, ...],
         tool_context: ToolExecutionContext,
         max_tool_rounds: int = 2,
+        forced_tool_ids: tuple[str, ...] = (),
     ) -> TargetResponse:
         """Run the same bounded step/session logic used by LangGraph orchestration."""
 
@@ -280,6 +293,7 @@ class PromptModelTarget:
             enabled_tool_ids=enabled_tool_ids,
             tool_context=tool_context,
             max_tool_rounds=max_tool_rounds,
+            forced_tool_ids=forced_tool_ids,
         )
         if turn is None:
             return await self.send(message)
