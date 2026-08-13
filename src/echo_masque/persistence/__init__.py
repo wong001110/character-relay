@@ -22,6 +22,8 @@ from echo_masque.persistence.conversation_media_models import ConversationMediaR
 from echo_masque.persistence.conversation_media_repository import (
     ConversationMediaReferenceRepository,
 )
+from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
+from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
@@ -153,6 +155,8 @@ __all__ = [
     "ConditionWatchRepository",
     "ConversationMediaReferenceRecord",
     "ConversationMediaReferenceRepository",
+    "ConversationTopicRecord",
+    "ConversationTopicRepository",
     "Database",
     "DeploymentConflict",
     "DeploymentMessageAliasRecord",
