@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from echo_masque.api.connector_schemas import DiscordContextMessage, DiscordInboundMessage
-from echo_masque.context_layer import CharacterContextTraceView, CharacterTurnContext, ContextOrchestrator
+from echo_masque.context_layer import (
+    CharacterContextTraceView,
+    CharacterTurnContext,
+    ContextOrchestrator,
+)
 from echo_masque.persistence import Database, KnowledgeRepository
 from echo_masque.prompt_budget import BudgetSmartOutputContext
 from echo_masque.semantic_turn_runtime import SemanticTurnSignals, SemanticTurnSignalStore
