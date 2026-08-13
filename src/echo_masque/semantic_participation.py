@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from typing import Literal, Protocol
+from typing import ClassVar, Literal, Protocol
 
 from echo_masque.config import Settings
 from echo_masque.persistence.models import CharacterCardRecord
@@ -48,9 +48,9 @@ class FastEmbedSemanticEncoder:
     own ONNX model session in RAM.
     """
 
-    _shared_models: dict[tuple[str, str, str, int], object] = {}
-    _shared_lock = Lock()
-    _shared_load_count = 0
+    _shared_models: ClassVar[dict[tuple[str, str, str, int], object]] = {}
+    _shared_lock: ClassVar[Lock] = Lock()
+    _shared_load_count: ClassVar[int] = 0
 
     def __init__(
         self,
@@ -99,11 +99,11 @@ class FastEmbedSemanticEncoder:
 
     def _load_model(self) -> object:
         key = self._model_key()
-        model = self._shared_models.get(key)
+        model = FastEmbedSemanticEncoder._shared_models.get(key)
         if model is not None:
             return model
-        with self._shared_lock:
-            model = self._shared_models.get(key)
+        with FastEmbedSemanticEncoder._shared_lock:
+            model = FastEmbedSemanticEncoder._shared_models.get(key)
             if model is not None:
                 return model
             try:
@@ -112,14 +112,14 @@ class FastEmbedSemanticEncoder:
                 raise SemanticEmbeddingUnavailable(
                     f"Semantic embedding model is unavailable: {exc}"
                 ) from exc
-            self._shared_models[key] = model
-            type(self)._shared_load_count += 1
+            FastEmbedSemanticEncoder._shared_models[key] = model
+            FastEmbedSemanticEncoder._shared_load_count += 1
             logger.info(
                 "Loaded shared semantic embedding runtime model=%s dimension=%s "
                 "shared_model_count=%s",
                 self.model_name,
                 self.dimension,
-                len(self._shared_models),
+                len(FastEmbedSemanticEncoder._shared_models),
             )
             return model
 
@@ -127,27 +127,27 @@ class FastEmbedSemanticEncoder:
     def model_loaded(self) -> bool:
         """Return whether this encoder configuration already has a process-shared runtime."""
 
-        return self._model_key() in self._shared_models
+        return self._model_key() in FastEmbedSemanticEncoder._shared_models
 
     @classmethod
     def shared_model_count(cls) -> int:
         """Return the number of heavy embedding runtimes currently retained by this process."""
 
-        return len(cls._shared_models)
+        return len(FastEmbedSemanticEncoder._shared_models)
 
     @classmethod
     def shared_load_count(cls) -> int:
         """Return cumulative successful shared runtime loads, primarily for diagnostics/tests."""
 
-        return cls._shared_load_count
+        return FastEmbedSemanticEncoder._shared_load_count
 
     @classmethod
     def _reset_shared_models_for_test(cls) -> None:
         """Drop process-scoped test runtimes. Production code must never call this."""
 
-        with cls._shared_lock:
-            cls._shared_models.clear()
-            cls._shared_load_count = 0
+        with FastEmbedSemanticEncoder._shared_lock:
+            FastEmbedSemanticEncoder._shared_models.clear()
+            FastEmbedSemanticEncoder._shared_load_count = 0
 
     def _embed(self, text: str, prefix: str) -> list[float]:
         model = self._load_model()
