@@ -14,6 +14,8 @@ class SemanticTurnSignals:
     deployment_id: str
     message_id: str
     topic_id: str = ""
+    topic_label: str = ""
+    topic_message_count: int = 0
     continuation_tool_ids: tuple[str, ...] = ()
     detected_side_effect_intents: tuple[str, ...] = ()
     blocked_side_effect_intents: tuple[str, ...] = ()
