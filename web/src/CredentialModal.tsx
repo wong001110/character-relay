@@ -17,6 +17,7 @@ interface UtilityCredentialProps {
     name: string;
     provider: string;
     model: string;
+    configured?: boolean;
   };
   onClose: () => void;
   onConfigured: () => void;
@@ -26,20 +27,26 @@ interface UtilityCredentialProps {
 
 type Props = CharacterCredentialProps | UtilityCredentialProps;
 
-async function configureUtilityCredential(memberId: string, value: string): Promise<void> {
+async function utilityCredentialRequest(
+  memberId: string,
+  init: RequestInit,
+): Promise<void> {
   const response = await fetch(
     `/api/admin/runtime/utility-credentials/${encodeURIComponent(memberId)}`,
-    {
-      method: "PUT",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: value })
-    }
+    { ...init, credentials: "include" },
   );
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(detail || `Request failed with ${response.status}`);
   }
+}
+
+async function configureUtilityCredential(memberId: string, value: string): Promise<void> {
+  await utilityCredentialRequest(memberId, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: value }),
+  });
 }
 
 export function CredentialModal(props: Props) {
@@ -69,6 +76,21 @@ export function CredentialModal(props: Props) {
         const status = await api.configureCredential(props.card.id, value);
         props.onConfigured(status);
       }
+      props.onClose();
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : t("credential.error"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clearUtilityCredential() {
+    if (!utility) return;
+    try {
+      setSaving(true);
+      setMessage(null);
+      await utilityCredentialRequest(utility.memberId, { method: "DELETE" });
+      props.onConfigured();
       props.onClose();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : t("credential.error"));
@@ -116,6 +138,16 @@ export function CredentialModal(props: Props) {
           </label>
           <p className="secret-note">{t("credential.security")}</p>
           <div className="form-actions">
+            {utility?.configured && (
+              <button
+                type="button"
+                className="paper-button"
+                disabled={saving}
+                onClick={() => void clearUtilityCredential()}
+              >
+                Clear current key
+              </button>
+            )}
             <button type="button" className="paper-button" onClick={props.onClose}>
               {t("creator.cancel")}
             </button>
