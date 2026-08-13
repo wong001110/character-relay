@@ -216,11 +216,11 @@ class FastEmbedSemanticEncoder:
         with FastEmbedSemanticEncoder._query_lock:
             cached = FastEmbedSemanticEncoder._query_vectors.get(cache_key)
             if cached is not None:
-                expires_at, vector = cached
+                expires_at, cached_vector = cached
                 if expires_at > now:
                     FastEmbedSemanticEncoder._query_vectors.move_to_end(cache_key)
                     FastEmbedSemanticEncoder._query_cache_hit_count += 1
-                    return list(vector)
+                    return list(cached_vector)
                 del FastEmbedSemanticEncoder._query_vectors[cache_key]
             FastEmbedSemanticEncoder._query_cache_miss_count += 1
 
