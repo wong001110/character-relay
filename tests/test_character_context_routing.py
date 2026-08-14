@@ -187,7 +187,10 @@ def test_active_falls_back_only_the_rejected_knowledge_field() -> None:
 
 
 def test_shadow_runs_unified_comparison_but_preserves_both_legacy_paths() -> None:
-    gate = FakeGate(assessment("gray", fallback=False), assessment("gray", fallback=True, contextual=True))
+    gate = FakeGate(
+        assessment("gray", fallback=False),
+        assessment("gray", fallback=True, contextual=True),
+    )
     tool = FakeToolContinuation("image.generate")
     coordinator = FakeCoordinator(
         outcome(
