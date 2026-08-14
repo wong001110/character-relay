@@ -23,7 +23,7 @@ class SmartParticipationResolveCandidate(BaseModel):
     eligible: bool = True
     deterministic_score: float = Field(default=0.0, ge=-100.0, le=100.0)
     minimum_score: float = Field(default=0.0, ge=-100.0, le=100.0)
-    signals: dict[str, float] = Field(default_factory=dict)
+    signals: dict[str, float] = Field(default_factory=dict, max_length=24)
 
 
 class SmartParticipationResolveRequest(BaseModel):
@@ -42,6 +42,8 @@ class SmartParticipationResolveRequest(BaseModel):
         default_factory=list,
         max_length=5,
     )
+    minimum_margin: float = Field(default=2.0, ge=0.0, le=100.0)
+    max_participants: int = Field(default=2, ge=1, le=3)
     candidates: list[SmartParticipationResolveCandidate] = Field(
         min_length=1,
         max_length=24,
@@ -56,8 +58,12 @@ class SmartParticipationResolveCandidateView(BaseModel):
     eligible: bool
     deterministic_score: float
     minimum_score: float
+    deterministic_signals: dict[str, float] = Field(default_factory=dict, max_length=24)
     raw_e5_relevance: float = 0.0
     profile_ready: bool = False
+    semantic_points: float = 0.0
+    shadow_final_score: float = 0.0
+    shadow_selected: bool = False
     graph_evidence_count: int = 0
     learned_state_evidence_count: int = 0
     utility_adjustment: float = 0.0
@@ -74,7 +80,7 @@ class SmartParticipationSpeakerPlanItem(BaseModel):
 class SmartParticipationResolveView(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    resolver_version: str = "conversation-intelligence-v4-shadow-1"
+    resolver_version: str = "conversation-intelligence-v4-shadow-2"
     available: bool
     reason: str
     model: str = ""
@@ -84,6 +90,8 @@ class SmartParticipationResolveView(BaseModel):
     analysis_chars: int = 0
     candidates: list[SmartParticipationResolveCandidateView] = Field(default_factory=list)
     speaker_plan: list[SmartParticipationSpeakerPlanItem] = Field(default_factory=list)
+    shadow_speaker_plan: list[SmartParticipationSpeakerPlanItem] = Field(default_factory=list)
+    speaker_plan_authoritative: bool = False
     graph_shadow_observed: bool = False
     graph_shadow_node_count: int = 0
     graph_shadow_edge_count: int = 0
