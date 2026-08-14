@@ -65,7 +65,6 @@ class SmartParticipationLearnedEvidenceRequest(BaseModel):
         "runtime_tool_success",
         "knowledge_verification",
         "explicit_member_feedback",
-        "admin_annotation",
     ]
     source_message_id: str = Field(default="", max_length=200)
     source_burst_id: str = Field(default="", max_length=80)

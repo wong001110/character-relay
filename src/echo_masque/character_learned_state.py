@@ -43,7 +43,7 @@ _HALF_LIFE_SECONDS: dict[LearnedStateType, int] = {
     "expertise": 60 * 24 * 60 * 60,
     "stance": 30 * 24 * 60 * 60,
     "relationship": 90 * 24 * 60 * 60,
-    "conversation_ownership": 24 * 60 * 60,
+    "conversation_ownership": 30 * 60,
     "salience": 6 * 60 * 60,
     "participation_fatigue": 2 * 60 * 60,
 }
@@ -201,9 +201,8 @@ class CharacterLearnedStateService:
             else:
                 prior_value, prior_confidence = self._effective_values(record, current)
 
-            contradiction = (
-                abs(prior_value) >= _CONTRADICTION_MINIMUM
-                and ((prior_value > 0.0 and delta < 0.0) or (prior_value < 0.0 and delta > 0.0))
+            contradiction = abs(prior_value) >= _CONTRADICTION_MINIMUM and (
+                (prior_value > 0.0 and delta < 0.0) or (prior_value < 0.0 and delta > 0.0)
             )
             record.value = round(
                 _clamp(
@@ -296,8 +295,7 @@ class CharacterLearnedStateService:
         with self.database.session() as session:
             query = select(CharacterLearnedStateRecord).where(
                 CharacterLearnedStateRecord.owner_id == _compact(owner_id, 120),
-                CharacterLearnedStateRecord.character_card_id
-                == _compact(character_card_id, 64),
+                CharacterLearnedStateRecord.character_card_id == _compact(character_card_id, 64),
             )
             if state_types:
                 query = query.where(CharacterLearnedStateRecord.state_type.in_(state_types))

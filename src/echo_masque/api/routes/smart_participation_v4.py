@@ -10,8 +10,12 @@ from typing import Annotated, cast
 from fastapi import APIRouter, Header, HTTPException, Request, status
 
 from echo_masque.api.smart_participation_outcome_schemas import (
+    SmartParticipationLearnedEvidenceRequest,
+    SmartParticipationLearnedEvidenceView,
     SmartParticipationOutcomeObservation,
     SmartParticipationOutcomeView,
+    SmartParticipationRecentSpeakerRequest,
+    SmartParticipationRecentSpeakerView,
 )
 from echo_masque.api.smart_participation_v4_schemas import (
     SmartParticipationResolveCandidate,
@@ -20,7 +24,10 @@ from echo_masque.api.smart_participation_v4_schemas import (
     SmartParticipationResolveView,
     SmartParticipationSpeakerPlanItem,
 )
-from echo_masque.character_learned_state import CharacterLearnedStateService
+from echo_masque.character_learned_state import (
+    CharacterLearnedStateService,
+    LearnedStateEvidence,
+)
 from echo_masque.config import Settings
 from echo_masque.conversation_graph_shadow import (
     ConversationGraphShadowService,
@@ -560,6 +567,88 @@ def observe_smart_participation_v4(
         graph_edge_count=result.graph_edge_count,
         learned_evidence_count=result.learned_evidence_count,
         durable_recorded=result.durable_recorded,
+    )
+
+
+@router.post(
+    "/recent-speaker",
+    response_model=SmartParticipationRecentSpeakerView,
+)
+def recent_smart_participation_speaker_v4(
+    payload: SmartParticipationRecentSpeakerRequest,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> SmartParticipationRecentSpeakerView:
+    """Recover only a bounded recent Smart speaker after Connector-local state loss."""
+
+    _authorize_connector(request, authorization)
+    records = _deployment_repository(request).list_connector_deployments(
+        platform="discord",
+        connection_id=payload.connection_id,
+    )
+    allowed_requested = frozenset(payload.allowed_deployment_ids)
+    allowed = frozenset(
+        item.id
+        for item in records
+        if item.id in allowed_requested and item.participation_mode == "smart"
+    )
+    if not allowed:
+        return SmartParticipationRecentSpeakerView()
+    deployment_id = _durable_service(request).recent_speaker(
+        connection_id=payload.connection_id,
+        guild_id=payload.guild_id,
+        channel_id=payload.channel_id,
+        thread_id=payload.thread_id,
+        maximum_age_seconds=payload.maximum_age_seconds,
+        allowed_deployment_ids=allowed,
+    )
+    return SmartParticipationRecentSpeakerView(deployment_id=deployment_id)
+
+
+@router.post(
+    "/learned-evidence",
+    response_model=SmartParticipationLearnedEvidenceView,
+)
+def record_smart_participation_learned_evidence_v4(
+    payload: SmartParticipationLearnedEvidenceRequest,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> SmartParticipationLearnedEvidenceView:
+    """Record bounded Expertise/Stance evidence tied to an actual Connector deployment."""
+
+    _authorize_connector(request, authorization)
+    records = _deployment_repository(request).list_connector_deployments(
+        platform="discord",
+        connection_id=payload.connection_id,
+    )
+    deployment = next((item for item in records if item.id == payload.deployment_id), None)
+    if deployment is None:
+        raise HTTPException(status_code=404, detail="Deployment not found on this connector.")
+    if payload.delta == 0.0 or payload.confidence == 0.0:
+        return SmartParticipationLearnedEvidenceView(recorded=False)
+    service = CharacterLearnedStateService(_deployment_repository(request).database)
+    view = service.record_evidence(
+        LearnedStateEvidence(
+            owner_id=deployment.owner_id,
+            character_card_id=deployment.character_card_id,
+            state_type=payload.state_type,
+            subject_type=payload.subject_type,
+            subject_key=payload.subject_key,
+            delta=payload.delta,
+            confidence=payload.confidence,
+            source_type=payload.source_type,
+            source_message_id=payload.source_message_id,
+            source_burst_id=payload.source_burst_id,
+            reason_code=payload.reason_code,
+        )
+    )
+    return SmartParticipationLearnedEvidenceView(
+        recorded=True,
+        state_type=view.state_type,
+        subject_key=view.subject_key,
+        value=view.value,
+        confidence=view.confidence,
+        evidence_count=view.evidence_count,
     )
 
 
