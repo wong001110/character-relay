@@ -120,7 +120,10 @@ def test_participation_tiebreak_only_demotes_non_selected_candidate() -> None:
     service = participation_service(gateway)
     original = {item.deployment_id: item.relevance for item in candidates()}
 
-    result = service.apply(message="What do you think about the launch plan?", candidates=candidates())
+    result = service.apply(
+        message="What do you think about the launch plan?",
+        candidates=candidates(),
+    )
 
     assert result.used is True
     assert result.selected_deployment_id == "deployment-a"
