@@ -28,6 +28,10 @@ import {
   stripCustomEmojiTokens
 } from "./expressionFlow.js";
 import { DiscordEventReporter } from "./eventReporter.js";
+import {
+  CharacterContextTurnIntelligenceMetrics,
+  hasCharacterContextTurnIntelligenceActivity
+} from "./turnIntelligenceTelemetry.js";
 import { compareParticipationShadowPlan } from "./participationShadowParity.js";
 import {
   RelayClient,
@@ -151,6 +155,8 @@ interface CollectedDiscordTurn {
 }
 
 const context = new ContextBuffer(config.maxContextMessages);
+const characterContextTurnIntelligenceMetrics =
+  new CharacterContextTurnIntelligenceMetrics();
 const queues = new Map<string, Promise<void>>();
 const processedMessages = new Map<string, number>();
 const sentCharacterRoutes = new Map<
@@ -280,6 +286,7 @@ function reportCharacterContext(input: {
     deploymentId: input.deployment.deployment_id,
     characterName: input.deployment.identity_display_name || input.deployment.character_display_name
   };
+  const turnIntelligence = characterContextTurnIntelligenceMetrics.observe(trace);
   const details = {
     rag_status: trace.rag_status,
     rag_reason: trace.rag_reason,
@@ -293,6 +300,13 @@ function reportCharacterContext(input: {
     selected_chunk_count: trace.selected_chunk_count,
     selected_knowledge_tokens: trace.selected_knowledge_tokens,
     knowledge_token_budget: trace.knowledge_token_budget,
+    turn_intelligence_mode: turnIntelligence.mode,
+    turn_intelligence_requested_tasks: turnIntelligence.requestedTasks,
+    turn_intelligence_knowledge_source: turnIntelligence.knowledgeSource,
+    turn_intelligence_pending_action_source: turnIntelligence.pendingActionSource,
+    turn_intelligence_knowledge_route: turnIntelligence.knowledgeRoute,
+    turn_intelligence_pending_action_continue:
+      turnIntelligence.pendingActionContinue,
     selected: trace.selected
   };
   reportDiscordEvent({
@@ -314,6 +328,27 @@ function reportCharacterContext(input: {
     ...common,
     details
   });
+  if (hasCharacterContextTurnIntelligenceActivity(turnIntelligence)) {
+    reportDiscordEvent({
+      level:
+        turnIntelligence.knowledgeSource === "legacy_fallback" ||
+        turnIntelligence.pendingActionSource === "legacy_fallback"
+          ? "warning"
+          : "info",
+      eventType: "turn_intelligence_character_context",
+      message:
+        "Character context routing recorded a bounded Turn Intelligence decision.",
+      ...common,
+      details: {
+        mode: turnIntelligence.mode,
+        requested_tasks: turnIntelligence.requestedTasks,
+        knowledge_source: turnIntelligence.knowledgeSource,
+        knowledge_route: turnIntelligence.knowledgeRoute,
+        pending_action_source: turnIntelligence.pendingActionSource,
+        pending_action_continue: turnIntelligence.pendingActionContinue
+      }
+    });
+  }
 }
 
 async function syncServerCatalog(): Promise<void> {
@@ -3013,6 +3048,7 @@ const healthServer = createServer((request, response) => {
       ).length,
       message_content_intent: config.messageContentIntent,
       smart_participation_enabled: config.smartParticipationEnabled,
+      ...characterContextTurnIntelligenceMetrics.healthSnapshot(),
       smart_participation_max_participants: config.smartParticipationMaxParticipants,
       smart_participation_semantic_enabled: true,
       smart_participation_turn_collector_enabled: turnIngress.enabled,
