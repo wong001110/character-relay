@@ -29,9 +29,22 @@ jobs:
       - name: Apply Media Graph integration
         run: python scripts/apply_v4_media_graph_patch.py
 
+      - name: Remove duplicate Context trace value
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("src/echo_masque/context_layer.py")
+          text = path.read_text(encoding="utf-8")
+          target = "                eligible_base_count=result.eligible_base_count,\n"
+          if text.count(target) != 1:
+              raise SystemExit(f"eligible trace replacement count={text.count(target)}")
+          path.write_text(text.replace(target, "", 1), encoding="utf-8")
+          PY
+
       - name: Autoformat V4 checkpoint
         run: |
           python -m ruff format \
+            src/echo_masque/context_layer.py \
             src/echo_masque/api/routes/smart_participation_v4.py \
             src/echo_masque/participation_context_rerank.py \
             src/echo_masque/participation_final_utility.py \
@@ -41,6 +54,7 @@ jobs:
             src/echo_masque/conversation_media.py \
             src/echo_masque/conversation_media_graph.py
           python -m ruff check --fix \
+            src/echo_masque/context_layer.py \
             src/echo_masque/api/routes/smart_participation_v4.py \
             src/echo_masque/participation_context_rerank.py \
             src/echo_masque/participation_final_utility.py \
