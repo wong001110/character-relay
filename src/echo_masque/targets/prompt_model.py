@@ -45,6 +45,18 @@ _TOOL_INTEGRITY_GUIDANCE = "\n".join(
     )
 )
 _SMART_OUTPUT_REPAIR_MARKER = "Your previous Smart Output was rejected ("
+_SMART_OUTPUT_FORMAT_REPAIR_GUIDANCE = "\n".join(
+    (
+        "Formatting repair only: preserve the intended action and visible wording as closely "
+        "as possible. Do not add new reasoning, facts, or a new answer.",
+        "Return exactly one valid [[CR_OUTPUT {...}]] line.",
+        "For message content, every array item must be a separate JSON object containing "
+        "exactly one of: {\"text\":\"...\"}, {\"emoji\":\"eN\"}, or "
+        "{\"mention\":\"pN\"}.",
+        "Never place an Emoji or Mention JSON object inside a text string. If an inline Emoji "
+        "belongs between two text spans, split the text into separate content items around it.",
+    )
+)
 
 
 class PromptModelConfig(BaseModel):
@@ -130,7 +142,7 @@ class PromptModelTarget:
 
     @staticmethod
     def _compact_format_repair(message: str) -> str:
-        """Do not resend the full turn prompt when history already contains it."""
+        """Keep retry context tiny and constrain the retry to structural repair."""
 
         marker = message.rfind(_SMART_OUTPUT_REPAIR_MARKER)
         if marker <= 0:
@@ -138,7 +150,8 @@ class PromptModelTarget:
         prefix = message[:marker]
         if "Return Smart Output now." not in prefix:
             return message
-        return message[marker:].strip()
+        rejected = message[marker:].strip()
+        return f"{rejected}\n{_SMART_OUTPUT_FORMAT_REPAIR_GUIDANCE}"
 
     async def send(self, message: str) -> TargetResponse:
         if not self._history:
