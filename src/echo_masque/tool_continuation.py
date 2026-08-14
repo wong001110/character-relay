@@ -93,7 +93,9 @@ def detect_side_effect_tool_intents(
     normalized = " ".join(query.split())[:4000]
     if not normalized:
         return ()
-    forced = [tool_id for tool_id in _SIDE_EFFECT_PROFILES if _explicit_intent(tool_id, normalized)]
+    forced = [
+        tool_id for tool_id in _SIDE_EFFECT_PROFILES if _explicit_intent(tool_id, normalized)
+    ]
     resolved = settings or get_settings()
     if not resolved.semantic_embedding_runtime_enabled:
         return tuple(forced[:_SIDE_EFFECT_INTENT_MAX_SELECTED])
@@ -316,6 +318,7 @@ class ToolContinuationService:
                 )
 
         continuation_ids: list[str] = []
+        utility_selected = False
         if active_snapshot is not None and continuity is not None:
             if self._continuation_evidence(
                 payload=payload,
@@ -337,14 +340,15 @@ class ToolContinuationService:
                 )
                 if utility_tool_id:
                     continuation_ids.append(utility_tool_id)
+                    utility_selected = True
 
-        continuity_reason = continuity.reason if continuity is not None else ""
-        if continuation_ids and continuity is not None and not self._continuation_evidence(
-            payload=payload,
-            active=active_snapshot if active_snapshot is not None else topic,
-            decision=continuity,
-        ):
-            continuity_reason = "utility_tool_continuation"
+        continuity_reason = (
+            "utility_tool_continuation"
+            if utility_selected
+            else continuity.reason
+            if continuity is not None
+            else ""
+        )
 
         return ToolContinuationPlan(
             topic=topic,
