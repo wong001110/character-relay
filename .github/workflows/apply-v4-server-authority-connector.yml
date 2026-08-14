@@ -1,0 +1,52 @@
+name: Apply V4 Server Authority Connector
+
+on:
+  push:
+    branches:
+      - agent/conversation-intelligence-v4
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply guarded Connector patch
+        run: python scripts/apply_v4_server_authority_connector_patch.py
+
+      - name: Remove one-time patch helpers
+        run: |
+          rm scripts/apply_v4_server_authority_connector_patch.py
+          rm .github/workflows/apply-v4-server-authority-connector.yml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Validate Discord Connector
+        working-directory: connectors/discord
+        run: |
+          npm install --package-lock=false
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Prevent validation artifacts
+        run: rm -f connectors/discord/package-lock.json
+
+      - name: Commit validated Connector authority wiring
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No Connector authority changes produced."
+            exit 1
+          fi
+          git commit -m "feat: consume V4 server participation authority"
+          git push origin HEAD:agent/conversation-intelligence-v4
