@@ -82,6 +82,7 @@ def test_one_call_can_resolve_multiple_requested_gray_zones() -> None:
 def test_invalid_speaker_field_does_not_discard_valid_topic_or_knowledge() -> None:
     gateway = FakeGateway(
         envelope(
+            requested_tasks=("topic", "speaker", "knowledge"),
             speaker={
                 "deployment_id": "ann",
                 "confidence": "very sure",
