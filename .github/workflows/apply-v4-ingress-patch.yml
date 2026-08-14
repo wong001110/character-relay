@@ -33,10 +33,10 @@ jobs:
           if text.count(old) != 1:
               raise SystemExit(f"prepareCollection prefix match count={text.count(old)}")
           text = text.replace(old, new, 1)
-          old = '''                }
+          old = '''        }
               : undefined,
             execute: async (burst) => {'''
-          new = '''                } }
+          new = '''        } }
               : {}),
             execute: async (burst) => {'''
           if text.count(old) != 1:
