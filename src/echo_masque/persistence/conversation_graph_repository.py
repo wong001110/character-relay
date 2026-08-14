@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import delete, or_, select
-from sqlalchemy.engine import CursorResult
+from sqlalchemy.sql.elements import ColumnElement
 
 from echo_masque.persistence.conversation_graph_models import (
     ConversationGraphEdgeRecord,
@@ -73,10 +73,12 @@ def _json_object(value: dict[str, Any], maximum_chars: int) -> str:
     return "{}"
 
 
-def _provenance(value: str) -> list[dict[str, Any]]:
+def _provenance(value: str | None) -> list[dict[str, Any]]:
+    if not value:
+        return []
     try:
         decoded = json.loads(value)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
         return []
     if not isinstance(decoded, list):
         return []
@@ -84,7 +86,8 @@ def _provenance(value: str) -> list[dict[str, Any]]:
 
 
 def _rowcount(result: object) -> int:
-    return int(cast(CursorResult[Any], result).rowcount or 0)
+    value = getattr(result, "rowcount", 0)
+    return value if isinstance(value, int) else 0
 
 
 class ConversationGraphRepository:
@@ -97,7 +100,7 @@ class ConversationGraphRepository:
     def _scope_filters(
         model: type[ConversationGraphNodeRecord] | type[ConversationGraphEdgeRecord],
         scope: ConversationGraphScope,
-    ) -> tuple[object, ...]:
+    ) -> tuple[ColumnElement[bool], ...]:
         return (
             model.scope_owner_id == scope.scope_owner_id,
             model.platform == scope.platform,
@@ -226,6 +229,8 @@ class ConversationGraphRepository:
                     relation=relation_key,
                     target_node_id=target_node_id,
                     evidence_count=0,
+                    negative_evidence_count=0,
+                    provenance_json="[]",
                 )
                 session.add(record)
             record.confidence = _confidence(confidence)
