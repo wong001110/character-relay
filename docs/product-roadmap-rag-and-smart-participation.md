@@ -1,8 +1,8 @@
 # Character Relay Runtime Roadmap
 
-This document records the current runtime boundaries and the next major runtime milestone for Discord Smart Participation, Context/Topic/Memory, Media Understanding, RAG/Wiki, Tool Calling, and System Intelligence.
+This document records the current runtime boundaries and the implemented Smart Participation V4 / Conversation Intelligence milestone for Discord Smart Participation, Context/Topic/Memory, Media Understanding, RAG/Wiki, Tool Calling, and System Intelligence.
 
-Detailed V4 implementation planning lives in `docs/conversation-intelligence-v4-roadmap.md`.
+Detailed V4 architecture and implementation history lives in `docs/conversation-intelligence-v4-roadmap.md`; release evidence lives in `docs/conversation-intelligence-v4-validation.md`.
 
 ## 1. Runtime boundaries
 
@@ -130,9 +130,9 @@ Conversation Topic Memory can preserve a safe blocked side-effect intent and lat
 
 See `docs/tool-calling-roadmap.md`.
 
-## 8. Next major milestone — Smart Participation V4 / Conversation Intelligence Graph
+## 8. Current milestone — Smart Participation V4 / Conversation Intelligence Graph
 
-V4 is the next major selection/runtime integration project.
+V4 is implemented in Draft PR #166 and release-validated for CI/Railway. The runtime remains feature-flagged and shadowable so Graph/Learned-State influence can be rolled out conservatively without weakening explicit or deterministic authority.
 
 All implementation work is intentionally kept on one feature branch and one Draft PR so the architecture can be validated as one coherent pipeline rather than as disconnected detection features.
 
@@ -206,7 +206,7 @@ See `docs/conversation-intelligence-v4-roadmap.md` for phase-by-phase scope, inv
 
 ## 9. V4 delivery sequence — one PR
 
-The V4 Draft PR owns the whole sequence:
+The V4 Draft PR completed the sequence as one coherent implementation:
 
 1. Baseline measurement + compatibility flags.
 2. Adaptive Turn Collector / Conversation Burst.
@@ -221,7 +221,7 @@ The V4 Draft PR owns the whole sequence:
 11. Full regression/performance/economics/Railway validation.
 12. Explicit merge decision.
 
-The PR may ship with Graph reranking disabled if Turn Collector/pipeline/resolver improvements are proven useful but Graph benefit is not yet strong enough. Graph must remain a removable derived layer.
+Production rollout may keep Graph/Learned-State reranking in shadow or disabled mode until live outcome evidence justifies activation. Graph remains a removable derived layer and does not own authoritative conversation/media truth.
 
 ## 10. Evaluation priorities
 

@@ -1,10 +1,25 @@
 # Smart Participation V4 — Conversation Intelligence Graph Roadmap
 
-Status: **PLANNED / implementation branch opened**
+Status: **IMPLEMENTED / RELEASE VALIDATED IN DRAFT PR #166**
 
 Branch: `agent/conversation-intelligence-v4`
 
 Delivery rule: **all work in this roadmap stays in one Draft PR until final validation and explicit merge approval.** Do not split Turn Collector, participation pipeline reorder, conversation-aware resolution, Graph shadow mode, Graph reranking, Character Learned State, Topic/Media integration, or final rollout into separate implementation PRs.
+
+## Implementation result
+
+Phases 0–8 are implemented on `agent/conversation-intelligence-v4` in Draft PR #166.
+
+Release validation completed against commit `4591f3c405136fd1c072837175b1a70e2dc07827`:
+
+- **CI #1314:** green — Python 3.12/3.13 Ruff, strict Mypy and full Pytest; Web typecheck/tests/build; Discord Connector typecheck/tests/build/image; production Docker persistence and smoke checks.
+- **Railway Smoke #1280:** green.
+- Final guarded Connector edge validation passed **126 / 126 Vitest tests**, Python Media provenance tests, strict Mypy, Connector build, and `git diff --check`.
+- Durable low-information recovery now restores a recent Smart speaker after Connector process-state loss without adding a request to the normal hot path.
+- Pure visible-image bursts preserve the original Discord image-message ID through Media perception, Conversation Media, and Graph provenance; URL/video inspection policy remains Tool-driven.
+- The Public Demo Status workflow remains red because the deployed demo has 5 Characters but only 3 ready credentials. The same workflow is red on current `main`, so this is recorded as a pre-existing deployment/configuration issue rather than a V4 runtime regression.
+
+The PR remains **Draft and unmerged**. Runtime rollout remains independently disableable/shadowable and merge still requires explicit owner approval.
 
 ## Goal
 
