@@ -95,6 +95,11 @@ class SmartParticipationResolveView(BaseModel):
     graph_shadow_observed: bool = False
     graph_shadow_node_count: int = 0
     graph_shadow_edge_count: int = 0
+    topic_graph_shadow_observed: bool = False
+    topic_graph_shadow_owner_count: int = 0
+    topic_graph_shadow_topic_count: int = 0
+    topic_graph_shadow_node_count: int = 0
+    topic_graph_shadow_edge_count: int = 0
     graph_used: bool = False
     learned_state_used: bool = False
     utility_used: bool = False
