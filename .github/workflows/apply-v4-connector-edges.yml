@@ -40,6 +40,9 @@ jobs:
       - name: Apply Connector edge patch
         run: python scripts/apply_v4_connector_edges_ts.py
 
+      - name: Fix generated Connector tests
+        run: python scripts/fix_v4_generated_connector_edge_tests.py
+
       - name: Format Python changes
         run: |
           python -m ruff format \
@@ -75,6 +78,7 @@ jobs:
           rm scripts/apply_v4_connector_edges_backend.py
           rm scripts/apply_v4_connector_edges_ts.py
           rm scripts/normalize_v4_connector_edge_helper.py
+          rm scripts/fix_v4_generated_connector_edge_tests.py
           rm .github/workflows/apply-v4-connector-edges.yml
 
       - name: Commit validated V4 edge cases
