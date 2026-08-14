@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.config import get_settings
@@ -30,12 +31,27 @@ _DEICTIC_MEDIA = re.compile(
     r")",
     re.IGNORECASE,
 )
+_READABLE_TEXT_QUERY = re.compile(
+    r"(?:"
+    r"文字|文本|字幕|写着|寫著|写了|寫了|什么字|什麼字|显示|顯示|"
+    r"价格|價格|价钱|價錢|容量|数字|數字|编号|編號|uid|"
+    r"\b(?:text|read|written|says?|ocr|number|price|capacity|teks|tertulis|nombor|harga|berapa)\b"
+    r")",
+    re.IGNORECASE,
+)
+_DISCORD_INLINE = re.compile(
+    r"<@!?\d+>|<a?:[A-Za-z0-9_]+:\d+>|https?://\S+",
+    re.IGNORECASE,
+)
+_MEANINGFUL_CHAR = re.compile(r"[A-Za-z0-9\u3400-\u9fff]")
 _MEDIA_VECTOR_NAMESPACE = "conversation-media"
 _AUTO_SEMANTIC_MINIMUM = 0.46
 _EXPLICIT_SEMANTIC_MINIMUM = 0.38
 _HYBRID_MINIMUM = 0.45
 _TOP_MARGIN = 0.05
 _RECALL_TOKEN_BUDGET = 900
+_AUTO_RECALL_MAX_AGE = timedelta(hours=24)
+_AUTO_RECALL_MIN_MEANINGFUL_CHARS = 3
 
 
 @dataclass(frozen=True)
@@ -174,6 +190,29 @@ class ConversationMediaReferenceService:
         ][-2:]
         return "\n".join([*previous, current])[-4000:].strip()
 
+    @staticmethod
+    def _automatic_recall_allowed(text: str) -> bool:
+        """Require useful information in the current turn before searching older media."""
+
+        cleaned = _DISCORD_INLINE.sub(" ", text)
+        meaningful = _MEANINGFUL_CHAR.findall(cleaned)
+        if len(meaningful) < _AUTO_RECALL_MIN_MEANINGFUL_CHARS:
+            return False
+        # Repeated laughter/acknowledgement glyphs are still low-information even when long.
+        if len(set(value.casefold() for value in meaningful)) == 1:
+            return False
+        return True
+
+    @staticmethod
+    def _aware_utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    @staticmethod
+    def _needs_readable_text(query: str) -> bool:
+        return bool(_READABLE_TEXT_QUERY.search(query))
+
     def _semantic_recent(
         self,
         *,
@@ -182,6 +221,9 @@ class ConversationMediaReferenceService:
         payload: DiscordInboundMessage,
     ) -> list[ConversationMediaReferenceRecord]:
         if not self._semantic_enabled:
+            return []
+        explicit = bool(_DEICTIC_MEDIA.search(payload.text))
+        if not explicit and not self._automatic_recall_allowed(payload.text):
             return []
         query = self._contextual_query(payload)
         if not query:
@@ -194,6 +236,13 @@ class ConversationMediaReferenceService:
             thread_id=payload.thread_id,
             limit=10,
         )
+        if not explicit:
+            cutoff = datetime.now(UTC) - _AUTO_RECALL_MAX_AGE
+            recent = [
+                record
+                for record in recent
+                if self._aware_utc(record.created_at) >= cutoff
+            ]
         if not recent:
             return []
         try:
@@ -202,7 +251,6 @@ class ConversationMediaReferenceService:
         except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
             return []
 
-        explicit = bool(_DEICTIC_MEDIA.search(payload.text))
         semantic_minimum = (
             _EXPLICIT_SEMANTIC_MINIMUM if explicit else _AUTO_SEMANTIC_MINIMUM
         )
@@ -296,7 +344,11 @@ class ConversationMediaReferenceService:
             chunk = text[start : start + window].strip()
             if not chunk:
                 continue
-            overlap = len(query_tokens.intersection(semantic_tokens(chunk))) if query_tokens else 0
+            overlap = (
+                len(query_tokens.intersection(semantic_tokens(chunk)))
+                if query_tokens
+                else 0
+            )
             candidates.append((overlap, -start, chunk))
             if start + window >= len(text):
                 break
@@ -330,9 +382,13 @@ class ConversationMediaReferenceService:
             block: list[str] = [f"[remembered from Discord message {memory.message_id}]"]
             summary = " ".join(context.summary.split()).strip()
             if summary:
-                block.append(f"Summary: {summary[: min(900, per_memory // 3)]}")
+                block.append(f"Summary: {summary[: min(1200, per_memory - 80)]}")
             remaining = per_memory - sum(len(item) + 1 for item in block)
-            if context.visible_text and remaining > 300:
+            if (
+                context.visible_text
+                and cls._needs_readable_text(memory.recall_query)
+                and remaining > 300
+            ):
                 excerpt = cls._excerpt(
                     context.visible_text,
                     memory.recall_query,
@@ -340,11 +396,6 @@ class ConversationMediaReferenceService:
                 )
                 if excerpt:
                     block.append(f"Relevant readable excerpt: {excerpt}")
-            remaining = per_memory - sum(len(item) + 1 for item in block)
-            if context.notable_details and remaining > 160:
-                details = "; ".join(context.notable_details[:4])[: min(500, remaining)]
-                if details:
-                    block.append(f"Notable details: {details}")
             for item in block:
                 if used + len(item) + 1 > maximum_chars:
                     break
