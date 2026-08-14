@@ -25,6 +25,10 @@ from echo_masque.api.smart_participation_schemas import (
 )
 from echo_masque.authoring_generation import AuthoringRuntimeUnavailable
 from echo_masque.config import Settings
+from echo_masque.participation_tiebreak import (
+    ParticipationTieBreakService,
+    ParticipationTieCandidate,
+)
 from echo_masque.persistence import (
     DeploymentRepository,
     Repository,
@@ -37,6 +41,7 @@ from echo_masque.semantic_participation import (
     CharacterParticipationSemanticService,
     CharacterSemanticProfileInspection,
     SemanticEmbeddingUnavailable,
+    participation_semantic_text,
 )
 from echo_masque.smart_participation import ParticipationProfile, evaluate_participation
 from echo_masque.smart_participation_generation import SmartParticipationGenerationService
@@ -71,6 +76,18 @@ def semantic_service(request: Request) -> CharacterParticipationSemanticService:
         CharacterParticipationSemanticService,
         request.app.state.semantic_participation_service,
     )
+
+
+def tie_break_service(request: Request) -> ParticipationTieBreakService:
+    current = getattr(request.app.state, "participation_tiebreak_service", None)
+    if isinstance(current, ParticipationTieBreakService):
+        return current
+    service = ParticipationTieBreakService(
+        character_repository(request),
+        cast(Settings, request.app.state.settings),
+    )
+    request.app.state.participation_tiebreak_service = service
+    return service
 
 
 def _authorize_connector(
@@ -363,16 +380,44 @@ def score_semantic_participation(
         )
 
     ready = [item for item in scores if item.profile_ready]
+    tie_candidates: list[ParticipationTieCandidate] = []
+    deployment_by_id = {item.id: item for item in eligible}
+    repo = character_repository(request)
+    for item in ready:
+        deployment = deployment_by_id.get(item.deployment_id)
+        if deployment is None:
+            continue
+        card = repo.get_character_card(deployment.character_card_id, deployment.owner_id)
+        if card is None:
+            continue
+        tie_candidates.append(
+            ParticipationTieCandidate(
+                deployment_id=item.deployment_id,
+                character_card_id=item.character_card_id,
+                display_name=card.display_name,
+                semantic_summary=participation_semantic_text(card),
+                relevance=item.relevance,
+            )
+        )
+    outcome = tie_break_service(request).apply(
+        message=payload.message,
+        candidates=tie_candidates,
+    )
+    reason = "utility_tiebreak" if outcome.used else "ok"
+
     return SmartParticipationSemanticScoreView(
         available=bool(ready),
-        reason="ok" if ready else "no_semantic_profiles_ready",
+        reason=reason if ready else "no_semantic_profiles_ready",
         model=model,
         dimension=dimension,
         candidates=[
             SmartParticipationSemanticCandidateView(
                 deployment_id=item.deployment_id,
                 character_card_id=item.character_card_id,
-                semantic_relevance=item.relevance,
+                semantic_relevance=outcome.adjusted_relevance.get(
+                    item.deployment_id,
+                    item.relevance,
+                ),
                 profile_ready=item.profile_ready,
             )
             for item in scores
