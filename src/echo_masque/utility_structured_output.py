@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import json
-from typing import TypeVar
 
 from pydantic import BaseModel
 
-SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
-
-def compact_json_schema(schema: type[SchemaT], *, maximum_chars: int = 6000) -> str:
+def compact_json_schema[SchemaT: BaseModel](
+    schema: type[SchemaT],
+    *,
+    maximum_chars: int = 6000,
+) -> str:
     """Return a deterministic compact JSON Schema description for provider prompts.
 
     Runtime validation remains authoritative. This prompt contract is the compatibility path for
@@ -26,7 +27,7 @@ def compact_json_schema(schema: type[SchemaT], *, maximum_chars: int = 6000) -> 
     return value[: max(500, maximum_chars)]
 
 
-def exact_json_contract(
+def exact_json_contract[SchemaT: BaseModel](
     schema: type[SchemaT],
     *,
     schema_version: str,
