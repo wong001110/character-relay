@@ -187,7 +187,7 @@ describe("RelayClient hard Smart Participation preflight", () => {
         deployment_id: ning.deployment_id,
         eligible: false,
         deterministic_score: 0,
-        minimum_score: 6,
+        minimum_score: 5,
         signals: { avoid_phrase_blocked: 1 }
       }
     ]);
