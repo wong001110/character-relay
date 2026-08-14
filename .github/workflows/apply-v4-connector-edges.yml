@@ -23,15 +23,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: connectors/discord/package-lock.json
 
       - name: Install Python dependencies
         run: python -m pip install -e ".[dev]"
 
       - name: Install Connector dependencies
         working-directory: connectors/discord
-        run: npm ci
+        run: npm install --no-package-lock
 
       - name: Apply backend edge patch
         run: python scripts/apply_v4_connector_edges_backend.py
