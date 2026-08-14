@@ -66,7 +66,9 @@ class ConversationGraphTopicShadowService:
         source_message_ids = [item.message_id for item in payload.burst_messages]
         if not source_message_ids and payload.message_id:
             source_message_ids = [payload.message_id]
-        source_message_id = payload.message_id or (source_message_ids[-1] if source_message_ids else "")
+        source_message_id = payload.message_id or (
+            source_message_ids[-1] if source_message_ids else ""
+        )
 
         topic_count = 0
         node_count = 0
