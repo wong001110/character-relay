@@ -47,7 +47,9 @@ describe("TurnCollector", () => {
     const bursts: ConversationBurst<SampleTurn>[] = [];
     const collector = new TurnCollector<SampleTurn>(
       { quietWindowMs: 1_500, maxWaitMs: 4_000, maxMessages: 20, maxCharacters: 10_000 },
-      (burst) => bursts.push(burst)
+      (burst) => {
+        bursts.push(burst);
+      }
     );
 
     collector.add("channel", { id: "1", value: sample("1", "a"), characters: 1 });
@@ -70,7 +72,9 @@ describe("TurnCollector", () => {
     const reasons: string[] = [];
     const messageBound = new TurnCollector<SampleTurn>(
       { quietWindowMs: 5_000, maxWaitMs: 10_000, maxMessages: 2, maxCharacters: 100 },
-      (burst) => reasons.push(burst.reason)
+      (burst) => {
+        reasons.push(burst.reason);
+      }
     );
     messageBound.add("message-bound", {
       id: "1",
@@ -85,7 +89,9 @@ describe("TurnCollector", () => {
 
     const characterBound = new TurnCollector<SampleTurn>(
       { quietWindowMs: 5_000, maxWaitMs: 10_000, maxMessages: 10, maxCharacters: 5 },
-      (burst) => reasons.push(burst.reason)
+      (burst) => {
+        reasons.push(burst.reason);
+      }
     );
     characterBound.add("character-bound", {
       id: "3",
@@ -103,7 +109,9 @@ describe("TurnCollector", () => {
     const bursts: ConversationBurst<SampleTurn>[] = [];
     const collector = new TurnCollector<SampleTurn>(
       { quietWindowMs: 5_000, maxWaitMs: 10_000, maxMessages: 5, maxCharacters: 100 },
-      (burst) => bursts.push(burst)
+      (burst) => {
+        bursts.push(burst);
+      }
     );
     collector.add("channel", { id: "1", value: sample("1", "first"), characters: 5 });
     collector.add("channel", { id: "2", value: sample("2", "second"), characters: 6 });
@@ -118,7 +126,9 @@ describe("TurnCollector", () => {
     const bursts: ConversationBurst<SampleTurn>[] = [];
     const collector = new TurnCollector<SampleTurn>(
       { quietWindowMs: 5_000, maxWaitMs: 10_000, maxMessages: 5, maxCharacters: 100 },
-      (burst) => bursts.push(burst)
+      (burst) => {
+        bursts.push(burst);
+      }
     );
     const value = sample("1", "hello");
     collector.add("channel", { id: "1", value, characters: 5 });
