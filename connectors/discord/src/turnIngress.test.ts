@@ -44,7 +44,7 @@ describe("TurnIngressCoordinator", () => {
           executed.push({ id, burstIds: burst?.itemIds ?? [] });
         }
       });
-      await vi.advanceTimersByTimeAsync(40);
+      if (id !== "3") await vi.advanceTimersByTimeAsync(40);
     }
 
     await vi.advanceTimersByTimeAsync(99);
