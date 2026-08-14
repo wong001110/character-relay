@@ -70,7 +70,8 @@ import {
   TurnIngressCoordinator,
   buildConversationBurstId,
   buildConversationBurstText,
-  decideTurnCollection
+  decideTurnCollection,
+  summarizeConversationBurst
 } from "./turnIngress.js";
 import { DiscordWebhookManager } from "./webhookManager.js";
 
@@ -160,6 +161,16 @@ let dedupeTimer: NodeJS.Timeout | undefined;
 let lastGatewayMessageAt: string | null = null;
 let lastGatewayMessageId: string | null = null;
 let lastGatewayMentionedBot = false;
+let turnCollectorCandidateMessageCount = 0;
+let turnCollectorBypassMessageCount = 0;
+let turnCollectorBurstCount = 0;
+let turnCollectorCollectedMessageCount = 0;
+let turnCollectorCollapsedMessageCount = 0;
+let turnCollectorInteractionBypassCount = 0;
+let turnCollectorLastBurstAt: string | null = null;
+let turnCollectorLastBurstId: string | null = null;
+let turnCollectorLastFlushReason: string | null = null;
+const turnCollectorBypassReasons: Record<string, number> = {};
 const turnIngress = new TurnIngressCoordinator<CollectedDiscordTurn>(
   {
     enabled: config.smartParticipationTurnCollectorEnabled,
@@ -1885,6 +1896,44 @@ async function processMessage(
     burst: ConversationBurst<CollectedDiscordTurn> | null,
     interactionClaimOverride: DiscordInteractionClaim | null
   ): Promise<void> => {
+    const burstTelemetry = burst
+      ? summarizeConversationBurst(
+          burst,
+          burst.items.map((item) => item.source.author.id)
+        )
+      : null;
+    if (burstTelemetry) {
+      turnCollectorBurstCount += 1;
+      turnCollectorCollectedMessageCount += burstTelemetry.messageCount;
+      turnCollectorCollapsedMessageCount += burstTelemetry.collapsedMessageCount;
+      turnCollectorLastBurstAt = new Date(burstTelemetry.flushedAt).toISOString();
+      turnCollectorLastBurstId = burstTelemetry.burstId;
+      turnCollectorLastFlushReason = burstTelemetry.flushReason;
+      reportDiscordEvent({
+        level: "info",
+        eventType: "smart_participation_burst_flushed",
+        message: "Turn Collector flushed a bounded Conversation Burst for Smart Participation.",
+        guildId: guildMessage.guildId,
+        guildName: guildMessage.guild.name,
+        channelId: location.channelId,
+        channelName: location.channelName,
+        threadId: location.threadId,
+        threadName: location.threadName,
+        sourceMessageId: guildMessage.id,
+        details: {
+          burst_id: burstTelemetry.burstId,
+          flush_reason: burstTelemetry.flushReason,
+          message_count: burstTelemetry.messageCount,
+          author_count: burstTelemetry.authorCount,
+          total_characters: burstTelemetry.totalCharacters,
+          opened_at: new Date(burstTelemetry.openedAt).toISOString(),
+          flushed_at: new Date(burstTelemetry.flushedAt).toISOString(),
+          collection_latency_ms: burstTelemetry.collectionLatencyMs,
+          collapsed_message_count: burstTelemetry.collapsedMessageCount,
+          source_message_ids: burstTelemetry.sourceMessageIds
+        }
+      });
+    }
     if (burst) {
       for (const item of burst.items.slice(0, -1)) {
         context.push(key, {
@@ -1921,7 +1970,7 @@ async function processMessage(
           4_000
         )
       : originalText;
-    const participationBurstId = burst ? buildConversationBurstId(burst.itemIds) : "";
+    const participationBurstId = burstTelemetry?.burstId ?? "";
     const participationBurstMessages = burst
       ? burst.items.map((item) => ({
           message_id: item.source.id,
@@ -2045,6 +2094,10 @@ async function processMessage(
               model: semantic.model || null,
               dimension: semantic.dimension || null,
               candidate_count: semantic.candidates.length,
+              burst_id: burstTelemetry?.burstId ?? null,
+              burst_message_count: burstTelemetry?.messageCount ?? 1,
+              collapsed_message_count: burstTelemetry?.collapsedMessageCount ?? 0,
+              turn_collector_flush_reason: burstTelemetry?.flushReason ?? null,
               scores: semantic.candidates.map((candidate) => ({
                 deployment_id: candidate.deployment_id,
                 semantic_relevance: candidate.semantic_relevance,
@@ -2066,7 +2119,10 @@ async function processMessage(
             sourceMessageId: guildMessage.id,
             details: {
               error: error instanceof Error ? error.message : String(error),
-              candidate_count: smartDeploymentIds.length
+              candidate_count: smartDeploymentIds.length,
+              burst_id: burstTelemetry?.burstId ?? null,
+              burst_message_count: burstTelemetry?.messageCount ?? 1,
+              turn_collector_flush_reason: burstTelemetry?.flushReason ?? null
             }
           });
         }
@@ -2705,6 +2761,7 @@ async function processMessage(
   let preclaimedInteraction: DiscordInteractionClaim | null = null;
 
   if (collectionDecision.collect) {
+    turnCollectorCandidateMessageCount += 1;
     log("Smart Participation message entered the Turn Collector.", {
       guildId: guildMessage.guildId,
       channelId: location.channelId,
@@ -2713,6 +2770,10 @@ async function processMessage(
       pendingBurstScopes: turnIngress.pendingBurstScopeCount,
       quietWindowMs: config.smartParticipationTurnCollectorQuietMs
     });
+  } else {
+    turnCollectorBypassMessageCount += 1;
+    turnCollectorBypassReasons[collectionDecision.reason] =
+      (turnCollectorBypassReasons[collectionDecision.reason] ?? 0) + 1;
   }
 
   turnIngress.submit(key, {
@@ -2731,11 +2792,13 @@ async function processMessage(
               source_message_id: guildMessage.id
             });
             if (claim.claimed) {
+              turnCollectorInteractionBypassCount += 1;
               preclaimedInteraction = claim;
               return false;
             }
             return true;
           } catch (error) {
+            turnCollectorInteractionBypassCount += 1;
             log("Unable to preflight Interaction Sessions; bypassing Turn Collector.", {
               guildId: guildMessage.guildId,
               channelId: location.channelId,
@@ -2838,6 +2901,23 @@ const healthServer = createServer((request, response) => {
         turnIngress.pendingBurstScopeCount,
       smart_participation_ingress_pending_scopes:
         turnIngress.pendingPreflightScopeCount,
+      smart_participation_turn_collector_candidate_messages:
+        turnCollectorCandidateMessageCount,
+      smart_participation_turn_collector_bypass_messages:
+        turnCollectorBypassMessageCount,
+      smart_participation_turn_collector_bypass_reasons:
+        turnCollectorBypassReasons,
+      smart_participation_turn_collector_interaction_bypasses:
+        turnCollectorInteractionBypassCount,
+      smart_participation_turn_collector_bursts: turnCollectorBurstCount,
+      smart_participation_turn_collector_collected_messages:
+        turnCollectorCollectedMessageCount,
+      smart_participation_turn_collector_collapsed_messages:
+        turnCollectorCollapsedMessageCount,
+      smart_participation_turn_collector_last_burst_at: turnCollectorLastBurstAt,
+      smart_participation_turn_collector_last_burst_id: turnCollectorLastBurstId,
+      smart_participation_turn_collector_last_flush_reason:
+        turnCollectorLastFlushReason,
       bot_tag_conversations_enabled: config.botTagConversationsEnabled,
       bot_tag_max_depth: config.botTagMaxDepth,
       bot_tag_max_responses: config.botTagMaxResponses,
