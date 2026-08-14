@@ -11,6 +11,7 @@ from echo_masque import __version__
 LangGraphMode = Literal["off", "condition_watch", "character_turn", "social_turn"]
 LangGraphWorkflow = Literal["condition_watch", "character_turn", "social_turn"]
 CharacterTurnIntelligenceMode = Literal["off", "shadow", "active"]
+ConversationIntelligenceRolloutMode = Literal["off", "shadow", "active"]
 _LANGGRAPH_MODE_RANK: dict[str, int] = {
     "off": 0,
     "condition_watch": 1,
@@ -47,6 +48,14 @@ class Settings(BaseSettings):
     # the legacy standalone Judges; "shadow" computes one unified decision for comparison only;
     # "active" may apply accepted fields while each rejected field falls back independently.
     turn_intelligence_character_context_mode: CharacterTurnIntelligenceMode = "off"
+
+    # Smart Participation V4 rollout remains independently reversible. The resolver always
+    # computes bounded shadow evidence when available; these switches decide whether contextual
+    # Graph/Learned-State reranking or the server speaker plan may become authoritative.
+    smart_participation_v4_graph_rerank_mode: ConversationIntelligenceRolloutMode = "shadow"
+    smart_participation_v4_learned_state_mode: ConversationIntelligenceRolloutMode = "shadow"
+    smart_participation_v4_speaker_mode: ConversationIntelligenceRolloutMode = "shadow"
+    smart_participation_v4_utility_mode: ConversationIntelligenceRolloutMode = "shadow"
 
     # Shared semantic embedding runtime. semantic_embedding_enabled allows Knowledge RAG,
     # Media Recall, and Expression retrieval to use the same local multilingual E5 model
@@ -149,6 +158,6 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Return process-level settings."""
+    """Return process-level settings with process-local memoization."""
 
     return Settings()
