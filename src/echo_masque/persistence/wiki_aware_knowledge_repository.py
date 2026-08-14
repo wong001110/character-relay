@@ -44,6 +44,10 @@ _OVERVIEW_MARKERS = (
     "大概",
     "整体",
     "整體",
+    "ringkasan",
+    "gambaran keseluruhan",
+    "terangkan",
+    "penerangan",
 )
 _DETAIL_MARKERS = (
     "exact",
@@ -66,6 +70,10 @@ _DETAIL_MARKERS = (
     "哪一份",
     "哪個文件",
     "哪个文件",
+    "sumber",
+    "bukti",
+    "petikan",
+    "tepat",
 )
 _MAX_WIKI_BODY_CHARS = 2_200
 _MAX_PROVENANCE_ITEMS = 6
