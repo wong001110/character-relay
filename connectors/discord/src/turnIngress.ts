@@ -171,7 +171,7 @@ export class TurnIngressCoordinator<T> {
         id: submission.id,
         value: { value: submission.value, execute: submission.execute },
         characters: submission.characters,
-        receivedAt: submission.receivedAt
+        ...(submission.receivedAt !== undefined ? { receivedAt: submission.receivedAt } : {})
       });
     });
   }
