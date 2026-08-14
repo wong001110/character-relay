@@ -22,14 +22,45 @@ jobs:
         run: python -m pip install -e ".[dev]"
       - name: Apply server features
         run: python scripts/apply_v4_final_server_features.py
+      - name: Decouple API package init
+        run: |
+          cp src/echo_masque/api/__init__.py src/echo_masque/api/app.py
+          cat > src/echo_masque/api/__init__.py <<'PY'
+          """Lightweight API package exports.
+
+          Keep package import side effects minimal so low-level schemas can be imported without
+          eagerly loading the full FastAPI application, routes, and persistence graph.
+          """
+
+          from __future__ import annotations
+
+          from typing import TYPE_CHECKING
+
+          if TYPE_CHECKING:
+              from fastapi import FastAPI
+
+              from echo_masque.config import Settings
+
+
+          def create_app(settings: "Settings | None" = None) -> "FastAPI":
+              from echo_masque.api.app import create_app as _create_app
+
+              return _create_app(settings)
+
+
+          __all__ = ["create_app"]
+          PY
       - name: Format
         run: |
-          python -m ruff format src/echo_masque/api/routes/smart_participation_v4.py src/echo_masque/api/smart_participation_outcome_schemas.py src/echo_masque/character_learned_state.py
-          python -m ruff check --fix src/echo_masque/api/routes/smart_participation_v4.py src/echo_masque/api/smart_participation_outcome_schemas.py src/echo_masque/character_learned_state.py
+          python -m ruff format src/echo_masque/api/__init__.py src/echo_masque/api/app.py src/echo_masque/api/routes/smart_participation_v4.py src/echo_masque/api/smart_participation_outcome_schemas.py src/echo_masque/character_learned_state.py
+          python -m ruff check --fix src/echo_masque/api/__init__.py src/echo_masque/api/app.py src/echo_masque/api/routes/smart_participation_v4.py src/echo_masque/api/smart_participation_outcome_schemas.py src/echo_masque/character_learned_state.py
       - name: Ruff
         run: python -m ruff check src/echo_masque
       - name: Mypy
         run: python -m mypy src
+      - name: Import smoke
+        run: |
+          python -c "from echo_masque.character_learned_state import CharacterLearnedStateService; from echo_masque.persistence import Database; from echo_masque.api import create_app; print(CharacterLearnedStateService, Database, create_app)"
       - name: Targeted tests
         run: python -m pytest tests/test_character_learned_state.py tests/test_smart_participation_v4_resolver.py
       - name: Remove helper
