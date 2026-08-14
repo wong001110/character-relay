@@ -26,6 +26,7 @@ import type {
 } from "./types.js";
 import { resolveExplicitAudiencePreflight } from "./audiencePreflight.js";
 import type { DiscordPortalParticipationProfile } from "./smartParticipation.js";
+import { preflightSmartParticipationCandidates } from "./smartParticipationPreflight.js";
 import type {
   DiscordDeliveryAckRequest,
   DiscordDeliveryClaim,
@@ -357,6 +358,23 @@ export class RelayClient {
       }
     }
 
+    const hardPreflight =
+      cachedCandidates.length === payload.deployment_ids.length
+        ? preflightSmartParticipationCandidates(cachedCandidates, payload.message)
+        : [];
+    const hardPreflightById = new Map(
+      hardPreflight.map((candidate) => [candidate.deploymentId, candidate])
+    );
+    if (hardPreflight.length && hardPreflight.every((candidate) => !candidate.eligible)) {
+      return {
+        available: false,
+        reason: "hard_preflight_no_eligible_candidates",
+        model: "",
+        dimension: 0,
+        candidates: []
+      };
+    }
+
     try {
       const resolved = await this.request<DiscordV4ParticipationResult>(
         "/api/smart-participation/resolve",
@@ -365,13 +383,16 @@ export class RelayClient {
           body: JSON.stringify({
             connection_id: this.connectionId,
             message: payload.message,
-            candidates: payload.deployment_ids.map((deploymentId) => ({
-              deployment_id: deploymentId,
-              eligible: true,
-              deterministic_score: 0,
-              minimum_score: 0,
-              signals: {}
-            }))
+            candidates: payload.deployment_ids.map((deploymentId) => {
+              const preflight = hardPreflightById.get(deploymentId);
+              return {
+                deployment_id: deploymentId,
+                eligible: preflight?.eligible ?? true,
+                deterministic_score: 0,
+                minimum_score: preflight?.minimumScore ?? 0,
+                signals: preflight?.signals ?? {}
+              };
+            })
           })
         }
       );
