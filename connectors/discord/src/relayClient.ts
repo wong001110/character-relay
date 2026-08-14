@@ -44,12 +44,29 @@ export interface DiscordSemanticParticipationCandidate {
   profile_ready: boolean;
 }
 
+export interface DiscordParticipationShadowPlanItem {
+  deployment_id: string;
+  turn_role: string;
+  reason: string;
+}
+
+export interface DiscordParticipationShadowCandidate {
+  deployment_id: string;
+  deterministic_score: number;
+  semantic_points: number;
+  shadow_final_score: number;
+  shadow_selected: boolean;
+}
+
 export interface DiscordSemanticParticipationResult {
   available: boolean;
   reason: string;
   model: string;
   dimension: number;
   candidates: DiscordSemanticParticipationCandidate[];
+  shadow_speaker_plan?: DiscordParticipationShadowPlanItem[];
+  shadow_candidate_scores?: DiscordParticipationShadowCandidate[];
+  speaker_plan_authoritative?: boolean;
 }
 
 export interface DiscordParticipationBurstMessage {
@@ -59,6 +76,14 @@ export interface DiscordParticipationBurstMessage {
   text: string;
   created_at: string;
   reply_to_message_id: string;
+}
+
+export interface DiscordSmartParticipationCandidatePreflight {
+  deployment_id: string;
+  eligible: boolean;
+  deterministic_score: number;
+  minimum_score: number;
+  signals: Record<string, number>;
 }
 
 export interface DiscordSmartParticipationScoreRequest {
@@ -72,13 +97,20 @@ export interface DiscordSmartParticipationScoreRequest {
   reply_to_message_id?: string;
   burst_id?: string;
   burst_messages?: DiscordParticipationBurstMessage[];
+  minimum_margin?: number;
+  max_participants?: number;
+  candidate_preflight?: DiscordSmartParticipationCandidatePreflight[];
 }
 
 interface DiscordV4ParticipationCandidate {
   deployment_id: string;
   character_card_id: string;
+  deterministic_score: number;
   raw_e5_relevance: number;
   profile_ready: boolean;
+  semantic_points: number;
+  shadow_final_score: number;
+  shadow_selected: boolean;
 }
 
 interface DiscordV4ParticipationResult {
@@ -87,6 +119,8 @@ interface DiscordV4ParticipationResult {
   model: string;
   dimension: number;
   candidates: DiscordV4ParticipationCandidate[];
+  shadow_speaker_plan?: DiscordParticipationShadowPlanItem[];
+  speaker_plan_authoritative?: boolean;
 }
 
 interface ConnectorAttachment {
@@ -380,14 +414,19 @@ export class RelayClient {
       }
     }
 
+    const runtimePreflight = payload.candidate_preflight ?? [];
     const hardPreflight =
-      cachedCandidates.length === payload.deployment_ids.length
+      !runtimePreflight.length && cachedCandidates.length === payload.deployment_ids.length
         ? preflightSmartParticipationCandidates(cachedCandidates, payload.message)
         : [];
+    const runtimePreflightById = new Map(
+      runtimePreflight.map((candidate) => [candidate.deployment_id, candidate])
+    );
     const hardPreflightById = new Map(
       hardPreflight.map((candidate) => [candidate.deploymentId, candidate])
     );
-    if (hardPreflight.length && hardPreflight.every((candidate) => !candidate.eligible)) {
+    const effectivePreflight = runtimePreflight.length ? runtimePreflight : hardPreflight;
+    if (effectivePreflight.length && effectivePreflight.every((candidate) => !candidate.eligible)) {
       return {
         available: false,
         reason: "hard_preflight_no_eligible_candidates",
@@ -413,14 +452,17 @@ export class RelayClient {
             message: payload.message,
             burst_id: payload.burst_id ?? "",
             burst_messages: payload.burst_messages ?? [],
+            minimum_margin: payload.minimum_margin ?? 2,
+            max_participants: payload.max_participants ?? 2,
             candidates: payload.deployment_ids.map((deploymentId) => {
-              const preflight = hardPreflightById.get(deploymentId);
+              const runtime = runtimePreflightById.get(deploymentId);
+              const hard = hardPreflightById.get(deploymentId);
               return {
                 deployment_id: deploymentId,
-                eligible: preflight?.eligible ?? true,
-                deterministic_score: 0,
-                minimum_score: preflight?.minimumScore ?? 0,
-                signals: preflight?.signals ?? {}
+                eligible: runtime?.eligible ?? hard?.eligible ?? true,
+                deterministic_score: runtime?.deterministic_score ?? 0,
+                minimum_score: runtime?.minimum_score ?? hard?.minimumScore ?? 0,
+                signals: runtime?.signals ?? hard?.signals ?? {}
               };
             })
           })
@@ -431,6 +473,15 @@ export class RelayClient {
         reason: `v4_resolver:${resolved.reason}`,
         model: resolved.model,
         dimension: resolved.dimension,
+        shadow_speaker_plan: resolved.shadow_speaker_plan ?? [],
+        shadow_candidate_scores: resolved.candidates.map((candidate) => ({
+          deployment_id: candidate.deployment_id,
+          deterministic_score: candidate.deterministic_score,
+          semantic_points: candidate.semantic_points,
+          shadow_final_score: candidate.shadow_final_score,
+          shadow_selected: candidate.shadow_selected
+        })),
+        speaker_plan_authoritative: resolved.speaker_plan_authoritative ?? false,
         candidates: resolved.candidates.map((candidate) => ({
           deployment_id: candidate.deployment_id,
           character_card_id: candidate.character_card_id,

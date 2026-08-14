@@ -42,7 +42,10 @@ import {
   splitDiscordMessage,
   type DeploymentIndex
 } from "./routing.js";
-import { preflightSmartParticipationRuntime } from "./smartParticipation.js";
+import {
+  buildSmartParticipationBaseEvidence,
+  preflightSmartParticipationRuntime
+} from "./smartParticipation.js";
 import {
   buildMentionableParticipants,
   compileSmartMessage,
@@ -2058,13 +2061,21 @@ async function processMessage(
       !replyTarget.deploymentId &&
       participationText.trim()
     ) {
+      const semanticPreflightNow = Date.now();
       const semanticPreflight = preflightSmartParticipationRuntime(
         candidates,
         participationText,
-        Date.now(),
+        semanticPreflightNow,
         smartRuntimeScopeKey
       );
       const smartDeploymentIds = semanticPreflight.semanticCandidateDeploymentIds;
+      const baseEvidenceById = new Map(
+        buildSmartParticipationBaseEvidence(
+          candidates,
+          participationText,
+          semanticPreflightNow
+        ).map((item) => [item.deploymentId, item])
+      );
       if (!semanticPreflight.skipSemantic && smartDeploymentIds.length) {
         try {
           const semantic = await relay.scoreSmartParticipation({
@@ -2077,7 +2088,19 @@ async function processMessage(
             author_id: guildMessage.author.id,
             reply_to_message_id: guildMessage.reference?.messageId ?? "",
             burst_id: participationBurstId,
-            burst_messages: participationBurstMessages
+            burst_messages: participationBurstMessages,
+            minimum_margin: config.smartParticipationMinimumMargin,
+            max_participants: config.smartParticipationMaxParticipants,
+            candidate_preflight: smartDeploymentIds.map((deploymentId) => {
+              const evidence = baseEvidenceById.get(deploymentId);
+              return {
+                deployment_id: deploymentId,
+                eligible: evidence?.eligible ?? true,
+                deterministic_score: evidence?.deterministicScore ?? 0,
+                minimum_score: evidence?.minimumScore ?? 0,
+                signals: evidence?.signals ?? {}
+              };
+            })
           });
           if (semantic.available) {
             for (const candidate of semantic.candidates) {
@@ -2110,6 +2133,9 @@ async function processMessage(
               collapsed_message_count: burstTelemetry?.collapsedMessageCount ?? 0,
               turn_collector_flush_reason: burstTelemetry?.flushReason ?? null,
               semantic_preflight_reason: semanticPreflight.reason,
+              shadow_speaker_plan: semantic.shadow_speaker_plan ?? [],
+              shadow_candidate_scores: semantic.shadow_candidate_scores ?? [],
+              speaker_plan_authoritative: semantic.speaker_plan_authoritative ?? false,
               scores: semantic.candidates.map((candidate) => ({
                 deployment_id: candidate.deployment_id,
                 semantic_relevance: candidate.semantic_relevance,

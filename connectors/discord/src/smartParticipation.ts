@@ -129,6 +129,14 @@ export interface SmartParticipationSemanticPreflight {
   semanticCandidateDeploymentIds: string[];
 }
 
+export interface SmartParticipationBaseEvidence {
+  deploymentId: string;
+  eligible: boolean;
+  deterministicScore: number;
+  minimumScore: number;
+  signals: SmartParticipationSignals;
+}
+
 export interface ExplicitParticipationCoordination {
   deployments: DiscordDeployment[];
   turns: SmartParticipationTurnSelection[];
@@ -808,6 +816,26 @@ function evaluateLightweightParticipation(
 
   queueSelection(deployment, "lightweight", now, scope);
   return decision("selected_lightweight", [deployment], [candidate], text.length);
+}
+
+export function buildSmartParticipationBaseEvidence(
+  deployments: DiscordDeployment[],
+  message: string,
+  now = Date.now()
+): SmartParticipationBaseEvidence[] {
+  const text = normalizeText(message);
+  if (!text) return [];
+  pruneSelections(now);
+  return deployments
+    .filter((deployment) => deployment.participation_mode === "smart")
+    .map((deployment) => scoreCandidate(deployment, text, now, undefined))
+    .map((candidate) => ({
+      deploymentId: candidate.deployment.deployment_id,
+      eligible: candidate.eligible,
+      deterministicScore: Number.isFinite(candidate.score) ? candidate.score : -100,
+      minimumScore: candidate.minimumScore,
+      signals: { ...candidate.signals }
+    }));
 }
 
 export function preflightSmartParticipationRuntime(
