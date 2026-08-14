@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+import type { DiscordPortalParticipationProfile } from "./smartParticipation.js";
 import { preflightSmartParticipationCandidate } from "./smartParticipationPreflight.js";
 import type { DiscordDeployment } from "./types.js";
 
-function deployment(): DiscordDeployment {
+type DeploymentWithProfile = DiscordDeployment & {
+  smart_participation_profile?: DiscordPortalParticipationProfile | null;
+};
+
+function deployment(): DeploymentWithProfile {
   return {
     deployment_id: "deployment-ann",
     connection_id: "connection-1",
@@ -38,6 +43,8 @@ describe("Smart Participation hard preflight", () => {
   it("blocks a disabled persisted profile before E5", () => {
     const value = deployment();
     value.smart_participation_profile = {
+      character_card_id: value.character_card_id,
+      configured: true,
       enabled: false,
       style: "balanced",
       group_role: "independent",
@@ -45,8 +52,6 @@ describe("Smart Participation hard preflight", () => {
       keywords: [],
       trigger_phrases: [],
       avoid_phrases: [],
-      initiative: 0.45,
-      minimum_score: 5,
       cooldown_seconds: 120,
       preferred_follow_up_character_card_id: "",
       follow_up_window_seconds: 30
@@ -63,6 +68,8 @@ describe("Smart Participation hard preflight", () => {
   it("reuses normalized avoid phrases as an authoritative hard block", () => {
     const value = deployment();
     value.smart_participation_profile = {
+      character_card_id: value.character_card_id,
+      configured: true,
       enabled: true,
       style: "balanced",
       group_role: "independent",
@@ -70,8 +77,6 @@ describe("Smart Participation hard preflight", () => {
       keywords: [],
       trigger_phrases: [],
       avoid_phrases: ["do not join this"],
-      initiative: 0.45,
-      minimum_score: 6,
       cooldown_seconds: 120,
       preferred_follow_up_character_card_id: "",
       follow_up_window_seconds: 30
@@ -84,7 +89,7 @@ describe("Smart Participation hard preflight", () => {
 
     expect(result.eligible).toBe(false);
     expect(result.reason).toBe("avoid_phrase");
-    expect(result.minimumScore).toBe(6);
+    expect(result.minimumScore).toBe(5);
     expect(result.signals).toEqual({ avoid_phrase_blocked: 1 });
   });
 
