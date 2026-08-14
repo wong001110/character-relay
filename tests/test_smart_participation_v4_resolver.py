@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from fastapi import FastAPI
+import pytest
+from fastapi import FastAPI, HTTPException
 from pydantic import SecretStr
 from starlette.requests import Request
 
@@ -29,7 +30,12 @@ class FakeDeploymentRepository:
         self.records = records
         self.calls: list[tuple[str, str]] = []
 
-    def list_connector_deployments(self, *, platform: str, connection_id: str) -> list[FakeDeployment]:
+    def list_connector_deployments(
+        self,
+        *,
+        platform: str,
+        connection_id: str,
+    ) -> list[FakeDeployment]:
         self.calls.append((platform, connection_id))
         return self.records
 
@@ -191,13 +197,11 @@ def test_resolver_rejects_invalid_connector_credential() -> None:
         candidates=[SmartParticipationResolveCandidate(deployment_id="ann")],
     )
 
-    try:
+    with pytest.raises(HTTPException) as caught:
         resolve_smart_participation_v4(
             payload,
             request_for(records, semantic),
             "Bearer wrong-secret",
         )
-    except Exception as exc:  # FastAPI HTTPException without coupling test to response middleware.
-        assert getattr(exc, "status_code", None) == 401
-    else:
-        raise AssertionError("invalid connector credential must be rejected")
+
+    assert caught.value.status_code == 401
