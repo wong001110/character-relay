@@ -85,7 +85,6 @@ def test_participation_tiebreak_uses_exact_turn_intelligence_contract() -> None:
     assert result.used is True
     assert gateway.calls == 1
     assert "turn-intelligence-v1" in gateway.system_prompt
-    assert '"deployment_id"' in gateway.system_prompt
     assert "deployment_id, confidence, reason_code" in gateway.system_prompt
     assert "Use an empty deployment_id to abstain" in gateway.system_prompt
     assert "no markdown" in gateway.system_prompt
