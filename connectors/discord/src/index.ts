@@ -2097,6 +2097,8 @@ async function processMessage(
     }
 
     const semanticScores: Record<string, number> = {};
+    let serverSpeakerPlan: DiscordParticipationShadowPlanItem[] | undefined;
+    let serverSpeakerPlanAuthoritative = false;
     let serverShadowPlan: DiscordParticipationShadowPlanItem[] | undefined;
     let serverShadowCandidateScores:
       | DiscordParticipationShadowCandidate[]
@@ -2142,6 +2144,9 @@ async function processMessage(
             burst_messages: participationBurstMessages,
             minimum_margin: config.smartParticipationMinimumMargin,
             max_participants: config.smartParticipationMaxParticipants,
+            channel_cooldown_seconds: config.smartParticipationChannelCooldownSeconds,
+            window_seconds: config.smartParticipationWindowSeconds,
+            max_replies_per_window: config.smartParticipationMaxRepliesPerWindow,
             candidate_preflight: smartDeploymentIds.map((deploymentId) => {
               const evidence = baseEvidenceById.get(deploymentId);
               return {
@@ -2153,6 +2158,8 @@ async function processMessage(
               };
             })
           });
+          serverSpeakerPlan = semantic.speaker_plan;
+          serverSpeakerPlanAuthoritative = Boolean(semantic.speaker_plan_authoritative);
           serverShadowPlan = semantic.shadow_speaker_plan;
           serverShadowCandidateScores = semantic.shadow_candidate_scores;
           if (semantic.available) {
@@ -2186,6 +2193,7 @@ async function processMessage(
               collapsed_message_count: burstTelemetry?.collapsedMessageCount ?? 0,
               turn_collector_flush_reason: burstTelemetry?.flushReason ?? null,
               semantic_preflight_reason: semanticPreflight.reason,
+              speaker_plan: semantic.speaker_plan ?? [],
               shadow_speaker_plan: semantic.shadow_speaker_plan ?? [],
               shadow_candidate_scores: semantic.shadow_candidate_scores ?? [],
               speaker_plan_authoritative: semantic.speaker_plan_authoritative ?? false,
@@ -2239,7 +2247,7 @@ async function processMessage(
       }
     }
 
-    const audience = resolveAudience(
+    let audience = resolveAudience(
       candidates,
       participationText,
       replyTarget.deploymentId,
@@ -2247,10 +2255,62 @@ async function processMessage(
       semanticScores,
       smartRuntimeScopeKey
     );
+    if (serverSpeakerPlanAuthoritative && !replyTarget.deploymentId) {
+      const planned = (serverSpeakerPlan ?? [])
+        .map((item) =>
+          candidates.find((candidate) => candidate.deployment_id === item.deployment_id)
+        )
+        .filter((item): item is DiscordDeployment => Boolean(item));
+      audience = {
+        deployments: planned,
+        text: participationText.trim(),
+        reason:
+          planned.length > 1
+            ? "selected_smart_multiple"
+            : planned.length === 1
+              ? "selected_smart"
+              : "not_found",
+        options: []
+      };
+    }
     const actualSmartDeploymentIds =
       audience.reason === "selected_smart" || audience.reason === "selected_smart_multiple"
         ? audience.deployments.map((deployment) => deployment.deployment_id)
         : [];
+    if (actualSmartDeploymentIds.length) {
+      void relay
+        .observeSmartParticipationOutcome({
+          guild_id: guildMessage.guildId,
+          channel_id: location.channelId,
+          thread_id: location.threadId,
+          message_id: guildMessage.id,
+          burst_id: participationBurstId,
+          author_id: guildMessage.author.id,
+          reply_to_message_id: guildMessage.reference?.messageId ?? "",
+          selected_deployment_ids: actualSmartDeploymentIds,
+          candidate_deployment_ids: candidates
+            .filter((candidate) => candidate.participation_mode === "smart")
+            .map((candidate) => candidate.deployment_id)
+        })
+        .catch((error) => {
+          reportDiscordEvent({
+            level: "warning",
+            eventType: "smart_participation_outcome_failed",
+            message: "Server could not persist Smart Participation outcome state.",
+            guildId: guildMessage.guildId,
+            guildName: guildMessage.guild.name,
+            channelId: location.channelId,
+            channelName: location.channelName,
+            threadId: location.threadId,
+            threadName: location.threadName,
+            sourceMessageId: guildMessage.id,
+            details: {
+              error: error instanceof Error ? error.message : String(error),
+              selected_deployment_ids: actualSmartDeploymentIds
+            }
+          });
+        });
+    }
     const shadowParity = compareParticipationShadowPlan(
       serverShadowPlan,
       actualSmartDeploymentIds,

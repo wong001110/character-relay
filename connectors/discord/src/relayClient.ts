@@ -64,6 +64,7 @@ export interface DiscordSemanticParticipationResult {
   model: string;
   dimension: number;
   candidates: DiscordSemanticParticipationCandidate[];
+  speaker_plan?: DiscordParticipationShadowPlanItem[];
   shadow_speaker_plan?: DiscordParticipationShadowPlanItem[];
   shadow_candidate_scores?: DiscordParticipationShadowCandidate[];
   speaker_plan_authoritative?: boolean;
@@ -99,6 +100,9 @@ export interface DiscordSmartParticipationScoreRequest {
   burst_messages?: DiscordParticipationBurstMessage[];
   minimum_margin?: number;
   max_participants?: number;
+  channel_cooldown_seconds?: number;
+  window_seconds?: number;
+  max_replies_per_window?: number;
   candidate_preflight?: DiscordSmartParticipationCandidatePreflight[];
 }
 
@@ -119,6 +123,7 @@ interface DiscordV4ParticipationResult {
   model: string;
   dimension: number;
   candidates: DiscordV4ParticipationCandidate[];
+  speaker_plan?: DiscordParticipationShadowPlanItem[];
   shadow_speaker_plan?: DiscordParticipationShadowPlanItem[];
   speaker_plan_authoritative?: boolean;
 }
@@ -454,6 +459,9 @@ export class RelayClient {
             burst_messages: payload.burst_messages ?? [],
             minimum_margin: payload.minimum_margin ?? 2,
             max_participants: payload.max_participants ?? 2,
+            channel_cooldown_seconds: payload.channel_cooldown_seconds ?? 45,
+            window_seconds: payload.window_seconds ?? 600,
+            max_replies_per_window: payload.max_replies_per_window ?? 3,
             candidates: payload.deployment_ids.map((deploymentId) => {
               const runtime = runtimePreflightById.get(deploymentId);
               const hard = hardPreflightById.get(deploymentId);
@@ -473,6 +481,7 @@ export class RelayClient {
         reason: `v4_resolver:${resolved.reason}`,
         model: resolved.model,
         dimension: resolved.dimension,
+        speaker_plan: resolved.speaker_plan ?? [],
         shadow_speaker_plan: resolved.shadow_speaker_plan ?? [],
         shadow_candidate_scores: resolved.candidates.map((candidate) => ({
           deployment_id: candidate.deployment_id,
@@ -504,6 +513,23 @@ export class RelayClient {
         })
       }
     );
+  }
+
+  async observeSmartParticipationOutcome(input: {
+    guild_id: string;
+    channel_id: string;
+    thread_id: string;
+    message_id: string;
+    burst_id: string;
+    author_id: string;
+    reply_to_message_id: string;
+    selected_deployment_ids: string[];
+    candidate_deployment_ids: string[];
+  }): Promise<void> {
+    await this.request<void>("/api/smart-participation/observe", {
+      method: "POST",
+      body: JSON.stringify({ connection_id: this.connectionId, ...input })
+    });
   }
 
   async claimSocialTurnOperation(
