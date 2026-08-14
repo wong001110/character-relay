@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import logging
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
@@ -14,13 +15,19 @@ from echo_masque.api.smart_participation_v4_schemas import (
     SmartParticipationResolveView,
 )
 from echo_masque.config import Settings
+from echo_masque.conversation_graph_shadow import (
+    ConversationGraphShadowService,
+    GraphShadowObservation,
+)
 from echo_masque.persistence import DeploymentRepository
+from echo_masque.persistence.conversation_graph_repository import ConversationGraphRepository
 from echo_masque.semantic_participation import (
     CharacterParticipationSemanticService,
     SemanticEmbeddingUnavailable,
     SemanticParticipationScore,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -88,6 +95,28 @@ def _candidate_view(
     )
 
 
+def _observe_graph_shadow(
+    payload: SmartParticipationResolveRequest,
+    deployments: DeploymentRepository,
+) -> GraphShadowObservation:
+    """Best-effort shadow observation; Graph failures never block participation resolution."""
+
+    try:
+        graph = ConversationGraphRepository(deployments.database)
+        return ConversationGraphShadowService(graph).observe(payload)
+    except Exception as exc:  # noqa: BLE001 - shadow state must fail open
+        logger.warning(
+            "Conversation Graph shadow observation skipped connection=%s guild=%s channel=%s "
+            "thread=%s error=%s",
+            payload.connection_id,
+            payload.guild_id,
+            payload.channel_id,
+            payload.thread_id,
+            exc,
+        )
+        return GraphShadowObservation(False, "", 0, 0)
+
+
 @router.post(
     "/resolve",
     response_model=SmartParticipationResolveView,
@@ -100,13 +129,15 @@ def resolve_smart_participation_v4(
     """Return bounded V4 semantic evidence without yet granting speaker admission.
 
     This endpoint is the migration target for the narrow `/semantic-score` call. During the first
-    V4 checkpoint it is intentionally evidence-only: deterministic admission remains Connector
-    authority, and Graph/Learned State/Utility are still shadow-disabled here.
+    V4 checkpoint it remains evidence-only: deterministic admission stays Connector authority.
+    Graph observation is shadow-only and cannot affect scores or admission.
     """
 
     _authorize_connector(request, authorization)
+    deployment_repository = _deployment_repository(request)
+    graph_shadow = _observe_graph_shadow(payload, deployment_repository)
     requested_by_id = {item.deployment_id: item for item in payload.candidates}
-    records = _deployment_repository(request).list_connector_deployments(
+    records = deployment_repository.list_connector_deployments(
         platform="discord",
         connection_id=payload.connection_id,
     )
@@ -164,13 +195,16 @@ def resolve_smart_participation_v4(
         reason=reason,
         model=model,
         dimension=dimension,
-        burst_id=payload.burst_id,
+        burst_id=payload.burst_id or graph_shadow.burst_id,
         burst_message_count=len(payload.burst_messages) or (1 if payload.message else 0),
         analysis_chars=len(analysis),
         candidates=candidates,
         # Final speaker planning is deliberately not claimed until deterministic scoring moves
-        # server-side. These fields make shadow/compatibility behavior explicit to the Connector.
+        # server-side. Shadow observation is persisted but is not selection evidence yet.
         speaker_plan=[],
+        graph_shadow_observed=graph_shadow.observed,
+        graph_shadow_node_count=graph_shadow.node_count,
+        graph_shadow_edge_count=graph_shadow.edge_count,
         graph_used=False,
         learned_state_used=False,
         utility_used=False,
