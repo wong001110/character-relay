@@ -4,7 +4,8 @@ import {
   TurnIngressCoordinator,
   buildConversationBurstId,
   buildConversationBurstText,
-  decideTurnCollection
+  decideTurnCollection,
+  summarizeConversationBurst
 } from "./turnIngress.js";
 
 interface SampleTurn {
@@ -195,5 +196,30 @@ describe("Turn collection policy", () => {
     expect(buildConversationBurstText([{ text: "12345" }, { text: "67890" }], 6)).toBe(
       "\n67890"
     );
+  });
+
+  it("summarizes burst telemetry without copying message text", () => {
+    const burst = {
+      scopeKey: "channel",
+      items: [sample("1", "private text"), sample("2", "more private text")],
+      itemIds: ["message-1", "message-2"],
+      totalCharacters: 29,
+      openedAt: 1_000,
+      flushedAt: 2_750,
+      reason: "quiet_window" as const
+    };
+
+    expect(summarizeConversationBurst(burst, ["user-a", "user-b", "user-b"])).toEqual({
+      burstId: buildConversationBurstId(["message-1", "message-2"]),
+      flushReason: "quiet_window",
+      messageCount: 2,
+      authorCount: 2,
+      totalCharacters: 29,
+      openedAt: 1_000,
+      flushedAt: 2_750,
+      collectionLatencyMs: 1_750,
+      collapsedMessageCount: 1,
+      sourceMessageIds: ["message-1", "message-2"]
+    });
   });
 });
