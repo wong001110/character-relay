@@ -112,7 +112,7 @@ describe("RelayClient hard Smart Participation preflight", () => {
   it("sends mixed eligibility so blocked candidates are not embedded by the backend", async () => {
     const ann = deployment("Ann");
     const ning = deployment("Ning");
-    let resolverBody: Record<string, unknown> | null = null;
+    const resolverBodies: Array<Record<string, unknown>> = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -141,7 +141,9 @@ describe("RelayClient hard Smart Participation preflight", () => {
           });
         }
         if (url.pathname === "/api/smart-participation/resolve") {
-          resolverBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+          resolverBodies.push(
+            JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>
+          );
           return jsonResponse({
             resolver_version: "conversation-intelligence-v4-shadow-1",
             available: true,
@@ -172,7 +174,7 @@ describe("RelayClient hard Smart Participation preflight", () => {
       deployment_ids: [ann.deployment_id, ning.deployment_id]
     });
 
-    const candidates = (resolverBody?.candidates ?? []) as Array<Record<string, unknown>>;
+    const candidates = (resolverBodies[0]?.candidates ?? []) as Array<Record<string, unknown>>;
     expect(candidates).toEqual([
       {
         deployment_id: ann.deployment_id,
