@@ -44,6 +44,9 @@ class SmartParticipationResolveRequest(BaseModel):
     )
     minimum_margin: float = Field(default=2.0, ge=0.0, le=100.0)
     max_participants: int = Field(default=2, ge=1, le=3)
+    channel_cooldown_seconds: int = Field(default=45, ge=0, le=86_400)
+    window_seconds: int = Field(default=600, ge=1, le=86_400)
+    max_replies_per_window: int = Field(default=3, ge=1, le=100)
     candidates: list[SmartParticipationResolveCandidate] = Field(
         min_length=1,
         max_length=24,
