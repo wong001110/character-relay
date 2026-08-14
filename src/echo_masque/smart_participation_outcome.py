@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from echo_masque.api.smart_participation_outcome_schemas import SmartParticipationOutcomeObservation
 from echo_masque.character_learned_state import CharacterLearnedStateService, LearnedStateEvidence
-from echo_masque.persistence import DeploymentRepository
+from echo_masque.persistence import DeploymentRepository, Repository
 from echo_masque.persistence.conversation_graph_repository import (
     ConversationGraphRepository,
     ConversationGraphScope,
@@ -33,6 +33,7 @@ class SmartParticipationOutcomeService:
     def __init__(self, deployments: DeploymentRepository) -> None:
         self.deployments = deployments
         self.database = deployments.database
+        self.repository = Repository(self.database)
         self.graph = ConversationGraphRepository(self.database)
         self.topics = ConversationTopicRepository(self.database)
         self.learned = CharacterLearnedStateService(self.database)
@@ -44,6 +45,10 @@ class SmartParticipationOutcomeService:
         if burst:
             return burst[:80]
         return f"message:{payload.message_id}"[:80] if payload.message_id else ""
+
+    def _character_label(self, *, owner_id: str, character_card_id: str) -> str:
+        card = self.repository.get_character_card(character_card_id, owner_id)
+        return card.display_name if card is not None else character_card_id
 
     def record(
         self,
@@ -90,12 +95,19 @@ class SmartParticipationOutcomeService:
                 ttl_seconds=_PUBLIC_BURST_TTL,
             )
             for record in selected:
+                label = self._character_label(
+                    owner_id=record.owner_id,
+                    character_card_id=record.character_card_id,
+                )
                 character = self.graph.upsert_node(
                     scope=public_scope,
                     node_type="Character",
                     canonical_key=f"deployment:{record.id}",
-                    label=record.identity_display_name or record.character_display_name,
-                    payload={"deployment_id": record.id, "character_card_id": record.character_card_id},
+                    label=label,
+                    payload={
+                        "deployment_id": record.id,
+                        "character_card_id": record.character_card_id,
+                    },
                     ttl_seconds=_PUBLIC_BURST_TTL,
                 )
                 self.graph.upsert_edge(
@@ -186,11 +198,15 @@ class SmartParticipationOutcomeService:
                 channel_id=payload.channel_id,
                 thread_id=payload.thread_id,
             )
+            label = self._character_label(
+                owner_id=record.owner_id,
+                character_card_id=record.character_card_id,
+            )
             character = self.graph.upsert_node(
                 scope=private_scope,
                 node_type="Character",
                 canonical_key=f"character:{record.character_card_id}",
-                label=record.identity_display_name or record.character_display_name,
+                label=label,
                 payload={"character_card_id": record.character_card_id},
                 ttl_seconds=_PRIVATE_TOPIC_TTL,
             )
