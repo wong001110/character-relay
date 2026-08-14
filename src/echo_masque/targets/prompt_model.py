@@ -47,14 +47,12 @@ _TOOL_INTEGRITY_GUIDANCE = "\n".join(
 _SMART_OUTPUT_REPAIR_MARKER = "Your previous Smart Output was rejected ("
 _SMART_OUTPUT_FORMAT_REPAIR_GUIDANCE = "\n".join(
     (
-        "Formatting repair only: preserve the intended action and visible wording as closely "
-        "as possible. Do not add new reasoning, facts, or a new answer.",
-        "Return exactly one valid [[CR_OUTPUT {...}]] line.",
-        "For message content, every array item must be a separate JSON object containing "
-        "exactly one of: {\"text\":\"...\"}, {\"emoji\":\"eN\"}, or "
-        "{\"mention\":\"pN\"}.",
-        "Never place an Emoji or Mention JSON object inside a text string. If an inline Emoji "
-        "belongs between two text spans, split the text into separate content items around it.",
+        "Formatting repair only. Preserve the intended action and visible wording; do not add "
+        "reasoning, facts, or a new answer.",
+        "Each message content item must be exactly one object: {\"text\":\"...\"}, "
+        "{\"emoji\":\"eN\"}, or {\"mention\":\"pN\"}.",
+        "Never place an Emoji or Mention JSON object inside a text string. Split text around "
+        "inline Emoji.",
     )
 )
 
