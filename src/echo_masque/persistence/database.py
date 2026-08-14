@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from echo_masque.persistence.models import Base, StorageMetadataRecord
+from echo_masque.persistence.wiki_page_models import WikiPageRecord
 
 
 class Database:
@@ -21,6 +22,9 @@ class Database:
         self.session_factory = sessionmaker(self.engine, expire_on_commit=False)
 
     def initialize(self) -> None:
+        # Keep the derived Wiki model attached to Base.metadata before create_all().
+        # Other persistence models are registered by the package import graph.
+        _ = WikiPageRecord
         Base.metadata.create_all(self.engine)
 
     def ensure_storage_instance_id(self) -> str:
