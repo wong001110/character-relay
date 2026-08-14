@@ -121,6 +121,36 @@ class ConversationGraphRepository:
             and record.thread_id == scope.thread_id
         )
 
+    def find_node(
+        self,
+        *,
+        scope: ConversationGraphScope,
+        node_type: str,
+        canonical_key: str,
+        now: datetime | None = None,
+    ) -> ConversationGraphNodeRecord | None:
+        """Return one active scoped node by canonical identity without creating it."""
+
+        current = _current(now)
+        kind = _compact(node_type, 40)
+        key = _canonical(canonical_key)
+        if not kind or not key:
+            return None
+        with self.database.session() as session:
+            return session.scalar(
+                select(ConversationGraphNodeRecord)
+                .where(
+                    *self._scope_filters(ConversationGraphNodeRecord, scope),
+                    ConversationGraphNodeRecord.node_type == kind,
+                    ConversationGraphNodeRecord.canonical_key == key,
+                    or_(
+                        ConversationGraphNodeRecord.expires_at.is_(None),
+                        ConversationGraphNodeRecord.expires_at > current,
+                    ),
+                )
+                .limit(1)
+            )
+
     def upsert_node(
         self,
         *,
