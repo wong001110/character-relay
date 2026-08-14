@@ -101,8 +101,7 @@ export function buildConversationBurstText(
 ): string {
   const maximum = Math.max(1, Math.floor(maximumCharacters));
   const text = parts
-    .map((item) => " ".join ? item.text : item.text)
-    .map((item) => item.replace(/\s+/gu, " ").trim())
+    .map((item) => item.text.replace(/\s+/gu, " ").trim())
     .filter(Boolean)
     .join("\n");
   return text.length <= maximum ? text : text.slice(text.length - maximum);
@@ -147,7 +146,6 @@ export class TurnIngressCoordinator<T> {
   submit(scopeKey: string, submission: TurnIngressSubmission<T>): void {
     if (this.closed) return;
     this.enqueuePreflight(scopeKey, async () => {
-      if (this.closed) return;
       if (!submission.collect) {
         await this.collector.flush(scopeKey, "explicit_flush");
         this.enqueueRuntime(scopeKey, () => submission.execute(null));
