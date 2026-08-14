@@ -23,6 +23,14 @@ from echo_masque.utility_gateway_router import (
 )
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="utility-gateway")
+_JSON_OBJECT_PROVIDERS = {
+    "openrouter",
+    "groq",
+    "cerebras",
+    "mistral",
+    "sambanova",
+    "gemini",
+}
 
 
 class _GeminiOpenAIProvider(OpenAICompatibleProvider):
@@ -32,7 +40,12 @@ class _GeminiOpenAIProvider(OpenAICompatibleProvider):
 
 
 class ExistingProviderUtilityCaller(UtilityProviderCaller):
-    """Keep network credential handling inside the existing provider implementation."""
+    """Keep network credential handling inside the existing provider implementation.
+
+    Standard OpenAI-compatible Utility providers are first asked for JSON-object mode. If a
+    provider rejects that request shape, the caller retries that provider once in prompt-only
+    compatibility mode. Runtime still validates the returned Pydantic contract.
+    """
 
     @staticmethod
     def _base_url(route: UtilityRoute) -> str:
@@ -62,7 +75,9 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
         *,
         system_prompt: str,
         user_prompt: str,
+        max_output_tokens: int,
         temperature: float,
+        json_object: bool,
     ) -> ProviderCompletion:
         provider = cls._provider(route)
         return await provider.complete(
@@ -72,11 +87,40 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
             ),
             model=route.model,
             temperature=temperature,
+            max_output_tokens=max_output_tokens,
+            response_format={"type": "json_object"} if json_object else None,
         )
 
     @staticmethod
     def _run(coroutine: object) -> ProviderCompletion:
         return asyncio.run(coroutine)  # type: ignore[arg-type]
+
+    def _wait_for_completion(
+        self,
+        route: UtilityRoute,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        max_output_tokens: int,
+        temperature: float,
+        json_object: bool,
+    ) -> ProviderCompletion:
+        future = _EXECUTOR.submit(
+            self._run,
+            self._complete(
+                route,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_output_tokens=max_output_tokens,
+                temperature=temperature,
+                json_object=json_object,
+            ),
+        )
+        try:
+            return future.result(timeout=8.0)
+        except TimeoutError as exc:
+            future.cancel()
+            raise ProviderTimeoutError("utility caller timeout") from exc
 
     def call(
         self,
@@ -87,18 +131,28 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
         max_output_tokens: int,
         temperature: float,
     ) -> UtilityCallReply:
-        del max_output_tokens
-        future = _EXECUTOR.submit(
-            self._run,
-            self._complete(
-                route,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                temperature=temperature,
-            ),
-        )
+        use_json_object = route.provider in _JSON_OBJECT_PROVIDERS
         try:
-            completion = future.result(timeout=8.0)
+            try:
+                completion = self._wait_for_completion(
+                    route,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    max_output_tokens=max_output_tokens,
+                    temperature=temperature,
+                    json_object=use_json_object,
+                )
+            except ProviderProtocolError:
+                if not use_json_object:
+                    raise
+                completion = self._wait_for_completion(
+                    route,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    max_output_tokens=max_output_tokens,
+                    temperature=temperature,
+                    json_object=False,
+                )
         except ProviderRateLimitError as exc:
             raise UtilityCallFailed("quota", detail=str(exc)) from exc
         except ProviderAuthenticationError as exc:
@@ -111,9 +165,6 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
             raise UtilityCallFailed("protocol", detail=str(exc)) from exc
         except ProviderError as exc:
             raise UtilityCallFailed("unavailable", detail=str(exc)) from exc
-        except TimeoutError as exc:
-            future.cancel()
-            raise UtilityCallFailed("timeout", detail="utility caller timeout") from exc
         return UtilityCallReply(
             text=completion.text,
             latency_ms=completion.latency_ms,
