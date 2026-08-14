@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from echo_masque.api.connector_schemas import DiscordContextMessage, DiscordInboundMessage
-from echo_masque.conversation_media import ConversationMediaMemory, ConversationMediaReferenceService
+from echo_masque.api.connector_schemas import (
+    DiscordContextMessage,
+    DiscordInboundMessage,
+)
+from echo_masque.conversation_media import (
+    ConversationMediaMemory,
+    ConversationMediaReferenceService,
+)
 from echo_masque.live_media import LiveMediaContext
 from echo_masque.persistence import Database
 from echo_masque.persistence.conversation_media_repository import (
@@ -24,7 +30,10 @@ class MatchingMediaEncoder:
         return [1.0, 0.0]
 
 
-def _service() -> tuple[ConversationMediaReferenceRepository, ConversationMediaReferenceService]:
+def _service() -> tuple[
+    ConversationMediaReferenceRepository,
+    ConversationMediaReferenceService,
+]:
     database = Database("sqlite://")
     database.initialize()
     repository = ConversationMediaReferenceRepository(database)
@@ -86,7 +95,7 @@ def _payload(
         author_display_name="Member",
         text=text,
         recent_messages=recent_messages or [],
-        reply_to_message_id=reply_to_message_id,
+        reply_to_message_id=reply_to_message_id or "",
     )
 
 
