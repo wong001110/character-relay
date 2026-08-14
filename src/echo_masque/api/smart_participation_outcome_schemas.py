@@ -1,6 +1,8 @@
-"""Bounded connector-to-server outcome contract for V4 derived/durable state."""
+"""Bounded connector-to-server V4 derived/durable state contracts."""
 
 from __future__ import annotations
+
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -30,4 +32,62 @@ class SmartParticipationOutcomeView(BaseModel):
     durable_recorded: bool = False
 
 
-__all__ = ["SmartParticipationOutcomeObservation", "SmartParticipationOutcomeView"]
+class SmartParticipationRecentSpeakerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    connection_id: str = Field(min_length=1, max_length=64)
+    guild_id: str = Field(default="", max_length=128)
+    channel_id: str = Field(default="", max_length=128)
+    thread_id: str = Field(default="", max_length=128)
+    maximum_age_seconds: int = Field(default=90, ge=1, le=3600)
+    allowed_deployment_ids: list[str] = Field(min_length=1, max_length=24)
+
+
+class SmartParticipationRecentSpeakerView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    deployment_id: str = ""
+
+
+class SmartParticipationLearnedEvidenceRequest(BaseModel):
+    """Explicit evidence only; Character prose is never implicit proof."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    connection_id: str = Field(min_length=1, max_length=64)
+    deployment_id: str = Field(min_length=1, max_length=64)
+    state_type: Literal["expertise", "stance"]
+    subject_type: Literal["topic", "concept", "event", "media"]
+    subject_key: str = Field(min_length=1, max_length=240)
+    delta: float = Field(ge=-1.0, le=1.0)
+    confidence: float = Field(ge=0.0, le=1.0)
+    source_type: Literal[
+        "runtime_tool_success",
+        "knowledge_verification",
+        "explicit_member_feedback",
+        "admin_annotation",
+    ]
+    source_message_id: str = Field(default="", max_length=200)
+    source_burst_id: str = Field(default="", max_length=80)
+    reason_code: str = Field(default="", max_length=120)
+
+
+class SmartParticipationLearnedEvidenceView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recorded: bool
+    state_type: str = ""
+    subject_key: str = ""
+    value: float = 0.0
+    confidence: float = 0.0
+    evidence_count: int = 0
+
+
+__all__ = [
+    "SmartParticipationLearnedEvidenceRequest",
+    "SmartParticipationLearnedEvidenceView",
+    "SmartParticipationOutcomeObservation",
+    "SmartParticipationOutcomeView",
+    "SmartParticipationRecentSpeakerRequest",
+    "SmartParticipationRecentSpeakerView",
+]
