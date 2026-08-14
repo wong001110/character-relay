@@ -19,6 +19,54 @@ jobs:
       - name: Apply guarded source patch
         run: python scripts/apply_v4_ingress_patch.py
 
+      - name: Adapt generated code to strict optional typing
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          index = Path("connectors/discord/src/index.ts")
+          text = index.read_text(encoding="utf-8")
+          old = '''    prepareCollection: collectionDecision.collect
+                ? async () => {'''
+          new = '''    ...(collectionDecision.collect
+                ? { prepareCollection: async () => {'''
+          if text.count(old) != 1:
+              raise SystemExit(f"prepareCollection prefix match count={text.count(old)}")
+          text = text.replace(old, new, 1)
+          old = '''                }
+              : undefined,
+            execute: async (burst) => {'''
+          new = '''                } }
+              : {}),
+            execute: async (burst) => {'''
+          if text.count(old) != 1:
+              raise SystemExit(f"prepareCollection suffix match count={text.count(old)}")
+          index.write_text(text, encoding="utf-8")
+
+          test = Path("connectors/discord/src/relayClientBurst.test.ts")
+          text = test.read_text(encoding="utf-8")
+          replacements = [
+              (
+                  '    let resolverBody: Record<string, unknown> | null = null;',
+                  '    const resolverBodies: Array<Record<string, unknown>> = [];',
+              ),
+              (
+                  '          resolverBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;',
+                  '          resolverBodies.push(\n            JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>\n          );',
+              ),
+              ('    expect(resolverBody).toMatchObject({', '    expect(resolverBodies[0]).toMatchObject({'),
+              (
+                  '    expect(resolverBody?.burst_messages).toEqual([',
+                  '    expect(resolverBodies[0]?.burst_messages).toEqual([',
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"burst test match count={text.count(old)} for {old!r}")
+              text = text.replace(old, new, 1)
+          test.write_text(text, encoding="utf-8")
+          PY
+
       - name: Remove one-time patch helpers
         run: |
           rm scripts/apply_v4_ingress_patch.py
