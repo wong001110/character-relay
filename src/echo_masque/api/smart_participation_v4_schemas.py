@@ -84,6 +84,9 @@ class SmartParticipationResolveView(BaseModel):
     analysis_chars: int = 0
     candidates: list[SmartParticipationResolveCandidateView] = Field(default_factory=list)
     speaker_plan: list[SmartParticipationSpeakerPlanItem] = Field(default_factory=list)
+    graph_shadow_observed: bool = False
+    graph_shadow_node_count: int = 0
+    graph_shadow_edge_count: int = 0
     graph_used: bool = False
     learned_state_used: bool = False
     utility_used: bool = False
