@@ -83,8 +83,9 @@ def _knowledge_evidence_text(
     contextual: KnowledgeRouteAssessment | None,
 ) -> str:
     def line(label: str, value: KnowledgeRouteAssessment) -> str:
+        fallback = "on" if value.fallback_should_retrieve else "off"
         return (
-            f"{label}: route={value.route}; fallback={'on' if value.fallback_should_retrieve else 'off'}; "
+            f"{label}: route={value.route}; fallback={fallback}; "
             f"dense={value.best_dense_score:.6f}; sparse={value.best_sparse_score:.6f}; "
             f"eligible_bases={value.eligible_base_count}; contextual={value.is_contextual}"
         )
