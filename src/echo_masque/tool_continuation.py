@@ -183,6 +183,20 @@ class ToolContinuationService:
             )
         return self._utility_gateway_live
 
+    @staticmethod
+    def _capability_enabled(gateway: object) -> bool:
+        runtime = getattr(gateway, "runtime", None)
+        if runtime is None:
+            return True
+        config = runtime.config().utility_gateway
+        return bool(
+            config.enabled
+            and any(
+                member.enabled and "tool_continuation" in member.capabilities
+                for member in config.members
+            )
+        )
+
     def _utility_continuation(
         self,
         *,
@@ -213,6 +227,9 @@ class ToolContinuationService:
         if len(eligible) != 1:
             return ""
         action = eligible[0]
+        gateway = self._utility_gateway()
+        if not self._capability_enabled(gateway):
+            return ""
         prompt = "\n".join(
             (
                 f"Current message: {payload.text[:2200]}",
@@ -225,7 +242,7 @@ class ToolContinuationService:
             )
         )
         try:
-            value, _ = self._utility_gateway().invoke(
+            value, _ = gateway.invoke(
                 "tool_continuation",
                 ToolContinuationUtilityDecision,
                 system_prompt=(
