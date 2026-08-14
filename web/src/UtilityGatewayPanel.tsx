@@ -17,6 +17,8 @@ export type UtilityCapability =
   | "topic_intelligence"
   | "memory_intelligence"
   | "knowledge_wiki"
+  | "participation_tiebreak"
+  | "tool_continuation"
   | "context_compiler"
   | "media_understanding"
   | "structured_summary";
@@ -79,6 +81,8 @@ const capabilityLabels: Record<UtilityCapability, string> = {
   topic_intelligence: "Topic",
   memory_intelligence: "Memory",
   knowledge_wiki: "LLM Wiki",
+  participation_tiebreak: "Participation Tie-break",
+  tool_continuation: "Tool Continuation",
   context_compiler: "Context Compiler",
   media_understanding: "Media Understanding",
   structured_summary: "Summary"
@@ -151,8 +155,8 @@ export function UtilityGatewayPanel({
 
       <p className="section-help">
         {zh
-          ? "系统级 AI 统一从这里取用。Free Pool member 永远是 FREE ONLY；付费兜底只能走 OpenRouter。Phase 1 只建立配置与 Vault，尚未迁移 Topic / Memory / Media 调用。"
-          : "System AI is managed here. Free Pool members stay FREE ONLY and paid fallback is OpenRouter-only. Phase 1 establishes configuration and Vault storage only; Topic, Memory, and Media are not migrated yet."}
+          ? "系统级 AI 统一从这里取用。Free Pool member 永远是 FREE ONLY；付费兜底只能走 OpenRouter。各 capability 可独立分配到 provider；未分配的系统智能 consumer 会安全回退到现有 deterministic / E5 路径。"
+          : "System AI is managed here. Free Pool members stay FREE ONLY and paid fallback is OpenRouter-only. Capabilities are assigned independently; consumers with no eligible provider safely fall back to the existing deterministic / E5 path."}
       </p>
 
       <div className="utility-gateway-controls">
@@ -200,7 +204,7 @@ export function UtilityGatewayPanel({
               </div>
 
               <footer>
-                <span>{zh ? "Quota / Health 会在 Phase 2 接入" : "Quota / Health arrives in Phase 2"}</span>
+                <span>{zh ? "Quota / Health 由 Runtime 统一观测" : "Quota / Health is observed by Runtime"}</span>
                 <button type="button" className="key-group-delete-link" onClick={() => patch({ members: config.members.filter((_, itemIndex) => itemIndex !== index) })}>{zh ? "移除 member" : "Remove member"}</button>
               </footer>
             </article>
