@@ -29,6 +29,9 @@ from echo_masque.api.routes.reports import router as reports_router
 from echo_masque.api.routes.runtime_traces import router as runtime_traces_router
 from echo_masque.api.routes.scheduled_reminders import router as scheduled_reminders_router
 from echo_masque.api.routes.smart_participation import router as smart_participation_router
+from echo_masque.api.routes.smart_participation_v4 import (
+    router as smart_participation_v4_router,
+)
 from echo_masque.api.routes.targets import router as targets_router
 from echo_masque.api.routes.templates import router as templates_router
 from echo_masque.api.routes.tools import router as tools_router
@@ -47,6 +50,10 @@ accounts_router.include_router(key_group_scout_router)
 # Generated binary artifacts are an internal Discord connector sub-route. Keep them under the
 # existing authenticated connector prefix without adding another top-level router to create_app.
 connectors_router.include_router(generated_media_router)
+
+# V4 resolver shares the existing Smart Participation prefix/auth boundary. Keeping the new route
+# in a separate module avoids expanding the legacy per-message implementation during migration.
+smart_participation_router.include_router(smart_participation_v4_router)
 
 __all__ = [
     "accounts_router",

@@ -278,7 +278,8 @@ export function resolveAudience(
   text: string,
   replyDeploymentId?: string | null,
   additionalGroupAliases: string[] = [],
-  semanticScores: SmartParticipationSemanticScores = {}
+  semanticScores: SmartParticipationSemanticScores = {},
+  runtimeScopeKey?: string
 ): AudienceResolution {
   const options = [...new Set(candidates.map(displayName))];
   if (!candidates.length) {
@@ -288,14 +289,14 @@ export function resolveAudience(
   if (replyDeploymentId) {
     const replyTarget = candidates.find((item) => item.deployment_id === replyDeploymentId);
     if (replyTarget) {
-      markExplicitSmartSelections([replyTarget]);
+      markExplicitSmartSelections([replyTarget], Date.now(), runtimeScopeKey);
       return { deployments: [replyTarget], text: text.trim(), reason: "selected_reply", options };
     }
   }
 
   const groupText = stripGroupAddress(text, additionalGroupAliases);
   if (groupText !== null) {
-    markExplicitSmartSelections(candidates);
+    markExplicitSmartSelections(candidates, Date.now(), runtimeScopeKey);
     return { deployments: [...candidates], text: groupText, reason: "selected_all", options };
   }
 
@@ -307,18 +308,25 @@ export function resolveAudience(
         named.deployments,
         named.text,
         Date.now(),
-        semanticScores
+        semanticScores,
+        runtimeScopeKey
       );
       if (coordinated.coordinated) {
         return { ...named, deployments: coordinated.deployments, reason: "selected_coordinated" };
       }
       return named;
     }
-    markExplicitSmartSelections(named.deployments);
+    markExplicitSmartSelections(named.deployments, Date.now(), runtimeScopeKey);
     return named;
   }
 
-  const smartDecision = evaluateSmartParticipation(candidates, text, Date.now(), semanticScores);
+  const smartDecision = evaluateSmartParticipation(
+    candidates,
+    text,
+    Date.now(),
+    semanticScores,
+    runtimeScopeKey
+  );
   recordSmartParticipationDecision({
     message: text,
     decision: smartDecision,

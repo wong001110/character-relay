@@ -298,6 +298,7 @@ class DiscordInboundMessage(BaseModel):
     stickers: list[DiscordStickerContent] = Field(default_factory=list, max_length=3)
     attachments: list[DiscordAttachmentContent] = Field(default_factory=list, max_length=10)
     embeds: list[DiscordEmbedContent] = Field(default_factory=list, max_length=10)
+    burst_media_message_ids: list[str] = Field(default_factory=list, max_length=3)
     available_characters: list[str] = Field(default_factory=list, max_length=30)
     mentionable_participants: list[DiscordActionParticipant] = Field(
         default_factory=list, max_length=20

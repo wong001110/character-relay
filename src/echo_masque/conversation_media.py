@@ -9,12 +9,15 @@ from datetime import UTC, datetime, timedelta
 
 from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.config import get_settings
+from echo_masque.conversation_media_graph import ConversationMediaGraphService
 from echo_masque.expression_retrieval import semantic_tokens
 from echo_masque.live_media import LiveMediaContext
+from echo_masque.persistence.conversation_graph_repository import ConversationGraphRepository
 from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord
 from echo_masque.persistence.conversation_media_repository import (
     ConversationMediaReferenceRepository,
 )
+from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
 from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
 from echo_masque.semantic_participation import (
     FastEmbedSemanticEncoder,
@@ -87,6 +90,10 @@ class ConversationMediaReferenceService:
             )
         )
         self._semantic_vectors = SemanticVectorRepository(repository.database)
+        self._media_graph = ConversationMediaGraphService(
+            ConversationGraphRepository(repository.database),
+            ConversationTopicRepository(repository.database),
+        )
 
     def _encoder(self) -> SemanticEncoder:
         if self._semantic_encoder is None:
@@ -107,11 +114,7 @@ class ConversationMediaReferenceService:
             f"Label: {context.label}" if context.label else "",
             f"Summary: {context.summary}",
             f"Readable text: {context.visible_text}" if context.visible_text else "",
-            (
-                "Details: " + "; ".join(context.notable_details)
-                if context.notable_details
-                else ""
-            ),
+            ("Details: " + "; ".join(context.notable_details) if context.notable_details else ""),
         ]
         return "\n".join(item for item in sections if item)[:20_000]
 
@@ -173,6 +176,12 @@ class ConversationMediaReferenceService:
                 context=context,
                 source_uri=source_uris[index] if index < len(source_uris) else "",
             )
+            with suppress(Exception):
+                self._media_graph.project_perceived(
+                    record=record,
+                    context=context,
+                    connection_id=payload.connection_id,
+                )
             if self._semantic_enabled:
                 with suppress(SemanticEmbeddingUnavailable, ValueError, RuntimeError):
                     self._ensure_vector(owner_id=owner_id, record=record, context=context)
@@ -236,22 +245,32 @@ class ConversationMediaReferenceService:
         )
         if not explicit:
             cutoff = datetime.now(UTC) - _AUTO_RECALL_MAX_AGE
-            recent = [
-                record
-                for record in recent
-                if self._aware_utc(record.created_at) >= cutoff
-            ]
+            recent = [record for record in recent if self._aware_utc(record.created_at) >= cutoff]
         if not recent:
             return []
+        with suppress(Exception):
+            linked_keys = self._media_graph.active_topic_media_keys(
+                owner_id=recent[0].owner_id,
+                connection_id=payload.connection_id,
+                guild_id=payload.guild_id,
+                channel_id=payload.channel_id,
+                thread_id=payload.thread_id,
+            )
+            if linked_keys:
+                narrowed = [
+                    record
+                    for record in recent
+                    if self._media_graph.media_key(record.source_key) in linked_keys
+                ]
+                if narrowed:
+                    recent = narrowed
         try:
             encoder = self._encoder()
             query_vector = encoder.embed_query(query)
         except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
             return []
 
-        semantic_minimum = (
-            _EXPLICIT_SEMANTIC_MINIMUM if explicit else _AUTO_SEMANTIC_MINIMUM
-        )
+        semantic_minimum = _EXPLICIT_SEMANTIC_MINIMUM if explicit else _AUTO_SEMANTIC_MINIMUM
         ranked: list[tuple[float, float, ConversationMediaReferenceRecord]] = []
         denominator = max(1, len(recent) - 1)
         for index, record in enumerate(recent):
@@ -279,11 +298,7 @@ class ConversationMediaReferenceService:
         ranked.sort(key=lambda item: (-item[0], -item[1], item[2].created_at))
         if not ranked:
             return []
-        if (
-            not explicit
-            and len(ranked) > 1
-            and ranked[0][1] - ranked[1][1] < _TOP_MARGIN
-        ):
+        if not explicit and len(ranked) > 1 and ranked[0][1] - ranked[1][1] < _TOP_MARGIN:
             return []
         # Automatic semantic hydration is intentionally Top-1. Reply-to exact lookup below
         # may still return multiple media items from the replied Discord message.
@@ -322,9 +337,7 @@ class ConversationMediaReferenceService:
                 limit=1,
             )
         return tuple(
-            self._memory(item, query=payload.text)
-            for item in records
-            if item.context_json
+            self._memory(item, query=payload.text) for item in records if item.context_json
         )
 
     @staticmethod
@@ -342,11 +355,7 @@ class ConversationMediaReferenceService:
             chunk = text[start : start + window].strip()
             if not chunk:
                 continue
-            overlap = (
-                len(query_tokens.intersection(semantic_tokens(chunk)))
-                if query_tokens
-                else 0
-            )
+            overlap = len(query_tokens.intersection(semantic_tokens(chunk))) if query_tokens else 0
             candidates.append((overlap, -start, chunk))
             if start + window >= len(text):
                 break

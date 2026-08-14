@@ -10,6 +10,7 @@ import {
   type Message
 } from "discord.js";
 
+import { resolveExplicitAudiencePreflight } from "./audiencePreflight.js";
 import { loadConfig } from "./config.js";
 import { ContextBuffer } from "./contextBuffer.js";
 import {
@@ -27,7 +28,16 @@ import {
   stripCustomEmojiTokens
 } from "./expressionFlow.js";
 import { DiscordEventReporter } from "./eventReporter.js";
-import { RelayClient } from "./relayClient.js";
+import {
+  CharacterContextTurnIntelligenceMetrics,
+  hasCharacterContextTurnIntelligenceActivity
+} from "./turnIntelligenceTelemetry.js";
+import { compareParticipationShadowPlan } from "./participationShadowParity.js";
+import {
+  RelayClient,
+  type DiscordParticipationShadowCandidate,
+  type DiscordParticipationShadowPlanItem
+} from "./relayClient.js";
 import { RecoveryLoop } from "./recoveryLoop.js";
 import {
   buildDeploymentIndex,
@@ -41,6 +51,11 @@ import {
   splitDiscordMessage,
   type DeploymentIndex
 } from "./routing.js";
+import {
+  buildSmartParticipationBaseEvidence,
+  preflightSmartParticipationRuntime,
+  restoreDurableLightweightSelection
+} from "./smartParticipation.js";
 import {
   buildMentionableParticipants,
   compileSmartMessage,
@@ -64,6 +79,14 @@ import type {
   DiscordSocialTurnStepReply,
   DiscordStickerContent
 } from "./types.js";
+import type { ConversationBurst } from "./turnCollector.js";
+import {
+  TurnIngressCoordinator,
+  buildConversationBurstId,
+  buildConversationBurstText,
+  decideTurnCollection,
+  summarizeConversationBurst
+} from "./turnIngress.js";
 import { DiscordWebhookManager } from "./webhookManager.js";
 
 const config = loadConfig();
@@ -126,7 +149,15 @@ const client = new Client({
   intents,
   partials: [Partials.Channel, Partials.Message]
 });
+interface CollectedDiscordTurn {
+  source: Message<true>;
+  originalText: string;
+  authorDisplayName: string;
+}
+
 const context = new ContextBuffer(config.maxContextMessages);
+const characterContextTurnIntelligenceMetrics =
+  new CharacterContextTurnIntelligenceMetrics();
 const queues = new Map<string, Promise<void>>();
 const processedMessages = new Map<string, number>();
 const sentCharacterRoutes = new Map<
@@ -146,6 +177,37 @@ let dedupeTimer: NodeJS.Timeout | undefined;
 let lastGatewayMessageAt: string | null = null;
 let lastGatewayMessageId: string | null = null;
 let lastGatewayMentionedBot = false;
+let turnCollectorCandidateMessageCount = 0;
+let turnCollectorBypassMessageCount = 0;
+let turnCollectorBurstCount = 0;
+let turnCollectorCollectedMessageCount = 0;
+let turnCollectorCollapsedMessageCount = 0;
+let turnCollectorInteractionBypassCount = 0;
+let turnCollectorLastBurstAt: string | null = null;
+let turnCollectorLastBurstId: string | null = null;
+let turnCollectorLastFlushReason: string | null = null;
+let participationShadowParityObservationCount = 0;
+let participationShadowParityExactMatchCount = 0;
+let participationShadowParitySetMatchCount = 0;
+let participationShadowParityMismatchCount = 0;
+let participationShadowParityLastAt: string | null = null;
+let participationShadowParityLastExactMatch: boolean | null = null;
+let participationShadowParityLastSetMatch: boolean | null = null;
+const turnCollectorBypassReasons: Record<string, number> = {};
+const turnIngress = new TurnIngressCoordinator<CollectedDiscordTurn>(
+  {
+    enabled: config.smartParticipationTurnCollectorEnabled,
+    quietWindowMs: config.smartParticipationTurnCollectorQuietMs,
+    maxWaitMs: config.smartParticipationTurnCollectorMaxWaitMs,
+    maxMessages: config.smartParticipationTurnCollectorMaxMessages,
+    maxCharacters: config.smartParticipationTurnCollectorMaxCharacters
+  },
+  enqueue,
+  (error, scopeKey) => {
+    lastError = error instanceof Error ? error.message : String(error);
+    log("Discord Turn Collector ingress failed.", { scopeKey, error: lastError });
+  }
+);
 
 const catalogChannelTypes = new Set<ChannelType>([
   ChannelType.GuildText,
@@ -153,6 +215,20 @@ const catalogChannelTypes = new Set<ChannelType>([
   ChannelType.GuildForum,
   ChannelType.GuildMedia
 ]);
+
+function isVisibleImageAttachment(attachment: {
+  contentType?: string | null;
+  name?: string | null;
+}): boolean {
+  const contentType = attachment.contentType?.trim().toLowerCase() ?? "";
+  if (contentType.startsWith("image/")) return true;
+  const name = attachment.name?.trim().toLowerCase() ?? "";
+  return /\.(?:png|jpe?g|webp|gif|avif)$/u.test(name);
+}
+
+function visibleImageAttachmentCount(message: Message<true>): number {
+  return [...message.attachments.values()].filter(isVisibleImageAttachment).length;
+}
 
 function log(message: string, metadata?: Record<string, unknown>): void {
   console.log(
@@ -225,6 +301,7 @@ function reportCharacterContext(input: {
     deploymentId: input.deployment.deployment_id,
     characterName: input.deployment.identity_display_name || input.deployment.character_display_name
   };
+  const turnIntelligence = characterContextTurnIntelligenceMetrics.observe(trace);
   const details = {
     rag_status: trace.rag_status,
     rag_reason: trace.rag_reason,
@@ -238,6 +315,13 @@ function reportCharacterContext(input: {
     selected_chunk_count: trace.selected_chunk_count,
     selected_knowledge_tokens: trace.selected_knowledge_tokens,
     knowledge_token_budget: trace.knowledge_token_budget,
+    turn_intelligence_mode: turnIntelligence.mode,
+    turn_intelligence_requested_tasks: turnIntelligence.requestedTasks,
+    turn_intelligence_knowledge_source: turnIntelligence.knowledgeSource,
+    turn_intelligence_pending_action_source: turnIntelligence.pendingActionSource,
+    turn_intelligence_knowledge_route: turnIntelligence.knowledgeRoute,
+    turn_intelligence_pending_action_continue:
+      turnIntelligence.pendingActionContinue,
     selected: trace.selected
   };
   reportDiscordEvent({
@@ -259,6 +343,27 @@ function reportCharacterContext(input: {
     ...common,
     details
   });
+  if (hasCharacterContextTurnIntelligenceActivity(turnIntelligence)) {
+    reportDiscordEvent({
+      level:
+        turnIntelligence.knowledgeSource === "legacy_fallback" ||
+        turnIntelligence.pendingActionSource === "legacy_fallback"
+          ? "warning"
+          : "info",
+      eventType: "turn_intelligence_character_context",
+      message:
+        "Character context routing recorded a bounded Turn Intelligence decision.",
+      ...common,
+      details: {
+        mode: turnIntelligence.mode,
+        requested_tasks: turnIntelligence.requestedTasks,
+        knowledge_source: turnIntelligence.knowledgeSource,
+        knowledge_route: turnIntelligence.knowledgeRoute,
+        pending_action_source: turnIntelligence.pendingActionSource,
+        pending_action_continue: turnIntelligence.pendingActionContinue
+      }
+    });
+  }
 }
 
 async function syncServerCatalog(): Promise<void> {
@@ -1848,7 +1953,67 @@ async function processMessage(
     guildMessage.member?.displayName ??
     guildMessage.author.globalName ??
     guildMessage.author.username;
-  enqueue(key, async () => {
+  const collectedTurn: CollectedDiscordTurn = {
+    source: guildMessage,
+    originalText,
+    authorDisplayName
+  };
+  const executeQueued = async (
+    burst: ConversationBurst<CollectedDiscordTurn> | null,
+    interactionClaimOverride: DiscordInteractionClaim | null
+  ): Promise<void> => {
+    const burstTelemetry = burst
+      ? summarizeConversationBurst(
+          burst,
+          burst.items.map((item) => item.source.author.id)
+        )
+      : null;
+    if (burstTelemetry) {
+      turnCollectorBurstCount += 1;
+      turnCollectorCollectedMessageCount += burstTelemetry.messageCount;
+      turnCollectorCollapsedMessageCount += burstTelemetry.collapsedMessageCount;
+      turnCollectorLastBurstAt = new Date(burstTelemetry.flushedAt).toISOString();
+      turnCollectorLastBurstId = burstTelemetry.burstId;
+      turnCollectorLastFlushReason = burstTelemetry.flushReason;
+      reportDiscordEvent({
+        level: "info",
+        eventType: "smart_participation_burst_flushed",
+        message: "Turn Collector flushed a bounded Conversation Burst for Smart Participation.",
+        guildId: guildMessage.guildId,
+        guildName: guildMessage.guild.name,
+        channelId: location.channelId,
+        channelName: location.channelName,
+        threadId: location.threadId,
+        threadName: location.threadName,
+        sourceMessageId: guildMessage.id,
+        details: {
+          burst_id: burstTelemetry.burstId,
+          flush_reason: burstTelemetry.flushReason,
+          message_count: burstTelemetry.messageCount,
+          author_count: burstTelemetry.authorCount,
+          total_characters: burstTelemetry.totalCharacters,
+          opened_at: new Date(burstTelemetry.openedAt).toISOString(),
+          flushed_at: new Date(burstTelemetry.flushedAt).toISOString(),
+          collection_latency_ms: burstTelemetry.collectionLatencyMs,
+          collapsed_message_count: burstTelemetry.collapsedMessageCount,
+          source_message_ids: burstTelemetry.sourceMessageIds
+        }
+      });
+    }
+    if (burst) {
+      for (const item of burst.items.slice(0, -1)) {
+        context.push(key, {
+          message_id: item.source.id,
+          author_id: item.source.author.id,
+          author_display_name: item.authorDisplayName,
+          text: item.originalText,
+          emojis: [],
+          stickers: [],
+          created_at: item.source.createdAt.toISOString(),
+          is_bot: false
+        });
+      }
+    }
     const [emojis, stickers] = await Promise.all([
       resolveMessageEmojis(guildMessage),
       resolveMessageStickers(guildMessage)
@@ -1865,25 +2030,63 @@ async function processMessage(
     };
     context.push(key, contextMessage);
 
-    let interactionClaim: DiscordInteractionClaim = {
+    const participationText = burst
+      ? buildConversationBurstText(
+          burst.items.map((item) => ({ text: item.originalText })),
+          4_000
+        )
+      : originalText;
+    const participationBurstId = burstTelemetry?.burstId ?? "";
+    const burstMediaMessageIds = burst
+      ? [
+          ...new Set(
+            burst.items
+              .slice(0, -1)
+              .filter((item) => {
+                const imageCount = visibleImageAttachmentCount(item.source);
+                return (
+                  imageCount > 0 &&
+                  imageCount === item.source.attachments.size &&
+                  item.source.embeds.length === 0 &&
+                  !/https?:\/\//iu.test(item.source.content)
+                );
+              })
+              .map((item) => item.source.id)
+          )
+        ].slice(-2)
+      : [];
+    const participationBurstMessages = burst
+      ? burst.items.map((item) => ({
+          message_id: item.source.id,
+          author_id: item.source.author.id,
+          author_display_name: item.authorDisplayName,
+          text: item.originalText,
+          created_at: item.source.createdAt.toISOString(),
+          reply_to_message_id: item.source.reference?.messageId ?? ""
+        }))
+      : [];
+
+    let interactionClaim: DiscordInteractionClaim = interactionClaimOverride ?? {
       claimed: false,
       run_id: null,
       session: null
     };
-    try {
-      interactionClaim = await relay.claimInteraction({
-        guild_id: guildMessage.guildId,
-        channel_id: location.channelId,
-        target_user_id: guildMessage.author.id,
-        source_message_id: guildMessage.id
-      });
-    } catch (error) {
-      log("Unable to check Interaction Sessions; continuing normal routing.", {
-        guildId: guildMessage.guildId,
-        channelId: location.channelId,
-        sourceMessageId: guildMessage.id,
-        error: error instanceof Error ? error.message : String(error)
-      });
+    if (!interactionClaimOverride) {
+      try {
+        interactionClaim = await relay.claimInteraction({
+          guild_id: guildMessage.guildId,
+          channel_id: location.channelId,
+          target_user_id: guildMessage.author.id,
+          source_message_id: guildMessage.id
+        });
+      } catch (error) {
+        log("Unable to check Interaction Sessions; continuing normal routing.", {
+          guildId: guildMessage.guildId,
+          channelId: location.channelId,
+          sourceMessageId: guildMessage.id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
     }
     if (
       await processInteractionSession(
@@ -1927,20 +2130,73 @@ async function processMessage(
     }
 
     const semanticScores: Record<string, number> = {};
+    let semanticPreflightReason = "not_run";
+    let serverSpeakerPlan: DiscordParticipationShadowPlanItem[] | undefined;
+    let serverSpeakerPlanAuthoritative = false;
+    let serverShadowPlan: DiscordParticipationShadowPlanItem[] | undefined;
+    let serverShadowCandidateScores:
+      | DiscordParticipationShadowCandidate[]
+      | undefined;
+    const smartRuntimeScopeKey = [
+      config.relayConnectionId,
+      guildMessage.guildId,
+      location.channelId,
+      location.threadId
+    ].join(":");
     if (
       config.smartParticipationEnabled &&
       !replyTarget.deploymentId &&
-      originalText.trim()
+      participationText.trim()
     ) {
-      const smartDeploymentIds = candidates
-        .filter((item) => item.participation_mode === "smart")
-        .map((item) => item.deployment_id);
-      if (smartDeploymentIds.length) {
+      const semanticPreflightNow = Date.now();
+      const semanticPreflight = preflightSmartParticipationRuntime(
+        candidates,
+        participationText,
+        semanticPreflightNow,
+        smartRuntimeScopeKey
+      );
+      semanticPreflightReason = semanticPreflight.reason;
+      const smartDeploymentIds = semanticPreflight.semanticCandidateDeploymentIds;
+      const baseEvidenceById = new Map(
+        buildSmartParticipationBaseEvidence(
+          candidates,
+          participationText,
+          semanticPreflightNow
+        ).map((item) => [item.deploymentId, item])
+      );
+      if (!semanticPreflight.skipSemantic && smartDeploymentIds.length) {
         try {
           const semantic = await relay.scoreSmartParticipation({
-            message: originalText,
-            deployment_ids: smartDeploymentIds
+            message: participationText,
+            deployment_ids: smartDeploymentIds,
+            guild_id: guildMessage.guildId,
+            channel_id: location.channelId,
+            thread_id: location.threadId,
+            message_id: guildMessage.id,
+            author_id: guildMessage.author.id,
+            reply_to_message_id: guildMessage.reference?.messageId ?? "",
+            burst_id: participationBurstId,
+            burst_messages: participationBurstMessages,
+            minimum_margin: config.smartParticipationMinimumMargin,
+            max_participants: config.smartParticipationMaxParticipants,
+            channel_cooldown_seconds: config.smartParticipationChannelCooldownSeconds,
+            window_seconds: config.smartParticipationWindowSeconds,
+            max_replies_per_window: config.smartParticipationMaxRepliesPerWindow,
+            candidate_preflight: smartDeploymentIds.map((deploymentId) => {
+              const evidence = baseEvidenceById.get(deploymentId);
+              return {
+                deployment_id: deploymentId,
+                eligible: evidence?.eligible ?? true,
+                deterministic_score: evidence?.deterministicScore ?? 0,
+                minimum_score: evidence?.minimumScore ?? 0,
+                signals: evidence?.signals ?? {}
+              };
+            })
           });
+          serverSpeakerPlan = semantic.speaker_plan;
+          serverSpeakerPlanAuthoritative = Boolean(semantic.speaker_plan_authoritative);
+          serverShadowPlan = semantic.shadow_speaker_plan;
+          serverShadowCandidateScores = semantic.shadow_candidate_scores;
           if (semantic.available) {
             for (const candidate of semantic.candidates) {
               if (candidate.profile_ready && Number.isFinite(candidate.semantic_relevance)) {
@@ -1967,6 +2223,15 @@ async function processMessage(
               model: semantic.model || null,
               dimension: semantic.dimension || null,
               candidate_count: semantic.candidates.length,
+              burst_id: burstTelemetry?.burstId ?? null,
+              burst_message_count: burstTelemetry?.messageCount ?? 1,
+              collapsed_message_count: burstTelemetry?.collapsedMessageCount ?? 0,
+              turn_collector_flush_reason: burstTelemetry?.flushReason ?? null,
+              semantic_preflight_reason: semanticPreflight.reason,
+              speaker_plan: semantic.speaker_plan ?? [],
+              shadow_speaker_plan: semantic.shadow_speaker_plan ?? [],
+              shadow_candidate_scores: semantic.shadow_candidate_scores ?? [],
+              speaker_plan_authoritative: semantic.speaker_plan_authoritative ?? false,
               scores: semantic.candidates.map((candidate) => ({
                 deployment_id: candidate.deployment_id,
                 semantic_relevance: candidate.semantic_relevance,
@@ -1988,20 +2253,206 @@ async function processMessage(
             sourceMessageId: guildMessage.id,
             details: {
               error: error instanceof Error ? error.message : String(error),
-              candidate_count: smartDeploymentIds.length
+              candidate_count: smartDeploymentIds.length,
+              burst_id: burstTelemetry?.burstId ?? null,
+              burst_message_count: burstTelemetry?.messageCount ?? 1,
+              turn_collector_flush_reason: burstTelemetry?.flushReason ?? null
             }
+          });
+        }
+      } else if (semanticPreflight.skipSemantic) {
+        reportDiscordEvent({
+          level: "info",
+          eventType: "smart_participation_semantic_skipped",
+          message: "Runtime state resolved Smart Participation before E5 was needed.",
+          guildId: guildMessage.guildId,
+          guildName: guildMessage.guild.name,
+          channelId: location.channelId,
+          channelName: location.channelName,
+          threadId: location.threadId,
+          threadName: location.threadName,
+          sourceMessageId: guildMessage.id,
+          details: {
+            reason: semanticPreflight.reason,
+            burst_id: burstTelemetry?.burstId ?? null,
+            burst_message_count: burstTelemetry?.messageCount ?? 1,
+            collapsed_message_count: burstTelemetry?.collapsedMessageCount ?? 0
+          }
+        });
+      }
+    }
+
+    let audience = resolveAudience(
+      candidates,
+      participationText,
+      replyTarget.deploymentId,
+      config.groupAddressAliases,
+      semanticScores,
+      smartRuntimeScopeKey
+    );
+    if (
+      !audience.deployments.length &&
+      !replyTarget.deploymentId &&
+      semanticPreflightReason === "low_information_message"
+    ) {
+      const allowedDeploymentIds = candidates
+        .filter((candidate) => candidate.participation_mode === "smart")
+        .map((candidate) => candidate.deployment_id);
+      if (allowedDeploymentIds.length) {
+        try {
+          const durableDeploymentId = await relay.recentSmartParticipationSpeaker({
+            guild_id: guildMessage.guildId,
+            channel_id: location.channelId,
+            thread_id: location.threadId,
+            maximum_age_seconds:
+              config.smartParticipationLightweightFollowUpWindowSeconds,
+            allowed_deployment_ids: allowedDeploymentIds
+          });
+          if (durableDeploymentId) {
+            const restored = restoreDurableLightweightSelection(
+              candidates,
+              durableDeploymentId,
+              participationText,
+              Date.now(),
+              smartRuntimeScopeKey
+            );
+            if (restored.selectedDeployments.length) {
+              audience = {
+                deployments: restored.selectedDeployments,
+                text: participationText.trim(),
+                reason: "selected_smart",
+                options: audience.options
+              };
+              reportDiscordEvent({
+                level: "info",
+                eventType: "smart_participation_durable_lightweight_recovered",
+                message:
+                  "A low-information Smart Participation turn recovered its recent speaker from durable server state.",
+                guildId: guildMessage.guildId,
+                guildName: guildMessage.guild.name,
+                channelId: location.channelId,
+                channelName: location.channelName,
+                threadId: location.threadId,
+                threadName: location.threadName,
+                sourceMessageId: guildMessage.id,
+                deploymentId: durableDeploymentId,
+                details: { maximum_age_seconds: config.smartParticipationLightweightFollowUpWindowSeconds }
+              });
+            }
+          }
+        } catch (error) {
+          reportDiscordEvent({
+            level: "warning",
+            eventType: "smart_participation_durable_lightweight_failed",
+            message:
+              "Durable recent-speaker recovery failed; local Smart Participation routing remained authoritative.",
+            guildId: guildMessage.guildId,
+            guildName: guildMessage.guild.name,
+            channelId: location.channelId,
+            channelName: location.channelName,
+            threadId: location.threadId,
+            threadName: location.threadName,
+            sourceMessageId: guildMessage.id,
+            details: { error: error instanceof Error ? error.message : String(error) }
           });
         }
       }
     }
-
-    const audience = resolveAudience(
-      candidates,
-      originalText,
-      replyTarget.deploymentId,
-      config.groupAddressAliases,
-      semanticScores
+    if (serverSpeakerPlanAuthoritative && !replyTarget.deploymentId) {
+      const planned = (serverSpeakerPlan ?? [])
+        .map((item) =>
+          candidates.find((candidate) => candidate.deployment_id === item.deployment_id)
+        )
+        .filter((item): item is DiscordDeployment => Boolean(item));
+      audience = {
+        deployments: planned,
+        text: participationText.trim(),
+        reason:
+          planned.length > 1
+            ? "selected_smart_multiple"
+            : planned.length === 1
+              ? "selected_smart"
+              : "not_found",
+        options: []
+      };
+    }
+    const actualSmartDeploymentIds =
+      audience.reason === "selected_smart" || audience.reason === "selected_smart_multiple"
+        ? audience.deployments.map((deployment) => deployment.deployment_id)
+        : [];
+    if (actualSmartDeploymentIds.length) {
+      void relay
+        .observeSmartParticipationOutcome({
+          guild_id: guildMessage.guildId,
+          channel_id: location.channelId,
+          thread_id: location.threadId,
+          message_id: guildMessage.id,
+          burst_id: participationBurstId,
+          author_id: guildMessage.author.id,
+          reply_to_message_id: guildMessage.reference?.messageId ?? "",
+          selected_deployment_ids: actualSmartDeploymentIds,
+          candidate_deployment_ids: candidates
+            .filter((candidate) => candidate.participation_mode === "smart")
+            .map((candidate) => candidate.deployment_id)
+        })
+        .catch((error) => {
+          reportDiscordEvent({
+            level: "warning",
+            eventType: "smart_participation_outcome_failed",
+            message: "Server could not persist Smart Participation outcome state.",
+            guildId: guildMessage.guildId,
+            guildName: guildMessage.guild.name,
+            channelId: location.channelId,
+            channelName: location.channelName,
+            threadId: location.threadId,
+            threadName: location.threadName,
+            sourceMessageId: guildMessage.id,
+            details: {
+              error: error instanceof Error ? error.message : String(error),
+              selected_deployment_ids: actualSmartDeploymentIds
+            }
+          });
+        });
+    }
+    const shadowParity = compareParticipationShadowPlan(
+      serverShadowPlan,
+      actualSmartDeploymentIds,
+      serverShadowCandidateScores
     );
+    if (shadowParity.observed) {
+      participationShadowParityObservationCount += 1;
+      if (shadowParity.exactMatch) participationShadowParityExactMatchCount += 1;
+      if (shadowParity.setMatch) participationShadowParitySetMatchCount += 1;
+      if (!shadowParity.setMatch) participationShadowParityMismatchCount += 1;
+      participationShadowParityLastAt = new Date().toISOString();
+      participationShadowParityLastExactMatch = shadowParity.exactMatch;
+      participationShadowParityLastSetMatch = shadowParity.setMatch;
+      reportDiscordEvent({
+        level: shadowParity.setMatch ? "info" : "warning",
+        eventType: "smart_participation_shadow_parity",
+        message: shadowParity.setMatch
+          ? "Server shadow speaker plan matched the authoritative Connector speaker set."
+          : "Server shadow speaker plan disagreed with the authoritative Connector speaker set.",
+        guildId: guildMessage.guildId,
+        guildName: guildMessage.guild.name,
+        channelId: location.channelId,
+        channelName: location.channelName,
+        threadId: location.threadId,
+        threadName: location.threadName,
+        sourceMessageId: guildMessage.id,
+        details: {
+          burst_id: burstTelemetry?.burstId ?? null,
+          audience_reason: audience.reason,
+          exact_match: shadowParity.exactMatch,
+          set_match: shadowParity.setMatch,
+          shadow_deployment_ids: shadowParity.shadowDeploymentIds,
+          actual_deployment_ids: shadowParity.actualDeploymentIds,
+          missing_from_shadow: shadowParity.missingFromShadow,
+          extra_in_shadow: shadowParity.extraInShadow,
+          shadow_candidate_scores: shadowParity.shadowCandidateScores
+        }
+      });
+    }
     if (!audience.deployments.length) {
       if (mentionedBot || replyTarget.characterMessage) {
         reportDiscordEvent({
@@ -2237,11 +2688,18 @@ async function processMessage(
       const sourceDisplayName = sourceDeployment
         ? deploymentDisplayName(sourceDeployment)
         : authorDisplayName;
+      const smartParticipationAudience =
+        audience.reason === "selected_smart" ||
+        audience.reason === "selected_smart_multiple";
       const turnText = socialSource
         ? continuationAudience?.text ||
           socialSource.text ||
           `${sourceDisplayName} tagged this character without additional readable text.`
-        : (addressedToMultiple ? originalText : audience.text) ||
+        : (smartParticipationAudience
+            ? originalText
+            : addressedToMultiple
+              ? originalText
+              : audience.text) ||
           originalText ||
           (emojis.length || stickers.length
             ? "The user addressed the character with interpreted Discord expression content and no text."
@@ -2284,6 +2742,7 @@ async function processMessage(
         author_is_bot: Boolean(sourceDeployment),
         emojis: socialSource ? [] : emojis,
         stickers: socialSource ? [] : stickers,
+        burst_media_message_ids: socialSource ? [] : burstMediaMessageIds,
         interaction_session_id: "",
         interaction_type: "",
         interaction_intensity: "",
@@ -2590,6 +3049,89 @@ async function processMessage(
         );
       }
     }
+  };
+
+  const explicitAudience = resolveExplicitAudiencePreflight(
+    candidates,
+    originalText,
+    null,
+    config.groupAddressAliases
+  );
+  const customEmojiCount = parseCustomEmojiTokens(guildMessage.content).length;
+  const smartCandidateCount = candidates.filter(
+    (item) => item.participation_mode === "smart"
+  ).length;
+  const visibleImageCount = visibleImageAttachmentCount(guildMessage);
+  const collectionDecision = decideTurnCollection({
+    collectorEnabled: turnIngress.enabled,
+    smartParticipationEnabled: config.smartParticipationEnabled,
+    recovery: Boolean(options?.recovery),
+    mentionedBot,
+    hasReplyReference: Boolean(guildMessage.reference?.messageId),
+    explicitAudience: Boolean(explicitAudience),
+    hasReadableText: Boolean(originalText.trim()),
+    customEmojiCount,
+    stickerCount: guildMessage.stickers.size,
+    attachmentCount: guildMessage.attachments.size,
+    visibleImageAttachmentCount: visibleImageCount,
+    embedCount: guildMessage.embeds.length,
+    hasUrl: /https?:\/\//iu.test(guildMessage.content),
+    smartCandidateCount
+  });
+  let preclaimedInteraction: DiscordInteractionClaim | null = null;
+
+  if (collectionDecision.collect) {
+    turnCollectorCandidateMessageCount += 1;
+    log("Smart Participation message entered the Turn Collector.", {
+      guildId: guildMessage.guildId,
+      channelId: location.channelId,
+      threadId: location.threadId || null,
+      sourceMessageId: guildMessage.id,
+      pendingBurstScopes: turnIngress.pendingBurstScopeCount,
+      quietWindowMs: config.smartParticipationTurnCollectorQuietMs
+    });
+  } else {
+    turnCollectorBypassMessageCount += 1;
+    turnCollectorBypassReasons[collectionDecision.reason] =
+      (turnCollectorBypassReasons[collectionDecision.reason] ?? 0) + 1;
+  }
+
+  turnIngress.submit(key, {
+    id: guildMessage.id,
+    value: collectedTurn,
+    characters: originalText.length,
+    receivedAt: guildMessage.createdTimestamp,
+    collect: collectionDecision.collect,
+    ...(collectionDecision.collect
+      ? { prepareCollection: async () => {
+          try {
+            const claim = await relay.claimInteraction({
+              guild_id: guildMessage.guildId,
+              channel_id: location.channelId,
+              target_user_id: guildMessage.author.id,
+              source_message_id: guildMessage.id
+            });
+            if (claim.claimed) {
+              turnCollectorInteractionBypassCount += 1;
+              preclaimedInteraction = claim;
+              return false;
+            }
+            return true;
+          } catch (error) {
+            turnCollectorInteractionBypassCount += 1;
+            log("Unable to preflight Interaction Sessions; bypassing Turn Collector.", {
+              guildId: guildMessage.guildId,
+              channelId: location.channelId,
+              sourceMessageId: guildMessage.id,
+              error: error instanceof Error ? error.message : String(error)
+            });
+            return false;
+          }
+        } }
+      : {}),
+    execute: async (burst) => {
+      await executeQueued(burst, preclaimedInteraction);
+    }
   });
 }
 
@@ -2672,8 +3214,45 @@ const healthServer = createServer((request, response) => {
       ).length,
       message_content_intent: config.messageContentIntent,
       smart_participation_enabled: config.smartParticipationEnabled,
+      ...characterContextTurnIntelligenceMetrics.healthSnapshot(),
       smart_participation_max_participants: config.smartParticipationMaxParticipants,
       smart_participation_semantic_enabled: true,
+      smart_participation_turn_collector_enabled: turnIngress.enabled,
+      smart_participation_turn_collector_pending_scopes:
+        turnIngress.pendingBurstScopeCount,
+      smart_participation_ingress_pending_scopes:
+        turnIngress.pendingPreflightScopeCount,
+      smart_participation_turn_collector_candidate_messages:
+        turnCollectorCandidateMessageCount,
+      smart_participation_turn_collector_bypass_messages:
+        turnCollectorBypassMessageCount,
+      smart_participation_turn_collector_bypass_reasons:
+        turnCollectorBypassReasons,
+      smart_participation_turn_collector_interaction_bypasses:
+        turnCollectorInteractionBypassCount,
+      smart_participation_turn_collector_bursts: turnCollectorBurstCount,
+      smart_participation_turn_collector_collected_messages:
+        turnCollectorCollectedMessageCount,
+      smart_participation_turn_collector_collapsed_messages:
+        turnCollectorCollapsedMessageCount,
+      smart_participation_turn_collector_last_burst_at: turnCollectorLastBurstAt,
+      smart_participation_turn_collector_last_burst_id: turnCollectorLastBurstId,
+      smart_participation_turn_collector_last_flush_reason:
+        turnCollectorLastFlushReason,
+      smart_participation_shadow_parity_observations:
+        participationShadowParityObservationCount,
+      smart_participation_shadow_parity_exact_matches:
+        participationShadowParityExactMatchCount,
+      smart_participation_shadow_parity_set_matches:
+        participationShadowParitySetMatchCount,
+      smart_participation_shadow_parity_mismatches:
+        participationShadowParityMismatchCount,
+      smart_participation_shadow_parity_last_at:
+        participationShadowParityLastAt,
+      smart_participation_shadow_parity_last_exact_match:
+        participationShadowParityLastExactMatch,
+      smart_participation_shadow_parity_last_set_match:
+        participationShadowParityLastSetMatch,
       bot_tag_conversations_enabled: config.botTagConversationsEnabled,
       bot_tag_max_depth: config.botTagMaxDepth,
       bot_tag_max_responses: config.botTagMaxResponses,
@@ -2809,6 +3388,9 @@ async function shutdown(signal: string): Promise<void> {
   ready = false;
   stateSynchronized = false;
   recoveryLoop?.stop();
+  client.removeAllListeners(Events.MessageCreate);
+  await turnIngress.shutdown(true);
+  await Promise.all([...queues.values()].map((task) => task.catch(() => undefined)));
   await eventReporter.stop();
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   if (dedupeTimer) clearInterval(dedupeTimer);

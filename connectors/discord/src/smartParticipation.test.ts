@@ -7,7 +7,8 @@ import {
   evaluateSmartParticipation,
   markExplicitSmartSelections,
   parseSmartParticipationProfiles,
-  resetSmartParticipationState
+  resetSmartParticipationState,
+  restoreDurableLightweightSelection
 } from "./smartParticipation.js";
 import type { DiscordDeployment } from "./types.js";
 
@@ -464,5 +465,64 @@ describe("deterministic Smart Participation", () => {
 
     expect(result.reason).toBe("disabled");
     expect(consumeSmartSelection(zhi.deployment_id)).toBe(false);
+  });
+});
+
+
+describe("durable lightweight recovery", () => {
+  beforeEach(() => {
+    resetSmartParticipationState();
+  });
+
+  it("rehydrates a server-proven recent Smart speaker into the normal local admission path", () => {
+    configure({
+      profiles: {
+        "character-ann": {
+          initiative: 0.3,
+          minimum_score: 5,
+          cooldown_seconds: 0
+        }
+      }
+    });
+    const result = restoreDurableLightweightSelection(
+      [ann, zhi],
+      ann.deployment_id,
+      "嗯",
+      1_000_000,
+      "connection-1:guild-1:channel-1:"
+    );
+
+    expect(result.reason).toBe("selected_lightweight");
+    expect(result.selectedDeployment?.deployment_id).toBe(ann.deployment_id);
+    expect(consumeSmartSelection(ann.deployment_id)).toBe(true);
+    expect(
+      evaluateSmartParticipation(
+        [ann, zhi],
+        "哈哈",
+        1_001_000,
+        {},
+        "connection-1:guild-1:channel-1:"
+      ).reason
+    ).toBe("low_information_message");
+  });
+
+  it("does not restore a Character blocked by its avoid phrase", () => {
+    configure({
+      profiles: {
+        "character-ann": {
+          avoid_phrases: ["嗯"],
+          initiative: 0.3,
+          minimum_score: 5,
+          cooldown_seconds: 0
+        }
+      }
+    });
+    const result = restoreDurableLightweightSelection(
+      [ann],
+      ann.deployment_id,
+      "嗯",
+      1_000_000
+    );
+    expect(result.selectedDeployment).toBeNull();
   });
 });

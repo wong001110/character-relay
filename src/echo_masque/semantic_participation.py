@@ -1,4 +1,4 @@
-"""Semantic Character Card relevance for Smart Participation V3."""
+"""Semantic Character participation relevance with shared multilingual embeddings."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from typing import ClassVar, Literal, Protocol
 from echo_masque.config import Settings
 from echo_masque.persistence.models import CharacterCardRecord
 from echo_masque.persistence.repository import Repository
+from echo_masque.persistence.smart_participation_models import SmartParticipationProfileRecord
 from echo_masque.persistence.smart_participation_repository import (
     SmartParticipationRepository,
     decode_strings,
@@ -298,8 +299,17 @@ def _compact(value: str | None) -> str:
     return " ".join((value or "").split())
 
 
-def participation_semantic_text(card: CharacterCardRecord) -> str:
-    """Build stable participation-focused text without an additional LLM call."""
+def participation_semantic_text(
+    card: CharacterCardRecord,
+    profile: SmartParticipationProfileRecord | None = None,
+) -> str:
+    """Build Participation Semantic Profile V2 without an additional LLM call.
+
+    Character Card identity remains the stable base. Positive, author-configured participation
+    interests and social role hints may refine semantic matching. Hard blocks such as avoid
+    phrases, cooldowns, enablement, permissions, and other Runtime authority are deliberately not
+    embedded.
+    """
 
     sections: list[tuple[str, str | None]] = [
         ("Character", card.display_name),
@@ -310,12 +320,25 @@ def participation_semantic_text(card: CharacterCardRecord) -> str:
         ("Tags", ", ".join(decode_strings(card.tags_json))),
         ("Tone", card.expected_tone),
     ]
+    if profile is not None and profile.enabled:
+        sections.extend(
+            (
+                ("Participation Style", profile.style),
+                ("Group Role", profile.group_role),
+                ("Participation Topics", ", ".join(decode_strings(profile.topics_json))),
+                ("Participation Keywords", ", ".join(decode_strings(profile.keywords_json))),
+                (
+                    "Participation Cues",
+                    ", ".join(decode_strings(profile.trigger_phrases_json)),
+                ),
+            )
+        )
     lines = [f"{label}: {_compact(value)}" for label, value in sections if _compact(value)]
     return "\n".join(lines)
 
 
 class CharacterParticipationSemanticService:
-    """Create cached card embeddings and score current-message semantic relevance."""
+    """Create cached participation embeddings and score current-message semantic relevance."""
 
     def __init__(
         self,
@@ -368,6 +391,15 @@ class CharacterParticipationSemanticService:
             encoder.dimension,
         )
 
+    def _semantic_text(
+        self,
+        *,
+        card: CharacterCardRecord,
+        owner_id: str,
+    ) -> str:
+        profile = self.smart_repository.get_profile(card.id, owner_id)
+        return participation_semantic_text(card, profile)
+
     def inspect_profile(
         self,
         *,
@@ -379,7 +411,7 @@ class CharacterParticipationSemanticService:
         card = self.repository.get_character_card(character_card_id, owner_id)
         if card is None:
             raise KeyError("character")
-        semantic_text = participation_semantic_text(card)
+        semantic_text = self._semantic_text(card=card, owner_id=owner_id)
         existing = self.smart_repository.get_semantic_profile(character_card_id, owner_id)
 
         if existing is None:
@@ -439,7 +471,7 @@ class CharacterParticipationSemanticService:
         if card is None:
             raise KeyError("character")
         encoder = self._get_encoder()
-        semantic_text = participation_semantic_text(card)
+        semantic_text = self._semantic_text(card=card, owner_id=owner_id)
         if not semantic_text:
             raise SemanticEmbeddingUnavailable("Character Card has no semantic participation text.")
         source_hash = self._source_hash(semantic_text, encoder)

@@ -24,7 +24,9 @@ import type {
   DiscordWebhookRegistrationResult,
   DiscordWebhookStatusReport
 } from "./types.js";
+import { resolveExplicitAudiencePreflight } from "./audiencePreflight.js";
 import type { DiscordPortalParticipationProfile } from "./smartParticipation.js";
+import { preflightSmartParticipationCandidates } from "./smartParticipationPreflight.js";
 import type {
   DiscordDeliveryAckRequest,
   DiscordDeliveryClaim,
@@ -42,12 +44,88 @@ export interface DiscordSemanticParticipationCandidate {
   profile_ready: boolean;
 }
 
+export interface DiscordParticipationShadowPlanItem {
+  deployment_id: string;
+  turn_role: string;
+  reason: string;
+}
+
+export interface DiscordParticipationShadowCandidate {
+  deployment_id: string;
+  deterministic_score: number;
+  semantic_points: number;
+  shadow_final_score: number;
+  shadow_selected: boolean;
+}
+
 export interface DiscordSemanticParticipationResult {
   available: boolean;
   reason: string;
   model: string;
   dimension: number;
   candidates: DiscordSemanticParticipationCandidate[];
+  speaker_plan?: DiscordParticipationShadowPlanItem[];
+  shadow_speaker_plan?: DiscordParticipationShadowPlanItem[];
+  shadow_candidate_scores?: DiscordParticipationShadowCandidate[];
+  speaker_plan_authoritative?: boolean;
+}
+
+export interface DiscordParticipationBurstMessage {
+  message_id: string;
+  author_id: string;
+  author_display_name: string;
+  text: string;
+  created_at: string;
+  reply_to_message_id: string;
+}
+
+export interface DiscordSmartParticipationCandidatePreflight {
+  deployment_id: string;
+  eligible: boolean;
+  deterministic_score: number;
+  minimum_score: number;
+  signals: Record<string, number>;
+}
+
+export interface DiscordSmartParticipationScoreRequest {
+  message: string;
+  deployment_ids: string[];
+  guild_id?: string;
+  channel_id?: string;
+  thread_id?: string;
+  message_id?: string;
+  author_id?: string;
+  reply_to_message_id?: string;
+  burst_id?: string;
+  burst_messages?: DiscordParticipationBurstMessage[];
+  minimum_margin?: number;
+  max_participants?: number;
+  channel_cooldown_seconds?: number;
+  window_seconds?: number;
+  max_replies_per_window?: number;
+  candidate_preflight?: DiscordSmartParticipationCandidatePreflight[];
+}
+
+interface DiscordV4ParticipationCandidate {
+  deployment_id: string;
+  character_card_id: string;
+  deterministic_score: number;
+  raw_e5_relevance: number;
+  profile_ready: boolean;
+  semantic_points: number;
+  shadow_final_score: number;
+  shadow_selected: boolean;
+}
+
+interface DiscordV4ParticipationResult {
+  available: boolean;
+  reason: string;
+  model: string;
+  dimension: number;
+  candidates: DiscordV4ParticipationCandidate[];
+  speaker_plan?: DiscordParticipationShadowPlanItem[];
+  shadow_speaker_plan?: DiscordParticipationShadowPlanItem[];
+  speaker_plan_authoritative?: boolean;
 }
 
 interface ConnectorAttachment {
@@ -118,6 +196,11 @@ function errorDetail(error: unknown): string {
   return error.message;
 }
 
+function missingV4Resolver(error: unknown): boolean {
+  const detail = errorDetail(error);
+  return detail.includes("HTTP 404") || detail.includes("HTTP 405");
+}
+
 function stringValue(value: unknown, maximum: number): string {
   return typeof value === "string" ? value.trim().slice(0, maximum) : "";
 }
@@ -133,9 +216,23 @@ function nestedString(value: unknown, key: string, maximum: number): string {
   return stringValue((value as Record<string, unknown>)[key], maximum);
 }
 
+function configuredGroupAliases(): string[] {
+  const raw = process.env.DISCORD_GROUP_ADDRESS_ALIASES?.trim();
+  if (!raw) return [];
+  return [
+    ...new Set(
+      raw
+        .split(/\r?\n|,/u)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  ];
+}
+
 export class RelayClient {
   private readonly attachmentCache = new Map<string, AttachmentCacheEntry>();
   private readonly attachmentTasks = new Map<string, Promise<DiscordMessageMedia>>();
+  private readonly deploymentCache = new Map<string, DiscordDeployment>();
 
   constructor(
     private readonly baseUrl: string,
@@ -151,10 +248,15 @@ export class RelayClient {
     const profiles = await this.request<Record<string, DiscordPortalParticipationProfile>>(
       `/api/smart-participation/connector-profiles?${query.toString()}`
     ).catch((): Record<string, DiscordPortalParticipationProfile> => ({}));
-    return deployments.map((deployment) => ({
+    const resolved = deployments.map((deployment) => ({
       ...deployment,
       smart_participation_profile: profiles[deployment.deployment_id] ?? null
     }));
+    this.deploymentCache.clear();
+    for (const deployment of resolved) {
+      this.deploymentCache.set(deployment.deployment_id, deployment);
+    }
+    return resolved;
   }
 
   async syncServerCatalog(
@@ -291,17 +393,160 @@ export class RelayClient {
     );
   }
 
-  async scoreSmartParticipation(payload: {
-    message: string;
-    deployment_ids: string[];
-  }): Promise<DiscordSemanticParticipationResult> {
+  async scoreSmartParticipation(
+    payload: DiscordSmartParticipationScoreRequest
+  ): Promise<DiscordSemanticParticipationResult> {
+    const cachedCandidates = payload.deployment_ids.flatMap((deploymentId) => {
+      const deployment = this.deploymentCache.get(deploymentId);
+      return deployment ? [deployment] : [];
+    });
+    const hasBurstContext = Boolean(payload.burst_id || payload.burst_messages?.length);
+    if (!hasBurstContext && cachedCandidates.length === payload.deployment_ids.length) {
+      const explicit = resolveExplicitAudiencePreflight(
+        cachedCandidates,
+        payload.message,
+        null,
+        configuredGroupAliases()
+      );
+      if (explicit) {
+        return {
+          available: false,
+          reason: `explicit_audience_preflight:${explicit.reason}`,
+          model: "",
+          dimension: 0,
+          candidates: []
+        };
+      }
+    }
+
+    const runtimePreflight = payload.candidate_preflight ?? [];
+    const hardPreflight =
+      !runtimePreflight.length && cachedCandidates.length === payload.deployment_ids.length
+        ? preflightSmartParticipationCandidates(cachedCandidates, payload.message)
+        : [];
+    const runtimePreflightById = new Map(
+      runtimePreflight.map((candidate) => [candidate.deployment_id, candidate])
+    );
+    const hardPreflightById = new Map(
+      hardPreflight.map((candidate) => [candidate.deploymentId, candidate])
+    );
+    const effectivePreflight = runtimePreflight.length ? runtimePreflight : hardPreflight;
+    if (effectivePreflight.length && effectivePreflight.every((candidate) => !candidate.eligible)) {
+      return {
+        available: false,
+        reason: "hard_preflight_no_eligible_candidates",
+        model: "",
+        dimension: 0,
+        candidates: []
+      };
+    }
+
+    try {
+      const resolved = await this.request<DiscordV4ParticipationResult>(
+        "/api/smart-participation/resolve",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            connection_id: this.connectionId,
+            guild_id: payload.guild_id ?? "",
+            channel_id: payload.channel_id ?? "",
+            thread_id: payload.thread_id ?? "",
+            message_id: payload.message_id ?? "",
+            author_id: payload.author_id ?? "",
+            reply_to_message_id: payload.reply_to_message_id ?? "",
+            message: payload.message,
+            burst_id: payload.burst_id ?? "",
+            burst_messages: payload.burst_messages ?? [],
+            minimum_margin: payload.minimum_margin ?? 2,
+            max_participants: payload.max_participants ?? 2,
+            channel_cooldown_seconds: payload.channel_cooldown_seconds ?? 45,
+            window_seconds: payload.window_seconds ?? 600,
+            max_replies_per_window: payload.max_replies_per_window ?? 3,
+            candidates: payload.deployment_ids.map((deploymentId) => {
+              const runtime = runtimePreflightById.get(deploymentId);
+              const hard = hardPreflightById.get(deploymentId);
+              return {
+                deployment_id: deploymentId,
+                eligible: runtime?.eligible ?? hard?.eligible ?? true,
+                deterministic_score: runtime?.deterministic_score ?? 0,
+                minimum_score: runtime?.minimum_score ?? hard?.minimumScore ?? 0,
+                signals: runtime?.signals ?? hard?.signals ?? {}
+              };
+            })
+          })
+        }
+      );
+      return {
+        available: resolved.available,
+        reason: `v4_resolver:${resolved.reason}`,
+        model: resolved.model,
+        dimension: resolved.dimension,
+        speaker_plan: resolved.speaker_plan ?? [],
+        shadow_speaker_plan: resolved.shadow_speaker_plan ?? [],
+        shadow_candidate_scores: resolved.candidates.map((candidate) => ({
+          deployment_id: candidate.deployment_id,
+          deterministic_score: candidate.deterministic_score,
+          semantic_points: candidate.semantic_points,
+          shadow_final_score: candidate.shadow_final_score,
+          shadow_selected: candidate.shadow_selected
+        })),
+        speaker_plan_authoritative: resolved.speaker_plan_authoritative ?? false,
+        candidates: resolved.candidates.map((candidate) => ({
+          deployment_id: candidate.deployment_id,
+          character_card_id: candidate.character_card_id,
+          semantic_relevance: candidate.raw_e5_relevance,
+          profile_ready: candidate.profile_ready
+        }))
+      };
+    } catch (error) {
+      if (!missingV4Resolver(error)) throw error;
+    }
+
     return this.request<DiscordSemanticParticipationResult>(
       "/api/smart-participation/semantic-score",
       {
         method: "POST",
-        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+        body: JSON.stringify({
+          connection_id: this.connectionId,
+          message: payload.message,
+          deployment_ids: payload.deployment_ids
+        })
       }
     );
+  }
+
+  async recentSmartParticipationSpeaker(input: {
+    guild_id: string;
+    channel_id: string;
+    thread_id: string;
+    maximum_age_seconds: number;
+    allowed_deployment_ids: string[];
+  }): Promise<string> {
+    const result = await this.request<{ deployment_id: string }>(
+      "/api/smart-participation/recent-speaker",
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...input })
+      }
+    );
+    return result.deployment_id ?? "";
+  }
+
+  async observeSmartParticipationOutcome(input: {
+    guild_id: string;
+    channel_id: string;
+    thread_id: string;
+    message_id: string;
+    burst_id: string;
+    author_id: string;
+    reply_to_message_id: string;
+    selected_deployment_ids: string[];
+    candidate_deployment_ids: string[];
+  }): Promise<void> {
+    await this.request<void>("/api/smart-participation/observe", {
+      method: "POST",
+      body: JSON.stringify({ connection_id: this.connectionId, ...input })
+    });
   }
 
   async claimSocialTurnOperation(
