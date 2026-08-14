@@ -1,4 +1,5 @@
 import { groupAddressAliases } from "./audienceAliases.js";
+import { recordSmartParticipationDecision } from "./behaviorDecisionTrace.js";
 import {
   consumeSmartSelection,
   coordinateExplicitSmartParticipants,
@@ -67,13 +68,7 @@ export function findDeployment(
   guildId = "",
   categoryId = ""
 ): DiscordDeployment | undefined {
-  const candidates = deploymentsFor(
-    index,
-    channelId,
-    threadId,
-    guildId,
-    categoryId
-  );
+  const candidates = deploymentsFor(index, channelId, threadId, guildId, categoryId);
   return candidates.length === 1 ? candidates[0] : undefined;
 }
 
@@ -110,12 +105,8 @@ function nameAliases(value: string): string[] {
   if (!full) return [];
 
   const values = new Set([full]);
-  const normalized = full
-    .replaceAll(/[（(]/gu, " · ")
-    .replaceAll(/[）)]/gu, "");
-  const parts = normalized.split(
-    /\s*(?:·|•|・|／|\/|\||｜)\s*|\s+(?:-|—|–)\s+/u
-  );
+  const normalized = full.replaceAll(/[（(]/gu, " · ").replaceAll(/[）)]/gu, "");
+  const parts = normalized.split(/\s*(?:·|•|・|／|\/|\||｜)\s*|\s+(?:-|—|–)\s+/u);
   for (const part of parts) {
     const alias = part.trim();
     if (alias) values.add(alias);
@@ -147,11 +138,7 @@ function stripLeadingNameConnector(value: string): string {
     .trimStart();
 }
 
-function withoutNameAlias(
-  value: string,
-  alias: string,
-  requireTag = false
-): string | null {
+function withoutNameAlias(value: string, alias: string, requireTag = false): string | null {
   const pattern = new RegExp(
     `^${escapeRegex(alias)}(?=$|[\\s:：,，、.。?？!！\\-—–&＆/／+和与與跟及])`,
     "iu"
@@ -188,10 +175,7 @@ function matchNamePrefix(
 
   const longest = Math.max(...matches.map((item) => item.alias.length));
   const top = matches.filter((item) => item.alias.length === longest);
-  const uniqueMatches = new Map<
-    string,
-    { deployment: DiscordDeployment; alias: string }
-  >();
+  const uniqueMatches = new Map<string, { deployment: DiscordDeployment; alias: string }>();
   for (const item of top) {
     if (!uniqueMatches.has(item.deployment.deployment_id)) {
       uniqueMatches.set(item.deployment.deployment_id, {
@@ -212,10 +196,7 @@ function requiresAsciiBoundary(alias: string): boolean {
   return /[A-Za-z0-9]$/u.test(alias);
 }
 
-function stripGroupAddress(
-  value: string,
-  additionalAliases: string[]
-): string | null {
+function stripGroupAddress(value: string, additionalAliases: string[]): string | null {
   const trimmed = value.trimStart();
   const explicitAll = trimmed.match(/^\*(?:\s*[:：,，-])?\s*/u);
   if (explicitAll) return trimmed.slice(explicitAll[0].length).trimStart();
@@ -238,10 +219,7 @@ function stripGroupAddress(
   return null;
 }
 
-function stripTaggedGroupAddress(
-  value: string,
-  additionalAliases: string[]
-): string | null {
+function stripTaggedGroupAddress(value: string, additionalAliases: string[]): string | null {
   const trimmed = value.trimStart();
   const tag = trimmed.match(/^[@＠]\s*/u);
   if (!tag) return null;
@@ -261,12 +239,7 @@ function namedAudience(
     const match = matchNamePrefix(candidates, remaining, requireTag);
     if (!match) break;
     if (match.deployments.length !== 1) {
-      return {
-        deployments: [],
-        text: text.trim(),
-        reason: "ambiguous",
-        options
-      };
+      return { deployments: [], text: text.trim(), reason: "ambiguous", options };
     }
 
     const deployment = match.deployments[0];
@@ -281,10 +254,7 @@ function namedAudience(
     }
 
     const afterConnector = stripLeadingNameConnector(afterPunctuation);
-    if (
-      afterConnector !== afterPunctuation &&
-      matchNamePrefix(candidates, afterConnector, requireTag)
-    ) {
+    if (afterConnector !== afterPunctuation && matchNamePrefix(candidates, afterConnector, requireTag)) {
       remaining = afterConnector;
       continue;
     }
@@ -312,38 +282,21 @@ export function resolveAudience(
 ): AudienceResolution {
   const options = [...new Set(candidates.map(displayName))];
   if (!candidates.length) {
-    return {
-      deployments: [],
-      text,
-      reason: "not_found",
-      options
-    };
+    return { deployments: [], text, reason: "not_found", options };
   }
 
   if (replyDeploymentId) {
-    const replyTarget = candidates.find(
-      (item) => item.deployment_id === replyDeploymentId
-    );
+    const replyTarget = candidates.find((item) => item.deployment_id === replyDeploymentId);
     if (replyTarget) {
       markExplicitSmartSelections([replyTarget]);
-      return {
-        deployments: [replyTarget],
-        text: text.trim(),
-        reason: "selected_reply",
-        options
-      };
+      return { deployments: [replyTarget], text: text.trim(), reason: "selected_reply", options };
     }
   }
 
   const groupText = stripGroupAddress(text, additionalGroupAliases);
   if (groupText !== null) {
     markExplicitSmartSelections(candidates);
-    return {
-      deployments: [...candidates],
-      text: groupText,
-      reason: "selected_all",
-      options
-    };
+    return { deployments: [...candidates], text: groupText, reason: "selected_all", options };
   }
 
   const named = namedAudience(candidates, text, options);
@@ -357,11 +310,7 @@ export function resolveAudience(
         semanticScores
       );
       if (coordinated.coordinated) {
-        return {
-          ...named,
-          deployments: coordinated.deployments,
-          reason: "selected_coordinated"
-        };
+        return { ...named, deployments: coordinated.deployments, reason: "selected_coordinated" };
       }
       return named;
     }
@@ -369,12 +318,12 @@ export function resolveAudience(
     return named;
   }
 
-  const smartDecision = evaluateSmartParticipation(
-    candidates,
-    text,
-    Date.now(),
-    semanticScores
-  );
+  const smartDecision = evaluateSmartParticipation(candidates, text, Date.now(), semanticScores);
+  recordSmartParticipationDecision({
+    message: text,
+    decision: smartDecision,
+    deployments: candidates
+  });
   if (smartDecision.selectedDeployments.length) {
     return {
       deployments: smartDecision.selectedDeployments,
@@ -389,19 +338,9 @@ export function resolveAudience(
 
   const only = candidates[0];
   if (candidates.length === 1 && only) {
-    return {
-      deployments: [only],
-      text: text.trim(),
-      reason: "selected_single",
-      options
-    };
+    return { deployments: [only], text: text.trim(), reason: "selected_single", options };
   }
-  return {
-    deployments: [],
-    text: text.trim(),
-    reason: "ambiguous",
-    options
-  };
+  return { deployments: [], text: text.trim(), reason: "ambiguous", options };
 }
 
 interface TaggedNameSequence {
@@ -410,14 +349,8 @@ interface TaggedNameSequence {
   ambiguous: boolean;
 }
 
-function taggedNameSequence(
-  candidates: DiscordDeployment[],
-  text: string
-): TaggedNameSequence {
-  const selected = new Map<
-    string,
-    { deployment: DiscordDeployment; alias: string }
-  >();
+function taggedNameSequence(candidates: DiscordDeployment[], text: string): TaggedNameSequence {
+  const selected = new Map<string, { deployment: DiscordDeployment; alias: string }>();
   let remaining = text.trim();
 
   while (remaining) {
@@ -436,10 +369,7 @@ function taggedNameSequence(
       continue;
     }
     const afterConnector = stripLeadingNameConnector(afterPunctuation);
-    if (
-      afterConnector !== afterPunctuation &&
-      matchNamePrefix(candidates, afterConnector, true)
-    ) {
+    if (afterConnector !== afterPunctuation && matchNamePrefix(candidates, afterConnector, true)) {
       remaining = afterConnector;
       continue;
     }
@@ -447,11 +377,7 @@ function taggedNameSequence(
     break;
   }
 
-  return {
-    matches: [...selected.values()],
-    remainder: remaining.trim(),
-    ambiguous: false
-  };
+  return { matches: [...selected.values()], remainder: remaining.trim(), ambiguous: false };
 }
 
 export interface BotTagNormalization {
@@ -466,9 +392,7 @@ export function normalizeBotTagReply(
   sourceDeploymentId: string,
   additionalGroupAliases: string[] = []
 ): BotTagNormalization {
-  const available = candidates.filter(
-    (item) => item.deployment_id !== sourceDeploymentId
-  );
+  const available = candidates.filter((item) => item.deployment_id !== sourceDeploymentId);
   const options = [...new Set(available.map(displayName))];
   const original = text.trim();
 
@@ -490,24 +414,14 @@ export function normalizeBotTagReply(
   if (sequence.ambiguous) {
     return {
       displayText: original,
-      audience: {
-        deployments: [],
-        text: original,
-        reason: "ambiguous",
-        options
-      },
+      audience: { deployments: [], text: original, reason: "ambiguous", options },
       removedSelfTag: false
     };
   }
   if (!sequence.matches.length) {
     return {
       displayText: original,
-      audience: {
-        deployments: [],
-        text: original,
-        reason: "not_found",
-        options
-      },
+      audience: { deployments: [], text: original, reason: "not_found", options },
       removedSelfTag: false
     };
   }
@@ -546,17 +460,11 @@ interface InlineCharacterTagMatch {
   end: number;
 }
 
-const INLINE_TAG_LEFT_BOUNDARY =
-  String.raw`(^|[\s:：,，、.。?？!！;；\-—–&＆/／+(（\[【])`;
-const INLINE_TAG_RIGHT_BOUNDARY =
-  String.raw`(?=$|[\s:：,，、.。?？!！;；\-—–&＆/／+)）\]】])`;
-const SHARED_BOT_TAG_NAME =
-  String.raw`[^\s:：,，、.。?？!！;；\-—–&＆/／+()（）\[\]【】<>]+`;
+const INLINE_TAG_LEFT_BOUNDARY = String.raw`(^|[\s:：,，、.。?？!！;；\-—–&＆/／+(（\[【])`;
+const INLINE_TAG_RIGHT_BOUNDARY = String.raw`(?=$|[\s:：,，、.。?？!！;；\-—–&＆/／+)）\]】])`;
+const SHARED_BOT_TAG_NAME = String.raw`[^\s:：,，、.。?？!！;；\-—–&＆/／+()（）\[\]【】<>]+`;
 
-function inlineTagPosition(
-  value: string,
-  alias: string
-): { start: number; end: number } | null {
+function inlineTagPosition(value: string, alias: string): { start: number; end: number } | null {
   const escapedAlias = escapeRegex(alias);
   const direct = new RegExp(
     `${INLINE_TAG_LEFT_BOUNDARY}[@＠]\\s*${escapedAlias}${INLINE_TAG_RIGHT_BOUNDARY}`,
@@ -602,9 +510,7 @@ function inlineTaggedAudience(
 
   matches.sort(
     (left, right) =>
-      left.start - right.start ||
-      right.end - left.end ||
-      right.alias.length - left.alias.length
+      left.start - right.start || right.end - left.end || right.alias.length - left.alias.length
   );
   const selected = new Map<string, InlineCharacterTagMatch>();
   for (const match of matches) {
@@ -612,9 +518,7 @@ function inlineTaggedAudience(
       selected.set(match.deployment.deployment_id, match);
     }
   }
-  const uniqueMatches = [...selected.values()].sort(
-    (left, right) => left.start - right.start
-  );
+  const uniqueMatches = [...selected.values()].sort((left, right) => left.start - right.start);
   const deployments = uniqueMatches.map((item) => item.deployment);
   const firstTagEnd = uniqueMatches[0]?.end ?? text.length;
   const remainder = stripLeadingPunctuation(text.slice(firstTagEnd));
@@ -643,9 +547,7 @@ export function resolveBotTagAudience(
   const inline = inlineTaggedAudience(candidates, text, sourceDeploymentId);
   if (inline) return inline;
 
-  const sourceDeployment = candidates.find(
-    (item) => item.deployment_id === sourceDeploymentId
-  );
+  const sourceDeployment = candidates.find((item) => item.deployment_id === sourceDeploymentId);
   if (!sourceDeployment) return leading;
   const followUp = evaluateSmartFollowUp(sourceDeployment, candidates);
   if (!followUp.selectedDeployment) return leading;

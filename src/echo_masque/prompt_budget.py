@@ -135,6 +135,11 @@ class BudgetSmartOutputContext(SmartOutputContext):
             "Return exactly one [[CR_OUTPUT {...}]] line and no reasoning or surrounding prose.",
             'Message shape: [[CR_OUTPUT {"action":"message","content":[{"text":"..."}]}]]',
             'Silence shape: [[CR_OUTPUT {"action":"ignore"}]]',
+            (
+                "For message content, every array item must be one separate JSON object containing "
+                "exactly one of: text, emoji, mention. Never embed an emoji or mention object inside "
+                "a text string."
+            ),
         ]
         references = ", ".join(self.message_alias_to_id.keys())
         lines.append(f"Message references: {references}.")
@@ -142,7 +147,7 @@ class BudgetSmartOutputContext(SmartOutputContext):
             lines.append("For message/sticker, optional reply_to may use one supplied message reference.")
 
         if self.participant_alias_descriptions:
-            lines.append("Mentionable participants (use {\"mention\":\"pN\"} inside message content):")
+            lines.append("Mentionable participants (use {\"mention\":\"pN\"} as its own message-content item):")
             lines.extend(self.participant_alias_descriptions)
 
         if emoji_aliases or sticker_aliases:
@@ -154,9 +159,18 @@ class BudgetSmartOutputContext(SmartOutputContext):
                     f"actions={','.join(item.allowed_actions)}; meaning={meaning[:220]}"
                 )
         if emoji_aliases:
-            lines.append(
-                "Custom Emoji: use {\"emoji\":\"eN\"} inside message content for inline use, "
-                "or action=react with target + emoji only when reaction is allowed."
+            lines.extend(
+                (
+                    (
+                        "Custom Emoji: inline Emoji MUST be its own content-array item, for example "
+                        'content:[{"text":"前面的文字 "},{"emoji":"e1"},{"text":" 后面的文字"}].'
+                    ),
+                    (
+                        'Never write an Emoji object inside a text value such as '
+                        '{"text":"hello {\\"emoji\\":\\"e1\\"}"}. '
+                        "For a reaction instead, use action=react with target + emoji when allowed."
+                    ),
+                )
             )
         if sticker_aliases:
             lines.append("Sticker: action=sticker with sticker=sN; it is the whole social action.")
