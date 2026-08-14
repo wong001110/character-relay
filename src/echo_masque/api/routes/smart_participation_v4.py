@@ -20,6 +20,10 @@ from echo_masque.conversation_graph_shadow import (
     ConversationGraphShadowService,
     GraphShadowObservation,
 )
+from echo_masque.conversation_graph_topic_shadow import (
+    ConversationGraphTopicShadowService,
+    TopicGraphShadowObservation,
+)
 from echo_masque.participation_shadow_v4 import (
     ParticipationShadowCandidate,
     ParticipationShadowScore,
@@ -27,6 +31,7 @@ from echo_masque.participation_shadow_v4 import (
 )
 from echo_masque.persistence import DeploymentRepository
 from echo_masque.persistence.conversation_graph_repository import ConversationGraphRepository
+from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
 from echo_masque.semantic_participation import (
     CharacterParticipationSemanticService,
     SemanticEmbeddingUnavailable,
@@ -112,7 +117,7 @@ def _observe_graph_shadow(
     payload: SmartParticipationResolveRequest,
     deployments: DeploymentRepository,
 ) -> GraphShadowObservation:
-    """Best-effort shadow observation; Graph failures never block participation resolution."""
+    """Best-effort public Burst/Actor observation; failures never block participation."""
 
     try:
         graph = ConversationGraphRepository(deployments.database)
@@ -130,6 +135,34 @@ def _observe_graph_shadow(
         return GraphShadowObservation(False, "", 0, 0)
 
 
+def _observe_topic_graph_shadow(
+    payload: SmartParticipationResolveRequest,
+    deployments: DeploymentRepository,
+    owner_ids: list[str],
+) -> TopicGraphShadowObservation:
+    """Project owner-scoped active Topic Memory into private Graph overlays, fail-open."""
+
+    try:
+        graph = ConversationGraphRepository(deployments.database)
+        topics = ConversationTopicRepository(deployments.database)
+        return ConversationGraphTopicShadowService(graph, topics).observe(
+            payload,
+            owner_ids=owner_ids,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Topic Graph shadow observation skipped connection=%s guild=%s channel=%s "
+            "thread=%s owners=%s error=%s",
+            payload.connection_id,
+            payload.guild_id,
+            payload.channel_id,
+            payload.thread_id,
+            len(owner_ids),
+            exc,
+        )
+        return TopicGraphShadowObservation(False, 0, 0, 0, 0)
+
+
 @router.post(
     "/resolve",
     response_model=SmartParticipationResolveView,
@@ -139,7 +172,7 @@ def resolve_smart_participation_v4(
     request: Request,
     authorization: Annotated[str | None, Header()] = None,
 ) -> SmartParticipationResolveView:
-    """Return bounded V4 evidence plus a non-authoritative deterministic/E5 shadow plan."""
+    """Return bounded V4 evidence plus non-authoritative deterministic/Graph shadows."""
 
     _authorize_connector(request, authorization)
     deployment_repository = _deployment_repository(request)
@@ -160,6 +193,11 @@ def resolve_smart_participation_v4(
         and (record := record_by_id.get(deployment_id)) is not None
         and record.participation_mode == "smart"
     ]
+    topic_graph_shadow = _observe_topic_graph_shadow(
+        payload,
+        deployment_repository,
+        [record.owner_id for record in eligible],
+    )
     score_by_id: dict[str, SemanticParticipationScore] = {}
     model = ""
     dimension = 0
@@ -233,8 +271,8 @@ def resolve_smart_participation_v4(
         burst_message_count=len(payload.burst_messages) or (1 if payload.message else 0),
         analysis_chars=len(analysis),
         candidates=candidates,
-        # The Connector remains authoritative. This plan is comparison-only until parity evidence
-        # is acceptable and the Runtime migration is explicitly enabled.
+        # Connector remains authoritative. This plan is comparison-only until parity evidence is
+        # acceptable and the Runtime migration is explicitly enabled.
         speaker_plan=[],
         shadow_speaker_plan=[
             SmartParticipationSpeakerPlanItem(
@@ -248,6 +286,11 @@ def resolve_smart_participation_v4(
         graph_shadow_observed=graph_shadow.observed,
         graph_shadow_node_count=graph_shadow.node_count,
         graph_shadow_edge_count=graph_shadow.edge_count,
+        topic_graph_shadow_observed=topic_graph_shadow.observed,
+        topic_graph_shadow_owner_count=topic_graph_shadow.owner_count,
+        topic_graph_shadow_topic_count=topic_graph_shadow.topic_count,
+        topic_graph_shadow_node_count=topic_graph_shadow.node_count,
+        topic_graph_shadow_edge_count=topic_graph_shadow.edge_count,
         graph_used=False,
         learned_state_used=False,
         utility_used=False,
