@@ -24,6 +24,7 @@ import type {
   DiscordWebhookRegistrationResult,
   DiscordWebhookStatusReport
 } from "./types.js";
+import { resolveExplicitAudiencePreflight } from "./audiencePreflight.js";
 import type { DiscordPortalParticipationProfile } from "./smartParticipation.js";
 import type {
   DiscordDeliveryAckRequest,
@@ -133,9 +134,23 @@ function nestedString(value: unknown, key: string, maximum: number): string {
   return stringValue((value as Record<string, unknown>)[key], maximum);
 }
 
+function configuredGroupAliases(): string[] {
+  const raw = process.env.DISCORD_GROUP_ADDRESS_ALIASES?.trim();
+  if (!raw) return [];
+  return [
+    ...new Set(
+      raw
+        .split(/\r?\n|,/u)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  ];
+}
+
 export class RelayClient {
   private readonly attachmentCache = new Map<string, AttachmentCacheEntry>();
   private readonly attachmentTasks = new Map<string, Promise<DiscordMessageMedia>>();
+  private readonly deploymentCache = new Map<string, DiscordDeployment>();
 
   constructor(
     private readonly baseUrl: string,
@@ -151,10 +166,15 @@ export class RelayClient {
     const profiles = await this.request<Record<string, DiscordPortalParticipationProfile>>(
       `/api/smart-participation/connector-profiles?${query.toString()}`
     ).catch((): Record<string, DiscordPortalParticipationProfile> => ({}));
-    return deployments.map((deployment) => ({
+    const resolved = deployments.map((deployment) => ({
       ...deployment,
       smart_participation_profile: profiles[deployment.deployment_id] ?? null
     }));
+    this.deploymentCache.clear();
+    for (const deployment of resolved) {
+      this.deploymentCache.set(deployment.deployment_id, deployment);
+    }
+    return resolved;
   }
 
   async syncServerCatalog(
@@ -295,6 +315,27 @@ export class RelayClient {
     message: string;
     deployment_ids: string[];
   }): Promise<DiscordSemanticParticipationResult> {
+    const cachedCandidates = payload.deployment_ids.flatMap((deploymentId) => {
+      const deployment = this.deploymentCache.get(deploymentId);
+      return deployment ? [deployment] : [];
+    });
+    if (cachedCandidates.length === payload.deployment_ids.length) {
+      const explicit = resolveExplicitAudiencePreflight(
+        cachedCandidates,
+        payload.message,
+        null,
+        configuredGroupAliases()
+      );
+      if (explicit) {
+        return {
+          available: false,
+          reason: `explicit_audience_preflight:${explicit.reason}`,
+          model: "",
+          dimension: 0,
+          candidates: []
+        };
+      }
+    }
     return this.request<DiscordSemanticParticipationResult>(
       "/api/smart-participation/semantic-score",
       {
