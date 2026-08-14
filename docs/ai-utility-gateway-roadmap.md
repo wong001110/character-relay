@@ -1,6 +1,6 @@
 # AI Utility Gateway Roadmap
 
-Status: **Phase 1 complete · Phase 2 not started**
+Status: **Phase 6 implementation complete · Phase 7 not started · Phase 8 validation/merge pending**
 
 Branch: `feat/ai-utility-gateway`
 Draft integration PR: `#160`
@@ -24,10 +24,11 @@ The Gateway may advise, classify, summarize, compress, rank, and interpret. It m
 - Paid fallback is OpenRouter only.
 - Provider API keys are Super Admin-managed and stored server-side in the encrypted Credential Vault.
 - Quota state should be event-driven/cached where possible; do not query every provider before every inference call.
+- Derived Wiki content never becomes more authoritative than its source Knowledge documents.
 
 ## Provider candidates
 
-Free-pool candidates to verify adapter-by-adapter in Phase 2:
+Free-pool candidates to verify adapter-by-adapter:
 
 - OpenRouter free models
 - Groq
@@ -47,11 +48,11 @@ Paid fallback:
 |---|---|---|
 | 0 | Complete foundation | Existing Semantic Runtime + PR #159 base |
 | 1 | **Complete** | Gateway config, Portal, Vault credentials |
-| 2 | Not started | Quota, health, router, OpenRouter paid fallback |
-| 3 | Not started | RAG + Topic Intelligence + E5 ambiguity assistance |
-| 4 | Not started | Memory Intelligence on SQLite |
-| 5 | Not started | Media Understanding through Gateway, SHA-256 preserved |
-| 6 | Not started | LLM Wiki / knowledge consolidation |
+| 2 | Implemented | Quota, health, router, OpenRouter paid fallback; real-provider matrix remains part of Phase 8 validation |
+| 3 | Implemented | RAG + Topic Intelligence + E5 ambiguity assistance |
+| 4 | Implemented | Memory Intelligence on SQLite |
+| 5 | Implemented | Media Understanding through Gateway, SHA-256 preserved |
+| 6 | **Complete** | LLM Wiki / knowledge consolidation + conservative live overview retrieval |
 | 7 | Not started | Additional System Intelligence consumers |
 | 8 | Not started | End-to-end validation and merge decision |
 
@@ -76,270 +77,188 @@ Phase 0 is not a merge point. The integration branch was created from the valida
 
 Implemented:
 
-### Provider-neutral runtime contract
-
-Initial capabilities:
-
-- `semantic_judge`
-- `topic_intelligence`
-- `memory_intelligence`
-- `knowledge_wiki`
-- `context_compiler`
-- `media_understanding`
-- `structured_summary`
-
-Added provider members with:
-
-- stable member ID
-- provider / model / base URL
-- enabled state
-- capability membership
-- priority
-- enforced `FREE ONLY` membership
-- duplicate-ID validation
-
-Gateway defaults to disabled. Paid fallback defaults to disabled and is structurally restricted to OpenRouter.
-
-### Super Admin Portal
-
-System Intelligence workspace now supports:
-
-- Gateway enable/disable
-- routing strategy configuration
-- add/edit/remove free-provider members
-- provider/model/base URL
-- capability membership
-- priority
-- credential configured/missing state
-- OpenRouter-only paid fallback model
-- daily/monthly paid-fallback budget settings
-
-New provider members must be saved into System Intelligence configuration before their Vault credential scope exists.
-
-### Credential lifecycle
-
-- per-member scope: `utility:{member_id}`
-- encrypted Credential Vault only
+- provider-neutral capability contract for `semantic_judge`, `topic_intelligence`, `memory_intelligence`, `knowledge_wiki`, `context_compiler`, `media_understanding`, and `structured_summary`
+- provider members with stable ID, provider/model/base URL, enabled state, capabilities, priority, and enforced `FREE ONLY` membership
+- Super Admin Gateway enable/disable, routing strategy, provider membership, paid-fallback model, and budget configuration
+- per-member encrypted Vault credential scope `utility:{member_id}`
 - Admin-only credential status/configure/delete endpoints
-- raw API keys are never returned to the browser
-- unknown members are rejected
-- removing a provider member cleans its corresponding Vault credential to avoid orphaned secrets
-- existing Credential UI is reused rather than introducing a second secret-handling path
+- raw API keys never returned to the browser
+- removed provider members clean orphaned Vault credentials
+- pre-Gateway configuration migrates with Gateway disabled and safe defaults
 
-### Compatibility / safety
+Validation on Phase 1 head `68e5217d8978e63acf26b1ed9b6ecd1a5fbd3f58`:
 
-- pre-Gateway Admin Runtime configuration migrates to the new schema with Gateway disabled
-- existing Character, Tool, Topic, Memory, RAG, and Media consumers are not migrated in Phase 1
-- Gateway being disabled therefore preserves existing Runtime behavior
-
-### Phase 1 validation
-
-Validated on integration head `68e5217d8978e63acf26b1ed9b6ecd1a5fbd3f58`:
-
-- CI run `#1071`: **SUCCESS**
-  - Python 3.12: Ruff, Mypy, Pytest success
-  - Python 3.13: Ruff, Mypy, Pytest success
-  - Web: typecheck, tests, build success
-  - Discord connector: typecheck, tests, build/image success
-  - Docker production smoke checks success
-- Railway Smoke run `#1037`: **SUCCESS**
-- focused Phase 1 tests cover:
-  - duplicate/non-free member rejection
-  - Admin-only credential management
-  - unknown-member rejection
-  - no secret echo
-  - encrypted-at-rest credential storage
-  - removed-member credential cleanup
-  - old-config migration
-  - disabled/safe defaults
-
-Public Demo Status is an external deployment-status signal and is not used as the Phase 1 code-validation gate.
-
-Phase 1 boundary: **stop here. Do not start Phase 2 automatically and do not merge `main`.**
+- CI `#1071`: **SUCCESS**
+- Railway Smoke `#1037`: **SUCCESS**
+- Python 3.12/3.13 Ruff, strict Mypy, Pytest success
+- Web typecheck/tests/build success
+- Discord connector typecheck/tests/build/image success
+- Docker production smoke success
 
 ## Phase 2 — Quota, health, routing, and OpenRouter paid fallback
 
-Implement the actual Utility Gateway selection/runtime layer.
+**Status: IMPLEMENTED · live-provider matrix deferred to Phase 8**
 
-### Normalized provider telemetry
+Implemented runtime behavior:
 
-Each provider adapter should expose, where available:
+- normalized provider states: `healthy / degraded / unavailable / cooling_down / exhausted`
+- persisted provider telemetry and usage records
+- remaining quota/reset observations when a provider exposes them
+- error-rate, latency, cooldown, and configured-priority routing inputs
+- FREE ONLY provider selection by requested capability
+- provider clients reused through the existing Character Relay provider layer
+- provider errors update routing state instead of polling every provider before every request
+- free-pool exhaustion never silently becomes paid usage
+- OpenRouter-only paid fallback requires explicit enablement and enforces daily/monthly budgets
+- Observation/runtime results retain provider, model, tier, routing reason, attempts, latency, token use, and paid-cost fields
 
-- `healthy / degraded / unavailable / cooling_down / exhausted`
-- remaining requests/tokens/credits/neurons
-- reset time/window
-- observation source: response header / quota API / local meter / estimated
-- last observed time
-- latency and recent error rate
-
-Do not poll before every request. Update state from real responses and reconcile only when stale, manually refreshed, or after quota/provider errors.
-
-### Routing
-
-Selection order considers:
-
-1. requested capability
-2. FREE ONLY eligibility
-3. quota availability
-4. health/cooldown
-5. recent error rate
-6. latency
-7. configured priority
-
-### Paid fallback
-
-- OpenRouter only
-- explicitly enabled only
-- daily/monthly budget caps enforced by Runtime
-- no free provider may silently become paid
-- each consumer defines its all-free-failed degradation behavior
-
-Exit criteria:
-
-- at least two real free adapters demonstrate routing/fallback
-- quota exhaustion and cooldown tests
-- paid fallback cannot activate unless explicitly enabled
-- Observation exposes provider/model/tier/routing reason
+Focused tests cover free-provider fallback, quota/cooldown state, disabled paid fallback, and budget rejection. Real-account/provider allowance behavior remains an explicit Phase 8 validation item because CI uses deterministic offline transports rather than consuming production free quotas.
 
 ## Phase 3 — Semantic + Topic Intelligence
 
-### RAG
+**Status: IMPLEMENTED**
 
-- replace the fixed Judge cascade with `capability=semantic_judge`
-- keep high-confidence E5 decisions deterministic
-- contextual fallback requires explicit Judge approval
-- contextual Judge failure remains RAG OFF
+RAG:
 
-### Topic Memory
+- high-confidence E5 decisions remain deterministic
+- ambiguous routing can use `capability=semantic_judge`
+- current-message evidence is prioritized
+- contextual fallback requires Utility/Judge approval
+- contextual Judge failure keeps RAG OFF so older Knowledge context cannot leak into unrelated turns
 
-E5 handles obvious continuation/switch cases. Utility Gateway handles only gray-zone discourse intent such as:
+Topic Memory:
 
-- continue
-- switch
-- clarify
-- close
-- capsule refresh recommendation
-- resolved/new open-loop suggestions
+- E5 handles obvious continuation/switch cases
+- Utility can assist gray-zone discourse intent such as continue, switch, clarify, close, capsule refresh, and open-loop interpretation
+- Runtime remains authoritative for topic scope, lifecycle, persistence, and Tool permissions
 
-Runtime remains authoritative for topic scope, lifecycle, and persistence.
-
-### E5 assistance
-
-Gateway may assist only with difficult cases:
-
-- ambiguity resolution
-- query rewrite
-- reranking suggestions
-
-It does not replace shared local E5.
-
-Exit criteria:
-
-- topic continuation no longer depends on brittle phrase/regex behavior
-- unrelated turns do not inherit old Knowledge context
-- scope-isolation tests remain green
-- trace shows E5 score + Judge use + final decision
+The Gateway assists ambiguity; it does not replace the shared local E5 runtime.
 
 ## Phase 4 — Memory Intelligence on SQLite
 
-Keep SQLite as source of truth and do not introduce a Vector DB yet.
+**Status: IMPLEMENTED**
 
-Memory records should support:
+SQLite remains the source of truth. Durable scoped memory support includes:
 
 - owner/character/scope
 - memory type/content
 - confidence/importance
-- source message/event references
-- timestamps/last-used
+- source references and timestamps
 - superseded/merged relationships
-- E5 vector linkage through the semantic-vector layer
+- E5 vector linkage through the existing semantic-vector layer
 
-Retrieval:
+Gateway advice can cover extract/ignore, reinforce, duplicate detection, merge, conflict, supersede/update, consolidation, and importance. Runtime performs all writes and ordinary retrieval remains available if Utility inference fails.
 
-- reuse the current-turn shared E5 vector
-- retrieve bounded scoped candidates
-- cosine/top-K locally
-
-Gateway may advise:
-
-- extract / ignore
-- reinforce existing memory
-- duplicate detection
-- merge
-- conflict detection
-- supersede/update
-- consolidation
-- importance
-
-Runtime performs all writes.
-
-Exit criteria:
-
-- duplicate/repeated preference growth is bounded
-- update/supersede and scope-isolation tests pass
-- Gateway failure cannot corrupt or block ordinary memory retrieval
-- no external Vector DB dependency
+No external Vector DB dependency is introduced.
 
 ## Phase 5 — Media Understanding through Utility Gateway
 
-Preserve existing epistemic and cache behavior:
+**Status: IMPLEMENTED**
+
+Preserved epistemic/cache flow:
 
 `media source -> SHA-256/cache/reference -> media.inspect -> Utility Gateway media_understanding -> cached perceived result`
 
-Requirements:
+Properties retained:
 
 - no media embedding/vector pipeline
-- reuse successful SHA-256 cached understanding according to existing scope/privacy rules
-- provider selection uses actual modality capability
-- images route only to vision-capable members
-- video keeps the current direct/extraction strategy without cross-modal embeddings
-- failed or declined inspection preserves correct epistemic state
-- paid Media fallback is OpenRouter only
-
-Exit criteria:
-
-- existing `media.inspect` semantics remain intact
-- cache hit avoids repeat model calls
-- provider failure/fallback paths tested
-- no false claim that Character saw content before successful inspection
+- successful SHA-256 cached understanding can avoid repeat provider calls under existing scope/privacy rules
+- provider selection respects modality capability
+- video keeps the current direct/extraction/keyframe strategy rather than introducing cross-modal embeddings
+- failed or declined inspection preserves the correct unseen/unperceived state
+- paid Media fallback remains OpenRouter-only
+- Character models do not need to spend their roleplay API allowance on Runtime-owned media classification/routing work
 
 ## Phase 6 — LLM Wiki / knowledge consolidation
 
-Wiki is a derived knowledge layer, not a replacement for raw sources.
+**Status: COMPLETE**
 
-SQLite Wiki pages should track:
+Wiki is a derived Knowledge layer, not a replacement for raw sources.
 
-- title/key
-- summary/body
-- source IDs + source version/hash
-- generated/updated timestamps
-- confidence/state
-- stale flag
+### Persistence and provenance
 
-Gateway jobs may perform:
+SQLite Wiki pages now track:
 
-- source condensation
-- page creation/update suggestion
-- split/merge suggestion
-- stale-source reconciliation
-- contradiction flagging
+- stable owner/base/page identity
+- title/key and compact body
+- keywords
+- source manifest containing source IDs, titles, source type, and content SHA-256
+- stable source snapshot SHA-256
+- confidence
+- stale state
+- created/updated timestamps
 
-Retrieval policy:
+Raw source document bodies are not duplicated into the Wiki provenance manifest.
 
-- Wiki can answer common overview questions compactly
-- raw RAG remains available for detailed/evidence-sensitive questions
-- provenance is mandatory
-- stale Wiki never silently overrides newer source evidence
+### Source lifecycle
 
-Exit criteria:
+- Knowledge Document insert/update/delete marks affected Wiki pages stale
+- Knowledge Base metadata changes mark affected pages stale
+- Knowledge Base deletion removes derived Wiki rows
+- account/workspace claim and delete lifecycle migrates/cleans Wiki ownership so bulk SQL operations cannot leave owner-orphaned derived data
+- current-page lookup independently verifies the source snapshot hash, so a stale page cannot silently remain current even if an event path is missed
 
-- source changes mark/rebuild affected pages
-- repeated/common questions use fewer prompt tokens when Wiki is sufficient
-- raw provenance remains available
+Rebuild is intentionally lazy: a changed source marks the derived page stale immediately, and the next eligible overview request rebuilds it. This avoids background provider traffic merely because an admin edited a source.
+
+### Gateway consolidation
+
+`KnowledgeWikiService` builds a bounded source snapshot and uses the existing `knowledge_wiki` Utility capability. It:
+
+- reuses an existing page when the source hash is unchanged
+- creates/updates only from bounded supplied source text
+- persists the concrete derived result plus provenance hash/manifest
+- degrades to raw Knowledge if the Utility Gateway is disabled, unavailable, exhausted, times out, or returns invalid output
+
+### Conservative live retrieval
+
+The default app Knowledge repository is now Wiki-aware, while the raw repository remains directly available.
+
+Live policy is deliberately narrow:
+
+- explicit overview/summary/introduction/explanation-style questions may lazy-build or reuse one compact Wiki overview
+- English plus Simplified/Traditional Chinese overview markers are supported
+- exact/verbatim/quote/citation/source/evidence/document-detail questions always keep raw RAG authoritative
+- Wiki is used only when the raw retrieval identifies one unambiguous Knowledge Base
+- multi-base ambiguity stays on raw RAG
+- Wiki failures return the original raw candidates unchanged
+- the synthetic Wiki context identifies itself as derived, includes source snapshot SHA-256, and lists bounded provenance references
+
+This is a prompt-cost optimization, not an authorization or truth decision.
+
+### Phase 6 tests
+
+Focused coverage proves:
+
+- same source hash reuses an existing Wiki page without another Utility call
+- source changes stale and rebuild the overview
+- stale Wiki cannot be returned as current
+- Utility failure leaves raw RAG usable
+- exact/evidence queries do not call the Wiki path
+- broad overview queries can use the compact derived page
+- compact Wiki context is smaller than the equivalent multi-chunk raw RAG context in the regression fixture
+- Knowledge Base deletion and account lifecycle do not leave derived Wiki orphans
+
+### Phase 6 integrated validation
+
+Validated on integration head `52a978277eb2ecece6064c4725938df1cd880eab`:
+
+- CI `#1098`: **SUCCESS**
+  - Python 3.12: Ruff, strict Mypy, full Pytest success
+  - Python 3.13: Ruff, strict Mypy, full Pytest success
+  - Web: typecheck, tests, build success
+  - Discord connector: typecheck, tests, build/image success
+  - Docker production smoke checks success
+- Railway Smoke `#1064`: **SUCCESS**
+
+Public Demo Status `#808` remains an external demo-readiness failure, not a Phase 6 code gate. Its last response reports 5 demo Character Cards but only 3 credential-ready Characters, the same external readiness mismatch class that predates this phase.
+
+**Phase 6 boundary: stop here. Do not start Phase 7 automatically and do not merge `main`.**
 
 ## Phase 7 — System Intelligence extensions
 
-Only after the core Gateway is stable, consider:
+**Status: NOT STARTED**
+
+Only after the core Gateway is explicitly approved to continue, consider:
 
 - Topic capsule refresh/compression
 - conversation/interaction summarization
@@ -362,6 +281,8 @@ Every consumer must be independently disableable, and Utility failure must not b
 
 ## Phase 8 — End-to-end validation and merge decision
 
+**Status: NOT STARTED**
+
 No automatic merge.
 
 Validation matrix includes:
@@ -372,6 +293,7 @@ Validation matrix includes:
 - Memory duplicate/update/conflict
 - Media cache hit/miss/provider failure
 - all-free-exhausted behavior
+- real free-provider allowance/reset behavior
 - OpenRouter paid fallback and budget caps
 - provider outage/timeout/malformed structured output
 - restart persistence
@@ -390,7 +312,7 @@ Final questions:
 - Does Wiki reduce repeat-context cost while preserving provenance?
 - Is Media at least as reliable as the current SHA-256 behavior?
 - Is Railway RAM/latency acceptable?
-- Are CI, smoke tests, and manual validation green?
+- Are CI, smoke tests, real-provider checks, and manual validation green?
 
 Possible outcomes:
 
