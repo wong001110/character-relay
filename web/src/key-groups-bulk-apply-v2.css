@@ -1,0 +1,211 @@
+/* Key Groups bulk-apply V2: turn the narrow APPLY NOTE into a readable 3-step workspace. */
+
+@media (min-width: 1181px) {
+  .key-groups-workspace {
+    grid-template-columns: minmax(165px, 0.72fr) minmax(0, 2fr);
+  }
+
+  .key-group-apply-note {
+    grid-column: 2;
+  }
+}
+
+.key-group-apply-note {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 14px 16px;
+  padding: 22px 22px 20px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.28)),
+    #fff3c9;
+  transform: rotate(0.08deg);
+}
+
+.key-group-apply-note > .key-group-paper-label,
+.key-group-apply-note > h4,
+.key-group-apply-note > p,
+.key-group-apply-note > .key-group-apply-footnote,
+.key-group-apply-note > .key-group-delete-link {
+  grid-column: 1 / -1;
+}
+
+.key-group-apply-note > h4 {
+  margin-top: -4px;
+  font-size: 1.2rem;
+}
+
+.key-group-apply-note > p {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(105, 82, 58, 0.14);
+  background: rgba(255, 255, 255, 0.44);
+}
+
+.key-group-apply-note > p strong {
+  font-size: 1rem;
+}
+
+.key-group-apply-capabilities {
+  position: relative;
+  grid-column: 1 / 5;
+  align-content: start;
+  gap: 9px;
+  padding: 42px 12px 12px;
+  border: 1px solid rgba(105, 82, 58, 0.18);
+  background: rgba(255, 250, 236, 0.74);
+}
+
+.key-group-apply-capabilities::before {
+  content: "01  ·  CAPABILITIES";
+  position: absolute;
+  top: 13px;
+  left: 12px;
+  font: 800 0.65rem/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.1em;
+  color: #6e6255;
+}
+
+.key-group-apply-capabilities label {
+  min-height: 44px;
+  padding: 8px 9px;
+  border: 1px solid rgba(105, 82, 58, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.key-group-apply-capabilities label:has(input:checked) {
+  border-color: rgba(91, 103, 149, 0.34);
+  background: #f0ebff;
+  box-shadow: 2px 3px 0 rgba(91, 76, 118, 0.07);
+}
+
+.key-group-apply-capabilities input,
+.key-group-character-list input {
+  accent-color: #756390;
+}
+
+.key-group-character-heading {
+  position: relative;
+  grid-column: 5 / -1;
+  min-height: 42px;
+  padding: 26px 2px 8px;
+  border-top: 0;
+  border-bottom: 1px dashed rgba(113, 92, 64, 0.25);
+}
+
+.key-group-character-heading::before {
+  content: "02  ·  CHARACTERS";
+  position: absolute;
+  top: 0;
+  left: 0;
+  font: 800 0.65rem/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.1em;
+  color: #6e6255;
+}
+
+.key-group-character-heading > span {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+
+.key-group-character-heading button {
+  padding: 5px 9px;
+  border: 1px solid rgba(92, 76, 105, 0.16);
+  border-radius: 5px;
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.key-group-character-list {
+  grid-column: 5 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  max-height: 320px;
+  padding: 2px 5px 4px 0;
+}
+
+.key-group-character-list label {
+  min-width: 0;
+  min-height: 54px;
+  padding: 8px 9px;
+  border: 1px solid rgba(108, 91, 67, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.key-group-character-list label:has(input:checked) {
+  border-color: rgba(78, 120, 91, 0.35);
+  background: #eaf6ee;
+  box-shadow: 2px 3px 0 rgba(64, 112, 81, 0.07);
+}
+
+.key-group-character-list label:hover {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.key-group-apply-button {
+  position: relative;
+  grid-column: 1 / -1;
+  margin-top: 22px;
+  min-height: 46px;
+}
+
+.key-group-apply-button::before {
+  content: "03  ·  REVIEW & APPLY";
+  position: absolute;
+  left: 0;
+  top: -24px;
+  width: 100%;
+  color: #6e6255;
+  text-align: left;
+  font: 800 0.65rem/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.1em;
+  pointer-events: none;
+}
+
+.key-group-apply-footnote {
+  margin-top: -6px;
+  padding: 8px 10px;
+  border-left: 3px solid rgba(82, 111, 91, 0.28);
+  background: rgba(234, 246, 238, 0.62);
+}
+
+.key-group-delete-link {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(157, 102, 95, 0.25);
+  justify-self: stretch;
+  text-align: left;
+}
+
+@media (max-width: 1180px) and (min-width: 781px) {
+  .key-group-apply-note {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 900px) {
+  .key-group-apply-capabilities,
+  .key-group-character-heading,
+  .key-group-character-list {
+    grid-column: 1 / -1;
+  }
+
+  .key-group-character-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 780px) {
+  .key-group-apply-note {
+    grid-template-columns: 1fr;
+    padding: 20px 16px 18px;
+  }
+
+  .key-group-character-list {
+    grid-template-columns: 1fr;
+    max-height: 360px;
+  }
+}
