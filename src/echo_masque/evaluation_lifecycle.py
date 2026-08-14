@@ -86,7 +86,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         expression_counts = self.expression_repository.delete_owner(user_id)
         smart_counts = self.smart_participation_repository.delete_owner(user_id)
         knowledge_counts = self.knowledge_repository.delete_owner(user_id)
-        knowledge_counts["knowledge_wiki_pages"] = self.wiki_page_repository.delete_owner(user_id)
+        self.wiki_page_repository.delete_owner(user_id)
         identity_counts = self.discord_identity_repository.delete_owner(user_id)
         reminder_count = self.scheduled_reminder_repository.delete_owner(user_id)
         watch_count = self.condition_watch_repository.delete_owner(user_id)
@@ -159,7 +159,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "local-user",
             actor_user_id,
         )
-        knowledge_counts["knowledge_wiki_pages"] = self.wiki_page_repository.claim_owner(
+        self.wiki_page_repository.claim_owner(
             "local-user",
             actor_user_id,
         )
