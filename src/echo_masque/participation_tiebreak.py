@@ -70,6 +70,20 @@ class ParticipationTieBreakService:
         return self._utility_gateway_live
 
     @staticmethod
+    def _capability_enabled(gateway: object) -> bool:
+        runtime = getattr(gateway, "runtime", None)
+        if runtime is None:
+            return True
+        config = runtime.config().utility_gateway
+        return bool(
+            config.enabled
+            and any(
+                member.enabled and "participation_tiebreak" in member.capabilities
+                for member in config.members
+            )
+        )
+
+    @staticmethod
     def _original(candidates: list[ParticipationTieCandidate]) -> dict[str, float]:
         return {item.deployment_id: item.relevance for item in candidates}
 
@@ -98,6 +112,10 @@ class ParticipationTieBreakService:
         if len(tied) < 2:
             return ParticipationTieBreakOutcome(original, reason="no_gray_zone")
 
+        gateway = self._gateway()
+        if not self._capability_enabled(gateway):
+            return ParticipationTieBreakOutcome(original, reason="capability_disabled")
+
         lines = [
             f"Current group message: {message[:3000]}",
             "Already plausible Smart Participation candidates:",
@@ -116,7 +134,7 @@ class ParticipationTieBreakService:
             "Do not choose anything outside this list."
         )
         try:
-            value, _ = self._gateway().invoke(
+            value, _ = gateway.invoke(
                 "participation_tiebreak",
                 ParticipationUtilityDecision,
                 system_prompt=(
