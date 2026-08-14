@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
@@ -32,7 +33,7 @@ def test_exact_json_contract_contains_version_schema_and_no_extra_key_rule() -> 
     assert "no markdown" in contract
 
 
-async def test_openai_compatible_provider_forwards_output_bound_and_json_mode() -> None:
+def test_openai_compatible_provider_forwards_output_bound_and_json_mode() -> None:
     observed: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -58,12 +59,14 @@ async def test_openai_compatible_provider_forwards_output_bound_and_json_mode() 
         max_retries=0,
         transport=httpx.MockTransport(handler),
     )
-    completion = await provider.complete(
-        messages=(ChatMessage(role="user", content="return json"),),
-        model="test-model",
-        temperature=0.0,
-        max_output_tokens=96,
-        response_format={"type": "json_object"},
+    completion = asyncio.run(
+        provider.complete(
+            messages=(ChatMessage(role="user", content="return json"),),
+            model="test-model",
+            temperature=0.0,
+            max_output_tokens=96,
+            response_format={"type": "json_object"},
+        )
     )
 
     assert completion.text.startswith("{")
@@ -71,7 +74,7 @@ async def test_openai_compatible_provider_forwards_output_bound_and_json_mode() 
     assert observed["response_format"] == {"type": "json_object"}
 
 
-async def test_openai_compatible_provider_omits_structured_fields_for_normal_character_calls() -> None:
+def test_openai_compatible_provider_omits_structured_fields_for_normal_character_calls() -> None:
     observed: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -94,10 +97,12 @@ async def test_openai_compatible_provider_omits_structured_fields_for_normal_cha
         max_retries=0,
         transport=httpx.MockTransport(handler),
     )
-    await provider.complete(
-        messages=(ChatMessage(role="user", content="hello"),),
-        model="test-model",
-        temperature=0.4,
+    asyncio.run(
+        provider.complete(
+            messages=(ChatMessage(role="user", content="hello"),),
+            model="test-model",
+            temperature=0.4,
+        )
     )
 
     assert "max_tokens" not in observed
