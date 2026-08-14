@@ -28,7 +28,12 @@ import {
   stripCustomEmojiTokens
 } from "./expressionFlow.js";
 import { DiscordEventReporter } from "./eventReporter.js";
-import { RelayClient } from "./relayClient.js";
+import { compareParticipationShadowPlan } from "./participationShadowParity.js";
+import {
+  RelayClient,
+  type DiscordParticipationShadowCandidate,
+  type DiscordParticipationShadowPlanItem
+} from "./relayClient.js";
 import { RecoveryLoop } from "./recoveryLoop.js";
 import {
   buildDeploymentIndex,
@@ -174,6 +179,13 @@ let turnCollectorInteractionBypassCount = 0;
 let turnCollectorLastBurstAt: string | null = null;
 let turnCollectorLastBurstId: string | null = null;
 let turnCollectorLastFlushReason: string | null = null;
+let participationShadowParityObservationCount = 0;
+let participationShadowParityExactMatchCount = 0;
+let participationShadowParitySetMatchCount = 0;
+let participationShadowParityMismatchCount = 0;
+let participationShadowParityLastAt: string | null = null;
+let participationShadowParityLastExactMatch: boolean | null = null;
+let participationShadowParityLastSetMatch: boolean | null = null;
 const turnCollectorBypassReasons: Record<string, number> = {};
 const turnIngress = new TurnIngressCoordinator<CollectedDiscordTurn>(
   {
@@ -2050,6 +2062,10 @@ async function processMessage(
     }
 
     const semanticScores: Record<string, number> = {};
+    let serverShadowPlan: DiscordParticipationShadowPlanItem[] | undefined;
+    let serverShadowCandidateScores:
+      | DiscordParticipationShadowCandidate[]
+      | undefined;
     const smartRuntimeScopeKey = [
       config.relayConnectionId,
       guildMessage.guildId,
@@ -2102,6 +2118,8 @@ async function processMessage(
               };
             })
           });
+          serverShadowPlan = semantic.shadow_speaker_plan;
+          serverShadowCandidateScores = semantic.shadow_candidate_scores;
           if (semantic.available) {
             for (const candidate of semantic.candidates) {
               if (candidate.profile_ready && Number.isFinite(candidate.semantic_relevance)) {
@@ -2194,6 +2212,49 @@ async function processMessage(
       semanticScores,
       smartRuntimeScopeKey
     );
+    const actualSmartDeploymentIds =
+      audience.reason === "selected_smart" || audience.reason === "selected_smart_multiple"
+        ? audience.deployments.map((deployment) => deployment.deployment_id)
+        : [];
+    const shadowParity = compareParticipationShadowPlan(
+      serverShadowPlan,
+      actualSmartDeploymentIds,
+      serverShadowCandidateScores
+    );
+    if (shadowParity.observed) {
+      participationShadowParityObservationCount += 1;
+      if (shadowParity.exactMatch) participationShadowParityExactMatchCount += 1;
+      if (shadowParity.setMatch) participationShadowParitySetMatchCount += 1;
+      if (!shadowParity.setMatch) participationShadowParityMismatchCount += 1;
+      participationShadowParityLastAt = new Date().toISOString();
+      participationShadowParityLastExactMatch = shadowParity.exactMatch;
+      participationShadowParityLastSetMatch = shadowParity.setMatch;
+      reportDiscordEvent({
+        level: shadowParity.setMatch ? "info" : "warning",
+        eventType: "smart_participation_shadow_parity",
+        message: shadowParity.setMatch
+          ? "Server shadow speaker plan matched the authoritative Connector speaker set."
+          : "Server shadow speaker plan disagreed with the authoritative Connector speaker set.",
+        guildId: guildMessage.guildId,
+        guildName: guildMessage.guild.name,
+        channelId: location.channelId,
+        channelName: location.channelName,
+        threadId: location.threadId,
+        threadName: location.threadName,
+        sourceMessageId: guildMessage.id,
+        details: {
+          burst_id: burstTelemetry?.burstId ?? null,
+          audience_reason: audience.reason,
+          exact_match: shadowParity.exactMatch,
+          set_match: shadowParity.setMatch,
+          shadow_deployment_ids: shadowParity.shadowDeploymentIds,
+          actual_deployment_ids: shadowParity.actualDeploymentIds,
+          missing_from_shadow: shadowParity.missingFromShadow,
+          extra_in_shadow: shadowParity.extraInShadow,
+          shadow_candidate_scores: shadowParity.shadowCandidateScores
+        }
+      });
+    }
     if (!audience.deployments.length) {
       if (mentionedBot || replyTarget.characterMessage) {
         reportDiscordEvent({
@@ -2976,6 +3037,20 @@ const healthServer = createServer((request, response) => {
       smart_participation_turn_collector_last_burst_id: turnCollectorLastBurstId,
       smart_participation_turn_collector_last_flush_reason:
         turnCollectorLastFlushReason,
+      smart_participation_shadow_parity_observations:
+        participationShadowParityObservationCount,
+      smart_participation_shadow_parity_exact_matches:
+        participationShadowParityExactMatchCount,
+      smart_participation_shadow_parity_set_matches:
+        participationShadowParitySetMatchCount,
+      smart_participation_shadow_parity_mismatches:
+        participationShadowParityMismatchCount,
+      smart_participation_shadow_parity_last_at:
+        participationShadowParityLastAt,
+      smart_participation_shadow_parity_last_exact_match:
+        participationShadowParityLastExactMatch,
+      smart_participation_shadow_parity_last_set_match:
+        participationShadowParityLastSetMatch,
       bot_tag_conversations_enabled: config.botTagConversationsEnabled,
       bot_tag_max_depth: config.botTagMaxDepth,
       bot_tag_max_responses: config.botTagMaxResponses,
