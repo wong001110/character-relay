@@ -59,7 +59,7 @@ def test_one_call_can_resolve_multiple_requested_gray_zones() -> None:
     gateway = FakeGateway(envelope())
     result = TurnIntelligenceService(gateway).decide(  # type: ignore[arg-type]
         requested_tasks=("topic", "speaker", "knowledge", "pending_action"),
-        current_burst="刚才那个再试试看，Ann 你觉得呢？",
+        current_burst="刚才那个再试试看, Ann 你觉得呢?",
         active_topic="image generation",
         topic_evidence="E5 continuity gray zone",
         speaker_candidates=(("ann", "Ann", "eligible; top final candidate"),),
@@ -143,7 +143,14 @@ def test_unknown_speaker_and_wrong_pending_tool_are_rejected_by_runtime() -> Non
 
 
 def test_no_requested_tasks_skips_utility_entirely() -> None:
-    gateway = FakeGateway(envelope(requested_tasks=(), topic=None, speaker=None, knowledge=None, pending_action=None))
+    no_tasks = envelope(
+        requested_tasks=(),
+        topic=None,
+        speaker=None,
+        knowledge=None,
+        pending_action=None,
+    )
+    gateway = FakeGateway(no_tasks)
     result = TurnIntelligenceService(gateway).decide(  # type: ignore[arg-type]
         requested_tasks=(),
         current_burst="clear turn",
