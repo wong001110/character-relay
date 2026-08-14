@@ -1,12 +1,12 @@
 # Conversation Intelligence V4 — Implementation Validation
 
-Status: **IMPLEMENTATION COMPLETE / FULL RELEASE VALIDATION RUNNING**
+Status: **IMPLEMENTATION COMPLETE / RELEASE VALIDATED**
 
 Branch: `agent/conversation-intelligence-v4`
 
 Draft PR: #166 — Smart Participation V4: Conversation Intelligence Graph
 
-This document records the implemented V4 scope before the final full CI/Railway release gate. The PR remains Draft and must not be merged without explicit owner approval.
+Conversation Intelligence V4 is implemented as one coherent change set in Draft PR #166. Runtime implementation is complete, the normal repository release gate has been exercised, and the PR remains Draft/unmerged pending explicit owner approval.
 
 ## Implemented phases
 
@@ -32,26 +32,51 @@ Pure directly visible image attachments can participate in a Conversation Burst 
 
 The Connector transmits only bounded original image source message IDs. Media Runtime resolves each image using its original Discord message ID and records per-Character perception against that source message. Objective SHA-based understanding is still reusable, while Conversation Media/Graph provenance is not reassigned to the burst's final text message.
 
-## Validation already passed before the full release gate
+## Targeted validation
+
+Before the repository-wide release gate, the final V4 guarded runs passed:
 
 - Python Ruff for V4-touched runtime paths.
 - strict Mypy across the Python source tree.
 - targeted RAG / Character Context / Tool continuation / Learned State / V4 resolver regression tests.
 - targeted Media Runtime provenance, attachment schema, and V4 resolver tests.
 - Discord Connector TypeScript typecheck.
-- Discord Connector Vitest suite: **126 / 126 tests passed** in the final edge-case guarded run.
+- Discord Connector Vitest suite: **126 / 126 tests passed**.
 - Discord Connector production build.
-- `git diff --check` for the final edge-case commit.
+- `git diff --check`.
 - standalone API/Learned-State import smoke after removing the eager API package import cycle.
 
-## Release gate still required
+## Release validation result
 
-The implementation is not declared release-validated until the normal repository workflows run against a non-bot branch commit and report:
+Release validation was run from normal branch commit `4591f3c405136fd1c072837175b1a70e2dc07827`.
 
-1. full CI green, including Python, Web, Discord Connector, Docker and repository-wide tests/checks;
-2. Railway Smoke green;
-3. Public Demo Status Check green or otherwise confirmed unrelated/non-blocking according to repository policy;
-4. no new explicit-address, Smart Output, media-epistemic, or durable-state regression;
-5. PR #166 remains Draft/unmerged until explicit owner approval.
+### CI #1314 — PASS
 
-If a release-gate regression is found, fix it in this same branch and PR; do not split the implementation into another PR.
+All repository CI jobs completed successfully:
+
+- Python 3.12: Ruff, strict Mypy, full repository Pytest.
+- Python 3.13: Ruff, strict Mypy, full repository Pytest.
+- Web: typecheck, tests, build.
+- Discord Connector: typecheck, tests, build, Docker image build.
+- Production Docker: image build, unsafe no-volume rejection, persistent-volume startup, healthcheck, storage identity survival across replacement, and container smoke test.
+
+### Railway Smoke #1280 — PASS
+
+The Railway smoke workflow completed successfully.
+
+### Public Demo Status Check #1024 — PRE-EXISTING DEPLOYMENT ISSUE / NON-V4 BLOCKER
+
+The deployed Public Demo reported `enabled=true` but `ready=false` because 5 synchronized demo Characters had only 3 credential-ready entries. The latest `main` Public Demo Status workflow is also failing for the same deployed readiness condition, so this result is not attributed to Conversation Intelligence V4.
+
+The failed workflow also attempted to post a PR comment and received `403 Resource not accessible by integration`; that permission failure is workflow infrastructure noise and not a Runtime failure.
+
+## Final merge state
+
+- Runtime implementation: **complete**.
+- Full code CI: **green**.
+- Railway smoke: **green**.
+- Public Demo readiness: **known pre-existing deployment/configuration issue, also present on `main`**.
+- Rollout controls: **off/shadow/active and subsystem feature flags remain available**.
+- PR #166: **Draft, open, unmerged**.
+
+No additional implementation PR is required. Any future live-tuning or activation decision should continue to preserve explicit Runtime authority and may keep Graph/Learned-State influence in shadow until production outcome evidence supports activation.
