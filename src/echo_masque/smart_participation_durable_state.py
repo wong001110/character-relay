@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 from uuid import uuid4
 
 from sqlalchemy import delete, select
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.sql.elements import ColumnElement
 
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.smart_participation_state_models import (
@@ -47,7 +50,7 @@ class SmartParticipationDurableStateService:
         guild_id: str,
         channel_id: str,
         thread_id: str,
-    ) -> tuple[object, ...]:
+    ) -> tuple[ColumnElement[bool], ...]:
         return (
             model.connection_id == connection_id,
             model.guild_id == guild_id,
@@ -124,6 +127,41 @@ class SmartParticipationDurableStateService:
             recent_deployment_id=recent,
             window_count=window_count,
         )
+
+    def recent_speaker(
+        self,
+        *,
+        connection_id: str,
+        guild_id: str,
+        channel_id: str,
+        thread_id: str,
+        maximum_age_seconds: int,
+        allowed_deployment_ids: frozenset[str],
+        now: datetime | None = None,
+    ) -> str:
+        """Return a durable recent speaker only inside a bounded lightweight-follow-up window."""
+
+        current = _aware(now) if now is not None else datetime.now(UTC)
+        with self.database.session() as session:
+            scope = session.scalar(
+                select(SmartParticipationScopeStateRecord).where(
+                    *self._scope_conditions(
+                        SmartParticipationScopeStateRecord,
+                        connection_id=connection_id,
+                        guild_id=guild_id,
+                        channel_id=channel_id,
+                        thread_id=thread_id,
+                    )
+                )
+            )
+        if scope is None or scope.last_admitted_at is None:
+            return ""
+        if scope.recent_deployment_id not in allowed_deployment_ids:
+            return ""
+        age = (current - _aware(scope.last_admitted_at)).total_seconds()
+        if age < 0 or age > max(1, maximum_age_seconds):
+            return ""
+        return scope.recent_deployment_id
 
     def record_admission(
         self,
@@ -217,8 +255,10 @@ class SmartParticipationDurableStateService:
             )
             session.commit()
             return {
-                "deployments": int(getattr(deployment_result, "rowcount", 0) or 0),
-                "scopes": int(getattr(scope_result, "rowcount", 0) or 0),
+                "deployments": int(
+                    cast(CursorResult[Any], deployment_result).rowcount or 0
+                ),
+                "scopes": int(cast(CursorResult[Any], scope_result).rowcount or 0),
             }
 
 
