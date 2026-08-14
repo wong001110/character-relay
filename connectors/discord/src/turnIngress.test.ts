@@ -167,6 +167,7 @@ describe("Turn collection policy", () => {
     customEmojiCount: 0,
     stickerCount: 0,
     attachmentCount: 0,
+    visibleImageAttachmentCount: 0,
     embedCount: 0,
     hasUrl: false,
     smartCandidateCount: 2
@@ -221,5 +222,45 @@ describe("Turn collection policy", () => {
       collapsedMessageCount: 1,
       sourceMessageIds: ["message-1", "message-2"]
     });
+  });
+});
+
+const basePolicy = {
+  collectorEnabled: true,
+  smartParticipationEnabled: true,
+  recovery: false,
+  mentionedBot: false,
+  hasReplyReference: false,
+  explicitAudience: false,
+  hasReadableText: true,
+  customEmojiCount: 0,
+  stickerCount: 0,
+  attachmentCount: 0,
+  visibleImageAttachmentCount: 0,
+  embedCount: 0,
+  hasUrl: false,
+  smartCandidateCount: 2
+};
+
+describe("visible-image Turn Collection policy", () => {
+  it("collects a pure visible image attachment so following text can share one burst", () => {
+    expect(
+      decideTurnCollection({
+        ...basePolicy,
+        hasReadableText: false,
+        attachmentCount: 1,
+        visibleImageAttachmentCount: 1
+      })
+    ).toEqual({ collect: true, reason: "collect" });
+  });
+
+  it("still bypasses mixed or non-image attachments", () => {
+    expect(
+      decideTurnCollection({
+        ...basePolicy,
+        attachmentCount: 2,
+        visibleImageAttachmentCount: 1
+      })
+    ).toEqual({ collect: false, reason: "rich_content" });
   });
 });

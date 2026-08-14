@@ -144,9 +144,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         else:
             self.live_media_service = live_media_service
         self.conversation_media_service = conversation_media_service
-        self._media_turn_results: dict[
-            tuple[str, str, str], tuple[float, LiveMediaResult]
-        ] = {}
+        self._media_turn_results: dict[tuple[str, str, str], tuple[float, LiveMediaResult]] = {}
         self._media_epistemic_states: dict[
             tuple[str, str], tuple[float, MediaEpistemicSnapshot]
         ] = {}
@@ -219,9 +217,8 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
     ) -> PromptModelToolTurn | None:
         await self._ensure_media_context(prepared)
         target = prepared.resolved.target
-        if (
-            not isinstance(target, PromptModelTarget)
-            or not self._media_inspection_enabled(prepared)
+        if not isinstance(target, PromptModelTarget) or not self._media_inspection_enabled(
+            prepared
         ):
             return await super().start_character_tool_turn(prepared)
 
@@ -365,8 +362,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         if self._active_shared_payload(prepared.resolved.payload) is None:
             return False
         return (
-            self.tool_registry.tool_id_for_provider_name("media_inspect")
-            == _MEDIA_INSPECT_TOOL_ID
+            self.tool_registry.tool_id_for_provider_name("media_inspect") == _MEDIA_INSPECT_TOOL_ID
         )
 
     @staticmethod
@@ -386,7 +382,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             return LiveMediaResult(status="failed", reason="media_service_unavailable")
         resolved = prepared.resolved
         deployment = resolved.deployment
-        key = (deployment.id, resolved.payload.message_id, scope)
+        key = (deployment.id, payload.message_id, scope)
         cached = self._media_turn_results.get(key)
         if cached is not None and cached[0] > now:
             return cached[1]
@@ -404,6 +400,64 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         self._cleanup_cache(self._media_turn_results, now)
         return result
 
+    async def _burst_passive_image_contexts(
+        self,
+        prepared: PreparedCharacterTurn,
+        *,
+        payload: DiscordInboundMessage,
+        now: float,
+    ) -> tuple[tuple[LiveMediaContext, ...], int]:
+        """Perceive visible image messages collected immediately before the current text.
+
+        Each source is resolved with its original Discord message ID so Conversation Media and
+        Graph provenance remain attached to the actual image message instead of the burst tail.
+        """
+
+        memory_service = self.conversation_media_service
+        contexts: list[LiveMediaContext] = []
+        cache_hits = 0
+        seen: set[str] = set()
+        for raw_message_id in payload.burst_media_message_ids[:2]:
+            source_message_id = raw_message_id.strip()
+            if (
+                not source_message_id
+                or source_message_id == payload.message_id
+                or source_message_id in seen
+            ):
+                continue
+            seen.add(source_message_id)
+            source_payload = payload.model_copy(
+                update={
+                    "message_id": source_message_id,
+                    "text": "",
+                    "attachments": [],
+                    "embeds": [],
+                    "burst_media_message_ids": [],
+                }
+            )
+            result = await self._media_result_for_payload(
+                prepared,
+                payload=source_payload,
+                scope=f"burst-passive-image:{source_message_id}",
+                now=now,
+            )
+            source_contexts = tuple(item for item in result.contexts if item.kind == "image")
+            if not source_contexts:
+                continue
+            cache_hits += result.cache_hits
+            if memory_service is not None:
+                memory_service.remember_perceived(
+                    owner_id=prepared.resolved.deployment.owner_id,
+                    deployment_id=prepared.resolved.deployment.id,
+                    character_card_id=prepared.resolved.card.id,
+                    payload=source_payload,
+                    contexts=source_contexts,
+                )
+            contexts.extend(source_contexts)
+            if len(contexts) >= 5:
+                break
+        return tuple(contexts[:5]), cache_hits
+
     async def _ensure_media_context(self, prepared: PreparedCharacterTurn) -> None:
         """Inject memory/passive images only; active links/videos are Tool-driven."""
 
@@ -420,15 +474,20 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             )
             self._inject_guidance(prepared, memory_service.guidance(memories))
 
-        if not has_shared_content(payload):
-            return
-
         key = (deployment.id, payload.message_id)
         now = monotonic()
+        burst_contexts, burst_cache_hits = await self._burst_passive_image_contexts(
+            prepared,
+            payload=payload,
+            now=now,
+        )
+        if not has_shared_content(payload) and not burst_contexts:
+            return
+
         passive_payload, active_payload = self._split_passive_images(payload)
-        passive_contexts: tuple[LiveMediaContext, ...] = ()
-        passive_cache_hits = 0
-        passive_reason = ""
+        passive_contexts: tuple[LiveMediaContext, ...] = burst_contexts
+        passive_cache_hits = burst_cache_hits
+        passive_reason = "conversation_burst_visible_image_attachment" if burst_contexts else ""
 
         if passive_payload is not None:
             passive_result = await self._media_result_for_payload(
@@ -437,26 +496,28 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
                 scope="passive-images",
                 now=now,
             )
-            passive_contexts = tuple(
+            current_contexts = tuple(
                 item for item in passive_result.contexts if item.kind == "image"
             )
-            passive_cache_hits = passive_result.cache_hits
-            passive_reason = passive_result.reason
-            if passive_contexts:
-                if memory_service is not None:
-                    memory_service.remember_perceived(
-                        owner_id=deployment.owner_id,
-                        deployment_id=deployment.id,
-                        character_card_id=resolved.card.id,
-                        payload=passive_payload,
-                        contexts=passive_contexts,
-                    )
-                self._inject_guidance(prepared, _passive_image_guidance(passive_contexts))
-            else:
+            passive_contexts = tuple((*passive_contexts, *current_contexts)[:5])
+            passive_cache_hits += passive_result.cache_hits
+            passive_reason = passive_result.reason or passive_reason
+            if current_contexts and memory_service is not None:
+                memory_service.remember_perceived(
+                    owner_id=deployment.owner_id,
+                    deployment_id=deployment.id,
+                    character_card_id=resolved.card.id,
+                    payload=passive_payload,
+                    contexts=current_contexts,
+                )
+            if not current_contexts and not burst_contexts:
                 self._inject_guidance(
                     prepared,
                     _passive_image_unavailable_guidance(passive_payload),
                 )
+
+        if passive_contexts:
+            self._inject_guidance(prepared, _passive_image_guidance(passive_contexts))
 
         if not has_shared_content(active_payload):
             state: MediaEpistemicState = "perceived" if passive_contexts else "unavailable"
@@ -530,11 +591,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             key,
             now,
             MediaEpistemicSnapshot(
-                state=(
-                    "perceived"
-                    if perceived or base_count > 0
-                    else "unavailable"
-                ),
+                state=("perceived" if perceived or base_count > 0 else "unavailable"),
                 attention_action="watch",
                 attention_reason="Character requested media inspection before final output.",
                 response_stance="neutral",
@@ -703,11 +760,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         final_line = "Return Smart Output now."
         if prepared.prompt.endswith(final_line):
             prepared.prompt = (
-                prepared.prompt[: -len(final_line)].rstrip()
-                + "\n"
-                + block
-                + "\n"
-                + final_line
+                prepared.prompt[: -len(final_line)].rstrip() + "\n" + block + "\n" + final_line
             )
         else:
             prepared.prompt = prepared.prompt.rstrip() + "\n" + block

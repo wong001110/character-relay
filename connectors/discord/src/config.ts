@@ -21,6 +21,7 @@ export interface ConnectorConfig {
   smartParticipationChannelCooldownSeconds: number;
   smartParticipationWindowSeconds: number;
   smartParticipationMaxRepliesPerWindow: number;
+  smartParticipationLightweightFollowUpWindowSeconds: number;
   smartParticipationTurnCollectorEnabled: boolean;
   smartParticipationTurnCollectorQuietMs: number;
   smartParticipationTurnCollectorMaxWaitMs: number;
@@ -123,6 +124,12 @@ export function loadConfig(): ConnectorConfig {
       3,
       1
     ),
+    smartParticipationLightweightFollowUpWindowSeconds: boundedInteger(
+      "DISCORD_SMART_PARTICIPATION_LIGHTWEIGHT_FOLLOW_UP_WINDOW_SECONDS",
+      90,
+      1,
+      600
+    ),
     smartParticipationTurnCollectorEnabled: boolean(
       "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_ENABLED",
       true
@@ -179,7 +186,9 @@ export function loadConfig(): ConnectorConfig {
     maxParticipants: config.smartParticipationMaxParticipants,
     channelCooldownSeconds: config.smartParticipationChannelCooldownSeconds,
     windowSeconds: config.smartParticipationWindowSeconds,
-    maxRepliesPerWindow: config.smartParticipationMaxRepliesPerWindow
+    maxRepliesPerWindow: config.smartParticipationMaxRepliesPerWindow,
+    lightweightFollowUpWindowSeconds:
+      config.smartParticipationLightweightFollowUpWindowSeconds
   });
   return config;
 }

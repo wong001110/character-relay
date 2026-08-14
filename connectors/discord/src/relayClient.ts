@@ -515,6 +515,23 @@ export class RelayClient {
     );
   }
 
+  async recentSmartParticipationSpeaker(input: {
+    guild_id: string;
+    channel_id: string;
+    thread_id: string;
+    maximum_age_seconds: number;
+    allowed_deployment_ids: string[];
+  }): Promise<string> {
+    const result = await this.request<{ deployment_id: string }>(
+      "/api/smart-participation/recent-speaker",
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...input })
+      }
+    );
+    return result.deployment_id ?? "";
+  }
+
   async observeSmartParticipationOutcome(input: {
     guild_id: string;
     channel_id: string;

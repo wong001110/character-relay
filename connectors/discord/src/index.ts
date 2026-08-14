@@ -53,7 +53,8 @@ import {
 } from "./routing.js";
 import {
   buildSmartParticipationBaseEvidence,
-  preflightSmartParticipationRuntime
+  preflightSmartParticipationRuntime,
+  restoreDurableLightweightSelection
 } from "./smartParticipation.js";
 import {
   buildMentionableParticipants,
@@ -214,6 +215,20 @@ const catalogChannelTypes = new Set<ChannelType>([
   ChannelType.GuildForum,
   ChannelType.GuildMedia
 ]);
+
+function isVisibleImageAttachment(attachment: {
+  contentType?: string | null;
+  name?: string | null;
+}): boolean {
+  const contentType = attachment.contentType?.trim().toLowerCase() ?? "";
+  if (contentType.startsWith("image/")) return true;
+  const name = attachment.name?.trim().toLowerCase() ?? "";
+  return /\.(?:png|jpe?g|webp|gif|avif)$/u.test(name);
+}
+
+function visibleImageAttachmentCount(message: Message<true>): number {
+  return [...message.attachments.values()].filter(isVisibleImageAttachment).length;
+}
 
 function log(message: string, metadata?: Record<string, unknown>): void {
   console.log(
@@ -2022,6 +2037,24 @@ async function processMessage(
         )
       : originalText;
     const participationBurstId = burstTelemetry?.burstId ?? "";
+    const burstMediaMessageIds = burst
+      ? [
+          ...new Set(
+            burst.items
+              .slice(0, -1)
+              .filter((item) => {
+                const imageCount = visibleImageAttachmentCount(item.source);
+                return (
+                  imageCount > 0 &&
+                  imageCount === item.source.attachments.size &&
+                  item.source.embeds.length === 0 &&
+                  !/https?:\/\//iu.test(item.source.content)
+                );
+              })
+              .map((item) => item.source.id)
+          )
+        ].slice(-2)
+      : [];
     const participationBurstMessages = burst
       ? burst.items.map((item) => ({
           message_id: item.source.id,
@@ -2097,6 +2130,7 @@ async function processMessage(
     }
 
     const semanticScores: Record<string, number> = {};
+    let semanticPreflightReason = "not_run";
     let serverSpeakerPlan: DiscordParticipationShadowPlanItem[] | undefined;
     let serverSpeakerPlanAuthoritative = false;
     let serverShadowPlan: DiscordParticipationShadowPlanItem[] | undefined;
@@ -2121,6 +2155,7 @@ async function processMessage(
         semanticPreflightNow,
         smartRuntimeScopeKey
       );
+      semanticPreflightReason = semanticPreflight.reason;
       const smartDeploymentIds = semanticPreflight.semanticCandidateDeploymentIds;
       const baseEvidenceById = new Map(
         buildSmartParticipationBaseEvidence(
@@ -2255,6 +2290,74 @@ async function processMessage(
       semanticScores,
       smartRuntimeScopeKey
     );
+    if (
+      !audience.deployments.length &&
+      !replyTarget.deploymentId &&
+      semanticPreflightReason === "low_information_message"
+    ) {
+      const allowedDeploymentIds = candidates
+        .filter((candidate) => candidate.participation_mode === "smart")
+        .map((candidate) => candidate.deployment_id);
+      if (allowedDeploymentIds.length) {
+        try {
+          const durableDeploymentId = await relay.recentSmartParticipationSpeaker({
+            guild_id: guildMessage.guildId,
+            channel_id: location.channelId,
+            thread_id: location.threadId,
+            maximum_age_seconds:
+              config.smartParticipationLightweightFollowUpWindowSeconds,
+            allowed_deployment_ids: allowedDeploymentIds
+          });
+          if (durableDeploymentId) {
+            const restored = restoreDurableLightweightSelection(
+              candidates,
+              durableDeploymentId,
+              participationText,
+              Date.now(),
+              smartRuntimeScopeKey
+            );
+            if (restored.selectedDeployments.length) {
+              audience = {
+                deployments: restored.selectedDeployments,
+                text: participationText.trim(),
+                reason: "selected_smart",
+                options: audience.options
+              };
+              reportDiscordEvent({
+                level: "info",
+                eventType: "smart_participation_durable_lightweight_recovered",
+                message:
+                  "A low-information Smart Participation turn recovered its recent speaker from durable server state.",
+                guildId: guildMessage.guildId,
+                guildName: guildMessage.guild.name,
+                channelId: location.channelId,
+                channelName: location.channelName,
+                threadId: location.threadId,
+                threadName: location.threadName,
+                sourceMessageId: guildMessage.id,
+                deploymentId: durableDeploymentId,
+                details: { maximum_age_seconds: config.smartParticipationLightweightFollowUpWindowSeconds }
+              });
+            }
+          }
+        } catch (error) {
+          reportDiscordEvent({
+            level: "warning",
+            eventType: "smart_participation_durable_lightweight_failed",
+            message:
+              "Durable recent-speaker recovery failed; local Smart Participation routing remained authoritative.",
+            guildId: guildMessage.guildId,
+            guildName: guildMessage.guild.name,
+            channelId: location.channelId,
+            channelName: location.channelName,
+            threadId: location.threadId,
+            threadName: location.threadName,
+            sourceMessageId: guildMessage.id,
+            details: { error: error instanceof Error ? error.message : String(error) }
+          });
+        }
+      }
+    }
     if (serverSpeakerPlanAuthoritative && !replyTarget.deploymentId) {
       const planned = (serverSpeakerPlan ?? [])
         .map((item) =>
@@ -2639,6 +2742,7 @@ async function processMessage(
         author_is_bot: Boolean(sourceDeployment),
         emojis: socialSource ? [] : emojis,
         stickers: socialSource ? [] : stickers,
+        burst_media_message_ids: socialSource ? [] : burstMediaMessageIds,
         interaction_session_id: "",
         interaction_type: "",
         interaction_intensity: "",
@@ -2957,6 +3061,7 @@ async function processMessage(
   const smartCandidateCount = candidates.filter(
     (item) => item.participation_mode === "smart"
   ).length;
+  const visibleImageCount = visibleImageAttachmentCount(guildMessage);
   const collectionDecision = decideTurnCollection({
     collectorEnabled: turnIngress.enabled,
     smartParticipationEnabled: config.smartParticipationEnabled,
@@ -2968,6 +3073,7 @@ async function processMessage(
     customEmojiCount,
     stickerCount: guildMessage.stickers.size,
     attachmentCount: guildMessage.attachments.size,
+    visibleImageAttachmentCount: visibleImageCount,
     embedCount: guildMessage.embeds.length,
     hasUrl: /https?:\/\//iu.test(guildMessage.content),
     smartCandidateCount

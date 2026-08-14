@@ -282,6 +282,7 @@ export interface DiscordInboundMessage {
   smart_candidate: boolean;
   author_is_bot: boolean;
   stickers: DiscordStickerContent[];
+  burst_media_message_ids?: string[];
   available_characters: string[];
   mentionable_participants: DiscordActionParticipant[];
   recent_messages: DiscordContextMessage[];

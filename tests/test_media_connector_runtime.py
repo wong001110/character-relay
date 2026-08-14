@@ -22,6 +22,7 @@ from echo_masque.tool_runtime import ToolExecutionContext
 class FakeLiveMediaService:
     def __init__(self, result: LiveMediaResult | None = None) -> None:
         self.calls = 0
+        self.payload_message_ids: list[str] = []
         self.result = result or LiveMediaResult(
             status="completed",
             reason="ok",
@@ -37,9 +38,28 @@ class FakeLiveMediaService:
             ),
         )
 
-    async def contexts_for_turn(self, **_: object) -> LiveMediaResult:
+    async def contexts_for_turn(self, **values: object) -> LiveMediaResult:
         self.calls += 1
+        payload = values.get("payload")
+        if isinstance(payload, DiscordInboundMessage):
+            self.payload_message_ids.append(payload.message_id)
         return self.result
+
+
+class FakeConversationMediaService:
+    def __init__(self) -> None:
+        self.remembered_message_ids: list[str] = []
+
+    def resolve_for_turn(self, **_: object) -> tuple[object, ...]:
+        return ()
+
+    def guidance(self, _: object) -> tuple[str, ...]:
+        return ()
+
+    def remember_perceived(self, **values: object) -> None:
+        payload = values.get("payload")
+        if isinstance(payload, DiscordInboundMessage):
+            self.remembered_message_ids.append(payload.message_id)
 
 
 class FakeDeploymentRepository:
@@ -56,9 +76,7 @@ class FakeDeploymentRepository:
         owner_id: str,
         **values: object,
     ) -> object:
-        self.updates.append(
-            {"deployment_id": deployment_id, "owner_id": owner_id, **values}
-        )
+        self.updates.append({"deployment_id": deployment_id, "owner_id": owner_id, **values})
         return object()
 
 
@@ -199,6 +217,7 @@ def prepared_turn(target: object) -> SimpleNamespace:
 def runtime_for(
     service: FakeLiveMediaService,
     deployment_repository: object | None = None,
+    conversation_media_service: object | None = None,
 ) -> MediaAwareDiscordConnectorRuntime:
     registry = MediaToolRegistry()
     runtime = MediaAwareDiscordConnectorRuntime(
@@ -207,6 +226,7 @@ def runtime_for(
         cast(Any, object()),
         tool_registry=registry,
         live_media_service=cast(Any, service),
+        conversation_media_service=cast(Any, conversation_media_service),
     )
     return runtime
 
@@ -319,8 +339,39 @@ def test_transient_provider_failure_returns_silent_control_without_disabling_dep
 
     assert response.text == '[[CR_OUTPUT {"action":"ignore"}]]'
     assert response.trace["provider_failure"] == "provider_timeout"
-    assert deployments.errors == [
-        ("deployment-1", "DeepSeek did not respond before timeout.")
-    ]
+    assert deployments.errors == [("deployment-1", "DeepSeek did not respond before timeout.")]
     assert deployments.updates[-1]["status"] == "active"
     assert str(deployments.updates[-1]["last_error"]).startswith("provider_timeout:")
+
+
+def test_burst_visible_image_uses_original_source_message_for_perception() -> None:
+    service = FakeLiveMediaService(
+        LiveMediaResult(
+            status="completed",
+            reason="ok",
+            contexts=(
+                LiveMediaContext(
+                    source_key="sha256:image-source",
+                    kind="image",
+                    label="photo.png",
+                    summary="A visible image from the immediately preceding Discord message.",
+                ),
+            ),
+        )
+    )
+    memory = FakeConversationMediaService()
+    runtime = runtime_for(service, conversation_media_service=memory)
+    prepared = prepared_turn(prompt_target(SkipMediaProvider()))
+    prepared.resolved.payload = prepared.resolved.payload.model_copy(
+        update={
+            "message_id": "text-message",
+            "text": "这个是不是很像 Ann",
+            "burst_media_message_ids": ["image-message"],
+        }
+    )
+
+    asyncio.run(runtime._ensure_media_context(cast(Any, prepared)))
+
+    assert service.payload_message_ids == ["image-message"]
+    assert memory.remembered_message_ids == ["image-message"]
+    assert "actual_media_perception=perceived" in prepared.prompt

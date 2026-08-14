@@ -31,6 +31,7 @@ export interface TurnCollectionPolicyInput {
   customEmojiCount: number;
   stickerCount: number;
   attachmentCount: number;
+  visibleImageAttachmentCount: number;
   embedCount: number;
   hasUrl: boolean;
   smartCandidateCount: number;
@@ -87,16 +88,21 @@ export function decideTurnCollection(
   if (input.mentionedBot) return { collect: false, reason: "bot_mention" };
   if (input.hasReplyReference) return { collect: false, reason: "reply_reference" };
   if (input.explicitAudience) return { collect: false, reason: "explicit_audience" };
+  const imageOnlyAttachments =
+    input.attachmentCount > 0 &&
+    input.visibleImageAttachmentCount === input.attachmentCount;
   if (
     input.customEmojiCount > 0 ||
     input.stickerCount > 0 ||
-    input.attachmentCount > 0 ||
-    input.embedCount > 0
+    input.embedCount > 0 ||
+    (input.attachmentCount > 0 && !imageOnlyAttachments)
   ) {
     return { collect: false, reason: "rich_content" };
   }
   if (input.hasUrl) return { collect: false, reason: "url_content" };
-  if (!input.hasReadableText) return { collect: false, reason: "empty_text" };
+  if (!input.hasReadableText && !imageOnlyAttachments) {
+    return { collect: false, reason: "empty_text" };
+  }
   if (input.smartCandidateCount <= 0) {
     return { collect: false, reason: "no_smart_candidates" };
   }

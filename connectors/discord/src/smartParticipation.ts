@@ -818,6 +818,37 @@ function evaluateLightweightParticipation(
   return decision("selected_lightweight", [deployment], [candidate], text.length);
 }
 
+export function restoreDurableLightweightSelection(
+  deployments: DiscordDeployment[],
+  deploymentId: string,
+  message: string,
+  now = Date.now(),
+  runtimeScopeKey?: string
+): SmartParticipationDecision {
+  clearPending(deployments);
+  if (!runtimeConfig.enabled) {
+    return decision("disabled", [], [], message.length);
+  }
+  const text = normalizeText(message);
+  if (!text || !isLowInformation(text)) {
+    return decision("low_information_message", [], [], text.length);
+  }
+  const deployment = deployments.find(
+    (item) =>
+      item.participation_mode === "smart" &&
+      item.deployment_id === deploymentId
+  );
+  if (!deployment) {
+    return decision("low_information_message", [], [], text.length);
+  }
+  const candidate = lightweightCandidate(deployment, text);
+  if (!candidate.eligible || candidate.score < candidate.minimumScore) {
+    return decision("low_information_message", [], [candidate], text.length);
+  }
+  queueSelection(deployment, "lightweight", now, runtimeScopeKey);
+  return decision("selected_lightweight", [deployment], [candidate], text.length);
+}
+
 export function buildSmartParticipationBaseEvidence(
   deployments: DiscordDeployment[],
   message: string,
