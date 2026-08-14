@@ -8,10 +8,16 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from echo_masque.config import Settings, get_settings
+from echo_masque.character_context_routing import (
+    CharacterContextRoutingPlan,
+    CharacterContextRoutingService,
+)
+from echo_masque.character_turn_intelligence import CharacterTurnIntelligenceCoordinator
+from echo_masque.config import CharacterTurnIntelligenceMode, Settings, get_settings
 from echo_masque.conversation_topic import ConversationTopicMemoryService
 from echo_masque.knowledge_retrieval import KnowledgeCandidate
 from echo_masque.knowledge_route_gate import KnowledgeRouteDecision, KnowledgeRouteGate
+from echo_masque.persistence import Repository
 from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
 from echo_masque.persistence.deployment_tool_repository import DeploymentToolRepository
 from echo_masque.persistence.knowledge_repository import KnowledgeRepository
@@ -23,8 +29,16 @@ from echo_masque.server_time import (
     current_server_timezone,
     server_local_now,
 )
+from echo_masque.services.runtime import RuntimeService
 from echo_masque.smart_output import SmartOutputContext
-from echo_masque.tool_continuation import ToolContinuationService
+from echo_masque.tool_continuation import (
+    PendingActionContinuationEvidence,
+    ToolContinuationPlan,
+    ToolContinuationService,
+)
+from echo_masque.turn_intelligence import TurnIntelligenceService
+from echo_masque.utility_gateway_live import ExistingProviderUtilityCaller
+from echo_masque.utility_gateway_router import UtilityGatewayRouter
 
 if TYPE_CHECKING:
     from echo_masque.api.connector_schemas import DiscordInboundMessage
@@ -79,6 +93,18 @@ class CharacterContextTraceView(BaseModel):
     topic_message_count: int = Field(default=0, ge=0)
     continuation_tool_ids: list[str] = Field(default_factory=list, max_length=8)
     blocked_side_effect_intents: list[str] = Field(default_factory=list, max_length=8)
+    turn_intelligence_mode: Literal["off", "shadow", "active"] = "off"
+    turn_intelligence_requested_tasks: list[
+        Literal["topic", "speaker", "knowledge", "pending_action"]
+    ] = Field(default_factory=list, max_length=4)
+    turn_intelligence_knowledge_source: str = "not_requested"
+    turn_intelligence_pending_action_source: str = "not_requested"
+    turn_intelligence_knowledge_route: str = ""
+    turn_intelligence_pending_action_continue: bool | None = None
+    turn_intelligence_provider: str = ""
+    turn_intelligence_model: str = ""
+    turn_intelligence_attempts: int = 0
+    turn_intelligence_latency_ms: int = 0
     selected: list[KnowledgeContextTraceItem] = Field(default_factory=list, max_length=8)
 
 
@@ -123,6 +149,12 @@ class CharacterTurnContext:
         return tuple(lines)
 
 
+@dataclass(frozen=True, slots=True)
+class _SemanticPreparation:
+    signals: SemanticTurnSignals | None
+    pending_action: PendingActionContinuationEvidence | None
+
+
 class ContextOrchestrator:
     """Assemble Smart Output, semantic turn state, and scoped RAG under fixed budgets."""
 
@@ -137,11 +169,15 @@ class ContextOrchestrator:
         settings: Settings | None = None,
         topic_memory: ConversationTopicMemoryService | None = None,
         tool_continuation_service: ToolContinuationService | None = None,
+        character_context_routing_service: CharacterContextRoutingService | None = None,
     ) -> None:
         self.knowledge_repository = knowledge_repository
-        self.server_runtime_repository = ServerRuntimeRepository(knowledge_repository.database)
-        self.knowledge_route_gate = knowledge_route_gate or KnowledgeRouteGate(knowledge_repository)
         self.settings = settings or get_settings()
+        self.server_runtime_repository = ServerRuntimeRepository(knowledge_repository.database)
+        self.knowledge_route_gate = knowledge_route_gate or KnowledgeRouteGate(
+            knowledge_repository,
+            settings=self.settings,
+        )
         self.deployment_tool_repository = DeploymentToolRepository(knowledge_repository.database)
         self.topic_memory = topic_memory or ConversationTopicMemoryService(
             ConversationTopicRepository(knowledge_repository.database),
@@ -151,9 +187,31 @@ class ContextOrchestrator:
             self.topic_memory,
             settings=self.settings,
         )
+        self._character_context_routing_override = character_context_routing_service
+        self._character_context_routing_live: CharacterContextRoutingService | None = None
         self.knowledge_top_k = max(1, min(knowledge_top_k, 8))
         self.knowledge_token_budget = max(200, min(knowledge_token_budget, 4000))
         self.conversation_token_budget = max(400, min(conversation_token_budget, 4000))
+
+    def _routing_service(self) -> CharacterContextRoutingService:
+        if self._character_context_routing_override is not None:
+            return self._character_context_routing_override
+        if self._character_context_routing_live is None:
+            database = self.knowledge_repository.database
+            runtime = RuntimeService(Repository(database), self.settings)
+            gateway = UtilityGatewayRouter(
+                runtime,
+                caller=ExistingProviderUtilityCaller(),
+            )
+            coordinator = CharacterTurnIntelligenceCoordinator(
+                TurnIntelligenceService(gateway)
+            )
+            self._character_context_routing_live = CharacterContextRoutingService(
+                self.knowledge_route_gate,
+                self.tool_continuation_service,
+                coordinator,
+            )
+        return self._character_context_routing_live
 
     @staticmethod
     def _expression_text(payload: DiscordInboundMessage) -> str:
@@ -175,8 +233,6 @@ class ContextOrchestrator:
 
     @staticmethod
     def _recent_human_topic_messages(payload: DiscordInboundMessage) -> list[str]:
-        """Return at most two recent messages from the same human author."""
-
         previous = [
             item.text.strip()
             for item in payload.recent_messages
@@ -201,7 +257,6 @@ class ContextOrchestrator:
 
     @staticmethod
     def _estimate_tokens(value: str) -> int:
-        # Provider-neutral approximation. Prompt Budget V1 intentionally avoids tokenizer deps.
         return max(1, (len(value) + 3) // 4)
 
     @staticmethod
@@ -231,8 +286,6 @@ class ContextOrchestrator:
         return item
 
     def _apply_conversation_budget(self, payload: DiscordInboundMessage) -> tuple[int, int]:
-        """Keep newest useful history under budget and make the trigger transcript-only once."""
-
         original = list(payload.recent_messages)
         current = next((item for item in original if item.message_id == payload.message_id), None)
         older = [item for item in original if item.message_id != payload.message_id]
@@ -263,7 +316,6 @@ class ContextOrchestrator:
 
         selected = list(reversed(selected_reversed))
         if current is None:
-            # Local import avoids the connector_schemas -> context_layer import cycle at module load.
             from echo_masque.api.connector_schemas import DiscordContextMessage
 
             current = DiscordContextMessage(
@@ -277,19 +329,47 @@ class ContextOrchestrator:
             )
         else:
             current = current.model_copy(update={"text": "", "emojis": [], "stickers": []})
-        # _social_prompt sees the trigger ID and therefore does not append it to Recent
-        # conversation, while still rendering it once in Latest triggering message.
         payload.recent_messages = [*selected, current]
         return len(selected), used
+
+    @staticmethod
+    def _signals_from_plan(
+        *,
+        deployment: CharacterDeploymentRecord,
+        payload: DiscordInboundMessage,
+        plan: ToolContinuationPlan,
+        pending_tool_id: str = "",
+        pending_source: str = "",
+    ) -> SemanticTurnSignals:
+        continuation_ids = tuple(
+            dict.fromkeys((*plan.continuation_tool_ids, *((pending_tool_id,) if pending_tool_id else ())))
+        )
+        reason = plan.continuity_reason
+        if plan.pending_action_evidence is not None:
+            if pending_tool_id:
+                reason = f"{pending_source or 'turn_intelligence'}_tool_continuation"
+            elif pending_source:
+                reason = f"{pending_source}_tool_not_continued"
+        return SemanticTurnSignals(
+            deployment_id=deployment.id,
+            message_id=payload.message_id,
+            topic_id=plan.topic.id if plan.topic is not None else "",
+            continuation_tool_ids=continuation_ids,
+            detected_side_effect_intents=plan.detected_side_effect_intents,
+            blocked_side_effect_intents=plan.blocked_side_effect_intents,
+            continuity_reason=reason,
+            retry_score=plan.retry_score,
+        )
 
     def _prepare_semantic_turn(
         self,
         *,
         payload: DiscordInboundMessage,
         deployment: CharacterDeploymentRecord,
-    ) -> SemanticTurnSignals | None:
+        defer_utility: bool,
+    ) -> _SemanticPreparation:
         if not self.settings.semantic_embedding_runtime_enabled:
-            return None
+            return _SemanticPreparation(None, None)
         try:
             assigned = self.deployment_tool_repository.get_enabled_tools_for_runtime(deployment.id)
             plan = self.tool_continuation_service.plan_turn(
@@ -298,29 +378,24 @@ class ContextOrchestrator:
                 character_card_id=deployment.character_card_id,
                 deployment_id=deployment.id,
                 assigned_tool_ids=assigned,
+                defer_utility=defer_utility,
             )
-            signals = SemanticTurnSignals(
-                deployment_id=deployment.id,
-                message_id=payload.message_id,
-                topic_id=plan.topic.id if plan.topic is not None else "",
-                continuation_tool_ids=plan.continuation_tool_ids,
-                detected_side_effect_intents=plan.detected_side_effect_intents,
-                blocked_side_effect_intents=plan.blocked_side_effect_intents,
-                continuity_reason=plan.continuity_reason,
-                retry_score=plan.retry_score,
+            signals = self._signals_from_plan(
+                deployment=deployment,
+                payload=payload,
+                plan=plan,
             )
-            SemanticTurnSignalStore.put(signals)
-            return signals
+            if not defer_utility:
+                SemanticTurnSignalStore.put(signals)
+            return _SemanticPreparation(signals, plan.pending_action_evidence)
         except Exception as exc:
-            # Topic/continuation memory is an optimization layer. It must never make a Character
-            # turn unavailable if persistence or semantic inference degrades.
             logger.warning(
                 "Semantic turn preparation skipped deployment=%s message=%s error=%s",
                 deployment.id,
                 payload.message_id,
                 exc,
             )
-            return None
+            return _SemanticPreparation(None, None)
 
     @staticmethod
     def _semantic_trace_values(signals: SemanticTurnSignals | None) -> dict[str, object]:
@@ -341,6 +416,38 @@ class ContextOrchestrator:
             "rag_gate_dense_score": round(decision.best_dense_score, 6),
             "eligible_base_count": decision.eligible_base_count,
         }
+
+    @staticmethod
+    def _turn_intelligence_trace(
+        mode: CharacterTurnIntelligenceMode,
+        plan: CharacterContextRoutingPlan | None,
+    ) -> dict[str, object]:
+        values: dict[str, object] = {"turn_intelligence_mode": mode}
+        if plan is None:
+            return values
+        outcome = plan.unified_outcome
+        values.update(
+            {
+                "turn_intelligence_requested_tasks": list(plan.requested_tasks),
+                "turn_intelligence_knowledge_source": plan.knowledge_source,
+                "turn_intelligence_pending_action_source": plan.pending_action_source,
+                "turn_intelligence_knowledge_route": outcome.knowledge_route or "",
+                "turn_intelligence_pending_action_continue": (
+                    outcome.pending_action_continue
+                ),
+            }
+        )
+        if outcome.result is not None and outcome.result.inference is not None:
+            inference = outcome.result.inference
+            values.update(
+                {
+                    "turn_intelligence_provider": inference.route.provider,
+                    "turn_intelligence_model": inference.route.model,
+                    "turn_intelligence_attempts": inference.attempts,
+                    "turn_intelligence_latency_ms": inference.latency_ms,
+                }
+            )
+        return values
 
     def _trace(
         self,
@@ -373,6 +480,40 @@ class ContextOrchestrator:
             query=query,
         )
 
+    def _finalize_deferred_signals(
+        self,
+        *,
+        preparation: _SemanticPreparation,
+        deployment: CharacterDeploymentRecord,
+        payload: DiscordInboundMessage,
+        pending_tool_id: str,
+        pending_source: str,
+    ) -> SemanticTurnSignals | None:
+        signals = preparation.signals
+        if signals is None:
+            return None
+        continuation_ids = tuple(
+            dict.fromkeys((*signals.continuation_tool_ids, *((pending_tool_id,) if pending_tool_id else ())))
+        )
+        reason = signals.continuity_reason
+        if preparation.pending_action is not None:
+            if pending_tool_id:
+                reason = f"{pending_source or 'turn_intelligence'}_tool_continuation"
+            elif pending_source:
+                reason = f"{pending_source}_tool_not_continued"
+        final = SemanticTurnSignals(
+            deployment_id=deployment.id,
+            message_id=payload.message_id,
+            topic_id=signals.topic_id,
+            continuation_tool_ids=continuation_ids,
+            detected_side_effect_intents=signals.detected_side_effect_intents,
+            blocked_side_effect_intents=signals.blocked_side_effect_intents,
+            continuity_reason=reason,
+            retry_score=signals.retry_score,
+        )
+        SemanticTurnSignalStore.put(final)
+        return final
+
     def build(
         self,
         *,
@@ -380,11 +521,13 @@ class ContextOrchestrator:
         deployment: CharacterDeploymentRecord,
         character_name: str,
     ) -> CharacterTurnContext:
-        semantic_signals = self._prepare_semantic_turn(
+        mode = self.settings.turn_intelligence_character_context_mode
+        preparation = self._prepare_semantic_turn(
             payload=payload,
             deployment=deployment,
+            defer_utility=mode != "off",
         )
-        semantic_trace = self._semantic_trace_values(semantic_signals)
+        semantic_signals = preparation.signals
         conversation_message_count, conversation_chars = self._apply_conversation_budget(payload)
         timezone = self.server_runtime_repository.resolve_timezone(
             owner_id=deployment.owner_id,
@@ -397,7 +540,17 @@ class ContextOrchestrator:
             character_name=character_name,
         )
         current_query = self._current_retrieval_query(payload)
+        turn_plan: CharacterContextRoutingPlan | None = None
+        turn_trace = self._turn_intelligence_trace(mode, None)
         if not current_query:
+            if mode != "off":
+                semantic_signals = self._finalize_deferred_signals(
+                    preparation=preparation,
+                    deployment=deployment,
+                    payload=payload,
+                    pending_tool_id="",
+                    pending_source="not_requested",
+                )
             return CharacterTurnContext(
                 smart_output=smart_output,
                 knowledge=(),
@@ -407,7 +560,8 @@ class ContextOrchestrator:
                     rag_status="skipped",
                     rag_reason="empty_query",
                     knowledge_token_budget=self.knowledge_token_budget,
-                    **semantic_trace,
+                    **self._semantic_trace_values(semantic_signals),
+                    **turn_trace,
                 ),
             )
 
@@ -415,45 +569,68 @@ class ContextOrchestrator:
         carryover_message_count = 0
         final_query = current_query
         initial_hit_count = 0
+        contextual_query, contextual_count = self._contextual_retrieval_query(
+            payload,
+            current_query,
+        )
+        bounded_contextual_query = (
+            contextual_query
+            if contextual_count and contextual_query != current_query
+            else ""
+        )
 
         try:
-            gate = self._route_decision(
-                payload=payload,
-                deployment=deployment,
-                query=current_query,
-            )
-            if gate.status == "no_eligible_bases":
-                return CharacterTurnContext(
-                    smart_output=smart_output,
-                    knowledge=(),
-                    trace=self._trace(
-                        conversation_message_count=conversation_message_count,
-                        conversation_chars=conversation_chars,
-                        rag_status="skipped",
-                        rag_reason="no_matching_knowledge_base",
-                        query_chars=len(current_query),
-                        knowledge_token_budget=self.knowledge_token_budget,
-                        **semantic_trace,
-                        **self._gate_trace_values(gate),
-                    ),
+            if mode == "off":
+                gate = self._route_decision(
+                    payload=payload,
+                    deployment=deployment,
+                    query=current_query,
                 )
-
-            if not gate.should_retrieve:
-                contextual_query, contextual_count = self._contextual_retrieval_query(
-                    payload,
-                    current_query,
-                )
-                if contextual_count and contextual_query != current_query:
-                    contextual_gate = self._route_decision(
-                        payload=payload,
-                        deployment=deployment,
-                        query=contextual_query,
+                if gate.status == "no_eligible_bases":
+                    return CharacterTurnContext(
+                        smart_output=smart_output,
+                        knowledge=(),
+                        trace=self._trace(
+                            conversation_message_count=conversation_message_count,
+                            conversation_chars=conversation_chars,
+                            rag_status="skipped",
+                            rag_reason="no_matching_knowledge_base",
+                            query_chars=len(current_query),
+                            knowledge_token_budget=self.knowledge_token_budget,
+                            **self._semantic_trace_values(semantic_signals),
+                            **self._gate_trace_values(gate),
+                            **turn_trace,
+                        ),
                     )
-                    if contextual_gate.should_retrieve:
-                        gate = contextual_gate
-                        retrieval_mode = "contextual_fallback"
-                        carryover_message_count = contextual_count
-                        final_query = contextual_query
+                if not gate.should_retrieve:
+                    if bounded_contextual_query:
+                        contextual_gate = self._route_decision(
+                            payload=payload,
+                            deployment=deployment,
+                            query=bounded_contextual_query,
+                        )
+                        if contextual_gate.should_retrieve:
+                            gate = contextual_gate
+                            retrieval_mode = "contextual_fallback"
+                            carryover_message_count = contextual_count
+                            final_query = bounded_contextual_query
+                        else:
+                            return CharacterTurnContext(
+                                smart_output=smart_output,
+                                knowledge=(),
+                                trace=self._trace(
+                                    conversation_message_count=conversation_message_count,
+                                    conversation_chars=conversation_chars,
+                                    rag_status="skipped",
+                                    rag_reason="knowledge_gate_not_relevant",
+                                    carryover_message_count=contextual_count,
+                                    query_chars=len(bounded_contextual_query),
+                                    knowledge_token_budget=self.knowledge_token_budget,
+                                    **self._semantic_trace_values(semantic_signals),
+                                    **self._gate_trace_values(contextual_gate),
+                                    **turn_trace,
+                                ),
+                            )
                     else:
                         return CharacterTurnContext(
                             smart_output=smart_output,
@@ -463,15 +640,110 @@ class ContextOrchestrator:
                                 conversation_chars=conversation_chars,
                                 rag_status="skipped",
                                 rag_reason="knowledge_gate_not_relevant",
-                                retrieval_mode="current",
-                                carryover_message_count=contextual_count,
-                                query_chars=len(contextual_query),
+                                query_chars=len(current_query),
                                 knowledge_token_budget=self.knowledge_token_budget,
-                                **semantic_trace,
-                                **self._gate_trace_values(contextual_gate),
+                                **self._semantic_trace_values(semantic_signals),
+                                **self._gate_trace_values(gate),
+                                **turn_trace,
                             ),
                         )
+            else:
+                try:
+                    turn_plan = self._routing_service().resolve(
+                        mode=mode,
+                        owner_id=deployment.owner_id,
+                        connection_id=payload.connection_id,
+                        guild_id=payload.guild_id,
+                        channel_id=payload.channel_id,
+                        thread_id=payload.thread_id,
+                        character_card_id=deployment.character_card_id,
+                        current_query=current_query,
+                        contextual_query=bounded_contextual_query,
+                        pending_action=preparation.pending_action,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Turn Intelligence context routing degraded deployment=%s message=%s error=%s",
+                        deployment.id,
+                        payload.message_id,
+                        exc,
+                    )
+                    gate = self._route_decision(
+                        payload=payload,
+                        deployment=deployment,
+                        query=current_query,
+                    )
+                    if not gate.should_retrieve and bounded_contextual_query:
+                        fallback = self._route_decision(
+                            payload=payload,
+                            deployment=deployment,
+                            query=bounded_contextual_query,
+                        )
+                        if fallback.should_retrieve:
+                            gate = fallback
+                            retrieval_mode = "contextual_fallback"
+                            carryover_message_count = contextual_count
+                            final_query = bounded_contextual_query
+                    pending_tool_id = (
+                        self.tool_continuation_service.resolve_pending_action_evidence(
+                            preparation.pending_action
+                        )
+                        if preparation.pending_action is not None
+                        else ""
+                    )
+                    semantic_signals = self._finalize_deferred_signals(
+                        preparation=preparation,
+                        deployment=deployment,
+                        payload=payload,
+                        pending_tool_id=pending_tool_id,
+                        pending_source="legacy_fallback",
+                    )
+                    turn_trace = {
+                        "turn_intelligence_mode": mode,
+                        "turn_intelligence_knowledge_source": "legacy_fallback",
+                        "turn_intelligence_pending_action_source": (
+                            "legacy_fallback"
+                            if preparation.pending_action is not None
+                            else "not_requested"
+                        ),
+                    }
                 else:
+                    gate = turn_plan.gate
+                    final_query = turn_plan.final_query
+                    retrieval_mode = (
+                        "contextual_fallback"
+                        if turn_plan.retrieval_mode == "contextual"
+                        else "current"
+                    )
+                    carryover_message_count = (
+                        contextual_count if retrieval_mode == "contextual_fallback" else 0
+                    )
+                    semantic_signals = self._finalize_deferred_signals(
+                        preparation=preparation,
+                        deployment=deployment,
+                        payload=payload,
+                        pending_tool_id=turn_plan.pending_tool_id,
+                        pending_source=turn_plan.pending_action_source,
+                    )
+                    turn_trace = self._turn_intelligence_trace(mode, turn_plan)
+
+                if gate.status == "no_eligible_bases":
+                    return CharacterTurnContext(
+                        smart_output=smart_output,
+                        knowledge=(),
+                        trace=self._trace(
+                            conversation_message_count=conversation_message_count,
+                            conversation_chars=conversation_chars,
+                            rag_status="skipped",
+                            rag_reason="no_matching_knowledge_base",
+                            query_chars=len(final_query),
+                            knowledge_token_budget=self.knowledge_token_budget,
+                            **self._semantic_trace_values(semantic_signals),
+                            **self._gate_trace_values(gate),
+                            **turn_trace,
+                        ),
+                    )
+                if not gate.should_retrieve:
                     return CharacterTurnContext(
                         smart_output=smart_output,
                         knowledge=(),
@@ -480,10 +752,13 @@ class ContextOrchestrator:
                             conversation_chars=conversation_chars,
                             rag_status="skipped",
                             rag_reason="knowledge_gate_not_relevant",
-                            query_chars=len(current_query),
+                            retrieval_mode=retrieval_mode,
+                            carryover_message_count=carryover_message_count,
+                            query_chars=len(final_query),
                             knowledge_token_budget=self.knowledge_token_budget,
-                            **semantic_trace,
+                            **self._semantic_trace_values(semantic_signals),
                             **self._gate_trace_values(gate),
+                            **turn_trace,
                         ),
                     )
 
@@ -504,33 +779,42 @@ class ContextOrchestrator:
                 retrieval_mode == "current"
                 and result.eligible_base_count > 0
                 and not result.candidates
+                and bounded_contextual_query
             ):
-                contextual_query, contextual_count = self._contextual_retrieval_query(
-                    payload,
-                    current_query,
-                )
-                if contextual_count and contextual_query != current_query:
-                    contextual_gate = self._route_decision(
+                if mode == "off":
+                    no_hit_gate = self._route_decision(
                         payload=payload,
                         deployment=deployment,
-                        query=contextual_query,
+                        query=bounded_contextual_query,
                     )
-                    if contextual_gate.should_retrieve:
-                        gate = contextual_gate
-                        retrieval_mode = "contextual_fallback"
-                        carryover_message_count = contextual_count
-                        final_query = contextual_query
-                        result = self.knowledge_repository.retrieve_for_turn(
-                            owner_id=deployment.owner_id,
-                            connection_id=payload.connection_id,
-                            guild_id=payload.guild_id,
-                            channel_id=payload.channel_id,
-                            thread_id=payload.thread_id,
-                            character_card_id=deployment.character_card_id,
-                            query=contextual_query,
-                            top_k=self.knowledge_top_k,
-                        )
-        except Exception:
+                else:
+                    no_hit_gate = (
+                        turn_plan.contextual_no_hit_gate
+                        if turn_plan is not None
+                        else None
+                    )
+                if no_hit_gate is not None and no_hit_gate.should_retrieve:
+                    gate = no_hit_gate
+                    retrieval_mode = "contextual_fallback"
+                    carryover_message_count = contextual_count
+                    final_query = bounded_contextual_query
+                    result = self.knowledge_repository.retrieve_for_turn(
+                        owner_id=deployment.owner_id,
+                        connection_id=payload.connection_id,
+                        guild_id=payload.guild_id,
+                        channel_id=payload.channel_id,
+                        thread_id=payload.thread_id,
+                        character_card_id=deployment.character_card_id,
+                        query=bounded_contextual_query,
+                        top_k=self.knowledge_top_k,
+                    )
+        except Exception as exc:
+            logger.warning(
+                "Character context retrieval failed deployment=%s message=%s error=%s",
+                deployment.id,
+                payload.message_id,
+                exc,
+            )
             return CharacterTurnContext(
                 smart_output=smart_output,
                 knowledge=(),
@@ -543,14 +827,14 @@ class ContextOrchestrator:
                     carryover_message_count=carryover_message_count,
                     query_chars=len(final_query),
                     knowledge_token_budget=self.knowledge_token_budget,
-                    **semantic_trace,
+                    **self._semantic_trace_values(semantic_signals),
+                    **turn_trace,
                 ),
             )
 
         fallback_hit_count = (
             len(result.candidates) if retrieval_mode == "contextual_fallback" else 0
         )
-
         if result.eligible_base_count == 0:
             return CharacterTurnContext(
                 smart_output=smart_output,
@@ -566,8 +850,9 @@ class ContextOrchestrator:
                     fallback_hit_count=fallback_hit_count,
                     query_chars=len(final_query),
                     knowledge_token_budget=self.knowledge_token_budget,
-                    **semantic_trace,
+                    **self._semantic_trace_values(semantic_signals),
                     **self._gate_trace_values(gate),
+                    **turn_trace,
                 ),
             )
 
@@ -600,11 +885,9 @@ class ContextOrchestrator:
                 selected_chunk_count=len(selected),
                 selected_knowledge_tokens=selected_tokens,
                 knowledge_token_budget=self.knowledge_token_budget,
-                rag_gate_status=gate.status,
-                rag_gate_score=round(gate.best_score, 6),
-                rag_gate_sparse_score=round(gate.best_sparse_score, 6),
-                rag_gate_dense_score=round(gate.best_dense_score, 6),
-                **semantic_trace,
+                **self._gate_trace_values(gate),
+                **self._semantic_trace_values(semantic_signals),
+                **turn_trace,
                 selected=[
                     KnowledgeContextTraceItem(
                         knowledge_base_id=item.resource.knowledge_base_id,
