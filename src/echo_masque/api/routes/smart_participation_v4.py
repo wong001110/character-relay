@@ -186,27 +186,27 @@ def resolve_smart_participation_v4(
         except SemanticEmbeddingUnavailable:
             reason = "embedding_unavailable"
 
-    shadow_result = resolve_participation_shadow(
-        [
+    shadow_candidates: list[ParticipationShadowCandidate] = []
+    for requested in payload.candidates:
+        record = record_by_id.get(requested.deployment_id)
+        semantic = score_by_id.get(requested.deployment_id)
+        shadow_candidates.append(
             ParticipationShadowCandidate(
                 deployment_id=requested.deployment_id,
                 eligible=bool(
                     requested.eligible
-                    and (record := record_by_id.get(requested.deployment_id)) is not None
+                    and record is not None
                     and record.participation_mode == "smart"
                 ),
                 deterministic_score=requested.deterministic_score,
                 minimum_score=requested.minimum_score,
                 signals=dict(requested.signals),
-                raw_e5_relevance=(
-                    semantic.relevance
-                    if (semantic := score_by_id.get(requested.deployment_id)) is not None
-                    else 0.0
-                ),
+                raw_e5_relevance=semantic.relevance if semantic is not None else 0.0,
                 profile_ready=semantic.profile_ready if semantic is not None else False,
             )
-            for requested in payload.candidates
-        ],
+        )
+    shadow_result = resolve_participation_shadow(
+        shadow_candidates,
         minimum_margin=payload.minimum_margin,
         max_participants=payload.max_participants,
     )
