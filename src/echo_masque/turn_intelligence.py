@@ -23,7 +23,8 @@ from echo_masque.utility_gateway_router import UtilityGatewayRouter
 from echo_masque.utility_structured_output import exact_json_contract
 
 TurnIntelligenceTask = Literal["topic", "speaker", "knowledge", "pending_action"]
-_SCHEMA_VERSION = "turn-intelligence-v1"
+TurnIntelligenceSchemaVersion = Literal["turn-intelligence-v1"]
+_SCHEMA_VERSION: TurnIntelligenceSchemaVersion = "turn-intelligence-v1"
 _ALL_TASKS: tuple[TurnIntelligenceTask, ...] = (
     "topic",
     "speaker",
@@ -70,7 +71,7 @@ class TurnIntelligenceEnvelope(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["turn-intelligence-v1"]
+    schema_version: TurnIntelligenceSchemaVersion
     requested_tasks: tuple[TurnIntelligenceTask, ...]
     topic: dict[str, object] | None
     speaker: dict[str, object] | None
@@ -127,8 +128,8 @@ class TurnIntelligenceService:
         try:
             return schema.model_validate(raw), "accepted"
         except ValidationError as exc:
-            first = exc.errors()[0] if exc.errors() else {}
-            error_type = str(first.get("type", "schema_error"))[:80]
+            errors = exc.errors()
+            error_type = str(errors[0]["type"])[:80] if errors else "schema_error"
             return None, f"schema_error:{error_type}"
 
     @staticmethod
@@ -441,6 +442,7 @@ __all__ = [
     "TurnIntelligenceEnvelope",
     "TurnIntelligenceFieldStatus",
     "TurnIntelligenceResult",
+    "TurnIntelligenceSchemaVersion",
     "TurnIntelligenceService",
     "TurnIntelligenceTask",
     "TurnKnowledgeDecision",
