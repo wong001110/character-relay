@@ -1,17 +1,18 @@
-"""Lightweight Knowledge RAG route gate using the shared semantic embedding runtime."""
+"""Cheap semantic relevance gate before full Knowledge chunk retrieval."""
 
 from __future__ import annotations
 
-import hashlib
-import re
-from collections.abc import Callable
 from dataclasses import dataclass
-from threading import Lock
 from typing import Literal
 
+from sqlalchemy import select
+
 from echo_masque.config import Settings, get_settings
-from echo_masque.persistence.knowledge_models import KnowledgeBaseRecord
+from echo_masque.knowledge_retrieval import KnowledgeResource, score_sparse_knowledge_resources
+from echo_masque.persistence import Repository
+from echo_masque.persistence.knowledge_models import KnowledgeBaseRecord, KnowledgeChunkRecord
 from echo_masque.persistence.knowledge_repository import KnowledgeRepository
+from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
 from echo_masque.semantic_participation import (
     FastEmbedSemanticEncoder,
     SemanticEmbeddingUnavailable,
@@ -19,6 +20,15 @@ from echo_masque.semantic_participation import (
     _cosine,
 )
 from echo_masque.semantic_routing_judge import RagJudgeDecision, SemanticRoutingJudgeService
+
+_ROUTE_VECTOR_NAMESPACE = "knowledge-base-route"
+_ROUTE_SPARSE_STRONG = 0.08
+_ROUTE_SPARSE_SUPPORT = 0.025
+_ROUTE_DENSE_MINIMUM = 0.50
+_ROUTE_DENSE_WITH_SPARSE_MINIMUM = 0.44
+_ROUTE_SAMPLE_SCAN_LIMIT = 40
+_ROUTE_SAMPLE_DOCUMENTS = 8
+_ROUTE_TEXT_LIMIT = 10_000
 
 KnowledgeRouteStatus = Literal[
     "no_eligible_bases",
@@ -28,48 +38,6 @@ KnowledgeRouteStatus = Literal[
     "unavailable",
 ]
 KnowledgeAssessmentRoute = Literal["on", "off", "gray"]
-
-_ROUTE_SPARSE_STRONG = 0.18
-_ROUTE_SPARSE_SUPPORT = 0.08
-_ROUTE_DENSE_MINIMUM = 0.52
-_ROUTE_DENSE_WITH_SPARSE_MINIMUM = 0.44
-_ROUTE_STOP_WORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "as",
-    "at",
-    "be",
-    "but",
-    "by",
-    "for",
-    "from",
-    "how",
-    "i",
-    "if",
-    "in",
-    "is",
-    "it",
-    "of",
-    "on",
-    "or",
-    "that",
-    "the",
-    "this",
-    "to",
-    "was",
-    "what",
-    "when",
-    "where",
-    "which",
-    "who",
-    "why",
-    "will",
-    "with",
-    "you",
-    "your",
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,130 +69,56 @@ class KnowledgeRouteDecision:
     best_sparse_score: float = 0.0
     best_dense_score: float = 0.0
     matched_knowledge_base_id: str = ""
-    judge_used: bool = False
-    judge_route: str = ""
-    judge_confidence: float = 0.0
-    judge_provider_id: str = ""
     judge_model: str = ""
-    judge_fallback_used: bool = False
-    judge_escalated: bool = False
-    judge_reason_code: str = ""
+    judge_tier: str = ""
+    judge_confidence: float = 0.0
+    judge_reason: str = ""
+    judge_attempts: int = 0
+    judge_latency_ms: int = 0
+
+    @property
+    def best_score(self) -> float:
+        return max(self.best_sparse_score, self.best_dense_score)
 
 
 class KnowledgeRouteGate:
-    """Decide whether one scoped character turn should enter Knowledge retrieval."""
+    """Preserve legacy routing while exposing V4 evidence-only assessment."""
 
     def __init__(
         self,
-        repository: KnowledgeRepository,
+        knowledge_repository: KnowledgeRepository,
         *,
         settings: Settings | None = None,
         encoder: SemanticEncoder | None = None,
-        encoder_factory: Callable[[], SemanticEncoder] | None = None,
+        semantic_enabled: bool | None = None,
     ) -> None:
-        self.repository = repository
+        self.knowledge_repository = knowledge_repository
+        self.database = knowledge_repository.database
         self.settings = settings or get_settings()
         self._encoder = encoder
-        self._encoder_factory = encoder_factory
-        self._encoder_lock = Lock()
-        self._semantic_enabled = self.settings.knowledge_semantic_retrieval_enabled
-        self._routing_judge = SemanticRoutingJudgeService(
-            repository.database,
-            settings=self.settings,
-        )
-        self._route_vector_cache: dict[tuple[str, int, str], list[float]] = {}
-
-    @staticmethod
-    def _tokenize(value: str) -> set[str]:
-        return {
-            token
-            for token in re.findall(r"[\w\u3400-\u9fff]+", value.casefold(), flags=re.UNICODE)
-            if token and token not in _ROUTE_STOP_WORDS
-        }
-
-    @classmethod
-    def _sparse_score(
-        cls,
-        base: KnowledgeBaseRecord,
-        route_text: str,
-        query: str,
-    ) -> float:
-        query_tokens = cls._tokenize(query)
-        if not query_tokens:
-            return 0.0
-        route_tokens = cls._tokenize(route_text)
-        overlap = len(query_tokens & route_tokens) / max(1, len(query_tokens))
-        query_folded = query.casefold()
-        phrases = [base.name, base.description]
-        phrase_bonus = 0.0
-        for phrase in phrases:
-            compact = " ".join(phrase.split()).casefold()
-            if compact and len(compact) >= 3 and compact in query_folded:
-                phrase_bonus += 0.35
-        return min(1.0, overlap + min(0.7, phrase_bonus))
-
-    @staticmethod
-    def _route_text(base: KnowledgeBaseRecord) -> str:
-        description = " ".join(base.description.split())[:1200]
-        return "\n".join(
-            part
-            for part in (
-                f"Knowledge Base: {base.name}",
-                f"Description: {description}" if description else "",
+        self._semantic_enabled = (
+            semantic_enabled
+            if semantic_enabled is not None
+            else (
+                self.settings.semantic_embedding_runtime_enabled
+                and self.settings.knowledge_semantic_retrieval_enabled
             )
-            if part
+        )
+        self._vectors = SemanticVectorRepository(self.database)
+        self._routing_judge = SemanticRoutingJudgeService(
+            Repository(self.database),
+            self.settings,
         )
 
     def _get_encoder(self) -> SemanticEncoder:
-        if self._encoder is not None:
-            return self._encoder
-        with self._encoder_lock:
-            if self._encoder is not None:
-                return self._encoder
-            if self._encoder_factory is not None:
-                self._encoder = self._encoder_factory()
-            else:
-                self._encoder = FastEmbedSemanticEncoder(
-                    model_name=self.settings.semantic_embedding_model,
-                    model_file=self.settings.semantic_embedding_model_file,
-                    cache_dir=self.settings.semantic_embedding_cache_dir,
-                    dimension=self.settings.semantic_embedding_dimension,
-                )
-            return self._encoder
-
-    def _route_vector(
-        self,
-        *,
-        base: KnowledgeBaseRecord,
-        route_text: str,
-        encoder: SemanticEncoder,
-    ) -> list[float]:
-        source_hash = hashlib.sha256(route_text.encode("utf-8")).hexdigest()
-        key = (encoder.model_name, encoder.dimension, source_hash)
-        cached = self._route_vector_cache.get(key)
-        if cached is not None:
-            return cached
-        vector = encoder.embed_passage(route_text)
-        self._route_vector_cache[key] = vector
-        if len(self._route_vector_cache) > 512:
-            first_key = next(iter(self._route_vector_cache))
-            self._route_vector_cache.pop(first_key, None)
-        return vector
-
-    @staticmethod
-    def _judge_values(judge: RagJudgeDecision | None) -> dict[str, object]:
-        if judge is None:
-            return {}
-        return {
-            "judge_used": True,
-            "judge_route": judge.route,
-            "judge_confidence": judge.confidence,
-            "judge_provider_id": judge.provider_id,
-            "judge_model": judge.model,
-            "judge_fallback_used": judge.fallback_used,
-            "judge_escalated": judge.escalated,
-            "judge_reason_code": judge.reason_code,
-        }
+        if self._encoder is None:
+            self._encoder = FastEmbedSemanticEncoder(
+                model_name=self.settings.semantic_embedding_model,
+                model_file=self.settings.semantic_embedding_model_file,
+                cache_dir=self.settings.semantic_embedding_cache_dir,
+                dimension=self.settings.semantic_embedding_dimension,
+            )
+        return self._encoder
 
     def _eligible_bases(
         self,
@@ -236,15 +130,111 @@ class KnowledgeRouteGate:
         thread_id: str,
         character_card_id: str,
     ) -> list[KnowledgeBaseRecord]:
-        bases = self.repository.list_eligible_bases(
-            owner_id=owner_id,
-            connection_id=connection_id,
-            guild_id=guild_id,
-            channel_id=channel_id,
-            thread_id=thread_id,
-            character_card_id=character_card_id,
+        return [
+            item
+            for item in self.knowledge_repository.list_bases(owner_id)
+            if self.knowledge_repository._base_matches_turn(
+                item,
+                connection_id=connection_id,
+                guild_id=guild_id,
+                channel_id=channel_id,
+                thread_id=thread_id,
+                character_card_id=character_card_id,
+            )
+        ]
+
+    def _route_text(self, base: KnowledgeBaseRecord) -> str:
+        with self.database.session() as session:
+            records = list(
+                session.scalars(
+                    select(KnowledgeChunkRecord)
+                    .where(
+                        KnowledgeChunkRecord.owner_id == base.owner_id,
+                        KnowledgeChunkRecord.knowledge_base_id == base.id,
+                    )
+                    .order_by(
+                        KnowledgeChunkRecord.document_id,
+                        KnowledgeChunkRecord.chunk_index,
+                    )
+                    .limit(_ROUTE_SAMPLE_SCAN_LIMIT)
+                )
+            )
+        samples: list[KnowledgeChunkRecord] = []
+        seen_documents: set[str] = set()
+        for record in records:
+            if record.document_id in seen_documents:
+                continue
+            samples.append(record)
+            seen_documents.add(record.document_id)
+            if len(samples) >= _ROUTE_SAMPLE_DOCUMENTS:
+                break
+        lines = [f"Knowledge Base: {base.name}"]
+        if base.description.strip():
+            lines.append(f"Description: {base.description.strip()}")
+        for record in samples:
+            lines.append(f"Document: {record.document_title}")
+            lines.append(record.content)
+        return "\n".join(lines)[:_ROUTE_TEXT_LIMIT]
+
+    @staticmethod
+    def _sparse_score(base: KnowledgeBaseRecord, route_text: str, query: str) -> float:
+        resource = KnowledgeResource(
+            chunk_id=f"route:{base.id}",
+            knowledge_base_id=base.id,
+            document_id="route",
+            document_title=base.name,
+            chunk_index=0,
+            content=route_text,
         )
-        return [item for item in bases if item.enabled]
+        scored = score_sparse_knowledge_resources([resource], query=query)
+        return scored[0].score if scored else 0.0
+
+    def _route_vector(
+        self,
+        *,
+        base: KnowledgeBaseRecord,
+        route_text: str,
+        encoder: SemanticEncoder,
+    ) -> list[float]:
+        source_hash = self._vectors.source_hash(
+            route_text,
+            encoder.model_name,
+            encoder.dimension,
+        )
+        cached = self._vectors.get(
+            owner_id=base.owner_id,
+            namespace=_ROUTE_VECTOR_NAMESPACE,
+            resource_id=base.id,
+            model_name=encoder.model_name,
+            dimension=encoder.dimension,
+            source_hash=source_hash,
+        )
+        if cached is not None:
+            return cached
+        vector = encoder.embed_passage(route_text)
+        self._vectors.upsert(
+            owner_id=base.owner_id,
+            namespace=_ROUTE_VECTOR_NAMESPACE,
+            resource_id=base.id,
+            semantic_text=route_text,
+            model_name=encoder.model_name,
+            dimension=encoder.dimension,
+            vector=vector,
+        )
+        return vector
+
+    @staticmethod
+    def _judge_values(decision: RagJudgeDecision | None) -> dict[str, object]:
+        if decision is None:
+            return {}
+        return {
+            "judge_model": decision.model,
+            "judge_tier": decision.tier,
+            "judge_confidence": round(decision.confidence, 6),
+            "judge_reason": decision.reason[:240],
+            "judge_attempts": decision.attempts,
+            "judge_latency_ms": decision.latency_ms,
+        }
 
     def assess(
         self,
@@ -257,7 +247,7 @@ class KnowledgeRouteGate:
         character_card_id: str,
         query: str,
     ) -> KnowledgeRouteAssessment:
-        """Return route evidence without invoking any model Judge."""
+        """Return legacy-equivalent route evidence without invoking an LLM Judge."""
 
         raw_lines = [item.strip() for item in query.splitlines() if item.strip()]
         current_message = raw_lines[-1] if raw_lines else " ".join(query.split())
@@ -420,13 +410,9 @@ class KnowledgeRouteGate:
         should_retrieve: bool | None = None,
         judge: RagJudgeDecision | None = None,
     ) -> KnowledgeRouteDecision:
-        """Convert precomputed evidence into a trace-compatible route decision."""
+        """Convert precomputed V4 evidence into the legacy trace-compatible decision."""
 
-        retrieve = (
-            assessment.route == "on"
-            if should_retrieve is None
-            else bool(should_retrieve)
-        )
+        retrieve = assessment.route == "on" if should_retrieve is None else should_retrieve
         status: KnowledgeRouteStatus
         if assessment.status in {"disabled", "no_eligible_bases", "unavailable"}:
             status = assessment.status
