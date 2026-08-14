@@ -7,6 +7,7 @@ import {
   type SemanticRoutingAdminView,
   type SemanticRoutingJudgeConfig
 } from "./SemanticRoutingJudgePanel";
+import { UtilityCredentialSaveProvider } from "./UtilityCredentialSaveContext";
 import {
   UtilityGatewayPanel,
   type UtilityCredentialStatus,
@@ -73,6 +74,13 @@ export function SemanticRoutingJudgeDock() {
     setCredentialStatus(await loadUtilityCredentials());
   }
 
+  async function persistUtilityConfigForCredential() {
+    if (!view) throw new Error("System Intelligence configuration is not loaded.");
+    setMessage("");
+    const next = await api.updateAdminRuntime(view.config as AdminRuntimeConfig);
+    setView(next as AdminRuntimeView as UtilityAdminView);
+  }
+
   async function save() {
     if (!view) return;
     try {
@@ -104,13 +112,15 @@ export function SemanticRoutingJudgeDock() {
             <div><span>SUPER ADMIN / SYSTEM RUNTIME</span><h2>System Intelligence</h2></div>
             <button type="button" className="close-button" onClick={() => setOpen(false)} aria-label="Close">×</button>
           </header>
-          <UtilityGatewayPanel
-            config={view.config.utility_gateway}
-            credentialStatus={credentialStatus}
-            zh={zh}
-            onChange={updateUtility}
-            onRefreshCredentials={refreshCredentials}
-          />
+          <UtilityCredentialSaveProvider beforeSave={persistUtilityConfigForCredential}>
+            <UtilityGatewayPanel
+              config={view.config.utility_gateway}
+              credentialStatus={credentialStatus}
+              zh={zh}
+              onChange={updateUtility}
+              onRefreshCredentials={refreshCredentials}
+            />
+          </UtilityCredentialSaveProvider>
           <SemanticRoutingJudgePanel view={view} zh={zh} onChange={updateSemantic} />
           {message && <p className={message.includes("保存") || message.includes("saved") ? "success-note" : "error-note"}>{message}</p>}
           <footer className="semantic-routing-drawer-actions">
