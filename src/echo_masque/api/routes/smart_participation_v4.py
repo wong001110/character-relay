@@ -104,7 +104,7 @@ def _observe_graph_shadow(
     try:
         graph = ConversationGraphRepository(deployments.database)
         return ConversationGraphShadowService(graph).observe(payload)
-    except Exception as exc:  # noqa: BLE001 - shadow state must fail open
+    except Exception as exc:
         logger.warning(
             "Conversation Graph shadow observation skipped connection=%s guild=%s channel=%s "
             "thread=%s error=%s",
