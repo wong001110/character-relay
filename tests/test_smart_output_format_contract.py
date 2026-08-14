@@ -57,6 +57,7 @@ def test_format_retry_is_compact_and_explicitly_forbids_rewriting_answer() -> No
 
     assert "FULL CHARACTER PROMPT" not in repaired
     assert "Formatting repair only" in repaired
-    assert "Do not add new reasoning, facts, or a new answer" in repaired
+    assert "do not add reasoning, facts, or a new answer" in repaired
     assert '{"emoji":"eN"}' in repaired
     assert "Never place an Emoji or Mention JSON object inside a text string" in repaired
+    assert len(repaired) < 500
