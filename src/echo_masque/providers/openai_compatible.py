@@ -82,12 +82,16 @@ class OpenAICompatibleProvider:
         messages: tuple[ChatMessage, ...],
         model: str,
         temperature: float,
+        max_output_tokens: int | None = None,
+        response_format: dict[str, object] | None = None,
     ) -> ProviderCompletion:
         return await self._complete(
             messages=messages,
             model=model,
             temperature=temperature,
             tools=(),
+            max_output_tokens=max_output_tokens,
+            response_format=response_format,
         )
 
     async def complete_with_tools(
@@ -97,12 +101,15 @@ class OpenAICompatibleProvider:
         model: str,
         temperature: float,
         tools: tuple[ChatToolDefinition, ...],
+        max_output_tokens: int | None = None,
     ) -> ProviderCompletion:
         return await self._complete(
             messages=messages,
             model=model,
             temperature=temperature,
             tools=tools,
+            max_output_tokens=max_output_tokens,
+            response_format=None,
         )
 
     async def _complete(
@@ -112,6 +119,8 @@ class OpenAICompatibleProvider:
         model: str,
         temperature: float,
         tools: tuple[ChatToolDefinition, ...],
+        max_output_tokens: int | None,
+        response_format: dict[str, object] | None,
     ) -> ProviderCompletion:
         tool_payloads = [item.model_dump() for item in tools]
         tool_schema_chars = (
@@ -130,6 +139,10 @@ class OpenAICompatibleProvider:
             "temperature": temperature,
             "messages": [self._message_payload(item) for item in messages],
         }
+        if max_output_tokens is not None:
+            payload["max_tokens"] = max(1, min(int(max_output_tokens), 8192))
+        if response_format is not None:
+            payload["response_format"] = response_format
         if tool_payloads:
             payload["tools"] = tool_payloads
             payload["tool_choice"] = "auto"
