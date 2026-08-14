@@ -22,6 +22,14 @@ from echo_masque.tool_continuation import (
 from echo_masque.turn_intelligence import TurnIntelligenceTask
 
 ContextKnowledgeMode = Literal["current", "contextual"]
+CharacterContextDecisionSource = Literal[
+    "deterministic",
+    "turn_intelligence",
+    "legacy_fallback_required",
+    "not_requested",
+    "legacy_fallback",
+    "legacy_shadow",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,8 +39,8 @@ class CharacterContextRoutingPlan:
     final_query: str
     retrieval_mode: ContextKnowledgeMode
     pending_tool_id: str
-    knowledge_source: str
-    pending_action_source: str
+    knowledge_source: CharacterContextDecisionSource
+    pending_action_source: CharacterContextDecisionSource
     requested_tasks: tuple[TurnIntelligenceTask, ...]
     current_assessment: KnowledgeRouteAssessment
     contextual_assessment: KnowledgeRouteAssessment | None
@@ -165,9 +173,8 @@ class CharacterContextRoutingService:
     ) -> KnowledgeRouteDecision | None:
         if contextual is None or contextual.route == "off":
             return None
-        should_retrieve = (
-            contextual.route == "on"
-            or (contextual.route == "gray" and contextual.fallback_should_retrieve)
+        should_retrieve = contextual.route == "on" or (
+            contextual.route == "gray" and contextual.fallback_should_retrieve
         )
         if not should_retrieve:
             return None
@@ -223,7 +230,7 @@ class CharacterContextRoutingService:
         )
 
         if mode == "shadow":
-            actual = self._legacy_knowledge_route(
+            shadow_actual = self._legacy_knowledge_route(
                 owner_id=owner_id,
                 connection_id=connection_id,
                 guild_id=guild_id,
@@ -239,10 +246,10 @@ class CharacterContextRoutingService:
                 else ""
             )
             return CharacterContextRoutingPlan(
-                gate=actual.gate,
-                fallback_gate=actual.fallback_gate,
-                final_query=actual.final_query,
-                retrieval_mode=actual.retrieval_mode,
+                gate=shadow_actual.gate,
+                fallback_gate=shadow_actual.fallback_gate,
+                final_query=shadow_actual.final_query,
+                retrieval_mode=shadow_actual.retrieval_mode,
                 pending_tool_id=pending_tool_id,
                 knowledge_source="legacy_shadow",
                 pending_action_source=(
@@ -254,15 +261,15 @@ class CharacterContextRoutingService:
                 unified_outcome=outcome,
             )
 
-        actual = self._accepted_route(
+        accepted = self._accepted_route(
             outcome,
             current=current,
             contextual=contextual,
             current_query=current_query,
             contextual_query=contextual_query,
         )
-        knowledge_source = outcome.knowledge_source
-        if actual is None or outcome.knowledge_fallback_required:
+        knowledge_source: CharacterContextDecisionSource = outcome.knowledge_source
+        if accepted is None or outcome.knowledge_fallback_required:
             actual = self._legacy_knowledge_route(
                 owner_id=owner_id,
                 connection_id=connection_id,
@@ -274,9 +281,11 @@ class CharacterContextRoutingService:
                 contextual_query=contextual_query,
             )
             knowledge_source = "legacy_fallback"
+        else:
+            actual = accepted
 
         pending_tool_id = ""
-        pending_source = outcome.pending_action_source
+        pending_source: CharacterContextDecisionSource = outcome.pending_action_source
         if pending_action is not None:
             if outcome.pending_action_fallback_required:
                 pending_tool_id = self.tool_continuation.resolve_pending_action_evidence(
@@ -308,6 +317,7 @@ class CharacterContextRoutingService:
 
 
 __all__ = [
+    "CharacterContextDecisionSource",
     "CharacterContextRoutingPlan",
     "CharacterContextRoutingService",
     "ContextKnowledgeMode",
