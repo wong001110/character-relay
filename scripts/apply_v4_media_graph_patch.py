@@ -24,10 +24,12 @@ def main() -> None:
     )
     text = replace_once(
         text,
+        "from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord\n"
         "from echo_masque.persistence.conversation_media_repository import (\n"
         "    ConversationMediaReferenceRepository,\n"
         ")\n",
         "from echo_masque.persistence.conversation_graph_repository import ConversationGraphRepository\n"
+        "from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord\n"
         "from echo_masque.persistence.conversation_media_repository import (\n"
         "    ConversationMediaReferenceRepository,\n"
         ")\n"
