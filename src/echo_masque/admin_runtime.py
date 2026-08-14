@@ -25,6 +25,8 @@ UtilityCapability = Literal[
     "topic_intelligence",
     "memory_intelligence",
     "knowledge_wiki",
+    "participation_tiebreak",
+    "tool_continuation",
     "context_compiler",
     "media_understanding",
     "structured_summary",
