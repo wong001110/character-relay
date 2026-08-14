@@ -14,6 +14,7 @@ from echo_masque.api.smart_participation_v4_schemas import (
     SmartParticipationResolveRequest,
 )
 from echo_masque.config import Settings
+from echo_masque.persistence import Database, Repository, SmartParticipationRepository
 from echo_masque.semantic_participation import SemanticParticipationScore
 
 
@@ -29,6 +30,8 @@ class FakeDeploymentRepository:
     def __init__(self, records: list[FakeDeployment]) -> None:
         self.records = records
         self.calls: list[tuple[str, str]] = []
+        self.database = Database("sqlite://")
+        self.database.initialize()
 
     def list_connector_deployments(
         self,
@@ -81,6 +84,10 @@ def request_for(
     )
     app.state.deployment_repository = deployments
     app.state.semantic_participation_service = semantic
+    app.state.repository = Repository(deployments.database)
+    app.state.smart_participation_repository = SmartParticipationRepository(
+        deployments.database
+    )
     return Request({"type": "http", "app": app, "headers": []})
 
 
