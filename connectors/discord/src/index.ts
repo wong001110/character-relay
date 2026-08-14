@@ -42,6 +42,7 @@ import {
   splitDiscordMessage,
   type DeploymentIndex
 } from "./routing.js";
+import { preflightSmartParticipationRuntime } from "./smartParticipation.js";
 import {
   buildMentionableParticipants,
   compileSmartMessage,
@@ -2046,15 +2047,25 @@ async function processMessage(
     }
 
     const semanticScores: Record<string, number> = {};
+    const smartRuntimeScopeKey = [
+      config.relayConnectionId,
+      guildMessage.guildId,
+      location.channelId,
+      location.threadId
+    ].join(":");
     if (
       config.smartParticipationEnabled &&
       !replyTarget.deploymentId &&
       participationText.trim()
     ) {
-      const smartDeploymentIds = candidates
-        .filter((item) => item.participation_mode === "smart")
-        .map((item) => item.deployment_id);
-      if (smartDeploymentIds.length) {
+      const semanticPreflight = preflightSmartParticipationRuntime(
+        candidates,
+        participationText,
+        Date.now(),
+        smartRuntimeScopeKey
+      );
+      const smartDeploymentIds = semanticPreflight.semanticCandidateDeploymentIds;
+      if (!semanticPreflight.skipSemantic && smartDeploymentIds.length) {
         try {
           const semantic = await relay.scoreSmartParticipation({
             message: participationText,
@@ -2098,6 +2109,7 @@ async function processMessage(
               burst_message_count: burstTelemetry?.messageCount ?? 1,
               collapsed_message_count: burstTelemetry?.collapsedMessageCount ?? 0,
               turn_collector_flush_reason: burstTelemetry?.flushReason ?? null,
+              semantic_preflight_reason: semanticPreflight.reason,
               scores: semantic.candidates.map((candidate) => ({
                 deployment_id: candidate.deployment_id,
                 semantic_relevance: candidate.semantic_relevance,
@@ -2126,6 +2138,25 @@ async function processMessage(
             }
           });
         }
+      } else if (semanticPreflight.skipSemantic) {
+        reportDiscordEvent({
+          level: "info",
+          eventType: "smart_participation_semantic_skipped",
+          message: "Runtime state resolved Smart Participation before E5 was needed.",
+          guildId: guildMessage.guildId,
+          guildName: guildMessage.guild.name,
+          channelId: location.channelId,
+          channelName: location.channelName,
+          threadId: location.threadId,
+          threadName: location.threadName,
+          sourceMessageId: guildMessage.id,
+          details: {
+            reason: semanticPreflight.reason,
+            burst_id: burstTelemetry?.burstId ?? null,
+            burst_message_count: burstTelemetry?.messageCount ?? 1,
+            collapsed_message_count: burstTelemetry?.collapsedMessageCount ?? 0
+          }
+        });
       }
     }
 
@@ -2134,7 +2165,8 @@ async function processMessage(
       participationText,
       replyTarget.deploymentId,
       config.groupAddressAliases,
-      semanticScores
+      semanticScores,
+      smartRuntimeScopeKey
     );
     if (!audience.deployments.length) {
       if (mentionedBot || replyTarget.characterMessage) {

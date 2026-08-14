@@ -113,6 +113,22 @@ export interface SmartParticipationDecision {
   candidates: SmartParticipationCandidateScore[];
 }
 
+export type SmartParticipationSemanticPreflightReason =
+  | "semantic_required"
+  | "disabled"
+  | "no_smart_candidates"
+  | "empty_message"
+  | "low_information_message"
+  | "channel_cooldown"
+  | "channel_rate_limit"
+  | "all_candidates_blocked";
+
+export interface SmartParticipationSemanticPreflight {
+  skipSemantic: boolean;
+  reason: SmartParticipationSemanticPreflightReason;
+  semanticCandidateDeploymentIds: string[];
+}
+
 export interface ExplicitParticipationCoordination {
   deployments: DiscordDeployment[];
   turns: SmartParticipationTurnSelection[];
@@ -156,6 +172,7 @@ interface PendingSmartSelection {
   deployment: DiscordDeployment;
   origin: SmartSelectionOrigin;
   selectedAt: number;
+  scopeKey: string;
 }
 
 interface SmartTurnAdmission {
@@ -740,21 +757,24 @@ function decision(
 function queueSelection(
   deployment: DiscordDeployment,
   origin: SmartSelectionOrigin,
-  selectedAt: number
+  selectedAt: number,
+  runtimeScopeKey?: string
 ): void {
   pendingSmartSelections.set(deployment.deployment_id, {
     deployment,
     origin,
-    selectedAt
+    selectedAt,
+    scopeKey: runtimeScopeKey?.trim() || scopeKey(deployment)
   });
 }
 
 function evaluateLightweightParticipation(
   smartCandidates: DiscordDeployment[],
   text: string,
-  now: number
+  now: number,
+  runtimeScopeKey?: string
 ): SmartParticipationDecision {
-  const scope = scopeKey(smartCandidates[0]!);
+  const scope = runtimeScopeKey?.trim() || scopeKey(smartCandidates[0]!);
   const recentAdmissions = turnAdmissions
     .filter(
       (item) =>
@@ -786,15 +806,98 @@ function evaluateLightweightParticipation(
     return decision("low_information_message", [], [candidate], text.length);
   }
 
-  queueSelection(deployment, "lightweight", now);
+  queueSelection(deployment, "lightweight", now, scope);
   return decision("selected_lightweight", [deployment], [candidate], text.length);
+}
+
+export function preflightSmartParticipationRuntime(
+  deployments: DiscordDeployment[],
+  message: string,
+  now = Date.now(),
+  runtimeScopeKey?: string
+): SmartParticipationSemanticPreflight {
+  if (!runtimeConfig.enabled) {
+    return { skipSemantic: true, reason: "disabled", semanticCandidateDeploymentIds: [] };
+  }
+  const smartCandidates = deployments.filter(
+    (deployment) => deployment.participation_mode === "smart"
+  );
+  if (!smartCandidates.length) {
+    return {
+      skipSemantic: true,
+      reason: "no_smart_candidates",
+      semanticCandidateDeploymentIds: []
+    };
+  }
+
+  const text = normalizeText(message);
+  if (!text) {
+    return { skipSemantic: true, reason: "empty_message", semanticCandidateDeploymentIds: [] };
+  }
+
+  pruneSelections(now);
+  if (isLowInformation(text)) {
+    return {
+      skipSemantic: true,
+      reason: "low_information_message",
+      semanticCandidateDeploymentIds: []
+    };
+  }
+
+  const scope = runtimeScopeKey?.trim() || scopeKey(smartCandidates[0]!);
+  const scopeSelections = proactiveSelections
+    .filter((item) => item.scopeKey === scope)
+    .sort((left, right) => right.selectedAt - left.selectedAt);
+  const latest = scopeSelections[0];
+  if (latest && now - latest.selectedAt < runtimeConfig.channelCooldownSeconds * 1000) {
+    return {
+      skipSemantic: true,
+      reason: "channel_cooldown",
+      semanticCandidateDeploymentIds: []
+    };
+  }
+
+  const windowStart = now - runtimeConfig.windowSeconds * 1000;
+  if (
+    scopeSelections.filter((item) => item.selectedAt >= windowStart).length >=
+    runtimeConfig.maxRepliesPerWindow
+  ) {
+    return {
+      skipSemantic: true,
+      reason: "channel_rate_limit",
+      semanticCandidateDeploymentIds: []
+    };
+  }
+
+  const semanticCandidateDeploymentIds = smartCandidates.flatMap((deployment) => {
+    const profile = smartParticipationProfileFor(deployment);
+    if (!profile.enabled || matchedPhrases(text, profile.avoidPhrases).length) return [];
+    const lastSelection = lastSelectionFor(deployment.deployment_id);
+    if (lastSelection && now - lastSelection.selectedAt < profile.cooldownSeconds * 1000) {
+      return [];
+    }
+    return [deployment.deployment_id];
+  });
+  if (!semanticCandidateDeploymentIds.length) {
+    return {
+      skipSemantic: true,
+      reason: "all_candidates_blocked",
+      semanticCandidateDeploymentIds: []
+    };
+  }
+  return {
+    skipSemantic: false,
+    reason: "semantic_required",
+    semanticCandidateDeploymentIds
+  };
 }
 
 export function evaluateSmartParticipation(
   deployments: DiscordDeployment[],
   message: string,
   now = Date.now(),
-  semanticScores: SmartParticipationSemanticScores = {}
+  semanticScores: SmartParticipationSemanticScores = {},
+  runtimeScopeKey?: string
 ): SmartParticipationDecision {
   clearPending(deployments);
   if (!runtimeConfig.enabled) {
@@ -812,10 +915,10 @@ export function evaluateSmartParticipation(
 
   pruneSelections(now);
   if (isLowInformation(text)) {
-    return evaluateLightweightParticipation(smartCandidates, text, now);
+    return evaluateLightweightParticipation(smartCandidates, text, now, runtimeScopeKey);
   }
 
-  const scope = scopeKey(smartCandidates[0]!);
+  const scope = runtimeScopeKey?.trim() || scopeKey(smartCandidates[0]!);
   const scopeSelections = proactiveSelections
     .filter((item) => item.scopeKey === scope)
     .sort((left, right) => right.selectedAt - left.selectedAt);
@@ -859,7 +962,7 @@ export function evaluateSmartParticipation(
 
   const selected = selectedCandidates.map((candidate) => candidate.deployment);
   for (const deployment of selected) {
-    queueSelection(deployment, "proactive", now);
+    queueSelection(deployment, "proactive", now, scope);
   }
   return decision(
     selected.length > 1 ? "selected_multiple" : "selected",
@@ -874,14 +977,15 @@ export function coordinateExplicitSmartParticipants(
   explicitDeployments: DiscordDeployment[],
   message: string,
   now = Date.now(),
-  semanticScores: SmartParticipationSemanticScores = {}
+  semanticScores: SmartParticipationSemanticScores = {},
+  runtimeScopeKey?: string
 ): ExplicitParticipationCoordination {
   if (
     !runtimeConfig.enabled ||
     explicitDeployments.length !== 1 ||
     runtimeConfig.maxParticipants < 2
   ) {
-    markExplicitSmartSelections(explicitDeployments, now);
+    markExplicitSmartSelections(explicitDeployments, now, runtimeScopeKey);
     return {
       deployments: explicitDeployments,
       turns: turnsFor(explicitDeployments),
@@ -939,7 +1043,7 @@ export function coordinateExplicitSmartParticipants(
   }
 
   clearPending(deployments);
-  queueSelection(primary, "explicit", now);
+  queueSelection(primary, "explicit", now, runtimeScopeKey);
   if (!interject) {
     return {
       deployments: [primary],
@@ -948,7 +1052,7 @@ export function coordinateExplicitSmartParticipants(
     };
   }
 
-  queueSelection(interject, "proactive", now);
+  queueSelection(interject, "proactive", now, runtimeScopeKey);
   return {
     deployments: [interject, primary],
     turns: [
@@ -1039,12 +1143,13 @@ function followUpDecision(
 
 export function markExplicitSmartSelections(
   deployments: DiscordDeployment[],
-  now = Date.now()
+  now = Date.now(),
+  runtimeScopeKey?: string
 ): void {
   clearPending(deployments);
   for (const deployment of deployments) {
     if (deployment.participation_mode === "smart") {
-      queueSelection(deployment, "explicit", now);
+      queueSelection(deployment, "explicit", now, runtimeScopeKey);
     }
   }
 }
@@ -1056,7 +1161,7 @@ export function consumeSmartSelection(deploymentId: string): boolean {
   if (!pending) return false;
 
   const admittedAt = pending.selectedAt;
-  const scope = scopeKey(pending.deployment);
+  const scope = pending.scopeKey;
   turnAdmissions.push({
     deploymentId,
     scopeKey: scope,
