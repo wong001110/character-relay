@@ -36,8 +36,6 @@ _CONTINUATION_ACT_MINIMUM = 0.48
 _UTILITY_CONTINUATION_FLOOR = 0.28
 _UTILITY_CONTINUATION_CONFIDENCE = 0.72
 
-# Runtime-known side effects. These passage profiles are memory-only and intentionally independent
-# of Deployment assignment so a request can be remembered even when the Tool is not assigned yet.
 _SIDE_EFFECT_PROFILES: dict[str, str] = {
     "discord.create_poll": (
         "Create, start, or open a Discord poll or vote with choices for the group. "
@@ -97,12 +95,7 @@ def detect_side_effect_tool_intents(
     settings: Settings | None = None,
     encoder: SemanticEncoder | None = None,
 ) -> tuple[str, ...]:
-    """Detect side-effect intent before Deployment assignment is considered.
-
-    Direct-intent patterns remain a high-confidence signal for an initial request. The shared E5
-    runtime supplies multilingual/natural-language coverage. Continuation phrases are deliberately
-    not regex-matched here; they are resolved from Topic Memory and conversation-act embeddings.
-    """
+    """Detect side-effect intent before Deployment assignment is considered."""
 
     normalized = " ".join(query.split())[:4000]
     if not normalized:
@@ -289,6 +282,28 @@ class ToolContinuationService:
         ):
             return ""
         return evidence.tool_id
+
+    def _utility_continuation(
+        self,
+        *,
+        payload: DiscordInboundMessage,
+        active: ConversationTopicSnapshot,
+        decision: TopicContinuityDecision,
+        pending_before: tuple[ConversationPendingAction, ...],
+        assigned: set[str],
+    ) -> str:
+        """Compatibility adapter over the V4 evidence-first continuation path."""
+
+        evidence = self.pending_action_evidence(
+            payload=payload,
+            active=active,
+            decision=decision,
+            pending_before=pending_before,
+            assigned=assigned,
+        )
+        if evidence is None:
+            return ""
+        return self.resolve_pending_action_evidence(evidence)
 
     def plan_turn(
         self,
