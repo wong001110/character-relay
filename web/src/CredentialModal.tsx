@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 
 import { api, type CharacterCard, type CredentialStatus, type TargetView } from "./api";
 import { useI18n } from "./i18n";
+import { useBeforeUtilityCredentialSave } from "./UtilityCredentialSaveContext";
 
 interface CharacterCredentialProps {
   card: CharacterCard;
@@ -36,7 +37,14 @@ async function utilityCredentialRequest(
     { ...init, credentials: "include" },
   );
   if (!response.ok) {
-    const detail = await response.text();
+    const raw = await response.text();
+    let detail = raw;
+    try {
+      const parsed = JSON.parse(raw) as { detail?: unknown };
+      if (typeof parsed.detail === "string") detail = parsed.detail;
+    } catch {
+      // Keep the plain-text provider/API response when it is not JSON.
+    }
     throw new Error(detail || `Request failed with ${response.status}`);
   }
 }
@@ -51,6 +59,7 @@ async function configureUtilityCredential(memberId: string, value: string): Prom
 
 export function CredentialModal(props: Props) {
   const { t } = useI18n();
+  const beforeUtilityCredentialSave = useBeforeUtilityCredentialSave();
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const utility = props.utility;
@@ -70,6 +79,9 @@ export function CredentialModal(props: Props) {
       setSaving(true);
       setMessage(null);
       if (utility) {
+        if (beforeUtilityCredentialSave) {
+          await beforeUtilityCredentialSave();
+        }
         await configureUtilityCredential(utility.memberId, value);
         props.onConfigured();
       } else {
@@ -89,6 +101,9 @@ export function CredentialModal(props: Props) {
     try {
       setSaving(true);
       setMessage(null);
+      if (beforeUtilityCredentialSave) {
+        await beforeUtilityCredentialSave();
+      }
       await utilityCredentialRequest(utility.memberId, { method: "DELETE" });
       props.onConfigured();
       props.onClose();
@@ -136,7 +151,11 @@ export function CredentialModal(props: Props) {
               placeholder={t("credential.placeholder")}
             />
           </label>
-          <p className="secret-note">{t("credential.security")}</p>
+          <p className="secret-note">
+            {utility
+              ? "This API key is stored in the encrypted server Credential Vault. It is never returned to the browser, Character Cards, reports, or logs."
+              : t("credential.security")}
+          </p>
           <div className="form-actions">
             {utility && (
               <button
@@ -152,7 +171,11 @@ export function CredentialModal(props: Props) {
               {t("creator.cancel")}
             </button>
             <button className="ink-button" disabled={saving}>
-              {saving ? t("credential.connecting") : t("credential.save")}
+              {saving
+                ? t("credential.connecting")
+                : utility
+                  ? "Save key"
+                  : t("credential.save")}
             </button>
           </div>
           {message && <p className="error-note">{message}</p>}
