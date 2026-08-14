@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from echo_masque.admin_runtime import UtilityCapability
 from echo_masque.utility_gateway_contracts import (
+    ParticipationUtilityDecision,
     UtilityGatewayUnavailable,
     UtilityInferenceResult,
 )
@@ -152,6 +153,28 @@ class TurnIntelligenceService:
             "All confidence values must be JSON numbers from 0.0 through 1.0, never strings.",
         )
 
+    @staticmethod
+    def _legacy_envelope(
+        value: object,
+        requested: tuple[TurnIntelligenceTask, ...],
+    ) -> TurnIntelligenceEnvelope | None:
+        """Adapt the pre-V4 speaker-only contract during the single-PR migration window."""
+
+        if requested != ("speaker",) or not isinstance(value, ParticipationUtilityDecision):
+            return None
+        return TurnIntelligenceEnvelope(
+            schema_version=_SCHEMA_VERSION,
+            requested_tasks=requested,
+            topic=None,
+            speaker={
+                "deployment_id": value.deployment_id,
+                "confidence": value.confidence,
+                "reason_code": value.reason_code,
+            },
+            knowledge=None,
+            pending_action=None,
+        )
+
     def decide(
         self,
         *,
@@ -238,7 +261,7 @@ class TurnIntelligenceService:
             )
         )
         try:
-            envelope, inference = self.gateway.invoke(
+            raw_envelope, inference = self.gateway.invoke(
                 self.capability,
                 TurnIntelligenceEnvelope,
                 system_prompt=system_prompt,
@@ -262,6 +285,29 @@ class TurnIntelligenceService:
                 knowledge=None,
                 pending_action=None,
                 status=unavailable,
+            )
+
+        envelope = (
+            raw_envelope
+            if isinstance(raw_envelope, TurnIntelligenceEnvelope)
+            else self._legacy_envelope(raw_envelope, requested)
+        )
+        if envelope is None:
+            invalid: dict[TurnIntelligenceTask, TurnIntelligenceFieldStatus] = {
+                task: TurnIntelligenceFieldStatus(
+                    requested=task in requested,
+                    accepted=False,
+                    reason="invalid_envelope" if task in requested else "not_requested",
+                )
+                for task in _ALL_TASKS
+            }
+            return TurnIntelligenceResult(
+                topic=None,
+                speaker=None,
+                knowledge=None,
+                pending_action=None,
+                status=invalid,
+                inference=inference,
             )
 
         echoed = self._requested(envelope.requested_tasks)
