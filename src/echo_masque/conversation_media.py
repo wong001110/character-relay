@@ -199,9 +199,7 @@ class ConversationMediaReferenceService:
         if len(meaningful) < _AUTO_RECALL_MIN_MEANINGFUL_CHARS:
             return False
         # Repeated laughter/acknowledgement glyphs are still low-information even when long.
-        if len(set(value.casefold() for value in meaningful)) == 1:
-            return False
-        return True
+        return len(set(value.casefold() for value in meaningful)) != 1
 
     @staticmethod
     def _aware_utc(value: datetime) -> datetime:
