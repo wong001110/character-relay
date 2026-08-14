@@ -12,9 +12,11 @@ function displayName(deployment: DiscordDeployment): string {
 function candidateDetails(
   deployment: DiscordDeployment,
   score: SmartParticipationCandidateScore | undefined,
-  selectedIds: Set<string>
+  selectedIds: Set<string>,
+  rank: number
 ): Record<string, unknown> {
   return {
+    rank,
     deployment_id: deployment.deployment_id,
     character_card_id: deployment.character_card_id,
     character_name: displayName(deployment),
@@ -44,15 +46,28 @@ export function recordSmartParticipationDecision(input: {
   if (!smartDeployments.length) return;
 
   const first = smartDeployments[0]!;
-  const byDeployment = new Map(
+  const smartById = new Map(
+    smartDeployments.map((deployment) => [deployment.deployment_id, deployment])
+  );
+  const scoreById = new Map(
     input.decision.candidates.map((candidate) => [candidate.deployment.deployment_id, candidate])
   );
   const selectedIds = new Set(
     input.decision.selectedDeployments.map((deployment) => deployment.deployment_id)
   );
-  const candidates = smartDeployments.map((deployment) =>
-    candidateDetails(deployment, byDeployment.get(deployment.deployment_id), selectedIds)
-  );
+  const rankedIds = input.decision.candidates
+    .map((candidate) => candidate.deployment.deployment_id)
+    .filter((deploymentId) => smartById.has(deploymentId));
+  const unscoredIds = smartDeployments
+    .map((deployment) => deployment.deployment_id)
+    .filter((deploymentId) => !rankedIds.includes(deploymentId));
+  const orderedIds = [...rankedIds, ...unscoredIds];
+  const candidates = orderedIds.flatMap((deploymentId, index) => {
+    const deployment = smartById.get(deploymentId);
+    return deployment
+      ? [candidateDetails(deployment, scoreById.get(deploymentId), selectedIds, index + 1)]
+      : [];
+  });
 
   const event: DiscordConnectorEventInput = {
     level: "info",
