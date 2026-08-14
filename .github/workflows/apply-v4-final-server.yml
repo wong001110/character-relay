@@ -26,15 +26,16 @@ jobs:
         run: |
           python -m ruff format src/echo_masque/api/routes/smart_participation_v4.py src/echo_masque/api/smart_participation_outcome_schemas.py src/echo_masque/character_learned_state.py
           python -m ruff check --fix src/echo_masque/api/routes/smart_participation_v4.py src/echo_masque/api/smart_participation_outcome_schemas.py src/echo_masque/character_learned_state.py
+      - name: Ruff
+        run: python -m ruff check src/echo_masque
+      - name: Mypy
+        run: python -m mypy src
+      - name: Targeted tests
+        run: python -m pytest tests/test_character_learned_state.py tests/test_smart_participation_v4_resolver.py
       - name: Remove helper
         run: |
           rm scripts/apply_v4_final_server_features.py
           rm .github/workflows/apply-v4-final-server.yml
-      - name: Validate
-        run: |
-          python -m ruff check src/echo_masque
-          python -m mypy src
-          python -m pytest tests/test_character_learned_state.py tests/test_smart_participation_v4_resolver.py
       - name: Commit
         run: |
           git config user.name "github-actions[bot]"
