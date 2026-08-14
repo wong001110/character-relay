@@ -130,6 +130,28 @@ class TurnIntelligenceService:
             error_type = str(first.get("type", "schema_error"))[:80]
             return None, f"schema_error:{error_type}"
 
+    @staticmethod
+    def _nested_contract_rules() -> tuple[str, ...]:
+        return (
+            (
+                "When topic is requested, topic must contain exactly decision, confidence, "
+                "reason_code; decision must be continue, switch, clarify, or close."
+            ),
+            (
+                "When speaker is requested, speaker must contain exactly deployment_id, "
+                "confidence, reason_code. Use an empty deployment_id to abstain."
+            ),
+            (
+                "When knowledge is requested, knowledge must contain exactly route, confidence, "
+                "reason_code; route must be off, current, or contextual."
+            ),
+            (
+                "When pending_action is requested, pending_action must contain exactly "
+                "continue_action, tool_id, confidence, reason_code."
+            ),
+            "All confidence values must be JSON numbers from 0.0 through 1.0, never strings.",
+        )
+
     def decide(
         self,
         *,
@@ -210,6 +232,7 @@ class TurnIntelligenceService:
                         "Return all envelope keys exactly once.",
                         "requested_tasks must exactly echo the supplied requested task list.",
                         "Unrequested task fields must be null.",
+                        *self._nested_contract_rules(),
                     ),
                 ),
             )
