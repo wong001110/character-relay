@@ -34,55 +34,11 @@ jobs:
       - name: Apply backend edge patch
         run: python scripts/apply_v4_connector_edges_backend.py
 
-      - name: Normalize Connector test patch helper
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("scripts/apply_v4_connector_edges_ts.py")
-          text = path.read_text(encoding="utf-8")
-          old = '    "  attachmentCount: 0,\\n  embedCount: 0,\\n",\n    "  attachmentCount: 0,\\n  visibleImageAttachmentCount: 0,\\n  embedCount: 0,\\n",'
-          new = '    "    attachmentCount: 0,\\n    embedCount: 0,\\n",\n    "    attachmentCount: 0,\\n    visibleImageAttachmentCount: 0,\\n    embedCount: 0,\\n",'
-          if old not in text:
-              raise SystemExit("turnIngress test helper pattern not found")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
-          PY
+      - name: Normalize Connector patch helper
+        run: python scripts/normalize_v4_connector_edge_helper.py
 
       - name: Apply Connector edge patch
         run: python scripts/apply_v4_connector_edges_ts.py
-
-      - name: Normalize generated visible-image test fixture
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("connectors/discord/src/turnIngress.test.ts")
-          text = path.read_text(encoding="utf-8")
-          marker = '\n\ndescribe("visible-image Turn Collection policy", () => {'
-          fixture = '''
-
-const basePolicy = {
-  collectorEnabled: true,
-  smartParticipationEnabled: true,
-  recovery: false,
-  mentionedBot: false,
-  hasReplyReference: false,
-  explicitAudience: false,
-  hasReadableText: true,
-  customEmojiCount: 0,
-  stickerCount: 0,
-  attachmentCount: 0,
-  visibleImageAttachmentCount: 0,
-  embedCount: 0,
-  hasUrl: false,
-  smartCandidateCount: 2
-};
-
-describe("visible-image Turn Collection policy", () => {'''
-          if marker not in text:
-              raise SystemExit("generated visible-image test marker not found")
-          path.write_text(text.replace(marker, fixture, 1), encoding="utf-8")
-          PY
 
       - name: Format Python changes
         run: |
@@ -118,6 +74,7 @@ describe("visible-image Turn Collection policy", () => {'''
         run: |
           rm scripts/apply_v4_connector_edges_backend.py
           rm scripts/apply_v4_connector_edges_ts.py
+          rm scripts/normalize_v4_connector_edge_helper.py
           rm .github/workflows/apply-v4-connector-edges.yml
 
       - name: Commit validated V4 edge cases
