@@ -51,6 +51,21 @@ export interface DiscordSemanticParticipationResult {
   candidates: DiscordSemanticParticipationCandidate[];
 }
 
+interface DiscordV4ParticipationCandidate {
+  deployment_id: string;
+  character_card_id: string;
+  raw_e5_relevance: number;
+  profile_ready: boolean;
+}
+
+interface DiscordV4ParticipationResult {
+  available: boolean;
+  reason: string;
+  model: string;
+  dimension: number;
+  candidates: DiscordV4ParticipationCandidate[];
+}
+
 interface ConnectorAttachment {
   attachment_id: string;
   url: string;
@@ -117,6 +132,11 @@ function errorDetail(error: unknown): string {
     return `${error.message}: ${cause.message}`;
   }
   return error.message;
+}
+
+function missingV4Resolver(error: unknown): boolean {
+  const detail = errorDetail(error);
+  return detail.includes("HTTP 404") || detail.includes("HTTP 405");
 }
 
 function stringValue(value: unknown, maximum: number): string {
@@ -336,6 +356,41 @@ export class RelayClient {
         };
       }
     }
+
+    try {
+      const resolved = await this.request<DiscordV4ParticipationResult>(
+        "/api/smart-participation/resolve",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            connection_id: this.connectionId,
+            message: payload.message,
+            candidates: payload.deployment_ids.map((deploymentId) => ({
+              deployment_id: deploymentId,
+              eligible: true,
+              deterministic_score: 0,
+              minimum_score: 0,
+              signals: {}
+            }))
+          })
+        }
+      );
+      return {
+        available: resolved.available,
+        reason: `v4_resolver:${resolved.reason}`,
+        model: resolved.model,
+        dimension: resolved.dimension,
+        candidates: resolved.candidates.map((candidate) => ({
+          deployment_id: candidate.deployment_id,
+          character_card_id: candidate.character_card_id,
+          semantic_relevance: candidate.raw_e5_relevance,
+          profile_ready: candidate.profile_ready
+        }))
+      };
+    } catch (error) {
+      if (!missingV4Resolver(error)) throw error;
+    }
+
     return this.request<DiscordSemanticParticipationResult>(
       "/api/smart-participation/semantic-score",
       {
