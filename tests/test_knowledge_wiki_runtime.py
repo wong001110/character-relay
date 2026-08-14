@@ -4,7 +4,9 @@ from pydantic import SecretStr
 
 from echo_masque.knowledge_wiki import KnowledgeWikiService
 from echo_masque.persistence import Database
-from echo_masque.persistence.knowledge_repository import KnowledgeRepository as RawKnowledgeRepository
+from echo_masque.persistence.knowledge_repository import (
+    KnowledgeRepository as RawKnowledgeRepository,
+)
 from echo_masque.persistence.wiki_aware_knowledge_repository import WikiAwareKnowledgeRepository
 from echo_masque.utility_gateway_contracts import (
     UtilityGatewayUnavailable,
