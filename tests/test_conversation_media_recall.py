@@ -139,7 +139,7 @@ def test_explicit_media_reference_can_recall_older_media() -> None:
     memories = service.resolve_for_turn(
         deployment_id="deployment-1",
         character_card_id="character-1",
-        payload=_payload("之前那张图的容量是多少？"),
+        payload=_payload("之前那张图的容量是多少?"),
     )
 
     assert len(memories) == 1
@@ -164,7 +164,7 @@ def test_guidance_defaults_to_single_summary_without_duplicate_details_or_ocr() 
     memory = ConversationMediaMemory(
         message_id="media-1",
         context=_context(),
-        recall_query="你觉得这个怎么样？",
+        recall_query="你觉得这个怎么样?",
     )
 
     guidance = "\n".join(ConversationMediaReferenceService.guidance((memory,)))
@@ -179,7 +179,7 @@ def test_guidance_lazily_includes_readable_text_for_text_specific_followup() -> 
     memory = ConversationMediaMemory(
         message_id="media-1",
         context=_context(),
-        recall_query="那张图的容量是多少？",
+        recall_query="那张图的容量是多少?",
     )
 
     guidance = "\n".join(ConversationMediaReferenceService.guidance((memory,)))
