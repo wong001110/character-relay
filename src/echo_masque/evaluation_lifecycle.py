@@ -22,6 +22,7 @@ from echo_masque.persistence import (
     ScheduledReminderRepository,
     SmartParticipationRepository,
 )
+from echo_masque.persistence.wiki_page_repository import WikiPageRepository
 
 
 class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleService):
@@ -43,6 +44,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         condition_watch_repository: ConditionWatchRepository | None = None,
         conversation_media_repository: ConversationMediaReferenceRepository | None = None,
         generated_media_repository: GeneratedMediaArtifactRepository | None = None,
+        wiki_page_repository: WikiPageRepository | None = None,
     ) -> None:
         super().__init__(
             database,
@@ -70,6 +72,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             smart_participation_repository or SmartParticipationRepository(database)
         )
         self.knowledge_repository = knowledge_repository or KnowledgeRepository(database)
+        self.wiki_page_repository = wiki_page_repository or WikiPageRepository(database)
         self.conversation_media_repository = (
             conversation_media_repository or ConversationMediaReferenceRepository(database)
         )
@@ -83,6 +86,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         expression_counts = self.expression_repository.delete_owner(user_id)
         smart_counts = self.smart_participation_repository.delete_owner(user_id)
         knowledge_counts = self.knowledge_repository.delete_owner(user_id)
+        knowledge_counts["knowledge_wiki_pages"] = self.wiki_page_repository.delete_owner(user_id)
         identity_counts = self.discord_identity_repository.delete_owner(user_id)
         reminder_count = self.scheduled_reminder_repository.delete_owner(user_id)
         watch_count = self.condition_watch_repository.delete_owner(user_id)
@@ -152,6 +156,10 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             actor_user_id,
         )
         knowledge_counts = self.knowledge_repository.claim_owner(
+            "local-user",
+            actor_user_id,
+        )
+        knowledge_counts["knowledge_wiki_pages"] = self.wiki_page_repository.claim_owner(
             "local-user",
             actor_user_id,
         )
