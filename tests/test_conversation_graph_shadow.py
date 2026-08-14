@@ -107,7 +107,9 @@ def test_shadow_observer_records_only_direct_actor_burst_evidence(tmp_path: Path
     assert bob_edges[0].edge.source_message_id == "message-2"
 
 
-def test_shadow_observer_generates_stable_burst_id_without_copying_message_text(tmp_path: Path) -> None:
+def test_shadow_observer_generates_stable_burst_id_without_copying_message_text(
+    tmp_path: Path,
+) -> None:
     repository, observer = graph(tmp_path)
     payload = SmartParticipationResolveRequest(
         connection_id="connection-1",
