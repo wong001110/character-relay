@@ -35,9 +35,13 @@ class SmartParticipationScopeStateRecord(Base):
     guild_id: Mapped[str] = mapped_column(String(128), nullable=False)
     channel_id: Mapped[str] = mapped_column(String(128), nullable=False)
     thread_id: Mapped[str] = mapped_column(String(128), default="", nullable=False)
-    last_admitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_admitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     recent_deployment_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
-    window_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    window_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     window_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -73,7 +77,9 @@ class SmartParticipationDeploymentStateRecord(Base):
     channel_id: Mapped[str] = mapped_column(String(128), nullable=False)
     thread_id: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     deployment_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    last_admitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_admitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )

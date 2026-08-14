@@ -203,9 +203,7 @@ class ContextOrchestrator:
                 runtime,
                 caller=ExistingProviderUtilityCaller(),
             )
-            coordinator = CharacterTurnIntelligenceCoordinator(
-                TurnIntelligenceService(gateway)
-            )
+            coordinator = CharacterTurnIntelligenceCoordinator(TurnIntelligenceService(gateway))
             self._character_context_routing_live = CharacterContextRoutingService(
                 self.knowledge_route_gate,
                 self.tool_continuation_service,
@@ -342,7 +340,9 @@ class ContextOrchestrator:
         pending_source: str = "",
     ) -> SemanticTurnSignals:
         continuation_ids = tuple(
-            dict.fromkeys((*plan.continuation_tool_ids, *((pending_tool_id,) if pending_tool_id else ())))
+            dict.fromkeys(
+                (*plan.continuation_tool_ids, *((pending_tool_id,) if pending_tool_id else ()))
+            )
         )
         reason = plan.continuity_reason
         if plan.pending_action_evidence is not None:
@@ -432,9 +432,7 @@ class ContextOrchestrator:
                 "turn_intelligence_knowledge_source": plan.knowledge_source,
                 "turn_intelligence_pending_action_source": plan.pending_action_source,
                 "turn_intelligence_knowledge_route": outcome.knowledge_route or "",
-                "turn_intelligence_pending_action_continue": (
-                    outcome.pending_action_continue
-                ),
+                "turn_intelligence_pending_action_continue": (outcome.pending_action_continue),
             }
         )
         if outcome.result is not None and outcome.result.inference is not None:
@@ -493,7 +491,9 @@ class ContextOrchestrator:
         if signals is None:
             return None
         continuation_ids = tuple(
-            dict.fromkeys((*signals.continuation_tool_ids, *((pending_tool_id,) if pending_tool_id else ())))
+            dict.fromkeys(
+                (*signals.continuation_tool_ids, *((pending_tool_id,) if pending_tool_id else ()))
+            )
         )
         reason = signals.continuity_reason
         if preparation.pending_action is not None:
@@ -574,9 +574,7 @@ class ContextOrchestrator:
             current_query,
         )
         bounded_contextual_query = (
-            contextual_query
-            if contextual_count and contextual_query != current_query
-            else ""
+            contextual_query if contextual_count and contextual_query != current_query else ""
         )
 
         try:
@@ -781,6 +779,7 @@ class ContextOrchestrator:
                 and not result.candidates
                 and bounded_contextual_query
             ):
+                no_hit_gate: KnowledgeRouteDecision | None
                 if mode == "off":
                     no_hit_gate = self._route_decision(
                         payload=payload,
@@ -789,9 +788,7 @@ class ContextOrchestrator:
                     )
                 else:
                     no_hit_gate = (
-                        turn_plan.contextual_no_hit_gate
-                        if turn_plan is not None
-                        else None
+                        turn_plan.contextual_no_hit_gate if turn_plan is not None else None
                     )
                 if no_hit_gate is not None and no_hit_gate.should_retrieve:
                     gate = no_hit_gate
@@ -880,7 +877,6 @@ class ContextOrchestrator:
                 initial_hit_count=initial_hit_count,
                 fallback_hit_count=fallback_hit_count,
                 query_chars=len(final_query),
-                eligible_base_count=result.eligible_base_count,
                 candidate_chunk_count=result.candidate_chunk_count,
                 selected_chunk_count=len(selected),
                 selected_knowledge_tokens=selected_tokens,

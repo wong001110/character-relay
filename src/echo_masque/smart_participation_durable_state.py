@@ -200,11 +200,9 @@ class SmartParticipationDurableStateService:
                     window_count=0,
                 )
                 session.add(scope)
-            if (
-                scope.window_started_at is None
-                or (current - _aware(scope.window_started_at)).total_seconds()
-                >= max(1, window_seconds)
-            ):
+            if scope.window_started_at is None or (
+                current - _aware(scope.window_started_at)
+            ).total_seconds() >= max(1, window_seconds):
                 scope.window_started_at = current
                 scope.window_count = 0
             scope.window_count += len(deployment_ids)
@@ -255,9 +253,7 @@ class SmartParticipationDurableStateService:
             )
             session.commit()
             return {
-                "deployments": int(
-                    cast(CursorResult[Any], deployment_result).rowcount or 0
-                ),
+                "deployments": int(cast(CursorResult[Any], deployment_result).rowcount or 0),
                 "scopes": int(cast(CursorResult[Any], scope_result).rowcount or 0),
             }
 

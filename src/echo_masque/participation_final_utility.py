@@ -58,9 +58,10 @@ class ParticipationFinalUtilityResolver:
             score = score_by_id.get(item.deployment_id)
             if score is None:
                 continue
-            evidence = ",".join(
-                f"{entry.name}:{entry.adjustment:+.3f}" for entry in score.evidence
-            ) or "no_context_adjustment"
+            evidence = (
+                ",".join(f"{entry.name}:{entry.adjustment:+.3f}" for entry in score.evidence)
+                or "no_context_adjustment"
+            )
             candidates.append(
                 (
                     item.deployment_id,
@@ -95,7 +96,10 @@ class ParticipationFinalUtilityResolver:
                 latency,
             )
 
-        ordered_ids = [selected, *(item.deployment_id for item in plan if item.deployment_id != selected)]
+        ordered_ids = [
+            selected,
+            *(item.deployment_id for item in plan if item.deployment_id != selected),
+        ]
         reordered = tuple(
             ParticipationContextPlanItem(
                 deployment_id=deployment_id,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+from collections.abc import Mapping
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
@@ -31,8 +32,9 @@ from echo_masque.conversation_graph_topic_shadow import (
 )
 from echo_masque.participation_context_rerank import (
     ParticipationContextCandidate,
-    ParticipationContextResult,
+    ParticipationContextPlanItem,
     ParticipationContextReranker,
+    ParticipationContextResult,
 )
 from echo_masque.participation_final_utility import (
     ParticipationFinalUtilityResolver,
@@ -51,6 +53,7 @@ from echo_masque.persistence import (
 )
 from echo_masque.persistence.conversation_graph_repository import ConversationGraphRepository
 from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
+from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.semantic_participation import (
     CharacterParticipationSemanticService,
     SemanticEmbeddingUnavailable,
@@ -246,7 +249,7 @@ def _outcome_service(request: Request) -> SmartParticipationOutcomeService:
 def _durable_preflight(
     payload: SmartParticipationResolveRequest,
     request: Request,
-    records_by_id: dict[str, object],
+    records_by_id: Mapping[str, CharacterDeploymentRecord],
 ) -> DurableParticipationPreflight:
     smart = _smart_repository(request)
     cooldowns: dict[str, int] = {}
@@ -281,7 +284,7 @@ def _display_names(request: Request, records: list[object]) -> dict[str, str]:
 
 
 def _plan_views(
-    plan: tuple[ParticipationShadowPlanItem, ...] | tuple[object, ...],
+    plan: tuple[ParticipationShadowPlanItem, ...] | tuple[ParticipationContextPlanItem, ...],
 ) -> list[SmartParticipationSpeakerPlanItem]:
     return [
         SmartParticipationSpeakerPlanItem(
@@ -292,6 +295,19 @@ def _plan_views(
         for item in plan
         if str(getattr(item, "deployment_id", ""))
     ]
+
+
+def _normalize_shadow_plan(
+    plan: tuple[ParticipationShadowPlanItem, ...],
+) -> tuple[ParticipationContextPlanItem, ...]:
+    return tuple(
+        ParticipationContextPlanItem(
+            deployment_id=item.deployment_id,
+            turn_role=item.turn_role,
+            reason=item.reason,
+        )
+        for item in plan
+    )
 
 
 @router.post(
@@ -359,8 +375,7 @@ def resolve_smart_participation_v4(
             model, dimension, scores = service.score(
                 message=analysis,
                 deployments=[
-                    (record.id, record.owner_id, record.character_card_id)
-                    for record in eligible
+                    (record.id, record.owner_id, record.character_card_id) for record in eligible
                 ],
             )
             score_by_id = {item.deployment_id: item for item in scores}
@@ -429,10 +444,12 @@ def resolve_smart_participation_v4(
         settings.smart_participation_v4_graph_rerank_mode == "active"
         or settings.smart_participation_v4_learned_state_mode == "active"
     )
-    effective_plan = context_result.plan if context_active else shadow_result.plan
+    effective_plan: tuple[ParticipationContextPlanItem, ...] = (
+        context_result.plan if context_active else _normalize_shadow_plan(shadow_result.plan)
+    )
 
     utility_result = ParticipationFinalUtilityResult(
-        tuple(effective_plan),
+        effective_plan,
         False,
         False,
         "",
@@ -441,10 +458,7 @@ def resolve_smart_participation_v4(
     if settings.smart_participation_v4_utility_mode == "active" and effective_plan:
         utility_result = _final_utility(request).resolve(
             current_burst=analysis,
-            plan=tuple(
-                # Both plan types expose the same bounded fields.
-                cast(object, item) for item in effective_plan
-            ),  # type: ignore[arg-type]
+            plan=effective_plan,
             scores=context_result.scores,
             display_names=_display_names(request, list(eligible)),
         )
@@ -452,7 +466,11 @@ def resolve_smart_participation_v4(
             effective_plan = utility_result.plan
 
     speaker_authoritative = settings.smart_participation_v4_speaker_mode == "active"
-    shadow_plan = context_result.plan if (graph_enabled or learned_enabled) else shadow_result.plan
+    shadow_plan: tuple[ParticipationContextPlanItem, ...] = (
+        context_result.plan
+        if (graph_enabled or learned_enabled)
+        else _normalize_shadow_plan(shadow_result.plan)
+    )
     candidates: list[SmartParticipationResolveCandidateView] = []
     for requested in payload.candidates:
         context_score = context_score_by_id.get(requested.deployment_id)

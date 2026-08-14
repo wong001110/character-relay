@@ -130,7 +130,10 @@ class ParticipationContextReranker:
                     limit=20,
                 )
                 for neighbor in neighbors:
-                    if neighbor.node.node_type != "Topic" or neighbor.node.canonical_key != topic_key:
+                    if (
+                        neighbor.node.node_type != "Topic"
+                        or neighbor.node.canonical_key != topic_key
+                    ):
                         continue
                     edge = neighbor.edge
                     strength = min(1.0, log1p(max(0, edge.evidence_count)) / log1p(8))
@@ -280,7 +283,9 @@ class ParticipationContextReranker:
     ) -> ParticipationContextResult:
         bounded_margin = max(0.0, float(minimum_margin))
         bounded_participants = max(1, min(int(max_participants), 3))
-        rows: list[tuple[ParticipationContextCandidate, tuple[ParticipationContextEvidence, ...], float]] = []
+        rows: list[
+            tuple[ParticipationContextCandidate, tuple[ParticipationContextEvidence, ...], float]
+        ] = []
         for candidate in candidates:
             evidence = self._candidate_evidence(
                 candidate,

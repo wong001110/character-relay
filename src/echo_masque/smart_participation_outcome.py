@@ -54,7 +54,9 @@ class SmartParticipationOutcomeService:
         self,
         payload: SmartParticipationOutcomeObservation,
     ) -> SmartParticipationOutcomeProjection:
-        selected_ids = tuple(dict.fromkeys(item for item in payload.selected_deployment_ids if item))
+        selected_ids = tuple(
+            dict.fromkeys(item for item in payload.selected_deployment_ids if item)
+        )
         if not selected_ids:
             return SmartParticipationOutcomeProjection(False, 0, 0, 0, False)
         records = self.deployments.list_connector_deployments(
