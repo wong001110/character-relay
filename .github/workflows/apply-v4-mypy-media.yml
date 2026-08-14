@@ -16,24 +16,45 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply strict typing cleanup
-        run: python scripts/apply_v4_mypy_cleanup_patch.py
-
-      - name: Apply Media Graph integration
-        run: python scripts/apply_v4_media_graph_patch.py
-
-      - name: Remove one-time patch helpers
-        run: |
-          rm scripts/apply_v4_mypy_cleanup_patch.py
-          rm scripts/apply_v4_media_graph_patch.py
-          rm .github/workflows/apply-v4-mypy-media.yml
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install Python dev dependencies
         run: python -m pip install -e ".[dev]"
+
+      - name: Apply strict typing cleanup
+        run: python scripts/apply_v4_mypy_cleanup_patch.py
+
+      - name: Apply Media Graph integration
+        run: python scripts/apply_v4_media_graph_patch.py
+
+      - name: Autoformat V4 checkpoint
+        run: |
+          python -m ruff check --fix \
+            src/echo_masque/api/routes/smart_participation_v4.py \
+            src/echo_masque/participation_context_rerank.py \
+            src/echo_masque/participation_final_utility.py \
+            src/echo_masque/persistence/smart_participation_state_models.py \
+            src/echo_masque/smart_participation_outcome.py \
+            src/echo_masque/smart_participation_durable_state.py \
+            src/echo_masque/conversation_media.py \
+            src/echo_masque/conversation_media_graph.py
+          python -m ruff format \
+            src/echo_masque/api/routes/smart_participation_v4.py \
+            src/echo_masque/participation_context_rerank.py \
+            src/echo_masque/participation_final_utility.py \
+            src/echo_masque/persistence/smart_participation_state_models.py \
+            src/echo_masque/smart_participation_outcome.py \
+            src/echo_masque/smart_participation_durable_state.py \
+            src/echo_masque/conversation_media.py \
+            src/echo_masque/conversation_media_graph.py
+
+      - name: Remove one-time patch helpers
+        run: |
+          rm scripts/apply_v4_mypy_cleanup_patch.py
+          rm scripts/apply_v4_media_graph_patch.py
+          rm .github/workflows/apply-v4-mypy-media.yml
 
       - name: Validate V4 typing and Media Graph
         run: |
