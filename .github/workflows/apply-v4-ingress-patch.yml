@@ -22,25 +22,27 @@ jobs:
       - name: Adapt generated code to strict optional typing
         run: |
           python - <<'PY'
+          import re
           from pathlib import Path
 
           index = Path("connectors/discord/src/index.ts")
           text = index.read_text(encoding="utf-8")
-          old = '''    prepareCollection: collectionDecision.collect
-                ? async () => {'''
-          new = '''    ...(collectionDecision.collect
-                ? { prepareCollection: async () => {'''
-          if text.count(old) != 1:
-              raise SystemExit(f"prepareCollection prefix match count={text.count(old)}")
-          text = text.replace(old, new, 1)
-          old = '''        }
-              : undefined,
-            execute: async (burst) => {'''
-          new = '''        } }
-              : {}),
-            execute: async (burst) => {'''
-          if text.count(old) != 1:
-              raise SystemExit(f"prepareCollection suffix match count={text.count(old)}")
+          text, count = re.subn(
+              r'(?m)^\s*prepareCollection: collectionDecision\.collect\n\s*\? async \(\) => \{',
+              '    ...(collectionDecision.collect\n      ? { prepareCollection: async () => {',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f"prepareCollection prefix match count={count}")
+          text, count = re.subn(
+              r'(?m)^\s*\}\n\s*: undefined,\n\s*execute: async \(burst\) => \{',
+              '        } }\n      : {}),\n    execute: async (burst) => {',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f"prepareCollection suffix match count={count}")
           index.write_text(text, encoding="utf-8")
 
           test = Path("connectors/discord/src/relayClientBurst.test.ts")
