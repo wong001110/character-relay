@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import {
   TurnCollector,
   type ConversationBurst,
-  type TurnCollectorConfig
+  type TurnCollectorConfig,
+  type TurnCollectorFlushReason
 } from "./turnCollector.js";
 
 export type TurnCollectionReason =
@@ -42,6 +43,19 @@ export interface TurnCollectionDecision {
 
 export interface ConversationBurstTextPart {
   text: string;
+}
+
+export interface ConversationBurstTelemetry {
+  burstId: string;
+  flushReason: TurnCollectorFlushReason;
+  messageCount: number;
+  authorCount: number;
+  totalCharacters: number;
+  openedAt: number;
+  flushedAt: number;
+  collectionLatencyMs: number;
+  collapsedMessageCount: number;
+  sourceMessageIds: string[];
 }
 
 export interface TurnIngressSubmission<T> {
@@ -105,6 +119,26 @@ export function buildConversationBurstText(
     .filter(Boolean)
     .join("\n");
   return text.length <= maximum ? text : text.slice(text.length - maximum);
+}
+
+export function summarizeConversationBurst<T>(
+  burst: ConversationBurst<T>,
+  authorIds: readonly string[]
+): ConversationBurstTelemetry {
+  const sourceMessageIds = [...burst.itemIds];
+  const authors = new Set(authorIds.map((item) => item.trim()).filter(Boolean));
+  return {
+    burstId: buildConversationBurstId(sourceMessageIds),
+    flushReason: burst.reason,
+    messageCount: sourceMessageIds.length,
+    authorCount: authors.size,
+    totalCharacters: Math.max(0, burst.totalCharacters),
+    openedAt: burst.openedAt,
+    flushedAt: burst.flushedAt,
+    collectionLatencyMs: Math.max(0, burst.flushedAt - burst.openedAt),
+    collapsedMessageCount: Math.max(0, sourceMessageIds.length - 1),
+    sourceMessageIds
+  };
 }
 
 export class TurnIngressCoordinator<T> {
