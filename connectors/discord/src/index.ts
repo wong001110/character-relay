@@ -10,6 +10,7 @@ import {
   type Message
 } from "discord.js";
 
+import { resolveExplicitAudiencePreflight } from "./audiencePreflight.js";
 import { loadConfig } from "./config.js";
 import { ContextBuffer } from "./contextBuffer.js";
 import {
@@ -64,6 +65,13 @@ import type {
   DiscordSocialTurnStepReply,
   DiscordStickerContent
 } from "./types.js";
+import type { ConversationBurst } from "./turnCollector.js";
+import {
+  TurnIngressCoordinator,
+  buildConversationBurstId,
+  buildConversationBurstText,
+  decideTurnCollection
+} from "./turnIngress.js";
 import { DiscordWebhookManager } from "./webhookManager.js";
 
 const config = loadConfig();
@@ -126,6 +134,12 @@ const client = new Client({
   intents,
   partials: [Partials.Channel, Partials.Message]
 });
+interface CollectedDiscordTurn {
+  source: Message<true>;
+  originalText: string;
+  authorDisplayName: string;
+}
+
 const context = new ContextBuffer(config.maxContextMessages);
 const queues = new Map<string, Promise<void>>();
 const processedMessages = new Map<string, number>();
@@ -146,6 +160,20 @@ let dedupeTimer: NodeJS.Timeout | undefined;
 let lastGatewayMessageAt: string | null = null;
 let lastGatewayMessageId: string | null = null;
 let lastGatewayMentionedBot = false;
+const turnIngress = new TurnIngressCoordinator<CollectedDiscordTurn>(
+  {
+    enabled: config.smartParticipationTurnCollectorEnabled,
+    quietWindowMs: config.smartParticipationTurnCollectorQuietMs,
+    maxWaitMs: config.smartParticipationTurnCollectorMaxWaitMs,
+    maxMessages: config.smartParticipationTurnCollectorMaxMessages,
+    maxCharacters: config.smartParticipationTurnCollectorMaxCharacters
+  },
+  enqueue,
+  (error, scopeKey) => {
+    lastError = error instanceof Error ? error.message : String(error);
+    log("Discord Turn Collector ingress failed.", { scopeKey, error: lastError });
+  }
+);
 
 const catalogChannelTypes = new Set<ChannelType>([
   ChannelType.GuildText,
@@ -1848,7 +1876,29 @@ async function processMessage(
     guildMessage.member?.displayName ??
     guildMessage.author.globalName ??
     guildMessage.author.username;
-  enqueue(key, async () => {
+  const collectedTurn: CollectedDiscordTurn = {
+    source: guildMessage,
+    originalText,
+    authorDisplayName
+  };
+  const executeQueued = async (
+    burst: ConversationBurst<CollectedDiscordTurn> | null,
+    interactionClaimOverride: DiscordInteractionClaim | null
+  ): Promise<void> => {
+    if (burst) {
+      for (const item of burst.items.slice(0, -1)) {
+        context.push(key, {
+          message_id: item.source.id,
+          author_id: item.source.author.id,
+          author_display_name: item.authorDisplayName,
+          text: item.originalText,
+          emojis: [],
+          stickers: [],
+          created_at: item.source.createdAt.toISOString(),
+          is_bot: false
+        });
+      }
+    }
     const [emojis, stickers] = await Promise.all([
       resolveMessageEmojis(guildMessage),
       resolveMessageStickers(guildMessage)
@@ -1865,25 +1915,45 @@ async function processMessage(
     };
     context.push(key, contextMessage);
 
-    let interactionClaim: DiscordInteractionClaim = {
+    const participationText = burst
+      ? buildConversationBurstText(
+          burst.items.map((item) => ({ text: item.originalText })),
+          4_000
+        )
+      : originalText;
+    const participationBurstId = burst ? buildConversationBurstId(burst.itemIds) : "";
+    const participationBurstMessages = burst
+      ? burst.items.map((item) => ({
+          message_id: item.source.id,
+          author_id: item.source.author.id,
+          author_display_name: item.authorDisplayName,
+          text: item.originalText,
+          created_at: item.source.createdAt.toISOString(),
+          reply_to_message_id: item.source.reference?.messageId ?? ""
+        }))
+      : [];
+
+    let interactionClaim: DiscordInteractionClaim = interactionClaimOverride ?? {
       claimed: false,
       run_id: null,
       session: null
     };
-    try {
-      interactionClaim = await relay.claimInteraction({
-        guild_id: guildMessage.guildId,
-        channel_id: location.channelId,
-        target_user_id: guildMessage.author.id,
-        source_message_id: guildMessage.id
-      });
-    } catch (error) {
-      log("Unable to check Interaction Sessions; continuing normal routing.", {
-        guildId: guildMessage.guildId,
-        channelId: location.channelId,
-        sourceMessageId: guildMessage.id,
-        error: error instanceof Error ? error.message : String(error)
-      });
+    if (!interactionClaimOverride) {
+      try {
+        interactionClaim = await relay.claimInteraction({
+          guild_id: guildMessage.guildId,
+          channel_id: location.channelId,
+          target_user_id: guildMessage.author.id,
+          source_message_id: guildMessage.id
+        });
+      } catch (error) {
+        log("Unable to check Interaction Sessions; continuing normal routing.", {
+          guildId: guildMessage.guildId,
+          channelId: location.channelId,
+          sourceMessageId: guildMessage.id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
     }
     if (
       await processInteractionSession(
@@ -1930,7 +2000,7 @@ async function processMessage(
     if (
       config.smartParticipationEnabled &&
       !replyTarget.deploymentId &&
-      originalText.trim()
+      participationText.trim()
     ) {
       const smartDeploymentIds = candidates
         .filter((item) => item.participation_mode === "smart")
@@ -1938,8 +2008,16 @@ async function processMessage(
       if (smartDeploymentIds.length) {
         try {
           const semantic = await relay.scoreSmartParticipation({
-            message: originalText,
-            deployment_ids: smartDeploymentIds
+            message: participationText,
+            deployment_ids: smartDeploymentIds,
+            guild_id: guildMessage.guildId,
+            channel_id: location.channelId,
+            thread_id: location.threadId,
+            message_id: guildMessage.id,
+            author_id: guildMessage.author.id,
+            reply_to_message_id: guildMessage.reference?.messageId ?? "",
+            burst_id: participationBurstId,
+            burst_messages: participationBurstMessages
           });
           if (semantic.available) {
             for (const candidate of semantic.candidates) {
@@ -1997,7 +2075,7 @@ async function processMessage(
 
     const audience = resolveAudience(
       candidates,
-      originalText,
+      participationText,
       replyTarget.deploymentId,
       config.groupAddressAliases,
       semanticScores
@@ -2237,11 +2315,18 @@ async function processMessage(
       const sourceDisplayName = sourceDeployment
         ? deploymentDisplayName(sourceDeployment)
         : authorDisplayName;
+      const smartParticipationAudience =
+        audience.reason === "selected_smart" ||
+        audience.reason === "selected_smart_multiple";
       const turnText = socialSource
         ? continuationAudience?.text ||
           socialSource.text ||
           `${sourceDisplayName} tagged this character without additional readable text.`
-        : (addressedToMultiple ? originalText : audience.text) ||
+        : (smartParticipationAudience
+            ? originalText
+            : addressedToMultiple
+              ? originalText
+              : audience.text) ||
           originalText ||
           (emojis.length || stickers.length
             ? "The user addressed the character with interpreted Discord expression content and no text."
@@ -2590,6 +2675,80 @@ async function processMessage(
         );
       }
     }
+  };
+
+  const explicitAudience = resolveExplicitAudiencePreflight(
+    candidates,
+    originalText,
+    null,
+    config.groupAddressAliases
+  );
+  const customEmojiCount = parseCustomEmojiTokens(guildMessage.content).length;
+  const smartCandidateCount = candidates.filter(
+    (item) => item.participation_mode === "smart"
+  ).length;
+  const collectionDecision = decideTurnCollection({
+    collectorEnabled: turnIngress.enabled,
+    smartParticipationEnabled: config.smartParticipationEnabled,
+    recovery: Boolean(options?.recovery),
+    mentionedBot,
+    hasReplyReference: Boolean(guildMessage.reference?.messageId),
+    explicitAudience: Boolean(explicitAudience),
+    hasReadableText: Boolean(originalText.trim()),
+    customEmojiCount,
+    stickerCount: guildMessage.stickers.size,
+    attachmentCount: guildMessage.attachments.size,
+    embedCount: guildMessage.embeds.length,
+    hasUrl: /https?:\/\//iu.test(guildMessage.content),
+    smartCandidateCount
+  });
+  let preclaimedInteraction: DiscordInteractionClaim | null = null;
+
+  if (collectionDecision.collect) {
+    log("Smart Participation message entered the Turn Collector.", {
+      guildId: guildMessage.guildId,
+      channelId: location.channelId,
+      threadId: location.threadId || null,
+      sourceMessageId: guildMessage.id,
+      pendingBurstScopes: turnIngress.pendingBurstScopeCount,
+      quietWindowMs: config.smartParticipationTurnCollectorQuietMs
+    });
+  }
+
+  turnIngress.submit(key, {
+    id: guildMessage.id,
+    value: collectedTurn,
+    characters: originalText.length,
+    receivedAt: guildMessage.createdTimestamp,
+    collect: collectionDecision.collect,
+    ...(collectionDecision.collect
+      ? { prepareCollection: async () => {
+          try {
+            const claim = await relay.claimInteraction({
+              guild_id: guildMessage.guildId,
+              channel_id: location.channelId,
+              target_user_id: guildMessage.author.id,
+              source_message_id: guildMessage.id
+            });
+            if (claim.claimed) {
+              preclaimedInteraction = claim;
+              return false;
+            }
+            return true;
+          } catch (error) {
+            log("Unable to preflight Interaction Sessions; bypassing Turn Collector.", {
+              guildId: guildMessage.guildId,
+              channelId: location.channelId,
+              sourceMessageId: guildMessage.id,
+              error: error instanceof Error ? error.message : String(error)
+            });
+            return false;
+          }
+        } }
+      : {}),
+    execute: async (burst) => {
+      await executeQueued(burst, preclaimedInteraction);
+    }
   });
 }
 
@@ -2674,6 +2833,11 @@ const healthServer = createServer((request, response) => {
       smart_participation_enabled: config.smartParticipationEnabled,
       smart_participation_max_participants: config.smartParticipationMaxParticipants,
       smart_participation_semantic_enabled: true,
+      smart_participation_turn_collector_enabled: turnIngress.enabled,
+      smart_participation_turn_collector_pending_scopes:
+        turnIngress.pendingBurstScopeCount,
+      smart_participation_ingress_pending_scopes:
+        turnIngress.pendingPreflightScopeCount,
       bot_tag_conversations_enabled: config.botTagConversationsEnabled,
       bot_tag_max_depth: config.botTagMaxDepth,
       bot_tag_max_responses: config.botTagMaxResponses,
@@ -2809,6 +2973,9 @@ async function shutdown(signal: string): Promise<void> {
   ready = false;
   stateSynchronized = false;
   recoveryLoop?.stop();
+  client.removeAllListeners(Events.MessageCreate);
+  await turnIngress.shutdown(true);
+  await Promise.all([...queues.values()].map((task) => task.catch(() => undefined)));
   await eventReporter.stop();
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   if (dedupeTimer) clearInterval(dedupeTimer);

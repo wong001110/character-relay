@@ -52,6 +52,28 @@ export interface DiscordSemanticParticipationResult {
   candidates: DiscordSemanticParticipationCandidate[];
 }
 
+export interface DiscordParticipationBurstMessage {
+  message_id: string;
+  author_id: string;
+  author_display_name: string;
+  text: string;
+  created_at: string;
+  reply_to_message_id: string;
+}
+
+export interface DiscordSmartParticipationScoreRequest {
+  message: string;
+  deployment_ids: string[];
+  guild_id?: string;
+  channel_id?: string;
+  thread_id?: string;
+  message_id?: string;
+  author_id?: string;
+  reply_to_message_id?: string;
+  burst_id?: string;
+  burst_messages?: DiscordParticipationBurstMessage[];
+}
+
 interface DiscordV4ParticipationCandidate {
   deployment_id: string;
   character_card_id: string;
@@ -332,15 +354,15 @@ export class RelayClient {
     );
   }
 
-  async scoreSmartParticipation(payload: {
-    message: string;
-    deployment_ids: string[];
-  }): Promise<DiscordSemanticParticipationResult> {
+  async scoreSmartParticipation(
+    payload: DiscordSmartParticipationScoreRequest
+  ): Promise<DiscordSemanticParticipationResult> {
     const cachedCandidates = payload.deployment_ids.flatMap((deploymentId) => {
       const deployment = this.deploymentCache.get(deploymentId);
       return deployment ? [deployment] : [];
     });
-    if (cachedCandidates.length === payload.deployment_ids.length) {
+    const hasBurstContext = Boolean(payload.burst_id || payload.burst_messages?.length);
+    if (!hasBurstContext && cachedCandidates.length === payload.deployment_ids.length) {
       const explicit = resolveExplicitAudiencePreflight(
         cachedCandidates,
         payload.message,
@@ -382,7 +404,15 @@ export class RelayClient {
           method: "POST",
           body: JSON.stringify({
             connection_id: this.connectionId,
+            guild_id: payload.guild_id ?? "",
+            channel_id: payload.channel_id ?? "",
+            thread_id: payload.thread_id ?? "",
+            message_id: payload.message_id ?? "",
+            author_id: payload.author_id ?? "",
+            reply_to_message_id: payload.reply_to_message_id ?? "",
             message: payload.message,
+            burst_id: payload.burst_id ?? "",
+            burst_messages: payload.burst_messages ?? [],
             candidates: payload.deployment_ids.map((deploymentId) => {
               const preflight = hardPreflightById.get(deploymentId);
               return {
@@ -416,7 +446,11 @@ export class RelayClient {
       "/api/smart-participation/semantic-score",
       {
         method: "POST",
-        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+        body: JSON.stringify({
+          connection_id: this.connectionId,
+          message: payload.message,
+          deployment_ids: payload.deployment_ids
+        })
       }
     );
   }
