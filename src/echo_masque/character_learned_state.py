@@ -11,7 +11,7 @@ import json
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import uuid4
 
 from sqlalchemy import delete, select
@@ -33,7 +33,10 @@ LearnedSubjectType = Literal["topic", "concept", "actor", "character", "event", 
 
 _MAX_PROVENANCE = 8
 _LEARNING_RATE = 0.25
-_CONTRADICTION_MINIMUM = 0.20
+_CONTRADICTION_MINIMUM = 0.15
+_MIN_RETENTION_SECONDS = 24 * 60 * 60
+_MAX_RETENTION_SECONDS = 180 * 24 * 60 * 60
+_RETENTION_HALF_LIVES = 8
 
 _HALF_LIFE_SECONDS: dict[LearnedStateType, int] = {
     "interest": 30 * 24 * 60 * 60,
@@ -104,6 +107,13 @@ def _decay_factor(elapsed_seconds: float, half_life_seconds: int) -> float:
     return math.pow(0.5, elapsed_seconds / max(1, half_life_seconds))
 
 
+def _retention_seconds(half_life_seconds: int) -> int:
+    return max(
+        _MIN_RETENTION_SECONDS,
+        min(_MAX_RETENTION_SECONDS, half_life_seconds * _RETENTION_HALF_LIVES),
+    )
+
+
 def _provenance(value: str) -> list[dict[str, Any]]:
     try:
         decoded = json.loads(value)
@@ -148,13 +158,15 @@ class CharacterLearnedStateService:
         subject_key = _canonical(evidence.subject_key)
         source_type = _compact(evidence.source_type, 40)
         if not owner_id or not character_card_id or not subject_key or not source_type:
-            raise ValueError("Learned State evidence requires owner, character, subject, and source.")
+            raise ValueError(
+                "Learned State evidence requires owner, character, subject, and source."
+            )
         delta = _clamp(evidence.delta, -1.0, 1.0)
         evidence_confidence = _clamp(evidence.confidence, 0.0, 1.0)
         if delta == 0.0 or evidence_confidence == 0.0:
             raise ValueError("Learned State evidence must carry non-zero bounded signal.")
         half_life = self.half_life_seconds(evidence.state_type)
-        retention_seconds = min(180 * 24 * 60 * 60, half_life * 4)
+        retention_seconds = _retention_seconds(half_life)
 
         with self.database.session() as session:
             record = session.scalar(
@@ -317,8 +329,8 @@ class CharacterLearnedStateService:
                 )
             )
             session.commit()
-            rowcount = getattr(result, "rowcount", 0)
-            return int(rowcount or 0) if isinstance(result, CursorResult) else 0
+            rowcount = cast(CursorResult[Any], result).rowcount or 0
+            return int(rowcount)
 
     @classmethod
     def _view(
