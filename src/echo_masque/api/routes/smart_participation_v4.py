@@ -13,11 +13,17 @@ from echo_masque.api.smart_participation_v4_schemas import (
     SmartParticipationResolveCandidateView,
     SmartParticipationResolveRequest,
     SmartParticipationResolveView,
+    SmartParticipationSpeakerPlanItem,
 )
 from echo_masque.config import Settings
 from echo_masque.conversation_graph_shadow import (
     ConversationGraphShadowService,
     GraphShadowObservation,
+)
+from echo_masque.participation_shadow_v4 import (
+    ParticipationShadowCandidate,
+    ParticipationShadowScore,
+    resolve_participation_shadow,
 )
 from echo_masque.persistence import DeploymentRepository
 from echo_masque.persistence.conversation_graph_repository import ConversationGraphRepository
@@ -83,6 +89,7 @@ def _candidate_view(
     *,
     character_card_id: str = "",
     semantic: SemanticParticipationScore | None = None,
+    shadow: ParticipationShadowScore | None = None,
 ) -> SmartParticipationResolveCandidateView:
     return SmartParticipationResolveCandidateView(
         deployment_id=requested.deployment_id,
@@ -90,8 +97,14 @@ def _candidate_view(
         eligible=requested.eligible,
         deterministic_score=requested.deterministic_score,
         minimum_score=requested.minimum_score,
+        deterministic_signals=dict(requested.signals),
         raw_e5_relevance=semantic.relevance if semantic is not None else 0.0,
         profile_ready=semantic.profile_ready if semantic is not None else False,
+        semantic_points=shadow.semantic_points if shadow is not None else 0.0,
+        shadow_final_score=(
+            shadow.final_score if shadow is not None else requested.deterministic_score
+        ),
+        shadow_selected=shadow.selected if shadow is not None else False,
     )
 
 
@@ -126,12 +139,7 @@ def resolve_smart_participation_v4(
     request: Request,
     authorization: Annotated[str | None, Header()] = None,
 ) -> SmartParticipationResolveView:
-    """Return bounded V4 semantic evidence without yet granting speaker admission.
-
-    This endpoint is the migration target for the narrow `/semantic-score` call. During the first
-    V4 checkpoint it remains evidence-only: deterministic admission stays Connector authority.
-    Graph observation is shadow-only and cannot affect scores or admission.
-    """
+    """Return bounded V4 evidence plus a non-authoritative deterministic/E5 shadow plan."""
 
     _authorize_connector(request, authorization)
     deployment_repository = _deployment_repository(request)
@@ -178,6 +186,31 @@ def resolve_smart_participation_v4(
         except SemanticEmbeddingUnavailable:
             reason = "embedding_unavailable"
 
+    shadow_result = resolve_participation_shadow(
+        [
+            ParticipationShadowCandidate(
+                deployment_id=requested.deployment_id,
+                eligible=bool(
+                    requested.eligible
+                    and (record := record_by_id.get(requested.deployment_id)) is not None
+                    and record.participation_mode == "smart"
+                ),
+                deterministic_score=requested.deterministic_score,
+                minimum_score=requested.minimum_score,
+                signals=dict(requested.signals),
+                raw_e5_relevance=(
+                    semantic.relevance
+                    if (semantic := score_by_id.get(requested.deployment_id)) is not None
+                    else 0.0
+                ),
+                profile_ready=semantic.profile_ready if semantic is not None else False,
+            )
+            for requested in payload.candidates
+        ],
+        minimum_margin=payload.minimum_margin,
+        max_participants=payload.max_participants,
+    )
+    shadow_by_id = {item.deployment_id: item for item in shadow_result.scores}
     candidates = [
         _candidate_view(
             requested,
@@ -187,6 +220,7 @@ def resolve_smart_participation_v4(
                 else ""
             ),
             semantic=score_by_id.get(requested.deployment_id),
+            shadow=shadow_by_id.get(requested.deployment_id),
         )
         for requested in payload.candidates
     ]
@@ -199,9 +233,18 @@ def resolve_smart_participation_v4(
         burst_message_count=len(payload.burst_messages) or (1 if payload.message else 0),
         analysis_chars=len(analysis),
         candidates=candidates,
-        # Final speaker planning is deliberately not claimed until deterministic scoring moves
-        # server-side. Shadow observation is persisted but is not selection evidence yet.
+        # The Connector remains authoritative. This plan is comparison-only until parity evidence
+        # is acceptable and the Runtime migration is explicitly enabled.
         speaker_plan=[],
+        shadow_speaker_plan=[
+            SmartParticipationSpeakerPlanItem(
+                deployment_id=item.deployment_id,
+                turn_role=item.turn_role,
+                reason=item.reason,
+            )
+            for item in shadow_result.plan
+        ],
+        speaker_plan_authoritative=False,
         graph_shadow_observed=graph_shadow.observed,
         graph_shadow_node_count=graph_shadow.node_count,
         graph_shadow_edge_count=graph_shadow.edge_count,
