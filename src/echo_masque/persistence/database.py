@@ -13,6 +13,10 @@ from echo_masque.persistence.conversation_graph_models import (
     ConversationGraphNodeRecord,
 )
 from echo_masque.persistence.models import Base, StorageMetadataRecord
+from echo_masque.persistence.smart_participation_state_models import (
+    SmartParticipationDeploymentStateRecord,
+    SmartParticipationScopeStateRecord,
+)
 from echo_masque.persistence.wiki_page_models import WikiPageRecord
 
 
@@ -34,6 +38,8 @@ class Database:
             ConversationGraphNodeRecord,
             ConversationGraphEdgeRecord,
             CharacterLearnedStateRecord,
+            SmartParticipationScopeStateRecord,
+            SmartParticipationDeploymentStateRecord,
         )
         Base.metadata.create_all(self.engine)
 
