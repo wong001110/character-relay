@@ -10,6 +10,7 @@ from echo_masque import __version__
 
 LangGraphMode = Literal["off", "condition_watch", "character_turn", "social_turn"]
 LangGraphWorkflow = Literal["condition_watch", "character_turn", "social_turn"]
+CharacterTurnIntelligenceMode = Literal["off", "shadow", "active"]
 _LANGGRAPH_MODE_RANK: dict[str, int] = {
     "off": 0,
     "condition_watch": 1,
@@ -40,6 +41,12 @@ class Settings(BaseSettings):
     # One cumulative rollout value controls LangGraph adoption. Moving forward through the
     # modes keeps already-migrated workflows enabled; "off" is the global rollback state.
     langgraph_mode: LangGraphMode = "off"
+
+    # Character-turn Utility consolidation is independently rollable because it changes the
+    # decision point for ambiguous Knowledge routing and pending Tool continuation. "off" keeps
+    # the legacy standalone Judges; "shadow" computes one unified decision for comparison only;
+    # "active" may apply accepted fields while each rejected field falls back independently.
+    turn_intelligence_character_context_mode: CharacterTurnIntelligenceMode = "off"
 
     # Shared semantic embedding runtime. semantic_embedding_enabled allows Knowledge RAG,
     # Media Recall, and Expression retrieval to use the same local multilingual E5 model
