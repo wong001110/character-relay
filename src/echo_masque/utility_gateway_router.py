@@ -302,6 +302,7 @@ class UtilityGatewayRouter:
                 continue
             if status in {"unavailable", "exhausted", "cooling_down"}:
                 continue
+            score: tuple[float, ...]
             if config.routing_strategy == "fixed_priority":
                 score = (float(member.priority),)
             else:
