@@ -37,6 +37,28 @@ KnowledgeRouteStatus = Literal[
     "not_relevant",
     "unavailable",
 ]
+KnowledgeAssessmentRoute = Literal["on", "off", "gray"]
+
+
+@dataclass(frozen=True, slots=True)
+class KnowledgeRouteAssessment:
+    """Deterministic/sparse/E5 Knowledge evidence with no LLM side effect."""
+
+    status: KnowledgeRouteStatus
+    route: KnowledgeAssessmentRoute
+    fallback_should_retrieve: bool
+    eligible_base_count: int
+    best_sparse_score: float = 0.0
+    best_dense_score: float = 0.0
+    matched_knowledge_base_id: str = ""
+    route_labels: tuple[str, ...] = ()
+    current_message: str = ""
+    normalized_query: str = ""
+    is_contextual: bool = False
+
+    @property
+    def gray_zone(self) -> bool:
+        return self.route == "gray"
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,7 +231,7 @@ class KnowledgeRouteGate:
             "judge_latency_ms": decision.latency_ms,
         }
 
-    def decide(
+    def assess(
         self,
         *,
         owner_id: str,
@@ -219,7 +241,9 @@ class KnowledgeRouteGate:
         thread_id: str,
         character_card_id: str,
         query: str,
-    ) -> KnowledgeRouteDecision:
+    ) -> KnowledgeRouteAssessment:
+        """Return route evidence without invoking any model Judge."""
+
         raw_lines = [item.strip() for item in query.splitlines() if item.strip()]
         current_message = raw_lines[-1] if raw_lines else " ".join(query.split())
         is_contextual = len(raw_lines) > 1
@@ -233,11 +257,35 @@ class KnowledgeRouteGate:
             character_card_id=character_card_id,
         )
         if not self._semantic_enabled:
-            return KnowledgeRouteDecision("disabled", True, len(eligible))
+            return KnowledgeRouteAssessment(
+                "disabled",
+                "on",
+                True,
+                len(eligible),
+                current_message=current_message,
+                normalized_query=normalized,
+                is_contextual=is_contextual,
+            )
         if not eligible:
-            return KnowledgeRouteDecision("no_eligible_bases", False, 0)
+            return KnowledgeRouteAssessment(
+                "no_eligible_bases",
+                "off",
+                False,
+                0,
+                current_message=current_message,
+                normalized_query=normalized,
+                is_contextual=is_contextual,
+            )
         if not normalized:
-            return KnowledgeRouteDecision("not_relevant", False, len(eligible))
+            return KnowledgeRouteAssessment(
+                "not_relevant",
+                "off",
+                False,
+                len(eligible),
+                current_message=current_message,
+                normalized_query=normalized,
+                is_contextual=is_contextual,
+            )
 
         routes = [(base, self._route_text(base)) for base in eligible]
         route_labels = tuple(
@@ -254,36 +302,50 @@ class KnowledgeRouteGate:
         ]
         best_sparse, sparse_base = max(sparse_scores, key=lambda item: item[0])
         if best_sparse >= _ROUTE_SPARSE_STRONG and not is_contextual:
-            return KnowledgeRouteDecision(
+            return KnowledgeRouteAssessment(
                 "matched",
+                "on",
                 True,
                 len(eligible),
                 best_sparse_score=round(best_sparse, 6),
                 matched_knowledge_base_id=sparse_base.id,
+                route_labels=route_labels,
+                current_message=current_message,
+                normalized_query=normalized,
+                is_contextual=False,
             )
 
+        routing = self._routing_judge.runtime.semantic_routing_config()
         try:
             encoder = self._get_encoder()
             query_vector = encoder.embed_query(normalized)
             dense_scores: list[tuple[float, KnowledgeBaseRecord]] = []
             for base, route_text in routes:
                 vector = self._route_vector(
-                    base=base, route_text=route_text, encoder=encoder
+                    base=base,
+                    route_text=route_text,
+                    encoder=encoder,
                 )
                 dense_scores.append((_cosine(query_vector, vector), base))
         except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
-            routing = self._routing_judge.runtime.semantic_routing_config()
-            if routing.enabled and routing.rag_enabled:
-                retrieve = (
-                    False if is_contextual else best_sparse >= _ROUTE_SPARSE_STRONG
-                )
-            else:
-                retrieve = True
-            return KnowledgeRouteDecision(
+            fallback = (
+                False
+                if routing.enabled and routing.rag_enabled and is_contextual
+                else best_sparse >= _ROUTE_SPARSE_STRONG
+                if routing.enabled and routing.rag_enabled
+                else True
+            )
+            return KnowledgeRouteAssessment(
                 "unavailable",
-                retrieve,
+                "on" if fallback else "off",
+                fallback,
                 len(eligible),
                 best_sparse_score=round(best_sparse, 6),
+                matched_knowledge_base_id=sparse_base.id if fallback else "",
+                route_labels=route_labels,
+                current_message=current_message,
+                normalized_query=normalized,
+                is_contextual=is_contextual,
             )
 
         best_dense, dense_base = max(dense_scores, key=lambda item: item[0])
@@ -291,48 +353,126 @@ class KnowledgeRouteGate:
             best_dense >= _ROUTE_DENSE_WITH_SPARSE_MINIMUM
             and best_sparse >= _ROUTE_SPARSE_SUPPORT
         )
-        routing = self._routing_judge.runtime.semantic_routing_config()
-        judge: RagJudgeDecision | None = None
-        if routing.enabled and routing.rag_enabled:
-            if is_contextual:
-                judge = self._routing_judge.decide(
-                    current_message=current_message,
-                    contextual_query=normalized,
-                    route_labels=route_labels,
-                    dense_score=best_dense,
-                    sparse_score=best_sparse,
-                )
-                matched = judge.need_knowledge if judge is not None else False
-            elif best_dense >= routing.rag_on_threshold:
-                matched = True
-            elif (
-                best_dense <= routing.rag_off_threshold
-                and best_sparse < _ROUTE_SPARSE_SUPPORT
-            ):
-                matched = False
-            else:
-                judge = self._routing_judge.decide(
-                    current_message=current_message,
-                    contextual_query=normalized,
-                    route_labels=route_labels,
-                    dense_score=best_dense,
-                    sparse_score=best_sparse,
-                )
-                matched = (
-                    judge.need_knowledge if judge is not None else legacy_matched
-                )
-        else:
-            matched = legacy_matched
-
-        return KnowledgeRouteDecision(
-            "matched" if matched else "not_relevant",
-            matched,
-            len(eligible),
+        common = dict(
+            eligible_base_count=len(eligible),
             best_sparse_score=round(best_sparse, 6),
             best_dense_score=round(best_dense, 6),
-            matched_knowledge_base_id=dense_base.id if matched else "",
-            **self._judge_values(judge),
+            matched_knowledge_base_id=dense_base.id,
+            route_labels=route_labels,
+            current_message=current_message,
+            normalized_query=normalized,
+            is_contextual=is_contextual,
+        )
+        if not routing.enabled or not routing.rag_enabled:
+            return KnowledgeRouteAssessment(
+                "matched" if legacy_matched else "not_relevant",
+                "on" if legacy_matched else "off",
+                legacy_matched,
+                **common,
+            )
+        if is_contextual:
+            return KnowledgeRouteAssessment(
+                "not_relevant",
+                "gray",
+                False,
+                **common,
+            )
+        if best_dense >= routing.rag_on_threshold:
+            return KnowledgeRouteAssessment(
+                "matched",
+                "on",
+                True,
+                **common,
+            )
+        if best_dense <= routing.rag_off_threshold and best_sparse < _ROUTE_SPARSE_SUPPORT:
+            return KnowledgeRouteAssessment(
+                "not_relevant",
+                "off",
+                False,
+                **common,
+            )
+        return KnowledgeRouteAssessment(
+            "matched" if legacy_matched else "not_relevant",
+            "gray",
+            legacy_matched,
+            **common,
+        )
+
+    @staticmethod
+    def _decision_from_assessment(
+        assessment: KnowledgeRouteAssessment,
+        *,
+        should_retrieve: bool | None = None,
+        judge: RagJudgeDecision | None = None,
+    ) -> KnowledgeRouteDecision:
+        retrieve = (
+            assessment.route == "on"
+            if should_retrieve is None
+            else bool(should_retrieve)
+        )
+        status: KnowledgeRouteStatus
+        if assessment.status in {"disabled", "no_eligible_bases", "unavailable"}:
+            status = assessment.status
+        else:
+            status = "matched" if retrieve else "not_relevant"
+        return KnowledgeRouteDecision(
+            status,
+            retrieve,
+            assessment.eligible_base_count,
+            best_sparse_score=assessment.best_sparse_score,
+            best_dense_score=assessment.best_dense_score,
+            matched_knowledge_base_id=(
+                assessment.matched_knowledge_base_id if retrieve else ""
+            ),
+            **KnowledgeRouteGate._judge_values(judge),
+        )
+
+    def decide(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        channel_id: str,
+        thread_id: str,
+        character_card_id: str,
+        query: str,
+    ) -> KnowledgeRouteDecision:
+        assessment = self.assess(
+            owner_id=owner_id,
+            connection_id=connection_id,
+            guild_id=guild_id,
+            channel_id=channel_id,
+            thread_id=thread_id,
+            character_card_id=character_card_id,
+            query=query,
+        )
+        if not assessment.gray_zone:
+            return self._decision_from_assessment(assessment)
+
+        judge = self._routing_judge.decide(
+            current_message=assessment.current_message,
+            contextual_query=assessment.normalized_query,
+            route_labels=assessment.route_labels,
+            dense_score=assessment.best_dense_score,
+            sparse_score=assessment.best_sparse_score,
+        )
+        matched = (
+            judge.need_knowledge
+            if judge is not None
+            else assessment.fallback_should_retrieve
+        )
+        return self._decision_from_assessment(
+            assessment,
+            should_retrieve=matched,
+            judge=judge,
         )
 
 
-__all__ = ["KnowledgeRouteDecision", "KnowledgeRouteGate", "KnowledgeRouteStatus"]
+__all__ = [
+    "KnowledgeAssessmentRoute",
+    "KnowledgeRouteAssessment",
+    "KnowledgeRouteDecision",
+    "KnowledgeRouteGate",
+    "KnowledgeRouteStatus",
+]
