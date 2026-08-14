@@ -66,6 +66,19 @@ _TOOL_INTENT_VECTOR_CACHE: dict[tuple[str, int, str], list[float]] = {}
 
 
 @dataclass(frozen=True, slots=True)
+class PendingActionContinuationEvidence:
+    """One already-authorized pending action that needs only a gray-zone continue decision."""
+
+    tool_id: str
+    current_message: str
+    active_topic_label: str
+    active_topic_summary: str
+    pending_intent_summary: str
+    pending_source_message_id: str
+    continuation_strength: float
+
+
+@dataclass(frozen=True, slots=True)
 class ToolContinuationPlan:
     """Turn-local Tool relevance derived from persistent topic state."""
 
@@ -75,6 +88,7 @@ class ToolContinuationPlan:
     blocked_side_effect_intents: tuple[str, ...] = ()
     continuity_reason: str = ""
     retry_score: float = 0.0
+    pending_action_evidence: PendingActionContinuationEvidence | None = None
 
 
 def detect_side_effect_tool_intents(
@@ -171,6 +185,42 @@ class ToolContinuationService:
             )
         return False
 
+    @staticmethod
+    def pending_action_evidence(
+        *,
+        payload: DiscordInboundMessage,
+        active: ConversationTopicSnapshot,
+        decision: TopicContinuityDecision,
+        pending_before: tuple[ConversationPendingAction, ...],
+        assigned: set[str],
+    ) -> PendingActionContinuationEvidence | None:
+        """Return exactly one authorized gray-zone action without calling Utility."""
+
+        if not decision.same_topic:
+            return None
+        if decision.acts.cancel_previous_action >= _CONTINUATION_ACT_MINIMUM:
+            return None
+        continuation_strength = max(
+            decision.acts.retry_previous_action,
+            decision.acts.continue_previous_topic,
+            decision.acts.clarify_previous_message,
+        )
+        if not (_UTILITY_CONTINUATION_FLOOR <= continuation_strength < _CONTINUATION_ACT_MINIMUM):
+            return None
+        eligible = [action for action in pending_before if action.tool_id in assigned]
+        if len(eligible) != 1:
+            return None
+        action = eligible[0]
+        return PendingActionContinuationEvidence(
+            tool_id=action.tool_id,
+            current_message=payload.text[:2200],
+            active_topic_label=active.topic_label[:300],
+            active_topic_summary=active.summary[:1200],
+            pending_intent_summary=action.intent_summary[:500],
+            pending_source_message_id=action.source_message_id[:200],
+            continuation_strength=round(continuation_strength, 6),
+        )
+
     def _utility_gateway(self) -> UtilityGatewayRouter:
         if self._utility_gateway_override is not None:
             return self._utility_gateway_override
@@ -197,47 +247,23 @@ class ToolContinuationService:
             )
         )
 
-    def _utility_continuation(
+    def resolve_pending_action_evidence(
         self,
-        *,
-        payload: DiscordInboundMessage,
-        active: ConversationTopicSnapshot,
-        decision: TopicContinuityDecision,
-        pending_before: tuple[ConversationPendingAction, ...],
-        assigned: set[str],
+        evidence: PendingActionContinuationEvidence,
     ) -> str:
-        """Resolve only one already-authorized gray-zone pending action.
+        """Apply the legacy Tool-continuation Utility to one pre-authorized evidence record."""
 
-        Utility never grants Tool assignment or execution authority. Ambiguous multi-action state
-        deliberately stays unresolved so Runtime cannot guess which side effect the user meant.
-        """
-
-        if not decision.same_topic:
-            return ""
-        if decision.acts.cancel_previous_action >= _CONTINUATION_ACT_MINIMUM:
-            return ""
-        continuation_strength = max(
-            decision.acts.retry_previous_action,
-            decision.acts.continue_previous_topic,
-            decision.acts.clarify_previous_message,
-        )
-        if not (_UTILITY_CONTINUATION_FLOOR <= continuation_strength < _CONTINUATION_ACT_MINIMUM):
-            return ""
-        eligible = [action for action in pending_before if action.tool_id in assigned]
-        if len(eligible) != 1:
-            return ""
-        action = eligible[0]
         gateway = self._utility_gateway()
         if not self._capability_enabled(gateway):
             return ""
         prompt = "\n".join(
             (
-                f"Current message: {payload.text[:2200]}",
-                f"Active topic: {active.topic_label[:300]}",
-                f"Topic summary: {active.summary[:1200]}",
-                f"Pending tool id: {action.tool_id}",
-                f"Pending intent: {action.intent_summary[:500]}",
-                f"Continuation score: {continuation_strength:.4f}",
+                f"Current message: {evidence.current_message}",
+                f"Active topic: {evidence.active_topic_label}",
+                f"Topic summary: {evidence.active_topic_summary}",
+                f"Pending tool id: {evidence.tool_id}",
+                f"Pending intent: {evidence.pending_intent_summary}",
+                f"Continuation score: {evidence.continuation_strength:.4f}",
                 "Decide only whether the current message continues this exact pending action.",
             )
         )
@@ -258,11 +284,11 @@ class ToolContinuationService:
             return ""
         if (
             not value.continue_action
-            or value.tool_id != action.tool_id
+            or value.tool_id != evidence.tool_id
             or value.confidence < _UTILITY_CONTINUATION_CONFIDENCE
         ):
             return ""
-        return action.tool_id
+        return evidence.tool_id
 
     def plan_turn(
         self,
@@ -272,6 +298,7 @@ class ToolContinuationService:
         character_card_id: str,
         deployment_id: str,
         assigned_tool_ids: tuple[str, ...],
+        defer_utility: bool = False,
     ) -> ToolContinuationPlan:
         """Observe the turn, persist blocked requests, and expose scoped continuation candidates."""
 
@@ -336,6 +363,7 @@ class ToolContinuationService:
 
         continuation_ids: list[str] = []
         utility_selected = False
+        deferred_evidence: PendingActionContinuationEvidence | None = None
         if active_snapshot is not None and continuity is not None:
             if self._continuation_evidence(
                 payload=payload,
@@ -348,20 +376,26 @@ class ToolContinuationService:
                     if action.tool_id in assigned
                 )
             elif not payload.author_is_bot:
-                utility_tool_id = self._utility_continuation(
+                evidence = self.pending_action_evidence(
                     payload=payload,
                     active=active_snapshot,
                     decision=continuity,
                     pending_before=pending_before,
                     assigned=assigned,
                 )
-                if utility_tool_id:
-                    continuation_ids.append(utility_tool_id)
-                    utility_selected = True
+                if evidence is not None and defer_utility:
+                    deferred_evidence = evidence
+                elif evidence is not None:
+                    utility_tool_id = self.resolve_pending_action_evidence(evidence)
+                    if utility_tool_id:
+                        continuation_ids.append(utility_tool_id)
+                        utility_selected = True
 
         continuity_reason = (
             "utility_tool_continuation"
             if utility_selected
+            else "pending_action_gray_zone"
+            if deferred_evidence is not None
             else continuity.reason
             if continuity is not None
             else ""
@@ -378,10 +412,12 @@ class ToolContinuationService:
                 if continuity is not None
                 else 0.0
             ),
+            pending_action_evidence=deferred_evidence,
         )
 
 
 __all__ = [
+    "PendingActionContinuationEvidence",
     "ToolContinuationPlan",
     "ToolContinuationService",
     "detect_side_effect_tool_intents",
