@@ -1,4 +1,4 @@
-"""Smart Participation V3 semantic-profile tests without loading the production model."""
+"""Smart Participation semantic-profile tests without loading the production model."""
 
 from pathlib import Path
 
@@ -85,6 +85,33 @@ def service(
     )
 
 
+def configure_participation_profile(
+    smart_repository: SmartParticipationRepository,
+    *,
+    character_card_id: str,
+    topics: list[str],
+    keywords: list[str] | None = None,
+    trigger_phrases: list[str] | None = None,
+    avoid_phrases: list[str] | None = None,
+    style: str = "balanced",
+    group_role: str = "independent",
+) -> None:
+    smart_repository.upsert_profile(
+        character_card_id=character_card_id,
+        owner_id="owner-1",
+        enabled=True,
+        style=style,
+        group_role=group_role,
+        topics=topics,
+        keywords=keywords or [],
+        trigger_phrases=trigger_phrases or [],
+        avoid_phrases=avoid_phrases or [],
+        cooldown_seconds=120,
+        preferred_follow_up_character_card_id="",
+        follow_up_window_seconds=30,
+    )
+
+
 def test_semantic_text_uses_character_identity_not_memory_or_forbidden_behavior(
     tmp_path: Path,
 ) -> None:
@@ -108,6 +135,46 @@ def test_semantic_text_uses_character_identity_not_memory_or_forbidden_behavior(
     assert "agents" in text
     assert "PRIVATE MEMORY" not in text
     assert "Never reveal" not in text
+
+
+def test_semantic_profile_v2_adds_positive_participation_configuration_only(
+    tmp_path: Path,
+) -> None:
+    repository, smart_repository = repositories(tmp_path)
+    card_id = create_card(
+        repository,
+        owner_id="owner-1",
+        name="Ning",
+        subtitle="Companion",
+        persona="Quiet everyday companion.",
+        traits=["observant"],
+        tags=["daily life"],
+    )
+    configure_participation_profile(
+        smart_repository,
+        character_card_id=card_id,
+        topics=["photography", "camera lenses"],
+        keywords=["35mm", "street photo"],
+        trigger_phrases=["show me the photo"],
+        avoid_phrases=["PRIVATE HARD BLOCK SHOULD NOT BE EMBEDDED"],
+        style="quiet",
+        group_role="secondary",
+    )
+    card = repository.get_character_card(card_id, "owner-1")
+    profile = smart_repository.get_profile(card_id, "owner-1")
+    assert card is not None
+    assert profile is not None
+
+    text = participation_semantic_text(card, profile)
+
+    assert "Participation Style: quiet" in text
+    assert "Group Role: secondary" in text
+    assert "photography" in text
+    assert "camera lenses" in text
+    assert "35mm" in text
+    assert "show me the photo" in text
+    assert "PRIVATE HARD BLOCK SHOULD NOT BE EMBEDDED" not in text
+    assert "Cooldown" not in text
 
 
 def test_semantic_profile_is_stored_as_cached_blob_and_reused(tmp_path: Path) -> None:
@@ -184,6 +251,47 @@ def test_character_semantic_change_invalidates_cached_profile(tmp_path: Path) ->
     assert rebuilt is True
     assert vector == [0.0, 1.0, 0.0]
     assert encoder.passage_calls == 2
+
+
+def test_participation_configuration_change_invalidates_cached_profile(tmp_path: Path) -> None:
+    repository, smart_repository = repositories(tmp_path)
+    card_id = create_card(
+        repository,
+        owner_id="owner-1",
+        name="Ning",
+        subtitle="Companion",
+        persona="Quiet everyday companion.",
+        traits=["observant"],
+        tags=["daily life"],
+    )
+    encoder = FakeSemanticEncoder()
+    semantic = service(repository, smart_repository, encoder)
+    semantic.ensure_profile(owner_id="owner-1", character_card_id=card_id)
+    stored_before = smart_repository.get_semantic_profile(card_id, "owner-1")
+    assert stored_before is not None
+
+    configure_participation_profile(
+        smart_repository,
+        character_card_id=card_id,
+        topics=["emotional support"],
+        keywords=["tired"],
+    )
+    inspection = semantic.inspect_profile(
+        owner_id="owner-1",
+        character_card_id=card_id,
+    )
+    vector, rebuilt = semantic.ensure_profile(
+        owner_id="owner-1",
+        character_card_id=card_id,
+    )
+    stored_after = smart_repository.get_semantic_profile(card_id, "owner-1")
+
+    assert inspection.status == "stale"
+    assert rebuilt is True
+    assert vector == [0.0, 1.0, 0.0]
+    assert encoder.passage_calls == 2
+    assert stored_after is not None
+    assert stored_after.source_hash != stored_before.source_hash
 
 
 def test_message_is_embedded_once_and_ranked_against_candidate_cards(tmp_path: Path) -> None:
