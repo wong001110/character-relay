@@ -31,7 +31,7 @@ jobs:
 
       - name: Autoformat V4 checkpoint
         run: |
-          python -m ruff check --fix \
+          python -m ruff format \
             src/echo_masque/api/routes/smart_participation_v4.py \
             src/echo_masque/participation_context_rerank.py \
             src/echo_masque/participation_final_utility.py \
@@ -40,7 +40,7 @@ jobs:
             src/echo_masque/smart_participation_durable_state.py \
             src/echo_masque/conversation_media.py \
             src/echo_masque/conversation_media_graph.py
-          python -m ruff format \
+          python -m ruff check --fix \
             src/echo_masque/api/routes/smart_participation_v4.py \
             src/echo_masque/participation_context_rerank.py \
             src/echo_masque/participation_final_utility.py \
