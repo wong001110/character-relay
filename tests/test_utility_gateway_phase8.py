@@ -113,7 +113,7 @@ def test_wiki_overview_language_matrix_and_detail_guard() -> None:
         "幫我總結一下發布說明",
         "Beri saya ringkasan nota pelancaran",
         "Terangkan gambaran keseluruhan projek ini",
-        "Can you summary 一下这个计划？",
+        "Can you summary 一下这个计划?",
     )
     detail_queries = (
         "Give me the exact source for the launch date",
