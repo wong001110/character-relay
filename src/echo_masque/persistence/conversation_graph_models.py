@@ -99,7 +99,12 @@ class ConversationGraphEdgeRecord(Base):
     evidence_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     negative_evidence_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     source_type: Mapped[str] = mapped_column(String(40), default="message", nullable=False)
-    source_message_id: Mapped[str] = mapped_column(String(200), default="", index=True, nullable=False)
+    source_message_id: Mapped[str] = mapped_column(
+        String(200),
+        default="",
+        index=True,
+        nullable=False,
+    )
     source_burst_id: Mapped[str] = mapped_column(String(80), default="", index=True, nullable=False)
     provenance_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     status: Mapped[str] = mapped_column(String(24), default="active", index=True, nullable=False)
