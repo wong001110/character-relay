@@ -1,8 +1,5 @@
 import type { DiscordConnectorEventInput } from "./eventReporter.js";
-import type {
-  SmartParticipationCandidateScore,
-  SmartParticipationDecision
-} from "./smartParticipation.js";
+import type { SmartParticipationCandidateScore, SmartParticipationDecision } from "./smartParticipation.js";
 import type { DiscordDeployment } from "./types.js";
 
 const MAX_PENDING_DECISIONS = 300;
@@ -10,10 +7,6 @@ const pending: DiscordConnectorEventInput[] = [];
 
 function displayName(deployment: DiscordDeployment): string {
   return deployment.identity_display_name || deployment.character_display_name;
-}
-
-function finite(value: number): number | null {
-  return Number.isFinite(value) ? value : null;
 }
 
 function candidateDetails(
@@ -28,7 +21,7 @@ function candidateDetails(
     participation_mode: deployment.participation_mode,
     selected: selectedIds.has(deployment.deployment_id),
     scored: Boolean(score),
-    score: score ? finite(score.score) : null,
+    score: score && Number.isFinite(score.score) ? score.score : null,
     minimum_score: score?.minimumScore ?? null,
     eligible: score?.eligible ?? null,
     semantic_relevance: score?.semanticRelevance ?? null,
@@ -40,14 +33,6 @@ function candidateDetails(
   };
 }
 
-/**
- * Record one message-level Smart Participation decision before Character Runtime.
- *
- * This deliberately includes candidates that never reached a Character turn so the
- * Behavior Notebook can explain silence, threshold failures, blockers, and tie cases.
- * It stores only a bounded trigger preview; credentials, prompts, embeddings and raw
- * Character Card semantic text stay out of Connector events.
- */
 export function recordSmartParticipationDecision(input: {
   message: string;
   decision: SmartParticipationDecision;
@@ -60,10 +45,7 @@ export function recordSmartParticipationDecision(input: {
 
   const first = smartDeployments[0]!;
   const byDeployment = new Map(
-    input.decision.candidates.map((candidate) => [
-      candidate.deployment.deployment_id,
-      candidate
-    ])
+    input.decision.candidates.map((candidate) => [candidate.deployment.deployment_id, candidate])
   );
   const selectedIds = new Set(
     input.decision.selectedDeployments.map((deployment) => deployment.deployment_id)
@@ -73,7 +55,6 @@ export function recordSmartParticipationDecision(input: {
   );
 
   const event: DiscordConnectorEventInput = {
-    connection_id: first.connection_id,
     level: "info",
     event_type: "smart_participation_decision",
     message: "Smart Participation evaluated the available character candidates.",
