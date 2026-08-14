@@ -21,6 +21,11 @@ export interface ConnectorConfig {
   smartParticipationChannelCooldownSeconds: number;
   smartParticipationWindowSeconds: number;
   smartParticipationMaxRepliesPerWindow: number;
+  smartParticipationTurnCollectorEnabled: boolean;
+  smartParticipationTurnCollectorQuietMs: number;
+  smartParticipationTurnCollectorMaxWaitMs: number;
+  smartParticipationTurnCollectorMaxMessages: number;
+  smartParticipationTurnCollectorMaxCharacters: number;
   groupAddressAliases: string[];
   botTagConversationsEnabled: boolean;
   botTagMaxDepth: number;
@@ -118,6 +123,34 @@ export function loadConfig(): ConnectorConfig {
       3,
       1
     ),
+    smartParticipationTurnCollectorEnabled: boolean(
+      "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_ENABLED",
+      true
+    ),
+    smartParticipationTurnCollectorQuietMs: boundedInteger(
+      "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_QUIET_MS",
+      1_500,
+      100,
+      10_000
+    ),
+    smartParticipationTurnCollectorMaxWaitMs: boundedInteger(
+      "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_MAX_WAIT_MS",
+      4_000,
+      500,
+      30_000
+    ),
+    smartParticipationTurnCollectorMaxMessages: boundedInteger(
+      "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_MAX_MESSAGES",
+      5,
+      1,
+      20
+    ),
+    smartParticipationTurnCollectorMaxCharacters: boundedInteger(
+      "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_MAX_CHARACTERS",
+      1_500,
+      100,
+      10_000
+    ),
     groupAddressAliases: stringList("DISCORD_GROUP_ADDRESS_ALIASES"),
     botTagConversationsEnabled: boolean(
       "DISCORD_BOT_TAG_CONVERSATIONS_ENABLED",
@@ -131,6 +164,14 @@ export function loadConfig(): ConnectorConfig {
       30
     )
   };
+  if (
+    config.smartParticipationTurnCollectorMaxWaitMs <
+    config.smartParticipationTurnCollectorQuietMs
+  ) {
+    throw new Error(
+      "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_MAX_WAIT_MS must be greater than or equal to DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_QUIET_MS."
+    );
+  }
   configureSmartParticipation({
     enabled: config.smartParticipationEnabled,
     profiles: config.smartParticipationProfiles,
