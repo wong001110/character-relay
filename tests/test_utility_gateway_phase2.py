@@ -2,6 +2,11 @@ from pathlib import Path
 
 import httpx
 from cryptography.fernet import Fernet
+from echo_masque.utility_gateway_runtime import (
+    RagUtilityDecision,
+    UtilityGatewayService,
+    UtilityGatewayUnavailable,
+)
 from pydantic import SecretStr
 
 from echo_masque.admin_runtime import (
@@ -13,11 +18,6 @@ from echo_masque.api import create_app
 from echo_masque.auth import SYSTEM_RUNTIME_USER_ID
 from echo_masque.config import Settings
 from echo_masque.credentials import CredentialVault
-from echo_masque.utility_gateway_runtime import (
-    RagUtilityDecision,
-    UtilityGatewayService,
-    UtilityGatewayUnavailable,
-)
 
 
 def settings(path: Path) -> Settings:
