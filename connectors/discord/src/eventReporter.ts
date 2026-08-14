@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 
+import {
+  drainSmartParticipationDecisionEvents,
+  pendingSmartParticipationDecisionCount
+} from "./behaviorDecisionTrace.js";
 import type { DiscordConnectorEvent } from "./types.js";
 
 export type DiscordConnectorEventInput = Omit<
@@ -35,7 +39,7 @@ export class DiscordEventReporter {
     }, this.flushIntervalMs);
   }
 
-  record(event: DiscordConnectorEventInput): void {
+  private enqueue(event: DiscordConnectorEventInput): void {
     if (this.queue.length >= this.maximumPending) this.queue.shift();
     const occurredAt = new Date().toISOString();
     this.queue.push({
@@ -45,11 +49,23 @@ export class DiscordEventReporter {
     });
     this.lastRecordedEventAt = occurredAt;
     this.lastRecordedEventType = event.event_type;
+  }
+
+  private absorbBehaviorDecisions(): void {
+    for (const event of drainSmartParticipationDecisionEvents()) {
+      this.enqueue(event);
+    }
+  }
+
+  record(event: DiscordConnectorEventInput): void {
+    this.enqueue(event);
     if (this.queue.length >= this.batchSize) void this.flush();
   }
 
   async flush(): Promise<void> {
-    if (this.flushing || !this.queue.length) return;
+    if (this.flushing) return;
+    this.absorbBehaviorDecisions();
+    if (!this.queue.length) return;
     this.flushing = true;
     const batch = this.queue.slice(0, this.batchSize);
     try {
@@ -72,7 +88,7 @@ export class DiscordEventReporter {
   }
 
   get pendingCount(): number {
-    return this.queue.length;
+    return this.queue.length + pendingSmartParticipationDecisionCount();
   }
 
   get lastError(): string | null {
