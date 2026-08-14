@@ -56,10 +56,14 @@ jobs:
           rm scripts/apply_v4_media_graph_patch.py
           rm .github/workflows/apply-v4-mypy-media.yml
 
-      - name: Validate V4 typing and Media Graph
+      - name: Capture V4 diagnostics
         run: |
-          python -m ruff check src/echo_masque tests/test_character_context_routing.py tests/test_context_layer_turn_intelligence_v4.py
-          python -m mypy src
+          mkdir -p /tmp/v4-diag
+          set +e
+          python -m ruff check src/echo_masque tests/test_character_context_routing.py tests/test_context_layer_turn_intelligence_v4.py > /tmp/v4-diag/ruff.txt 2>&1
+          echo $? > /tmp/v4-diag/ruff.code
+          python -m mypy src > /tmp/v4-diag/mypy.txt 2>&1
+          echo $? > /tmp/v4-diag/mypy.code
           python -m pytest \
             tests/test_knowledge_route_gate.py \
             tests/test_knowledge_route_assessment_v4.py \
@@ -69,7 +73,25 @@ jobs:
             tests/test_character_learned_state.py \
             tests/test_conversation_media_recall.py \
             tests/test_conversation_media_reference.py \
-            tests/test_smart_participation_v4_resolver.py
+            tests/test_smart_participation_v4_resolver.py > /tmp/v4-diag/pytest.txt 2>&1
+          echo $? > /tmp/v4-diag/pytest.code
+          set -e
+          cat /tmp/v4-diag/ruff.txt
+          cat /tmp/v4-diag/mypy.txt
+          tail -n 120 /tmp/v4-diag/pytest.txt
+
+      - name: Upload V4 diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-checkpoint-diagnostics
+          path: /tmp/v4-diag
+          retention-days: 3
+
+      - name: Enforce V4 validation
+        run: |
+          test "$(cat /tmp/v4-diag/ruff.code)" = "0"
+          test "$(cat /tmp/v4-diag/mypy.code)" = "0"
+          test "$(cat /tmp/v4-diag/pytest.code)" = "0"
 
       - name: Commit validated V4 checkpoint
         run: |
