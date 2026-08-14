@@ -7,6 +7,7 @@ import "./interactionSessions.css";
 import "./smartParticipation.css";
 import "./toolCalling.css";
 import "./portal-v2-refine.css";
+import "./behavior-notebook-turns.css";
 import "./deployment-notebook-v2.css";
 import "./deployment-notebook-tabs.css";
 import "./deployment-paper-tags.css";
