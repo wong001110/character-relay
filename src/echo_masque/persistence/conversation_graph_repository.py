@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from sqlalchemy import delete, or_, select
+from sqlalchemy.engine import CursorResult
 
 from echo_masque.persistence.conversation_graph_models import (
     ConversationGraphEdgeRecord,
@@ -49,6 +50,16 @@ def _confidence(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
 
 
+def _aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _current(value: datetime | None) -> datetime:
+    return _aware(value) if value is not None else datetime.now(UTC)
+
+
 def _expires(now: datetime, ttl_seconds: int | None) -> datetime | None:
     if ttl_seconds is None:
         return None
@@ -70,6 +81,10 @@ def _provenance(value: str) -> list[dict[str, Any]]:
     if not isinstance(decoded, list):
         return []
     return [item for item in decoded if isinstance(item, dict)][-_MAX_PROVENANCE:]
+
+
+def _rowcount(result: object) -> int:
+    return int(cast(CursorResult[Any], result).rowcount or 0)
 
 
 class ConversationGraphRepository:
@@ -115,7 +130,7 @@ class ConversationGraphRepository:
         ttl_seconds: int | None = None,
         now: datetime | None = None,
     ) -> ConversationGraphNodeRecord:
-        current = now or datetime.now(UTC)
+        current = _current(now)
         kind = _compact(node_type, 40)
         key = _canonical(canonical_key)
         if not kind or not key:
@@ -180,7 +195,7 @@ class ConversationGraphRepository:
         ttl_seconds: int | None = None,
         now: datetime | None = None,
     ) -> ConversationGraphEdgeRecord:
-        current = now or datetime.now(UTC)
+        current = _current(now)
         relation_key = _compact(relation, 60)
         if not relation_key:
             raise ValueError("Conversation Graph edges require a relation.")
@@ -251,7 +266,7 @@ class ConversationGraphRepository:
         limit: int = 20,
         now: datetime | None = None,
     ) -> tuple[ConversationGraphNeighbor, ...]:
-        current = now or datetime.now(UTC)
+        current = _current(now)
         relation_keys = tuple(_compact(item, 60) for item in relations if _compact(item, 60))
         with self.database.session() as session:
             source = session.get(ConversationGraphNodeRecord, node_id)
@@ -284,13 +299,13 @@ class ConversationGraphRepository:
                 target = session.get(ConversationGraphNodeRecord, edge.target_node_id)
                 if target is None:
                     continue
-                if target.expires_at is not None and target.expires_at <= current:
+                if target.expires_at is not None and _aware(target.expires_at) <= current:
                     continue
                 values.append(ConversationGraphNeighbor(edge=edge, node=target))
             return tuple(values)
 
     def cleanup_expired(self, *, now: datetime | None = None) -> dict[str, int]:
-        current = now or datetime.now(UTC)
+        current = _current(now)
         with self.database.session() as session:
             edge_result = session.execute(
                 delete(ConversationGraphEdgeRecord).where(
@@ -306,8 +321,8 @@ class ConversationGraphRepository:
             )
             session.commit()
             return {
-                "edges": int(edge_result.rowcount or 0),
-                "nodes": int(node_result.rowcount or 0),
+                "edges": _rowcount(edge_result),
+                "nodes": _rowcount(node_result),
             }
 
     def delete_scope(self, scope: ConversationGraphScope) -> dict[str, int]:
@@ -324,8 +339,8 @@ class ConversationGraphRepository:
             )
             session.commit()
             return {
-                "edges": int(edge_result.rowcount or 0),
-                "nodes": int(node_result.rowcount or 0),
+                "edges": _rowcount(edge_result),
+                "nodes": _rowcount(node_result),
             }
 
 
