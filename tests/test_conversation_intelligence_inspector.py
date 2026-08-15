@@ -19,9 +19,7 @@ from echo_masque.persistence.repository import Repository
 
 def _request(database: Database, repository: Repository) -> Any:
     return SimpleNamespace(
-        app=SimpleNamespace(
-            state=SimpleNamespace(database=database, repository=repository)
-        )
+        app=SimpleNamespace(state=SimpleNamespace(database=database, repository=repository))
     )
 
 
