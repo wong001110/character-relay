@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
@@ -88,11 +88,11 @@ class TopicTimelineView(BaseModel):
 
 
 def _database(request: Request) -> Database:
-    return request.app.state.database
+    return cast(Database, request.app.state.database)
 
 
 def _repository(request: Request) -> Repository:
-    return request.app.state.repository
+    return cast(Repository, request.app.state.repository)
 
 
 def _aware(value: datetime | None) -> datetime | None:
