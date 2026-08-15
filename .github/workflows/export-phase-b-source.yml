@@ -1,25 +1,34 @@
-name: Export Phase B Source
+name: Apply Phase B Patch
 
 on:
   push:
     branches:
       - feat/sequential-multi-participant-runtime
-  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  export:
+  apply:
+    if: ${{ github.event.head_commit.message != 'feat: interrupt superseded sequential participation plans' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/upload-artifact@v4
         with:
-          name: phase-b-connector-source
-          path: |
-            connectors/discord/src/index.ts
-            connectors/discord/src/relayClient.ts
-            connectors/discord/src/types.ts
-          if-no-files-found: error
-          retention-days: 1
+          ref: feat/sequential-multi-participant-runtime
+      - name: Apply patch when present
+        shell: bash
+        run: |
+          if [ ! -f .phase-b.patch ]; then
+            echo "No Phase B patch present; nothing to apply."
+            exit 0
+          fi
+          git apply --check .phase-b.patch
+          git apply .phase-b.patch
+          rm .phase-b.patch
+          rm .github/workflows/export-phase-b-source.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: interrupt superseded sequential participation plans"
+          git push origin HEAD:feat/sequential-multi-participant-runtime
