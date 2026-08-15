@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -43,6 +44,7 @@ _KEYWORD_LIMIT = 24
 _PARTICIPANT_LIMIT = 20
 _PENDING_ACTION_LIMIT = 12
 _DEFAULT_PENDING_TTL = timedelta(hours=6)
+_URL_PATTERN = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
 
 TopicStatus = Literal["active", "cooling", "closed", "archived"]
 PendingActionState = Literal[
@@ -79,6 +81,14 @@ _CONVERSATION_ACT_PROFILES: dict[str, str] = {
         "different question, by the way something else, 换个话题, 另外一件事, 说点别的."
     ),
 }
+
+
+def _topic_subject_text(value: str) -> str:
+    """Remove transport/link boilerplate before semantic Topic comparison."""
+
+    compact = " ".join(value.split())
+    without_urls = _URL_PATTERN.sub(" ", compact)
+    return " ".join(without_urls.split())[:4000]
 
 
 class ConversationPendingAction(BaseModel):
@@ -253,7 +263,8 @@ class ConversationTopicMemoryService:
         feedback loop where one bad classification makes later unrelated messages look more similar.
         """
 
-        return f"Topic identity: {record.topic_label}"[:2000]
+        identity = _topic_subject_text(record.topic_label) or record.topic_label
+        return f"Topic identity: {identity}"[:2000]
 
     def _topic_vector(self, record: ConversationTopicRecord, encoder: SemanticEncoder) -> list[float]:
         semantic_text = self._topic_semantic_text(record)
@@ -301,10 +312,10 @@ class ConversationTopicMemoryService:
 
     @staticmethod
     def _sparse_similarity(text: str, record: ConversationTopicRecord) -> float:
-        """Compare against stable Topic identity rather than mutable rolling context."""
+        """Compare stable subject text, excluding shared URL transport tokens."""
 
-        left = Counter(semantic_tokens(text))
-        right = Counter(semantic_tokens(record.topic_label))
+        left = Counter(semantic_tokens(_topic_subject_text(text)))
+        right = Counter(semantic_tokens(_topic_subject_text(record.topic_label)))
         if not left or not right:
             return 0.0
         dot = sum(value * right.get(key, 0) for key, value in left.items())
@@ -332,6 +343,7 @@ class ConversationTopicMemoryService:
     ) -> TopicContinuityDecision:
         current = now or datetime.now(UTC)
         normalized = " ".join(text.split())[:4000]
+        subject_text = _topic_subject_text(normalized) or normalized
         sparse = self._sparse_similarity(normalized, active)
         idle_for = self._idle_for(active, current)
         stale = idle_for >= _STALE_TOPIC_AFTER
@@ -363,7 +375,7 @@ class ConversationTopicMemoryService:
 
         try:
             encoder = self._get_encoder()
-            query_vector = encoder.embed_query(normalized)
+            query_vector = encoder.embed_query(subject_text)
             topic_similarity = _cosine(query_vector, self._topic_vector(active, encoder))
             act_values = {
                 name: _cosine(query_vector, self._act_vector(name, encoder))
