@@ -246,6 +246,8 @@ class UtilityGatewayRouter:
                 status = "cooling_down"
             if status == "exhausted" and reset_at is not None and reset_at <= now:
                 status = "unknown"
+            if status == "cooling_down" and (cooldown is None or cooldown <= now):
+                status = "unknown"
             values.append(
                 UtilityProviderSnapshot(
                     member_id=member.id,
@@ -253,22 +255,16 @@ class UtilityGatewayRouter:
                     model=member.model,
                     configured=self.credential(member.id) is not None,
                     status=status,
-                    remaining_value=(
-                        state.remaining_value if state is not None else None
-                    ),
+                    remaining_value=(state.remaining_value if state is not None else None),
                     remaining_unit=state.remaining_unit if state is not None else "",
                     reset_at=reset_at,
-                    observation_source=(
-                        state.observation_source if state is not None else "none"
-                    ),
+                    observation_source=(state.observation_source if state is not None else "none"),
                     latency_ms=state.latency_ms if state is not None else 0.0,
                     error_rate=state.error_rate if state is not None else 0.0,
                     cooldown_until=cooldown,
                     last_error=state.last_error if state is not None else "",
                     last_observed_at=(
-                        self._aware(state.last_observed_at)
-                        if state is not None
-                        else None
+                        self._aware(state.last_observed_at) if state is not None else None
                     ),
                 )
             )
@@ -297,6 +293,8 @@ class UtilityGatewayRouter:
             reset_at = self._aware(state.reset_at) if state is not None else None
             cooldown = self._aware(state.cooldown_until) if state is not None else None
             if status == "exhausted" and reset_at is not None and reset_at <= now:
+                status = "unknown"
+            if status == "cooling_down" and (cooldown is None or cooldown <= now):
                 status = "unknown"
             if cooldown is not None and cooldown > now:
                 continue
@@ -484,14 +482,8 @@ class UtilityGatewayRouter:
         status: UtilityHealth = "degraded"
         cooldown: datetime | None = None
         if failure.kind == "quota":
-            status = (
-                "exhausted"
-                if failure.remaining_value == 0
-                else "cooling_down"
-            )
-            cooldown = failure.reset_at or (
-                datetime.now(UTC) + timedelta(minutes=2)
-            )
+            status = "exhausted" if failure.remaining_value == 0 else "cooling_down"
+            cooldown = failure.reset_at or (datetime.now(UTC) + timedelta(minutes=2))
         elif failure.kind == "authentication":
             status = "unavailable"
         elif failure.kind == "unavailable":

@@ -13,6 +13,8 @@ from echo_masque.api.schemas import AdminRuntimeView, RuntimeCredentialConfigure
 from echo_masque.auth import SYSTEM_RUNTIME_USER_ID
 from echo_masque.credentials import CredentialVault, CredentialVaultUnavailable
 from echo_masque.services import RuntimeService
+from echo_masque.utility_gateway_contracts import UtilityGatewaySnapshot
+from echo_masque.utility_gateway_router import UtilityGatewayRouter
 
 router = APIRouter(tags=["runtime"])
 
@@ -156,6 +158,18 @@ def clear_runtime_credential(
         legacy=legacy_admin_request(request),
     )
     return AdminRuntimeView(config=service.config(), status=service.status())
+
+
+@router.get(
+    "/api/admin/runtime/utility-gateway/snapshot",
+    response_model=UtilityGatewaySnapshot,
+)
+def utility_gateway_snapshot(
+    request: Request,
+    admin: AdminUserDependency,
+) -> UtilityGatewaySnapshot:
+    del admin
+    return UtilityGatewayRouter(runtime_service(request)).snapshot()
 
 
 @router.get(

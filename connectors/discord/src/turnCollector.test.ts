@@ -139,3 +139,35 @@ describe("TurnCollector", () => {
     expect(bursts[0]?.totalCharacters).toBe(5);
   });
 });
+
+describe("TurnCollector live reconfiguration", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("keeps an open burst on its original config snapshot after reconfigure", async () => {
+    vi.useFakeTimers();
+    const bursts: ConversationBurst<SampleTurn>[] = [];
+    const collector = new TurnCollector<SampleTurn>(
+      { quietWindowMs: 3_000, maxWaitMs: 10_000, maxMessages: 5, maxCharacters: 1_500 },
+      (burst) => {
+        bursts.push(burst);
+      }
+    );
+
+    collector.add("channel", { id: "old", value: sample("old", "old"), characters: 3 });
+    collector.reconfigure({ quietWindowMs: 5_000, maxWaitMs: 15_000 });
+
+    expect(collector.currentConfig.quietWindowMs).toBe(5_000);
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(bursts).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(bursts.map((item) => item.itemIds)).toEqual([["old"]]);
+
+    collector.add("channel", { id: "new", value: sample("new", "new"), characters: 3 });
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(bursts).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(bursts.map((item) => item.itemIds)).toEqual([["old"], ["new"]]);
+  });
+});

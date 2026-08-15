@@ -494,7 +494,24 @@ async function prepareWebhookIdentity(
 }
 
 async function refreshDeployments(): Promise<void> {
-  const next = await relay.listDeployments();
+  const [next, runtimeConfig] = await Promise.all([
+    relay.listDeployments(),
+    relay.getSmartParticipationRuntime().catch((error) => {
+      log("Unable to refresh dynamic Turn Collector config; keeping the last effective value.", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    })
+  ]);
+  if (runtimeConfig) {
+    turnIngress.reconfigure({
+      enabled: runtimeConfig.enabled,
+      quietWindowMs: runtimeConfig.quiet_window_ms,
+      maxWaitMs: runtimeConfig.max_wait_ms,
+      maxMessages: runtimeConfig.max_messages,
+      maxCharacters: runtimeConfig.max_characters
+    });
+  }
   const botUserId = client.user?.id;
   if (botUserId) {
     // Exact-channel webhooks are prepared sequentially. Server-wide profiles are
@@ -514,7 +531,8 @@ async function refreshDeployments(): Promise<void> {
     ).length,
     webhookReady: next.filter(
       (item) => item.identity_mode === "webhook" && item.webhook_status === "active"
-    ).length
+    ).length,
+    turnCollector: turnIngress.currentConfig
   });
 }
 
@@ -3218,6 +3236,11 @@ const healthServer = createServer((request, response) => {
       smart_participation_max_participants: config.smartParticipationMaxParticipants,
       smart_participation_semantic_enabled: true,
       smart_participation_turn_collector_enabled: turnIngress.enabled,
+      smart_participation_turn_collector_quiet_ms: turnIngress.currentConfig.quietWindowMs,
+      smart_participation_turn_collector_max_wait_ms: turnIngress.currentConfig.maxWaitMs,
+      smart_participation_turn_collector_max_messages: turnIngress.currentConfig.maxMessages,
+      smart_participation_turn_collector_max_characters:
+        turnIngress.currentConfig.maxCharacters,
       smart_participation_turn_collector_pending_scopes:
         turnIngress.pendingBurstScopeCount,
       smart_participation_ingress_pending_scopes:
