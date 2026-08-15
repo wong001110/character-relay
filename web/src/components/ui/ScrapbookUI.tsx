@@ -438,7 +438,7 @@ export function CharacterChip({
   );
 }
 
-export interface SettingsRowProps extends HTMLAttributes<HTMLDivElement> {
+export interface SettingsRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
   title: ReactNode;
   description?: ReactNode;
   control: ReactNode;
