@@ -1,0 +1,33 @@
+name: Apply Phase C Patch
+
+on:
+  push:
+    branches:
+      - feat/media-dependency-planning
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/media-dependency-planning
+      - name: Apply patch when present
+        shell: bash
+        run: |
+          if [ ! -f .phase-c.patch ]; then
+            echo "No Phase C patch present; nothing to apply."
+            exit 0
+          fi
+          git apply --check .phase-c.patch
+          git apply .phase-c.patch
+          rm .phase-c.patch
+          rm .github/workflows/apply-phase-c-patch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: enforce media dependency before roleplay"
+          git push origin HEAD:feat/media-dependency-planning
