@@ -50,14 +50,14 @@ class _TopicEncoder:
         return self._vector(text)
 
 
-def _service() -> ConversationTopicMemoryService:
+def _service(*, semantic_enabled: bool = True) -> ConversationTopicMemoryService:
     database = Database("sqlite://")
     database.initialize()
     repository = ConversationTopicRepository(database)
     return ConversationTopicMemoryService(
         repository,
         encoder=_TopicEncoder(),
-        semantic_enabled=True,
+        semantic_enabled=semantic_enabled,
     )
 
 
@@ -183,7 +183,7 @@ def test_topic_identity_does_not_include_mutable_summary_or_keywords() -> None:
         topic_id=record.id,
         owner_id="owner-1",
         topic_label=record.topic_label,
-        summary="Juen: 绝区零剧情里谁是反派？",
+        summary="Juen: 绝区零剧情里谁是反派?",
         keywords_json='["绝区零", "剧情", "反派"]',
         open_loops_json=record.open_loops_json,
         pending_actions_json=record.pending_actions_json,
@@ -210,7 +210,7 @@ def test_old_rag_topic_does_not_absorb_new_zzz_discussion() -> None:
     )
     zzz = service.observe_turn(
         owner_id="owner-1",
-        payload=_payload("绝区零这段剧情谁是反派？", message_id="m2"),
+        payload=_payload("绝区零这段剧情谁是反派?", message_id="m2"),
         now=started + timedelta(days=2),
     )
 
@@ -218,6 +218,34 @@ def test_old_rag_topic_does_not_absorb_new_zzz_discussion() -> None:
     assert zzz is not None
     assert zzz.id != first.id
     assert "绝区零" in zzz.topic_label
+    previous = service.repository.get(first.id, "owner-1")
+    assert previous is not None
+    assert previous.status == "cooling"
+
+
+def test_shared_bilibili_url_boilerplate_does_not_merge_topics() -> None:
+    service = _service(semantic_enabled=False)
+    now = datetime(2026, 8, 15, 12, 0, tzinfo=UTC)
+    first = service.observe_turn(
+        owner_id="owner-1",
+        payload=_payload(
+            "RAG and LLM Wiki https://www.bilibili.com/video/BVAAA",
+            message_id="m1",
+        ),
+        now=now,
+    )
+    zzz = service.observe_turn(
+        owner_id="owner-1",
+        payload=_payload(
+            "绝区零剧情谁是反派 https://www.bilibili.com/video/BVBBB",
+            message_id="m2",
+        ),
+        now=now + timedelta(minutes=5),
+    )
+
+    assert first is not None
+    assert zzz is not None
+    assert zzz.id != first.id
     previous = service.repository.get(first.id, "owner-1")
     assert previous is not None
     assert previous.status == "cooling"
