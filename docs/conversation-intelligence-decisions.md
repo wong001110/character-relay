@@ -2,107 +2,70 @@
 
 Status: normative design decisions for PR #169
 
-This file records decisions that have been explicitly accepted during architecture review. When this file conflicts with earlier proposal text in `conversation-intelligence-architecture.md`, **this decision log takes precedence** until the proposal is reconciled.
+This file records architecture decisions explicitly accepted during review. When it conflicts with earlier proposal text in `conversation-intelligence-architecture.md`, **this decision log takes precedence** until the proposal is reconciled.
 
-## D-001 — Multi-participant admission replaces Primary/Secondary as the core model
+## D-001 — Multi-participant admission replaces Primary/Secondary
 
 **Status:** Accepted
 
-Character Relay must not model one conversation turn as inherently limited to one Primary plus one Secondary participant.
+A conversation turn is not limited to one Primary plus one Secondary Character.
 
-A turn may legitimately admit:
-
-```text
-0 participants
-1 participant
-2 participants
-...
-N participants
-all eligible participants
-```
-
-The architecture must therefore separate:
+The core model is:
 
 ```text
 Candidate Pool
     -> Admission
     -> 0..N admitted participants
-    -> Participation Plan
-    -> Character generation / social actions
+    -> Ordered Participation Plan
+    -> Character generation / visible social actions
 ```
 
-`primary` and `secondary` are no longer core admission categories. If a future UI or trace needs to call the first ordered speaker "primary", that is presentation metadata only and must not constrain the participation model.
+A turn may admit zero, one, many, or all eligible Characters. `primary` / `secondary` may remain as presentation or trace labels in legacy code, but they are not architecture-level admission categories.
 
-### Admission is authoritative
+A candidate is only considered. It must not consume Roleplay-model tokens merely to decide whether to participate.
 
-A Character that is only a candidate has not been admitted and must not consume Roleplay-model tokens merely to decide whether to participate.
+Once admitted, Runtime has already decided that the Character participates. The Roleplay LLM may not overturn admission with voluntary `ignore`.
 
-Once a Character is admitted, Runtime has already made the participation decision. The Roleplay LLM must not independently overturn admission by returning voluntary `ignore`.
+Provider failure, schema failure, Runtime abort, not-selected, and voluntary silence are separate states and must not be disguised as `ignore`.
 
-Therefore:
+---
+
+## D-002 — Participation actions use detailed action classes
+
+**Status:** Accepted
+
+Do not collapse admitted behavior into only `verbal | lightweight`.
+
+The v1 planning contract should use more explicit action classes. Initial accepted direction:
 
 ```text
-candidate
-= considered / relevant
-= no Roleplay call required
-
-admitted
-= Runtime has decided the Character participates
-= Roleplay call may occur
-= the resulting contract must require a visible social action
+message
+short_message
+reaction
+sticker
 ```
 
-Provider failures, schema failures, Runtime aborts, and voluntary Character silence remain distinct states. None should be disguised as `ignore`.
+The exact payload schema for each class may evolve, but the planner-assigned class must constrain the Roleplay output schema for that turn.
 
-### Participation Plan fields
-
-The planned core dimensions are:
+Examples:
 
 ```text
-ref
-order
-action_class
-participation_intent
+action_class=message
+-> normal text message is required
+
+action_class=short_message
+-> bounded short text response
+
+action_class=reaction
+-> reaction-only contract
+
+action_class=sticker
+-> sticker-only contract
 ```
 
-Illustrative contract:
+An admitted Character must produce a visible action compatible with its assigned class. It may not change the class into silence.
 
-```json
-{
-  "participants": [
-    {
-      "ref": "ann",
-      "order": 1,
-      "action_class": "verbal",
-      "participation_intent": "respond"
-    },
-    {
-      "ref": "ning",
-      "order": 2,
-      "action_class": "lightweight",
-      "participation_intent": "react"
-    },
-    {
-      "ref": "zhi",
-      "order": 3,
-      "action_class": "verbal",
-      "participation_intent": "add_perspective"
-    }
-  ]
-}
-```
-
-Initial conceptual action classes:
-
-```text
-verbal
-= produce a message
-
-lightweight
-= reaction / sticker / another explicitly permitted lightweight visible action
-```
-
-`participation_intent` gives the Roleplay LLM a bounded social direction without writing the line for it. Potential intents include:
+`participation_intent` remains separate from `action_class`. The planner may use a bounded intent enum such as:
 
 ```text
 respond
@@ -116,213 +79,355 @@ react
 clarify
 ```
 
-The final enum remains an implementation-contract question; the architectural decision is that intent is separate from admission.
+The intent guides persona behavior without writing the line for the Character.
 
-### All participants may be admitted
+---
 
-There is no architecture-level assumption that only one or two Characters may participate. A deployment/runtime configuration may still impose a safety or cost cap such as `max_participants`, but the data model must support `0..N` and "all eligible".
+## D-003 — Multi-speaker verbal execution is sequential
 
-The planner should avoid selecting everyone by default merely because it can. Admission should still require positive conversational value.
+**Status:** Accepted
 
-## D-002 — Multi-speaker coordination should be ordered
-
-**Status:** Accepted as working direction
-
-When multiple admitted participants produce verbal output, the plan should include an explicit order.
-
-Preferred execution semantics:
+When multiple admitted Characters produce text, execute them sequentially in the plan order.
 
 ```text
 Planner
   -> Character A generates
-  -> A's actual visible output becomes part of the current-turn context
+  -> A's actual visible output enters current-turn context
   -> Character B generates with A visible
-  -> B's output becomes part of context
+  -> B's output enters context
   -> Character C generates
   -> ...
 ```
 
-This is intended to reduce repetitive independent answers and enable natural agreement, disagreement, follow-up, jokes, and perspective shifts.
+This is intended to reduce duplicate answers and allow natural follow-up, disagreement, jokes, support, and perspective shifts.
 
-Lightweight actions such as reactions/stickers may be executed in parallel or with looser ordering where they do not depend on prior generated text.
+Reaction/sticker delivery may remain operationally lightweight, but the architecture should preserve the participation order and must not rely on parallel text generation as the default.
 
-The exact concurrency policy remains open, but **the plan must be capable of expressing order and later participants must be able to observe earlier visible outputs when sequential execution is used.**
+---
 
-## Closed questions from the original proposal
+## D-004 — Participant count is not hard-coded into the architecture
 
-The following original open questions are closed/superseded:
+**Status:** Accepted
 
-1. "Should authoritative Primary always require message, or may it react/sticker?"
-2. "Which actions may a Secondary use, and can Secondary become silent after selection?"
+The data model supports `0..N` admitted participants and all eligible Characters.
 
-They are replaced by:
+A Runtime/product safety or cost cap may exist and may be configurable or dynamically adjusted, but it is not a structural limit such as "maximum two speakers".
 
-- admission vs candidate,
-- `0..N` admitted participants,
-- per-participant `action_class`,
-- per-participant `participation_intent`,
-- ordered coordination,
-- no voluntary `ignore` after admission.
+The planner should still require positive conversational value rather than selecting everyone by default.
 
-## Remaining open questions
+---
 
-The following decisions are still unresolved and should be reviewed before the corresponding implementation phases.
+## D-005 — Media-only turns use two-stage objective resolution before admission when needed
 
-### Q-001 — Exact admitted action classes
+**Status:** Accepted
 
-We have accepted the separation of admission from `action_class`, but the exact contract is not final.
+When media is the only meaningful semantic payload, Character Relay should obtain enough objective understanding before Topic/admission planning so that models do not blindly attach themselves to unknown content.
 
-Questions:
+Use a two-stage model:
 
-- Is `verbal | lightweight` sufficient for v1?
-- Should `lightweight` be split into `reaction | sticker | short_message`?
-- Can an admitted Character switch from the planner-assigned action class, or must Runtime constrain the schema to that class?
+```text
+unresolved media-only turn
+    -> lightweight objective resolution
+    -> enough evidence for Topic + Admission + dependency planning
+    -> only if deeper content is required:
+       full media resolution
+```
 
-Working preference: keep v1 small and make the planner-assigned class authoritative enough that the Roleplay LLM cannot turn an admitted turn back into silence.
+The lightweight stage should not automatically perform the maximum-cost analysis of every long video. It should obtain enough trustworthy content evidence to avoid blind Topic and speaker decisions.
 
-### Q-002 — Multi-speaker concurrency policy
+Discord preview metadata remains preview evidence, not equivalent to inspected content.
 
-Ordered sequential verbal generation is the working direction, but details remain open:
+---
 
-- Are all verbal participants always sequential?
-- Can independent verbal intents be generated in parallel when repetition risk is low?
-- Are reactions/stickers always allowed to execute in parallel?
-- What latency budget should cause Runtime to stop or defer later admitted participants?
+## D-006 — Media Dependency is deterministic-first with Utility gray-zone judgment
 
-### Q-003 — Maximum admitted participant policy
+**Status:** Accepted
 
-The architecture supports `0..N`, but Runtime/product policy still needs a configurable default:
+Use:
 
-- fixed numeric cap,
-- server/channel setting,
-- dynamic cap based on conversation intensity,
-- or effectively unlimited/all eligible with planner cost-awareness.
+```text
+required | optional | none
+```
 
-This is a policy/cost control, not a data-model limit.
+Decision ownership:
 
-### Q-004 — Media-only turns before speaker selection
+```text
+clear deterministic case
+-> Runtime decides
 
-Should unresolved media be objectively understood before admission/speaker planning:
+ambiguous semantic case
+-> Utility Intelligence decides from a bounded structured contract
+```
 
-- always when media is the only semantic payload,
-- only when text/preview evidence is insufficient,
-- or through a two-stage lightweight-then-full media resolution?
+Examples of obvious REQUIRED cases include requests whose answer depends on unseen media contents.
 
-Working preference: two-stage resolution. Obtain enough objective evidence for Topic/admission planning first; perform full resolution only when the answer requires deeper content.
+A Runtime-locked REQUIRED dependency cannot be downgraded by Utility.
 
-### Q-005 — Media Dependency ownership
+For REQUIRED media, Runtime owns the resolution before the final Character response. OPTIONAL media may remain Character-driven through `media.inspect`.
 
-For `required | optional | none`:
+---
 
-- deterministic Runtime rules only,
-- Utility Intelligence every time,
-- or deterministic-first with Utility only for ambiguous cases.
+## D-007 — Conversation planning is burst/turn based with bypass paths
 
-Working preference: deterministic-first + Utility gray-zone. Runtime-locked REQUIRED evidence must not be downgraded by Utility.
+**Status:** Accepted
 
-### Q-006 — Conversation Plan granularity
+The semantic planning unit is a collected conversation burst / conversational turn, not necessarily one Discord message.
 
-Should `conversation_plan` run:
+This allows sequences such as:
 
-- per Discord message,
-- per collected burst/conversational turn,
-- or hybrid with bypass paths for explicit mentions/replies/tool continuations?
+```text
+A: 你还记得之前那个吗
+B: 绝区零那个？
+A: 对，就是那个反派
+```
 
-Working preference: burst/turn as the semantic planning unit, with deterministic bypass paths where waiting for the burst is inappropriate.
+to be planned as one coherent unit.
 
-### Q-007 — When to merge current Smart Participation V4 into Conversation Planning
+Deterministic bypass paths should remain for cases where waiting for the normal burst is inappropriate, including explicit mentions/replies, interaction/tool continuations, and other already-authoritative direct routes.
 
-Options:
+---
 
-- merge speaker/admission planning into `conversation_plan.v1` immediately,
-- keep V4 authoritative initially and run the new planner in shadow/parity mode,
-- or keep admission permanently as a separate subsystem.
+## D-008 — Keep Smart Participation V4 authoritative first; introduce planner by shadow/parity
 
-Working preference: keep V4 authoritative initially, compare parity, then decide whether a later Conversation Plan version should own admission too.
+**Status:** Accepted
 
-### Q-008 — Memory scope migration
+Do not immediately replace the current production admission path.
 
-Existing memories may be channel/thread scoped even when the information is actually relationship-level or Character-level.
+Implementation direction:
 
-Options:
+```text
+existing Smart Participation V4
+-> remains authoritative initially
 
-- hard migration,
-- legacy memories stay where they are and only new memories use new scopes,
-- lazy semantic promotion + background consolidation.
+new Conversation Planner
+-> runs in shadow/parity mode
+-> compare admission decisions and traces
+-> prove acceptable parity/quality
+-> only then decide/implement ownership transfer into a later plan contract
+```
 
-Working preference: lazy semantic migration. Preserve original provenance; promote only when the memory type/evidence justifies a wider scope.
+The long-term architecture may consolidate admission into Conversation Planning, but the migration must be staged rather than a one-shot rewrite.
 
-### Q-009 — Episode storage model
+---
 
-Options:
+## D-009 — Do not migrate existing Memory; delete dirty legacy data and restart on the new model
 
-- treat raw messages as Episodes,
-- create a fully separate duplicated Episode store,
-- create an Episode projection that references authoritative source message IDs/bursts.
+**Status:** Accepted
 
-Working preference: Episode projection. Raw messages remain authoritative; Episodes organize them into meaningful retrievable experiences.
+Existing Memory data is considered dirty/test-era data and should not be semantically promoted or migrated into the new scope model.
 
-### Q-010 — Roleplay-driven Internal Tool budget
+When the new Memory schema/runtime is ready:
 
-The planner/runtime should prefetch most required context, but the Character may use Internal Context Tools as an escape hatch.
+```text
+legacy Memory data
+-> remove/reset
 
-Need to decide:
+new Memory system
+-> starts clean
+-> accumulates only under the new scope/provenance rules
+```
 
-- maximum rounds,
-- batching contract,
-- exceptional modes that may permit more rounds.
+This is intentionally different from lazy migration.
 
-Working preference: one Internal Tool round by default, with batched queries; allow more only in explicitly deeper recall/research modes.
+The cleanup must be scoped to obsolete conversation-memory data only; authoritative raw conversation/source records must not be deleted merely because derived Memory is reset.
 
-### Q-011 — Wiki visibility/privacy boundaries
+---
 
-Need to decide exactly which Memory/Episode scopes may feed which Wiki scopes.
+## D-010 — Episode is a projection over authoritative source messages
 
-Working principle already accepted:
+**Status:** Accepted
 
-> Derived knowledge must not automatically become more visible than its source evidence.
+Do not make every raw message itself the Episode, and do not duplicate the full transcript into a second authoritative store.
 
-Still unresolved:
+Use an Episode projection that references source records:
 
-- exact Wiki scope types,
-- cross-character shared knowledge rules,
-- promotion/authorization mechanism from private/relationship knowledge to wider shared knowledge.
+```text
+Episode
+├─ episode_id
+├─ source_message_ids / burst refs
+├─ topic_id
+├─ participants
+├─ media_refs
+├─ started_at / ended_at
+├─ compact derived summary
+└─ provenance
+```
 
-### Q-012 — Graph authority classes
+Raw messages remain authoritative evidence. Episodes organize raw events into meaningful retrievable experiences.
 
-Need to define which edges are:
+Topic, Memory, Wiki, and Graph may cite/project from Episodes while provenance still leads back to raw sources.
 
-- durable provenance/structural facts,
-- temporal interpreted facts with validity/source,
-- rebuildable semantic/index edges.
+---
 
-Working preference: raw Episode/source remains provenance truth; Graph is structured interpretation/index and must not silently become the only truth store.
+## D-011 — Roleplay-driven Internal Tool retrieval gets one round by default
 
-### Q-013 — Background consolidation triggers
+**Status:** Accepted
 
-Options:
+Planner/Runtime prefetch should satisfy most context needs before the Roleplay call.
 
-- time-based,
-- message-count threshold,
-- Topic cooling/closing,
-- hybrid.
+The Character keeps Internal Context Tools as a bounded escape hatch.
 
-Working preference: hybrid, primarily event-driven by Topic cooling/closing, plus message-count safeguards and periodic maintenance sweeps.
+Default:
+
+```text
+max_internal_tool_rounds = 1
+```
+
+Internal read tools should support batched queries so several related retrieval requests can be issued within that one round.
+
+Explicit deeper recall/research modes may later allow an increased budget such as two rounds, but ordinary group chat should not repeatedly loop through Roleplay-model tool calls.
+
+---
+
+## D-012 — Wiki visibility may stay the same or become narrower, never automatically wider
+
+**Status:** Accepted
+
+Derived knowledge must not automatically become more visible than its source evidence.
+
+```text
+source scope
+-> same Wiki scope: allowed
+-> narrower Wiki scope: allowed
+-> wider Wiki scope: not automatic
+```
+
+Private/relationship/Character-scoped evidence must not silently become server/shared Wiki knowledge.
+
+Any future promotion to a wider visibility boundary requires a separate explicit authorization/evidence rule.
+
+---
+
+## D-013 — Graph has authority classes; raw Episode/source remains provenance truth
+
+**Status:** Accepted
+
+Graph edges must be classified rather than treated uniformly.
+
+### Durable provenance / structural edges
+
+Examples:
+
+```text
+message AUTHORED_BY user
+message REPLY_TO message
+episode CONTAINS message
+topic CONTAINS episode
+media ATTACHED_TO message
+memory DERIVED_FROM episode
+```
+
+These represent provenance/structure and may be durable.
+
+### Temporal interpreted facts
+
+Examples:
+
+```text
+user LIKES entity
+character BELIEVES fact
+relationship HAS_STATE value
+```
+
+These require source provenance, confidence, and temporal validity such as `valid_from` / `valid_to` where appropriate.
+
+### Rebuildable semantic/index edges
+
+Examples:
+
+```text
+topic RELATED_TO topic
+entity SEMANTICALLY_CLOSE entity
+user ASSOCIATED_WITH topic
+```
+
+These are derived indexes and may be recomputed.
+
+The Graph is structured interpretation/indexing. It must not silently become the only truth store. Raw source/Episode provenance remains authoritative.
+
+---
+
+## D-014 — Background consolidation uses a Hybrid trigger model
+
+**Status:** Accepted
+
+Use event-driven consolidation first, periodic safety nets second.
+
+Primary triggers:
+
+```text
+Topic cooling
+Topic closing
+```
+
+Safeguards:
+
+```text
+message-count / size threshold
+-> prevent extremely long active Topics from never consolidating
+
+periodic maintenance sweep
+-> retry failures
+-> process backlog
+-> refresh stale derived knowledge
+-> catch missed triggers
+```
+
+Not every consolidation task belongs on the critical Roleplay response path.
+
+---
+
+## D-015 — Structured contracts and Runtime authority remain mandatory across all decisions
+
+**Status:** Accepted
+
+All Utility/Roleplay planning surfaces use fixed versioned structured input/output.
+
+LLMs select semantic options from supplied candidates. They do not invent IDs, scopes, permissions, lifecycle state, or arbitrary actions.
+
+Runtime validates even schema-valid LLM output and owns identity, scope, authority, provenance, lifecycle, security, and side effects.
+
+Internal Context Tools and External Capability Tools remain separate categories. Runtime-required operations are not optional Character tools.
+
+---
 
 ## Current accepted high-level flow
 
 ```text
-Incoming burst
-   -> deterministic candidate/evidence preflight
-   -> Utility Conversation Intelligence where semantic judgment is needed
-   -> Runtime validation
+Incoming Discord burst / direct bypass
+   -> deterministic candidate + evidence preflight
+   -> lightweight media resolution when media is the only semantic payload
+   -> Utility Conversation Intelligence only where semantic judgment is needed
+   -> Runtime validates structured decisions
    -> Candidate Pool
    -> Admission: 0..N
-   -> Ordered Participation Plan
-   -> required context/media retrieval
-   -> Roleplay generation for admitted Characters
+   -> Detailed Ordered Participation Plan
+      - order
+      - action_class
+      - participation_intent
+   -> required context / full REQUIRED media retrieval
+   -> sequential Roleplay generation for admitted text participants
+   -> optional single-round batched Internal Tool escape hatch
    -> Runtime authorization / Discord execution
-   -> post-turn consolidation
+   -> post-turn Episode / Topic / Memory / Wiki / Graph consolidation
 ```
 
-Structured, versioned contracts remain mandatory throughout this flow. LLMs select semantic options from supplied candidates; Runtime owns identity, scope, authority, validation, provenance, lifecycle, and side effects.
+---
+
+## Remaining implementation details — not architecture blockers
+
+The major architecture questions in the previous decision log are now resolved. The following are lower-level contract/tuning details to settle during implementation design:
+
+1. Final exact enum names and payload limits for `message`, `short_message`, `reaction`, and `sticker`.
+2. Final bounded `participation_intent` enum.
+3. Product/config surface for dynamic `max_participants` and any latency/cost guardrails.
+4. Exact lightweight media-resolution evidence budget and escalation thresholds.
+5. Shadow/parity acceptance metrics before Conversation Planner can replace Smart Participation V4 authority.
+6. Exact new Memory scope taxonomy and the safe cleanup procedure for obsolete derived Memory rows.
+7. Episode projection storage schema and retention policy.
+8. Internal Tool batch schema and criteria for enabling exceptional deeper-recall modes.
+9. Exact Wiki scope names and any future explicit wider-scope promotion mechanism.
+10. Concrete Graph edge schemas and temporal-validity representation.
+11. Consolidation queue thresholds, retry policy, and maintenance cadence.
+
+These are implementation-contract/tuning questions; they no longer change the accepted architecture above.
