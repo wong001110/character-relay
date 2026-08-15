@@ -74,7 +74,7 @@ export function FormField({
   ...props
 }: FormFieldProps) {
   return (
-    <div className={cx("cr-form-field", error && "cr-form-field--error", className)} {...props}>
+    <div className={cx("cr-form-field", Boolean(error) && "cr-form-field--error", className)} {...props}>
       <label className="cr-form-field__label" htmlFor={htmlFor}>
         {label}
         {required && <span className="cr-form-field__required" aria-hidden="true">*</span>}
