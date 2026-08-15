@@ -301,8 +301,11 @@ class SmartOutputContext:
                 ),
                 "Return exactly one line in the form [[CR_OUTPUT {...}]].",
                 "Examples (copy the shape, not unavailable sample aliases):",
-                '[[CR_OUTPUT {"action":"message","content":[{"text":"你 😂 真的认真的?"}]}]]',
-                '[[CR_OUTPUT {"action":"short_message","content":[{"text":"哈？"}]}]]',
+                (
+                    '[[CR_OUTPUT {"action":"message","content":'
+                    '[{"text":"你 😂 真的认真的?"}]}]]'
+                ),
+                '[[CR_OUTPUT {"action":"short_message","content":[{"text":"哈?"}]}]]',
                 (
                     '[[CR_OUTPUT {"action":"message","reply_to":"trigger","content":'
                     '[{"text":"这句我不同意。 "},{"emoji":"e1"},'
