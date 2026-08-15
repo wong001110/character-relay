@@ -30,9 +30,13 @@ if TYPE_CHECKING:
 _TOPIC_VECTOR_NAMESPACE = "conversation-topic"
 _TOPIC_CONTINUITY_MINIMUM = 0.42
 _TOPIC_SPARSE_CONTINUITY_MINIMUM = 0.18
+_STALE_TOPIC_CONTINUITY_MINIMUM = 0.56
+_STALE_TOPIC_SPARSE_CONTINUITY_MINIMUM = 0.28
 _CONTINUATION_ACT_MINIMUM = 0.48
 _SWITCH_ACT_MINIMUM = 0.56
 _SWITCH_ACT_MARGIN = 0.05
+_FRESH_CONTEXT_WINDOW = timedelta(minutes=30)
+_STALE_TOPIC_AFTER = timedelta(hours=6)
 _CAPSULE_MAX_CHARS = 1400
 _CAPSULE_MAX_LINES = 6
 _KEYWORD_LIMIT = 24
@@ -242,15 +246,14 @@ class ConversationTopicMemoryService:
 
     @staticmethod
     def _topic_semantic_text(record: ConversationTopicRecord) -> str:
-        return "\n".join(
-            item
-            for item in (
-                f"Topic: {record.topic_label}",
-                f"Summary: {record.summary}" if record.summary else "",
-                f"Keywords: {record.keywords_json}" if record.keywords_json != "[]" else "",
-            )
-            if item
-        )[:6000]
+        """Return the stable semantic identity for a Topic.
+
+        Rolling summary/keywords intentionally do not participate here. They are recent context and
+        may contain an accidentally absorbed message; using them as identity creates a positive
+        feedback loop where one bad classification makes later unrelated messages look more similar.
+        """
+
+        return f"Topic identity: {record.topic_label}"[:2000]
 
     def _topic_vector(self, record: ConversationTopicRecord, encoder: SemanticEncoder) -> list[float]:
         semantic_text = self._topic_semantic_text(record)
@@ -298,8 +301,10 @@ class ConversationTopicMemoryService:
 
     @staticmethod
     def _sparse_similarity(text: str, record: ConversationTopicRecord) -> float:
+        """Compare against stable Topic identity rather than mutable rolling context."""
+
         left = Counter(semantic_tokens(text))
-        right = Counter(semantic_tokens(f"{record.topic_label} {record.summary}"))
+        right = Counter(semantic_tokens(record.topic_label))
         if not left or not right:
             return 0.0
         dot = sum(value * right.get(key, 0) for key, value in left.items())
@@ -309,14 +314,36 @@ class ConversationTopicMemoryService:
             return 0.0
         return dot / (left_norm * right_norm)
 
+    @staticmethod
+    def _idle_for(active: ConversationTopicRecord, current: datetime) -> timedelta:
+        last_active = active.last_active_at
+        if last_active.tzinfo is None:
+            last_active = last_active.replace(tzinfo=UTC)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=UTC)
+        return max(current - last_active, timedelta(0))
+
     def classify_continuity(
         self,
         *,
         text: str,
         active: ConversationTopicRecord,
+        now: datetime | None = None,
     ) -> TopicContinuityDecision:
+        current = now or datetime.now(UTC)
         normalized = " ".join(text.split())[:4000]
         sparse = self._sparse_similarity(normalized, active)
+        idle_for = self._idle_for(active, current)
+        stale = idle_for >= _STALE_TOPIC_AFTER
+        topic_minimum = (
+            _STALE_TOPIC_CONTINUITY_MINIMUM if stale else _TOPIC_CONTINUITY_MINIMUM
+        )
+        sparse_minimum = (
+            _STALE_TOPIC_SPARSE_CONTINUITY_MINIMUM
+            if stale
+            else _TOPIC_SPARSE_CONTINUITY_MINIMUM
+        )
+
         if not normalized:
             return TopicContinuityDecision(
                 same_topic=True,
@@ -327,7 +354,7 @@ class ConversationTopicMemoryService:
             )
         if not self._semantic_enabled:
             return TopicContinuityDecision(
-                same_topic=sparse >= _TOPIC_SPARSE_CONTINUITY_MINIMUM,
+                same_topic=sparse >= sparse_minimum,
                 topic_similarity=0.0,
                 sparse_similarity=sparse,
                 acts=ConversationActScores(),
@@ -345,28 +372,36 @@ class ConversationTopicMemoryService:
             acts = ConversationActScores(**act_values)
         except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
             return TopicContinuityDecision(
-                same_topic=sparse >= _TOPIC_SPARSE_CONTINUITY_MINIMUM,
+                same_topic=sparse >= sparse_minimum,
                 topic_similarity=0.0,
                 sparse_similarity=sparse,
                 acts=ConversationActScores(),
                 reason="semantic_unavailable_sparse_fallback",
             )
 
+        identity_match = topic_similarity >= topic_minimum or sparse >= sparse_minimum
+        fresh_contextual_continuation = (
+            idle_for <= _FRESH_CONTEXT_WINDOW
+            and acts.continuation >= _CONTINUATION_ACT_MINIMUM
+        )
         switch_wins = (
             acts.switch_topic >= _SWITCH_ACT_MINIMUM
             and acts.switch_topic >= acts.continuation + _SWITCH_ACT_MARGIN
-            and topic_similarity < _CONTINUATION_ACT_MINIMUM
+            and not identity_match
         )
+
         if switch_wins:
             same_topic = False
             reason = "semantic_switch_topic"
-        elif (
-            topic_similarity >= _TOPIC_CONTINUITY_MINIMUM
-            or sparse >= _TOPIC_SPARSE_CONTINUITY_MINIMUM
-            or acts.continuation >= _CONTINUATION_ACT_MINIMUM
-        ):
+        elif identity_match:
             same_topic = True
-            reason = "semantic_continuation"
+            reason = "semantic_identity_continuation"
+        elif fresh_contextual_continuation:
+            same_topic = True
+            reason = "fresh_contextual_continuation"
+        elif stale and acts.continuation >= _CONTINUATION_ACT_MINIMUM:
+            same_topic = False
+            reason = "stale_topic_requires_identity"
         else:
             same_topic = False
             reason = "semantic_new_topic"
@@ -405,7 +440,11 @@ class ConversationTopicMemoryService:
         return "\n".join(lines[-_CAPSULE_MAX_LINES:])[-_CAPSULE_MAX_CHARS:]
 
     @staticmethod
-    def _participants(existing: list[dict[str, str]], user_id: str, display_name: str) -> list[dict[str, str]]:
+    def _participants(
+        existing: list[dict[str, str]],
+        user_id: str,
+        display_name: str,
+    ) -> list[dict[str, str]]:
         results = [dict(item) for item in existing if item.get("user_id") != user_id]
         if user_id:
             results.append({"user_id": user_id[:200], "display_name": display_name[:160]})
@@ -471,7 +510,7 @@ class ConversationTopicMemoryService:
             )
             return self.snapshot(record)
 
-        continuity = self.classify_continuity(text=text, active=active)
+        continuity = self.classify_continuity(text=text, active=active, now=current)
         if not continuity.same_topic:
             self.repository.set_status(
                 topic_id=active.id,
@@ -511,7 +550,11 @@ class ConversationTopicMemoryService:
                 ensure_ascii=False,
             ),
             participants_json=json.dumps(
-                self._participants(snapshot.participants, payload.author_id, payload.author_display_name),
+                self._participants(
+                    snapshot.participants,
+                    payload.author_id,
+                    payload.author_display_name,
+                ),
                 ensure_ascii=False,
             ),
             last_message_id=payload.message_id,
@@ -599,8 +642,7 @@ class ConversationTopicMemoryService:
             if item.requested_by_user_id == requested_by_user_id
             and item.target_character_card_id == target_character_card_id
             and item.deployment_id == deployment_id
-            and item.state
-            not in {"completed", "cancelled", "expired"}
+            and item.state not in {"completed", "cancelled", "expired"}
             and item.expires_at > current
         )
 
