@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -32,7 +33,7 @@ class AdmissionLimitDecision:
     analysis_chars: int
 
 
-def _analysis_text(message: str, burst_messages: list[BurstMessageLike]) -> str:
+def _analysis_text(message: str, burst_messages: Sequence[BurstMessageLike]) -> str:
     parts = [item.text.strip() for item in burst_messages if item.text.strip()]
     if not parts and message.strip():
         parts.append(message.strip())
@@ -42,7 +43,7 @@ def _analysis_text(message: str, burst_messages: list[BurstMessageLike]) -> str:
 def resolve_admission_limit(
     *,
     message: str,
-    burst_messages: list[BurstMessageLike],
+    burst_messages: Sequence[BurstMessageLike],
     eligible_candidate_count: int,
     requested_max: int,
     emergency_hard_cap: int = _EMERGENCY_HARD_CAP,
