@@ -1,0 +1,603 @@
+/*
+ * Character Relay scrapbook page pass — phase 1
+ *
+ * This file deliberately changes presentation before deeper feature-specific
+ * layout refactors. It is loaded after the shared component foundation and
+ * keeps existing business behavior intact.
+ */
+
+/* ---------- Global notebook shell ---------- */
+
+.portal-v2-shell {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 14% 4%, rgba(185, 165, 223, 0.12), transparent 28rem),
+    radial-gradient(circle at 88% 18%, rgba(159, 201, 158, 0.09), transparent 24rem),
+    var(--cr-paper-canvas);
+  color: var(--cr-ink);
+}
+
+.portal-v2-topbar {
+  border-bottom: 1px solid color-mix(in srgb, var(--cr-line) 78%, transparent);
+  background: color-mix(in srgb, var(--cr-paper-raised) 93%, transparent);
+  box-shadow: 0 3px 14px rgba(75, 57, 47, 0.06);
+  backdrop-filter: blur(12px);
+}
+
+.portal-v2-brand,
+.portal-v2-main-nav button,
+.portal-v2-user-chip {
+  transition:
+    transform var(--cr-motion-fast) var(--cr-ease-paper),
+    box-shadow var(--cr-motion-fast) ease,
+    background var(--cr-motion-fast) ease,
+    border-color var(--cr-motion-fast) ease;
+}
+
+.portal-v2-main-nav button {
+  position: relative;
+  border: 1px solid transparent;
+  border-radius: 9px 9px 5px 5px;
+}
+
+.portal-v2-main-nav button:hover {
+  transform: translateY(-1px);
+  background: var(--cr-paper-muted);
+}
+
+.portal-v2-main-nav button.is-active {
+  border-color: color-mix(in srgb, var(--cr-lavender) 44%, var(--cr-line));
+  background: var(--cr-lavender-soft);
+  box-shadow: 0 2px 5px rgba(75, 57, 47, 0.08);
+}
+
+.portal-v2-main-nav button.is-active::after {
+  content: "";
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: -5px;
+  height: 3px;
+  border-radius: 99px;
+  background: var(--cr-lavender);
+  transform: rotate(-1deg);
+}
+
+.portal-v2-user-chip:hover,
+.portal-v2-brand:hover {
+  transform: translateY(-1px);
+}
+
+.portal-v2-page-frame {
+  position: relative;
+  isolation: isolate;
+}
+
+.portal-v2-page-frame::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 18px 20px -10px 24px;
+  border: 1px solid rgba(187, 169, 156, 0.26);
+  border-radius: 22px;
+  background: rgba(255, 250, 241, 0.22);
+  pointer-events: none;
+}
+
+.portal-v2-section-marker.cr-sticky-label {
+  position: absolute;
+  z-index: 8;
+  top: -11px;
+  left: clamp(22px, 4vw, 58px);
+  min-height: 25px;
+  padding-inline: 11px;
+  border-color: rgba(111, 91, 80, 0.14);
+  background: var(--cr-yellow-soft);
+  color: var(--cr-ink-soft);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transform: rotate(-0.6deg);
+}
+
+/* ---------- Dashboard: research desk hierarchy ---------- */
+
+.portal-v2-dashboard {
+  position: relative;
+}
+
+.portal-v2-dashboard-hero {
+  align-items: stretch;
+}
+
+.portal-v2-hero-copy {
+  position: relative;
+}
+
+.portal-v2-hero-copy::after {
+  content: "";
+  display: block;
+  width: min(220px, 42%);
+  height: 4px;
+  margin-top: 18px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--cr-rose), var(--cr-lavender), transparent);
+  opacity: 0.55;
+  transform: rotate(-0.7deg);
+}
+
+.portal-v2-hero-actions {
+  align-items: center;
+}
+
+.portal-v2-hero-actions .cr-button {
+  min-width: 154px;
+}
+
+.portal-v2-hero-note.cr-sticky-note {
+  align-self: center;
+  width: min(280px, 100%);
+  min-height: 210px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  border-color: rgba(126, 104, 89, 0.15);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0)),
+    var(--cr-yellow-soft);
+}
+
+.portal-v2-hero-note.cr-sticky-note > span:first-child {
+  font-family: var(--cr-font-ui);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+}
+
+.portal-v2-hero-note.cr-sticky-note strong {
+  font-family: var(--cr-font-ui);
+  font-size: clamp(2.4rem, 6vw, 4.4rem);
+  line-height: 0.95;
+}
+
+.portal-v2-dashboard-grid {
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-auto-rows: minmax(150px, auto);
+}
+
+.portal-v2-dashboard-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 160px;
+  text-align: left;
+  border: 1px solid var(--cr-line);
+  background: var(--cr-paper);
+  box-shadow: var(--cr-shadow-paper);
+  transition:
+    transform var(--cr-motion-base) var(--cr-ease-paper),
+    box-shadow var(--cr-motion-base) ease,
+    border-color var(--cr-motion-fast) ease;
+}
+
+.portal-v2-dashboard-card::before {
+  content: "";
+  position: absolute;
+  width: 78px;
+  height: 20px;
+  top: -6px;
+  right: 24px;
+  border-radius: 3px;
+  background: rgba(244, 218, 171, 0.54);
+  transform: rotate(2.8deg);
+  pointer-events: none;
+}
+
+.portal-v2-dashboard-card:hover {
+  transform: translateY(-3px) rotate(-0.15deg);
+  border-color: var(--cr-line-strong);
+  box-shadow: var(--cr-shadow-lift);
+}
+
+.portal-v2-dashboard-card:first-child {
+  grid-row: span 2;
+  min-height: 330px;
+  padding: clamp(24px, 4vw, 38px);
+  background:
+    radial-gradient(circle at 88% 14%, rgba(185, 165, 223, 0.26), transparent 15rem),
+    linear-gradient(145deg, var(--cr-paper-raised), var(--cr-lavender-soft));
+}
+
+.portal-v2-dashboard-card:first-child strong {
+  max-width: 13ch;
+  font-size: clamp(1.65rem, 3vw, 2.5rem);
+}
+
+.portal-v2-dashboard-card:first-child p {
+  max-width: 32rem;
+}
+
+.portal-v2-dashboard-card:nth-child(2) {
+  background: linear-gradient(150deg, var(--cr-paper-raised), var(--cr-mint-soft));
+}
+
+.portal-v2-dashboard-card:nth-child(3) {
+  background: linear-gradient(150deg, var(--cr-paper-raised), var(--cr-peach-soft));
+}
+
+.portal-v2-dashboard-card:nth-child(4) {
+  min-height: 132px;
+  background: var(--cr-paper-muted);
+}
+
+.portal-v2-dashboard-card:nth-child(4) strong {
+  font-size: 1.05rem;
+}
+
+.portal-v2-dashboard-strip {
+  border: 1px dashed color-mix(in srgb, var(--cr-line-strong) 70%, transparent);
+  background: color-mix(in srgb, var(--cr-paper-raised) 84%, transparent);
+}
+
+/* ---------- Character archive ---------- */
+
+.character-library-v2 .character-library-heading {
+  align-items: flex-start;
+}
+
+.character-library-v2 .character-library-count-note,
+.character-library-v2 .character-library-tools-note,
+.character-library-v2 .character-library-filter-note,
+.character-library-v2 .character-library-tag-note,
+.character-library-v2 .character-library-create-note {
+  box-shadow: var(--cr-shadow-paper);
+}
+
+.character-file-grid .character-card {
+  border-color: color-mix(in srgb, var(--cr-line) 82%, transparent);
+  box-shadow: var(--cr-shadow-paper);
+  transition:
+    transform var(--cr-motion-base) var(--cr-ease-paper),
+    box-shadow var(--cr-motion-base) ease;
+}
+
+.character-file-grid .character-card:hover {
+  transform: translateY(-3px) rotate(-0.12deg);
+  box-shadow: var(--cr-shadow-lift);
+}
+
+.character-file-grid .portrait-window {
+  min-height: 210px;
+}
+
+.character-file-grid .card-copy h3 {
+  font-size: 1.2rem;
+}
+
+.character-file-grid .card-actions {
+  border-top: 1px dashed rgba(148, 134, 126, 0.35);
+  padding-top: 12px;
+}
+
+.character-file-grid .card-actions .paper-button {
+  min-height: 32px;
+  padding-inline: 10px;
+  font-size: 0.75rem;
+}
+
+.character-file-grid .card-actions .enter-room {
+  min-height: 40px;
+  box-shadow: 2px 3px 0 rgba(90, 72, 61, 0.12);
+}
+
+.character-library-tools {
+  position: sticky;
+  top: 92px;
+  align-self: start;
+}
+
+.character-library-filter-summary button,
+.character-library-tag-note button {
+  border-radius: 5px 7px 6px 4px;
+}
+
+/* ---------- Character editor ---------- */
+
+.paper-drawer-panel.character-editor-drawer {
+  width: min(840px, calc(100vw - 22px));
+  max-width: 840px;
+  border-left-color: color-mix(in srgb, var(--cr-lavender) 45%, var(--cr-line));
+  background: var(--cr-paper-raised);
+}
+
+.character-editor-drawer .notebook-form-paper {
+  position: relative;
+  padding-bottom: 92px;
+}
+
+.character-editor-drawer .notebook-form-intro {
+  padding-right: clamp(0px, 4vw, 68px);
+}
+
+.character-editor-drawer .character-ai-drafter {
+  position: relative;
+  border: 1px solid rgba(126, 104, 89, 0.14);
+  border-radius: 5px 8px 10px 6px;
+  background: var(--cr-lavender-soft);
+  box-shadow: 2px 4px 8px rgba(75, 57, 47, 0.09);
+  transform: rotate(-0.12deg);
+}
+
+.character-editor-drawer .character-ai-drafter::after {
+  content: "";
+  position: absolute;
+  top: -7px;
+  right: 11%;
+  width: 72px;
+  height: 18px;
+  border-radius: 3px;
+  background: rgba(237, 211, 174, 0.62);
+  transform: rotate(2deg);
+  pointer-events: none;
+}
+
+.character-editor-drawer .character-ai-drafter-toggle {
+  background: transparent;
+}
+
+.character-editor-drawer .notebook-form-section {
+  position: relative;
+  scroll-margin-top: 28px;
+  border-color: color-mix(in srgb, var(--cr-line) 90%, transparent);
+  box-shadow: var(--cr-shadow-paper);
+}
+
+.character-editor-drawer .notebook-form-section-heading {
+  align-items: flex-start;
+}
+
+.character-editor-drawer .notebook-section-tab {
+  position: relative;
+  min-width: 112px;
+  padding: 7px 12px 7px 20px;
+  border: 1px solid rgba(90, 72, 61, 0.13);
+  border-radius: 5px 8px 8px 5px;
+  background: var(--cr-lavender);
+  clip-path: polygon(14px 0, 100% 0, 100% 100%, 14px 100%, 0 50%);
+  box-shadow: 1px 2px 4px rgba(75, 57, 47, 0.09);
+}
+
+.character-editor-drawer .notebook-form-section.accent-mint .notebook-section-tab {
+  background: var(--cr-mint);
+}
+
+.character-editor-drawer .notebook-form-section.accent-peach .notebook-section-tab {
+  background: var(--cr-peach);
+}
+
+.character-editor-drawer .notebook-form-section.accent-rose .notebook-section-tab {
+  background: var(--cr-rose);
+}
+
+.character-editor-drawer .notebook-form-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
+  margin-inline: -10px;
+  padding: 14px 10px 10px;
+  border-top: 1px solid rgba(187, 169, 156, 0.58);
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0), var(--cr-paper-raised) 28%);
+}
+
+/* ---------- Deployment server notebook ---------- */
+
+.deployment-page .deployment-header {
+  border-bottom-style: dashed;
+  border-bottom-color: rgba(187, 169, 156, 0.5);
+}
+
+.server-notebook-shell {
+  gap: clamp(16px, 2.5vw, 28px);
+}
+
+.server-notebook-tabs {
+  align-self: start;
+}
+
+.server-notebook-tabs > button {
+  position: relative;
+  min-height: 48px;
+  border: 1px solid rgba(90, 72, 61, 0.14);
+  border-radius: 5px 8px 8px 5px;
+  background: var(--cr-paper-muted);
+  box-shadow: 1px 2px 4px rgba(75, 57, 47, 0.07);
+  clip-path: polygon(14px 0, 100% 0, 100% 100%, 14px 100%, 0 50%);
+  transition:
+    transform var(--cr-motion-base) var(--cr-ease-paper),
+    box-shadow var(--cr-motion-fast) ease,
+    background var(--cr-motion-fast) ease;
+}
+
+.server-notebook-tabs > button:nth-of-type(1) { background: var(--cr-lavender-soft); }
+.server-notebook-tabs > button:nth-of-type(2) { background: var(--cr-mint-soft); }
+.server-notebook-tabs > button:nth-of-type(3) { background: var(--cr-peach-soft); }
+.server-notebook-tabs > button:nth-of-type(4) { background: var(--cr-blue-soft); }
+
+.server-notebook-tabs > button:hover:not(:disabled) {
+  transform: translateX(3px);
+  box-shadow: var(--cr-shadow-paper);
+}
+
+.server-notebook-tabs > button.is-active {
+  transform: translateX(8px);
+  box-shadow: var(--cr-shadow-lift);
+}
+
+.deployment-summary-card {
+  border-color: var(--cr-line);
+  box-shadow: var(--cr-shadow-paper);
+}
+
+.connection-panel,
+.deployment-form-sheet,
+.server-notebook-content > section {
+  border-color: color-mix(in srgb, var(--cr-line) 86%, transparent);
+}
+
+/* ---------- Toolbox / observer desk ---------- */
+
+.toolbox-v2-sidebar {
+  background:
+    linear-gradient(180deg, rgba(185, 165, 223, 0.08), transparent 18rem),
+    var(--cr-paper-muted);
+}
+
+.toolbox-v2-sidebar nav > button {
+  position: relative;
+  border: 1px solid transparent;
+  border-radius: 6px 9px 9px 6px;
+  transition:
+    transform var(--cr-motion-fast) var(--cr-ease-paper),
+    background var(--cr-motion-fast) ease;
+}
+
+.toolbox-v2-sidebar nav > button:hover {
+  transform: translateX(2px);
+  background: var(--cr-paper-raised);
+}
+
+.toolbox-v2-sidebar nav > button.is-active {
+  transform: translateX(6px);
+  border-color: rgba(90, 72, 61, 0.12);
+  background: var(--cr-lavender-soft);
+  box-shadow: 2px 3px 6px rgba(75, 57, 47, 0.08);
+}
+
+.toolbox-v2-lab-note {
+  border-radius: 5px 8px 10px 6px;
+  background: var(--cr-peach-soft);
+  box-shadow: 2px 4px 8px rgba(75, 57, 47, 0.1);
+  transform: rotate(0.2deg);
+}
+
+.toolbox-v2-overview-grid > button {
+  border-color: var(--cr-line);
+  background: var(--cr-paper);
+  box-shadow: var(--cr-shadow-paper);
+  transition:
+    transform var(--cr-motion-base) var(--cr-ease-paper),
+    box-shadow var(--cr-motion-base) ease;
+}
+
+.toolbox-v2-overview-grid > button:hover {
+  transform: translateY(-3px) rotate(-0.12deg);
+  box-shadow: var(--cr-shadow-lift);
+}
+
+/* ---------- Settings / private pages ---------- */
+
+.settings-v2-note {
+  position: relative;
+  border-radius: 5px 9px 11px 6px;
+  background: var(--cr-yellow-soft);
+  box-shadow: 2px 5px 12px rgba(75, 57, 47, 0.11);
+  transform: rotate(-0.15deg);
+}
+
+.settings-v2-note::after {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: 22%;
+  width: 82px;
+  height: 19px;
+  border-radius: 3px;
+  background: rgba(225, 197, 163, 0.58);
+  transform: rotate(-2deg);
+  pointer-events: none;
+}
+
+.settings-v2-content {
+  border-radius: var(--cr-radius-lg);
+  background: color-mix(in srgb, var(--cr-paper-raised) 84%, transparent);
+}
+
+/* ---------- Technical surfaces: intentionally restrained ---------- */
+
+.provider-trace-viewer,
+.runtime-trace-viewer,
+.conversation-intelligence-inspector,
+.semantic-routing-admin {
+  --scrapbook-technical-decoration: 0;
+}
+
+.provider-trace-viewer .paper-sheet,
+.runtime-trace-viewer .paper-sheet,
+.conversation-intelligence-inspector .paper-sheet {
+  box-shadow: none;
+}
+
+/* ---------- Motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-v2-dashboard-card,
+  .character-file-grid .character-card,
+  .server-notebook-tabs > button,
+  .toolbox-v2-sidebar nav > button,
+  .toolbox-v2-overview-grid > button,
+  .settings-v2-note,
+  .character-editor-drawer .character-ai-drafter {
+    transform: none !important;
+  }
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 1120px) {
+  .portal-v2-dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .portal-v2-dashboard-card:first-child {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    min-height: 240px;
+  }
+
+  .character-library-tools {
+    position: static;
+  }
+}
+
+@media (max-width: 720px) {
+  .portal-v2-section-marker.cr-sticky-label {
+    left: 16px;
+  }
+
+  .portal-v2-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-v2-dashboard-card:first-child {
+    grid-column: auto;
+    min-height: 220px;
+  }
+
+  .portal-v2-hero-note.cr-sticky-note {
+    width: 100%;
+    min-height: 150px;
+  }
+
+  .character-editor-drawer .notebook-section-tab {
+    min-width: 92px;
+    font-size: 0.68rem;
+  }
+
+  .server-notebook-tabs > button.is-active,
+  .server-notebook-tabs > button:hover:not(:disabled),
+  .toolbox-v2-sidebar nav > button.is-active,
+  .toolbox-v2-sidebar nav > button:hover {
+    transform: none;
+  }
+}

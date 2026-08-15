@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 
 import type { AuthUser } from "./api";
+import { StickyLabel } from "./components/ui";
 import { useI18n } from "./i18n";
 import { LanguageSwitcher } from "./LanguageSwitcher";
+import "./scrapbook-page-phase1.css";
 
 export type PortalSection =
   | "dashboard"
@@ -42,6 +44,7 @@ export function PortalShell({
   const { language } = useI18n();
   const zh = language === "zh-CN";
   const initials = user.display_name.trim().slice(0, 1).toUpperCase() || "C";
+  const activeItem = navItems.find((item) => item.id === active) ?? navItems[0];
 
   return (
     <div className="portal-v2-shell">
@@ -62,6 +65,7 @@ export function PortalShell({
               key={item.id}
               className={active === item.id ? "is-active" : ""}
               onClick={() => onNavigate(item.id)}
+              aria-current={active === item.id ? "page" : undefined}
             >
               <span aria-hidden="true">{item.icon}</span>
               {zh ? item.zh : item.en}
@@ -87,7 +91,10 @@ export function PortalShell({
         </div>
       </header>
 
-      <div className="portal-v2-page-frame">
+      <div className="portal-v2-page-frame" data-section={active}>
+        <StickyLabel className="portal-v2-section-marker">
+          NOTEBOOK / {zh ? activeItem.zh : activeItem.en}
+        </StickyLabel>
         <div className="portal-v2-corner-tape portal-v2-corner-tape-left" aria-hidden="true" />
         <div className="portal-v2-corner-tape portal-v2-corner-tape-right" aria-hidden="true" />
         {children}
