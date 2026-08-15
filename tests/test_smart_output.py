@@ -120,7 +120,7 @@ def test_message_resolves_reply_emoji_and_mentions_to_runtime_refs() -> None:
 def test_short_message_normalizes_to_message_with_short_style() -> None:
     context = SmartOutputContext.from_payload(payload(admitted=True), character_name="Ann")
     output, reason = context.parse_and_resolve(
-        '[[CR_OUTPUT {"action":"short_message","content":[{"text":"哈？"}]}]]',
+        '[[CR_OUTPUT {"action":"short_message","content":[{"text":"ha?"}]}]]',
         [],
     )
 
@@ -128,7 +128,7 @@ def test_short_message_normalizes_to_message_with_short_style() -> None:
     assert output is not None
     assert output.action == "message"
     assert output.message_style == "short"
-    assert output.content == [SmartTextPart(text="哈？")]
+    assert output.content == [SmartTextPart(text="ha?")]
 
 
 def test_short_message_rejects_long_text() -> None:
