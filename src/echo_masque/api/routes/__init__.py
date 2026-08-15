@@ -38,6 +38,7 @@ from echo_masque.api.routes.smart_participation import router as smart_participa
 from echo_masque.api.routes.smart_participation_v4 import (
     router as smart_participation_v4_router,
 )
+from echo_masque.api.routes.social_turn_interrupt import router as social_turn_interrupt_router
 from echo_masque.api.routes.targets import router as targets_router
 from echo_masque.api.routes.templates import router as templates_router
 from echo_masque.api.routes.tools import router as tools_router
@@ -53,9 +54,10 @@ characters_router.include_router(character_portraits_router)
 # lifecycle router does not become the home for provider discovery logic.
 accounts_router.include_router(key_group_scout_router)
 
-# Generated binary artifacts are an internal Discord connector sub-route. Keep them under the
-# existing authenticated connector prefix without adding another top-level router to create_app.
+# Generated binary artifacts and Social Turn interruption are internal Discord connector
+# sub-routes. Keep them under the existing authenticated connector prefix.
 connectors_router.include_router(generated_media_router)
+connectors_router.include_router(social_turn_interrupt_router)
 
 # V4 resolver shares the existing Smart Participation prefix/auth boundary. Keeping the new route
 # in a separate module avoids expanding the legacy per-message implementation during migration.
