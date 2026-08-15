@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, cast
+from typing import Annotated
 
 from fastapi import APIRouter, Header, Request
 
@@ -14,6 +14,15 @@ from echo_masque.media_planning import (
 )
 
 router = APIRouter()
+
+
+def _service(request: Request) -> MediaPlanningDescriptorService:
+    current = getattr(request.app.state, "media_planning_descriptor_service", None)
+    if isinstance(current, MediaPlanningDescriptorService):
+        return current
+    service = MediaPlanningDescriptorService()
+    request.app.state.media_planning_descriptor_service = service
+    return service
 
 
 @router.post(
@@ -28,11 +37,7 @@ async def media_planning_descriptor(
     """Return objective routing evidence without granting Character perception."""
 
     _authorize_connector(request, authorization)
-    service = cast(
-        MediaPlanningDescriptorService,
-        request.app.state.media_planning_descriptor_service,
-    )
-    return await service.describe(payload)
+    return await _service(request).describe(payload)
 
 
 __all__ = ["router"]
