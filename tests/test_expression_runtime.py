@@ -112,14 +112,16 @@ def test_smart_output_prompt_explains_social_actions_and_hides_raw_ids() -> None
         payload=payload,
     )
 
-    assert "Available actions: ignore, message, react, sticker" in prompt
+    assert "Available actions: message, short_message, react, sticker" in prompt
+    assert "Runtime has already admitted this character for this turn" in prompt
     assert "Unicode Emoji may appear directly inside a text value" in prompt
     assert "exactly one of: text, emoji, mention" in prompt
     assert "omit reply_to to send directly to the channel" in prompt
     assert "Return exactly one line in the form [[CR_OUTPUT {...}]]" in prompt
+    assert '"action":"short_message"' in prompt
     assert '"action":"react"' in prompt
     assert '"action":"sticker"' in prompt
-    assert '"action":"ignore"' in prompt
+    assert '"action":"ignore"' not in prompt
     assert "e1; type=emoji; name=peek" in prompt
     assert "s1; type=sticker; name=peek" in prompt
     assert "emoji:123456789012345678" not in prompt
