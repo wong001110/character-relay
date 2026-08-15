@@ -1,6 +1,6 @@
 # Post-V4 Observability & Runtime Control Roadmap
 
-Status: **IMPLEMENTED / RELEASE VALIDATION IN PROGRESS**
+Status: **IMPLEMENTED / RELEASE VALIDATED**
 
 Branch: `agent/observability-runtime-control`
 
@@ -215,7 +215,7 @@ Free Pool cards expose manual configuration separately from Runtime health and q
 
 The new Server Notebook Inspector makes learned state and Topic history visible without SQLite inspection.
 
-## Phase 5 — Validation and rollout — IN PROGRESS
+## Phase 5 — Validation and rollout — COMPLETE
 
 Focused checkpoint validation completed:
 
@@ -225,18 +225,18 @@ Focused checkpoint validation completed:
 - Conversation Burst live observability: workflow `31878381444` passed Python validation, Discord Connector typecheck/127 tests/build, Web tests/build, and diff check.
 - Inspector readable subjects/category filtering: workflow `31878589506` passed Python strict validation and Web tests/build.
 
-Final release gate still required on the clean branch head:
+Final clean-head release gate completed on commit `d8d4329735efb9f6ed4306fad2f3c07b5d9bcbcc`:
 
-- Python 3.12 / 3.13 Ruff
-- strict Mypy
-- repository-wide Pytest
-- Web typecheck / tests / build
-- Discord Connector typecheck / tests / build
-- production Docker smoke
-- Railway Smoke
+- CI `#1352` / workflow `31878695567`: **green**
+  - Python 3.12 Ruff + strict Mypy + repository-wide Pytest
+  - Python 3.13 Ruff + strict Mypy + repository-wide Pytest
+  - Web typecheck + tests + production build
+  - Discord Connector typecheck + tests + build + image build
+  - production Docker build + persistent-storage + health + smoke validation
+- Railway Smoke `#1318` / workflow `31878695579`: **green**
 
-Public Demo Status is evaluated separately because `main` already has a known credential-readiness baseline failure; an identical result is not treated as an observability/runtime-control regression.
+Public Demo Status is evaluated separately. The current `main` commit already has a failing Public Demo Status run (`31832019603`) because of the existing demo credential-readiness baseline, so an identical result is not treated as an Observability & Runtime Control regression.
 
 ## Delivery rule
 
-All implementation for this roadmap stays in Draft PR `#167` on `agent/observability-runtime-control` until final validation is complete. Do not merge automatically; merge requires explicit owner approval.
+All implementation for this roadmap remains in Draft PR `#167` on `agent/observability-runtime-control`. Do not merge automatically; merge requires explicit owner approval.
