@@ -18,6 +18,7 @@ import "./key-groups-bulk-apply-v2.css";
 import "./semantic-routing-admin.css";
 import "./utility-gateway.css";
 import "./behavior-notebook-turns.css";
+import "./scrapbook-character-workflow-v2.css";
 import { I18nProvider } from "./i18n";
 import { SemanticRoutingJudgeDock } from "./SemanticRoutingJudgeDock";
 
