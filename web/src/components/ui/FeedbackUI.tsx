@@ -42,9 +42,9 @@ export function StatusIndicator({
   );
 }
 
-export interface InspectorSectionProps extends HTMLAttributes<HTMLElement> {
-  eyebrow?: ReactNode;
+export interface InspectorSectionProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   title: ReactNode;
+  eyebrow?: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
   density?: "comfortable" | "compact";
@@ -79,7 +79,7 @@ export function InspectorSection({
   );
 }
 
-export interface EmptyStateProps extends HTMLAttributes<HTMLDivElement> {
+export interface EmptyStateProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
   title: ReactNode;
   description?: ReactNode;
   illustration?: ReactNode;
