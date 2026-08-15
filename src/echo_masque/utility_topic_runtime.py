@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from echo_masque.conversation_topic import (
+    _STALE_TOPIC_AFTER,
     ConversationTopicMemoryService,
     TopicContinuityDecision,
 )
@@ -47,7 +48,14 @@ class UtilityTopicMemoryService(ConversationTopicMemoryService):
         active: ConversationTopicRecord,
         now: datetime | None = None,
     ) -> TopicContinuityDecision:
-        base = super().classify_continuity(text=text, active=active, now=now)
+        current = now or datetime.now(UTC)
+        base = super().classify_continuity(text=text, active=active, now=current)
+
+        # Topic lifecycle is authoritative. Once an active Topic is stale and the deterministic
+        # identity check does not match, a gray-zone Utility judge must not revive it from rolling
+        # context alone. Explicit returns still pass the base identity check and remain eligible.
+        if not base.same_topic and self._idle_for(active, current) >= _STALE_TOPIC_AFTER:
+            return base
         if self._clear(base):
             return base
         prompt = "\n".join(
