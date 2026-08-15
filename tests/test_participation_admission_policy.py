@@ -103,3 +103,15 @@ def test_request_contract_counts_only_eligible_candidates() -> None:
     )
 
     assert request.max_participants == 3
+
+
+def test_request_contract_never_expands_above_emergency_cap() -> None:
+    request = SmartParticipationResolveRequest(
+        connection_id="conn",
+        message="Everybody jump in on this one.",
+        max_participants=10,
+        candidates=_candidates(24),
+    )
+
+    assert request.max_participants == 10
+    assert request.admission_limit_reason == "explicit_group_invitation"
