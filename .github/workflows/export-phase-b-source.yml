@@ -17,6 +17,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: phase-b-connector-source
-          path: connectors/discord/src/index.ts
+          path: |
+            connectors/discord/src/index.ts
+            connectors/discord/src/relayClient.ts
+            connectors/discord/src/types.ts
           if-no-files-found: error
           retention-days: 1
