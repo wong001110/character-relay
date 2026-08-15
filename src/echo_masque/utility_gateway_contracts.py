@@ -19,6 +19,19 @@ UtilityHealth = Literal[
 UtilityTier = Literal["free", "paid"]
 
 
+class UtilityQuotaDimension(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    kind: str
+    remaining: float | None = None
+    limit: float | None = None
+    unit: str = ""
+    reset_at: datetime | None = None
+    window_seconds: int | None = None
+    source: str = "response_header"
+    observed_at: datetime | None = None
+
+
 class UtilityProviderSnapshot(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -36,6 +49,7 @@ class UtilityProviderSnapshot(BaseModel):
     cooldown_until: datetime | None = None
     last_error: str = ""
     last_observed_at: datetime | None = None
+    quota_dimensions: tuple[UtilityQuotaDimension, ...] = ()
 
 
 class UtilityGatewaySnapshot(BaseModel):
@@ -170,6 +184,7 @@ __all__ = [
     "UtilityHealth",
     "UtilityInferenceResult",
     "UtilityProviderSnapshot",
+    "UtilityQuotaDimension",
     "UtilityRoute",
     "UtilityTier",
     "WikiUtilityResult",

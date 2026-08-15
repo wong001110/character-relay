@@ -57,9 +57,39 @@ export interface UtilityCredentialStatus {
   source: string;
 }
 
+export interface UtilityQuotaDimension {
+  kind: string;
+  remaining: number | null;
+  limit: number | null;
+  unit: string;
+  reset_at: string | null;
+  window_seconds: number | null;
+  source: string;
+  observed_at: string | null;
+}
+
+export interface UtilityProviderRuntimeSnapshot {
+  member_id: string;
+  status: string;
+  cooldown_until: string | null;
+  last_error: string;
+  last_observed_at: string | null;
+  observation_source: string;
+  quota_dimensions: UtilityQuotaDimension[];
+}
+
+export interface UtilityGatewayRuntimeSnapshot {
+  enabled: boolean;
+  members: UtilityProviderRuntimeSnapshot[];
+  paid_fallback_enabled: boolean;
+  daily_cost_usd: number;
+  monthly_cost_usd: number;
+}
+
 interface Props {
   config: UtilityGatewayConfig;
   credentialStatus: UtilityCredentialStatus[];
+  runtimeSnapshot: UtilityGatewayRuntimeSnapshot | null;
   zh: boolean;
   onChange: (config: UtilityGatewayConfig) => void;
   onRefreshCredentials: () => Promise<void>;
@@ -126,6 +156,7 @@ function providerMeta(provider: UtilityProviderId) {
 export function UtilityGatewayPanel({
   config,
   credentialStatus,
+  runtimeSnapshot,
   zh,
   onChange,
   onRefreshCredentials
@@ -135,6 +166,10 @@ export function UtilityGatewayPanel({
   const statusById = useMemo(
     () => new Map(credentialStatus.map((item) => [item.member_id, item])),
     [credentialStatus]
+  );
+  const runtimeById = useMemo(
+    () => new Map((runtimeSnapshot?.members ?? []).map((item) => [item.member_id, item])),
+    [runtimeSnapshot]
   );
   const readyCount = config.members.filter((member) => statusById.get(member.id)?.configured).length;
 
@@ -261,6 +296,7 @@ export function UtilityGatewayPanel({
         <div className="utility-provider-list">
           {config.members.map((member, index) => {
             const credential = statusById.get(member.id);
+            const runtime = runtimeById.get(member.id);
             const meta = providerMeta(member.provider);
             const expanded = expandedMembers.has(index);
             return (
@@ -289,6 +325,9 @@ export function UtilityGatewayPanel({
                       className={`utility-state-badge${credential?.configured ? " is-ready" : " is-missing"}`}
                     >
                       {credential?.configured ? "KEY READY" : "NO KEY"}
+                    </span>
+                    <span className={`utility-state-badge utility-runtime-${runtime?.status ?? "unknown"}`}>
+                      {(runtime?.status ?? "unknown").replaceAll("_", " ").toUpperCase()}
                     </span>
                     <button
                       type="button"
@@ -420,10 +459,18 @@ export function UtilityGatewayPanel({
                       </div>
                     </div>
 
+                    <section className="utility-runtime-observation">
+                      <div className="utility-runtime-observation-head"><strong>{zh ? "Runtime / Quota" : "Runtime / Quota"}</strong><small>{runtime?.last_observed_at ? new Date(runtime.last_observed_at).toLocaleString() : (zh ? "尚未观测" : "Not observed yet")}</small></div>
+                      {runtime?.quota_dimensions.length ? (
+                        <div className="utility-quota-grid">{runtime.quota_dimensions.map((quota) => <div className="utility-quota-card" key={quota.kind}><span>{quota.kind.replaceAll("_", " ")}</span><strong>{quota.remaining === null ? "Unknown" : `${quota.remaining}${quota.limit === null ? "" : ` / ${quota.limit}`} ${quota.unit}`}</strong><small>{quota.reset_at ? `${zh ? "重置" : "Reset"}: ${new Date(quota.reset_at).toLocaleString()}` : (zh ? "Reset unknown" : "Reset unknown")}</small></div>)}</div>
+                      ) : <p className="utility-provider-note">{zh ? "Provider 尚未返回可验证的 quota header；Remaining / Reset 显示 Unknown，不做估算。" : "The provider has not returned authoritative quota headers yet. Remaining / Reset stay Unknown rather than estimated."}</p>}
+                      {runtime?.cooldown_until && <p className="utility-runtime-warning">{zh ? "暂时退出 Free Pool，预计可重新 probe：" : "Temporarily out of the Free Pool; probe eligible after: "}{new Date(runtime.cooldown_until).toLocaleString()}</p>}
+                      {runtime?.last_error && <p className="utility-runtime-warning">{runtime.last_error}</p>}
+                    </section>
                     <p className="utility-provider-note">
                       ⓘ {zh
-                        ? "Quota / Health 由 Runtime 统一观测；这里不需要手动轮询 Provider。"
-                        : "Quota / Health is observed by Runtime; no manual provider polling is required here."}
+                        ? "ENABLED 是人工配置；429 / quota 只改变 Runtime health，不会自动关闭 member。冷却或 reset 到期后会自动重新进入 probe。"
+                        : "ENABLED is manual configuration. 429/quota only changes Runtime health; it never disables the member. The provider becomes probe eligible automatically after cooldown/reset."}
                     </p>
                   </div>
                 )}

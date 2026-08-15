@@ -136,13 +136,13 @@ export function loadConfig(): ConnectorConfig {
     ),
     smartParticipationTurnCollectorQuietMs: boundedInteger(
       "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_QUIET_MS",
-      1_500,
+      3_000,
       100,
       10_000
     ),
     smartParticipationTurnCollectorMaxWaitMs: boundedInteger(
       "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_MAX_WAIT_MS",
-      4_000,
+      10_000,
       500,
       30_000
     ),

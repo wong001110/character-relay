@@ -494,7 +494,24 @@ async function prepareWebhookIdentity(
 }
 
 async function refreshDeployments(): Promise<void> {
-  const next = await relay.listDeployments();
+  const [next, runtimeConfig] = await Promise.all([
+    relay.listDeployments(),
+    relay.getSmartParticipationRuntime().catch((error) => {
+      log("Unable to refresh dynamic Turn Collector config; keeping the last effective value.", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    })
+  ]);
+  if (runtimeConfig) {
+    turnIngress.reconfigure({
+      enabled: runtimeConfig.enabled,
+      quietWindowMs: runtimeConfig.quiet_window_ms,
+      maxWaitMs: runtimeConfig.max_wait_ms,
+      maxMessages: runtimeConfig.max_messages,
+      maxCharacters: runtimeConfig.max_characters
+    });
+  }
   const botUserId = client.user?.id;
   if (botUserId) {
     // Exact-channel webhooks are prepared sequentially. Server-wide profiles are
@@ -514,7 +531,8 @@ async function refreshDeployments(): Promise<void> {
     ).length,
     webhookReady: next.filter(
       (item) => item.identity_mode === "webhook" && item.webhook_status === "active"
-    ).length
+    ).length,
+    turnCollector: turnIngress.currentConfig
   });
 }
 
@@ -529,6 +547,7 @@ async function sendHeartbeat(
 ): Promise<void> {
   const user = client.user;
   if (!user) return;
+  const turnCollectorConfig = turnIngress.currentConfig;
   await relay.heartbeat({
     bot_user_id: user.id,
     bot_display_name: user.tag,
@@ -547,7 +566,24 @@ async function sendHeartbeat(
     event_log_sent_count: eventReporter.sentCount,
     last_gateway_message_at: lastGatewayMessageAt ?? "",
     last_gateway_message_id: lastGatewayMessageId ?? "",
-    last_gateway_mentioned_bot: lastGatewayMentionedBot
+    last_gateway_mentioned_bot: lastGatewayMentionedBot,
+    turn_collector_enabled: turnCollectorConfig.enabled,
+    turn_collector_quiet_window_ms: turnCollectorConfig.quietWindowMs,
+    turn_collector_max_wait_ms: turnCollectorConfig.maxWaitMs,
+    turn_collector_max_messages: turnCollectorConfig.maxMessages,
+    turn_collector_max_characters: turnCollectorConfig.maxCharacters,
+    turn_collector_pending_burst_scope_count: turnIngress.pendingBurstScopeCount,
+    turn_collector_pending_preflight_scope_count: turnIngress.pendingPreflightScopeCount,
+    turn_collector_candidate_messages: turnCollectorCandidateMessageCount,
+    turn_collector_bypass_messages: turnCollectorBypassMessageCount,
+    turn_collector_bursts: turnCollectorBurstCount,
+    turn_collector_collected_messages: turnCollectorCollectedMessageCount,
+    turn_collector_collapsed_messages: turnCollectorCollapsedMessageCount,
+    turn_collector_interaction_bypasses: turnCollectorInteractionBypassCount,
+    turn_collector_bypass_reasons: { ...turnCollectorBypassReasons },
+    turn_collector_last_burst_at: turnCollectorLastBurstAt ?? "",
+    turn_collector_last_burst_id: turnCollectorLastBurstId ?? "",
+    turn_collector_last_flush_reason: turnCollectorLastFlushReason ?? ""
   });
 }
 
@@ -3218,6 +3254,11 @@ const healthServer = createServer((request, response) => {
       smart_participation_max_participants: config.smartParticipationMaxParticipants,
       smart_participation_semantic_enabled: true,
       smart_participation_turn_collector_enabled: turnIngress.enabled,
+      smart_participation_turn_collector_quiet_ms: turnIngress.currentConfig.quietWindowMs,
+      smart_participation_turn_collector_max_wait_ms: turnIngress.currentConfig.maxWaitMs,
+      smart_participation_turn_collector_max_messages: turnIngress.currentConfig.maxMessages,
+      smart_participation_turn_collector_max_characters:
+        turnIngress.currentConfig.maxCharacters,
       smart_participation_turn_collector_pending_scopes:
         turnIngress.pendingBurstScopeCount,
       smart_participation_ingress_pending_scopes:

@@ -175,6 +175,14 @@ export class TurnIngressCoordinator<T> {
     return this.collector.enabled;
   }
 
+  get currentConfig(): TurnCollectorConfig {
+    return this.collector.currentConfig;
+  }
+
+  reconfigure(config: Partial<TurnCollectorConfig>): TurnCollectorConfig {
+    return this.collector.reconfigure(config);
+  }
+
   get pendingBurstScopeCount(): number {
     return this.collector.pendingScopeCount;
   }

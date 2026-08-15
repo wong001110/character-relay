@@ -158,6 +158,23 @@ class DeploymentRepository:
         last_gateway_message_at: str = "",
         last_gateway_message_id: str = "",
         last_gateway_mentioned_bot: bool = False,
+        turn_collector_enabled: bool = False,
+        turn_collector_quiet_window_ms: int = 0,
+        turn_collector_max_wait_ms: int = 0,
+        turn_collector_max_messages: int = 0,
+        turn_collector_max_characters: int = 0,
+        turn_collector_pending_burst_scope_count: int = 0,
+        turn_collector_pending_preflight_scope_count: int = 0,
+        turn_collector_candidate_messages: int = 0,
+        turn_collector_bypass_messages: int = 0,
+        turn_collector_bursts: int = 0,
+        turn_collector_collected_messages: int = 0,
+        turn_collector_collapsed_messages: int = 0,
+        turn_collector_interaction_bypasses: int = 0,
+        turn_collector_bypass_reasons: dict[str, int] | None = None,
+        turn_collector_last_burst_at: str = "",
+        turn_collector_last_burst_id: str = "",
+        turn_collector_last_flush_reason: str = "",
     ) -> bool:
         with self.database.session() as session:
             record = session.get(PlatformConnectionRecord, connection_id)
@@ -185,6 +202,27 @@ class DeploymentRepository:
             metadata["last_gateway_message_at"] = last_gateway_message_at
             metadata["last_gateway_message_id"] = last_gateway_message_id
             metadata["last_gateway_mentioned_bot"] = last_gateway_mentioned_bot
+            metadata["turn_collector_enabled"] = turn_collector_enabled
+            metadata["turn_collector_quiet_window_ms"] = turn_collector_quiet_window_ms
+            metadata["turn_collector_max_wait_ms"] = turn_collector_max_wait_ms
+            metadata["turn_collector_max_messages"] = turn_collector_max_messages
+            metadata["turn_collector_max_characters"] = turn_collector_max_characters
+            metadata["turn_collector_pending_burst_scope_count"] = (
+                turn_collector_pending_burst_scope_count
+            )
+            metadata["turn_collector_pending_preflight_scope_count"] = (
+                turn_collector_pending_preflight_scope_count
+            )
+            metadata["turn_collector_candidate_messages"] = turn_collector_candidate_messages
+            metadata["turn_collector_bypass_messages"] = turn_collector_bypass_messages
+            metadata["turn_collector_bursts"] = turn_collector_bursts
+            metadata["turn_collector_collected_messages"] = turn_collector_collected_messages
+            metadata["turn_collector_collapsed_messages"] = turn_collector_collapsed_messages
+            metadata["turn_collector_interaction_bypasses"] = turn_collector_interaction_bypasses
+            metadata["turn_collector_bypass_reasons"] = turn_collector_bypass_reasons or {}
+            metadata["turn_collector_last_burst_at"] = turn_collector_last_burst_at
+            metadata["turn_collector_last_burst_id"] = turn_collector_last_burst_id
+            metadata["turn_collector_last_flush_reason"] = turn_collector_last_flush_reason
             record.external_account_id = external_account_id
             record.status = status
             record.last_seen_at = utcnow()
@@ -345,9 +383,7 @@ class DeploymentRepository:
 
             total = int(
                 session.scalar(
-                    select(func.count())
-                    .select_from(DiscordConnectorEventRecord)
-                    .where(*conditions)
+                    select(func.count()).select_from(DiscordConnectorEventRecord).where(*conditions)
                 )
                 or 0
             )
@@ -444,8 +480,7 @@ class DeploymentRepository:
                     select(PlatformConnectionRecord)
                     .join(
                         DiscordServerProfileRecord,
-                        DiscordServerProfileRecord.connection_id
-                        == PlatformConnectionRecord.id,
+                        DiscordServerProfileRecord.connection_id == PlatformConnectionRecord.id,
                     )
                     .where(
                         DiscordServerProfileRecord.owner_id == owner_id,
@@ -525,20 +560,15 @@ class DeploymentRepository:
                 )
             )
             if existing is not None:
-                raise DeploymentConflict(
-                    "This Discord Server is already in your account."
-                )
+                raise DeploymentConflict("This Discord Server is already in your account.")
 
             if owner_id != catalog_owner_id:
                 claimed_elsewhere = session.scalar(
                     select(DiscordServerProfileRecord.id)
                     .where(
-                        DiscordServerProfileRecord.connection_id
-                        == catalog.connection_id,
+                        DiscordServerProfileRecord.connection_id == catalog.connection_id,
                         DiscordServerProfileRecord.guild_id == guild_id,
-                        DiscordServerProfileRecord.owner_id.not_in(
-                            (catalog_owner_id, owner_id)
-                        ),
+                        DiscordServerProfileRecord.owner_id.not_in((catalog_owner_id, owner_id)),
                     )
                     .limit(1)
                 )
@@ -564,9 +594,7 @@ class DeploymentRepository:
                 session.commit()
             except IntegrityError as exc:
                 session.rollback()
-                raise DeploymentConflict(
-                    "This Discord Server is already in your account."
-                ) from exc
+                raise DeploymentConflict("This Discord Server is already in your account.") from exc
             session.refresh(record)
             return record
 
@@ -1155,9 +1183,7 @@ class DeploymentRepository:
             )
             session.commit()
         return {
-            "discord_connector_events": int(
-                getattr(event_result, "rowcount", 0) or 0
-            ),
+            "discord_connector_events": int(getattr(event_result, "rowcount", 0) or 0),
             "deployment_scopes": int(getattr(scope_result, "rowcount", 0) or 0),
             "deployments": int(getattr(deployment_result, "rowcount", 0) or 0),
             "server_profiles": int(getattr(profile_result, "rowcount", 0) or 0),
@@ -1200,9 +1226,7 @@ class DeploymentRepository:
             )
             session.commit()
         return {
-            "discord_connector_events": int(
-                getattr(event_result, "rowcount", 0) or 0
-            ),
+            "discord_connector_events": int(getattr(event_result, "rowcount", 0) or 0),
             "connections": int(getattr(connection_result, "rowcount", 0) or 0),
             "server_catalogs": int(getattr(catalog_result, "rowcount", 0) or 0),
             "server_profiles": int(getattr(profile_result, "rowcount", 0) or 0),

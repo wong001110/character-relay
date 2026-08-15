@@ -20,6 +20,7 @@ import {
   type DeploymentIdentityMode,
   type DeploymentMessageIdentity
 } from "./discordIdentityApi";
+import { ConversationIntelligenceInspector } from "./ConversationIntelligenceInspector";
 import { DiscordEventLogPanel } from "./DiscordEventLogPanel";
 import { DiscordServerProfilesPanel } from "./DiscordServerProfilesPanel";
 import { PaperDrawer, PaperModal } from "./NotebookUI";
@@ -42,7 +43,7 @@ interface ChannelGroup {
   channels: DiscordCatalogChannel[];
 }
 
-type ServerNotebookTab = "characters" | "knowledge" | "interactions";
+type ServerNotebookTab = "characters" | "knowledge" | "interactions" | "intelligence";
 
 const platformLabels: Record<PlatformId, string> = {
   discord: "Discord",
@@ -674,6 +675,15 @@ export function DeploymentCenter({
           >
             <span aria-hidden="true">⌁</span>
             <strong>{zh ? "角色互动" : "Interactions"}</strong>
+          </button>
+          <button
+            type="button"
+            className={serverNotebookTab === "intelligence" ? "is-active" : ""}
+            onClick={() => setServerNotebookTab("intelligence")}
+            disabled={!selectedWorkspaceProfile}
+          >
+            <span aria-hidden="true">◉</span>
+            <strong>{zh ? "对话智能" : "Intelligence"}</strong>
           </button>
           <small className="server-notebook-hint">
             {zh ? "每次只展开一页，减少纵向堆叠。" : "One server page at a time."}
@@ -1555,10 +1565,19 @@ export function DeploymentCenter({
             />
           )}
 
+          {serverNotebookTab === "intelligence" && selectedWorkspaceProfile && (
+            <ConversationIntelligenceInspector
+              cards={cards}
+              profile={selectedWorkspaceProfile}
+              catalog={selectedWorkspaceCatalog}
+              zh={zh}
+            />
+          )}
+
           {serverNotebookTab !== "characters" && !selectedWorkspaceProfile && (
             <section className="server-notebook-empty paper-sheet">
               <strong>{zh ? "先选择一个 Discord Server" : "Choose a Discord Server first"}</strong>
-              <p>{zh ? "Knowledge 与 Interaction 都属于当前 Server。" : "Knowledge and Interactions are scoped to the selected Server."}</p>
+              <p>{zh ? "Knowledge、Interaction 与 Intelligence 都属于当前 Server。" : "Knowledge, Interactions, and Intelligence are scoped to the selected Server."}</p>
             </section>
           )}
         </div>

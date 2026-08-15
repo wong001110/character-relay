@@ -32,7 +32,7 @@ UtilityCapability = Literal[
     "structured_summary",
 ]
 UtilityRoutingStrategy = Literal["best_available", "fixed_priority"]
-RUNTIME_DEFAULTS_VERSION = 4
+RUNTIME_DEFAULTS_VERSION = 5
 
 DEFAULT_ADAPTIVE_PROMPT = (
     "You are an adversarial but bounded AI character tester. Generate exactly one "
@@ -53,7 +53,7 @@ DEFAULT_SEMANTIC_ROUTING_PROMPT = (
     "banter, reactions, media/tool requests, unrelated social conversation, or a topic switch. "
     "Use prior topic context only when the current message genuinely continues or clarifies "
     "that knowledge question. Return only strict JSON: "
-    "{\"need_knowledge\":boolean,\"confidence\":0..1,\"reason\":string}."
+    '{"need_knowledge":boolean,"confidence":0..1,"reason":string}.'
 )
 
 
@@ -105,9 +105,7 @@ class SemanticRoutingJudgeProfile(BaseModel):
     enabled: bool = False
     rag_enabled: bool = True
     primary: SemanticJudgeEndpoint = Field(
-        default_factory=lambda: SemanticJudgeEndpoint(
-            model="liquid/lfm-2.5-1.2b-instruct:free"
-        )
+        default_factory=lambda: SemanticJudgeEndpoint(model="liquid/lfm-2.5-1.2b-instruct:free")
     )
     availability_fallback: SemanticJudgeEndpoint = Field(
         default_factory=lambda: SemanticJudgeEndpoint(model="mistralai/mistral-nemo")
@@ -185,6 +183,24 @@ class UtilityGatewayProfile(BaseModel):
         return self
 
 
+class ConversationBurstRuntimeProfile(BaseModel):
+    """System-level live Turn Collector policy synchronized to Discord Connectors."""
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = True
+    quiet_window_ms: int = Field(default=3_000, ge=100, le=10_000)
+    max_wait_ms: int = Field(default=10_000, ge=500, le=30_000)
+    max_messages: int = Field(default=5, ge=1, le=20)
+    max_characters: int = Field(default=1_500, ge=100, le=10_000)
+
+    @model_validator(mode="after")
+    def validate_wait_window(self) -> ConversationBurstRuntimeProfile:
+        if self.max_wait_ms < self.quiet_window_ms:
+            raise ValueError("max_wait_ms must be greater than or equal to quiet_window_ms")
+        return self
+
+
 class AdminRuntimeConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -194,6 +210,9 @@ class AdminRuntimeConfig(BaseModel):
         default_factory=SemanticRoutingJudgeProfile
     )
     utility_gateway: UtilityGatewayProfile = Field(default_factory=UtilityGatewayProfile)
+    conversation_burst: ConversationBurstRuntimeProfile = Field(
+        default_factory=ConversationBurstRuntimeProfile
+    )
     default_judge_mode: JudgeModeValue = "hybrid"
     defaults_version: int = RUNTIME_DEFAULTS_VERSION
 

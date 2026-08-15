@@ -87,6 +87,14 @@ export interface DiscordSmartParticipationCandidatePreflight {
   signals: Record<string, number>;
 }
 
+export interface DiscordConversationBurstRuntimeConfig {
+  enabled: boolean;
+  quiet_window_ms: number;
+  max_wait_ms: number;
+  max_messages: number;
+  max_characters: number;
+}
+
 export interface DiscordSmartParticipationScoreRequest {
   message: string;
   deployment_ids: string[];
@@ -257,6 +265,13 @@ export class RelayClient {
       this.deploymentCache.set(deployment.deployment_id, deployment);
     }
     return resolved;
+  }
+
+  async getSmartParticipationRuntime(): Promise<DiscordConversationBurstRuntimeConfig> {
+    const query = new URLSearchParams({ connection_id: this.connectionId });
+    return this.request<DiscordConversationBurstRuntimeConfig>(
+      `/api/smart-participation/connector-runtime?${query.toString()}`
+    );
   }
 
   async syncServerCatalog(

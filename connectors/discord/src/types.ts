@@ -407,6 +407,23 @@ export interface ConnectorHeartbeat {
   last_gateway_message_at: string;
   last_gateway_message_id: string;
   last_gateway_mentioned_bot: boolean;
+  turn_collector_enabled: boolean;
+  turn_collector_quiet_window_ms: number;
+  turn_collector_max_wait_ms: number;
+  turn_collector_max_messages: number;
+  turn_collector_max_characters: number;
+  turn_collector_pending_burst_scope_count: number;
+  turn_collector_pending_preflight_scope_count: number;
+  turn_collector_candidate_messages: number;
+  turn_collector_bypass_messages: number;
+  turn_collector_bursts: number;
+  turn_collector_collected_messages: number;
+  turn_collector_collapsed_messages: number;
+  turn_collector_interaction_bypasses: number;
+  turn_collector_bypass_reasons: Record<string, number>;
+  turn_collector_last_burst_at: string;
+  turn_collector_last_burst_id: string;
+  turn_collector_last_flush_reason: string;
 }
 
 export interface DiscordWebhookRegistration {

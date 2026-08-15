@@ -435,6 +435,23 @@ def connector_heartbeat(
         last_gateway_message_at=payload.last_gateway_message_at,
         last_gateway_message_id=payload.last_gateway_message_id,
         last_gateway_mentioned_bot=payload.last_gateway_mentioned_bot,
+        turn_collector_enabled=payload.turn_collector_enabled,
+        turn_collector_quiet_window_ms=payload.turn_collector_quiet_window_ms,
+        turn_collector_max_wait_ms=payload.turn_collector_max_wait_ms,
+        turn_collector_max_messages=payload.turn_collector_max_messages,
+        turn_collector_max_characters=payload.turn_collector_max_characters,
+        turn_collector_pending_burst_scope_count=payload.turn_collector_pending_burst_scope_count,
+        turn_collector_pending_preflight_scope_count=payload.turn_collector_pending_preflight_scope_count,
+        turn_collector_candidate_messages=payload.turn_collector_candidate_messages,
+        turn_collector_bypass_messages=payload.turn_collector_bypass_messages,
+        turn_collector_bursts=payload.turn_collector_bursts,
+        turn_collector_collected_messages=payload.turn_collector_collected_messages,
+        turn_collector_collapsed_messages=payload.turn_collector_collapsed_messages,
+        turn_collector_interaction_bypasses=payload.turn_collector_interaction_bypasses,
+        turn_collector_bypass_reasons=payload.turn_collector_bypass_reasons,
+        turn_collector_last_burst_at=payload.turn_collector_last_burst_at,
+        turn_collector_last_burst_id=payload.turn_collector_last_burst_id,
+        turn_collector_last_flush_reason=payload.turn_collector_last_flush_reason,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Discord connection not found.")

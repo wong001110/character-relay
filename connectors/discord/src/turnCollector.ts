@@ -37,14 +37,15 @@ interface PendingBurst<T> {
   items: TurnCollectorInput<T>[];
   openedAt: number;
   totalCharacters: number;
+  config: TurnCollectorConfig;
   quietTimer: ReturnType<typeof setTimeout> | null;
   maxTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const DEFAULTS: TurnCollectorConfig = {
   enabled: true,
-  quietWindowMs: 1_500,
-  maxWaitMs: 4_000,
+  quietWindowMs: 3_000,
+  maxWaitMs: 10_000,
   maxMessages: 5,
   maxCharacters: 1_500
 };
@@ -54,50 +55,66 @@ function boundedInteger(value: number, fallback: number, minimum: number): numbe
   return Math.max(minimum, Math.floor(value));
 }
 
+function normalizedConfig(
+  config: Partial<TurnCollectorConfig>,
+  current: TurnCollectorConfig = DEFAULTS
+): TurnCollectorConfig {
+  const quietWindowMs = boundedInteger(
+    config.quietWindowMs ?? current.quietWindowMs,
+    current.quietWindowMs,
+    1
+  );
+  const maxWaitMs = Math.max(
+    quietWindowMs,
+    boundedInteger(
+      config.maxWaitMs ?? current.maxWaitMs,
+      current.maxWaitMs,
+      quietWindowMs
+    )
+  );
+  return {
+    enabled: config.enabled ?? current.enabled,
+    quietWindowMs,
+    maxWaitMs,
+    maxMessages: boundedInteger(
+      config.maxMessages ?? current.maxMessages,
+      current.maxMessages,
+      1
+    ),
+    maxCharacters: boundedInteger(
+      config.maxCharacters ?? current.maxCharacters,
+      current.maxCharacters,
+      1
+    )
+  };
+}
+
 export class TurnCollector<T> {
-  private readonly config: TurnCollectorConfig;
+  private config: TurnCollectorConfig;
   private readonly pending = new Map<string, PendingBurst<T>>();
 
   constructor(
     config: Partial<TurnCollectorConfig>,
     private readonly onFlush: FlushHandler<T>
   ) {
-    const quietWindowMs = boundedInteger(
-      config.quietWindowMs ?? DEFAULTS.quietWindowMs,
-      DEFAULTS.quietWindowMs,
-      1
-    );
-    const maxWaitMs = Math.max(
-      quietWindowMs,
-      boundedInteger(
-        config.maxWaitMs ?? DEFAULTS.maxWaitMs,
-        DEFAULTS.maxWaitMs,
-        quietWindowMs
-      )
-    );
-    this.config = {
-      enabled: config.enabled ?? DEFAULTS.enabled,
-      quietWindowMs,
-      maxWaitMs,
-      maxMessages: boundedInteger(
-        config.maxMessages ?? DEFAULTS.maxMessages,
-        DEFAULTS.maxMessages,
-        1
-      ),
-      maxCharacters: boundedInteger(
-        config.maxCharacters ?? DEFAULTS.maxCharacters,
-        DEFAULTS.maxCharacters,
-        1
-      )
-    };
+    this.config = normalizedConfig(config);
   }
 
   get enabled(): boolean {
     return this.config.enabled;
   }
 
+  get currentConfig(): TurnCollectorConfig {
+    return { ...this.config };
+  }
+
   get pendingScopeCount(): number {
     return this.pending.size;
+  }
+
+  reconfigure(config: Partial<TurnCollectorConfig>): TurnCollectorConfig {
+    this.config = normalizedConfig(config, this.config);
+    return this.currentConfig;
   }
 
   add(scopeKey: string, input: TurnCollectorInput<T>): void {
@@ -117,17 +134,19 @@ export class TurnCollector<T> {
     const now = input.receivedAt ?? Date.now();
     let burst = this.pending.get(scopeKey);
     if (!burst) {
+      const burstConfig = this.currentConfig;
       burst = {
         items: [],
         openedAt: now,
         totalCharacters: 0,
+        config: burstConfig,
         quietTimer: null,
         maxTimer: null
       };
       this.pending.set(scopeKey, burst);
       burst.maxTimer = setTimeout(() => {
         void this.flush(scopeKey, "max_wait");
-      }, this.config.maxWaitMs);
+      }, burstConfig.maxWaitMs);
     }
 
     if (burst.items.some((item) => item.id === input.id)) return;
@@ -138,13 +157,13 @@ export class TurnCollector<T> {
     if (burst.quietTimer) clearTimeout(burst.quietTimer);
     burst.quietTimer = setTimeout(() => {
       void this.flush(scopeKey, "quiet_window");
-    }, this.config.quietWindowMs);
+    }, burst.config.quietWindowMs);
 
-    if (burst.items.length >= this.config.maxMessages) {
+    if (burst.items.length >= burst.config.maxMessages) {
       void this.flush(scopeKey, "max_messages");
       return;
     }
-    if (burst.totalCharacters >= this.config.maxCharacters) {
+    if (burst.totalCharacters >= burst.config.maxCharacters) {
       void this.flush(scopeKey, "max_characters");
     }
   }

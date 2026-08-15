@@ -5,6 +5,7 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 
+from echo_masque.admin_runtime import ConversationBurstRuntimeProfile
 from echo_masque.api.dependencies import (
     CurrentUserDependency,
     quota_http_exception,
@@ -43,6 +44,7 @@ from echo_masque.semantic_participation import (
     SemanticEmbeddingUnavailable,
     participation_semantic_text,
 )
+from echo_masque.services import RuntimeService
 from echo_masque.smart_participation import ParticipationProfile, evaluate_participation
 from echo_masque.smart_participation_generation import SmartParticipationGenerationService
 
@@ -201,9 +203,7 @@ def update_profile(
             trigger_phrases=payload.trigger_phrases,
             avoid_phrases=payload.avoid_phrases,
             cooldown_seconds=payload.cooldown_seconds,
-            preferred_follow_up_character_card_id=(
-                payload.preferred_follow_up_character_card_id
-            ),
+            preferred_follow_up_character_card_id=(payload.preferred_follow_up_character_card_id),
             follow_up_window_seconds=payload.follow_up_window_seconds,
         )
     except KeyError as exc:
@@ -303,6 +303,23 @@ def create_semantic_profile(
         character_card_id=character_card_id,
     )
     return _semantic_profile_view(inspection, rebuilt=rebuilt)
+
+
+@router.get(
+    "/connector-runtime",
+    response_model=ConversationBurstRuntimeProfile,
+)
+def connector_runtime(
+    request: Request,
+    connection_id: str = Query(min_length=1, max_length=64),
+    authorization: Annotated[str | None, Header()] = None,
+) -> ConversationBurstRuntimeProfile:
+    """Return the current system Turn Collector policy for one live Connector."""
+
+    _authorize_connector(request, authorization)
+    del connection_id
+    runtime = cast(RuntimeService, request.app.state.runtime_service)
+    return runtime.config().conversation_burst
 
 
 @router.get(

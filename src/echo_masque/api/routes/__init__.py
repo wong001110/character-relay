@@ -13,6 +13,12 @@ from echo_masque.api.routes.character_portraits import router as character_portr
 from echo_masque.api.routes.characters import router as characters_router
 from echo_masque.api.routes.comparisons import router as comparisons_router
 from echo_masque.api.routes.connectors import router as connectors_router
+from echo_masque.api.routes.conversation_burst_observability import (
+    router as conversation_burst_observability_router,
+)
+from echo_masque.api.routes.conversation_intelligence import (
+    router as conversation_intelligence_router,
+)
 from echo_masque.api.routes.coverage import router as coverage_router
 from echo_masque.api.routes.deployments import router as deployments_router
 from echo_masque.api.routes.discord_identities import router as discord_identities_router
@@ -66,6 +72,8 @@ __all__ = [
     "characters_router",
     "comparisons_router",
     "connectors_router",
+    "conversation_burst_observability_router",
+    "conversation_intelligence_router",
     "coverage_router",
     "deployments_router",
     "discord_identities_router",

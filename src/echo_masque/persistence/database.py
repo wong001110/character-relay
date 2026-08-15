@@ -17,6 +17,7 @@ from echo_masque.persistence.smart_participation_state_models import (
     SmartParticipationDeploymentStateRecord,
     SmartParticipationScopeStateRecord,
 )
+from echo_masque.persistence.utility_gateway_models import UtilityProviderQuotaRecord
 from echo_masque.persistence.wiki_page_models import WikiPageRecord
 
 
@@ -40,6 +41,7 @@ class Database:
             CharacterLearnedStateRecord,
             SmartParticipationScopeStateRecord,
             SmartParticipationDeploymentStateRecord,
+            UtilityProviderQuotaRecord,
         )
         Base.metadata.create_all(self.engine)
 
