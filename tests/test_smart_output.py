@@ -38,11 +38,14 @@ def candidate(
     )
 
 
-def payload() -> SimpleNamespace:
+def payload(*, admitted: bool = False) -> SimpleNamespace:
     return SimpleNamespace(
         deployment_id="ann",
         message_id="message-trigger",
         interaction_session_id="",
+        mentioned_bot=False,
+        replied_to_bot=False,
+        smart_candidate=admitted,
         recent_messages=[
             SimpleNamespace(
                 message_id="message-old",
@@ -102,6 +105,7 @@ def test_message_resolves_reply_emoji_and_mentions_to_runtime_refs() -> None:
     assert reason == "ok"
     assert output is not None
     assert output.action == "message"
+    assert output.message_style == "normal"
     assert output.reply_to_message_id == "message-trigger"
     assert output.content == [
         SmartTextPart(text="你 "),
@@ -111,6 +115,33 @@ def test_message_resolves_reply_emoji_and_mentions_to_runtime_refs() -> None:
         SmartTextPart(text=" 和 "),
         SmartMentionPart(mention="user:123456789012345678"),
     ]
+
+
+def test_short_message_normalizes_to_message_with_short_style() -> None:
+    context = SmartOutputContext.from_payload(payload(admitted=True), character_name="Ann")
+    output, reason = context.parse_and_resolve(
+        '[[CR_OUTPUT {"action":"short_message","content":[{"text":"哈？"}]}]]',
+        [],
+    )
+
+    assert reason == "ok"
+    assert output is not None
+    assert output.action == "message"
+    assert output.message_style == "short"
+    assert output.content == [SmartTextPart(text="哈？")]
+
+
+def test_short_message_rejects_long_text() -> None:
+    context = SmartOutputContext.from_payload(payload(admitted=True), character_name="Ann")
+    output, reason = context.parse_and_resolve(
+        '[[CR_OUTPUT {"action":"short_message","content":[{"text":"'
+        + ("a" * 281)
+        + '"}]}]]',
+        [],
+    )
+
+    assert output is None
+    assert reason == "short_message_too_long"
 
 
 def test_reaction_and_sticker_require_retrieved_allowed_resources() -> None:
@@ -157,12 +188,36 @@ def test_unknown_refs_and_multiple_custom_emojis_are_rejected_atomically() -> No
     assert reason == "too_many_custom_emojis"
 
 
-def test_ignore_is_a_valid_atomic_action() -> None:
+def test_ignore_remains_valid_for_non_admitted_legacy_context() -> None:
     context = SmartOutputContext.from_payload(payload(), character_name="Ann")
     output, reason = context.parse_and_resolve('[[CR_OUTPUT {"action":"ignore"}]]', [])
     assert reason == "ok"
     assert output is not None
     assert output.action == "ignore"
+
+
+def test_admitted_turn_rejects_ignore_and_prompt_does_not_offer_it() -> None:
+    context = SmartOutputContext.from_payload(payload(admitted=True), character_name="Ann")
+    guidance = "\n".join(context.prompt_guidance([]))
+
+    assert context.participation_required is True
+    assert "Silence/ignore is not an available action" in guidance
+    assert '"action":"ignore"' not in guidance
+    assert "Available actions: message, short_message." in guidance
+
+    output, reason = context.parse_and_resolve('[[CR_OUTPUT {"action":"ignore"}]]', [])
+    assert output is None
+    assert reason == "admitted_turn_requires_visible_action"
+
+
+def test_explicit_mention_and_reply_are_direct_admission_signals() -> None:
+    mentioned = payload()
+    mentioned.mentioned_bot = True
+    replied = payload()
+    replied.replied_to_bot = True
+
+    assert SmartOutputContext.from_payload(mentioned, character_name="Ann").participation_required
+    assert SmartOutputContext.from_payload(replied, character_name="Ann").participation_required
 
 
 def test_terminal_control_recovers_provider_prose_and_one_missing_bracket() -> None:
