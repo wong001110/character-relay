@@ -26,9 +26,20 @@ class _TopicEncoder:
             return [0.0, 1.0, 0.0, 0.0]
         if "start a new unrelated" in normalized or "换个话题" in normalized:
             return [0.0, 0.0, 0.0, 1.0]
-        if "cat" in normalized or "猫" in normalized or "image" in normalized:
+        if (
+            "rag" in normalized
+            or "llm wiki" in normalized
+            or "cat" in normalized
+            or "猫" in normalized
+            or "image" in normalized
+        ):
             return [1.0, 0.0, 0.0, 0.0]
-        if "weather" in normalized or "天气" in normalized:
+        if (
+            "weather" in normalized
+            or "天气" in normalized
+            or "绝区零" in normalized
+            or "反派" in normalized
+        ):
             return [0.0, 0.0, 1.0, 0.0]
         return [0.25, 0.25, 0.25, 0.25]
 
@@ -97,13 +108,16 @@ def test_topic_observation_is_idempotent_for_same_discord_message() -> None:
 
 def test_semantic_retry_phrase_continues_active_topic_without_regex() -> None:
     service = _service()
+    now = datetime(2026, 8, 15, 12, 0, tzinfo=UTC)
     first = service.observe_turn(
         owner_id="owner-1",
         payload=_payload("generate a cat image", message_id="m1"),
+        now=now,
     )
     retry = service.observe_turn(
         owner_id="owner-1",
         payload=_payload("你再试试", message_id="m2"),
+        now=now + timedelta(minutes=5),
     )
 
     assert first is not None
@@ -111,6 +125,102 @@ def test_semantic_retry_phrase_continues_active_topic_without_regex() -> None:
     assert retry.id == first.id
     assert retry.message_count == 2
     assert "你再试试" in retry.summary
+
+
+def test_stale_contextual_continuation_does_not_revive_old_topic() -> None:
+    service = _service()
+    started = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
+    first = service.observe_turn(
+        owner_id="owner-1",
+        payload=_payload("RAG and LLM Wiki architecture", message_id="m1"),
+        now=started,
+    )
+    retry = service.observe_turn(
+        owner_id="owner-1",
+        payload=_payload("你再试试", message_id="m2"),
+        now=started + timedelta(days=2),
+    )
+
+    assert first is not None
+    assert retry is not None
+    assert retry.id != first.id
+    previous = service.repository.get(first.id, "owner-1")
+    assert previous is not None
+    assert previous.status == "cooling"
+
+
+def test_stale_topic_can_continue_with_explicit_identity_evidence() -> None:
+    service = _service()
+    started = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
+    first = service.observe_turn(
+        owner_id="owner-1",
+        payload=_payload("RAG and LLM Wiki architecture", message_id="m1"),
+        now=started,
+    )
+    resumed = service.observe_turn(
+        owner_id="owner-1",
+        payload=_payload("Back to the RAG and LLM Wiki architecture", message_id="m2"),
+        now=started + timedelta(days=2),
+    )
+
+    assert first is not None
+    assert resumed is not None
+    assert resumed.id == first.id
+    assert resumed.message_count == 2
+
+
+def test_topic_identity_does_not_include_mutable_summary_or_keywords() -> None:
+    service = _service()
+    topic = service.observe_turn(
+        owner_id="owner-1",
+        payload=_payload("RAG and LLM Wiki architecture", message_id="m1"),
+    )
+    assert topic is not None
+
+    record = service.repository.get(topic.id, "owner-1")
+    assert record is not None
+    service.repository.update_capsule(
+        topic_id=record.id,
+        owner_id="owner-1",
+        topic_label=record.topic_label,
+        summary="Juen: 绝区零剧情里谁是反派？",
+        keywords_json='["绝区零", "剧情", "反派"]',
+        open_loops_json=record.open_loops_json,
+        pending_actions_json=record.pending_actions_json,
+        participants_json=record.participants_json,
+        last_message_id=record.last_message_id,
+        increment_message_count=False,
+    )
+    poisoned = service.repository.get(topic.id, "owner-1")
+    assert poisoned is not None
+
+    semantic_text = service._topic_semantic_text(poisoned)
+    assert semantic_text == "Topic identity: RAG and LLM Wiki architecture"
+    assert "绝区零" not in semantic_text
+    assert "反派" not in semantic_text
+
+
+def test_old_rag_topic_does_not_absorb_new_zzz_discussion() -> None:
+    service = _service()
+    started = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
+    first = service.observe_turn(
+        owner_id="owner-1",
+        payload=_payload("RAG and LLM Wiki architecture", message_id="m1"),
+        now=started,
+    )
+    zzz = service.observe_turn(
+        owner_id="owner-1",
+        payload=_payload("绝区零这段剧情谁是反派？", message_id="m2"),
+        now=started + timedelta(days=2),
+    )
+
+    assert first is not None
+    assert zzz is not None
+    assert zzz.id != first.id
+    assert "绝区零" in zzz.topic_label
+    previous = service.repository.get(first.id, "owner-1")
+    assert previous is not None
+    assert previous.status == "cooling"
 
 
 def test_unrelated_semantic_message_starts_new_topic_and_cools_previous() -> None:
