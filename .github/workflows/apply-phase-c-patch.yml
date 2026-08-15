@@ -1,4 +1,4 @@
-name: Apply Phase C Patch
+name: Apply Phase C Transform
 
 on:
   push:
@@ -15,16 +15,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: feat/media-dependency-planning
-      - name: Apply patch when present
+      - name: Apply transform when present
         shell: bash
         run: |
-          if [ ! -f .phase-c.patch ]; then
-            echo "No Phase C patch present; nothing to apply."
+          if [ ! -f .phase-c-transform.py ]; then
+            echo "No Phase C transform present; nothing to apply."
             exit 0
           fi
-          git apply --check .phase-c.patch
-          git apply .phase-c.patch
-          rm .phase-c.patch
+          python .phase-c-transform.py
+          rm .phase-c-transform.py
+          rm -f .phase-c.patch
           rm .github/workflows/apply-phase-c-patch.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
