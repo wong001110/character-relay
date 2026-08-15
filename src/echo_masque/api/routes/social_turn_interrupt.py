@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Header, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from echo_masque.api.routes.connectors import _authorize_connector, durable_runtime_repository
@@ -41,10 +42,11 @@ class DiscordSocialTurnCancelView(BaseModel):
 def cancel_social_turn_operation(
     payload: DiscordSocialTurnCancelRequest,
     request: Request,
+    authorization: Annotated[str | None, Header()] = None,
 ) -> DiscordSocialTurnCancelView:
     """Complete stale pending Social Turn work after a newer human turn supersedes it."""
 
-    _authorize_connector(request)
+    _authorize_connector(request, authorization)
     repository = durable_runtime_repository(request)
     now = datetime.now(UTC)
     with repository.database.session() as session:
