@@ -47,20 +47,36 @@ def _card(repository: Repository, owner_id: str) -> str:
     return card.id
 
 
-def test_character_inspector_exposes_stored_decayed_and_provenance() -> None:
+def test_character_inspector_exposes_decayed_value_readable_subject_and_provenance() -> None:
     database = Database("sqlite:///:memory:")
     database.initialize()
     repository = Repository(database)
     owner_id = "owner-a"
     card_id = _card(repository, owner_id)
     evidence_time = datetime.now(UTC) - timedelta(days=30)
+    topic = ConversationTopicRepository(database).create(
+        owner_id=owner_id,
+        platform="discord",
+        connection_id="connection-1",
+        guild_id="guild-1",
+        channel_id="channel-1",
+        thread_id="",
+        topic_label="Photography",
+        summary="Talking about photography.",
+        keywords_json='["photography"]',
+        open_loops_json="[]",
+        pending_actions_json="[]",
+        participants_json="[]",
+        last_message_id="message-1",
+        now=evidence_time,
+    )
     CharacterLearnedStateService(database).record_evidence(
         LearnedStateEvidence(
             owner_id=owner_id,
             character_card_id=card_id,
             state_type="interest",
             subject_type="topic",
-            subject_key="photography",
+            subject_key=f"topic:{topic.id}",
             delta=0.8,
             confidence=0.8,
             source_type="runtime_admission",
@@ -81,7 +97,8 @@ def test_character_inspector_exposes_stored_decayed_and_provenance() -> None:
     assert len(result.items) == 1
     item = result.items[0]
     assert item.state_type == "interest"
-    assert item.subject_key == "photography"
+    assert item.subject_key == f"topic:{topic.id}"
+    assert item.subject_label == "Photography"
     assert item.stored_value > item.current_value > 0
     assert item.stored_confidence > item.current_confidence > 0
     assert item.provenance[0].source_burst_id == "burst-1"
