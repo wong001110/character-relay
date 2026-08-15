@@ -583,6 +583,23 @@ export class RelayClient {
     );
   }
 
+  async cancelSocialTurnOperation(payload: {
+    operation_id: string;
+    guild_id: string;
+    channel_id: string;
+    thread_id: string;
+    superseding_message_id: string;
+    reason?: string;
+  }): Promise<{ canceled: boolean; status: string; reason: string }> {
+    return this.request<{ canceled: boolean; status: string; reason: string }>(
+      "/api/connectors/discord/social-turns/operations/cancel",
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
+  }
+
   async claimSocialTurnDelivery(
     payload: DiscordDeliveryClaimRequest
   ): Promise<DiscordDeliveryClaim> {
