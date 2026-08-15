@@ -547,6 +547,7 @@ async function sendHeartbeat(
 ): Promise<void> {
   const user = client.user;
   if (!user) return;
+  const turnCollectorConfig = turnIngress.currentConfig;
   await relay.heartbeat({
     bot_user_id: user.id,
     bot_display_name: user.tag,
@@ -565,7 +566,24 @@ async function sendHeartbeat(
     event_log_sent_count: eventReporter.sentCount,
     last_gateway_message_at: lastGatewayMessageAt ?? "",
     last_gateway_message_id: lastGatewayMessageId ?? "",
-    last_gateway_mentioned_bot: lastGatewayMentionedBot
+    last_gateway_mentioned_bot: lastGatewayMentionedBot,
+    turn_collector_enabled: turnCollectorConfig.enabled,
+    turn_collector_quiet_window_ms: turnCollectorConfig.quietWindowMs,
+    turn_collector_max_wait_ms: turnCollectorConfig.maxWaitMs,
+    turn_collector_max_messages: turnCollectorConfig.maxMessages,
+    turn_collector_max_characters: turnCollectorConfig.maxCharacters,
+    turn_collector_pending_burst_scope_count: turnIngress.pendingBurstScopeCount,
+    turn_collector_pending_preflight_scope_count: turnIngress.pendingPreflightScopeCount,
+    turn_collector_candidate_messages: turnCollectorCandidateMessageCount,
+    turn_collector_bypass_messages: turnCollectorBypassMessageCount,
+    turn_collector_bursts: turnCollectorBurstCount,
+    turn_collector_collected_messages: turnCollectorCollectedMessageCount,
+    turn_collector_collapsed_messages: turnCollectorCollapsedMessageCount,
+    turn_collector_interaction_bypasses: turnCollectorInteractionBypassCount,
+    turn_collector_bypass_reasons: { ...turnCollectorBypassReasons },
+    turn_collector_last_burst_at: turnCollectorLastBurstAt ?? "",
+    turn_collector_last_burst_id: turnCollectorLastBurstId ?? "",
+    turn_collector_last_flush_reason: turnCollectorLastFlushReason ?? ""
   });
 }
 

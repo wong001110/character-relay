@@ -601,3 +601,13 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .topic-timeline-item small { color: var(--muted-text); }
 @media (max-width: 980px) { .conversation-intelligence-grid { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { .intelligence-panel-heading { align-items: stretch; flex-direction: column; } .intelligence-panel-heading select { max-width: none; } .learned-state-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+\n\n/* Conversation Burst Live Observation */
+.conversation-burst-live-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+.conversation-burst-live-grid > div { display: grid; gap: 3px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft-panel); }
+.conversation-burst-live-grid span { color: var(--muted-text); font-size: .72rem; }
+.conversation-burst-live-grid strong { font-size: 1.15rem; }
+.conversation-burst-last, .conversation-burst-connector { display: grid; gap: 4px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 12px; margin-bottom: 8px; }
+.conversation-burst-last span, .conversation-burst-connector small { color: var(--muted-text); }
+.conversation-burst-connector > div { display: flex; justify-content: space-between; gap: 10px; }
+.conversation-burst-connector > div span { color: var(--muted-text); text-transform: uppercase; font-size: .72rem; }
+@media (max-width: 720px) { .conversation-burst-live-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

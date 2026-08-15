@@ -84,7 +84,9 @@ def test_burst_snapshot_combines_live_heartbeat_and_persisted_activity() -> None
         )
         session.commit()
 
-    request = cast(Any, SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(database=database))))
+    request = cast(
+        Any, SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(database=database)))
+    )
     result = conversation_burst_snapshot(request, cast(Any, SimpleNamespace(id="admin")))
 
     assert len(result.connectors) == 1

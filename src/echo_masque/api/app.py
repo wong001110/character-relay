@@ -21,6 +21,7 @@ from echo_masque.api.routes import (
     characters_router,
     comparisons_router,
     connectors_router,
+    conversation_burst_observability_router,
     conversation_intelligence_router,
     coverage_router,
     deployments_router,
@@ -462,6 +463,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(accounts_router)
     app.include_router(admin_router)
+    app.include_router(conversation_burst_observability_router)
     app.include_router(provider_traces_router)
     app.include_router(runtime_traces_router)
     app.include_router(authoring_router)

@@ -208,8 +208,7 @@ def conversation_burst_snapshot(
             session.scalars(
                 select(DiscordConnectorEventRecord)
                 .where(
-                    DiscordConnectorEventRecord.event_type
-                    == "smart_participation_burst_flushed",
+                    DiscordConnectorEventRecord.event_type == "smart_participation_burst_flushed",
                     DiscordConnectorEventRecord.occurred_at >= since,
                 )
                 .order_by(DiscordConnectorEventRecord.occurred_at.desc())

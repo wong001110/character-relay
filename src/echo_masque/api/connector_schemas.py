@@ -156,6 +156,23 @@ class DiscordConnectorHeartbeat(BaseModel):
     last_gateway_message_at: str = Field(default="", max_length=64)
     last_gateway_message_id: str = Field(default="", max_length=200)
     last_gateway_mentioned_bot: bool = False
+    turn_collector_enabled: bool = False
+    turn_collector_quiet_window_ms: int = Field(default=0, ge=0, le=60_000)
+    turn_collector_max_wait_ms: int = Field(default=0, ge=0, le=120_000)
+    turn_collector_max_messages: int = Field(default=0, ge=0, le=100)
+    turn_collector_max_characters: int = Field(default=0, ge=0, le=100_000)
+    turn_collector_pending_burst_scope_count: int = Field(default=0, ge=0, le=100_000)
+    turn_collector_pending_preflight_scope_count: int = Field(default=0, ge=0, le=100_000)
+    turn_collector_candidate_messages: int = Field(default=0, ge=0)
+    turn_collector_bypass_messages: int = Field(default=0, ge=0)
+    turn_collector_bursts: int = Field(default=0, ge=0)
+    turn_collector_collected_messages: int = Field(default=0, ge=0)
+    turn_collector_collapsed_messages: int = Field(default=0, ge=0)
+    turn_collector_interaction_bypasses: int = Field(default=0, ge=0)
+    turn_collector_bypass_reasons: dict[str, int] = Field(default_factory=dict, max_length=40)
+    turn_collector_last_burst_at: str = Field(default="", max_length=64)
+    turn_collector_last_burst_id: str = Field(default="", max_length=80)
+    turn_collector_last_flush_reason: str = Field(default="", max_length=80)
 
 
 class DiscordConnectorEventItem(BaseModel):

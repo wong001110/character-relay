@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api, type AdminRuntimeConfig, type AdminRuntimeView } from "./api";
 import {
   ConversationBurstRuntimePanel,
+  type ConversationBurstObservation,
   type ConversationBurstRuntimeConfig
 } from "./ConversationBurstRuntimePanel";
 import { useI18n } from "./i18n";
@@ -38,30 +39,48 @@ async function loadUtilitySnapshot(): Promise<UtilityGatewayRuntimeSnapshot | nu
   return response.json() as Promise<UtilityGatewayRuntimeSnapshot>;
 }
 
+async function loadBurstObservation(): Promise<ConversationBurstObservation | null> {
+  const response = await fetch("/api/admin/runtime/conversation-burst/snapshot", { credentials: "include" });
+  if (!response.ok) return null;
+  return response.json() as Promise<ConversationBurstObservation>;
+}
+
 export function SemanticRoutingJudgeDock() {
   const { language } = useI18n();
   const zh = language === "zh-CN";
   const [view, setView] = useState<UtilityAdminView | null>(null);
   const [credentialStatus, setCredentialStatus] = useState<UtilityCredentialStatus[]>([]);
   const [runtimeSnapshot, setRuntimeSnapshot] = useState<UtilityGatewayRuntimeSnapshot | null>(null);
+  const [burstObservation, setBurstObservation] = useState<ConversationBurstObservation | null>(null);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
   async function refreshRuntimeObservation() {
-    const [credentials, snapshot] = await Promise.all([loadUtilityCredentials(), loadUtilitySnapshot()]);
+    const [credentials, snapshot, bursts] = await Promise.all([
+      loadUtilityCredentials(),
+      loadUtilitySnapshot(),
+      loadBurstObservation()
+    ]);
     setCredentialStatus(credentials);
     setRuntimeSnapshot(snapshot);
+    setBurstObservation(bursts);
   }
 
   useEffect(() => {
     let active = true;
-    void Promise.all([api.getAdminRuntime(), loadUtilityCredentials(), loadUtilitySnapshot()])
-      .then(([value, credentials, snapshot]) => {
+    void Promise.all([
+      api.getAdminRuntime(),
+      loadUtilityCredentials(),
+      loadUtilitySnapshot(),
+      loadBurstObservation()
+    ])
+      .then(([value, credentials, snapshot, bursts]) => {
         if (active && "semantic_routing" in value.config && "utility_gateway" in value.config && "conversation_burst" in value.config) {
           setView(value as UtilityAdminView);
           setCredentialStatus(credentials);
           setRuntimeSnapshot(snapshot);
+          setBurstObservation(bursts);
         }
       })
       .catch(() => undefined);
@@ -70,7 +89,10 @@ export function SemanticRoutingJudgeDock() {
 
   useEffect(() => {
     if (!open) return;
-    const timer = window.setInterval(() => { void loadUtilitySnapshot().then(setRuntimeSnapshot); }, 15_000);
+    const timer = window.setInterval(() => {
+      void loadUtilitySnapshot().then(setRuntimeSnapshot);
+      void loadBurstObservation().then(setBurstObservation);
+    }, 15_000);
     return () => window.clearInterval(timer);
   }, [open]);
 
@@ -121,7 +143,7 @@ export function SemanticRoutingJudgeDock() {
       ) : (
         <div className="semantic-routing-drawer paper-sheet">
           <header className="semantic-routing-drawer-head"><div><span>SUPER ADMIN / SYSTEM RUNTIME</span><h2>System Intelligence</h2></div><button type="button" className="close-button" onClick={() => setOpen(false)} aria-label="Close">×</button></header>
-          <ConversationBurstRuntimePanel config={view.config.conversation_burst} zh={zh} onChange={updateConversationBurst} />
+          <ConversationBurstRuntimePanel config={view.config.conversation_burst} observation={burstObservation} zh={zh} onChange={updateConversationBurst} />
           <UtilityCredentialSaveProvider beforeSave={persistUtilityConfigForCredential}>
             <UtilityGatewayPanel config={view.config.utility_gateway} credentialStatus={credentialStatus} runtimeSnapshot={runtimeSnapshot} zh={zh} onChange={updateUtility} onRefreshCredentials={refreshRuntimeObservation} />
           </UtilityCredentialSaveProvider>
