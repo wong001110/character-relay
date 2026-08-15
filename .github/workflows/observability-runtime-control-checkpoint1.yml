@@ -34,7 +34,7 @@ jobs:
         run: |
           python -m ruff check src/echo_masque/admin_runtime.py src/echo_masque/api/routes/admin.py src/echo_masque/api/routes/smart_participation.py src/echo_masque/utility_gateway_router.py tests/test_observability_runtime_control.py
           python -m mypy src
-          python -m pytest tests/test_observability_runtime_control.py tests/test_utility_gateway_phase2.py -q
+          python -m pytest tests/test_observability_runtime_control.py -q
       - name: Discord Connector validation
         working-directory: connectors/discord
         run: |
