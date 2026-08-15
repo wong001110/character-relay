@@ -75,8 +75,12 @@ export function ConversationIntelligenceInspector({ cards, profile, catalog, zh 
 
   const selectedCard = cards.find((item) => item.id === characterId) ?? null;
   const channels = useMemo(
-    () => (catalog?.channels ?? []).filter((item) => !profile.excluded_channel_ids.includes(item.id)),
-    [catalog, profile.excluded_channel_ids]
+    () => (catalog?.channels ?? []).filter(
+      (item) =>
+        !profile.excluded_channel_ids.includes(item.id)
+        && (!item.category_id || !profile.excluded_category_ids.includes(item.category_id))
+    ),
+    [catalog, profile.excluded_category_ids, profile.excluded_channel_ids]
   );
 
   useEffect(() => {
@@ -205,7 +209,7 @@ export function ConversationIntelligenceInspector({ cards, profile, catalog, zh 
                 <summary>
                   <div>
                     <span>{stateLabel(item.state_type, zh)}</span>
-                    <strong>{item.subject_key}</strong>
+                    <strong>{item.subject_label || item.subject_key}</strong>
                   </div>
                   <div className="learned-state-value">
                     <strong>{formatValue(item.current_value)}</strong>
