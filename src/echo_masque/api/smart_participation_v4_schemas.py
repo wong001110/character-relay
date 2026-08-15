@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from echo_masque.participation_admission_policy import resolve_admission_limit
 
 
 class SmartParticipationBurstMessage(BaseModel):
@@ -43,7 +45,9 @@ class SmartParticipationResolveRequest(BaseModel):
         max_length=5,
     )
     minimum_margin: float = Field(default=2.0, ge=0.0, le=100.0)
-    max_participants: int = Field(default=2, ge=1, le=3)
+    max_participants: int = Field(default=2, ge=1, le=10)
+    admission_limit_reason: str = Field(default="", max_length=80)
+    admission_group_invitation: bool = False
     channel_cooldown_seconds: int = Field(default=45, ge=0, le=86_400)
     window_seconds: int = Field(default=600, ge=1, le=86_400)
     max_replies_per_window: int = Field(default=3, ge=1, le=100)
@@ -51,6 +55,19 @@ class SmartParticipationResolveRequest(BaseModel):
         min_length=1,
         max_length=24,
     )
+
+    @model_validator(mode="after")
+    def resolve_dynamic_admission_limit(self) -> SmartParticipationResolveRequest:
+        decision = resolve_admission_limit(
+            message=self.message,
+            burst_messages=self.burst_messages,
+            eligible_candidate_count=sum(1 for item in self.candidates if item.eligible),
+            requested_max=self.max_participants,
+        )
+        self.max_participants = decision.limit
+        self.admission_limit_reason = decision.reason
+        self.admission_group_invitation = decision.group_invitation
+        return self
 
 
 class SmartParticipationResolveCandidateView(BaseModel):
