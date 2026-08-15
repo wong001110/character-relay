@@ -21,12 +21,16 @@ import "./behavior-notebook-turns.css";
 import "./scrapbook-character-workflow-v2.css";
 import { I18nProvider } from "./i18n";
 import { SemanticRoutingJudgeDock } from "./SemanticRoutingJudgeDock";
+import { UIShowcase } from "./UIShowcase";
+
+const normalizedPath = window.location.pathname.replace(/\/+$/, "") || "/";
+const showUiShowcase = normalizedPath === "/dev/ui";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <I18nProvider>
-      <App />
-      <SemanticRoutingJudgeDock />
+      {showUiShowcase ? <UIShowcase /> : <App />}
+      {!showUiShowcase && <SemanticRoutingJudgeDock />}
     </I18nProvider>
   </StrictMode>
 );
