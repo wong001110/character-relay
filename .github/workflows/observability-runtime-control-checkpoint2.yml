@@ -23,7 +23,9 @@ jobs:
         with:
           node-version: '24'
       - name: Apply guarded source patch
-        run: python scripts/apply_observability_runtime_control_checkpoint2.py
+        run: |
+          python scripts/apply_observability_runtime_control_checkpoint2.py
+          python scripts/normalize_checkpoint2_tests.py
       - name: Install Python
         run: |
           python -m pip install --upgrade pip
@@ -47,6 +49,7 @@ jobs:
       - name: Commit validated checkpoint and remove staging helpers
         run: |
           rm scripts/apply_observability_runtime_control_checkpoint2.py
+          rm scripts/normalize_checkpoint2_tests.py
           rm .github/workflows/observability-runtime-control-checkpoint2.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
