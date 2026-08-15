@@ -43,7 +43,7 @@ def test_active_burst_expands_soft_cap_without_becoming_unbounded() -> None:
         burst_messages=_burst(
             "我觉得这里逻辑不太对" * 20,
             "但前面的伏笔又能解释" * 20,
-            "你们有没有注意到另外一个角色" * 20,
+            "另外一个角色也很可疑" * 20,
         ),
         eligible_candidate_count=9,
         requested_max=2,
