@@ -1,5 +1,7 @@
 """Provider error taxonomy."""
 
+from echo_masque.providers.base import ProviderQuotaObservation
+
 
 class ProviderError(RuntimeError):
     """Base error for one model-provider call.
@@ -34,6 +36,15 @@ class ProviderRateLimitError(ProviderError):
 
     reason_code = "provider_rate_limited"
     transient = True
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        quota_observations: tuple[ProviderQuotaObservation, ...] = (),
+    ) -> None:
+        super().__init__(message)
+        self.quota_observations = quota_observations
 
 
 class ProviderAuthenticationError(ProviderError):

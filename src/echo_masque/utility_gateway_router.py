@@ -16,9 +16,11 @@ from echo_masque.admin_runtime import UtilityCapability, UtilityProviderMember
 from echo_masque.auth import SYSTEM_RUNTIME_USER_ID
 from echo_masque.credentials import CredentialVault
 from echo_masque.persistence.utility_gateway_models import (
+    UtilityProviderQuotaRecord,
     UtilityProviderStateRecord,
     UtilityUsageRecord,
 )
+from echo_masque.providers.base import ProviderQuotaObservation
 from echo_masque.services.runtime import RuntimeService
 from echo_masque.utility_gateway_contracts import (
     ContextCompileDecision,
@@ -33,6 +35,7 @@ from echo_masque.utility_gateway_contracts import (
     UtilityHealth,
     UtilityInferenceResult,
     UtilityProviderSnapshot,
+    UtilityQuotaDimension,
     UtilityRoute,
     WikiUtilityResult,
 )
@@ -60,6 +63,7 @@ class UtilityCallReply:
     remaining_unit: str = ""
     reset_at: datetime | None = None
     observation_source: str = "response"
+    quota_observations: tuple[ProviderQuotaObservation, ...] = ()
 
 
 class UtilityCallFailed(RuntimeError):
@@ -71,6 +75,7 @@ class UtilityCallFailed(RuntimeError):
         remaining_value: float | None = None,
         remaining_unit: str = "",
         reset_at: datetime | None = None,
+        quota_observations: tuple[ProviderQuotaObservation, ...] = (),
     ) -> None:
         super().__init__(detail or kind)
         self.kind = kind
@@ -78,6 +83,7 @@ class UtilityCallFailed(RuntimeError):
         self.remaining_value = remaining_value
         self.remaining_unit = remaining_unit[:40]
         self.reset_at = reset_at
+        self.quota_observations = quota_observations
 
 
 class UtilityProviderCaller(Protocol):
@@ -190,6 +196,52 @@ class UtilityGatewayRouter:
             record.last_observed_at = now
             session.commit()
 
+    def _save_quota_observations(
+        self,
+        member_id: str,
+        observations: tuple[ProviderQuotaObservation, ...],
+    ) -> None:
+        if not observations:
+            return
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            for observation in observations:
+                record = session.get(UtilityProviderQuotaRecord, (member_id, observation.kind))
+                if record is None:
+                    record = UtilityProviderQuotaRecord(member_id=member_id, kind=observation.kind)
+                    session.add(record)
+                record.remaining = observation.remaining
+                record.limit_value = observation.limit
+                record.unit = observation.unit[:40]
+                record.reset_at = observation.reset_at
+                record.window_seconds = observation.window_seconds
+                record.source = observation.source[:48]
+                record.observed_at = now
+            session.commit()
+
+    def _quota_dimensions(self, member_id: str) -> tuple[UtilityQuotaDimension, ...]:
+        with self.database.session() as session:
+            rows = list(
+                session.scalars(
+                    select(UtilityProviderQuotaRecord)
+                    .where(UtilityProviderQuotaRecord.member_id == member_id)
+                    .order_by(UtilityProviderQuotaRecord.kind.asc())
+                )
+            )
+        return tuple(
+            UtilityQuotaDimension(
+                kind=row.kind,
+                remaining=row.remaining,
+                limit=row.limit_value,
+                unit=row.unit,
+                reset_at=self._aware(row.reset_at),
+                window_seconds=row.window_seconds,
+                source=row.source,
+                observed_at=self._aware(row.observed_at),
+            )
+            for row in rows
+        )
+
     def _record_usage(
         self,
         route: UtilityRoute,
@@ -266,6 +318,7 @@ class UtilityGatewayRouter:
                     last_observed_at=(
                         self._aware(state.last_observed_at) if state is not None else None
                     ),
+                    quota_dimensions=self._quota_dimensions(member.id),
                 )
             )
         day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -448,8 +501,10 @@ class UtilityGatewayRouter:
                     remaining_unit=reply.remaining_unit,
                     reset_at=reply.reset_at,
                     observation_source=reply.observation_source,
+                    quota_observations=reply.quota_observations,
                 )
             if member is not None:
+                self._save_quota_observations(member.id, reply.quota_observations)
                 self._save_state(
                     member,
                     status="healthy",
@@ -489,6 +544,7 @@ class UtilityGatewayRouter:
         elif failure.kind == "unavailable":
             status = "degraded"
         if member is not None:
+            self._save_quota_observations(member.id, failure.quota_observations)
             self._save_state(
                 member,
                 status=status,

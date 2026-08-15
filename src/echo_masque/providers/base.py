@@ -1,5 +1,6 @@
 """Model-provider contracts."""
 
+from datetime import datetime
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -39,6 +40,18 @@ class ChatMessage(BaseModel):
     tool_calls: tuple[ChatToolCall, ...] = ()
 
 
+class ProviderQuotaObservation(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    kind: str
+    remaining: float | None = None
+    limit: float | None = None
+    unit: str = ""
+    reset_at: datetime | None = None
+    window_seconds: int | None = None
+    source: str = "response_header"
+
+
 class ProviderCompletion(BaseModel):
     model_config = ConfigDict(frozen=True)
     text: str
@@ -48,6 +61,7 @@ class ProviderCompletion(BaseModel):
     output_tokens: int | None = None
     finish_reason: str | None = None
     tool_calls: tuple[ChatToolCall, ...] = ()
+    quota_observations: tuple[ProviderQuotaObservation, ...] = ()
 
 
 class ChatProvider(Protocol):

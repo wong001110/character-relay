@@ -57,9 +57,7 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
     def _provider(cls, route: UtilityRoute) -> OpenAICompatibleProvider:
         base_url = cls._base_url(route)
         provider_type = (
-            _GeminiOpenAIProvider
-            if route.provider == "gemini"
-            else OpenAICompatibleProvider
+            _GeminiOpenAIProvider if route.provider == "gemini" else OpenAICompatibleProvider
         )
         return provider_type(
             base_url=base_url,
@@ -154,7 +152,20 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
                     json_object=False,
                 )
         except ProviderRateLimitError as exc:
-            raise UtilityCallFailed("quota", detail=str(exc)) from exc
+            resets = [item.reset_at for item in exc.quota_observations if item.reset_at is not None]
+            reset_at = min(resets) if resets else None
+            zero = next(
+                (item for item in exc.quota_observations if item.remaining == 0),
+                None,
+            )
+            raise UtilityCallFailed(
+                "quota",
+                detail=str(exc),
+                remaining_value=zero.remaining if zero is not None else None,
+                remaining_unit=zero.unit if zero is not None else "",
+                reset_at=reset_at,
+                quota_observations=exc.quota_observations,
+            ) from exc
         except ProviderAuthenticationError as exc:
             raise UtilityCallFailed("authentication", detail=str(exc)) from exc
         except ProviderTimeoutError as exc:
@@ -170,6 +181,7 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
             latency_ms=completion.latency_ms,
             input_tokens=completion.input_tokens or 0,
             output_tokens=completion.output_tokens or 0,
+            quota_observations=completion.quota_observations,
         )
 
 

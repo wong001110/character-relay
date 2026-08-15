@@ -24,10 +24,26 @@ class UtilityProviderStateRecord(Base):
     consecutive_errors: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     cooldown_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str] = mapped_column(String(500), default="", nullable=False)
-    last_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class UtilityProviderQuotaRecord(Base):
+    __tablename__ = "utility_provider_quotas"
+
+    member_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(48), primary_key=True)
+    remaining: Mapped[float | None] = mapped_column(Float, nullable=True)
+    limit_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unit: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    window_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source: Mapped[str] = mapped_column(String(48), default="response_header", nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class UtilityUsageRecord(Base):
@@ -42,4 +58,6 @@ class UtilityUsageRecord(Base):
     output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     latency_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )

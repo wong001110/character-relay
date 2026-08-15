@@ -2,6 +2,9 @@
 
 import asyncio
 import json
+import re
+from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from time import perf_counter
 from urllib.parse import urlparse
 
@@ -13,6 +16,7 @@ from echo_masque.providers.base import (
     ChatToolCall,
     ChatToolDefinition,
     ProviderCompletion,
+    ProviderQuotaObservation,
 )
 from echo_masque.providers.errors import (
     ProviderAuthenticationError,
@@ -23,6 +27,106 @@ from echo_masque.providers.errors import (
     ProviderUnavailableError,
 )
 from echo_masque.providers.trace import ProviderTrace
+
+_DURATION_PART = re.compile(r"(?P<value>\d+(?:\.\d+)?)(?P<unit>ms|s|m|h)", re.I)
+
+
+def _float_header(headers: httpx.Headers, name: str) -> float | None:
+    raw = headers.get(name)
+    if raw is None:
+        return None
+    try:
+        return float(raw.strip())
+    except ValueError:
+        return None
+
+
+def _reset_time(raw: str | None, *, now: datetime, retry_after: bool = False) -> datetime | None:
+    value = (raw or "").strip()
+    if not value:
+        return None
+    if retry_after:
+        try:
+            return now + timedelta(seconds=max(0.0, float(value)))
+        except ValueError:
+            try:
+                parsed = parsedate_to_datetime(value)
+            except (TypeError, ValueError):
+                return None
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            return parsed.astimezone(UTC)
+    parts = list(_DURATION_PART.finditer(value))
+    if parts and "".join(item.group(0) for item in parts).casefold() == value.casefold():
+        seconds = 0.0
+        for item in parts:
+            amount = float(item.group("value"))
+            unit = item.group("unit").casefold()
+            seconds += (
+                amount / 1000 if unit == "ms" else amount * {"s": 1, "m": 60, "h": 3600}[unit]
+            )
+        return now + timedelta(seconds=max(0.0, seconds))
+    try:
+        numeric = float(value)
+    except ValueError:
+        return None
+    if numeric > 1_000_000_000:
+        return datetime.fromtimestamp(numeric, tz=UTC)
+    return now + timedelta(seconds=max(0.0, numeric))
+
+
+def _quota_observations(headers: httpx.Headers) -> tuple[ProviderQuotaObservation, ...]:
+    now = datetime.now(UTC)
+    observations: list[ProviderQuotaObservation] = []
+    dimensions = (
+        (
+            "requests",
+            "requests",
+            "x-ratelimit-remaining-requests",
+            "x-ratelimit-limit-requests",
+            "x-ratelimit-reset-requests",
+        ),
+        (
+            "tokens",
+            "tokens",
+            "x-ratelimit-remaining-tokens",
+            "x-ratelimit-limit-tokens",
+            "x-ratelimit-reset-tokens",
+        ),
+        ("requests", "requests", "ratelimit-remaining", "ratelimit-limit", "ratelimit-reset"),
+    )
+    seen: set[tuple[str, str]] = set()
+    for kind, unit, remaining_header, limit_header, reset_header in dimensions:
+        remaining = _float_header(headers, remaining_header)
+        limit = _float_header(headers, limit_header)
+        reset_at = _reset_time(headers.get(reset_header), now=now)
+        if remaining is None and limit is None and reset_at is None:
+            continue
+        key = (kind, reset_header)
+        if key in seen:
+            continue
+        seen.add(key)
+        observations.append(
+            ProviderQuotaObservation(
+                kind=kind,
+                remaining=remaining,
+                limit=limit,
+                unit=unit,
+                reset_at=reset_at,
+                source="response_header",
+            )
+        )
+    retry_reset = _reset_time(headers.get("retry-after"), now=now, retry_after=True)
+    if retry_reset is not None:
+        observations.append(
+            ProviderQuotaObservation(
+                kind="retry_after",
+                unit="seconds",
+                reset_at=retry_reset,
+                source="retry_after_header",
+            )
+        )
+    return tuple(observations)
 
 
 class OpenAICompatibleProvider:
@@ -202,9 +306,9 @@ class OpenAICompatibleProvider:
                             status_code=response.status_code,
                             detail="The provider rejected the configured credential.",
                         )
-                        raise ProviderAuthenticationError(
-                            "Model provider rejected the credential."
-                        )
+                        raise ProviderAuthenticationError("Model provider rejected the credential.")
+
+                    quota_observations = _quota_observations(response.headers)
 
                     if response.status_code == 429:
                         if attempt < self._max_retries:
@@ -222,7 +326,8 @@ class OpenAICompatibleProvider:
                             detail="The provider rate limit remained active after retries.",
                         )
                         raise ProviderRateLimitError(
-                            "Model provider rate limit was exceeded."
+                            "Model provider rate limit was exceeded.",
+                            quota_observations=quota_observations,
                         )
 
                     if response.status_code >= 500:
@@ -332,9 +437,7 @@ class OpenAICompatibleProvider:
                         text=trace_text,
                         input_tokens=input_tokens if isinstance(input_tokens, int) else None,
                         output_tokens=output_tokens if isinstance(output_tokens, int) else None,
-                        finish_reason=(
-                            str(finish_reason) if finish_reason is not None else None
-                        ),
+                        finish_reason=(str(finish_reason) if finish_reason is not None else None),
                         tool_call_names=tuple(item.function.name for item in tool_calls),
                     )
                     return ProviderCompletion(
@@ -343,10 +446,9 @@ class OpenAICompatibleProvider:
                         latency_ms=round((perf_counter() - started) * 1000),
                         input_tokens=input_tokens if isinstance(input_tokens, int) else None,
                         output_tokens=output_tokens if isinstance(output_tokens, int) else None,
-                        finish_reason=(
-                            str(finish_reason) if finish_reason is not None else None
-                        ),
+                        finish_reason=(str(finish_reason) if finish_reason is not None else None),
                         tool_calls=tool_calls,
+                        quota_observations=quota_observations,
                     )
 
             trace.error(
@@ -366,11 +468,7 @@ class OpenAICompatibleProvider:
             detail = str(exc).replace("\x00", "").strip()
             trace.error(
                 reason="provider_client_error",
-                detail=(
-                    f"{type(exc).__name__}: {detail[:700]}"
-                    if detail
-                    else type(exc).__name__
-                ),
+                detail=(f"{type(exc).__name__}: {detail[:700]}" if detail else type(exc).__name__),
             )
             raise ProviderProtocolError(
                 "Model provider call failed before a valid response was produced."
