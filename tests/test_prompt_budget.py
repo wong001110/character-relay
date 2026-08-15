@@ -92,15 +92,16 @@ def _smart_context() -> BudgetSmartOutputContext:
 
 def test_smart_output_guidance_is_dynamic_and_compact() -> None:
     plain = "\n".join(_smart_context().prompt_guidance([]))
-    assert "Allowed actions this turn: ignore, message." in plain
+    assert "Allowed actions this turn: ignore, message, short_message." in plain
     assert "action=react" not in plain
     assert "action=sticker" not in plain
     assert "Retrieved Server expressions" not in plain
     assert plain.count("Message shape: [[CR_OUTPUT") == 1
+    assert plain.count("Short message shape: [[CR_OUTPUT") == 1
     assert plain.count("Silence shape: [[CR_OUTPUT") == 1
 
     expressive = "\n".join(_smart_context().prompt_guidance([_expression_candidate()]))
-    assert "ignore, message, react" in expressive
+    assert "ignore, message, short_message, react" in expressive
     assert "party" in expressive
     assert "action=react" in expressive
 
