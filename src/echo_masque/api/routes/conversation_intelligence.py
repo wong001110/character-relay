@@ -40,6 +40,7 @@ class LearnedStateInspectionView(BaseModel):
     state_type: str
     subject_type: str
     subject_key: str
+    subject_label: str = ""
     stored_value: float
     current_value: float
     stored_confidence: float
@@ -147,6 +148,24 @@ def _provenance(raw: str) -> tuple[LearnedStateProvenanceView, ...]:
     return tuple(values)
 
 
+def _subject_label(
+    topics: ConversationTopicRepository,
+    *,
+    owner_id: str,
+    subject_type: str,
+    subject_key: str,
+) -> str:
+    if subject_type != "topic":
+        return subject_key
+    topic_id = subject_key.removeprefix("topic:").strip()
+    if not topic_id:
+        return subject_key
+    topic = topics.get(topic_id, owner_id)
+    if topic is None or not topic.topic_label.strip():
+        return subject_key
+    return topic.topic_label.strip()
+
+
 @router.get(
     "/characters/{character_card_id}",
     response_model=CharacterIntelligenceView,
@@ -162,6 +181,7 @@ def inspect_character_intelligence(
 
     database = _database(request)
     service = CharacterLearnedStateService(database)
+    topics = ConversationTopicRepository(database)
     effective = {
         item.id: item
         for item in service.list_for_character(
@@ -193,6 +213,12 @@ def inspect_character_intelligence(
                 state_type=record.state_type,
                 subject_type=record.subject_type,
                 subject_key=record.subject_key,
+                subject_label=_subject_label(
+                    topics,
+                    owner_id=user.id,
+                    subject_type=record.subject_type,
+                    subject_key=record.subject_key,
+                ),
                 stored_value=record.value,
                 current_value=current.value,
                 stored_confidence=record.confidence,
