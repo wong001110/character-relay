@@ -1,71 +1,73 @@
 # Post-V4 Observability & Runtime Control Roadmap
 
-Status: **PLANNED / ACTIVE IN DRAFT PR**
+Status: **IMPLEMENTED / RELEASE VALIDATION IN PROGRESS**
 
 Branch: `agent/observability-runtime-control`
 
+Draft PR: `#167`
+
 ## Goal
 
-Turn the completed V4 and AI Utility Gateway foundations into systems that are easy to inspect and tune from Portal without Railway environment edits, Connector restarts, or direct SQLite inspection.
+Turn the completed Conversation Intelligence V4 and AI Utility Gateway foundations into systems that are easy to inspect and tune from Portal without Railway environment edits, Connector restarts, or direct SQLite inspection.
 
-This roadmap covers three related gaps discovered after V4 production rollout:
+The implementation addresses three production usability gaps:
 
-1. Conversation Intelligence has learned state and Topic state, but Portal does not yet show current values, evidence, decay, or Topic transitions clearly.
-2. AI Utility Gateway persists normalized quota/health fields, but live providers do not yet expose enough remaining/reset metadata to Portal, and cooldown expiry does not reliably re-admit a provider for probing.
-3. Conversation Burst / Turn Collector is live, but timing is still boot-time environment configuration rather than a dynamically tunable Runtime setting.
+1. Conversation Intelligence now exposes current Learned State, decay/evidence, and scoped Topic history through Portal.
+2. AI Utility Gateway now exposes Runtime health plus authoritative quota/reset observations and automatically re-admits providers after cooldown/reset expiry.
+3. Conversation Burst / Turn Collector timing is now a persisted Portal Runtime setting that the live Connector can adopt without restart.
 
 ## Fixed decisions
 
 - Portal-persisted Runtime configuration takes precedence over environment bootstrap defaults.
 - Environment variables remain safe bootstrap/fallback defaults; they are not the long-term control plane.
-- Changing Portal Runtime settings must not require a Connector restart.
+- Changing Portal Runtime settings does not require a Connector restart.
 - Existing pending Conversation Bursts keep the timing snapshot they were created with; new bursts use the latest synced config.
 - Explicit Character addressing, replies, interaction sessions, and other Runtime-owned fast paths remain immediate.
 - Character Card core truth stays separate from Learned State.
-- Learned State Inspector is observational; it must not become a hidden Character Card editor.
+- Learned State Inspector is observational; it is not a Character Card editor.
 - Topic Memory remains Topic lifecycle authority; Graph is derived evidence.
-- Utility provider `enabled` is an Admin/manual state. Runtime quota/cooldown/exhaustion must never silently rewrite it.
-- Provider quota metadata is shown only when observed or deterministically known. Do not invent remaining quota estimates.
+- Utility provider `enabled` is an Admin/manual state. Runtime quota/cooldown/exhaustion never silently rewrites it.
+- Provider quota metadata is shown only when observed or deterministically known. Missing metadata is shown as `Unknown` rather than estimated.
 - Free-provider exhaustion never silently becomes paid use on that provider.
 - Paid fallback remains separately configured and budget bounded.
+- Topic transition reasons are displayed only when an authoritative persisted source exists. Current Topic timeline/status/timing is always inspectable; the Portal does not fabricate a classifier reason that was never persisted.
 
-## Phase 0 — Shared observability contracts
+## Phase 0 — Shared observability contracts — COMPLETE
 
-Add stable API contracts for Portal inspection before expanding UI.
+### Conversation Intelligence
 
-### Conversation Intelligence snapshot
-
-Expose Character-scoped Learned State with:
+Implemented read-only APIs expose Character-scoped Learned State with:
 
 - state type
-- subject type/key and readable label when available
+- subject type/key plus a readable Topic label when available
 - stored value
 - current effective/decayed value
-- confidence
+- stored/current confidence
 - positive/negative evidence counts
 - contradiction count
 - half-life / expiry
 - last evidence timestamp
-- bounded provenance entries
+- bounded recent provenance
 
-Expose Topic scope inspection with:
+Topic inspection is strictly scoped by owner + Discord connection + server + channel + thread and exposes:
 
 - current active Topic
-- recent Topic records
+- up to 20 recent Topic records
 - status (`active / cooling / closed / archived`)
-- label, keywords, participants, open loops
+- label, summary, keywords, participants, open loops
 - message count / capsule version
 - started / last-active / closed timestamps
-- bounded transition reason/evidence where available
 
-### Utility Gateway snapshot
+No Graph inference is used as Topic truth.
 
-Expose the existing provider Runtime snapshot to Admin Portal:
+### Utility Gateway
 
-- manual enabled state
-- configured credential state
+Implemented Runtime snapshot exposes:
+
+- credential readiness
 - Runtime health state
-- remaining quota observations
+- multiple quota dimensions
+- remaining / optional limit
 - quota unit/type
 - reset time
 - cooldown until
@@ -74,43 +76,35 @@ Expose the existing provider Runtime snapshot to Admin Portal:
 - observation source
 - latency / error rate
 
-### Turn Collector runtime snapshot
+### Turn Collector
 
-Expose current effective config and live counters:
+Implemented Runtime snapshot combines:
 
-- enabled
-- quiet window
-- maximum wait
-- max messages
-- max characters
-- pending burst/preflight scopes
-- collected / bypass / burst / collapsed counts
+- current Connector effective config from heartbeat
+- pending burst/preflight scope counts (best-effort heartbeat observation)
+- candidate / bypass / burst / collected / collapsed counters
 - bypass reasons
 - last burst ID / time / flush reason
+- persisted `smart_participation_burst_flushed` activity for reliable recent history
 
-Exit criteria:
+No raw prompts, credentials, embeddings, or unbounded chat history are exposed.
 
-- Portal can query all three systems without raw SQL or Railway access.
-- no raw prompts, credentials, embeddings, or unbounded chat history are exposed.
+## Phase 1 — Dynamic Conversation Burst control — COMPLETE
 
-## Phase 1 — Dynamic Conversation Burst control
-
-Move Turn Collector timing from boot-time-only env configuration to a persisted Portal-controlled Runtime profile.
-
-### New defaults
+### Defaults
 
 - quiet window: **3,000 ms**
 - maximum wait: **10,000 ms**
 - maximum messages: **5**
 - maximum characters: **1,500**
 
-Portal should offer presets:
+Portal presets:
 
 - Fast: 1.5 s / 4 s
 - Balanced: 3 s / 10 s — default
 - Patient: 5 s / 15 s
 
-### Runtime precedence
+Runtime precedence:
 
 ```text
 Portal persisted config
@@ -118,54 +112,17 @@ Portal persisted config
     > code default
 ```
 
-### Live sync
+The Connector adopts changed values through its existing bounded synchronization cycle without restart. Each pending burst snapshots its config at creation, so a Portal edit affects new bursts without mutating an already-open timer.
 
-Connector receives config through the existing periodic server synchronization path or a bounded dedicated config fetch. Runtime reconfiguration must not require process restart.
+Explicit Character name/address, reply, interaction, and other fast paths remain immediate.
 
-The implementation must avoid mutating timers of already-open bursts. A burst captures the effective collector config when it is opened; subsequent bursts use the new config.
+## Phase 2 — Free Pool quota/reset observation and automatic recovery — COMPLETE
 
-Exit criteria:
+Provider responses now preserve authoritative rate-limit metadata where available, including OpenAI-compatible request/token remaining/limit/reset headers and `Retry-After`.
 
-- changing quiet/max wait in Portal affects new bursts without Railway redeploy/restart;
-- currently pending bursts finish under their original timing snapshot;
-- explicit/reply fast-path latency remains unchanged;
-- Portal shows the effective value currently used by Connector.
+Quota observations support multiple simultaneous dimensions instead of one generic scalar.
 
-## Phase 2 — Free Pool quota / reset observation and automatic recovery
-
-Complete the response-driven provider quota state machine.
-
-### Provider observations
-
-Normalize provider metadata where available, including:
-
-- `Retry-After`
-- request remaining/reset
-- token remaining/reset
-- daily request/token limits when exposed
-- credit/quota balance when exposed
-- provider-specific units such as Cloudflare neurons only when the API exposes an authoritative value
-
-Quota observations should support multiple simultaneous dimensions rather than forcing all providers into one generic scalar.
-
-Suggested shape:
-
-```text
-quota_dimensions[]
-  kind
-  remaining
-  limit (optional)
-  unit
-  reset_at
-  window_seconds (optional)
-  source
-```
-
-When a provider exposes no reliable quota metadata, Portal must show `Unknown`, not an estimate.
-
-### Runtime state machine
-
-Manual state and Runtime state stay separate:
+Runtime state remains separate from manual Admin state:
 
 ```text
 Admin: ENABLED / OFF
@@ -174,160 +131,112 @@ Runtime: unknown / healthy / degraded / cooling_down / exhausted / unavailable
 
 On quota/rate-limit failure:
 
-1. preserve Admin `enabled=true`;
-2. temporarily remove the member from eligible routing;
-3. use provider reset/Retry-After when available;
-4. otherwise apply bounded backoff;
-5. once cooldown/reset expires, return the provider to a probe-eligible state;
-6. successful probe -> `healthy`;
-7. repeated 429 -> update cooldown/reset and continue to next free member.
+1. Admin `enabled` remains unchanged;
+2. the provider temporarily leaves eligible free routing;
+3. authoritative reset/Retry-After is used when available;
+4. otherwise bounded cooldown is used;
+5. expired `cooling_down` / `exhausted` state becomes probe eligible automatically;
+6. success returns the member to `healthy`;
+7. repeated 429 updates cooldown/reset and routing continues to the next eligible member.
 
-Fix the current recovery gap where an expired `cooling_down` record can remain permanently excluded because the persisted status is never normalized back to a probe-eligible state.
+Portal Free Pool cards now show Runtime health, known quota dimensions, reset/cooldown, observation time/source, and last error. Providers that expose no reliable quota metadata show `Unknown`.
 
-### Portal Free Pool cards
+## Phase 3 — Conversation Intelligence Inspector — COMPLETE
 
-Show per member:
-
-- Admin enabled state
-- Runtime health
-- Key readiness
-- remaining/reset for all known quota dimensions
-- cooldown countdown/reset timestamp
-- last observed timestamp
-- last provider error
-- observation source
-
-Exit criteria:
-
-- rate-limited free providers automatically leave routing temporarily;
-- reset/cooldown expiry automatically makes them probe eligible again without Admin toggles or restart;
-- no quota field is fabricated when provider metadata is unavailable;
-- Free Pool UI explains why a provider is currently eligible or skipped.
-
-## Phase 3 — Conversation Intelligence Inspector
-
-Add a dedicated Portal Inspector rather than overloading Behavior Notebook.
+A dedicated `Intelligence` Server Notebook tab now separates state inspection from per-turn Behavior Notebook explanations.
 
 ### Character view
 
-For each Character:
+For a selected Character the Portal shows:
 
-- Core Interests from Character Card — read-only authoritative reference
-- Learned Interests
+- Character Card reference as authoritative core truth
+- Learned Interest
 - Expertise
 - Stance
-- Relationships
+- Relationship
 - Salience
 - Conversation Ownership
 - Participation Fatigue
 
-Each Learned State card shows:
+Each Learned State entry exposes:
 
-- current effective value
+- readable subject label where available
+- current decayed value
 - stored value at last evidence
 - confidence
-- evidence counts
-- half-life / decay direction
+- positive/negative evidence counts
+- contradiction count
+- half-life
 - last evidence time
-- recent provenance/evidence timeline
-
-Core and Learned values must be visually separate so users do not mistake derived state for Character Card edits.
+- recent bounded provenance
 
 ### Topic view
 
-By Discord connection / Server / Channel / Thread:
+For the selected Discord Server/Channel scope the Portal shows:
 
 - current Topic
-- status
-- summary/label
+- summary/status
 - keywords
-- participants
 - open loops
 - message count
 - capsule version
-- started/last-active/closed times
+- started / last-active / closed timing
 - recent Topic timeline
-- transition reason when available
 
-### Behavior Notebook integration
+Excluded channels and excluded categories are omitted from the Inspector selector.
 
-Behavior Notebook remains turn-focused and should explain why a speaker was selected:
+Behavior Notebook remains responsible for the separate question: “why did this speaker get selected on this turn?”
 
-- deterministic base
-- raw E5
-- active Topic evidence
-- Dynamic Interest
-- Expertise
-- Relationship
-- Ownership
-- Fatigue
-- Utility adjustment
-- final score / selection reason
+## Phase 4 — Portal live control and diagnostics — COMPLETE
 
-The Inspector answers "what is the state now?"; Behavior Notebook answers "why did this turn happen?".
+### System Intelligence / Conversation Burst
 
-Exit criteria:
+Portal now exposes:
 
-- a user can answer "what is Ann interested in now?" without SQLite inspection;
-- a user can answer "why did this Interest change?" from bounded provenance;
-- a user can answer "what is the current Topic and when did it switch?" from Portal;
-- current state and per-turn decision explanations remain separate views.
-
-## Phase 4 — Portal live control and diagnostics
-
-Bring the three systems into a coherent admin/diagnostic UX.
-
-### Smart Participation Studio
-
-Add Conversation Burst controls and live status:
-
-- Enable Turn Collector
-- preset selector
-- quiet window
-- maximum wait
-- advanced max messages/chars
+- enable/disable Turn Collector
+- Fast / Balanced / Patient presets
+- quiet window / maximum wait
+- max messages / characters
 - current effective Connector config
-- current pending state
-- last burst summary
-- cumulative collected/collapsed/bypass counters
+- pending burst count (heartbeat-best-effort)
+- 24h persisted burst / collected / collapsed counts
+- last persisted burst timing, latency and flush reason
+- per-Connector session counters
+
+`smart_participation_burst_flushed` is also visible in Discord Event Log.
+
+The pending count is intentionally best-effort because a burst normally lives only 3–10 seconds while heartbeat/UI polling is slower. Persisted last-burst and 24h activity are the reliable audit signal.
 
 ### Utility Gateway
 
-Upgrade Free Pool provider cards with Runtime health and quota/reset state.
+Free Pool cards expose manual configuration separately from Runtime health and quota/reset observations.
 
 ### Conversation Intelligence
 
-Add a dedicated Inspector entry from Portal/Discord workspace with Character and Topic tabs.
+The new Server Notebook Inspector makes learned state and Topic history visible without SQLite inspection.
 
-Exit criteria:
+## Phase 5 — Validation and rollout — IN PROGRESS
 
-- no Railway env edit is needed for ordinary Turn Collector tuning;
-- quota/reset problems are diagnosable from Portal;
-- learned state and Topic changes are inspectable from Portal.
+Focused checkpoint validation completed:
 
-## Phase 5 — Validation and rollout
+- Dynamic Burst Runtime config, pending-burst config snapshot, and Free Pool cooldown recovery: passed Python + Connector targeted validation.
+- Free Pool quota + Portal controls: workflow `31877569925` passed Python Ruff/strict Mypy/targeted tests and Web typecheck/tests/build.
+- Conversation Intelligence Inspector: workflow `31877950586` passed strict Mypy, Learned State/Topic scope tests, and Web typecheck/tests/build.
+- Conversation Burst live observability: workflow `31878381444` passed Python validation, Discord Connector typecheck/127 tests/build, Web tests/build, and diff check.
+- Inspector readable subjects/category filtering: workflow `31878589506` passed Python strict validation and Web tests/build.
 
-Automated validation:
+Final release gate still required on the clean branch head:
 
-- Python Ruff / strict Mypy / full Pytest
+- Python 3.12 / 3.13 Ruff
+- strict Mypy
+- repository-wide Pytest
 - Web typecheck / tests / build
 - Discord Connector typecheck / tests / build
-- Docker production smoke
+- production Docker smoke
 - Railway Smoke
 
-Required focused scenarios:
-
-1. change Turn Collector 3 s -> 5 s without restart; next burst uses 5 s while an already-open burst retains 3 s;
-2. explicit Character address still bypasses Turn Collector immediately;
-3. 429 with Retry-After enters cooldown and automatically becomes probe eligible after expiry;
-4. exhausted quota with reset timestamp becomes probe eligible at reset;
-5. missing quota headers display Unknown rather than fabricated values;
-6. multiple quota dimensions render independently;
-7. Learned Interest effective value decays correctly in Inspector;
-8. provenance explains recent positive/negative Interest changes;
-9. Topic current/recent timeline respects owner/server/channel/thread scope;
-10. Inspector cannot edit Character Card core truth or cross owner/scope boundaries.
+Public Demo Status is evaluated separately because `main` already has a known credential-readiness baseline failure; an identical result is not treated as an observability/runtime-control regression.
 
 ## Delivery rule
 
-All implementation for this roadmap stays in one Draft PR on `agent/observability-runtime-control` until validation is complete. Do not merge automatically; merge requires explicit owner approval.
+All implementation for this roadmap stays in Draft PR `#167` on `agent/observability-runtime-control` until final validation is complete. Do not merge automatically; merge requires explicit owner approval.
