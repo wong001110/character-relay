@@ -6,7 +6,6 @@ import asyncio
 import re
 from dataclasses import dataclass
 from time import monotonic
-from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -216,7 +215,7 @@ class MediaPlanningDescriptorService:
 
     @staticmethod
     def _planning_text(*, kind: str, platform: str, title: str, summary: str) -> str:
-        parts = ["Planner-only objective media descriptor.", f"Kind: {kind or 'media'}." ]
+        parts = ["Planner-only objective media descriptor.", f"Kind: {kind or 'media'}."]
         if platform:
             parts.append(f"Platform: {platform}.")
         if title:
