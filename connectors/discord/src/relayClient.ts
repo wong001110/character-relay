@@ -136,6 +136,17 @@ interface DiscordV4ParticipationResult {
   speaker_plan_authoritative?: boolean;
 }
 
+export interface DiscordMediaPlanningDescriptor {
+  available: boolean;
+  kind: string;
+  platform: string;
+  title: string;
+  summary: string;
+  planning_text: string;
+  source: string;
+  confidence: number;
+}
+
 interface ConnectorAttachment {
   attachment_id: string;
   url: string;
@@ -632,6 +643,36 @@ export class RelayClient {
       {
         method: "POST",
         body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
+  }
+
+  async describeMediaForPlanning(payload: {
+    guild_id: string;
+    channel_id: string;
+    thread_id?: string;
+    message_id: string;
+    text: string;
+  }): Promise<DiscordMediaPlanningDescriptor> {
+    const channelId = payload.thread_id || payload.channel_id;
+    if (!channelId || !payload.message_id) {
+      return {
+        available: false,
+        kind: "",
+        platform: "",
+        title: "",
+        summary: "",
+        planning_text: "",
+        source: "",
+        confidence: 0
+      };
+    }
+    const media = await this.discordMedia(channelId, payload.message_id);
+    return this.request<DiscordMediaPlanningDescriptor>(
+      "/api/connectors/discord/media/planning-descriptor",
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload, ...media })
       }
     );
   }

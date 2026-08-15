@@ -234,6 +234,14 @@ function visibleImageAttachmentCount(message: Message<true>): number {
   return [...message.attachments.values()].filter(isVisibleImageAttachment).length;
 }
 
+function semanticTextWithoutUrls(text: string): string {
+  return text.replace(/https?:\/\/\S+/giu, " ").replace(/\s+/gu, " ").trim();
+}
+
+function hasSharedMediaHint(message: Message<true>, text: string): boolean {
+  return message.attachments.size > 0 || message.embeds.length > 0 || /https?:\/\//iu.test(text);
+}
+
 function log(message: string, metadata?: Record<string, unknown>): void {
   console.log(
     JSON.stringify({
@@ -2193,6 +2201,60 @@ async function processMessage(
     let serverShadowCandidateScores:
       | DiscordParticipationShadowCandidate[]
       | undefined;
+    let participationAnalysisText = participationText;
+    let participationAnalysisBurstMessages = participationBurstMessages;
+    if (
+      config.smartParticipationEnabled &&
+      !replyTarget.deploymentId &&
+      !semanticTextWithoutUrls(participationText) &&
+      hasSharedMediaHint(guildMessage, participationText)
+    ) {
+      try {
+        const descriptor = await relay.describeMediaForPlanning({
+          guild_id: guildMessage.guildId,
+          channel_id: location.channelId,
+          thread_id: location.threadId,
+          message_id: guildMessage.id,
+          text: originalText
+        });
+        if (descriptor.available && descriptor.planning_text.trim()) {
+          participationAnalysisText = descriptor.planning_text;
+          participationAnalysisBurstMessages = participationBurstMessages.map((item) =>
+            item.message_id === guildMessage.id
+              ? { ...item, text: descriptor.planning_text }
+              : item
+          );
+          reportDiscordEvent({
+            level: "info",
+            eventType: "media_planning_descriptor_resolved",
+            message: "Planner-only media evidence was resolved before Smart Participation.",
+            guildId: guildMessage.guildId,
+            guildName: guildMessage.guild.name,
+            channelId: location.channelId,
+            channelName: location.channelName,
+            threadId: location.threadId,
+            threadName: location.threadName,
+            sourceMessageId: guildMessage.id,
+            details: {
+              kind: descriptor.kind,
+              platform: descriptor.platform,
+              source: descriptor.source,
+              confidence: descriptor.confidence
+            }
+          });
+        }
+      } catch (error) {
+        reportDiscordEvent({
+          level: "warning",
+          eventType: "media_planning_descriptor_failed",
+          message: "Planner-only media resolution failed; blind media routing was avoided.",
+          guildId: guildMessage.guildId,
+          channelId: location.channelId,
+          sourceMessageId: guildMessage.id,
+          details: { error: error instanceof Error ? error.message : String(error) }
+        });
+      }
+    }
     const smartRuntimeScopeKey = [
       config.relayConnectionId,
       guildMessage.guildId,
@@ -2202,12 +2264,12 @@ async function processMessage(
     if (
       config.smartParticipationEnabled &&
       !replyTarget.deploymentId &&
-      participationText.trim()
+      participationAnalysisText.trim()
     ) {
       const semanticPreflightNow = Date.now();
       const semanticPreflight = preflightSmartParticipationRuntime(
         candidates,
-        participationText,
+        participationAnalysisText,
         semanticPreflightNow,
         smartRuntimeScopeKey
       );
@@ -2216,14 +2278,14 @@ async function processMessage(
       const baseEvidenceById = new Map(
         buildSmartParticipationBaseEvidence(
           candidates,
-          participationText,
+          participationAnalysisText,
           semanticPreflightNow
         ).map((item) => [item.deploymentId, item])
       );
       if (!semanticPreflight.skipSemantic && smartDeploymentIds.length) {
         try {
           const semantic = await relay.scoreSmartParticipation({
-            message: participationText,
+            message: participationAnalysisText,
             deployment_ids: smartDeploymentIds,
             guild_id: guildMessage.guildId,
             channel_id: location.channelId,
@@ -2232,7 +2294,7 @@ async function processMessage(
             author_id: guildMessage.author.id,
             reply_to_message_id: guildMessage.reference?.messageId ?? "",
             burst_id: participationBurstId,
-            burst_messages: participationBurstMessages,
+            burst_messages: participationAnalysisBurstMessages,
             minimum_margin: config.smartParticipationMinimumMargin,
             max_participants: config.smartParticipationMaxParticipants,
             channel_cooldown_seconds: config.smartParticipationChannelCooldownSeconds,
@@ -2340,7 +2402,7 @@ async function processMessage(
 
     let audience = resolveAudience(
       candidates,
-      participationText,
+      participationAnalysisText,
       replyTarget.deploymentId,
       config.groupAddressAliases,
       semanticScores,
@@ -2368,14 +2430,14 @@ async function processMessage(
             const restored = restoreDurableLightweightSelection(
               candidates,
               durableDeploymentId,
-              participationText,
+              participationAnalysisText,
               Date.now(),
               smartRuntimeScopeKey
             );
             if (restored.selectedDeployments.length) {
               audience = {
                 deployments: restored.selectedDeployments,
-                text: participationText.trim(),
+                text: participationAnalysisText.trim(),
                 reason: "selected_smart",
                 options: audience.options
               };
@@ -2422,7 +2484,7 @@ async function processMessage(
         .filter((item): item is DiscordDeployment => Boolean(item));
       audience = {
         deployments: planned,
-        text: participationText.trim(),
+        text: participationAnalysisText.trim(),
         reason:
           planned.length > 1
             ? "selected_smart_multiple"

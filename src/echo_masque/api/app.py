@@ -111,6 +111,8 @@ from echo_masque.semantic_participation import CharacterParticipationSemanticSer
 from echo_masque.services import MatrixService, RuntimeService, TrialService
 from echo_masque.smart_participation_generation import SmartParticipationGenerationService
 from echo_masque.template_sharing import EvaluationTemplateService
+from echo_masque.utility_gateway_live import ExistingProviderUtilityCaller
+from echo_masque.utility_gateway_router import UtilityGatewayRouter
 
 logger = logging.getLogger(__name__)
 
@@ -339,6 +341,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     repository.seed_demo_targets()
     repository.remove_demo_character_cards()
     runtime_service = RuntimeService(repository, resolved, credential_store)
+    utility_gateway_router = UtilityGatewayRouter(
+        runtime_service, caller=ExistingProviderUtilityCaller()
+    )
+    discord_connector_runtime.set_media_dependency_gateway(utility_gateway_router)
     authoring_runtime_service = AuthoringRuntimeService(
         database,
         auth_repository,
@@ -457,6 +463,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.account_lifecycle_service = account_lifecycle_service
     app.state.credential_store = credential_store
     app.state.runtime_service = runtime_service
+    app.state.utility_gateway_router = utility_gateway_router
     app.state.trial_service = trial_service
     app.state.matrix_service = matrix_service
     app.include_router(health_router)

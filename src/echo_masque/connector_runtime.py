@@ -350,6 +350,15 @@ class DiscordConnectorRuntime:
         smart_context = prepared.smart_context
         tool_traces = self._tool_traces(response.trace)
         final_response = response
+        provider_failure = response.trace.get("provider_failure")
+        if isinstance(provider_failure, str) and provider_failure:
+            return ResolvedCharacterOutput(
+                final_response=response,
+                smart_output=DiscordSmartOutputView(action="ignore"),
+                smart_reason=f"provider_turn_failed:{provider_failure}",
+                tool_traces=tool_traces,
+            )
+
         smart_output, smart_reason = smart_context.parse_and_resolve(
             response.text.strip(),
             payload.expression_candidates,
