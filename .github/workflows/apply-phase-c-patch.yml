@@ -22,9 +22,12 @@ jobs:
             echo "No Phase C transform present; nothing to apply."
             exit 0
           fi
-          python .phase-c-transform.py
-          rm .phase-c-transform.py
-          rm -f .phase-c.patch
+          if [ -f .phase-c-bootstrap.py ]; then
+            python .phase-c-bootstrap.py
+          else
+            python .phase-c-transform.py
+          fi
+          rm -f .phase-c-bootstrap.py .phase-c-transform.py .phase-c.patch
           rm .github/workflows/apply-phase-c-patch.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
