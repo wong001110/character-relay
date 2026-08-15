@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { CharacterCard } from "./api";
+import {
+  Button,
+  PaperTab,
+  Select,
+  Stamp,
+  StickyLabel
+} from "./components/ui";
 import { useI18n } from "./i18n";
 import {
   promptApi,
@@ -47,6 +54,9 @@ const copy = {
     rawHelp: "The exact System Prompt entered by the creator. It remains editable source material.",
     compiledHelp:
       "The runtime System Message after Character Card identity, traits, tone, memory boundary, and forbidden behaviors are compiled in.",
+    sourceNote: "Creator source",
+    runtimeNote: "Runtime system message",
+    manuscript: "Prompt manuscript",
     unavailable: "This Character Card does not have a Provider-backed System Prompt."
   },
   "zh-CN": {
@@ -70,6 +80,9 @@ const copy = {
     rawHelp: "创作者直接输入的原始 System Prompt，作为可编辑的源内容保留。",
     compiledHelp:
       "把角色身份、性格、语气、记忆边界与禁止行为编译进去后，Runtime 实际使用的完整 System Message。",
+    sourceNote: "创作者原稿",
+    runtimeNote: "Runtime System Message",
+    manuscript: "Prompt 原稿",
     unavailable: "这个角色卡没有使用 Provider System Prompt。"
   }
 } as const;
@@ -139,15 +152,16 @@ export function PromptInspector({ card, onClose }: Props) {
       >
         <header className="prompt-inspector-header">
           <div>
-            <p className="tape-label">Character Relay · Runtime</p>
+            <p className="tape-label">CHARACTER FILE / RUNTIME INSERT</p>
+            <StickyLabel variant="link">{c.manuscript}</StickyLabel>
             <h2 id="prompt-inspector-title">
               {card.display_name} · {c.title}
             </h2>
             <p>{c.subtitle}</p>
           </div>
-          <button type="button" className="paper-button" onClick={onClose}>
+          <Button type="button" variant="secondary" onClick={onClose}>
             {c.close}
-          </button>
+          </Button>
         </header>
 
         {loading && <p className="prompt-status">{c.loading}</p>}
@@ -191,41 +205,47 @@ export function PromptInspector({ card, onClose }: Props) {
             </dl>
 
             <div className="prompt-layer-tabs" role="tablist" aria-label={c.title}>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={layer === "raw"}
-                className={layer === "raw" ? "is-active" : ""}
+              <PaperTab
+                tone="yellow"
+                active={layer === "raw"}
                 onClick={() => setLayer("raw")}
               >
                 <strong>{c.raw}</strong>
                 <span>{c.rawHelp}</span>
-              </button>
-              <span className="prompt-pipeline-arrow" aria-hidden="true">
-                →
-              </span>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={layer === "compiled"}
-                className={layer === "compiled" ? "is-active" : ""}
+              </PaperTab>
+              <span className="prompt-pipeline-arrow" aria-hidden="true">→</span>
+              <PaperTab
+                tone="blue"
+                active={layer === "compiled"}
                 onClick={() => setLayer("compiled")}
               >
                 <strong>{c.compiled}</strong>
                 <span>{c.compiledHelp}</span>
-              </button>
+              </PaperTab>
+            </div>
+
+            <div className="prompt-layer-state" aria-label={layer === "raw" ? c.raw : c.compiled}>
+              <Stamp variant={layer === "raw" ? "accent" : "info"}>
+                {layer === "raw" ? "SOURCE" : "COMPILED"}
+              </Stamp>
+              <StickyLabel variant={layer === "raw" ? "warning" : "link"}>
+                {layer === "raw" ? c.sourceNote : c.runtimeNote}
+              </StickyLabel>
+              {layer === "compiled" && (
+                <StickyLabel variant="neutral">{prompt.compiler_version}</StickyLabel>
+              )}
             </div>
 
             <div className="prompt-source-heading">
               <div>
                 <p className="prompt-layer-kicker">
-                  {layer === "raw" ? "SOURCE" : "RUNTIME SYSTEM MESSAGE"}
+                  {layer === "raw" ? "SOURCE MANUSCRIPT" : "RUNTIME SYSTEM MESSAGE"}
                 </p>
                 <h3>{layer === "raw" ? c.raw : c.compiled}</h3>
               </div>
-              <button type="button" className="paper-button" onClick={() => void copyPrompt()}>
+              <Button type="button" variant="secondary" size="sm" onClick={() => void copyPrompt()}>
                 {copied ? c.copied : c.copy}
-              </button>
+              </Button>
             </div>
             <pre className="prompt-source">
               <code>{currentPrompt}</code>
@@ -234,7 +254,7 @@ export function PromptInspector({ card, onClose }: Props) {
             <div className="prompt-export-bar">
               <label>
                 <span>{c.export}</span>
-                <select
+                <Select
                   value={format}
                   onChange={(event) =>
                     setFormat(event.currentTarget.value as PromptExportFormat)
@@ -245,11 +265,11 @@ export function PromptInspector({ card, onClose }: Props) {
                       {item.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
-              <button type="button" className="ink-button" onClick={download}>
+              <Button type="button" variant="primary" onClick={download}>
                 {c.download}
-              </button>
+              </Button>
             </div>
           </>
         )}
