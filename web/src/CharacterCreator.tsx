@@ -10,6 +10,7 @@ import {
   type TargetView,
   type TestKind
 } from "./api";
+import { PageFlag, PageFlagGroup, type PageFlagTone } from "./components/ui";
 import { useI18n } from "./i18n";
 import {
   NotebookField,
@@ -30,6 +31,20 @@ interface Props {
 }
 
 type BindingMode = "prompt" | "existing";
+type EditorSection = "identity" | "runtime" | "persona" | "boundaries" | "memory";
+
+const editorSections: Array<{
+  id: EditorSection;
+  tone: PageFlagTone;
+  en: string;
+  zh: string;
+}> = [
+  { id: "identity", tone: "lavender", en: "Identity", zh: "身份" },
+  { id: "persona", tone: "peach", en: "Persona", zh: "人物" },
+  { id: "boundaries", tone: "rose", en: "Boundaries", zh: "边界" },
+  { id: "memory", tone: "yellow", en: "Memory", zh: "记忆" },
+  { id: "runtime", tone: "mint", en: "Runtime", zh: "模型" }
+];
 
 const allSuites: TestKind[] = [
   "identity_integrity",
@@ -117,6 +132,7 @@ export function CharacterCreator({
   const [assistantConstraints, setAssistantConstraints] = useState("");
   const [assistantWorking, setAssistantWorking] = useState(false);
   const [assistantMessage, setAssistantMessage] = useState<string | null>(null);
+  const [editorSection, setEditorSection] = useState<EditorSection>("identity");
   const formRef = useRef<HTMLFormElement | null>(null);
 
   function setFormValue(name: string, value: string) {
@@ -128,6 +144,13 @@ export function CharacterCreator({
     ) {
       element.value = value;
     }
+  }
+
+  function openEditorSection(section: EditorSection) {
+    setEditorSection(section);
+    document
+      .getElementById(`character-editor-section-${section}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function generateCharacterDraft() {
@@ -257,6 +280,23 @@ export function CharacterCreator({
           </p>
         </header>
 
+        <PageFlagGroup
+          orientation="horizontal"
+          label={zh ? "角色设定索引" : "Character editor index"}
+          className="character-editor-page-flags"
+        >
+          {editorSections.map((section) => (
+            <PageFlag
+              key={section.id}
+              tone={section.tone}
+              active={editorSection === section.id}
+              onClick={() => openEditorSection(section.id)}
+            >
+              {zh ? section.zh : section.en}
+            </PageFlag>
+          ))}
+        </PageFlagGroup>
+
         <section className={`character-ai-drafter${assistantOpen ? " is-open" : ""}`}>
           <button
             className="character-ai-drafter-toggle"
@@ -358,259 +398,289 @@ export function CharacterCreator({
           </div>
         )}
 
-        <NotebookSection
-          label="01 / IDENTITY"
-          title={zh ? "角色名片" : "Character identity"}
-          guide={
-            zh
-              ? "先让别人能在十秒内理解这个角色是谁。名称用于显示，副标题负责一句话定位。"
-              : "Make the character understandable in ten seconds. The name is displayed publicly; the subtitle gives the one-line positioning."
-          }
+        <div
+          id="character-editor-section-identity"
+          className="character-editor-section-anchor"
+          onFocusCapture={() => setEditorSection("identity")}
         >
-          <NotebookField
-            label={t("creator.displayName")}
-            guide={zh ? "角色在列表、Discord 与测试房中显示的名称。" : "Shown in the shelf, Discord, and test rooms."}
-            required
+          <NotebookSection
+            label="01 / IDENTITY"
+            title={zh ? "角色名片" : "Character identity"}
+            guide={
+              zh
+                ? "先让别人能在十秒内理解这个角色是谁。名称用于显示，副标题负责一句话定位。"
+                : "Make the character understandable in ten seconds. The name is displayed publicly; the subtitle gives the one-line positioning."
+            }
           >
-            <NotebookInput
-              name="display_name"
+            <NotebookField
+              label={t("creator.displayName")}
+              guide={zh ? "角色在列表、Discord 与测试房中显示的名称。" : "Shown in the shelf, Discord, and test rooms."}
               required
-              defaultValue={card?.display_name ?? ""}
-              placeholder={t("creator.displayNamePlaceholder")}
-            />
-          </NotebookField>
-          <NotebookField
-            label={t("creator.subtitle")}
-            guide={zh ? "一句话说明身份、关系或主要用途，不需要写完整背景。" : "A short role, relationship, or purpose—not the full backstory."}
-          >
-            <NotebookInput
-              name="subtitle"
-              defaultValue={card?.subtitle ?? ""}
-              placeholder={t("creator.subtitlePlaceholder")}
-            />
-          </NotebookField>
-          <NotebookField
-            label={t("creator.subjectType")}
-            guide={zh ? "用于角色库筛选，不会直接改变 Prompt。" : "Used for shelf filtering; it does not directly change the prompt."}
-          >
-            <NotebookSelect name="subject_type" defaultValue={card?.subject_type ?? "custom"}>
-              <option value="companion">{t("subject.companion")}</option>
-              <option value="npc">{t("subject.npc")}</option>
-              <option value="assistant">{t("subject.assistant")}</option>
-              <option value="custom">{t("subject.custom")}</option>
-            </NotebookSelect>
-          </NotebookField>
-          <NotebookField
-            label={t("creator.portraitPalette")}
-            guide={zh ? "选择角色卡的便签色调。" : "Choose the note-card palette."}
-          >
-            <NotebookSelect
-              name="portrait_variant"
-              defaultValue={card?.portrait_variant ?? "lavender"}
             >
-              <option value="lavender">{t("palette.lavender")}</option>
-              <option value="rose">{t("palette.rose")}</option>
-              <option value="mint">{t("palette.mint")}</option>
-              <option value="night">{t("palette.night")}</option>
-            </NotebookSelect>
-          </NotebookField>
-        </NotebookSection>
-
-        <NotebookSection
-          label="02 / RUNTIME"
-          title={zh ? "AI 连接" : "AI connection"}
-          guide={
-            zh
-              ? "这里决定角色由哪个模型运行。API Key 不会回填明文；编辑时留空会保留现有凭证，输入新 Key 会安全覆盖。"
-              : "Choose which model runs the character. API keys are never read back in plaintext; leave the edit field blank to keep the current credential or enter a new key to replace it securely."
-          }
-          accent="mint"
-        >
-          {promptFields ? (
-            <>
-              <NotebookField label={t("creator.provider")} guide={t(providerNoteKeys[provider])}>
-                <NotebookSelect
-                  value={provider}
-                  onChange={(event) => changeProvider(event.currentTarget.value as ProviderId)}
-                >
-                  {providerPresets.map((item) => (
-                    <option value={item.id} key={item.id}>{item.label}</option>
-                  ))}
-                </NotebookSelect>
-              </NotebookField>
-              <NotebookField label={t("creator.modelId")} guide={zh ? "填写 Provider 实际接受的 Model ID。" : "Use the exact model ID accepted by the provider."} required>
-                <NotebookInput
-                  value={model}
-                  onChange={(event) => setModel(event.currentTarget.value)}
-                  required
-                  placeholder={t("creator.modelPlaceholder")}
-                />
-              </NotebookField>
-              <NotebookField className="is-wide" label={t("creator.baseUrl")} guide={zh ? "通常保留 Provider 预设；自建兼容 API 时再修改。" : "Keep the preset unless you use a compatible custom endpoint."} required>
-                <NotebookInput
-                  value={baseUrl}
-                  onChange={(event) => setBaseUrl(event.currentTarget.value)}
-                  required
-                  placeholder={t("creator.baseUrlPlaceholder")}
-                />
-              </NotebookField>
-              <NotebookField
-                className="is-wide"
-                label={t("creator.apiKey")}
-                guide={
-                  editing
-                    ? zh
-                      ? "留空不会删除或覆盖现有凭证；输入新 Key 后会通过独立 Credential Vault 接口安全替换。"
-                      : "Leave blank to preserve the existing credential. Entering a new key replaces it through the separate Credential Vault endpoint."
-                    : zh
-                      ? "原始 Key 不会写入角色卡、Trace 或日志；Production 会以加密 Credential Vault 保存。"
-                      : "The raw key is never written to the Character Card, traces, or logs; production stores it encrypted in the Credential Vault."
-                }
-                required={!editing}
+              <NotebookInput
+                name="display_name"
+                required
+                defaultValue={card?.display_name ?? ""}
+                placeholder={t("creator.displayNamePlaceholder")}
+              />
+            </NotebookField>
+            <NotebookField
+              label={t("creator.subtitle")}
+              guide={zh ? "一句话说明身份、关系或主要用途，不需要写完整背景。" : "A short role, relationship, or purpose—not the full backstory."}
+            >
+              <NotebookInput
+                name="subtitle"
+                defaultValue={card?.subtitle ?? ""}
+                placeholder={t("creator.subtitlePlaceholder")}
+              />
+            </NotebookField>
+            <NotebookField
+              label={t("creator.subjectType")}
+              guide={zh ? "用于角色库筛选，不会直接改变 Prompt。" : "Used for shelf filtering; it does not directly change the prompt."}
+            >
+              <NotebookSelect name="subject_type" defaultValue={card?.subject_type ?? "custom"}>
+                <option value="companion">{t("subject.companion")}</option>
+                <option value="npc">{t("subject.npc")}</option>
+                <option value="assistant">{t("subject.assistant")}</option>
+                <option value="custom">{t("subject.custom")}</option>
+              </NotebookSelect>
+            </NotebookField>
+            <NotebookField
+              label={t("creator.portraitPalette")}
+              guide={zh ? "选择角色卡的便签色调。" : "Choose the note-card palette."}
+            >
+              <NotebookSelect
+                name="portrait_variant"
+                defaultValue={card?.portrait_variant ?? "lavender"}
               >
-                <NotebookInput
-                  name="api_key"
-                  type="password"
-                  required={!editing}
-                  autoComplete="new-password"
-                  placeholder={
+                <option value="lavender">{t("palette.lavender")}</option>
+                <option value="rose">{t("palette.rose")}</option>
+                <option value="mint">{t("palette.mint")}</option>
+                <option value="night">{t("palette.night")}</option>
+              </NotebookSelect>
+            </NotebookField>
+          </NotebookSection>
+        </div>
+
+        <div
+          id="character-editor-section-runtime"
+          className="character-editor-section-anchor"
+          onFocusCapture={() => setEditorSection("runtime")}
+        >
+          <NotebookSection
+            label="02 / RUNTIME"
+            title={zh ? "AI 连接" : "AI connection"}
+            guide={
+              zh
+                ? "这里决定角色由哪个模型运行。API Key 不会回填明文；编辑时留空会保留现有凭证，输入新 Key 会安全覆盖。"
+                : "Choose which model runs the character. API keys are never read back in plaintext; leave the edit field blank to keep the current credential or enter a new key to replace it securely."
+            }
+            accent="mint"
+          >
+            {promptFields ? (
+              <>
+                <NotebookField label={t("creator.provider")} guide={t(providerNoteKeys[provider])}>
+                  <NotebookSelect
+                    value={provider}
+                    onChange={(event) => changeProvider(event.currentTarget.value as ProviderId)}
+                  >
+                    {providerPresets.map((item) => (
+                      <option value={item.id} key={item.id}>{item.label}</option>
+                    ))}
+                  </NotebookSelect>
+                </NotebookField>
+                <NotebookField label={t("creator.modelId")} guide={zh ? "填写 Provider 实际接受的 Model ID。" : "Use the exact model ID accepted by the provider."} required>
+                  <NotebookInput
+                    value={model}
+                    onChange={(event) => setModel(event.currentTarget.value)}
+                    required
+                    placeholder={t("creator.modelPlaceholder")}
+                  />
+                </NotebookField>
+                <NotebookField className="is-wide" label={t("creator.baseUrl")} guide={zh ? "通常保留 Provider 预设；自建兼容 API 时再修改。" : "Keep the preset unless you use a compatible custom endpoint."} required>
+                  <NotebookInput
+                    value={baseUrl}
+                    onChange={(event) => setBaseUrl(event.currentTarget.value)}
+                    required
+                    placeholder={t("creator.baseUrlPlaceholder")}
+                  />
+                </NotebookField>
+                <NotebookField
+                  className="is-wide"
+                  label={t("creator.apiKey")}
+                  guide={
                     editing
                       ? zh
-                        ? "留空保留现有 Key；输入新 Key 可重新连接"
-                        : "Leave blank to keep the current key; enter a new key to reconnect"
-                      : t("creator.apiKeyPlaceholder")
+                        ? "留空不会删除或覆盖现有凭证；输入新 Key 后会通过独立 Credential Vault 接口安全替换。"
+                        : "Leave blank to preserve the existing credential. Entering a new key replaces it through the separate Credential Vault endpoint."
+                      : zh
+                        ? "原始 Key 不会写入角色卡、Trace 或日志；Production 会以加密 Credential Vault 保存。"
+                        : "The raw key is never written to the Character Card, traces, or logs; production stores it encrypted in the Credential Vault."
                   }
-                />
-              </NotebookField>
-              <NotebookField
-                className="is-wide"
-                label={t("creator.systemPrompt")}
-                guide={
-                  zh
-                    ? "写角色必须长期遵守的身份、世界观、表达方式与优先级。不要只写几句形容词，建议使用清晰段落。"
-                    : "Document persistent identity, worldview, voice, and priorities. Use clear paragraphs rather than a few adjectives."
-                }
-                required
-              >
-                <NotebookTextarea
-                  name="system_prompt"
-                  rows={14}
+                  required={!editing}
+                >
+                  <NotebookInput
+                    name="api_key"
+                    type="password"
+                    required={!editing}
+                    autoComplete="new-password"
+                    placeholder={
+                      editing
+                        ? zh
+                          ? "留空保留现有 Key；输入新 Key 可重新连接"
+                          : "Leave blank to keep the current key; enter a new key to reconnect"
+                        : t("creator.apiKeyPlaceholder")
+                    }
+                  />
+                </NotebookField>
+                <NotebookField
+                  className="is-wide"
+                  label={t("creator.systemPrompt")}
+                  guide={
+                    zh
+                      ? "写角色必须长期遵守的身份、世界观、表达方式与优先级。不要只写几句形容词，建议使用清晰段落。"
+                      : "Document persistent identity, worldview, voice, and priorities. Use clear paragraphs rather than a few adjectives."
+                  }
                   required
-                  defaultValue={configString(target, "system_prompt")}
-                  placeholder={t("creator.systemPromptPlaceholder")}
-                />
+                >
+                  <NotebookTextarea
+                    name="system_prompt"
+                    rows={14}
+                    required
+                    defaultValue={configString(target, "system_prompt")}
+                    placeholder={t("creator.systemPromptPlaceholder")}
+                  />
+                </NotebookField>
+                <NotebookField label={t("creator.temperature")} guide={zh ? "较低更稳定，较高更有变化。" : "Lower is steadier; higher is more varied."} required>
+                  <NotebookInput
+                    name="temperature"
+                    type="number"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    defaultValue={configNumber(target, "temperature", 0.7)}
+                    required
+                  />
+                </NotebookField>
+              </>
+            ) : (
+              <NotebookField className="is-wide" label={t("creator.targetBinding")} guide={zh ? "复用已经建立的 Runtime Target。" : "Reuse an existing runtime target."} required>
+                {editing ? (
+                  <NotebookInput value={target?.name ?? card?.target_id ?? ""} disabled />
+                ) : (
+                  <NotebookSelect name="target_id" required defaultValue={userTargets[0]?.id}>
+                    {userTargets.map((item) => (
+                      <option value={item.id} key={item.id}>
+                        {item.name} · {item.target_kind}
+                      </option>
+                    ))}
+                  </NotebookSelect>
+                )}
               </NotebookField>
-              <NotebookField label={t("creator.temperature")} guide={zh ? "较低更稳定，较高更有变化。" : "Lower is steadier; higher is more varied."} required>
-                <NotebookInput
-                  name="temperature"
-                  type="number"
-                  min="0"
-                  max="2"
-                  step="0.1"
-                  defaultValue={configNumber(target, "temperature", 0.7)}
-                  required
-                />
-              </NotebookField>
-            </>
-          ) : (
-            <NotebookField className="is-wide" label={t("creator.targetBinding")} guide={zh ? "复用已经建立的 Runtime Target。" : "Reuse an existing runtime target."} required>
-              {editing ? (
-                <NotebookInput value={target?.name ?? card?.target_id ?? ""} disabled />
-              ) : (
-                <NotebookSelect name="target_id" required defaultValue={userTargets[0]?.id}>
-                  {userTargets.map((item) => (
-                    <option value={item.id} key={item.id}>
-                      {item.name} · {item.target_kind}
-                    </option>
-                  ))}
-                </NotebookSelect>
-              )}
+            )}
+          </NotebookSection>
+        </div>
+
+        <div
+          id="character-editor-section-persona"
+          className="character-editor-section-anchor"
+          onFocusCapture={() => setEditorSection("persona")}
+        >
+          <NotebookSection
+            label="03 / PERSONA"
+            title={zh ? "人物核心" : "Persona core"}
+            guide={
+              zh
+                ? "这一区回答：他通常如何看待世界、如何做决定、在关系中是什么样的人。"
+                : "Explain how the character sees the world, makes decisions, and behaves in relationships."
+            }
+            accent="peach"
+          >
+            <NotebookField className="is-wide" label={t("creator.personaSummary")} guide={zh ? "用两到五段写背景、动机、价值观与关键矛盾。" : "Use two to five paragraphs for background, motives, values, and central tension."}>
+              <NotebookTextarea
+                name="persona_summary"
+                rows={8}
+                defaultValue={card?.persona_summary ?? ""}
+                placeholder={t("creator.personaPlaceholder")}
+              />
             </NotebookField>
-          )}
-        </NotebookSection>
+            <NotebookField className="is-wide" label={t("creator.traits")} guide={zh ? "每行或逗号分隔一个稳定特质，并尽量写成可观察行为。" : "Use one stable trait per line or comma, preferably as observable behavior."}>
+              <NotebookTextarea
+                name="traits"
+                rows={4}
+                defaultValue={card?.traits.join("\n") ?? ""}
+                placeholder={t("creator.traitsPlaceholder")}
+              />
+            </NotebookField>
+            <NotebookField className="is-wide" label={t("creator.expectedTone")} guide={zh ? "描述语速、用词、情绪强度、幽默方式与面对不同对象时的变化。" : "Describe pacing, vocabulary, emotional intensity, humor, and how the voice changes by audience."}>
+              <NotebookTextarea
+                name="expected_tone"
+                rows={5}
+                defaultValue={card?.expected_tone ?? ""}
+                placeholder={t("creator.expectedTonePlaceholder")}
+              />
+            </NotebookField>
+            <NotebookField className="is-wide" label={t("creator.tags")} guide={zh ? "用于搜索与整理；每行或逗号分隔。" : "Used for search and organization; separate with lines or commas."}>
+              <NotebookTextarea
+                name="tags"
+                rows={3}
+                defaultValue={card?.tags.join("\n") ?? ""}
+                placeholder={t("creator.tagsPlaceholder")}
+              />
+            </NotebookField>
+          </NotebookSection>
+        </div>
 
-        <NotebookSection
-          label="03 / PERSONA"
-          title={zh ? "人物核心" : "Persona core"}
-          guide={
-            zh
-              ? "这一区回答：他通常如何看待世界、如何做决定、在关系中是什么样的人。"
-              : "Explain how the character sees the world, makes decisions, and behaves in relationships."
-          }
-          accent="peach"
+        <div
+          id="character-editor-section-boundaries"
+          className="character-editor-section-anchor"
+          onFocusCapture={() => setEditorSection("boundaries")}
         >
-          <NotebookField className="is-wide" label={t("creator.personaSummary")} guide={zh ? "用两到五段写背景、动机、价值观与关键矛盾。" : "Use two to five paragraphs for background, motives, values, and central tension."}>
-            <NotebookTextarea
-              name="persona_summary"
-              rows={8}
-              defaultValue={card?.persona_summary ?? ""}
-              placeholder={t("creator.personaPlaceholder")}
-            />
-          </NotebookField>
-          <NotebookField className="is-wide" label={t("creator.traits")} guide={zh ? "每行或逗号分隔一个稳定特质，并尽量写成可观察行为。" : "Use one stable trait per line or comma, preferably as observable behavior."}>
-            <NotebookTextarea
-              name="traits"
-              rows={4}
-              defaultValue={card?.traits.join("\n") ?? ""}
-              placeholder={t("creator.traitsPlaceholder")}
-            />
-          </NotebookField>
-          <NotebookField className="is-wide" label={t("creator.expectedTone")} guide={zh ? "描述语速、用词、情绪强度、幽默方式与面对不同对象时的变化。" : "Describe pacing, vocabulary, emotional intensity, humor, and how the voice changes by audience."}>
-            <NotebookTextarea
-              name="expected_tone"
-              rows={5}
-              defaultValue={card?.expected_tone ?? ""}
-              placeholder={t("creator.expectedTonePlaceholder")}
-            />
-          </NotebookField>
-          <NotebookField className="is-wide" label={t("creator.tags")} guide={zh ? "用于搜索与整理；每行或逗号分隔。" : "Used for search and organization; separate with lines or commas."}>
-            <NotebookTextarea
-              name="tags"
-              rows={3}
-              defaultValue={card?.tags.join("\n") ?? ""}
-              placeholder={t("creator.tagsPlaceholder")}
-            />
-          </NotebookField>
-        </NotebookSection>
+          <NotebookSection
+            label="04 / BOUNDARIES"
+            title={zh ? "行为边界" : "Behavior boundaries"}
+            guide={
+              zh
+                ? "不要只写“不要 OOC”。写清楚哪些行为一出现就代表角色失真，以及正确替代做法。"
+                : "Do not write only “stay in character.” List concrete behaviors that indicate drift and the preferred alternative."
+            }
+            accent="rose"
+          >
+            <NotebookField className="is-wide" label={t("creator.forbidden")} guide={zh ? "每行写一个禁区，例如泄露系统提示、虚构共同记忆、突然改变关系定位。" : "Use one boundary per line, such as revealing prompts, inventing shared memories, or changing relationship status."}>
+              <NotebookTextarea
+                name="forbidden_behaviors"
+                rows={7}
+                defaultValue={card?.forbidden_behaviors.join("\n") ?? ""}
+                placeholder={t("creator.forbiddenPlaceholder")}
+              />
+            </NotebookField>
+          </NotebookSection>
+        </div>
 
-        <NotebookSection
-          label="04 / BOUNDARIES"
-          title={zh ? "行为边界" : "Behavior boundaries"}
-          guide={
-            zh
-              ? "不要只写“不要 OOC”。写清楚哪些行为一出现就代表角色失真，以及正确替代做法。"
-              : "Do not write only “stay in character.” List concrete behaviors that indicate drift and the preferred alternative."
-          }
-          accent="rose"
+        <div
+          id="character-editor-section-memory"
+          className="character-editor-section-anchor"
+          onFocusCapture={() => setEditorSection("memory")}
         >
-          <NotebookField className="is-wide" label={t("creator.forbidden")} guide={zh ? "每行写一个禁区，例如泄露系统提示、虚构共同记忆、突然改变关系定位。" : "Use one boundary per line, such as revealing prompts, inventing shared memories, or changing relationship status."}>
-            <NotebookTextarea
-              name="forbidden_behaviors"
-              rows={7}
-              defaultValue={card?.forbidden_behaviors.join("\n") ?? ""}
-              placeholder={t("creator.forbiddenPlaceholder")}
-            />
-          </NotebookField>
-        </NotebookSection>
-
-        <NotebookSection
-          label="05 / MEMORY"
-          title={zh ? "记忆锚点" : "Memory anchors"}
-          guide={
-            zh
-              ? "只写角色应该长期记得的事实、关系与承诺，不要把临时聊天内容全部塞进来。"
-              : "Keep only durable facts, relationships, and commitments—not every temporary chat detail."
-          }
-        >
-          <NotebookField className="is-wide" label={t("creator.memoryNote")} guide={zh ? "可使用短段落或项目符号，注明哪些事实不可被后续对话覆盖。" : "Use short paragraphs or bullets and mark facts that later conversation must not overwrite."}>
-            <NotebookTextarea
-              name="memory_summary"
-              rows={7}
-              defaultValue={card?.memory_summary ?? ""}
-              placeholder={t("creator.memoryPlaceholder")}
-            />
-          </NotebookField>
-        </NotebookSection>
+          <NotebookSection
+            label="05 / MEMORY"
+            title={zh ? "记忆锚点" : "Memory anchors"}
+            guide={
+              zh
+                ? "只写角色应该长期记得的事实、关系与承诺，不要把临时聊天内容全部塞进来。"
+                : "Keep only durable facts, relationships, and commitments—not every temporary chat detail."
+            }
+          >
+            <NotebookField className="is-wide" label={t("creator.memoryNote")} guide={zh ? "可使用短段落或项目符号，注明哪些事实不可被后续对话覆盖。" : "Use short paragraphs or bullets and mark facts that later conversation must not overwrite."}>
+              <NotebookTextarea
+                name="memory_summary"
+                rows={7}
+                defaultValue={card?.memory_summary ?? ""}
+                placeholder={t("creator.memoryPlaceholder")}
+              />
+            </NotebookField>
+          </NotebookSection>
+        </div>
 
         {message && <p className="error-note" role="alert">{message}</p>}
 

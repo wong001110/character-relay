@@ -1,4 +1,5 @@
 import type { CharacterCard, RuntimeStatus } from "./api";
+import { Button, StickyNote } from "./components/ui";
 import { useI18n } from "./i18n";
 import type { PortalSection } from "./PortalShell";
 
@@ -33,15 +34,16 @@ export function PortalDashboard({
               : "Character files, Discord deployments, experiments, and behavior observations now live in one Character Relay research notebook."}
           </p>
           <div className="portal-v2-hero-actions">
-            <button className="ink-button" onClick={onCreateCharacter}>
+            <Button variant="primary" onClick={onCreateCharacter}>
               {zh ? "+ 创建角色" : "+ Create character"}
-            </button>
-            <button className="paper-button" onClick={() => onNavigate("toolbox")}>
+            </Button>
+            <Button variant="secondary" onClick={() => onNavigate("toolbox")}>
               {zh ? "打开行为观察" : "Open behavior observer"}
-            </button>
+            </Button>
           </div>
         </div>
-        <aside className="portal-v2-hero-note">
+
+        <StickyNote className="portal-v2-hero-note" variant="note" size="lg" pinned>
           <span>STUDIO NOTE</span>
           <strong>{cards.length}</strong>
           <p>{zh ? "个角色档案" : "character files"}</p>
@@ -55,7 +57,7 @@ export function PortalDashboard({
                 : "Evaluation runtimes can be configured in Settings"}
           </small>
           <span className="portal-v2-note-cat" aria-hidden="true">=^･ω･^=</span>
-        </aside>
+        </StickyNote>
       </section>
 
       <section className="portal-v2-dashboard-grid">
