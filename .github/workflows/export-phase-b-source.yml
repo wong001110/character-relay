@@ -1,0 +1,22 @@
+name: Export Phase B Source
+
+on:
+  push:
+    branches:
+      - feat/sequential-multi-participant-runtime
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase-b-connector-source
+          path: connectors/discord/src/index.ts
+          if-no-files-found: error
+          retention-days: 1
