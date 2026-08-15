@@ -91,6 +91,18 @@ def _topic_subject_text(value: str) -> str:
     return " ".join(without_urls.split())[:4000]
 
 
+def _topic_evidence_text(value: str) -> str:
+    """Return user-authored subject evidence, never the URL transport itself."""
+
+    compact = " ".join(value.split())[:4000]
+    if not compact:
+        return ""
+    if _URL_PATTERN.search(compact):
+        subject = _topic_subject_text(compact)
+        return subject if semantic_tokens(subject) else ""
+    return compact
+
+
 class ConversationPendingAction(BaseModel):
     """Structured continuation state; raw Tool arguments and secrets are never persisted."""
 
@@ -343,8 +355,8 @@ class ConversationTopicMemoryService:
     ) -> TopicContinuityDecision:
         current = now or datetime.now(UTC)
         normalized = " ".join(text.split())[:4000]
-        subject_text = _topic_subject_text(normalized) or normalized
-        sparse = self._sparse_similarity(normalized, active)
+        subject_text = _topic_evidence_text(normalized)
+        sparse = self._sparse_similarity(subject_text, active)
         idle_for = self._idle_for(active, current)
         stale = idle_for >= _STALE_TOPIC_AFTER
         topic_minimum = (
@@ -363,6 +375,14 @@ class ConversationTopicMemoryService:
                 sparse_similarity=sparse,
                 acts=ConversationActScores(),
                 reason="empty_message_keeps_active_topic",
+            )
+        if _URL_PATTERN.search(normalized) and not subject_text:
+            return TopicContinuityDecision(
+                same_topic=True,
+                topic_similarity=0.0,
+                sparse_similarity=0.0,
+                acts=ConversationActScores(),
+                reason="unresolved_link_without_topic_evidence",
             )
         if not self._semantic_enabled:
             return TopicContinuityDecision(
@@ -489,6 +509,7 @@ class ConversationTopicMemoryService:
     ) -> ConversationTopicSnapshot | None:
         current = now or datetime.now(UTC)
         text = " ".join(payload.text.split())[:4000]
+        topic_text = _topic_evidence_text(text)
         active = self.repository.active_for_scope(
             owner_id=owner_id,
             platform=platform,
@@ -501,6 +522,10 @@ class ConversationTopicMemoryService:
             return self.snapshot(active)
         if not text:
             return self.snapshot(active) if active is not None else None
+        if _URL_PATTERN.search(text) and not topic_text:
+            # A URL is transport, not semantic evidence. Until its content is actually inspected,
+            # do not invent a Topic, mutate the active capsule, or refresh the active lifecycle.
+            return self.snapshot(active) if active is not None else None
 
         if active is None:
             participants = self._participants([], payload.author_id, payload.author_display_name)
@@ -511,9 +536,9 @@ class ConversationTopicMemoryService:
                 guild_id=payload.guild_id,
                 channel_id=payload.channel_id,
                 thread_id=payload.thread_id,
-                topic_label=self._label(text),
-                summary=self._append_summary("", payload.author_display_name, text),
-                keywords_json=json.dumps(self._keywords([], text), ensure_ascii=False),
+                topic_label=self._label(topic_text),
+                summary=self._append_summary("", payload.author_display_name, topic_text),
+                keywords_json=json.dumps(self._keywords([], topic_text), ensure_ascii=False),
                 open_loops_json="[]",
                 pending_actions_json="[]",
                 participants_json=json.dumps(participants, ensure_ascii=False),
@@ -522,7 +547,7 @@ class ConversationTopicMemoryService:
             )
             return self.snapshot(record)
 
-        continuity = self.classify_continuity(text=text, active=active, now=current)
+        continuity = self.classify_continuity(text=topic_text, active=active, now=current)
         if not continuity.same_topic:
             self.repository.set_status(
                 topic_id=active.id,
@@ -538,9 +563,9 @@ class ConversationTopicMemoryService:
                 guild_id=payload.guild_id,
                 channel_id=payload.channel_id,
                 thread_id=payload.thread_id,
-                topic_label=self._label(text),
-                summary=self._append_summary("", payload.author_display_name, text),
-                keywords_json=json.dumps(self._keywords([], text), ensure_ascii=False),
+                topic_label=self._label(topic_text),
+                summary=self._append_summary("", payload.author_display_name, topic_text),
+                keywords_json=json.dumps(self._keywords([], topic_text), ensure_ascii=False),
                 open_loops_json="[]",
                 pending_actions_json="[]",
                 participants_json=json.dumps(participants, ensure_ascii=False),
@@ -554,8 +579,8 @@ class ConversationTopicMemoryService:
             topic_id=active.id,
             owner_id=owner_id,
             topic_label=active.topic_label,
-            summary=self._append_summary(active.summary, payload.author_display_name, text),
-            keywords_json=json.dumps(self._keywords(snapshot.keywords, text), ensure_ascii=False),
+            summary=self._append_summary(active.summary, payload.author_display_name, topic_text),
+            keywords_json=json.dumps(self._keywords(snapshot.keywords, topic_text), ensure_ascii=False),
             open_loops_json=json.dumps(snapshot.open_loops, ensure_ascii=False),
             pending_actions_json=json.dumps(
                 [item.model_dump(mode="json") for item in snapshot.pending_actions],
