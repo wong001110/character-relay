@@ -14,6 +14,7 @@ export interface LearnedStateInspection {
   state_type: string;
   subject_type: string;
   subject_key: string;
+  subject_label: string;
   stored_value: number;
   current_value: number;
   stored_confidence: number;
