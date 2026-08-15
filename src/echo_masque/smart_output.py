@@ -161,7 +161,6 @@ class SmartOutputContext:
     ) -> SmartOutputContext:
         messages = list(payload.recent_messages)
         if not any(item.message_id == payload.message_id for item in messages):
-            # The caller adds the latest message to the visible transcript separately.
             messages = [*messages]
         unique: dict[str, object] = {}
         for item in messages[-10:]:
@@ -284,7 +283,10 @@ class SmartOutputContext:
                     "Use react for a lightweight Emoji reaction attached to one supplied "
                     "message reference."
                 ),
-                "Use sticker when a listed Server Sticker is the whole social action for this turn.",
+                (
+                    "Use sticker when a listed Server Sticker is the whole social action "
+                    "for this turn."
+                ),
                 (
                     "For message, short_message, and sticker, omit reply_to to send directly to "
                     "the channel; set reply_to to a supplied message reference only when an "
@@ -351,10 +353,6 @@ class SmartOutputContext:
             except json.JSONDecodeError:
                 return None, "invalid_smart_output_control"
         else:
-            # Providers occasionally prepend harmless prose or omit one final closing
-            # bracket after an otherwise valid CR_OUTPUT. Recover only the final control,
-            # require a complete JSON value, and reject any trailing prose. Runtime
-            # schema/reference validation still runs below.
             token = "[[CR_OUTPUT"
             start = raw.rfind(token)
             if start < 0:
@@ -493,7 +491,6 @@ class SmartOutputContext:
             if isinstance(part, SmartMentionPart) and part.mention.startswith("deployment:")
         ]
         if any(item != candidate_ref for item in character_mentions):
-            # Do not let one Tool proposal silently expand into multiple Character turns.
             return output
         if candidate_ref in character_mentions:
             return output
