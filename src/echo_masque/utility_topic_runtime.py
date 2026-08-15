@@ -32,6 +32,7 @@ class UtilityTopicMemoryService(ConversationTopicMemoryService):
             "empty_message_keeps_active_topic",
             "semantic_switch_topic",
             "stale_topic_requires_identity",
+            "unresolved_link_without_topic_evidence",
         }:
             return True
         return bool(
