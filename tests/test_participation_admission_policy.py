@@ -55,7 +55,7 @@ def test_active_burst_expands_soft_cap_without_becoming_unbounded() -> None:
 
 def test_explicit_group_invitation_relaxes_soft_cap_to_all_available() -> None:
     decision = resolve_admission_limit(
-        message="大家怎么看这段剧情？",
+        message="大家怎么看这段剧情?",
         burst_messages=[],
         eligible_candidate_count=7,
         requested_max=2,
@@ -81,7 +81,7 @@ def test_emergency_hard_cap_still_limits_group_invitation() -> None:
 def test_request_contract_applies_dynamic_limit_before_runtime_resolution() -> None:
     request = SmartParticipationResolveRequest(
         connection_id="conn",
-        message="你们都觉得谁最可疑？",
+        message="你们都觉得谁最可疑?",
         max_participants=2,
         candidates=_candidates(6),
     )
