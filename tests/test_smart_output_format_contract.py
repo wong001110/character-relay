@@ -3,13 +3,14 @@ from echo_masque.prompt_budget import BudgetSmartOutputContext
 from echo_masque.targets.prompt_model import PromptModelTarget
 
 
-def _context() -> BudgetSmartOutputContext:
+def _context(*, admitted: bool = False) -> BudgetSmartOutputContext:
     return BudgetSmartOutputContext(
         message_alias_to_id={"trigger": "message-1"},
         message_id_to_alias={"message-1": "trigger"},
         participant_alias_to_ref={},
         participant_ref_to_name={},
         participant_alias_descriptions=(),
+        participation_required=admitted,
     )
 
 
@@ -41,6 +42,16 @@ def test_compact_smart_output_prompt_requires_separate_inline_emoji_items() -> N
     assert "inline Emoji MUST be its own content-array item" in guidance
     assert '{"text":"前面的文字 "},{"emoji":"e1"},{"text":" 后面的文字"}' in guidance
     assert "Never write an Emoji object inside a text value" in guidance
+
+
+def test_compact_admitted_prompt_removes_ignore_and_offers_short_message() -> None:
+    guidance = "\n".join(_context(admitted=True).prompt_guidance([]))
+
+    assert "Allowed actions this turn: message, short_message." in guidance
+    assert "already admitted" in guidance
+    assert "Silence/ignore is not available" in guidance
+    assert '"action":"ignore"' not in guidance
+    assert '"action":"short_message"' in guidance
 
 
 def test_format_retry_is_compact_and_explicitly_forbids_rewriting_answer() -> None:
