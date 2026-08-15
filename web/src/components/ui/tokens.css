@@ -1,0 +1,79 @@
+:root {
+  /* Paper & ink */
+  --cr-paper-canvas: #f4eee4;
+  --cr-paper: #fffaf1;
+  --cr-paper-raised: #fffdf8;
+  --cr-paper-muted: #f7f0e5;
+  --cr-ink: #3e3734;
+  --cr-ink-soft: #6e625d;
+  --cr-ink-muted: #94867e;
+  --cr-line: #d9cabe;
+  --cr-line-strong: #bba99c;
+
+  /* Scrapbook accents */
+  --cr-lavender: #b9a5df;
+  --cr-lavender-soft: #eee8fb;
+  --cr-rose: #eaa5ae;
+  --cr-rose-soft: #fde8eb;
+  --cr-peach: #efbd8d;
+  --cr-peach-soft: #fbead9;
+  --cr-yellow: #e5cc72;
+  --cr-yellow-soft: #fff3bd;
+  --cr-mint: #9fc99e;
+  --cr-mint-soft: #e4f1df;
+  --cr-blue: #94bdd2;
+  --cr-blue-soft: #e2f0f6;
+
+  /* Semantic */
+  --cr-success: #5e9a6b;
+  --cr-success-soft: #e5f2e4;
+  --cr-warning: #b78135;
+  --cr-warning-soft: #fff0c9;
+  --cr-danger: #bd5f63;
+  --cr-danger-soft: #fbe1e1;
+  --cr-info: #5888a3;
+  --cr-info-soft: #e2f0f6;
+
+  /* Focus & selection */
+  --cr-focus: #8f73c6;
+  --cr-focus-ring: rgba(143, 115, 198, 0.22);
+
+  /* Geometry */
+  --cr-radius-xs: 6px;
+  --cr-radius-sm: 9px;
+  --cr-radius-md: 13px;
+  --cr-radius-lg: 18px;
+  --cr-control-height-sm: 32px;
+  --cr-control-height-md: 40px;
+  --cr-control-height-lg: 48px;
+
+  /* Spacing */
+  --cr-space-1: 4px;
+  --cr-space-2: 8px;
+  --cr-space-3: 12px;
+  --cr-space-4: 16px;
+  --cr-space-5: 20px;
+  --cr-space-6: 24px;
+  --cr-space-8: 32px;
+
+  /* Material depth */
+  --cr-shadow-paper: 0 2px 7px rgba(75, 57, 47, 0.10), 0 1px 1px rgba(75, 57, 47, 0.06);
+  --cr-shadow-lift: 0 8px 20px rgba(75, 57, 47, 0.14), 0 2px 5px rgba(75, 57, 47, 0.08);
+  --cr-shadow-overlay: 0 20px 50px rgba(54, 41, 35, 0.22);
+
+  /* Motion */
+  --cr-motion-fast: 120ms;
+  --cr-motion-base: 180ms;
+  --cr-ease-paper: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Typography */
+  --cr-font-ui: ui-rounded, "Nunito", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --cr-font-note: "Comic Sans MS", "Segoe Print", var(--cr-font-ui);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --cr-motion-fast: 1ms;
+    --cr-motion-base: 1ms;
+  }
+}
