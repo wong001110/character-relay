@@ -1,0 +1,180 @@
++from echo_masque.persistence.memory_vnext_models import (
++    ConversationMemoryVNextRecord,
++    MemoryVNextStateRecord,
++)
+ from echo_masque.persistence.models import Base, StorageMetadataRecord
+ from echo_masque.persistence.smart_participation_state_models import (
+     SmartParticipationDeploymentStateRecord,
+@@ -42,6 +46,8 @@ class Database:
+             SmartParticipationScopeStateRecord,
+             SmartParticipationDeploymentStateRecord,
+             UtilityProviderQuotaRecord,
++            ConversationMemoryVNextRecord,
++            MemoryVNextStateRecord,
+         )
+         Base.metadata.create_all(self.engine)
+ 
+diff --git a/src/echo_masque/persistence/memory_vnext_models.py b/src/echo_masque/persistence/memory_vnext_models.py
+new file mode 100644
+index 0000000..ba9c7af
+--- /dev/null
++++ b/src/echo_masque/persistence/memory_vnext_models.py
+@@ -0,0 +1,66 @@
++"""Server-isolated durable Memory vNext records."""
++
++from datetime import datetime
++
++from sqlalchemy import DateTime, Float, Index, Integer, String, Text
++from sqlalchemy.orm import Mapped, mapped_column
++
++from echo_masque.persistence.models import Base, utcnow
++
++
++class ConversationMemoryVNextRecord(Base):
++    __tablename__ = "conversation_memory_vnext"
++    __table_args__ = (
++        Index(
++            "ix_memory_vnext_scope",
++            "owner_id",
++            "character_card_id",
++            "connection_id",
++            "guild_id",
++            "scope_type",
++            "subject_user_id",
++            "status",
++        ),
++        Index("ix_memory_vnext_topic", "owner_id", "guild_id", "topic_id", "status"),
++    )
++
++    id: Mapped[str] = mapped_column(String(36), primary_key=True)
++    owner_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
++    character_card_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
++    connection_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
++    guild_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
++    scope_type: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
++    subject_user_id: Mapped[str] = mapped_column(String(200), index=True, default="")
++    topic_id: Mapped[str] = mapped_column(String(64), index=True, default="")
++    memory_type: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
++    content: Mapped[str] = mapped_column(Text, nullable=False)
++    confidence: Mapped[float] = mapped_column(Float, default=0.7, nullable=False)
++    importance: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
++    status: Mapped[str] = mapped_column(String(24), index=True, default="active")
++    provenance_episode_ids_json: Mapped[str] = mapped_column(Text, default="[]")
++    source_message_ids_json: Mapped[str] = mapped_column(Text, default="[]")
++    supersedes_memory_id: Mapped[str] = mapped_column(String(36), default="")
++    use_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
++    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
++    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
++    created_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True), default=utcnow, index=True
++    )
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True), default=utcnow, onupdate=utcnow, index=True
++    )
++    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
++
++
++class MemoryVNextStateRecord(Base):
++    __tablename__ = "memory_vnext_state"
++
++    id: Mapped[str] = mapped_column(String(32), primary_key=True)
++    schema_version: Mapped[str] = mapped_column(String(40), nullable=False)
++    legacy_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True), default=utcnow, onupdate=utcnow
++    )
++
++
++__all__ = ["ConversationMemoryVNextRecord", "MemoryVNextStateRecord"]
+diff --git a/src/echo_masque/persistence/memory_vnext_repository.py b/src/echo_masque/persistence/memory_vnext_repository.py
+new file mode 100644
+index 0000000..345e6f0
+--- /dev/null
++++ b/src/echo_masque/persistence/memory_vnext_repository.py
+@@ -0,0 +1,212 @@
++"""Persistence and one-time dirty-data reset for Memory vNext."""
++
++from __future__ import annotations
++
++import json
++from datetime import UTC, datetime
++from uuid import uuid4
++
++from sqlalchemy import delete, or_, select, update
++
++from echo_masque.persistence.database import Database
++from echo_masque.persistence.memory_intelligence_models import ConversationMemoryRecord
++from echo_masque.persistence.memory_vnext_models import (
++    ConversationMemoryVNextRecord,
++    MemoryVNextStateRecord,
++)
++
++_SCHEMA_VERSION = "memory-vnext.1"
++_VALID_SCOPES = {"character_user", "character_server", "character_private", "topic_local"}
++
++
++class MemoryVNextRepository:
++    def __init__(self, database: Database) -> None:
++        self.database = database
++
++    @staticmethod
++    def _json(values: list[str] | tuple[str, ...]) -> str:
++        bounded = list(dict.fromkeys(item.strip() for item in values if item.strip()))
++        return json.dumps(bounded, ensure_ascii=False, separators=(",", ":"))
++
++    def reset_legacy_dirty_data_once(self) -> int:
++        """Delete old derived Memory once; raw conversation/source tables are untouched."""
++
++        now = datetime.now(UTC)
++        with self.database.session() as session:
++            state = session.get(MemoryVNextStateRecord, "default")
++            if (
++                state is not None
++                and state.schema_version == _SCHEMA_VERSION
++                and state.legacy_reset_at
++            ):
++                return 0
++            result = session.execute(delete(ConversationMemoryRecord))
++            if state is None:
++                state = MemoryVNextStateRecord(
++                    id="default",
++                    schema_version=_SCHEMA_VERSION,
++                    legacy_reset_at=now,
++                    updated_at=now,
++                )
++                session.add(state)
++            else:
++                state.schema_version = _SCHEMA_VERSION
++                state.legacy_reset_at = now
++                state.updated_at = now
++            session.commit()
++            return int(getattr(result, "rowcount", 0) or 0)
++
++    def create(
++        self,
++        *,
++        owner_id: str,
++        character_card_id: str,
++        connection_id: str,
++        guild_id: str,
++        scope_type: str,
++        memory_type: str,
++        content: str,
++        subject_user_id: str = "",
++        topic_id: str = "",
++        confidence: float = 0.7,
++        importance: float = 0.5,
++        provenance_episode_ids: tuple[str, ...] = (),
++        source_message_ids: tuple[str, ...] = (),
++        supersedes_memory_id: str = "",
++        valid_from: datetime | None = None,
++        valid_to: datetime | None = None,
++    ) -> ConversationMemoryVNextRecord:
++        if scope_type not in _VALID_SCOPES:
++            raise ValueError("Unsupported Memory vNext scope.")
++        if scope_type == "character_user" and not subject_user_id:
++            raise ValueError("character_user Memory requires subject_user_id.")
++        if scope_type == "topic_local" and not topic_id:
++            raise ValueError("topic_local Memory requires topic_id.")
++        record = ConversationMemoryVNextRecord(
++            id=str(uuid4()),
