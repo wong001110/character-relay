@@ -25,6 +25,7 @@ import "./scrapbook-behavior-notebook-components.css";
 import "./scrapbook-complete-migration.css";
 import "./scheduled-reminders-v3.css";
 import "./interaction-scrapbook-v3.css";
+import "./lab-scrapbook-v3.css";
 import { DomainShowcase } from "./DomainShowcase";
 import { I18nProvider } from "./i18n";
 import { SemanticRoutingJudgeDock } from "./SemanticRoutingJudgeDock";
