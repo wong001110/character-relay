@@ -1,0 +1,178 @@
+ TopicStatus = Literal["active", "cooling", "closed", "archived"]
+ PendingActionState = Literal[
+@@ -77,6 +87,22 @@ _CONVERSATION_ACT_PROFILES: dict[str, str] = {
+ }
+ 
+ 
++def _topic_subject_text(value: str) -> str:
++    compact = " ".join(value.split())
++    without_urls = _URL_PATTERN.sub(" ", compact)
++    return " ".join(without_urls.split())[:4000]
++
++
++def _topic_evidence_text(value: str) -> str:
++    compact = " ".join(value.split())[:4000]
++    if not compact:
++        return ""
++    if _URL_PATTERN.search(compact):
++        subject = _topic_subject_text(compact)
++        return subject if semantic_tokens(subject) else ""
++    return compact
++
++
+ class ConversationPendingAction(BaseModel):
+     """Structured continuation state; raw Tool arguments and secrets are never persisted."""
+ 
+@@ -174,6 +200,9 @@ class ConversationTopicMemoryService:
+             else self.settings.semantic_embedding_runtime_enabled
+         )
+         self._vectors = SemanticVectorRepository(repository.database)
++        self.episode_projection = ConversationEpisodeProjectionService(
++            ConversationEpisodeRepository(repository.database)
++        )
+ 
+     def _get_encoder(self) -> SemanticEncoder:
+         if self._encoder is None:
+@@ -242,15 +271,8 @@ class ConversationTopicMemoryService:
+ 
+     @staticmethod
+     def _topic_semantic_text(record: ConversationTopicRecord) -> str:
+-        return "\n".join(
+-            item
+-            for item in (
+-                f"Topic: {record.topic_label}",
+-                f"Summary: {record.summary}" if record.summary else "",
+-                f"Keywords: {record.keywords_json}" if record.keywords_json != "[]" else "",
+-            )
+-            if item
+-        )[:6000]
++        identity = _topic_subject_text(record.topic_label) or record.topic_label
++        return f"Topic identity: {identity}"[:2000]
+ 
+     def _topic_vector(self, record: ConversationTopicRecord, encoder: SemanticEncoder) -> list[float]:
+         semantic_text = self._topic_semantic_text(record)
+@@ -298,8 +320,8 @@ class ConversationTopicMemoryService:
+ 
+     @staticmethod
+     def _sparse_similarity(text: str, record: ConversationTopicRecord) -> float:
+-        left = Counter(semantic_tokens(text))
+-        right = Counter(semantic_tokens(f"{record.topic_label} {record.summary}"))
++        left = Counter(semantic_tokens(_topic_subject_text(text)))
++        right = Counter(semantic_tokens(_topic_subject_text(record.topic_label)))
+         if not left or not right:
+             return 0.0
+         dot = sum(value * right.get(key, 0) for key, value in left.items())
+@@ -309,14 +331,36 @@ class ConversationTopicMemoryService:
+             return 0.0
+         return dot / (left_norm * right_norm)
+ 
++    @staticmethod
++    def _idle_for(active: ConversationTopicRecord, current: datetime) -> timedelta:
++        last_active = active.last_active_at
++        if last_active.tzinfo is None:
++            last_active = last_active.replace(tzinfo=UTC)
++        if current.tzinfo is None:
++            current = current.replace(tzinfo=UTC)
++        return max(current - last_active, timedelta(0))
++
+     def classify_continuity(
+         self,
+         *,
+         text: str,
+         active: ConversationTopicRecord,
++        now: datetime | None = None,
+     ) -> TopicContinuityDecision:
++        current = now or datetime.now(UTC)
+         normalized = " ".join(text.split())[:4000]
+-        sparse = self._sparse_similarity(normalized, active)
++        subject_text = _topic_evidence_text(normalized)
++        sparse = self._sparse_similarity(subject_text, active)
++        idle_for = self._idle_for(active, current)
++        stale = idle_for >= _STALE_TOPIC_AFTER
++        topic_minimum = (
++            _STALE_TOPIC_CONTINUITY_MINIMUM if stale else _TOPIC_CONTINUITY_MINIMUM
++        )
++        sparse_minimum = (
++            _STALE_TOPIC_SPARSE_CONTINUITY_MINIMUM
++            if stale
++            else _TOPIC_SPARSE_CONTINUITY_MINIMUM
++        )
+         if not normalized:
+             return TopicContinuityDecision(
+                 same_topic=True,
+@@ -325,18 +369,25 @@ class ConversationTopicMemoryService:
+                 acts=ConversationActScores(),
+                 reason="empty_message_keeps_active_topic",
+             )
++        if _URL_PATTERN.search(normalized) and not subject_text:
++            return TopicContinuityDecision(
++                same_topic=True,
++                topic_similarity=0.0,
++                sparse_similarity=0.0,
++                acts=ConversationActScores(),
++                reason="unresolved_link_without_topic_evidence",
++            )
+         if not self._semantic_enabled:
+             return TopicContinuityDecision(
+-                same_topic=sparse >= _TOPIC_SPARSE_CONTINUITY_MINIMUM,
++                same_topic=sparse >= sparse_minimum,
+                 topic_similarity=0.0,
+                 sparse_similarity=sparse,
+                 acts=ConversationActScores(),
+                 reason="semantic_disabled_sparse_fallback",
+             )
+-
+         try:
+             encoder = self._get_encoder()
+-            query_vector = encoder.embed_query(normalized)
++            query_vector = encoder.embed_query(subject_text)
+             topic_similarity = _cosine(query_vector, self._topic_vector(active, encoder))
+             act_values = {
+                 name: _cosine(query_vector, self._act_vector(name, encoder))
+@@ -345,28 +396,34 @@ class ConversationTopicMemoryService:
+             acts = ConversationActScores(**act_values)
+         except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
+             return TopicContinuityDecision(
+-                same_topic=sparse >= _TOPIC_SPARSE_CONTINUITY_MINIMUM,
++                same_topic=sparse >= sparse_minimum,
+                 topic_similarity=0.0,
+                 sparse_similarity=sparse,
+                 acts=ConversationActScores(),
+                 reason="semantic_unavailable_sparse_fallback",
+             )
+-
++        identity_match = topic_similarity >= topic_minimum or sparse >= sparse_minimum
++        fresh_contextual_continuation = (
++            idle_for <= _FRESH_CONTEXT_WINDOW
++            and acts.continuation >= _CONTINUATION_ACT_MINIMUM
++        )
+         switch_wins = (
+             acts.switch_topic >= _SWITCH_ACT_MINIMUM
+             and acts.switch_topic >= acts.continuation + _SWITCH_ACT_MARGIN
+-            and topic_similarity < _CONTINUATION_ACT_MINIMUM
++            and not identity_match
+         )
+         if switch_wins:
+             same_topic = False
+             reason = "semantic_switch_topic"
+-        elif (
+-            topic_similarity >= _TOPIC_CONTINUITY_MINIMUM
+-            or sparse >= _TOPIC_SPARSE_CONTINUITY_MINIMUM
+-            or acts.continuation >= _CONTINUATION_ACT_MINIMUM
+-        ):
++        elif identity_match:
++            same_topic = True
++            reason = "semantic_identity_continuation"
++        elif fresh_contextual_continuation:
+             same_topic = True
+-            reason = "semantic_continuation"
++            reason = "fresh_contextual_continuation"
++        elif stale and acts.continuation >= _CONTINUATION_ACT_MINIMUM:
++            same_topic = False
++            reason = "stale_topic_requires_identity"
+         else:
+             same_topic = False
+             reason = "semantic_new_topic"
+@@ -378,6 +435,52 @@ class ConversationTopicMemoryService:
+             reason=reason,
+         )
