@@ -188,21 +188,22 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
     ) -> TargetResponse:
         await self._ensure_media_context(prepared)
         target = prepared.resolved.target
+        enabled = self._enabled_tools_for_turn(prepared)
+        forced = self._forced_tool_ids(prepared)
+        direct_tool_path = isinstance(target, PromptModelTarget) and bool(enabled)
         try:
-            if isinstance(target, PromptModelTarget) and self._media_inspection_enabled(prepared):
-                enabled = self._enabled_tools_with_media(prepared)
+            if direct_tool_path:
                 return await target.send_with_tools(
                     prepared.prompt,
                     tool_registry=self.tool_registry,
                     enabled_tool_ids=enabled,
                     tool_context=prepared.tool_context,
                     max_tool_rounds=2,
-                    forced_tool_ids=(_MEDIA_INSPECT_TOOL_ID,),
+                    forced_tool_ids=forced,
                 )
             return await super().invoke_character_model(prepared)
         except ProviderError as exc:
-            # The base path already records Provider errors; the direct media-tool path does not.
-            if isinstance(target, PromptModelTarget) and self._media_inspection_enabled(prepared):
+            if direct_tool_path:
                 self.deployment_repository.record_deployment_error(
                     prepared.resolved.deployment.id,
                     str(exc),
@@ -210,7 +211,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             self._isolate_provider_failure(prepared, exc)
             return self._provider_failure_response(exc)
         except Exception as exc:
-            if isinstance(target, PromptModelTarget) and self._media_inspection_enabled(prepared):
+            if direct_tool_path:
                 self.deployment_repository.record_deployment_error(
                     prepared.resolved.deployment.id,
                     str(exc),
@@ -223,19 +224,18 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
     ) -> PromptModelToolTurn | None:
         await self._ensure_media_context(prepared)
         target = prepared.resolved.target
-        if not isinstance(target, PromptModelTarget) or not self._media_inspection_enabled(
-            prepared
-        ):
+        enabled = self._enabled_tools_for_turn(prepared)
+        if not isinstance(target, PromptModelTarget) or not enabled:
             return await super().start_character_tool_turn(prepared)
 
         try:
             return await target.start_tool_turn(
                 prepared.prompt,
                 tool_registry=self.tool_registry,
-                enabled_tool_ids=self._enabled_tools_with_media(prepared),
+                enabled_tool_ids=enabled,
                 tool_context=prepared.tool_context,
                 max_tool_rounds=2,
-                forced_tool_ids=(_MEDIA_INSPECT_TOOL_ID,),
+                forced_tool_ids=self._forced_tool_ids(prepared),
             )
         except Exception as exc:
             self.deployment_repository.record_deployment_error(
@@ -378,9 +378,24 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             self.tool_registry.tool_id_for_provider_name("media_inspect") == _MEDIA_INSPECT_TOOL_ID
         )
 
-    @staticmethod
-    def _enabled_tools_with_media(prepared: PreparedCharacterTurn) -> tuple[str, ...]:
-        return tuple(dict.fromkeys((*prepared.enabled_tools, _MEDIA_INSPECT_TOOL_ID)))
+    def _internal_tool_ids(self) -> tuple[str, ...]:
+        getter = getattr(self.tool_registry, "internal_tool_ids", None)
+        if not callable(getter):
+            return ()
+        raw = getter()
+        return tuple(str(item) for item in raw if str(item))
+
+    def _enabled_tools_for_turn(self, prepared: PreparedCharacterTurn) -> tuple[str, ...]:
+        values = [*prepared.enabled_tools, *self._internal_tool_ids()]
+        if self._media_inspection_enabled(prepared):
+            values.append(_MEDIA_INSPECT_TOOL_ID)
+        return tuple(dict.fromkeys(values))
+
+    def _forced_tool_ids(self, prepared: PreparedCharacterTurn) -> tuple[str, ...]:
+        values = list(self._internal_tool_ids())
+        if self._media_inspection_enabled(prepared):
+            values.append(_MEDIA_INSPECT_TOOL_ID)
+        return tuple(dict.fromkeys(values))
 
     async def _media_result_for_payload(
         self,

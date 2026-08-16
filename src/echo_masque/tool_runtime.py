@@ -82,6 +82,7 @@ class ToolExecutionContext:
     trigger_text: str = ""
     initiator_is_bot: bool = False
     initiator_user_id: str = ""
+    topic_id: str = ""
     operation_id: str = ""
     step_id: str = ""
 

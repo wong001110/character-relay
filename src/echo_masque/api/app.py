@@ -63,6 +63,7 @@ from echo_masque.credentials import CredentialVault
 from echo_masque.discord_inventory import DiscordInventoryService
 from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService
+from echo_masque.internal_context import InternalContextService
 from echo_masque.judge_evaluation import JudgeEvaluationService
 from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
 from echo_masque.live_media_scoped import KeyGroupScopedLiveMediaContextService
@@ -101,6 +102,9 @@ from echo_masque.persistence import (
     WorkspaceRepository,
     inspect_storage,
 )
+from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
+from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
+from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.prompt_inspector import CharacterPromptInspector
 from echo_masque.provider_credentials import KeyGroupProviderCredentialResolver
@@ -125,6 +129,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     storage_status = inspect_storage(resolved)
     database = Database(resolved.database_url)
     database.initialize()
+    memory_vnext_repository = MemoryVNextRepository(database)
+    reset_legacy_memory = memory_vnext_repository.reset_legacy_dirty_data_once()
+    if reset_legacy_memory:
+        logger.info(
+            "Reset %s legacy derived Memory record(s) for Memory vNext.",
+            reset_legacy_memory,
+        )
     migrated_timezones = ServerRuntimeRepository(database).migrate_legacy_utc_defaults()
     if migrated_timezones:
         logger.info(
@@ -223,6 +234,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         conversation_media_repository=conversation_media_repository,
         artifact_repository=generated_media_repository,
     )
+    internal_context_service = InternalContextService(
+        memory_repository=memory_vnext_repository,
+        topic_repository=ConversationTopicRepository(database),
+        episode_repository=ConversationEpisodeRepository(database),
+        settings=resolved,
+    )
     tool_registry = MediaToolRegistry(
         browser_runtime=browser_runtime,
         reminder_repository=scheduled_reminder_repository,
@@ -231,6 +248,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         discord_bot_token=resolved.discord_tool_bot_token,
         side_effect_store=durable_runtime_repository,
         image_creation_service=image_creation_service,
+        internal_context_service=internal_context_service,
     )
     live_media_service = KeyGroupScopedLiveMediaContextService(
         media_repository=media_analysis_repository,
@@ -334,6 +352,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         deployment_tool_repository,
         scheduled_reminder_repository,
         condition_watch_repository,
+        memory_vnext_repository=memory_vnext_repository,
     )
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
@@ -452,6 +471,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.generated_media_repository = generated_media_repository
     app.state.image_creation_service = image_creation_service
     app.state.live_media_service = live_media_service
+    app.state.memory_vnext_repository = memory_vnext_repository
+    app.state.internal_context_service = internal_context_service
     app.state.planner_media_service = planner_media_service
     app.state.discord_connector_runtime = discord_connector_runtime
     app.state.character_turn_graph_runner = character_turn_graph_runner

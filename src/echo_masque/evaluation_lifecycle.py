@@ -19,6 +19,7 @@ from echo_masque.persistence import (
     GeneratedMediaArtifactRepository,
     InteractionRepository,
     KnowledgeRepository,
+    MemoryVNextRepository,
     ScheduledReminderRepository,
     SmartParticipationRepository,
 )
@@ -45,6 +46,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         conversation_media_repository: ConversationMediaReferenceRepository | None = None,
         generated_media_repository: GeneratedMediaArtifactRepository | None = None,
         wiki_page_repository: WikiPageRepository | None = None,
+        memory_vnext_repository: MemoryVNextRepository | None = None,
     ) -> None:
         super().__init__(
             database,
@@ -79,6 +81,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         self.generated_media_repository = (
             generated_media_repository or GeneratedMediaArtifactRepository(database)
         )
+        self.memory_vnext_repository = memory_vnext_repository or MemoryVNextRepository(database)
 
     def delete_account(self, user_id: str, *, email: str) -> dict[str, int]:
         evaluation_counts = self.evaluation_repository.delete_owner(user_id)
@@ -93,6 +96,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         deployment_tool_count = self.deployment_tool_repository.delete_owner(user_id)
         conversation_media_count = self.conversation_media_repository.delete_owner(user_id)
         generated_media_count = self.generated_media_repository.delete_owner(user_id)
+        memory_vnext_count = self.memory_vnext_repository.delete_owner(user_id)
         deployment_counts = self.deployment_repository.delete_owner(user_id)
         deleted = super().delete_account(user_id, email=email)
         return {
@@ -108,6 +112,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "deployment_tool_profiles": deployment_tool_count,
             "conversation_media_references": conversation_media_count,
             "generated_media_artifacts": generated_media_count,
+            "conversation_memory_vnext": memory_vnext_count,
             **deployment_counts,
         }
 
@@ -171,6 +176,10 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "local-user",
             actor_user_id,
         )
+        memory_vnext_count = self.memory_vnext_repository.claim_owner(
+            "local-user",
+            actor_user_id,
+        )
         combined = {
             **base_counts,
             **evaluation_counts,
@@ -180,6 +189,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "condition_watches": watch_count,
             "conversation_media_references": conversation_media_count,
             "generated_media_artifacts": generated_media_count,
+            "conversation_memory_vnext": memory_vnext_count,
             **identity_counts,
             **interaction_counts,
             **expression_counts,

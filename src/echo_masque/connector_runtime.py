@@ -232,6 +232,7 @@ class DiscordConnectorRuntime:
             trigger_text=payload.text,
             initiator_is_bot=payload.author_is_bot,
             initiator_user_id=payload.author_id,
+            topic_id=(turn_context.trace.topic_id if turn_context is not None else ""),
             operation_id=payload.runtime_operation_id,
             step_id=payload.runtime_step_id,
         )

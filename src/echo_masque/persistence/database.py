@@ -12,6 +12,10 @@ from echo_masque.persistence.conversation_graph_models import (
     ConversationGraphEdgeRecord,
     ConversationGraphNodeRecord,
 )
+from echo_masque.persistence.memory_vnext_models import (
+    ConversationMemoryVNextRecord,
+    MemoryVNextStateRecord,
+)
 from echo_masque.persistence.models import Base, StorageMetadataRecord
 from echo_masque.persistence.smart_participation_state_models import (
     SmartParticipationDeploymentStateRecord,
@@ -42,6 +46,8 @@ class Database:
             SmartParticipationScopeStateRecord,
             SmartParticipationDeploymentStateRecord,
             UtilityProviderQuotaRecord,
+            ConversationMemoryVNextRecord,
+            MemoryVNextStateRecord,
         )
         Base.metadata.create_all(self.engine)
 

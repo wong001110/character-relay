@@ -11,6 +11,7 @@ from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.generated_media_delivery import GeneratedMediaDeliveryService
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService, ImageGenerateToolInput
 from echo_masque.image_generation import CANONICAL_ASPECT_RATIOS
+from echo_masque.internal_context import INTERNAL_CONTEXT_TOOL_IDS, InternalContextService
 from echo_masque.live_media import LiveMediaContextService, LiveMediaResult
 from echo_masque.persistence import DeploymentRepository, DiscordIdentityRepository
 from echo_masque.providers import ChatToolCall, ProviderError
@@ -35,11 +36,13 @@ class MediaToolRegistry(ServerAwareToolRegistry):
         *args: Any,
         image_creation_service: ImageCreationRuntimeService | None = None,
         generated_media_delivery: GeneratedMediaDeliveryService | None = None,
+        internal_context_service: InternalContextService | None = None,
         **kwargs: Any,
     ) -> None:
         raw_bot_token = kwargs.get("discord_bot_token")
         super().__init__(*args, **kwargs)
         self.image_creation_service = image_creation_service
+        self.internal_context_service = internal_context_service
         if generated_media_delivery is None and image_creation_service is not None:
             database = image_creation_service.artifact_repository.database
             generated_media_delivery = GeneratedMediaDeliveryService(
@@ -92,6 +95,56 @@ class MediaToolRegistry(ServerAwareToolRegistry):
         )
         self._by_id[inspect_tool.catalog.id] = inspect_tool
         self._by_provider_name[inspect_tool.catalog.provider_function_name] = inspect_tool
+
+        internal_descriptions = {
+            "memory.search": (
+                "Search this Character's scoped durable memories relevant to a question."
+            ),
+            "topic.search": "Search recent Topic history in the current Discord location.",
+            "conversation.search": (
+                "Search compact past Episode projections in the current Discord location."
+            ),
+            "wiki.lookup": "Look up derived knowledge in this current Discord Server only.",
+        }
+        for tool_id in INTERNAL_CONTEXT_TOOL_IDS:
+            provider_name = tool_id.replace(".", "_")
+            internal_tool = _tool(
+                tool_id=tool_id,
+                display_name=tool_id,
+                description=internal_descriptions[tool_id],
+                category="internal_context",
+                operation="read",
+                risk="low",
+                side_effect=False,
+                provider_name=provider_name,
+                provider_description=(
+                    internal_descriptions[tool_id]
+                    + " Runtime injects identity, permissions, and Discord scope; only provide "
+                    "semantic query intent."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "maxLength": 800},
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 8,
+                            "default": 5,
+                        },
+                    },
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
+                available=internal_context_service is not None,
+                availability_reason=(
+                    ""
+                    if internal_context_service is not None
+                    else "Internal Context Runtime is unavailable."
+                ),
+            )
+            self._by_id[internal_tool.catalog.id] = internal_tool
+            self._by_provider_name[internal_tool.catalog.provider_function_name] = internal_tool
 
         image_available = (
             image_creation_service is not None and generated_media_delivery is not None
@@ -163,9 +216,13 @@ class MediaToolRegistry(ServerAwareToolRegistry):
     def catalog(self) -> tuple[ToolCatalogItem, ...]:
         """Keep Runtime-owned media inspection out of manual Deployment Tool assignment."""
 
-        return tuple(
-            item for item in super().catalog() if item.id != _MEDIA_INSPECT_TOOL_ID
-        )
+        hidden = {_MEDIA_INSPECT_TOOL_ID, *INTERNAL_CONTEXT_TOOL_IDS}
+        return tuple(item for item in super().catalog() if item.id not in hidden)
+
+    def internal_tool_ids(self) -> tuple[str, ...]:
+        if self.internal_context_service is None:
+            return ()
+        return INTERNAL_CONTEXT_TOOL_IDS
 
     def set_live_media_service(self, service: LiveMediaContextService | None) -> None:
         self.live_media_service = service
@@ -221,6 +278,10 @@ class MediaToolRegistry(ServerAwareToolRegistry):
     ) -> str:
         if tool_id == _MEDIA_INSPECT_TOOL_ID:
             return await self._inspect_shared_media(context)
+        if tool_id in INTERNAL_CONTEXT_TOOL_IDS:
+            if self.internal_context_service is None:
+                raise ValueError("Internal Context Runtime is unavailable.")
+            return self.internal_context_service.execute(tool_id, arguments, context)
         if tool_id != "image.generate":
             return await super()._execute_tool(tool_id, arguments, context)
         self._require_discord(context)

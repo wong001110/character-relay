@@ -95,6 +95,8 @@ from echo_masque.persistence.knowledge_repository import KnowledgeRetrievalResul
 from echo_masque.persistence.matrix_repository import MatrixRepository
 from echo_masque.persistence.media_models import MediaAnalysisRecord
 from echo_masque.persistence.media_repository import MediaAnalysisRepository
+from echo_masque.persistence.memory_vnext_models import ConversationMemoryVNextRecord
+from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
 from echo_masque.persistence.portable_calibration_repository import (
     PortableCalibrationRepository,
 )
@@ -205,6 +207,8 @@ __all__ = [
     "MatrixRepository",
     "MediaAnalysisRecord",
     "MediaAnalysisRepository",
+    "ConversationMemoryVNextRecord",
+    "MemoryVNextRepository",
     "PlatformConnectionRecord",
     "PortableCalibrationRepository",
     "ProviderKeyGroupRecord",
