@@ -3,12 +3,16 @@ import { useEffect, useMemo, useState } from "react";
 import type { CharacterCard } from "./api";
 import { CharacterPortrait } from "./CharacterPortrait";
 import { characterPortraitApi } from "./characterPortraitApi";
-import { useI18n } from "./i18n";
 import {
-  NotebookField,
-  NotebookInput,
-  NotebookSelect
-} from "./NotebookUI";
+  Button,
+  EmptyState,
+  PaperDrawer,
+  SearchField,
+  Select,
+  StickyLabel,
+  Toast
+} from "./components/ui";
+import { useI18n } from "./i18n";
 import { SemanticProfilePanel } from "./SemanticProfilePanel";
 
 interface Props {
@@ -49,6 +53,7 @@ export function CharacterShelf({
   const [sort, setSort] = useState("newest");
   const [page, setPage] = useState(1);
   const [semanticCard, setSemanticCard] = useState<CharacterCard | null>(null);
+  const [fileCard, setFileCard] = useState<CharacterCard | null>(null);
   const [portraitVersions, setPortraitVersions] = useState<Record<string, number>>({});
   const [portraitWorking, setPortraitWorking] = useState<string | null>(null);
   const [portraitMessage, setPortraitMessage] = useState<string | null>(null);
@@ -93,6 +98,13 @@ export function CharacterShelf({
     if (page > pageCount) setPage(pageCount);
   }, [page, pageCount]);
 
+  useEffect(() => {
+    if (!fileCard) return;
+    const fresh = cards.find((item) => item.id === fileCard.id);
+    if (!fresh) setFileCard(null);
+    else if (fresh !== fileCard) setFileCard(fresh);
+  }, [cards, fileCard]);
+
   function clearFilters() {
     setQuery("");
     setSubject("all");
@@ -136,7 +148,7 @@ export function CharacterShelf({
   }
 
   return (
-    <main className="notebook-shell character-library-v2">
+    <main className="notebook-shell character-library-v2 character-library-v3">
       <section className="character-library-layout">
         <div className="character-library-main">
           <header className="character-library-heading">
@@ -144,21 +156,19 @@ export function CharacterShelf({
               <span className="portal-v2-tape">
                 {demoMode ? "READ-ONLY CHARACTER FILES" : "CHARACTER STUDIO"}
               </span>
-              <h1>
-                {zh ? "角色档案架" : "Character files"}
-              </h1>
+              <h1>{zh ? "角色档案架" : "Character files"}</h1>
               <p>
                 {demoMode
                   ? zh
                     ? "浏览共享角色档案、Prompt、语义配置与部署结构。"
-                    : "Browse the shared character files, prompts, semantic profiles, and deployment structure."
+                    : "Browse shared character files, prompts, semantic profiles, and deployment structure."
                   : zh
-                    ? "把每个角色当成一份持续完善的档案：创作、测试、部署，再从真实行为继续修订。"
-                    : "Treat every character as a living file: create, test, deploy, then refine it from real behavior."}
+                    ? "角色卡只负责让你认出这个角色；编辑、Prompt、语义与图片管理统一收进档案页。"
+                    : "Cards stay focused on character identity; editing, prompts, semantics, and portrait management live inside the file."}
               </p>
             </div>
             <aside className="character-library-count-note" aria-label={t("shelf.cardsFiled")}>
-              <span>{zh ? "FILED" : "FILED"}</span>
+              <span>FILED</span>
               <strong>{filtered.length}</strong>
               <small>
                 {filtered.length === cards.length
@@ -170,104 +180,64 @@ export function CharacterShelf({
             </aside>
           </header>
 
-          {error && <p className="error-note">{error}</p>}
-          {portraitMessage && <p className="character-portrait-message">{portraitMessage}</p>}
+          {error && <Toast tone="danger" title={zh ? "角色档案读取失败" : "Character files unavailable"}>{error}</Toast>}
+          {portraitMessage && <Toast tone="success" title={zh ? "角色图片已更新" : "Portrait updated"}>{portraitMessage}</Toast>}
 
           {cards.length === 0 ? (
-            <section className="empty-library paper-sheet">
-              <img src="/assets/brand/character-relay-mark.png" alt="" />
-              <h2>{t("shelf.emptyTitle")}</h2>
-              <p>{t("shelf.emptyHelp")}</p>
-              {!demoMode && (
-                <button className="ink-button" onClick={onCreate}>
-                  {t("shelf.newCard")}
-                </button>
-              )}
-            </section>
+            <EmptyState
+              className="empty-library paper-sheet"
+              illustration={<img src="/assets/brand/character-relay-mark.png" alt="" />}
+              title={t("shelf.emptyTitle")}
+              description={t("shelf.emptyHelp")}
+              action={!demoMode ? <Button variant="primary" onClick={onCreate}>{t("shelf.newCard")}</Button> : undefined}
+            />
           ) : (
             <>
               <section className="card-grid character-file-grid" aria-label={t("shelf.cardsAria")}>
                 {pageCards.map((card, index) => (
-                  <article
-                    className={`character-card portrait-${card.portrait_variant}`}
-                    key={card.id}
-                  >
+                  <article className={`character-card portrait-${card.portrait_variant}`} key={card.id}>
                     <div className="card-tape" />
-                    <div className="portrait-window">
-                      <CharacterPortrait
-                        cardId={card.id}
-                        version={portraitVersions[card.id] ?? 0}
-                        alt={card.display_name}
-                      />
-                      <span>{t(subjectKeys[card.subject_type])}</span>
-                      {!demoMode && (
-                        <div className="character-portrait-actions">
-                          <label className="character-portrait-upload">
-                            {portraitWorking === card.id
-                              ? zh
-                                ? "处理中…"
-                                : "Working…"
-                              : zh
-                                ? "更换图片"
-                                : "Change image"}
-                            <input
-                              type="file"
-                              accept="image/png,image/jpeg,image/webp,image/gif"
-                              disabled={portraitWorking === card.id}
-                              onChange={(event) => {
-                                const file = event.currentTarget.files?.[0] ?? null;
-                                void uploadPortrait(card, file);
-                                event.currentTarget.value = "";
-                              }}
-                            />
-                          </label>
-                          <button
-                            className="character-portrait-remove"
-                            type="button"
-                            disabled={portraitWorking === card.id}
-                            onClick={() => void removePortrait(card)}
-                          >
-                            {zh ? "移除" : "Remove"}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    <div className="card-copy">
-                      <p className="card-index">
-                        {t("shelf.file")} / {String((page - 1) * PAGE_SIZE + index + 1).padStart(2, "0")}
-                      </p>
-                      <h3>{card.display_name}</h3>
-                      <p>{card.subtitle}</p>
-                      <div className="chip-row">
-                        {card.traits.slice(0, 3).map((trait) => (
-                          <span key={trait}>{trait}</span>
-                        ))}
+                    <button
+                      type="button"
+                      className="character-file-cover"
+                      onClick={() => setFileCard(card)}
+                      aria-label={`${zh ? "打开档案" : "Open file"}: ${card.display_name}`}
+                    >
+                      <div className="portrait-window">
+                        <CharacterPortrait
+                          cardId={card.id}
+                          version={portraitVersions[card.id] ?? 0}
+                          alt={card.display_name}
+                        />
+                        <span>{t(subjectKeys[card.subject_type])}</span>
                       </div>
-                    </div>
+                      <div className="card-copy">
+                        <p className="card-index">
+                          {t("shelf.file")} / {String((page - 1) * PAGE_SIZE + index + 1).padStart(2, "0")}
+                        </p>
+                        <h3>{card.display_name}</h3>
+                        <p>{card.subtitle}</p>
+                        <div className="chip-row">
+                          {card.traits.slice(0, 3).map((trait) => <span key={trait}>{trait}</span>)}
+                        </div>
+                      </div>
+                    </button>
                     <div className="card-notes">
                       <span>{t("shelf.boundTarget")}</span>
                       <strong>{card.target_id.slice(0, 12)}</strong>
                       <span>{t("shelf.preferredRooms")}</span>
                       <strong>{card.preferred_suites.length}</strong>
                     </div>
-                    <div className="card-actions">
-                      {!demoMode && (
-                        <button className="paper-button" onClick={() => onEdit(card)}>
-                          {t("shelf.edit")}
-                        </button>
-                      )}
-                      <button className="paper-button" onClick={() => onPrompt(card)}>
-                        {zh ? "真实 Prompt" : "View Prompt"}
-                      </button>
-                      <button className="paper-button" onClick={() => setSemanticCard(card)}>
-                        Semantic Profile
-                      </button>
-                      <button className="paper-button" onClick={() => onDeploy(card)}>
-                        {zh ? "部署" : "Deploy"}
-                      </button>
-                      <button className="enter-room" onClick={() => onEnter(card)}>
+                    <div className="card-actions character-card-primary-actions">
+                      <Button variant="primary" onClick={() => onEnter(card)}>
                         {zh ? "测试角色" : "Test Character"}
-                      </button>
+                      </Button>
+                      <Button variant="secondary" onClick={() => setFileCard(card)}>
+                        {zh ? "打开档案" : "Open File"}
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => onDeploy(card)}>
+                        {zh ? "部署" : "Deploy"}
+                      </Button>
                     </div>
                   </article>
                 ))}
@@ -282,29 +252,23 @@ export function CharacterShelf({
               </section>
 
               {filtered.length === 0 && (
-                <section className="no-results paper-sheet">
-                  <h3>{t("shelf.noResults")}</h3>
-                  <p>{t("shelf.noResultsHelp")}</p>
-                </section>
+                <EmptyState
+                  className="no-results paper-sheet"
+                  title={t("shelf.noResults")}
+                  description={t("shelf.noResultsHelp")}
+                  action={<Button variant="secondary" onClick={clearFilters}>{zh ? "清除筛选" : "Clear filters"}</Button>}
+                />
               )}
 
               {pageCount > 1 && (
                 <nav className="library-pagination" aria-label={t("shelf.pagination")}>
-                  <button
-                    className="paper-button"
-                    onClick={() => setPage((current) => Math.max(1, current - 1))}
-                    disabled={page === 1}
-                  >
+                  <Button variant="secondary" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1}>
                     {t("shelf.previous")}
-                  </button>
+                  </Button>
                   <span>{t("shelf.page", { page, pages: pageCount })}</span>
-                  <button
-                    className="paper-button"
-                    onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
-                    disabled={page === pageCount}
-                  >
+                  <Button variant="secondary" onClick={() => setPage((current) => Math.min(pageCount, current + 1))} disabled={page === pageCount}>
                     {t("shelf.next")}
-                  </button>
+                  </Button>
                 </nav>
               )}
             </>
@@ -315,55 +279,50 @@ export function CharacterShelf({
           <div className="character-library-tools-note">
             <span>{zh ? "档案工具" : "SHELF TOOLS"}</span>
             <strong>{zh ? "找角色，不要找表格。" : "Find a character, not a spreadsheet."}</strong>
-            <small>
-              {zh
-                ? "搜索和筛选固定放在页边，角色卡只负责展示角色本身。"
-                : "Search and filters stay in the margin so the character cards can stay about the characters."}
-            </small>
+            <small>{zh ? "搜索与分类固定在页边，卡片只保留真正需要的动作。" : "Search and classification stay in the margin; cards keep only the actions you need most."}</small>
           </div>
 
           <section className="character-library-filter-note">
-            <NotebookField label={t("shelf.search")}>
-              <NotebookInput
+            <label className="character-library-filter-field">
+              <span>{t("shelf.search")}</span>
+              <SearchField
                 value={query}
                 onChange={(event) => setQuery(event.currentTarget.value)}
                 placeholder={t("shelf.searchPlaceholder")}
+                label={t("shelf.search")}
               />
-            </NotebookField>
-            <NotebookField label={t("shelf.subjectFilter")}>
-              <NotebookSelect value={subject} onChange={(event) => setSubject(event.currentTarget.value)}>
+            </label>
+            <label className="character-library-filter-field">
+              <span>{t("shelf.subjectFilter")}</span>
+              <Select value={subject} onChange={(event) => setSubject(event.currentTarget.value)}>
                 <option value="all">{t("shelf.allSubjects")}</option>
                 <option value="companion">{t("subject.companion")}</option>
                 <option value="npc">{t("subject.npc")}</option>
                 <option value="assistant">{t("subject.assistant")}</option>
                 <option value="custom">{t("subject.custom")}</option>
-              </NotebookSelect>
-            </NotebookField>
-            <NotebookField label={t("shelf.tagFilter")}>
-              <NotebookSelect value={tag} onChange={(event) => setTag(event.currentTarget.value)}>
+              </Select>
+            </label>
+            <label className="character-library-filter-field">
+              <span>{t("shelf.tagFilter")}</span>
+              <Select value={tag} onChange={(event) => setTag(event.currentTarget.value)}>
                 <option value="all">{t("shelf.allTags")}</option>
-                {tags.map((item) => (
-                  <option value={item} key={item}>{item}</option>
-                ))}
-              </NotebookSelect>
-            </NotebookField>
-            <NotebookField label={t("shelf.sort")}>
-              <NotebookSelect value={sort} onChange={(event) => setSort(event.currentTarget.value)}>
+                {tags.map((item) => <option value={item} key={item}>{item}</option>)}
+              </Select>
+            </label>
+            <label className="character-library-filter-field">
+              <span>{t("shelf.sort")}</span>
+              <Select value={sort} onChange={(event) => setSort(event.currentTarget.value)}>
                 <option value="newest">{t("shelf.newest")}</option>
                 <option value="oldest">{t("shelf.oldest")}</option>
                 <option value="name">{t("shelf.nameSort")}</option>
-              </NotebookSelect>
-            </NotebookField>
+              </Select>
+            </label>
 
             <div className="character-library-filter-summary">
-              <span>
-                {zh
-                  ? `${activeFilterCount} 个筛选条件 · ${filtered.length} 个结果`
-                  : `${activeFilterCount} active filters · ${filtered.length} results`}
-              </span>
-              <button type="button" onClick={clearFilters} disabled={activeFilterCount === 0 && sort === "newest"}>
+              <span>{zh ? `${activeFilterCount} 个筛选条件 · ${filtered.length} 个结果` : `${activeFilterCount} active filters · ${filtered.length} results`}</span>
+              <Button variant="ghost" size="sm" type="button" onClick={clearFilters} disabled={activeFilterCount === 0 && sort === "newest"}>
                 {zh ? "重置" : "Reset"}
-              </button>
+              </Button>
             </div>
           </section>
 
@@ -372,12 +331,7 @@ export function CharacterShelf({
               <span>{zh ? "常用标签" : "FILED TAGS"}</span>
               <div>
                 {tags.slice(0, 8).map((item) => (
-                  <button
-                    type="button"
-                    className={tag === item ? "is-active" : ""}
-                    onClick={() => setTag(tag === item ? "all" : item)}
-                    key={item}
-                  >
+                  <button type="button" className={tag === item ? "is-active" : ""} onClick={() => setTag(tag === item ? "all" : item)} key={item}>
                     #{item}
                   </button>
                 ))}
@@ -395,13 +349,74 @@ export function CharacterShelf({
         </aside>
       </section>
 
+      {fileCard && (
+        <PaperDrawer
+          onClose={() => setFileCard(null)}
+          ariaLabel={`${fileCard.display_name} · ${zh ? "角色档案" : "Character file"}`}
+          className="character-file-drawer"
+        >
+          <div className="character-file-drawer-sheet">
+            <header className="character-file-drawer-header">
+              <div>
+                <StickyLabel variant="neutral">CHARACTER FILE</StickyLabel>
+                <h2>{fileCard.display_name}</h2>
+                <p>{fileCard.subtitle}</p>
+              </div>
+              <Button variant="ghost" onClick={() => setFileCard(null)}>{zh ? "关闭" : "Close"}</Button>
+            </header>
+
+            <div className={`character-file-drawer-portrait portrait-${fileCard.portrait_variant}`}>
+              <CharacterPortrait
+                cardId={fileCard.id}
+                version={portraitVersions[fileCard.id] ?? 0}
+                alt={fileCard.display_name}
+              />
+            </div>
+
+            <div className="character-file-drawer-tags">
+              <StickyLabel variant="neutral">{t(subjectKeys[fileCard.subject_type])}</StickyLabel>
+              {fileCard.traits.slice(0, 5).map((trait) => <StickyLabel key={trait} variant="neutral">{trait}</StickyLabel>)}
+            </div>
+
+            {!demoMode && (
+              <section className="character-file-portrait-tools">
+                <strong>{zh ? "角色图片" : "Portrait"}</strong>
+                <div>
+                  <label className="cr-button cr-button--secondary cr-control--sm character-file-upload-button">
+                    {portraitWorking === fileCard.id ? (zh ? "处理中…" : "Working…") : (zh ? "更换图片" : "Change image")}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      disabled={portraitWorking === fileCard.id}
+                      onChange={(event) => {
+                        const file = event.currentTarget.files?.[0] ?? null;
+                        void uploadPortrait(fileCard, file);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                  <Button variant="ghost" size="sm" disabled={portraitWorking === fileCard.id} onClick={() => void removePortrait(fileCard)}>
+                    {zh ? "移除图片" : "Remove image"}
+                  </Button>
+                </div>
+              </section>
+            )}
+
+            <section className="character-file-drawer-actions">
+              <Button variant="primary" onClick={() => { setFileCard(null); onEnter(fileCard); }}>
+                {zh ? "测试角色" : "Test Character"}
+              </Button>
+              {!demoMode && <Button variant="secondary" onClick={() => { setFileCard(null); onEdit(fileCard); }}>{zh ? "编辑角色卡" : "Edit Character"}</Button>}
+              <Button variant="secondary" onClick={() => onPrompt(fileCard)}>{zh ? "查看真实 Prompt" : "View Prompt"}</Button>
+              <Button variant="secondary" onClick={() => setSemanticCard(fileCard)}>Semantic Profile</Button>
+              <Button variant="secondary" onClick={() => { setFileCard(null); onDeploy(fileCard); }}>{zh ? "打开部署" : "Open Deployment"}</Button>
+            </section>
+          </div>
+        </PaperDrawer>
+      )}
+
       {semanticCard && (
-        <SemanticProfilePanel
-          card={semanticCard}
-          zh={zh}
-          demoMode={demoMode}
-          onClose={() => setSemanticCard(null)}
-        />
+        <SemanticProfilePanel card={semanticCard} zh={zh} demoMode={demoMode} onClose={() => setSemanticCard(null)} />
       )}
     </main>
   );

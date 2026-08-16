@@ -167,6 +167,7 @@ export function TopicNote({
   confidence,
   participants,
   status,
+  children,
   ...props
 }: TopicNoteProps) {
   return (
@@ -176,6 +177,7 @@ export function TopicNote({
         {status && <span className="cr-topic-note__status">{status}</span>}
       </div>
       <strong className="cr-topic-note__topic">{topic}</strong>
+      {children && <div className="cr-topic-note__content">{children}</div>}
       {(typeof confidence === "number" || participants) && (
         <div className="cr-topic-note__meta">
           {typeof confidence === "number" && <span>confidence · {confidence.toFixed(2)}</span>}

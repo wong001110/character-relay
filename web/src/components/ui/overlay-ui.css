@@ -1,0 +1,130 @@
+.cr-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.cr-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.cr-menu__panel {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 7px);
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid var(--cr-line);
+  border-radius: 8px 12px 10px 7px;
+  background: var(--cr-paper-raised);
+  box-shadow: var(--cr-shadow-overlay);
+}
+
+.cr-menu--start .cr-menu__panel { left: 0; }
+.cr-menu--end .cr-menu__panel { right: 0; }
+
+.cr-menu-item {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px 8px 7px 5px;
+  background: transparent;
+  color: var(--cr-ink-soft);
+  text-align: left;
+  font: inherit;
+}
+
+.cr-menu-item:hover,
+.cr-menu-item:focus-visible {
+  outline: 0;
+  background: var(--cr-lavender-soft);
+  color: var(--cr-ink);
+}
+
+.cr-menu-item--danger {
+  color: var(--cr-danger);
+}
+
+.cr-menu-item--danger:hover,
+.cr-menu-item--danger:focus-visible {
+  background: var(--cr-danger-soft);
+}
+
+.cr-confirm-dialog__backdrop {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(55, 45, 42, .42);
+  backdrop-filter: blur(4px);
+}
+
+.cr-confirm-dialog {
+  position: relative;
+  width: min(460px, 100%);
+  padding: 28px;
+  border: 1px solid var(--cr-line);
+  border-radius: 10px 16px 14px 9px;
+  background:
+    linear-gradient(rgba(255,253,248,.96), rgba(255,253,248,.96)),
+    repeating-linear-gradient(0deg, transparent 0 30px, rgba(189,163,142,.05) 31px),
+    var(--cr-paper-raised);
+  box-shadow: var(--cr-shadow-overlay);
+}
+
+.cr-confirm-dialog__tape {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  width: 76px;
+  height: 20px;
+  transform: translateX(-50%) rotate(-1deg);
+  border-radius: 3px;
+  background: rgba(221, 196, 165, .72);
+}
+
+.cr-confirm-dialog--danger .cr-confirm-dialog__tape {
+  background: color-mix(in srgb, var(--cr-rose) 68%, transparent);
+}
+
+.cr-confirm-dialog h2 {
+  margin: 0 0 10px;
+  font-size: 1.55rem;
+}
+
+.cr-confirm-dialog p {
+  margin: 0;
+  color: var(--cr-ink-soft);
+  line-height: 1.55;
+}
+
+.cr-confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+@media (max-width: 480px) {
+  .cr-confirm-dialog__actions {
+    flex-direction: column-reverse;
+  }
+  .cr-confirm-dialog__actions .cr-button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cr-confirm-dialog__tape {
+    transform: translateX(-50%);
+  }
+}

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 
 import {
   api,
@@ -10,16 +10,24 @@ import {
   type TargetView,
   type TestKind
 } from "./api";
-import { PageFlag, PageFlagGroup, type PageFlagTone } from "./components/ui";
-import { useI18n } from "./i18n";
+import { ApiKeyField, ProviderSelect } from "./components/shared";
 import {
-  NotebookField,
-  NotebookInput,
-  NotebookSection,
-  NotebookSelect,
-  NotebookTextarea,
-  PaperDrawer
-} from "./NotebookUI";
+  Button,
+  FormField,
+  Input,
+  PageFlag,
+  PageFlagGroup,
+  PaperDrawer,
+  PaperTab,
+  Select,
+  Spinner,
+  StickyLabel,
+  StickyNote,
+  Textarea,
+  Toast,
+  type PageFlagTone
+} from "./components/ui";
+import { useI18n } from "./i18n";
 import { getProviderPreset, providerPresets } from "./providerPresets";
 
 interface Props {
@@ -31,7 +39,14 @@ interface Props {
 }
 
 type BindingMode = "prompt" | "existing";
-type EditorSection = "identity" | "runtime" | "persona" | "boundaries" | "memory";
+type EditorSection =
+  | "identity"
+  | "persona"
+  | "voice"
+  | "boundaries"
+  | "memory"
+  | "runtime"
+  | "review";
 
 const editorSections: Array<{
   id: EditorSection;
@@ -41,9 +56,11 @@ const editorSections: Array<{
 }> = [
   { id: "identity", tone: "lavender", en: "Identity", zh: "身份" },
   { id: "persona", tone: "peach", en: "Persona", zh: "人物" },
+  { id: "voice", tone: "blue", en: "Voice", zh: "语气" },
   { id: "boundaries", tone: "rose", en: "Boundaries", zh: "边界" },
   { id: "memory", tone: "yellow", en: "Memory", zh: "记忆" },
-  { id: "runtime", tone: "mint", en: "Runtime", zh: "模型" }
+  { id: "runtime", tone: "mint", en: "Runtime", zh: "模型" },
+  { id: "review", tone: "lavender", en: "Review", zh: "确认" }
 ];
 
 const allSuites: TestKind[] = [
@@ -72,29 +89,9 @@ function configString(target: TargetView | null | undefined, key: string): strin
   return typeof value === "string" ? value : "";
 }
 
-function configNumber(
-  target: TargetView | null | undefined,
-  key: string,
-  fallback: number
-): number {
+function configNumber(target: TargetView | null | undefined, key: string, fallback: number): number {
   const value = target?.config[key];
   return typeof value === "number" ? value : fallback;
-}
-
-function commonFields(data: FormData): Omit<CharacterCardCreate, "target_id"> {
-  return {
-    display_name: String(data.get("display_name")),
-    subtitle: String(data.get("subtitle")),
-    subject_type: String(data.get("subject_type")) as CharacterCard["subject_type"],
-    persona_summary: String(data.get("persona_summary")),
-    traits: splitList(String(data.get("traits"))),
-    tags: splitList(String(data.get("tags"))),
-    expected_tone: String(data.get("expected_tone")) || null,
-    forbidden_behaviors: splitList(String(data.get("forbidden_behaviors"))),
-    memory_summary: String(data.get("memory_summary")) || null,
-    preferred_suites: allSuites,
-    portrait_variant: String(data.get("portrait_variant")) as CharacterCard["portrait_variant"]
-  };
 }
 
 export function CharacterCreator({
@@ -114,16 +111,27 @@ export function CharacterCreator({
   const initialPreset = useMemo(() => getProviderPreset("deepseek"), []);
   const initialBinding: BindingMode = target?.target_kind === "prompt_model" ? "prompt" : "existing";
   const initialProvider = (configString(target, "provider") || "deepseek") as ProviderId;
-  const [bindingMode, setBindingMode] = useState<BindingMode>(
-    editing ? initialBinding : "prompt"
-  );
+
+  const [editorSection, setEditorSection] = useState<EditorSection>("identity");
+  const [bindingMode, setBindingMode] = useState<BindingMode>(editing ? initialBinding : "prompt");
+  const [displayName, setDisplayName] = useState(card?.display_name ?? "");
+  const [subtitle, setSubtitle] = useState(card?.subtitle ?? "");
+  const [subjectType, setSubjectType] = useState<CharacterCard["subject_type"]>(card?.subject_type ?? "custom");
+  const [portraitVariant, setPortraitVariant] = useState<CharacterCard["portrait_variant"]>(card?.portrait_variant ?? "lavender");
+  const [personaSummary, setPersonaSummary] = useState(card?.persona_summary ?? "");
+  const [traits, setTraits] = useState(card?.traits.join("\n") ?? "");
+  const [tags, setTags] = useState(card?.tags.join("\n") ?? "");
+  const [expectedTone, setExpectedTone] = useState(card?.expected_tone ?? "");
+  const [forbiddenBehaviors, setForbiddenBehaviors] = useState(card?.forbidden_behaviors.join("\n") ?? "");
+  const [memorySummary, setMemorySummary] = useState(card?.memory_summary ?? "");
   const [provider, setProvider] = useState<ProviderId>(initialProvider);
-  const [baseUrl, setBaseUrl] = useState(
-    configString(target, "base_url") || initialPreset.baseUrl
-  );
-  const [model, setModel] = useState(
-    configString(target, "model") || initialPreset.defaultModel
-  );
+  const [baseUrl, setBaseUrl] = useState(configString(target, "base_url") || initialPreset.baseUrl);
+  const [model, setModel] = useState(configString(target, "model") || initialPreset.defaultModel);
+  const [systemPrompt, setSystemPrompt] = useState(configString(target, "system_prompt"));
+  const [temperature, setTemperature] = useState(configNumber(target, "temperature", 0.7));
+  const [apiKey, setApiKey] = useState("");
+  const [targetId, setTargetId] = useState(target?.id ?? userTargets[0]?.id ?? "");
+
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(!editing);
@@ -132,25 +140,58 @@ export function CharacterCreator({
   const [assistantConstraints, setAssistantConstraints] = useState("");
   const [assistantWorking, setAssistantWorking] = useState(false);
   const [assistantMessage, setAssistantMessage] = useState<string | null>(null);
-  const [editorSection, setEditorSection] = useState<EditorSection>("identity");
-  const formRef = useRef<HTMLFormElement | null>(null);
 
-  function setFormValue(name: string, value: string) {
-    const element = formRef.current?.elements.namedItem(name);
-    if (
-      element instanceof HTMLInputElement ||
-      element instanceof HTMLTextAreaElement ||
-      element instanceof HTMLSelectElement
-    ) {
-      element.value = value;
+  const promptFields = bindingMode === "prompt" || target?.target_kind === "prompt_model";
+  const sectionIndex = editorSections.findIndex((item) => item.id === editorSection);
+
+  function changeProvider(nextProvider: ProviderId) {
+    const preset = getProviderPreset(nextProvider);
+    setProvider(nextProvider);
+    setBaseUrl(preset.baseUrl);
+    setModel(preset.defaultModel);
+  }
+
+  function validationMessage(section: EditorSection): string | null {
+    if (section === "identity" && !displayName.trim()) {
+      return zh ? "先填写角色显示名称。" : "Add a character display name before continuing.";
     }
+    if (section === "voice" && promptFields && !systemPrompt.trim()) {
+      return zh ? "Prompt 模式需要填写 System Prompt。" : "Prompt-backed characters require a System Prompt.";
+    }
+    if (section === "runtime") {
+      if (promptFields) {
+        if (!model.trim()) return zh ? "请选择或填写 Model ID。" : "Add a model ID.";
+        if (!baseUrl.trim()) return zh ? "需要填写 Provider Base URL。" : "Add the provider base URL.";
+        if (!editing && !apiKey.trim()) return zh ? "创建角色时需要 API Key。" : "An API key is required when creating the character.";
+      } else if (!editing && !targetId) {
+        return zh ? "请选择一个 Runtime Target。" : "Select a runtime target.";
+      }
+    }
+    return null;
   }
 
   function openEditorSection(section: EditorSection) {
+    const error = validationMessage(editorSection);
+    const nextIndex = editorSections.findIndex((item) => item.id === section);
+    if (nextIndex > sectionIndex && error) {
+      setMessage(error);
+      return;
+    }
+    setMessage(null);
     setEditorSection(section);
-    document
-      .getElementById(`character-editor-section-${section}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function movePage(direction: -1 | 1) {
+    if (direction > 0) {
+      const error = validationMessage(editorSection);
+      if (error) {
+        setMessage(error);
+        return;
+      }
+    }
+    const next = Math.max(0, Math.min(editorSections.length - 1, sectionIndex + direction));
+    setMessage(null);
+    setEditorSection(editorSections[next].id);
   }
 
   async function generateCharacterDraft() {
@@ -166,32 +207,26 @@ export function CharacterCreator({
       setAssistantMessage(null);
       const suggestion = await api.suggestCharacter({
         concept,
-        name_hint: String(
-          (formRef.current?.elements.namedItem("display_name") as HTMLInputElement | null)
-            ?.value ?? ""
-        ),
+        name_hint: displayName,
         relationship_context: assistantRelationship.trim(),
         writing_constraints: assistantConstraints.trim(),
-        subject_type_hint: String(
-          (formRef.current?.elements.namedItem("subject_type") as HTMLSelectElement | null)
-            ?.value ?? "custom"
-        ) as CharacterCard["subject_type"],
+        subject_type_hint: subjectType,
         language: zh ? "zh-CN" : "en"
       });
-      setFormValue("display_name", suggestion.display_name);
-      setFormValue("subtitle", suggestion.subtitle);
-      setFormValue("subject_type", suggestion.subject_type);
-      setFormValue("persona_summary", suggestion.persona_summary);
-      setFormValue("traits", suggestion.traits.join("\n"));
-      setFormValue("tags", suggestion.tags.join("\n"));
-      setFormValue("expected_tone", suggestion.expected_tone);
-      setFormValue("forbidden_behaviors", suggestion.forbidden_behaviors.join("\n"));
-      setFormValue("memory_summary", suggestion.memory_summary);
-      if (promptFields) setFormValue("system_prompt", suggestion.system_prompt);
+      setDisplayName(suggestion.display_name);
+      setSubtitle(suggestion.subtitle);
+      setSubjectType(suggestion.subject_type);
+      setPersonaSummary(suggestion.persona_summary);
+      setTraits(suggestion.traits.join("\n"));
+      setTags(suggestion.tags.join("\n"));
+      setExpectedTone(suggestion.expected_tone);
+      setForbiddenBehaviors(suggestion.forbidden_behaviors.join("\n"));
+      setMemorySummary(suggestion.memory_summary);
+      if (promptFields) setSystemPrompt(suggestion.system_prompt);
       setAssistantMessage(
         zh
-          ? `已使用 ${suggestion.provider_model} 填入角色草稿。请逐区审核后再保存。`
-          : `Drafted with ${suggestion.provider_model}. Review every section before saving.`
+          ? `已使用 ${suggestion.provider_model} 填入草稿。黄色标记代表仍需逐页确认；Provider 与 API Key 未被修改。`
+          : `Drafted with ${suggestion.provider_model}. Review each page before saving; Provider and API Key were not changed.`
       );
     } catch (reason) {
       setAssistantMessage(reason instanceof Error ? reason.message : String(reason));
@@ -200,56 +235,68 @@ export function CharacterCreator({
     }
   }
 
-  function changeProvider(nextProvider: ProviderId) {
-    const preset = getProviderPreset(nextProvider);
-    setProvider(nextProvider);
-    setBaseUrl(preset.baseUrl);
-    setModel(preset.defaultModel);
+  function commonPayload(): Omit<CharacterCardCreate, "target_id"> {
+    return {
+      display_name: displayName.trim(),
+      subtitle: subtitle.trim(),
+      subject_type: subjectType,
+      persona_summary: personaSummary,
+      traits: splitList(traits),
+      tags: splitList(tags),
+      expected_tone: expectedTone.trim() || null,
+      forbidden_behaviors: splitList(forbiddenBehaviors),
+      memory_summary: memorySummary.trim() || null,
+      preferred_suites: allSuites,
+      portrait_variant: portraitVariant
+    };
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const common = commonFields(data);
+    for (const section of editorSections) {
+      const error = validationMessage(section.id);
+      if (error) {
+        setEditorSection(section.id);
+        setMessage(error);
+        return;
+      }
+    }
 
     try {
       setSaving(true);
       setMessage(null);
+      const common = commonPayload();
       if (editing && card) {
         const payload: CharacterCardUpdate = {
           ...common,
           ...(target?.target_kind === "prompt_model"
             ? {
                 provider,
-                base_url: baseUrl,
-                model,
-                system_prompt: String(data.get("system_prompt")),
-                temperature: Number(data.get("temperature"))
+                base_url: baseUrl.trim(),
+                model: model.trim(),
+                system_prompt: systemPrompt,
+                temperature
               }
             : {})
         };
         const updated = await api.updateCharacter(card.id, payload);
-        const replacementKey = String(data.get("api_key") ?? "").trim();
-        if (target?.target_kind === "prompt_model" && replacementKey) {
-          await api.configureCredential(card.id, replacementKey);
+        if (target?.target_kind === "prompt_model" && apiKey.trim()) {
+          await api.configureCredential(card.id, apiKey.trim());
         }
         onSaved(updated);
       } else if (bindingMode === "prompt") {
         const payload: PromptCharacterCreate = {
           ...common,
           provider,
-          base_url: baseUrl,
-          model,
-          system_prompt: String(data.get("system_prompt")),
-          temperature: Number(data.get("temperature")),
-          api_key: String(data.get("api_key"))
+          base_url: baseUrl.trim(),
+          model: model.trim(),
+          system_prompt: systemPrompt,
+          temperature,
+          api_key: apiKey.trim()
         };
         onSaved(await api.createPromptCharacter(payload));
       } else {
-        const payload: CharacterCardCreate = {
-          ...common,
-          target_id: String(data.get("target_id"))
-        };
+        const payload: CharacterCardCreate = { ...common, target_id: targetId };
         onSaved(await api.createCharacter(payload));
       }
     } catch (reason) {
@@ -259,446 +306,139 @@ export function CharacterCreator({
     }
   }
 
-  const promptFields = bindingMode === "prompt" || target?.target_kind === "prompt_model";
+  const renderPage = () => {
+    switch (editorSection) {
+      case "identity":
+        return (
+          <section className="character-editor-page" aria-labelledby="character-editor-page-title">
+            <header><StickyLabel variant="neutral">01 / IDENTITY</StickyLabel><h3 id="character-editor-page-title">{zh ? "角色名片" : "Character identity"}</h3><p>{zh ? "先让别人能在十秒内理解这个角色是谁。" : "Make the character understandable in ten seconds."}</p></header>
+            <div className="character-editor-fields">
+              <FormField label={t("creator.displayName")} hint={zh ? "角色在列表、Discord 与测试房中显示的名称。" : "Shown in the shelf, Discord, and test rooms."} required>
+                <Input value={displayName} onChange={(event) => setDisplayName(event.currentTarget.value)} placeholder={t("creator.displayNamePlaceholder")} autoFocus />
+              </FormField>
+              <FormField label={t("creator.subtitle")} hint={zh ? "一句话说明身份、关系或主要用途。" : "A short role, relationship, or purpose."}>
+                <Input value={subtitle} onChange={(event) => setSubtitle(event.currentTarget.value)} placeholder={t("creator.subtitlePlaceholder")} />
+              </FormField>
+              <FormField label={t("creator.subjectType")} hint={zh ? "用于角色库筛选，不会直接改变 Prompt。" : "Used for shelf filtering; it does not directly change the prompt."}>
+                <Select value={subjectType} onChange={(event) => setSubjectType(event.currentTarget.value as CharacterCard["subject_type"])}>
+                  <option value="companion">{t("subject.companion")}</option><option value="npc">{t("subject.npc")}</option><option value="assistant">{t("subject.assistant")}</option><option value="custom">{t("subject.custom")}</option>
+                </Select>
+              </FormField>
+              <FormField label={t("creator.portraitPalette")} hint={zh ? "角色卡与无图片状态的默认色调。" : "Default palette for the character card and portrait fallback."}>
+                <Select value={portraitVariant} onChange={(event) => setPortraitVariant(event.currentTarget.value as CharacterCard["portrait_variant"])}>
+                  <option value="lavender">{t("palette.lavender")}</option><option value="rose">{t("palette.rose")}</option><option value="mint">{t("palette.mint")}</option><option value="night">{t("palette.night")}</option>
+                </Select>
+              </FormField>
+            </div>
+          </section>
+        );
+      case "persona":
+        return (
+          <section className="character-editor-page">
+            <header><StickyLabel variant="neutral">02 / PERSONA</StickyLabel><h3>{zh ? "人物核心" : "Persona core"}</h3><p>{zh ? "记录这个角色如何看待世界、做决定，以及在关系中通常是什么样的人。" : "Document how the character sees the world, makes decisions, and behaves in relationships."}</p></header>
+            <div className="character-editor-fields one-column">
+              <FormField label={t("creator.personaSummary")} hint={zh ? "两到五段写背景、动机、价值观与关键矛盾。" : "Use two to five paragraphs for background, motives, values, and central tension."}><Textarea rows={8} value={personaSummary} onChange={(event) => setPersonaSummary(event.currentTarget.value)} placeholder={t("creator.personaPlaceholder")} /></FormField>
+              <FormField label={t("creator.traits")} hint={zh ? "每行一个稳定特质，尽量写成可观察行为。" : "Use one stable trait per line, preferably as observable behavior."}><Textarea rows={5} value={traits} onChange={(event) => setTraits(event.currentTarget.value)} placeholder={t("creator.traitsPlaceholder")} /></FormField>
+              <FormField label={t("creator.tags")} hint={zh ? "只用于搜索与整理。" : "Used for search and organization."}><Textarea rows={3} value={tags} onChange={(event) => setTags(event.currentTarget.value)} placeholder={t("creator.tagsPlaceholder")} /></FormField>
+            </div>
+          </section>
+        );
+      case "voice":
+        return (
+          <section className="character-editor-page">
+            <header><StickyLabel variant="image">03 / VOICE</StickyLabel><h3>{zh ? "说话方式与 Prompt" : "Voice & prompt"}</h3><p>{zh ? "把可听见的表达风格与 Runtime 必须长期遵守的角色指令放在同一页。" : "Keep visible voice style and persistent runtime instructions together."}</p></header>
+            <div className="character-editor-fields one-column">
+              <FormField label={t("creator.expectedTone")} hint={zh ? "描述语速、用词、情绪强度、幽默方式与面对不同对象时的变化。" : "Describe pacing, vocabulary, emotional intensity, humor, and audience shifts."}><Textarea rows={6} value={expectedTone} onChange={(event) => setExpectedTone(event.currentTarget.value)} placeholder={t("creator.expectedTonePlaceholder")} /></FormField>
+              {promptFields && <FormField label={t("creator.systemPrompt")} hint={zh ? "写身份、世界观、表达方式、优先级与长期约束。" : "Document identity, worldview, voice, priorities, and durable constraints."} required><Textarea rows={15} value={systemPrompt} onChange={(event) => setSystemPrompt(event.currentTarget.value)} placeholder={t("creator.systemPromptPlaceholder")} /></FormField>}
+              {promptFields && <FormField label={t("creator.temperature")} hint={zh ? "较低更稳定，较高更有变化。" : "Lower is steadier; higher is more varied."}><Input type="number" min="0" max="2" step="0.1" value={temperature} onChange={(event) => setTemperature(Number(event.currentTarget.value))} /></FormField>}
+            </div>
+          </section>
+        );
+      case "boundaries":
+        return (
+          <section className="character-editor-page">
+            <header><StickyLabel variant="danger">04 / BOUNDARIES</StickyLabel><h3>{zh ? "行为边界" : "Behavior boundaries"}</h3><p>{zh ? "写清楚哪些行为一出现就代表角色失真，以及应该避免什么。" : "List concrete behaviors that indicate drift and what the character must avoid."}</p></header>
+            <FormField label={t("creator.forbidden")} hint={zh ? "每行一个禁区，例如泄露系统提示、虚构共同记忆、突然改变关系定位。" : "Use one boundary per line, such as revealing prompts, inventing shared memories, or changing relationship status."}><Textarea rows={10} value={forbiddenBehaviors} onChange={(event) => setForbiddenBehaviors(event.currentTarget.value)} placeholder={t("creator.forbiddenPlaceholder")} /></FormField>
+          </section>
+        );
+      case "memory":
+        return (
+          <section className="character-editor-page">
+            <header><StickyLabel variant="memory">05 / MEMORY</StickyLabel><h3>{zh ? "记忆锚点" : "Memory anchors"}</h3><p>{zh ? "只保留角色应该长期记得的事实、关系与承诺。" : "Keep durable facts, relationships, and commitments only."}</p></header>
+            <FormField label={t("creator.memoryNote")} hint={zh ? "可用短段落或项目符号，注明不可被后续对话覆盖的事实。" : "Use short paragraphs or bullets and mark facts later conversation must not overwrite."}><Textarea rows={11} value={memorySummary} onChange={(event) => setMemorySummary(event.currentTarget.value)} placeholder={t("creator.memoryPlaceholder")} /></FormField>
+          </section>
+        );
+      case "runtime":
+        return (
+          <section className="character-editor-page">
+            <header><StickyLabel variant="tool">06 / RUNTIME</StickyLabel><h3>{zh ? "AI 连接" : "AI connection"}</h3><p>{zh ? "角色的人设与角色模型分离：这一页只负责连接 Provider、Model 与 Credential。" : "Character identity stays separate from model credentials; this page only connects Provider, model, and runtime target."}</p></header>
+            {!editing && <div className="character-runtime-mode-tabs" role="tablist"><PaperTab tone="lavender" active={bindingMode === "prompt"} onClick={() => setBindingMode("prompt")}><strong>{t("creator.promptMode")}</strong><span>{t("creator.promptModeHelp")}</span></PaperTab><PaperTab tone="mint" active={bindingMode === "existing"} onClick={() => setBindingMode("existing")} disabled={userTargets.length === 0}><strong>{t("creator.existingMode")}</strong><span>{t("creator.existingModeHelp")}</span></PaperTab></div>}
+            {promptFields ? <div className="character-editor-fields">
+              <ProviderSelect label={t("creator.provider")} hint={t(providerNoteKeys[provider])} value={provider} options={providerPresets.map((item) => ({ value: item.id, label: item.label }))} onChange={(event) => changeProvider(event.currentTarget.value as ProviderId)} />
+              <FormField label={t("creator.modelId")} hint={zh ? "填写 Provider 实际接受的 Model ID。" : "Use the exact model ID accepted by the provider."} required><Input value={model} onChange={(event) => setModel(event.currentTarget.value)} placeholder={t("creator.modelPlaceholder")} /></FormField>
+              <FormField className="character-editor-wide" label={t("creator.baseUrl")} hint={zh ? "通常保留 Provider 预设；自建兼容 API 时再修改。" : "Keep the preset unless you use a compatible custom endpoint."} required><Input value={baseUrl} onChange={(event) => setBaseUrl(event.currentTarget.value)} placeholder={t("creator.baseUrlPlaceholder")} /></FormField>
+              <ApiKeyField className="character-editor-wide" label={t("creator.apiKey")} hint={editing ? (zh ? "留空保留现有 Credential；输入新 Key 会安全替换。" : "Leave blank to keep the existing credential; enter a new key to replace it.") : (zh ? "Key 会保存到 Credential Vault，不写入角色卡或 Trace。" : "The key is stored in the Credential Vault, not the Character Card or traces.")} value={apiKey} onChange={(event) => setApiKey(event.currentTarget.value)} placeholder={editing ? (zh ? "留空保留现有 Key" : "Leave blank to keep existing key") : t("creator.apiKeyPlaceholder")} status={editing && !apiKey ? (zh ? "现有 Credential 保持不变" : "Existing credential preserved") : undefined} />
+            </div> : <FormField label={t("creator.targetBinding")} hint={zh ? "复用已经建立的 Runtime Target。" : "Reuse an existing runtime target."} required>{editing ? <Input value={target?.name ?? card?.target_id ?? ""} disabled /> : <Select value={targetId} onChange={(event) => setTargetId(event.currentTarget.value)}>{userTargets.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.target_kind}</option>)}</Select>}</FormField>}
+          </section>
+        );
+      case "review":
+        return (
+          <section className="character-editor-page character-editor-review-page">
+            <header><StickyLabel variant="success">07 / REVIEW</StickyLabel><h3>{zh ? "确认角色档案" : "Review character file"}</h3><p>{zh ? "保存前快速确认角色身份、人设、边界与 Runtime。这里不会再修改内容。" : "Check identity, persona, boundaries, and runtime before committing the file."}</p></header>
+            <div className="character-review-grid">
+              <StickyNote variant="character"><strong>{displayName || (zh ? "未命名角色" : "Unnamed character")}</strong><p>{subtitle || "—"}</p><small>{subjectType} · {portraitVariant}</small></StickyNote>
+              <StickyNote variant="note"><strong>{zh ? "Persona" : "Persona"}</strong><p>{personaSummary || (zh ? "尚未填写人物摘要" : "No persona summary yet")}</p><small>{splitList(traits).slice(0, 4).join(" · ") || "—"}</small></StickyNote>
+              <StickyNote variant="warning"><strong>{zh ? "边界" : "Boundaries"}</strong><p>{splitList(forbiddenBehaviors).slice(0, 4).join(" · ") || (zh ? "尚未设置明确禁区" : "No explicit boundaries yet")}</p></StickyNote>
+              <StickyNote variant="system"><strong>{zh ? "Runtime" : "Runtime"}</strong><p>{promptFields ? `${provider} · ${model || "—"}` : (target?.name || userTargets.find((item) => item.id === targetId)?.name || "—")}</p><small>{promptFields ? (editing && !apiKey ? (zh ? "保留现有 Credential" : "Existing credential preserved") : (zh ? "Credential 已准备" : "Credential ready")) : (zh ? "Existing Target" : "Existing target")}</small></StickyNote>
+            </div>
+            <div className="character-review-commit"><p>{zh ? "保存后仍可从 Character File 重新编辑。AI Draft 从不自动保存。" : "You can edit the Character File again later. AI Draft never saves automatically."}</p><Button type="submit" variant="primary" size="lg" disabled={saving || (!editing && bindingMode === "existing" && userTargets.length === 0)}>{saving ? <><Spinner size="sm" label={t("creator.saving")} /> {t("creator.saving")}</> : editing ? t("creator.saveChanges") : t("creator.submit")}</Button></div>
+          </section>
+        );
+    }
+  };
 
   return (
-    <PaperDrawer
-      onClose={onClose}
-      ariaLabel={editing ? t("creator.editHeading") : t("creator.heading")}
-      className="character-editor-drawer"
-    >
-      <form ref={formRef} className="notebook-form-paper" onSubmit={submit}>
-        <header className="notebook-form-intro">
-          <p className="tape-label">
-            {editing ? t("creator.editLabel") : t("creator.label")}
-          </p>
+    <PaperDrawer onClose={onClose} ariaLabel={editing ? t("creator.editHeading") : t("creator.heading")} className="character-editor-drawer character-editor-drawer-v3">
+      <form className="character-editor-notebook" onSubmit={submit}>
+        <header className="notebook-form-intro character-editor-intro">
+          <p className="tape-label">{editing ? t("creator.editLabel") : t("creator.label")}</p>
           <h2>{editing ? t("creator.editHeading") : t("creator.heading")}</h2>
-          <p>
-            {zh
-              ? "把角色当成一页持续补充的手帐：先写清楚他是谁，再写他说话的方式、边界与记忆。每一区都附有填写方向。"
-              : "Treat this as a living character notebook: define who they are, then document their voice, boundaries, and memory. Each section includes a writing guide."}
-          </p>
+          <p>{zh ? "这次不是滚动长表单：每张索引贴都是一页角色档案，最后在 Review 页一次确认。" : "This is a real indexed character notebook: one page per topic, with one final Review before saving."}</p>
         </header>
 
-        <PageFlagGroup
-          orientation="horizontal"
-          label={zh ? "角色设定索引" : "Character editor index"}
-          className="character-editor-page-flags"
-        >
-          {editorSections.map((section) => (
-            <PageFlag
-              key={section.id}
-              tone={section.tone}
-              active={editorSection === section.id}
-              onClick={() => openEditorSection(section.id)}
-            >
-              {zh ? section.zh : section.en}
-            </PageFlag>
-          ))}
-        </PageFlagGroup>
+        <div className="character-editor-workspace">
+          <aside className="character-editor-index">
+            <PageFlagGroup orientation="vertical" label={zh ? "角色设定索引" : "Character editor index"}>
+              {editorSections.map((section) => <PageFlag key={section.id} tone={section.tone} active={editorSection === section.id} onClick={() => openEditorSection(section.id)}>{zh ? section.zh : section.en}</PageFlag>)}
+            </PageFlagGroup>
+            <StickyNote variant="temporary" size="sm"><strong>{zh ? "自动保存？" : "Auto-save?"}</strong><p>{zh ? "不会。只有 Review 页的保存按钮会提交。" : "No. Only the Save button on Review commits changes."}</p></StickyNote>
+          </aside>
 
-        <section className={`character-ai-drafter${assistantOpen ? " is-open" : ""}`}>
-          <button
-            className="character-ai-drafter-toggle"
-            type="button"
-            onClick={() => setAssistantOpen((current) => !current)}
-            aria-expanded={assistantOpen}
-          >
-            <span className="toolbox-sticker sticker-lavender">AI DRAFT</span>
-            <span>
-              <strong>{zh ? "让 AI 帮你起草角色卡" : "Draft the Character Card with AI"}</strong>
-              <small>
-                {zh
-                  ? "描述一次，回填 Persona、Traits、Tone、边界、记忆与 System Prompt。"
-                  : "Describe once, then review Persona, Traits, Tone, boundaries, memory, and System Prompt."}
-              </small>
-            </span>
-            <b aria-hidden="true">{assistantOpen ? "−" : "+"}</b>
-          </button>
-          {assistantOpen && (
-            <div className="character-ai-drafter-body">
-              <NotebookField
-                className="is-wide"
-                label={zh ? "角色概念与核心定位" : "Character concept and core positioning"}
-                guide={zh ? "写身份、性格方向、主要关系、世界观或用途。" : "Describe identity, personality direction, relationships, world, or purpose."}
-                required
-              >
-                <NotebookTextarea
-                  rows={5}
-                  value={assistantBrief}
-                  onChange={(event) => setAssistantBrief(event.currentTarget.value)}
-                  placeholder={
-                    zh
-                      ? "例如：一位擅长把混乱需求整理成产品路线图的 AI 产品制作人，务实、好奇，但容易同时开太多项目。"
-                      : "Example: an AI product producer who turns vague ideas into executable roadmaps; practical and curious, but prone to starting too many projects."
-                  }
-                />
-              </NotebookField>
-              <NotebookField label={zh ? "关系与互动背景" : "Relationship and interaction context"}>
-                <NotebookTextarea
-                  rows={3}
-                  value={assistantRelationship}
-                  onChange={(event) => setAssistantRelationship(event.currentTarget.value)}
-                  placeholder={zh ? "角色与用户或其他角色是什么关系？" : "How does the character relate to the user or other characters?"}
-                />
-              </NotebookField>
-              <NotebookField label={zh ? "额外限制" : "Additional constraints"}>
-                <NotebookTextarea
-                  rows={3}
-                  value={assistantConstraints}
-                  onChange={(event) => setAssistantConstraints(event.currentTarget.value)}
-                  placeholder={zh ? "不要使用的语气、必须保留的设定、语言偏好等。" : "Voice to avoid, required canon, language preferences, and other constraints."}
-                />
-              </NotebookField>
-              <div className="character-ai-drafter-actions">
-                <button
-                  className="ink-button"
-                  type="button"
-                  onClick={() => void generateCharacterDraft()}
-                  disabled={assistantWorking || saving}
-                >
-                  {assistantWorking
-                    ? zh
-                      ? "生成中…"
-                      : "Generating…"
-                    : zh
-                      ? "生成并填入草稿"
-                      : "Generate and fill draft"}
-                </button>
-                <small>
-                  {zh
-                    ? "AI 不会自动保存，也不会改动 API Key 或 Provider 设置。"
-                    : "AI never saves automatically and does not change Provider credentials."}
-                </small>
+          <div className="character-editor-book-page">
+            <section className={`character-ai-drafter${assistantOpen ? " is-open" : ""}`}>
+              <button className="character-ai-drafter-toggle" type="button" onClick={() => setAssistantOpen((current) => !current)} aria-expanded={assistantOpen}>
+                <span className="toolbox-sticker sticker-lavender">AI DRAFT</span><span><strong>{zh ? "让 AI 帮你起草角色卡" : "Draft the Character Card with AI"}</strong><small>{zh ? "AI 只写角色内容，不碰 Provider 或 Credential。" : "AI writes character content only; Provider and credentials stay untouched."}</small></span><b aria-hidden="true">{assistantOpen ? "−" : "+"}</b>
+              </button>
+              {assistantOpen && <div className="character-ai-drafter-body character-ai-drafter-v3">
+                <FormField label={zh ? "角色概念与核心定位" : "Character concept and core positioning"} hint={zh ? "写身份、性格方向、主要关系、世界观或用途。" : "Describe identity, personality direction, relationships, world, or purpose."}><Textarea rows={4} value={assistantBrief} onChange={(event) => setAssistantBrief(event.currentTarget.value)} placeholder={zh ? "例如：一位擅长把混乱需求整理成产品路线图的 AI 产品制作人……" : "Example: an AI product producer who turns vague ideas into executable roadmaps…"} /></FormField>
+                <div className="character-ai-drafter-secondary"><FormField label={zh ? "关系与互动背景" : "Relationship context"}><Textarea rows={3} value={assistantRelationship} onChange={(event) => setAssistantRelationship(event.currentTarget.value)} /></FormField><FormField label={zh ? "额外限制" : "Additional constraints"}><Textarea rows={3} value={assistantConstraints} onChange={(event) => setAssistantConstraints(event.currentTarget.value)} /></FormField></div>
+                <div className="character-ai-drafter-actions"><Button variant="secondary" type="button" onClick={() => void generateCharacterDraft()} disabled={assistantWorking || saving}>{assistantWorking ? <><Spinner size="sm" label={zh ? "生成中" : "Generating"} /> {zh ? "生成中…" : "Generating…"}</> : (zh ? "生成并填入草稿" : "Generate and fill draft")}</Button><small>{zh ? "草稿会覆盖当前角色内容字段，但不会自动保存。" : "The draft replaces current character-content fields but never saves automatically."}</small></div>
+                {assistantMessage && <Toast tone={assistantMessage.includes("已使用") || assistantMessage.includes("Drafted") ? "success" : "warning"}>{assistantMessage}</Toast>}
+              </div>}
+            </section>
+
+            {message && <Toast tone="danger" title={zh ? "这一页还没完成" : "This page needs attention"}>{message}</Toast>}
+            {renderPage()}
+
+            <footer className="character-editor-page-actions">
+              <Button type="button" variant="ghost" onClick={onClose}>{t("creator.cancel")}</Button>
+              <div>
+                <Button type="button" variant="secondary" onClick={() => movePage(-1)} disabled={sectionIndex === 0}>{zh ? "上一页" : "Previous"}</Button>
+                {editorSection !== "review" && <Button type="button" variant="primary" onClick={() => movePage(1)}>{zh ? "下一页" : "Next"}</Button>}
               </div>
-              {assistantMessage && <p className="character-ai-drafter-message">{assistantMessage}</p>}
-            </div>
-          )}
-        </section>
-
-        {!editing && (
-          <div className="binding-tabs notebook-binding-tabs" aria-label={t("creator.bindingAria")}>
-            <button
-              type="button"
-              className={bindingMode === "prompt" ? "selected" : ""}
-              onClick={() => setBindingMode("prompt")}
-            >
-              {t("creator.promptMode")}
-              <small>{t("creator.promptModeHelp")}</small>
-            </button>
-            <button
-              type="button"
-              className={bindingMode === "existing" ? "selected" : ""}
-              onClick={() => setBindingMode("existing")}
-              disabled={userTargets.length === 0}
-            >
-              {t("creator.existingMode")}
-              <small>{t("creator.existingModeHelp")}</small>
-            </button>
+            </footer>
           </div>
-        )}
-
-        <div
-          id="character-editor-section-identity"
-          className="character-editor-section-anchor"
-          onFocusCapture={() => setEditorSection("identity")}
-        >
-          <NotebookSection
-            label="01 / IDENTITY"
-            title={zh ? "角色名片" : "Character identity"}
-            guide={
-              zh
-                ? "先让别人能在十秒内理解这个角色是谁。名称用于显示，副标题负责一句话定位。"
-                : "Make the character understandable in ten seconds. The name is displayed publicly; the subtitle gives the one-line positioning."
-            }
-          >
-            <NotebookField
-              label={t("creator.displayName")}
-              guide={zh ? "角色在列表、Discord 与测试房中显示的名称。" : "Shown in the shelf, Discord, and test rooms."}
-              required
-            >
-              <NotebookInput
-                name="display_name"
-                required
-                defaultValue={card?.display_name ?? ""}
-                placeholder={t("creator.displayNamePlaceholder")}
-              />
-            </NotebookField>
-            <NotebookField
-              label={t("creator.subtitle")}
-              guide={zh ? "一句话说明身份、关系或主要用途，不需要写完整背景。" : "A short role, relationship, or purpose—not the full backstory."}
-            >
-              <NotebookInput
-                name="subtitle"
-                defaultValue={card?.subtitle ?? ""}
-                placeholder={t("creator.subtitlePlaceholder")}
-              />
-            </NotebookField>
-            <NotebookField
-              label={t("creator.subjectType")}
-              guide={zh ? "用于角色库筛选，不会直接改变 Prompt。" : "Used for shelf filtering; it does not directly change the prompt."}
-            >
-              <NotebookSelect name="subject_type" defaultValue={card?.subject_type ?? "custom"}>
-                <option value="companion">{t("subject.companion")}</option>
-                <option value="npc">{t("subject.npc")}</option>
-                <option value="assistant">{t("subject.assistant")}</option>
-                <option value="custom">{t("subject.custom")}</option>
-              </NotebookSelect>
-            </NotebookField>
-            <NotebookField
-              label={t("creator.portraitPalette")}
-              guide={zh ? "选择角色卡的便签色调。" : "Choose the note-card palette."}
-            >
-              <NotebookSelect
-                name="portrait_variant"
-                defaultValue={card?.portrait_variant ?? "lavender"}
-              >
-                <option value="lavender">{t("palette.lavender")}</option>
-                <option value="rose">{t("palette.rose")}</option>
-                <option value="mint">{t("palette.mint")}</option>
-                <option value="night">{t("palette.night")}</option>
-              </NotebookSelect>
-            </NotebookField>
-          </NotebookSection>
         </div>
-
-        <div
-          id="character-editor-section-runtime"
-          className="character-editor-section-anchor"
-          onFocusCapture={() => setEditorSection("runtime")}
-        >
-          <NotebookSection
-            label="02 / RUNTIME"
-            title={zh ? "AI 连接" : "AI connection"}
-            guide={
-              zh
-                ? "这里决定角色由哪个模型运行。API Key 不会回填明文；编辑时留空会保留现有凭证，输入新 Key 会安全覆盖。"
-                : "Choose which model runs the character. API keys are never read back in plaintext; leave the edit field blank to keep the current credential or enter a new key to replace it securely."
-            }
-            accent="mint"
-          >
-            {promptFields ? (
-              <>
-                <NotebookField label={t("creator.provider")} guide={t(providerNoteKeys[provider])}>
-                  <NotebookSelect
-                    value={provider}
-                    onChange={(event) => changeProvider(event.currentTarget.value as ProviderId)}
-                  >
-                    {providerPresets.map((item) => (
-                      <option value={item.id} key={item.id}>{item.label}</option>
-                    ))}
-                  </NotebookSelect>
-                </NotebookField>
-                <NotebookField label={t("creator.modelId")} guide={zh ? "填写 Provider 实际接受的 Model ID。" : "Use the exact model ID accepted by the provider."} required>
-                  <NotebookInput
-                    value={model}
-                    onChange={(event) => setModel(event.currentTarget.value)}
-                    required
-                    placeholder={t("creator.modelPlaceholder")}
-                  />
-                </NotebookField>
-                <NotebookField className="is-wide" label={t("creator.baseUrl")} guide={zh ? "通常保留 Provider 预设；自建兼容 API 时再修改。" : "Keep the preset unless you use a compatible custom endpoint."} required>
-                  <NotebookInput
-                    value={baseUrl}
-                    onChange={(event) => setBaseUrl(event.currentTarget.value)}
-                    required
-                    placeholder={t("creator.baseUrlPlaceholder")}
-                  />
-                </NotebookField>
-                <NotebookField
-                  className="is-wide"
-                  label={t("creator.apiKey")}
-                  guide={
-                    editing
-                      ? zh
-                        ? "留空不会删除或覆盖现有凭证；输入新 Key 后会通过独立 Credential Vault 接口安全替换。"
-                        : "Leave blank to preserve the existing credential. Entering a new key replaces it through the separate Credential Vault endpoint."
-                      : zh
-                        ? "原始 Key 不会写入角色卡、Trace 或日志；Production 会以加密 Credential Vault 保存。"
-                        : "The raw key is never written to the Character Card, traces, or logs; production stores it encrypted in the Credential Vault."
-                  }
-                  required={!editing}
-                >
-                  <NotebookInput
-                    name="api_key"
-                    type="password"
-                    required={!editing}
-                    autoComplete="new-password"
-                    placeholder={
-                      editing
-                        ? zh
-                          ? "留空保留现有 Key；输入新 Key 可重新连接"
-                          : "Leave blank to keep the current key; enter a new key to reconnect"
-                        : t("creator.apiKeyPlaceholder")
-                    }
-                  />
-                </NotebookField>
-                <NotebookField
-                  className="is-wide"
-                  label={t("creator.systemPrompt")}
-                  guide={
-                    zh
-                      ? "写角色必须长期遵守的身份、世界观、表达方式与优先级。不要只写几句形容词，建议使用清晰段落。"
-                      : "Document persistent identity, worldview, voice, and priorities. Use clear paragraphs rather than a few adjectives."
-                  }
-                  required
-                >
-                  <NotebookTextarea
-                    name="system_prompt"
-                    rows={14}
-                    required
-                    defaultValue={configString(target, "system_prompt")}
-                    placeholder={t("creator.systemPromptPlaceholder")}
-                  />
-                </NotebookField>
-                <NotebookField label={t("creator.temperature")} guide={zh ? "较低更稳定，较高更有变化。" : "Lower is steadier; higher is more varied."} required>
-                  <NotebookInput
-                    name="temperature"
-                    type="number"
-                    min="0"
-                    max="2"
-                    step="0.1"
-                    defaultValue={configNumber(target, "temperature", 0.7)}
-                    required
-                  />
-                </NotebookField>
-              </>
-            ) : (
-              <NotebookField className="is-wide" label={t("creator.targetBinding")} guide={zh ? "复用已经建立的 Runtime Target。" : "Reuse an existing runtime target."} required>
-                {editing ? (
-                  <NotebookInput value={target?.name ?? card?.target_id ?? ""} disabled />
-                ) : (
-                  <NotebookSelect name="target_id" required defaultValue={userTargets[0]?.id}>
-                    {userTargets.map((item) => (
-                      <option value={item.id} key={item.id}>
-                        {item.name} · {item.target_kind}
-                      </option>
-                    ))}
-                  </NotebookSelect>
-                )}
-              </NotebookField>
-            )}
-          </NotebookSection>
-        </div>
-
-        <div
-          id="character-editor-section-persona"
-          className="character-editor-section-anchor"
-          onFocusCapture={() => setEditorSection("persona")}
-        >
-          <NotebookSection
-            label="03 / PERSONA"
-            title={zh ? "人物核心" : "Persona core"}
-            guide={
-              zh
-                ? "这一区回答：他通常如何看待世界、如何做决定、在关系中是什么样的人。"
-                : "Explain how the character sees the world, makes decisions, and behaves in relationships."
-            }
-            accent="peach"
-          >
-            <NotebookField className="is-wide" label={t("creator.personaSummary")} guide={zh ? "用两到五段写背景、动机、价值观与关键矛盾。" : "Use two to five paragraphs for background, motives, values, and central tension."}>
-              <NotebookTextarea
-                name="persona_summary"
-                rows={8}
-                defaultValue={card?.persona_summary ?? ""}
-                placeholder={t("creator.personaPlaceholder")}
-              />
-            </NotebookField>
-            <NotebookField className="is-wide" label={t("creator.traits")} guide={zh ? "每行或逗号分隔一个稳定特质，并尽量写成可观察行为。" : "Use one stable trait per line or comma, preferably as observable behavior."}>
-              <NotebookTextarea
-                name="traits"
-                rows={4}
-                defaultValue={card?.traits.join("\n") ?? ""}
-                placeholder={t("creator.traitsPlaceholder")}
-              />
-            </NotebookField>
-            <NotebookField className="is-wide" label={t("creator.expectedTone")} guide={zh ? "描述语速、用词、情绪强度、幽默方式与面对不同对象时的变化。" : "Describe pacing, vocabulary, emotional intensity, humor, and how the voice changes by audience."}>
-              <NotebookTextarea
-                name="expected_tone"
-                rows={5}
-                defaultValue={card?.expected_tone ?? ""}
-                placeholder={t("creator.expectedTonePlaceholder")}
-              />
-            </NotebookField>
-            <NotebookField className="is-wide" label={t("creator.tags")} guide={zh ? "用于搜索与整理；每行或逗号分隔。" : "Used for search and organization; separate with lines or commas."}>
-              <NotebookTextarea
-                name="tags"
-                rows={3}
-                defaultValue={card?.tags.join("\n") ?? ""}
-                placeholder={t("creator.tagsPlaceholder")}
-              />
-            </NotebookField>
-          </NotebookSection>
-        </div>
-
-        <div
-          id="character-editor-section-boundaries"
-          className="character-editor-section-anchor"
-          onFocusCapture={() => setEditorSection("boundaries")}
-        >
-          <NotebookSection
-            label="04 / BOUNDARIES"
-            title={zh ? "行为边界" : "Behavior boundaries"}
-            guide={
-              zh
-                ? "不要只写“不要 OOC”。写清楚哪些行为一出现就代表角色失真，以及正确替代做法。"
-                : "Do not write only “stay in character.” List concrete behaviors that indicate drift and the preferred alternative."
-            }
-            accent="rose"
-          >
-            <NotebookField className="is-wide" label={t("creator.forbidden")} guide={zh ? "每行写一个禁区，例如泄露系统提示、虚构共同记忆、突然改变关系定位。" : "Use one boundary per line, such as revealing prompts, inventing shared memories, or changing relationship status."}>
-              <NotebookTextarea
-                name="forbidden_behaviors"
-                rows={7}
-                defaultValue={card?.forbidden_behaviors.join("\n") ?? ""}
-                placeholder={t("creator.forbiddenPlaceholder")}
-              />
-            </NotebookField>
-          </NotebookSection>
-        </div>
-
-        <div
-          id="character-editor-section-memory"
-          className="character-editor-section-anchor"
-          onFocusCapture={() => setEditorSection("memory")}
-        >
-          <NotebookSection
-            label="05 / MEMORY"
-            title={zh ? "记忆锚点" : "Memory anchors"}
-            guide={
-              zh
-                ? "只写角色应该长期记得的事实、关系与承诺，不要把临时聊天内容全部塞进来。"
-                : "Keep only durable facts, relationships, and commitments—not every temporary chat detail."
-            }
-          >
-            <NotebookField className="is-wide" label={t("creator.memoryNote")} guide={zh ? "可使用短段落或项目符号，注明哪些事实不可被后续对话覆盖。" : "Use short paragraphs or bullets and mark facts that later conversation must not overwrite."}>
-              <NotebookTextarea
-                name="memory_summary"
-                rows={7}
-                defaultValue={card?.memory_summary ?? ""}
-                placeholder={t("creator.memoryPlaceholder")}
-              />
-            </NotebookField>
-          </NotebookSection>
-        </div>
-
-        {message && <p className="error-note" role="alert">{message}</p>}
-
-        <footer className="notebook-form-actions">
-          <button type="button" className="paper-button" onClick={onClose}>
-            {t("creator.cancel")}
-          </button>
-          <button
-            className="ink-button"
-            disabled={saving || (!editing && bindingMode === "existing" && userTargets.length === 0)}
-          >
-            {saving
-              ? t("creator.saving")
-              : editing
-                ? t("creator.saveChanges")
-                : t("creator.submit")}
-          </button>
-        </footer>
       </form>
     </PaperDrawer>
   );

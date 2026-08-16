@@ -46,6 +46,20 @@
   line-height: 1.2;
 }
 
+.cr-topic-note__content {
+  color: var(--cr-ink-soft);
+  font-size: .78rem;
+  line-height: 1.55;
+}
+
+.cr-topic-note__content > :first-child {
+  margin-top: 0;
+}
+
+.cr-topic-note__content > :last-child {
+  margin-bottom: 0;
+}
+
 .cr-topic-note__meta {
   display: flex;
   flex-wrap: wrap;

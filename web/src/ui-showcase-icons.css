@@ -1,0 +1,37 @@
+.ui-showcase-icon-note {
+  max-width: 72ch;
+  color: var(--cr-ink-soft);
+  line-height: 1.55;
+}
+
+.ui-showcase-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.ui-showcase-icon-grid > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--cr-line);
+  border-radius: 7px 10px 8px 6px;
+  background: var(--cr-paper-muted);
+  color: var(--cr-ink-soft);
+}
+
+.ui-showcase-icon-grid svg {
+  flex: 0 0 auto;
+  color: var(--cr-focus);
+}
+
+.ui-showcase-icon-grid span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: .72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
