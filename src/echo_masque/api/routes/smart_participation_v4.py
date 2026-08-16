@@ -256,7 +256,11 @@ def _conversation_planner(request: Request) -> ConversationAdmissionPlanner:
     current = getattr(request.app.state, "conversation_admission_planner_v1", None)
     if isinstance(current, ConversationAdmissionPlanner):
         return current
-    runtime = cast(RuntimeService, request.app.state.runtime_service)
+    runtime = getattr(request.app.state, "runtime_service", None)
+    if not isinstance(runtime, RuntimeService):
+        settings = cast(Settings, request.app.state.settings)
+        database = _deployment_repository(request).database
+        runtime = RuntimeService(Repository(database), settings)
     gateway = UtilityGatewayRouter(runtime, caller=ExistingProviderUtilityCaller())
     service = ConversationAdmissionPlanner(gateway)
     request.app.state.conversation_admission_planner_v1 = service
