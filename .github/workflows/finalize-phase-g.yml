@@ -1,0 +1,71 @@
+name: Finalize Phase G
+
+on:
+  push:
+    branches:
+      - feat/server-wiki-graph-consolidation
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/server-wiki-graph-consolidation
+          fetch-depth: 0
+
+      - name: Apply final runtime wiring
+        run: python scripts/phase_g_finalize.py
+
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Format imports and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruff check --fix \
+            src/echo_masque/api/app.py \
+            src/echo_masque/evaluation_lifecycle.py \
+            src/echo_masque/conversation_consolidation.py \
+            src/echo_masque/conversation_consolidation_events.py \
+            src/echo_masque/persistence/server_knowledge_models.py \
+            src/echo_masque/persistence/server_knowledge_repository.py \
+            tests/test_server_knowledge_consolidation.py
+          ruff check \
+            src/echo_masque/api/app.py \
+            src/echo_masque/evaluation_lifecycle.py \
+            src/echo_masque/conversation_consolidation.py \
+            src/echo_masque/conversation_consolidation_events.py \
+            src/echo_masque/persistence/server_knowledge_models.py \
+            src/echo_masque/persistence/server_knowledge_repository.py \
+            tests/test_server_knowledge_consolidation.py
+          python -m compileall -q \
+            src/echo_masque/api/app.py \
+            src/echo_masque/evaluation_lifecycle.py \
+            src/echo_masque/conversation_consolidation.py \
+            src/echo_masque/conversation_consolidation_events.py \
+            src/echo_masque/persistence/server_knowledge_models.py \
+            src/echo_masque/persistence/server_knowledge_repository.py
+          pytest -q \
+            tests/test_server_knowledge_consolidation.py \
+            tests/test_memory_vnext_internal_tools.py \
+            tests/test_conversation_episode_projection.py \
+            tests/test_conversation_topic_memory.py
+
+      - name: Commit clean Phase G
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/phase-g-part-* .github/phase-g-chunk-* \
+            scripts/phase_g_finalize.py .github/workflows/finalize-phase-g.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: complete server wiki graph and hybrid consolidation'
+          git push origin HEAD:feat/server-wiki-graph-consolidation
