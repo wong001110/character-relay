@@ -19,7 +19,7 @@
   z-index: var(--cr-z-overlay-modal, 2000);
 }
 
-.cr-confirm-backdrop {
+.cr-confirm-dialog__backdrop {
   z-index: var(--cr-z-overlay-confirm, 3000);
 }
 
