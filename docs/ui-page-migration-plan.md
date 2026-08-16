@@ -1,450 +1,479 @@
-# Character Relay — Scrapbook Page Migration Plan
+# Character Relay — UI Renovation Plan
 
-Status: accepted design direction
+Status: **approved visual direction + implementation contract**
 
-This document translates the UI/UX contract into page-level decisions. The goal is not to make every screen look like the same paper card. Each area should feel like a different part of the same anime research notebook while preserving dense technical readability where needed.
+This document is the page-level source of truth for the Character Relay web UI renovation. It supersedes the earlier "scrapbook skin" interpretation: future work must change page composition and information hierarchy where an approved reference requires it, not merely recolor existing admin layouts.
 
-## Global rule
+The product remains an **Anime Scrapbook Workspace**: characters provide the strongest anime identity; paper, index flags, notes, stamps, tape, and annotations provide the scrapbook frame. Functional behavior, real data, accessibility, and technical readability remain authoritative.
 
-Character Relay Web UI is a personal anime scrapbook workspace, not a conventional enterprise admin console.
+Related contracts:
 
-Each meaningful action should map to one of the contract interaction metaphors:
-
-- Write — enter or edit information.
-- Stick — add a character, note, reminder, attachment, or other new item.
-- Flip — move between notebook sections or indexed pages.
-- Rewrite / Replace — modify an existing selection or configuration.
-- Rearrange — organize information that is genuinely spatial or sortable.
-- Annotate / Stamp — display state, evidence, warnings, decisions, or observations.
-
-Functional behavior stays conventional and accessible. Scrapbook styling is a visual and micro-interaction layer, not a reason to make controls ambiguous.
-
-## Generated imagery rule
-
-Generated raster artwork is allowed when it is better than SVG/CSS for organic or illustrative material such as:
-
-- dashboard scrapbook illustrations;
-- anime character or mascot artwork;
-- paper texture with natural irregularity;
-- collage decoration;
-- hand-drawn stationery elements;
-- empty-state illustrations;
-- optional decorative stickers.
-
-Do not imitate these assets with complicated SVG merely to avoid image generation.
-
-SVG/CSS remains preferred for functional icons, state-bearing shapes, simple geometry, deterministic controls, focus affordances, and elements whose exact scaling matters.
-
-Generated imagery must never contain required UI text, replace accessible labels, encode the only copy of a state, or become necessary to understand an action.
+- `docs/ui-ux-contract.md`
+- `docs/ui-component-library.md`
+- `docs/ai-agent-development-workflow.md`
+- `AGENTS.md`
 
 ---
 
-# Page decisions
+## 1. Mandatory execution protocol for AI coding agents
 
-## 1. Global Shell
+For any UI task covered by this plan, an AI coding agent MUST do the following before editing code:
 
-Visual role: the notebook frame / research workspace.
+1. Read `AGENTS.md`.
+2. Read `docs/ui-ux-contract.md` and `docs/ui-component-library.md`.
+3. Read this plan and locate the exact page section.
+4. Open the corresponding image in `docs/ui-references/` when the page is marked **APPROVED**.
+5. Inspect the current feature component, related API/types, tests, and current `main`/branch diff.
+6. Write down the real fields/endpoints/state that will drive the UI. Do not infer them from the reference image or prior chat memory.
+7. Implement the smallest coherent page-composition change that preserves product behavior unless the plan explicitly calls for a structural navigation change.
+8. Run the relevant web typecheck/tests/build and update canonical docs when the change alters architecture or page status.
 
-Keep the existing primary navigation structure because it is efficient. Do not turn the entire top bar into decorative page flags.
+### Reference-image authority
 
-Adjustments:
+Approved images are **composition references**, not screenshots of a finished product contract.
 
-- keep the Character Relay wordmark;
-- use consistent functional icons instead of decorative Unicode glyphs over time;
-- show a small section marker so the current notebook area is obvious;
-- active navigation should feel like a selected notebook index without losing standard navigation affordance;
-- keep decoration outside layout flow;
-- let individual pages carry stronger scrapbook identity than the global shell.
+They ARE authoritative for:
 
-Scrapbook intensity: medium.
+- page hierarchy and spatial composition;
+- relative visual emphasis;
+- scrapbook intensity;
+- placement/use of PageFlags, StickyNotes, PaperCards, stamps, and portrait emphasis;
+- the overall relationship between primary content and secondary technical content.
 
-## 2. Dashboard
+They are NOT authoritative for:
 
-Visual role: notebook cover + today's research desk.
+- literal numbers, timestamps, names, sample copy, server limits, metrics, or statuses shown inside generated art;
+- API fields or endpoints;
+- backend behavior;
+- data that does not exist in current code;
+- arbitrary decorative navigation that conflicts with the approved product navigation.
 
-The dashboard is one of the strongest identity surfaces and may use generated imagery.
+**Never implement invented data because it appears in generated reference art.** Current code/types/API/tests determine what can be rendered. If the reference needs information that is unavailable, either derive it from an existing authoritative source, add a separately reviewed data contract, or omit/degrade the element and document the deviation.
 
-Adjustments:
+### Design-system rule
 
-- retain the current research-studio headline and workflow concept;
-- make Characters / current character work the strongest visual destination;
-- make Deployments and Behavior Observer secondary;
-- make Settings visually quieter;
-- keep the Studio Note as a real StickyNote-style object;
-- reserve an optional illustration area for generated anime scrapbook artwork without embedded text;
-- treat navigation cards as notebook destinations rather than generic SaaS KPI cards.
+Feature pages should consume shared UI (`components/ui`) and Character Relay domain components (`components/shared`) rather than creating local copies. Functional icons remain deterministic SVG/CSS. Generated/raster art is allowed for organic illustration, character art, paper texture, empty states, and restrained scrapbook decoration.
 
-Scrapbook intensity: high.
+---
 
-## 3. Characters / Character Shelf
+## 2. Approved UI reference index
 
-Visual role: character archive / scrapbook shelf.
+| Surface | Status | Reference | Implementation meaning |
+| --- | --- | --- | --- |
+| Dashboard | **APPROVED** | `docs/ui-references/dashboard.webp` | Research-studio overview grounded in live Character Relay state |
+| Characters / Character Archive | **APPROVED** | `docs/ui-references/characters-archive.webp` | Character archive with portrait-first durable files |
+| Character File | **APPROVED** | `docs/ui-references/character-file.webp` | Full-page, read-first single-character record |
+| Character Creator | **APPROVED** | `docs/ui-references/character-creator.webp` | Full-page seven-page character-writing flow |
+| Test Room | **APPROVED** | `docs/ui-references/test-room.webp` | Live character experiment with conversation-first observation |
+| Deployment Workspace | **APPROVED** | `docs/ui-references/deployment-workspace.webp` | Server Passport + Server Notebook + character deployment files |
 
-Adjustments:
+The images are intentionally optimized reference assets; the original generated images are not runtime dependencies.
 
-- character portrait is the strongest element on every card;
-- reduce visible action competition;
-- primary actions should become `Test Character` and `Open File`;
-- Prompt, Semantic Profile, Deploy, portrait management, and other actions should move into the character file or a compact secondary action area;
-- filters stay in the page margin, following the existing “find a character, not a spreadsheet” direction;
-- tags use StickyLabel semantics;
-- character cards remain PaperCards rather than StickyNotes because they are durable records;
-- image upload, future image generation, and no-portrait state must all remain valid.
+---
 
-Scrapbook intensity: high.
+# Approved page specifications
 
-## 4. Character Creator / Editor
+## 3. Global Shell
 
-Visual role: actively written character setting notebook.
+Status: **direction established by all approved references**.
 
-This is a priority structural migration because the current editor is still a long form.
+- Keep one global top navigation: `Dashboard / Characters / Deployments / Toolbox / Settings`.
+- Do not add a second right-side global navigation.
+- The shell stays relatively quiet; page identity lives in the content area.
+- Replace decorative Unicode functional glyphs with a consistent icon system over time.
+- Overlay order follows the semantic layer contract already introduced: page < drawer < modal < confirm < critical.
 
-Target section model:
+Scrapbook intensity: **low-medium**.
+
+---
+
+## 4. Dashboard — APPROVED
+
+Reference: `docs/ui-references/dashboard.webp`
+
+Visual role: **Character Research Studio / current-world overview**.
+
+The Dashboard should answer three questions first:
+
+1. Where are my characters now?
+2. What just happened?
+3. Does anything need my attention?
+
+### Composition
+
+- Hero: `CHARACTER RESEARCH STUDIO` and the product-facing line "今天想让谁去真实世界里说话？" / equivalent localized copy.
+- Primary actions: create character; open behavior observer.
+- Compact snapshot notes sourced from real data:
+  - Character Files;
+  - Active Deployments;
+  - Servers Online;
+  - Needs Attention.
+- **Live on Discord** is the primary working area, showing character, Server/Channel, participation mode, status, and recent activity when available.
+- **Recent Activity Journal** uses Discord connector logs/events as a readable activity journal rather than a raw log table.
+- Right-side semantic StickyNotes:
+  - Attention Notes (deployment/connection/reminder/runtime issues that really exist);
+  - Upcoming (pending scheduler reminders).
+- Character Files provides compact quick entry to a few relevant characters.
+- Bottom System Note is intentionally quiet: Judge / Adaptive / Discord readiness.
+
+### Grounding constraints
+
+Do **not** add fake global Success Rate, Test Session count, global Current Topic, storage percentage, or other generated-art metrics unless a real API/aggregate is added and reviewed. Topic state is scoped to server/channel/thread and must not be flattened into a fake global topic.
+
+Scrapbook intensity: **medium-high**, with high identity but clear operational content.
+
+---
+
+## 5. Characters / Character Archive — APPROVED
+
+Reference: `docs/ui-references/characters-archive.webp`
+
+Visual role: **durable character archive / scrapbook shelf**.
+
+### Composition
+
+- Full page under the global navigation.
+- `CHARACTER ARCHIVE / 角色档案册` identity area.
+- Portrait is the strongest visual element on every Character file card.
+- Real-data filters only:
+  - All;
+  - Deployed;
+  - Not Deployed;
+  - Needs Setup.
+- Search behaves like finding a file, not operating a spreadsheet.
+- Character cards show concise identity/persona and a few semantic tags.
+- `Open File` is the primary action.
+- Test/Deploy may remain compact shortcuts; Prompt/Memory/Runtime/portrait management should not compete on the shelf.
+- The final blank card is `New Character File` and opens Character Creator.
+
+### Grounding constraints
+
+Do not add Favorites, Archived, Recently Edited, Last Edited, or other states until the data model actually supports them. `created_at` is not an `updated_at` substitute.
+
+Scrapbook intensity: **high**.
+
+---
+
+## 6. Character File — APPROVED
+
+Reference: `docs/ui-references/character-file.webp`
+
+Visual role: **formal single-character record**.
+
+This should become a full-page route/view, not the long-term home for a nested Drawer stack.
+
+### Navigation
+
+Vertical PageFlags:
+
+- Profile
+- Persona
+- Prompt
+- Memory
+- Runtime
+- Deployments
+
+### Profile page
+
+- Portrait + name + subtitle/subject type dominate.
+- Persona summary and traits remain readable, not hidden behind edit controls.
+- Current deployment/status appears as an attached status note.
+- Preferred tests can appear as a structured secondary sheet where current data supports it.
+- Top actions: `Test Character`, `Edit Character`, `Deploy` / open deployment.
+
+### Secondary pages
+
+- Persona: persona summary, traits, tone, forbidden behavior.
+- Prompt: integrate Raw/Compiled prompt inspection into the file where feasible, reducing `Character File -> Prompt Modal` nesting.
+- Memory: show configured/authoritative memory information only; do not invent vNext memory views before their contracts land on `main`.
+- Runtime: provider/model/credential/readiness in a low-decoration technical sheet; editing routes to Character Creator/appropriate configuration.
+- Deployments: show where this Character lives and open the corresponding Deployment file.
+
+Scrapbook intensity: **medium-high**, lower than the archive around dense text.
+
+---
+
+## 7. Character Creator — APPROVED
+
+Reference: `docs/ui-references/character-creator.webp`
+
+Visual role: **actively writing/editing a Character file**.
+
+The current controlled editor state supports true page navigation; future renovation should move the primary experience from `PaperDrawer` to a full-page editor.
+
+### Seven pages
 
 1. Identity
-2. Persona / Personality
-3. Voice / Prompt
+2. Persona
+3. Voice
 4. Boundaries
 5. Memory
 6. Runtime
 7. Review
 
-Adjustments:
-
-- use PageFlag / IndexTab navigation;
-- preserve one underlying form state across pages;
-- avoid unmounting uncontrolled fields in a way that loses FormData or browser validation state;
-- AI Draft becomes a StickyNote-like assistant entry instead of dominating the top of the form;
-- after AI Draft, changed fields should be visibly annotated for review;
-- generated drafts never auto-save;
-- API Key and Provider settings are not modified by AI Draft;
-- final save action should feel like committing the character page rather than submitting a generic web form.
-
-Migration note: true page-by-page editing should be introduced only after field state is controlled or validation is explicitly coordinated. Until then, PageFlags may act as safe section indexes rather than hiding required uncontrolled fields.
-
-Scrapbook intensity: high.
-
-## 5. Test Room
-
-Visual role: live character experiment.
-
-Target layout:
-
-- main conversation area around two thirds of the width;
-- observation margin around one third;
-- technical detail stays secondary by default.
-
-Observation margin candidates:
-
-- Current Topic StickyNote;
-- participation state;
-- media seen / understood;
-- tool use;
-- memory or retrieval event;
-- judge / OOC signal;
-- latest interesting runtime event.
-
-Default UX should explain what happened in human-readable form first. Raw traces expand on demand.
-
-Phase 2 implementation status:
-
-- live transcript is now the dominant paper sheet;
-- setup controls are visually grouped as a compact experiment setup page;
-- observation/integrity/persona/report information is treated as attached notes rather than an equal third dashboard column;
-- visible state/action surfaces use shared Button, StatusIndicator, StickyLabel, StickyNote, Stamp, EmptyState, and Toast primitives;
-- transcript readability remains intentionally cleaner than the observation margin;
-- trial/runtime behavior remains unchanged.
-
-Scrapbook intensity: medium-high.
-
-## 6. Prompt Inspector
-
-Visual role: prompt manuscript pulled from the character file.
-
-Suggested PaperTabs:
-
-- System Prompt
-- Runtime Injections
-- Final Composed Prompt
-
-The current runtime only exposes Raw Prompt and Compiled Character Prompt, so Phase 2 does not invent unavailable layers. Raw / Compiled use PaperTab navigation until the data model provides additional authoritative layers.
-
-Phase 2 implementation status:
-
-- Raw and Compiled layers use shared PaperTab navigation;
-- source/runtime distinction uses Stamp and StickyLabel;
-- copy/export/loading/error states use shared UI primitives;
-- Escape-to-close is supported;
-- generated imagery remains unnecessary here.
-
-Prioritize typography and readability. Generated imagery is unnecessary here.
-
-Scrapbook intensity: low-medium.
-
-## 7. Deployments
-
-Visual role: Server Notebook / field deployment manual.
-
-Target structure:
-
-- top Server Passport showing selected server, connection state, channel count, character count, knowledge count, and last sync;
-- PageFlags for Characters, Knowledge, Interactions, Intelligence;
-- platform connection management moves out of the permanent main layout and into a Drawer;
-- deployment configuration remains accessible but no longer competes with the daily server view;
-- Discord itself remains native and is not reskinned by Character Relay.
-
-Scrapbook intensity: high for navigation, medium for configuration.
-
-## 8. Deployment → Characters
-
-Visual role: who currently lives in this server.
-
-Use character-oriented deployment rows/cards showing:
-
-- portrait and name;
-- participation mode;
-- channel scope;
-- identity;
-- tools;
-- status.
-
-Open the detailed deployment sheet only when needed.
-
-Scrapbook intensity: medium.
-
-## 9. Knowledge
-
-Visual role: server reference folder.
-
-Knowledge source types can use semantic StickyLabels:
-
-- document;
-- note;
-- link;
-- conversation-derived knowledge.
-
-Color represents source semantics, not random decoration. Empty state may use generated illustration.
-
-Scrapbook intensity: medium-high.
-
-## 10. Interactions
-
-Visual role: interaction journal.
-
-Default view should answer “who interacted with whom, about what, and what changed?” rather than defaulting to a graph.
-
-A Relationship Graph may be added later as a secondary view if graph-based runtime work becomes useful.
-
-Scrapbook intensity: medium.
-
-## 11. Conversation Intelligence
-
-Visual role: research analysis page.
-
-Key information includes Topic, Thread, Entity, Intent, Continuity, and Confidence.
-
-Use annotation and light note metaphors, but do not turn dense analytical data into decorative paper fragments.
-
-Scrapbook intensity: low-medium.
-
-## 12. Toolbox / Behavior Observer
-
-Visual role: research desk.
-
-Keep Observe and Tools as the main grouping.
-
-Behavior Notebook is the primary research surface. Provider Calls and Runtime Raw should be visually grouped as Technical Evidence rather than presented as equally important user destinations.
-
-Scrapbook intensity: medium.
-
-## 13. Behavior Notebook
-
-Visual role: readable experiment record.
-
-Required information hierarchy:
-
-1. narrative summary of what the character turn did;
-2. important observations and decisions;
-3. expandable evidence;
-4. raw traces last.
-
-Example narrative:
-
-- Ann saw the image;
-- interpreted it as food;
-- current topic stayed dinner;
-- decided to reply;
-- no tool was used;
-- response generated successfully.
-
-Expandable evidence may include Media Understanding, Topic Judge, Participant Runtime, Provider Trace, Tool Calls, and Prompt.
-
-Principle: Narrative first → Trace second.
-
-Phase 2 implementation status:
-
-- Behavior / Flow / State / Raw now use the shared PaperTab language;
-- turn summaries and evidence use real StickyNote components;
-- search/filter/status/error/loading surfaces are migrating to SearchField, Button, StatusIndicator, Toast, EmptyState, and Spinner;
-- observation, state, raw trace, and provider evidence use InspectorSection so dense technical surfaces share the same low-decoration foundation;
-- provider result detail reads as a technical receipt/side insert rather than a separate monitoring product;
-- runtime/business logic and evidence semantics remain unchanged.
-
-Scrapbook intensity: medium.
-
-## 14. Provider Calls
-
-Visual role: technical request receipts / evidence slips.
-
-Compact request items may show Provider, Model, Latency, Tokens, Cost, Cache, and Status. Payload and raw response remain expandable.
-
-Scrapbook intensity: low-medium.
-
-## 15. Runtime Raw
-
-Visual role: developer appendix.
-
-Do not heavily scrapbook this page. Standardize typography, buttons, tabs, state colors, and paper container only.
-
-Scrapbook intensity: low.
-
-## 16. Tool Calling
-
-Visual role: experiment bench.
-
-Suggested structure:
-
-- tool list;
-- test sheet;
-- result / evidence area.
-
-Functional icons stay SVG/CSS. Optional decorative stickers may use generated imagery.
-
-Scrapbook intensity: medium.
-
-## 17. Schedules
-
-Visual role: calendar + reminder notes.
-
-Prefer Today / Tomorrow / Later groupings with StickyNote-style reminders instead of a dense data table when scale allows.
-
-Scrapbook intensity: medium-high.
-
-## 18. Settings
-
-Visual role: back pages / private creator pocket.
-
-Near-term structure can remain compact. When settings grow, split into PageFlags such as:
-
-- Account
-- Providers
-- Runtime
-- Security
-- Preferences
-
-Avoid premature page splitting until content volume justifies it.
-
-Scrapbook intensity: medium.
-
-## 19. Admin Runtime Settings
-
-Visual role: clipped system configuration sheet.
-
-Keep technical readability high. Provider, Judge, Adaptive, Utility Gateway, and similar groups may become PaperTabs when necessary.
-
-Scrapbook intensity: low-medium.
-
-## 20. Echo Masque Lab
-
-Visual role: separate experimental notebook.
-
-This area may use stronger generated artwork and stamp language such as PASS, OOC, DRIFT, REVIEW while preserving evaluative clarity.
-
-Scrapbook intensity: high.
-
-## 21. Matrix
-
-Visual role: experiment comparison sheet.
-
-Keep the matrix dense and readable. Use paper surface, marker-style highlight, and annotation only.
-
-Scrapbook intensity: low-medium.
-
-## 22. Auth / Login
-
-Visual role: studio pass / notebook entry page.
-
-Generated illustration is recommended here because it can communicate project identity before the user reaches the workspace. Illustration should contain no required UI copy.
-
-Scrapbook intensity: high.
+### Interaction rules
+
+- Left PageFlags are real page navigation.
+- Previous/Next provides a guided writing flow.
+- Identity includes immediate Character/portrait preview and portrait palette/variant; upload/generation can be added later without becoming mandatory.
+- Traits/Tags should migrate from newline-string editing toward direct chip/sticky-label editing where practical.
+- Boundaries should read as an editable list of forbidden behaviors rather than a generic blob.
+- Voice keeps long Prompt text readable; decoration is reduced around manuscript text.
+- Memory stays limited to authoritative configured memory fields until richer memory contracts are on `main`.
+- Runtime is intentionally much less decorative and keeps Provider/Base URL/Model/Temperature/API Key semantics clear.
+- Review is a real final page: summarize completion/readiness and link validation failures back to the relevant PageFlag before save.
+
+### AI Draft Assistant
+
+- AI Draft is a side note/assistant, not the page's dominant form.
+- It may fill Character-content fields, but never silently changes Provider or credentials and never auto-saves.
+- AI-authored/changed pages should be visibly marked for human review.
+
+Save should return to the Character File so the user sees the completed record.
+
+Scrapbook intensity: **high overall; low-medium on Runtime**.
 
 ---
 
-# Delivery phases
+## 8. Test Room / Live Character Experiment — APPROVED
 
-## Phase 1 — visual hierarchy and safe adoption
+Reference: `docs/ui-references/test-room.webp`
 
-Status: implemented on `main` through the initial scrapbook foundation/page pass.
+Visual role: **live experiment notebook**.
 
-- Global Shell
-- Dashboard
-- Character Shelf visual hierarchy
-- Character Creator visual treatment
-- shared component adoption where it does not change business behavior
-- no destructive layout migration
+### Three-part composition
 
-## Phase 2 — character workflow
+- Left: compact Experiment Setup.
+- Center: dominant Live Conversation / Trial event stream.
+- Right: Observation Board.
 
-Status: in progress in the Phase 2 character-workflow PR.
+### Setup uses current real semantics
 
-Implemented / actively migrated:
+- Character + readiness;
+- Benchmark / Adaptive Tester;
+- Rules / Semantic / Hybrid Judge;
+- language;
+- current test suites (Mirror / Memory / Script / Echo Hall mapping to real TestKind values);
+- Watch / Fast observation mode;
+- Begin/Stop Experiment.
 
-- Test Room presentation and shared component adoption;
-- Behavior Notebook narrative/trace hierarchy and shared component adoption;
-- Prompt Inspector manuscript treatment;
-- feedback/technical primitives;
-- `/dev/ui` living component showcase;
-- Character Relay shared/domain components for Provider, Model, API Key, Topic, Temporary Role, and Participant patterns.
+Provider details should stay secondary unless credential/configuration is missing.
 
-Still structural follow-up:
+### Live conversation
 
-- Character Creator true page navigation after form state is safe.
+- Tester and Character messages read primarily as conversation.
+- Judge results are attached `JUDGE MEMO` notes, not fake chat participants.
+- Breakpoints become visible red-pen experiment events without turning into blocking error modals.
+- Keep transcript readability cleaner than the surrounding scrapbook surfaces.
 
-## Phase 3 — server workflow
+### Observation Board
 
-- Deployment Center
+Use real run/result state for:
+
+- Integrity / review state;
+- evidence count;
+- current room;
+- first breakpoint/fracture;
+- session state;
+- Persona Note;
+- benchmark comparison/regression state when available;
+- Markdown Lab Note / JSON report after completion.
+
+Scrapbook intensity: **medium-high around the experiment; medium-low inside transcript**.
+
+---
+
+## 9. Deployment Workspace — APPROVED / NEXT IMPLEMENTATION PRIORITY
+
+Reference: `docs/ui-references/deployment-workspace.webp`
+
+Visual role: **Server Workspace / field deployment manual**.
+
+The primary context is the selected Discord Server, not a global connection-management dashboard.
+
+### Server Passport
+
+Top of page shows the selected Server with real available state:
+
+- guild/server name and workspace/profile label;
+- connector status;
+- visible channel count;
+- exclusions count;
+- timezone when available;
+- Character Relay Discord connection identity;
+- `Server Settings` and `View Server Log` as secondary actions.
+
+Connection infrastructure is summarized here; full connection management belongs in a Drawer/secondary flow, not a permanent main-column panel.
+
+### Server Notebook
+
+Use first-class PageFlags/Tabs:
+
+- Characters
 - Knowledge
 - Interactions
-- Conversation Intelligence
+- Intelligence
 
-## Phase 4 — technical and account surfaces
+Only one notebook page is primary at a time.
 
-- Toolbox hierarchy
-- Provider Calls
-- Runtime Raw
-- Tool Calling
-- Schedules
-- Settings
-- Admin Runtime
+### Characters page — default
 
-## Phase 5 — illustration pass
+Title: `CHARACTERS IN THIS SERVER`.
 
-Generate only the assets that materially improve identity or empty states. Do not produce generated art merely to fill space.
+Compact real summary: total / active / paused / needs attention, plus synced channel count where available.
 
-Candidate generated assets:
+Each deployment reads as a **Character Deployment File** rather than a CRUD table, showing authoritative fields such as:
 
-- Dashboard research-desk illustration;
-- Auth studio-pass illustration;
-- Knowledge empty state;
-- Echo Masque Lab experiment illustration;
-- optional restrained sticker set.
+- portrait + Character name/subtitle;
+- Presence / channel scope and exclusions;
+- Participation mode;
+- Memory scope;
+- Discord identity mode/display name when available;
+- enabled Tools count/details;
+- status;
+- last activity or last error when present;
+- `Open Deployment`, Pause/Resume, compact secondary menu.
+
+### Open Deployment
+
+A Drawer/side sheet is appropriate because Server context should remain visible. Organize configuration into small sections/tabs such as:
+
+- Presence
+- Participation
+- Identity
+- Memory
+- Tools
+
+Participation modes should be explained as behavior choices rather than a cryptic select. Smart Participation links to the existing Studio rather than embedding every advanced parameter into this page.
+
+Channel scope should express the existing model directly: default server-wide visibility with explicit exclusions where that is the authoritative deployment model.
+
+### Knowledge / Interactions / Intelligence
+
+These remain pages of the selected Server Notebook and inherit Server scope. They should not compete with Characters on the default page. Detailed page references may be approved later; existing functionality remains authoritative until then.
+
+### Generated-art warning
+
+The approved reference contains illustrative sample text/numbers. In particular, any depicted server Character limit, sample note, health metric, or count that does not exist in current code is **not** a requirement. The reference controls composition only.
+
+Scrapbook intensity: **medium**, with stronger Server Passport/PageFlag identity and quieter configuration details.
+
+---
+
+# Existing surfaces that are acceptable / lower priority
+
+## 10. Behavior Notebook
+
+Status: **current direction acceptable; no new reference required now**.
+
+Keep the current principle: **Narrative first -> Trace second**. Behavior / Flow / State / Raw, evidence expansion, provider receipts, and InspectorSection hierarchy can remain unless a concrete usability issue is identified.
+
+Scrapbook intensity: medium for narrative, low for raw evidence.
+
+## 11. Prompt Inspector
+
+Short term: keep the current manuscript treatment. Long term, migrate its primary Raw/Compiled view into Character File -> Prompt where this removes modal nesting without losing export/copy functionality.
+
+Scrapbook intensity: low-medium.
+
+---
+
+# Pending reference decisions
+
+These surfaces remain governed by the UI/UX contract and current functional design until a dedicated reference is approved:
+
+## Knowledge
+
+Server reference folder; semantic source labels; generated empty-state art allowed. Do not invent source types that the current data model cannot distinguish.
+
+## Interactions
+
+Default should communicate active social activities/sessions and participant/target/status clearly. Graphs are secondary, not default.
+
+## Conversation Intelligence
+
+Scoped analysis surface for Topic/Thread/Entity/Intent/Continuity/Confidence and learned state. Dense analytical data stays low-decoration.
+
+## Toolbox
+
+Research desk grouping. Behavior Notebook remains primary; Provider Calls and Runtime Raw are Technical Evidence.
+
+## Provider Calls
+
+Technical request receipts; compact provider/model/latency/token/status information when the API provides it; payload expandable.
+
+## Runtime Raw
+
+Developer appendix. Minimal scrapbook treatment.
+
+## Tool Calling
+
+Experiment bench: tool list -> test sheet -> result/evidence. Functional icons stay deterministic.
+
+## Schedules
+
+Calendar/reminder notebook; Today/Tomorrow/Later when volume permits; actual scheduler states remain authoritative.
+
+## Settings
+
+Back pages/private creator pocket. Split into PageFlags only when content density justifies it.
+
+## Admin Runtime Settings
+
+Clipped technical configuration sheet; prioritize clarity over decoration.
+
+## Echo Masque Lab
+
+Separate experimental notebook; stronger stamp/illustration language allowed without weakening evaluator clarity.
+
+## Matrix
+
+Dense comparison sheet; paper + restrained marker/annotation only.
+
+## Auth / Login
+
+Studio pass/notebook entry; generated illustration is appropriate if it contains no required UI text.
+
+---
+
+# Implementation order from this plan
+
+1. **Deployment Workspace** — next focused renovation.
+2. Dashboard composition/data wiring to approved reference.
+3. Character Archive + Character File route/composition.
+4. Character Creator full-page composition.
+5. Test Room composition refinement.
+6. Server Notebook subpages (Knowledge / Interactions / Intelligence) as they receive approved references or clear usability requirements.
+7. Remaining technical/account surfaces incrementally.
+
+Behavior Notebook is intentionally not a priority redesign at this time.
+
+---
+
+# Definition of done for an approved-reference page
+
+A page is not "done" merely because it uses cream colors, paper cards, or tape.
+
+A renovation is complete only when:
+
+- the approved information hierarchy is visibly present;
+- the major composition matches the approved reference;
+- primary/secondary actions match the page role;
+- real API/types drive all displayed operational data;
+- unavailable/generated-only data is not fabricated;
+- shared UI/domain components are used where applicable;
+- keyboard/focus/responsive behavior remains usable;
+- overlay hierarchy remains correct;
+- typecheck/tests/build pass;
+- `/dev/ui` is updated if reusable components/variants are added;
+- this plan/status is updated if implementation materially deviates from the approved reference.
 
 # Branch safety
 
-Page migration should remain incremental and should not force unrelated feature branches to rebase around large component API changes.
+UI renovation must remain compatible with parallel feature development:
 
-Preferred dependency direction remains:
-
-`feature pages → shared/domain components → ui primitives → tokens`
-
-Existing feature logic should not be rewritten solely for styling. Structural refactors require their own focused PR when they materially change interaction or state handling.
+- avoid rewriting backend/runtime behavior solely for appearance;
+- isolate data-contract additions from visual migration when they are substantial;
+- do not make broad shared-component API breaks in feature PRs;
+- keep feature pages -> shared/domain components -> ui primitives -> tokens dependency direction;
+- generated reference assets live under `docs/ui-references/` and are documentation inputs, not runtime assets unless separately promoted.
