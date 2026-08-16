@@ -186,7 +186,7 @@ export function TopicNote({
   );
 }
 
-export interface TemporaryRoleNoteProps extends HTMLAttributes<HTMLDivElement> {
+export interface TemporaryRoleNoteProps extends Omit<HTMLAttributes<HTMLDivElement>, "role"> {
   role: ReactNode;
   note?: ReactNode;
 }
