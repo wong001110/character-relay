@@ -1,6 +1,17 @@
 import { useState, type FormEvent } from "react";
 
 import { api, type AuthConfig, type AuthUser } from "./api";
+import {
+  Button,
+  FormField,
+  Input,
+  PaperCard,
+  PaperTab,
+  Spinner,
+  StickyLabel,
+  StickyNote,
+  Toast
+} from "./components/ui";
 import { useI18n } from "./i18n";
 
 interface Props {
@@ -10,10 +21,9 @@ interface Props {
 
 const copy = {
   en: {
-    eyebrow: "Secure character workspace",
+    eyebrow: "Character studio pass",
     title: "Enter Character Relay",
-    intro:
-      "Create and test Character Cards, then manage where stable versions are deployed. Echo Masque remains the built-in consistency evaluation lab.",
+    intro: "Create, test, deploy, and observe AI characters inside one scrapbook research workspace.",
     login: "Sign in",
     register: "Create account",
     email: "Email",
@@ -21,18 +31,17 @@ const copy = {
     password: "Password",
     invitation: "Invitation code",
     invitationHint: "This deployment accepts new accounts by invitation.",
-    submitLogin: "Sign in",
-    submitRegister: "Create secure workspace",
-    switchingLogin: "Already have an account?",
-    switchingRegister: "Need an account?",
+    submitLogin: "Enter studio",
+    submitRegister: "Create studio pass",
     working: "Checking…",
-    security:
-      "Sessions use an HttpOnly cookie. Raw session tokens and provider keys are never stored in the browser."
+    security: "Sessions use an HttpOnly cookie. Raw session tokens and provider keys are never stored in the browser.",
+    noteTitle: "Inside the notebook",
+    noteBody: "Character files → Test Room → Discord deployments → Behavior Notebook"
   },
   "zh-CN": {
-    eyebrow: "安全角色工作区",
+    eyebrow: "角色研究室通行证",
     title: "进入 Character Relay",
-    intro: "创建和测试角色卡，再管理稳定角色版本部署到哪些聊天平台。Echo Masque 继续作为内置的一致性评测实验室。",
+    intro: "在同一本二次元手帐研究工作区里创作、测试、部署并观察 AI 角色。",
     login: "登录",
     register: "创建账户",
     email: "邮箱",
@@ -40,12 +49,12 @@ const copy = {
     password: "密码",
     invitation: "邀请码",
     invitationHint: "此部署仅允许受邀用户创建账户。",
-    submitLogin: "登录",
-    submitRegister: "创建安全工作区",
-    switchingLogin: "已有账户？",
-    switchingRegister: "需要账户？",
+    submitLogin: "进入研究室",
+    submitRegister: "建立通行证",
     working: "验证中…",
-    security: "登录使用 HttpOnly Cookie。原始 Session Token 与模型凭证不会保存在浏览器中。"
+    security: "登录使用 HttpOnly Cookie。原始 Session Token 与模型凭证不会保存在浏览器中。",
+    noteTitle: "打开手帐之后",
+    noteBody: "角色档案 → Test Room → Discord 部署 → Behavior Notebook"
   }
 } as const;
 
@@ -82,103 +91,51 @@ export function AuthScreen({ config, onAuthenticated }: Props) {
   }
 
   return (
-    <main className="auth-page">
-      <section className="auth-card paper-sheet" aria-labelledby="auth-title">
-        <div className="auth-topline">
-          <span className="tape-label">{t.eyebrow}</span>
-          <div className="language-toggle" role="group" aria-label="Language">
-            <button
-              className={language === "en" ? "active" : ""}
-              onClick={() => setLanguage("en")}
-              type="button"
-            >
-              EN
-            </button>
-            <button
-              className={language === "zh-CN" ? "active" : ""}
-              onClick={() => setLanguage("zh-CN")}
-              type="button"
-            >
-              简中
-            </button>
+    <main className="auth-page auth-v3-page">
+      <div className="auth-v3-shell">
+        <PaperCard className="auth-v3-card" aria-labelledby="auth-title">
+          <div className="auth-v3-topline">
+            <StickyLabel variant="link">{t.eyebrow}</StickyLabel>
+            <div className="language-toggle auth-v3-language" role="group" aria-label="Language">
+              <Button variant={language === "en" ? "secondary" : "ghost"} size="sm" onClick={() => setLanguage("en")} type="button">EN</Button>
+              <Button variant={language === "zh-CN" ? "secondary" : "ghost"} size="sm" onClick={() => setLanguage("zh-CN")} type="button">简中</Button>
+            </div>
           </div>
-        </div>
-        <img src="/assets/masque-mark.svg" alt="" className="auth-mark" />
-        <h1 id="auth-title">{t.title}</h1>
-        <p className="auth-intro">{t.intro}</p>
 
-        <div className="auth-tabs" role="tablist">
-          <button
-            type="button"
-            className={mode === "login" ? "active" : ""}
-            onClick={() => setMode("login")}
-          >
-            {t.login}
-          </button>
-          {config.registration_enabled && (
-            <button
-              type="button"
-              className={mode === "register" ? "active" : ""}
-              onClick={() => setMode("register")}
-            >
-              {t.register}
-            </button>
-          )}
-        </div>
+          <div className="auth-v3-heading">
+            <img src="/assets/brand/character-relay-mark.png" alt="" className="auth-v3-mark" />
+            <div><h1 id="auth-title">{t.title}</h1><p>{t.intro}</p></div>
+          </div>
 
-        <form className="auth-form" onSubmit={submit}>
-          <label>
-            {t.email}
-            <input name="email" type="email" required autoComplete="email" />
-          </label>
-          {mode === "register" && (
-            <label>
-              {t.displayName}
-              <input name="display_name" required autoComplete="name" />
-            </label>
-          )}
-          <label>
-            {t.password}
-            <input
-              name="password"
-              type="password"
-              required
-              minLength={mode === "register" ? 12 : 1}
-              autoComplete={mode === "login" ? "current-password" : "new-password"}
-            />
-          </label>
-          {mode === "register" && config.invitation_required && (
-            <label>
-              {t.invitation}
-              <input name="invitation_code" required autoComplete="off" />
-              <small>{t.invitationHint}</small>
-            </label>
-          )}
-          {error && (
-            <p className="error-note" role="alert">
-              {error}
-            </p>
-          )}
-          <button className="ink-button auth-submit" disabled={working}>
-            {working
-              ? t.working
-              : mode === "login"
-                ? t.submitLogin
-                : t.submitRegister}
-          </button>
-        </form>
+          <div className="auth-v3-tabs" role="tablist" aria-label={t.title}>
+            <PaperTab tone="lavender" active={mode === "login"} onClick={() => { setMode("login"); setError(null); }}>{t.login}</PaperTab>
+            {config.registration_enabled && <PaperTab tone="rose" active={mode === "register"} onClick={() => { setMode("register"); setError(null); }}>{t.register}</PaperTab>}
+          </div>
 
-        {config.registration_enabled && (
-          <button
-            type="button"
-            className="auth-switch"
-            onClick={() => setMode(mode === "login" ? "register" : "login")}
-          >
-            {mode === "login" ? t.switchingRegister : t.switchingLogin}
-          </button>
-        )}
-        <p className="secret-note auth-security">{t.security}</p>
-      </section>
+          <form className="auth-v3-form" onSubmit={submit}>
+            <FormField label={t.email} required><Input name="email" type="email" required autoComplete="email" /></FormField>
+            {mode === "register" && <FormField label={t.displayName} required><Input name="display_name" required autoComplete="name" /></FormField>}
+            <FormField label={t.password} required><Input name="password" type="password" required minLength={mode === "register" ? 12 : 1} autoComplete={mode === "login" ? "current-password" : "new-password"} /></FormField>
+            {mode === "register" && config.invitation_required && <FormField label={t.invitation} hint={t.invitationHint} required><Input name="invitation_code" required autoComplete="off" /></FormField>}
+            {error && <Toast tone="danger" title={language === "zh-CN" ? "无法进入研究室" : "Could not enter the studio"}>{error}</Toast>}
+            <Button className="auth-v3-submit" variant="primary" size="lg" disabled={working}>
+              {working ? <><Spinner size="sm" label={t.working} /> {t.working}</> : mode === "login" ? t.submitLogin : t.submitRegister}
+            </Button>
+          </form>
+
+          <p className="secret-note auth-security auth-v3-security">{t.security}</p>
+        </PaperCard>
+
+        <aside className="auth-v3-scrapbook" aria-label={t.noteTitle}>
+          <div className="auth-v3-polaroid" aria-hidden="true">
+            <div><img src="/assets/masque-mark.svg" alt="" /></div>
+            <span>CHARACTER RELAY</span>
+          </div>
+          <StickyNote variant="topic" size="lg" pinned><strong>{t.noteTitle}</strong><p>{t.noteBody}</p></StickyNote>
+          <StickyNote variant="character"><span>✎</span><p>{language === "zh-CN" ? "角色负责二次元感，框架负责手帐感。" : "Characters carry the anime identity; the workspace carries the scrapbook language."}</p></StickyNote>
+          <span className="auth-v3-doodle" aria-hidden="true">✦ ᓚᘏᗢ ✦</span>
+        </aside>
+      </div>
     </main>
   );
 }
