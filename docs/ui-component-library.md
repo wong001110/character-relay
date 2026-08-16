@@ -29,6 +29,30 @@ Visual metaphor: a small action label or paper sticker. Primary actions receive 
 
 Compact page-edge tool for actions such as close, edit, refresh, more, or remove. Keep the hit target usable even if the visible mark is small.
 
+### FunctionalIcon
+
+Deterministic inline-SVG functional icon primitive. Use for navigation, search, close, refresh, settings, runtime/tool identifiers, and other state/action geometry where a generated image would be inappropriate.
+
+The current icon set includes:
+
+- home;
+- characters;
+- deployment;
+- toolbox;
+- settings;
+- overview;
+- behavior;
+- provider;
+- runtime;
+- tools;
+- schedule;
+- chevron;
+- close;
+- search;
+- refresh.
+
+This component directly implements the contract rule: **functional geometry stays code/SVG; organic illustration may use generated raster art.**
+
 ### Input
 
 A notebook writing field. Warm paper surface, subtle border, clear focus ring, conventional text editing behavior.
@@ -53,7 +77,7 @@ Standardizes label, hint, error message, and control spacing so feature pages do
 
 ### PaperCard
 
-Persistent, structured content. Use for characters, saved provider/model profiles, tool configurations, or other filed information.
+Persistent, structured content. Use for characters, saved provider/model profiles, tool configurations, templates, or other filed information.
 
 Properties:
 
@@ -64,7 +88,7 @@ Properties:
 
 ### StickyNote
 
-Temporary, editable, or supplementary information.
+Temporary, editable, supplementary, or session-scoped information.
 
 Variants:
 
@@ -76,7 +100,7 @@ Variants:
 - `warning`
 - `system`
 
-Typical uses: current topic, temporary role, reminder, AI observation, user note, pinned runtime context.
+Typical uses: current topic, temporary role, reminder, AI observation, user note, pinned runtime context, active interaction session.
 
 Sizes: `sm`, `md`, `lg`.
 
@@ -93,7 +117,11 @@ Tones:
 - blue
 - lavender
 
-Use for section navigation such as General / Model / Memory / Tools / Media / Runtime / Inspector. Active state uses position and shadow as well as color.
+Use for section navigation such as Identity / Persona / Voice / Boundaries / Memory / Runtime / Review. Active state uses position and shadow as well as color.
+
+### PaperTab
+
+Horizontal notebook-tab primitive for smaller peer views such as Raw / Compiled Prompt or Behavior / Flow / State / Raw.
 
 ### StickyLabel
 
@@ -103,7 +131,7 @@ Suggested variants include neutral, vision, memory, tool, link, image, success, 
 
 ### Stamp
 
-Strong result/status mark for Saved, OOC, Inspected, Topic Matched, and similar completed decisions.
+Strong result/status mark for Saved, OOC, Inspected, Topic Matched, PASS/FAIL/REVIEW, and similar committed decisions.
 
 ### Annotation
 
@@ -111,12 +139,12 @@ Secondary handwritten-note treatment for generated-by information, timestamps, s
 
 ## Shared feedback and technical UI
 
-Phase 2 adds reusable feedback and technical-inspection primitives in `web/src/components/ui/FeedbackUI.tsx`:
+Reusable feedback and technical-inspection primitives in `web/src/components/ui/FeedbackUI.tsx` include:
 
 - `StatusIndicator` — compact live/ready/warning/failure status with optional pulse;
 - `InspectorSection` — lower-decoration technical paper section for dense evidence;
 - `EmptyState` — centered empty-state layout with an illustration slot that may use generated raster art;
-- `SearchField` — shared paper search input;
+- `SearchField` — shared paper search input using the deterministic SVG search icon;
 - `Tooltip` and `Popover` — supporting explanation/detail surfaces;
 - `Spinner` and `Skeleton` — loading states that remain visually consistent with the paper system;
 - `Divider` — semantic paper divider;
@@ -142,7 +170,7 @@ Model selector that can expose compact model metadata while retaining standard s
 
 ### TopicNote
 
-StickyNote composition for current conversation topic, confidence, participants, and optional topic state.
+StickyNote composition for current conversation topic, confidence, participants, optional topic state, and supplementary topic summary content.
 
 ### TemporaryRoleNote
 
@@ -152,15 +180,7 @@ Small removable/temporary role note. Changing a temporary social role should fee
 
 `PaperCard + Avatar + StickyLabel + attached StickyNote` composition for stable participant identity plus runtime state.
 
-## Additional Character Relay compositions
-
-The following compositions remain valid targets as more pages migrate:
-
-### CharacterCard
-
-`PaperCard + Avatar + StickyLabel`
-
-Carries persistent character identity, provider/model metadata, and capabilities.
+## Existing shared compositions
 
 ### CharacterChip
 
@@ -170,29 +190,35 @@ Compact participant/character selection item. May show avatar, name, and optiona
 
 Consistent title + description + control layout for switch/checkbox/select settings.
 
-### InspectorSection
+### PaperDrawer / PaperModal
 
-Dense technical paper section using the same tokens with reduced decoration. Prefer compact rows, stamps, and annotations over decorative sticky-note grids.
+Existing `NotebookUI.tsx` overlays remain supported bridge components and are re-exported from `components/ui`. Current production migrations use PaperDrawer for Character File, Character Creator, Interaction Template, Interaction Apply, Connection configuration, and other side-page workflows.
 
-## Current adoption examples
+## Production adoption
 
-Phase 2 feature migration deliberately uses the shared system in production-facing pages rather than keeping it isolated to the component library:
+The component system is no longer showcase-only. Current production use includes:
 
-- Test Room uses shared buttons, status, sticky notes, stamps, empty states, and toast feedback;
-- Prompt Inspector uses PaperTab, Stamp, StickyLabel, Button, Select, Spinner, and Toast;
-- Behavior Notebook uses PaperTab, SearchField, StatusIndicator, StickyNote, Stamp, InspectorSection, EmptyState, Spinner, Toast, and shared icon/action controls while keeping raw Runtime semantics unchanged.
+- **Global Shell** — FunctionalIcon + StickyLabel section marker;
+- **Dashboard** — Button + StickyNote hierarchy;
+- **Character Shelf** — SearchField / Select / Button / EmptyState / Toast / Character File PaperDrawer;
+- **Character Creator** — PageFlag, FormField, Input, Textarea, Select, ProviderSelect, ApiKeyField, StickyNote, PaperTab, Toast, Spinner;
+- **Test Room** — Button, StatusIndicator, StickyLabel, StickyNote, Stamp, EmptyState, Toast;
+- **Prompt Inspector** — PaperTab, Stamp, StickyLabel, Button, Select, Spinner, Toast;
+- **Behavior Notebook** — PaperTab, SearchField, StatusIndicator, StickyNote, Stamp, InspectorSection, EmptyState, Spinner, Toast;
+- **Knowledge** — shared form controls, status, folder labels, retrieval empty/error/loading states;
+- **Interactions** — PaperCard templates, StickyNote session journal, PaperTab navigation, PaperDrawer editors, shared controls/status;
+- **Conversation Intelligence** — InspectorSection, TopicNote, StickyNote, Select, EmptyState, Spinner, Toast;
+- **Schedules** — StickyNote reminder records, StatusIndicator, Select, Switch, Button, EmptyState, Spinner, Toast;
+- **Auth** — PaperCard, PaperTab, FormField, Input, Button, Spinner, StickyLabel, StickyNote, Toast;
+- **Toolbox** — FunctionalIcon hierarchy with Technical Evidence separated from Behavior Notebook.
 
-This is the preferred migration pattern: reuse actual components first, then keep page-specific CSS only for layout/composition that is genuinely unique to the feature.
-
-## Overlay and feedback components
-
-Existing shared `PaperDrawer` and `PaperModal` in `web/src/NotebookUI.tsx` remain valid bridge components. They are re-exported from the new UI entry point so new code can use the shared namespace without forcing an immediate migration.
+Dense technical pages such as Provider Calls and Runtime Raw intentionally retain lower decoration intensity and inherit shared tokens rather than being converted into decorative note grids.
 
 ## Living showcase
 
 `/dev/ui` is the development-only living component showcase. It should be updated whenever a reusable UI primitive or Character Relay shared composition is added.
 
-The showcase currently covers:
+The showcase covers:
 
 - actions and status;
 - form controls;
@@ -210,7 +236,7 @@ Generated illustration slots shown in the showcase are examples only. Production
 
 ## Styling rules
 
-- All new classes in the foundation use the `cr-` prefix to avoid feature stylesheet collisions.
+- Shared foundation classes use the `cr-` prefix to avoid feature stylesheet collisions.
 - Theme values come from `tokens.css` custom properties.
 - Large surfaces stay warm-neutral; scrapbook colors are accents.
 - Paper texture is subtle and cannot reduce text contrast.
@@ -218,14 +244,16 @@ Generated illustration slots shown in the showcase are examples only. Production
 - Functional controls stay aligned even when their surface suggests paper/stationery.
 - Decorations never become required controls.
 - Dense developer/trace views intentionally use lower decoration intensity than character-facing pages.
+- Page-specific CSS owns only layout/composition genuinely unique to that feature; reusable behavior belongs in a shared component.
 
-## Adoption
+## Imports
 
 Business-agnostic primitives:
 
 ```ts
 import {
   Button,
+  FunctionalIcon,
   Input,
   StickyNote,
   PageFlag,
@@ -245,4 +273,4 @@ import {
 } from "./components/shared";
 ```
 
-Existing screens can migrate incrementally. Do not mix UI migration with unrelated business-logic refactors unless the change is very small and conflict-safe.
+New feature work should use these shared layers. Grandfathered native controls inside dense legacy technical pages may migrate opportunistically when the page is next edited; they are not a reason to rewrite Runtime/business logic solely for style.
