@@ -5,8 +5,10 @@ import {
   Button,
   PaperTab,
   Select,
+  Spinner,
   Stamp,
-  StickyLabel
+  StickyLabel,
+  Toast
 } from "./components/ui";
 import { useI18n } from "./i18n";
 import {
@@ -117,6 +119,14 @@ export function PromptInspector({ card, onClose }: Props) {
     };
   }, [card.id, c.unavailable]);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
   const currentPrompt = useMemo(() => {
     if (!prompt) return "";
     return layer === "raw"
@@ -164,8 +174,13 @@ export function PromptInspector({ card, onClose }: Props) {
           </Button>
         </header>
 
-        {loading && <p className="prompt-status">{c.loading}</p>}
-        {error && <p className="error-note prompt-status">{error}</p>}
+        {loading && (
+          <div className="prompt-loading-sheet" role="status" aria-live="polite">
+            <Spinner label={c.loading} />
+            <p>{c.loading}</p>
+          </div>
+        )}
+        {error && <Toast tone="danger" className="prompt-status">{error}</Toast>}
 
         {prompt && (
           <>
