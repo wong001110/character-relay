@@ -1,0 +1,180 @@
+ 
++    def historical_topic_candidate(
++        self,
++        *,
++        owner_id: str,
++        payload: DiscordInboundMessage,
++        topic_text: str,
++        exclude_topic_id: str = "",
++    ) -> ConversationTopicRecord | None:
++        if not topic_text:
++            return None
++        candidates = self.repository.recent_for_scope(
++            owner_id=owner_id,
++            platform="discord",
++            connection_id=payload.connection_id,
++            guild_id=payload.guild_id,
++            channel_id=payload.channel_id,
++            thread_id=payload.thread_id,
++            limit=12,
++        )
++        best: tuple[float, ConversationTopicRecord] | None = None
++        query_vector: list[float] | None = None
++        encoder: SemanticEncoder | None = None
++        if self._semantic_enabled:
++            try:
++                encoder = self._get_encoder()
++                query_vector = encoder.embed_query(topic_text)
++            except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
++                encoder = None
++                query_vector = None
++        for candidate in candidates:
++            if candidate.id == exclude_topic_id or candidate.status == "active":
++                continue
++            sparse = self._sparse_similarity(topic_text, candidate)
++            dense = 0.0
++            if encoder is not None and query_vector is not None:
++                try:
++                    dense = _cosine(query_vector, self._topic_vector(candidate, encoder))
++                except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
++                    dense = 0.0
++            if dense < _RESUME_TOPIC_CONTINUITY_MINIMUM and sparse < _RESUME_TOPIC_SPARSE_MINIMUM:
++                continue
++            score = max(dense, sparse)
++            if best is None or score > best[0]:
++                best = (score, candidate)
++        return best[1] if best is not None else None
++
+     @staticmethod
+     def _label(text: str) -> str:
+         compact = " ".join(text.split())
+@@ -411,6 +516,23 @@ class ConversationTopicMemoryService:
+             results.append({"user_id": user_id[:200], "display_name": display_name[:160]})
+         return results[-_PARTICIPANT_LIMIT:]
+ 
++    def _project_episode(
++        self,
++        *,
++        owner_id: str,
++        payload: DiscordInboundMessage,
++        topic: ConversationTopicSnapshot | None,
++        topic_evidence: bool,
++        now: datetime,
++    ) -> None:
++        self.episode_projection.observe(
++            owner_id=owner_id,
++            payload=payload,
++            topic_id=topic.id if topic is not None else "",
++            topic_evidence=topic_evidence,
++            now=now,
++        )
++
+     def active_for_turn(
+         self,
+         *,
+@@ -438,6 +560,7 @@ class ConversationTopicMemoryService:
+     ) -> ConversationTopicSnapshot | None:
+         current = now or datetime.now(UTC)
+         text = " ".join(payload.text.split())[:4000]
++        topic_text = _topic_evidence_text(text)
+         active = self.repository.active_for_scope(
+             owner_id=owner_id,
+             platform=platform,
+@@ -449,9 +572,64 @@ class ConversationTopicMemoryService:
+         if active is not None and active.last_message_id == payload.message_id:
+             return self.snapshot(active)
+         if not text:
+-            return self.snapshot(active) if active is not None else None
++            snapshot = self.snapshot(active) if active is not None else None
++            if payload.attachments or payload.embeds or payload.burst_media_message_ids:
++                self._project_episode(
++                    owner_id=owner_id,
++                    payload=payload,
++                    topic=snapshot,
++                    topic_evidence=False,
++                    now=current,
++                )
++            return snapshot
++        if _URL_PATTERN.search(text) and not topic_text:
++            snapshot = self.snapshot(active) if active is not None else None
++            self._project_episode(
++                owner_id=owner_id,
++                payload=payload,
++                topic=snapshot,
++                topic_evidence=False,
++                now=current,
++            )
++            return snapshot
+ 
+         if active is None:
++            resumed = self.historical_topic_candidate(
++                owner_id=owner_id,
++                payload=payload,
++                topic_text=topic_text,
++            )
++            if resumed is not None:
++                participants = self._participants(
++                    self.snapshot(resumed).participants,
++                    payload.author_id,
++                    payload.author_display_name,
++                )
++                record = self.repository.resume(
++                    topic_id=resumed.id,
++                    owner_id=owner_id,
++                    platform=platform,
++                    connection_id=payload.connection_id,
++                    guild_id=payload.guild_id,
++                    channel_id=payload.channel_id,
++                    thread_id=payload.thread_id,
++                    summary=self._append_summary(
++                        resumed.summary, payload.author_display_name, topic_text
++                    ),
++                    keywords_json=json.dumps(
++                        self._keywords(self.snapshot(resumed).keywords, topic_text),
++                        ensure_ascii=False,
++                    ),
++                    participants_json=json.dumps(participants, ensure_ascii=False),
++                    last_message_id=payload.message_id,
++                    now=current,
++                )
++                snapshot = self.snapshot(record)
++                self._project_episode(
++                    owner_id=owner_id, payload=payload, topic=snapshot, topic_evidence=True, now=current
++                )
++                return snapshot
++
+             participants = self._participants([], payload.author_id, payload.author_display_name)
+             record = self.repository.create(
+                 owner_id=owner_id,
+@@ -460,19 +638,61 @@ class ConversationTopicMemoryService:
+                 guild_id=payload.guild_id,
+                 channel_id=payload.channel_id,
+                 thread_id=payload.thread_id,
+-                topic_label=self._label(text),
+-                summary=self._append_summary("", payload.author_display_name, text),
+-                keywords_json=json.dumps(self._keywords([], text), ensure_ascii=False),
++                topic_label=self._label(topic_text),
++                summary=self._append_summary("", payload.author_display_name, topic_text),
++                keywords_json=json.dumps(self._keywords([], topic_text), ensure_ascii=False),
+                 open_loops_json="[]",
+                 pending_actions_json="[]",
+                 participants_json=json.dumps(participants, ensure_ascii=False),
+                 last_message_id=payload.message_id,
+                 now=current,
+             )
+-            return self.snapshot(record)
++            snapshot = self.snapshot(record)
++            self._project_episode(
++                owner_id=owner_id, payload=payload, topic=snapshot, topic_evidence=True, now=current
++            )
++            return snapshot
+ 
+-        continuity = self.classify_continuity(text=text, active=active)
++        continuity = self.classify_continuity(text=topic_text, active=active, now=current)
+         if not continuity.same_topic:
++            resumed = self.historical_topic_candidate(
++                owner_id=owner_id,
++                payload=payload,
++                topic_text=topic_text,
++                exclude_topic_id=active.id,
++            )
