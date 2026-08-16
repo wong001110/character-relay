@@ -60,6 +60,7 @@
   --cr-shadow-paper: 0 2px 7px rgba(75, 57, 47, 0.10), 0 1px 1px rgba(75, 57, 47, 0.06);
   --cr-shadow-lift: 0 8px 20px rgba(75, 57, 47, 0.14), 0 2px 5px rgba(75, 57, 47, 0.08);
   --cr-shadow-overlay: 0 20px 50px rgba(54, 41, 35, 0.22);
+  --cr-shadow-float: var(--cr-shadow-overlay);
 
   /* Motion */
   --cr-motion-fast: 120ms;
@@ -68,7 +69,9 @@
 
   /* Typography */
   --cr-font-ui: ui-rounded, "Nunito", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --cr-font-display: Georgia, "Times New Roman", serif;
   --cr-font-note: "Comic Sans MS", "Segoe Print", var(--cr-font-ui);
+  --cr-font-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
 }
 
 @media (prefers-reduced-motion: reduce) {
