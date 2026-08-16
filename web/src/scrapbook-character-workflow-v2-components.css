@@ -140,6 +140,33 @@
   transform: rotate(-.8deg);
 }
 
+.prompt-loading-sheet {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 24px 0 0;
+  padding: 14px 16px;
+  border: 1px dashed var(--cr-line-strong);
+  border-radius: 7px 10px 9px 6px;
+  background: var(--cr-lavender-soft);
+  color: var(--cr-ink-soft);
+}
+
+.prompt-loading-sheet p {
+  margin: 0;
+  font-size: .8rem;
+}
+
+.prompt-status.cr-toast {
+  min-width: 0;
+  margin-top: 20px;
+}
+
+.prompt-layer-state .cr-stamp {
+  min-height: 30px;
+  padding: 4px 9px;
+}
+
 @media (max-width: 760px) {
   .room-header .cr-button.back-button {
     align-self: flex-start;
