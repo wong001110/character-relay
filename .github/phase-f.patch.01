@@ -1,0 +1,180 @@
++_INTERNAL_MEMORY_NAMESPACE = "internal-memory-vnext"
++INTERNAL_CONTEXT_TOOL_IDS = (
++    "memory.search",
++    "topic.search",
++    "conversation.search",
++    "wiki.lookup",
++)
++
++
++class InternalSearchInput(BaseModel):
++    query: str = Field(min_length=1, max_length=800)
++    limit: int = Field(default=5, ge=1, le=8)
++
++
++class WikiLookupBackend(Protocol):
++    def __call__(
++        self,
++        *,
++        owner_id: str,
++        connection_id: str,
++        guild_id: str,
++        query: str,
++        limit: int,
++    ) -> list[dict[str, object]]: ...
++
++
++def _cosine(left: list[float], right: list[float]) -> float:
++    if not left or len(left) != len(right):
++        return 0.0
++    dot = sum(a * b for a, b in zip(left, right, strict=True))
++    left_norm = math.sqrt(sum(item * item for item in left))
++    right_norm = math.sqrt(sum(item * item for item in right))
++    if not left_norm or not right_norm:
++        return 0.0
++    return dot / (left_norm * right_norm)
++
++
++def _sparse(query: str, content: str) -> float:
++    left = set(semantic_tokens(query))
++    right = set(semantic_tokens(content))
++    if not left or not right:
++        return 0.0
++    return len(left & right) / max(1, len(left | right))
++
++
++@dataclass
++class InternalContextService:
++    memory_repository: MemoryVNextRepository
++    topic_repository: ConversationTopicRepository
++    episode_repository: ConversationEpisodeRepository
++    settings: Settings | None = None
++    encoder: SemanticEncoder | None = None
++    wiki_lookup_backend: WikiLookupBackend | None = None
++
++    def __post_init__(self) -> None:
++        self.settings = self.settings or get_settings()
++        self.vectors = SemanticVectorRepository(self.memory_repository.database)
++
++    def _encoder(self) -> SemanticEncoder:
++        if self.encoder is None:
++            assert self.settings is not None
++            self.encoder = FastEmbedSemanticEncoder(
++                model_name=self.settings.semantic_embedding_model,
++                model_file=self.settings.semantic_embedding_model_file,
++                cache_dir=self.settings.semantic_embedding_cache_dir,
++                dimension=self.settings.semantic_embedding_dimension,
++            )
++        return self.encoder
++
++    def _memory_vector(
++        self,
++        record: ConversationMemoryVNextRecord,
++        encoder: SemanticEncoder,
++    ) -> list[float]:
++        source_hash = self.vectors.source_hash(
++            record.content, encoder.model_name, encoder.dimension
++        )
++        cached = self.vectors.get(
++            owner_id=record.owner_id,
++            namespace=_INTERNAL_MEMORY_NAMESPACE,
++            resource_id=record.id,
++            model_name=encoder.model_name,
++            dimension=encoder.dimension,
++            source_hash=source_hash,
++        )
++        if cached is not None:
++            return cached
++        vector = encoder.embed_passage(record.content)
++        self.vectors.upsert(
++            owner_id=record.owner_id,
++            namespace=_INTERNAL_MEMORY_NAMESPACE,
++            resource_id=record.id,
++            semantic_text=record.content,
++            model_name=encoder.model_name,
++            dimension=encoder.dimension,
++            vector=vector,
++        )
++        return vector
++
++    def memory_search(self, arguments: dict[str, object], context: ToolExecutionContext) -> str:
++        payload = InternalSearchInput.model_validate(arguments)
++        records = self.memory_repository.active_candidates(
++            owner_id=context.owner_id,
++            character_card_id=context.character_card_id,
++            connection_id=context.connection_id,
++            guild_id=context.guild_id,
++            subject_user_id=context.initiator_user_id,
++            topic_id=context.topic_id,
++        )
++        scored: list[tuple[float, ConversationMemoryVNextRecord]] = []
++        try:
++            encoder = self._encoder()
++            query_vector = encoder.embed_query(payload.query)
++            for record in records:
++                semantic = _cosine(query_vector, self._memory_vector(record, encoder))
++                score = semantic * 0.72 + record.importance * 0.18 + record.confidence * 0.10
++                if semantic >= 0.34:
++                    scored.append((score, record))
++        except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
++            for record in records:
++                semantic = _sparse(payload.query, record.content)
++                if semantic >= 0.10:
++                    score = semantic * 0.72 + record.importance * 0.18 + record.confidence * 0.10
++                    scored.append((score, record))
++        scored.sort(key=lambda item: item[0], reverse=True)
++        selected = scored[: payload.limit]
++        self.memory_repository.mark_used(tuple(item.id for _, item in selected))
++        return json.dumps(
++            {
++                "ok": True,
++                "scope": "runtime_injected",
++                "count": len(selected),
++                "memories": [
++                    {
++                        "ref": item.id,
++                        "scope_type": item.scope_type,
++                        "memory_type": item.memory_type,
++                        "content": item.content,
++                        "confidence": round(item.confidence, 3),
++                        "importance": round(item.importance, 3),
++                    }
++                    for _, item in selected
++                ],
++            },
++            ensure_ascii=False,
++        )
++
++    def topic_search(self, arguments: dict[str, object], context: ToolExecutionContext) -> str:
++        payload = InternalSearchInput.model_validate(arguments)
++        records = self.topic_repository.recent_for_scope(
++            owner_id=context.owner_id,
++            platform=context.platform,
++            connection_id=context.connection_id,
++            guild_id=context.guild_id,
++            channel_id=context.channel_id,
++            thread_id=context.thread_id,
++            limit=20,
++        )
++        scored = sorted(
++            (
++                (_sparse(payload.query, f"{item.topic_label} {item.summary}"), item)
++                for item in records
++            ),
++            key=lambda item: (item[0], item[1].last_active_at),
++            reverse=True,
++        )
++        selected = [(score, item) for score, item in scored if score > 0][: payload.limit]
++        return json.dumps(
++            {
++                "ok": True,
++                "scope": "current_discord_location",
++                "count": len(selected),
++                "topics": [
++                    {
++                        "ref": item.id,
++                        "label": item.topic_label,
++                        "summary": item.summary[:800],
++                        "status": item.status,
++                        "last_active_at": item.last_active_at.isoformat(),
++                    }
