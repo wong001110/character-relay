@@ -1,0 +1,234 @@
+diff --git a/.github/workflows/export-working-tree.yml b/.github/workflows/export-working-tree.yml
+deleted file mode 100644
+index 298d406..0000000
+--- a/.github/workflows/export-working-tree.yml
++++ /dev/null
+@@ -1,28 +0,0 @@
+-name: Export Working Tree
+-
+-on:
+-  push:
+-    branches:
+-      - feat/media-dependency-two-stage-resolution
+-      - feat/conversation-planner-shadow-rollout
+-      - feat/topic-episode-projection
+-      - feat/memory-vnext-internal-tools
+-      - feat/server-wiki-graph-consolidation
+-  workflow_dispatch:
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  export:
+-    runs-on: ubuntu-latest
+-    steps:
+-      - uses: actions/checkout@v4
+-      - uses: actions/upload-artifact@v4
+-        with:
+-          name: working-tree
+-          path: |
+-            .
+-            !.git
+-          include-hidden-files: true
+-          retention-days: 1
+diff --git a/connectors/discord/src/index.ts b/connectors/discord/src/index.ts
+index cde426d..962ddf3 100644
+--- a/connectors/discord/src/index.ts
++++ b/connectors/discord/src/index.ts
+@@ -36,7 +36,8 @@ import { compareParticipationShadowPlan } from "./participationShadowParity.js";
+ import {
+   RelayClient,
+   type DiscordParticipationShadowCandidate,
+-  type DiscordParticipationShadowPlanItem
++  type DiscordParticipationShadowPlanItem,
++  type DiscordPlannerMediaResult
+ } from "./relayClient.js";
+ import { RecoveryLoop } from "./recoveryLoop.js";
+ import {
+@@ -2122,6 +2123,66 @@ async function processMessage(
+         }))
+       : [];
+ 
++    let plannerMedia: DiscordPlannerMediaResult | null = null;
++    const hasPlannerMediaInput =
++      guildMessage.attachments.size > 0 ||
++      guildMessage.embeds.length > 0 ||
++      /https?:\/\//iu.test(guildMessage.content) ||
++      burstMediaMessageIds.length > 0;
++    if (hasPlannerMediaInput) {
++      try {
++        plannerMedia = await relay.resolvePlannerMedia({
++          message_id: guildMessage.id,
++          guild_id: guildMessage.guildId,
++          channel_id: location.channelId,
++          thread_id: location.threadId,
++          text: originalText || guildMessage.content,
++          burst_media_message_ids: burstMediaMessageIds
++        });
++        reportDiscordEvent({
++          level: "info",
++          eventType: "planner_media_resolved",
++          message: "Planner-only media context was resolved before Smart Participation.",
++          guildId: guildMessage.guildId,
++          guildName: guildMessage.guild.name,
++          channelId: location.channelId,
++          channelName: location.channelName,
++          threadId: location.threadId,
++          threadName: location.threadName,
++          sourceMessageId: guildMessage.id,
++          details: {
++            descriptor_count: plannerMedia.descriptors.length,
++            resolved_descriptor_count: plannerMedia.descriptors.filter(
++              (item) => item.state === "resolved" && item.topic_evidence
++            ).length,
++            media_dependency: plannerMedia.dependency,
++            dependency_locked: plannerMedia.dependency_locked
++          }
++        });
++      } catch (error) {
++        reportDiscordEvent({
++          level: "warning",
++          eventType: "planner_media_failed",
++          message: "Planner-only media resolution failed; routing continued without guessed content.",
++          guildId: guildMessage.guildId,
++          guildName: guildMessage.guild.name,
++          channelId: location.channelId,
++          channelName: location.channelName,
++          threadId: location.threadId,
++          threadName: location.threadName,
++          sourceMessageId: guildMessage.id,
++          details: { error: error instanceof Error ? error.message : String(error) }
++        });
++      }
++    }
++    const participationAnalysisText = [
++      participationText,
++      plannerMedia?.planning_text ?? ""
++    ]
++      .filter(Boolean)
++      .join("\n")
++      .trim();
++
+     let interactionClaim: DiscordInteractionClaim = interactionClaimOverride ?? {
+       claimed: false,
+       run_id: null,
+@@ -2202,12 +2263,12 @@ async function processMessage(
+     if (
+       config.smartParticipationEnabled &&
+       !replyTarget.deploymentId &&
+-      participationText.trim()
++      participationAnalysisText.trim()
+     ) {
+       const semanticPreflightNow = Date.now();
+       const semanticPreflight = preflightSmartParticipationRuntime(
+         candidates,
+-        participationText,
++        participationAnalysisText,
+         semanticPreflightNow,
+         smartRuntimeScopeKey
+       );
+@@ -2216,14 +2277,14 @@ async function processMessage(
+       const baseEvidenceById = new Map(
+         buildSmartParticipationBaseEvidence(
+           candidates,
+-          participationText,
++          participationAnalysisText,
+           semanticPreflightNow
+         ).map((item) => [item.deploymentId, item])
+       );
+       if (!semanticPreflight.skipSemantic && smartDeploymentIds.length) {
+         try {
+           const semantic = await relay.scoreSmartParticipation({
+-            message: participationText,
++            message: participationAnalysisText,
+             deployment_ids: smartDeploymentIds,
+             guild_id: guildMessage.guildId,
+             channel_id: location.channelId,
+@@ -2238,6 +2299,7 @@ async function processMessage(
+             channel_cooldown_seconds: config.smartParticipationChannelCooldownSeconds,
+             window_seconds: config.smartParticipationWindowSeconds,
+             max_replies_per_window: config.smartParticipationMaxRepliesPerWindow,
++            media_descriptors: plannerMedia?.descriptors ?? [],
+             candidate_preflight: smartDeploymentIds.map((deploymentId) => {
+               const evidence = baseEvidenceById.get(deploymentId);
+               return {
+diff --git a/connectors/discord/src/relayClient.ts b/connectors/discord/src/relayClient.ts
+index 815e730..897e6f3 100644
+--- a/connectors/discord/src/relayClient.ts
++++ b/connectors/discord/src/relayClient.ts
+@@ -95,6 +95,27 @@ export interface DiscordConversationBurstRuntimeConfig {
+   max_characters: number;
+ }
+ 
++
++export interface DiscordPlannerMediaDescriptor {
++  ref: string;
++  kind: "image" | "video" | "article" | "link" | "file";
++  state: "resolved" | "preview_only" | "unresolved";
++  label: string;
++  subject: string;
++  summary: string;
++  source_key: string;
++  source_url: string;
++  topic_evidence: boolean;
++}
++
++export interface DiscordPlannerMediaResult {
++  descriptors: DiscordPlannerMediaDescriptor[];
++  dependency: "required" | "optional" | "none";
++  dependency_reason: string;
++  dependency_locked: boolean;
++  planning_text: string;
++}
++
+ export interface DiscordSmartParticipationScoreRequest {
+   message: string;
+   deployment_ids: string[];
+@@ -112,6 +133,7 @@ export interface DiscordSmartParticipationScoreRequest {
+   window_seconds?: number;
+   max_replies_per_window?: number;
+   candidate_preflight?: DiscordSmartParticipationCandidatePreflight[];
++  media_descriptors?: DiscordPlannerMediaDescriptor[];
+ }
+ 
+ interface DiscordV4ParticipationCandidate {
+@@ -477,6 +499,7 @@ export class RelayClient {
+             channel_cooldown_seconds: payload.channel_cooldown_seconds ?? 45,
+             window_seconds: payload.window_seconds ?? 600,
+             max_replies_per_window: payload.max_replies_per_window ?? 3,
++            media_descriptors: payload.media_descriptors ?? [],
+             candidates: payload.deployment_ids.map((deploymentId) => {
+               const runtime = runtimePreflightById.get(deploymentId);
+               const hard = hardPreflightById.get(deploymentId);
+@@ -636,6 +659,30 @@ export class RelayClient {
+     );
+   }
+ 
++  async resolvePlannerMedia(payload: {
++    message_id: string;
++    guild_id: string;
++    channel_id: string;
++    thread_id: string;
++    text: string;
++    burst_media_message_ids?: string[];
++  }): Promise<DiscordPlannerMediaResult> {
++    const channelId = payload.thread_id || payload.channel_id;
++    const media = await this.discordMedia(channelId, payload.message_id);
++    return this.request<DiscordPlannerMediaResult>(
++      "/api/connectors/discord/media/describe",
++      {
++        method: "POST",
++        body: JSON.stringify({
++          connection_id: this.connectionId,
++          ...payload,
++          attachments: media.attachments,
++          embeds: media.embeds
++        })
++      }
++    );
++  }
++
+   async processSocialTurnStep(
+     request: Omit<DiscordSocialTurnStepRequest, "payload"> & {
+       payload: Omit<DiscordInboundMessage, "connection_id">;
