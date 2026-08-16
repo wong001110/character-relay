@@ -1,6 +1,6 @@
 name: Validate Phase G
 
-# Final full-stack validation after Ruff and Mypy cleanup.
+# Final full-stack validation after the last Planner runtime regression fix.
 on:
   push:
     branches:
