@@ -39,7 +39,11 @@ _REQUIRED_PATTERNS = (
 )
 _NONE_PATTERNS = (
     re.compile(r"(?:不用|不必|别|別|不要).{0,12}(?:看|打开|打開|读|讀|分析|检查|檢查)", re.I),
-    re.compile(r"(?:do\s+not|don't|dont|no\s+need\s+to).{0,16}(?:open|read|inspect|watch|analy[sz]e)", re.I),
+    re.compile(
+        r"(?:do\s+not|don't|dont|no\s+need\s+to).{0,16}"
+        r"(?:open|read|inspect|watch|analy[sz]e)",
+        re.I,
+    ),
 )
 
 
@@ -61,9 +65,6 @@ def resolve_media_dependency(*, text: str, has_media: bool) -> MediaDependencyDe
         return MediaDependencyDecision("none", "explicit_do_not_inspect", True, False)
     if compact and any(pattern.search(compact) for pattern in _REQUIRED_PATTERNS):
         return MediaDependencyDecision("required", "explicit_media_content_request", True, False)
-    # Media-only turns intentionally remain optional after the planner obtains a lightweight
-    # objective descriptor. Admission can use the descriptor without pretending the Character
-    # has perceived the full content.
     return MediaDependencyDecision("optional", "media_interest_or_relevance_gray_zone", False, True)
 
 
