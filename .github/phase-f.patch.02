@@ -1,0 +1,180 @@
++                    for _, item in selected
++                ],
++            },
++            ensure_ascii=False,
++        )
++
++    def conversation_search(
++        self,
++        arguments: dict[str, object],
++        context: ToolExecutionContext,
++    ) -> str:
++        payload = InternalSearchInput.model_validate(arguments)
++        records = self.episode_repository.recent_for_scope(
++            owner_id=context.owner_id,
++            platform=context.platform,
++            connection_id=context.connection_id,
++            guild_id=context.guild_id,
++            channel_id=context.channel_id,
++            thread_id=context.thread_id,
++            limit=80,
++        )
++        ranked = sorted(
++            (
++                (_sparse(payload.query, f"{item.summary} {item.key_points_json}"), item)
++                for item in records
++            ),
++            key=lambda item: (item[0], item[1].ended_at),
++            reverse=True,
++        )
++        selected = [(score, item) for score, item in ranked if score > 0][: payload.limit]
++        return json.dumps(
++            {
++                "ok": True,
++                "scope": "current_discord_location",
++                "count": len(selected),
++                "episodes": [
++                    {
++                        "ref": item.id,
++                        "topic_ref": item.topic_id,
++                        "summary": item.summary,
++                        "key_points": json.loads(item.key_points_json or "[]")[:8],
++                        "source_message_refs": json.loads(
++                            item.source_message_ids_json or "[]"
++                        )[:12],
++                        "ended_at": item.ended_at.isoformat(),
++                    }
++                    for _, item in selected
++                ],
++            },
++            ensure_ascii=False,
++        )
++
++    def wiki_lookup(self, arguments: dict[str, object], context: ToolExecutionContext) -> str:
++        payload = InternalSearchInput.model_validate(arguments)
++        if self.wiki_lookup_backend is None:
++            return json.dumps(
++                {
++                    "ok": True,
++                    "available": False,
++                    "scope": "current_discord_server",
++                    "pages": [],
++                },
++                ensure_ascii=False,
++            )
++        pages = self.wiki_lookup_backend(
++            owner_id=context.owner_id,
++            connection_id=context.connection_id,
++            guild_id=context.guild_id,
++            query=payload.query,
++            limit=payload.limit,
++        )
++        return json.dumps(
++            {
++                "ok": True,
++                "available": True,
++                "scope": "current_discord_server",
++                "count": len(pages),
++                "pages": pages,
++            },
++            ensure_ascii=False,
++        )
++
++    def execute(
++        self,
++        tool_id: str,
++        arguments: dict[str, object],
++        context: ToolExecutionContext,
++    ) -> str:
++        if tool_id == "memory.search":
++            return self.memory_search(arguments, context)
++        if tool_id == "topic.search":
++            return self.topic_search(arguments, context)
++        if tool_id == "conversation.search":
++            return self.conversation_search(arguments, context)
++        if tool_id == "wiki.lookup":
++            return self.wiki_lookup(arguments, context)
++        raise ValueError("Unknown Internal Context Tool.")
++
++
++def internal_context_tool_schemas() -> tuple[dict[str, object], ...]:
++    schema = {
++        "type": "object",
++        "properties": {
++            "query": {"type": "string", "maxLength": 800},
++            "limit": {"type": "integer", "minimum": 1, "maximum": 8, "default": 5},
++        },
++        "required": ["query"],
++        "additionalProperties": False,
++    }
++    return tuple(
++        {
++            "tool_id": tool_id,
++            "provider_name": tool_id.replace(".", "_"),
++            "parameters": schema,
++        }
++        for tool_id in INTERNAL_CONTEXT_TOOL_IDS
++    )
++
++
++__all__ = [
++    "INTERNAL_CONTEXT_TOOL_IDS",
++    "InternalContextService",
++    "InternalSearchInput",
++    "WikiLookupBackend",
++    "internal_context_tool_schemas",
++]
+diff --git a/src/echo_masque/media_connector_runtime.py b/src/echo_masque/media_connector_runtime.py
+index ada7b21..c8fe159 100644
+--- a/src/echo_masque/media_connector_runtime.py
++++ b/src/echo_masque/media_connector_runtime.py
+@@ -188,21 +188,22 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
+     ) -> TargetResponse:
+         await self._ensure_media_context(prepared)
+         target = prepared.resolved.target
++        enabled = self._enabled_tools_for_turn(prepared)
++        forced = self._forced_tool_ids(prepared)
++        direct_tool_path = isinstance(target, PromptModelTarget) and bool(enabled)
+         try:
+-            if isinstance(target, PromptModelTarget) and self._media_inspection_enabled(prepared):
+-                enabled = self._enabled_tools_with_media(prepared)
++            if direct_tool_path:
+                 return await target.send_with_tools(
+                     prepared.prompt,
+                     tool_registry=self.tool_registry,
+                     enabled_tool_ids=enabled,
+                     tool_context=prepared.tool_context,
+                     max_tool_rounds=2,
+-                    forced_tool_ids=(_MEDIA_INSPECT_TOOL_ID,),
++                    forced_tool_ids=forced,
+                 )
+             return await super().invoke_character_model(prepared)
+         except ProviderError as exc:
+-            # The base path already records Provider errors; the direct media-tool path does not.
+-            if isinstance(target, PromptModelTarget) and self._media_inspection_enabled(prepared):
++            if direct_tool_path:
+                 self.deployment_repository.record_deployment_error(
+                     prepared.resolved.deployment.id,
+                     str(exc),
+@@ -210,7 +211,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
+             self._isolate_provider_failure(prepared, exc)
+             return self._provider_failure_response(exc)
+         except Exception as exc:
+-            if isinstance(target, PromptModelTarget) and self._media_inspection_enabled(prepared):
++            if direct_tool_path:
+                 self.deployment_repository.record_deployment_error(
+                     prepared.resolved.deployment.id,
+                     str(exc),
+@@ -223,19 +224,18 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
+     ) -> PromptModelToolTurn | None:
+         await self._ensure_media_context(prepared)
+         target = prepared.resolved.target
+-        if not isinstance(target, PromptModelTarget) or not self._media_inspection_enabled(
+-            prepared
+-        ):
++        enabled = self._enabled_tools_for_turn(prepared)
++        if not isinstance(target, PromptModelTarget) or not enabled:
+             return await super().start_character_tool_turn(prepared)
+ 
+         try:
+             return await target.start_tool_turn(
