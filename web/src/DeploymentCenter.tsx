@@ -21,6 +21,7 @@ import {
   type DeploymentMessageIdentity
 } from "./discordIdentityApi";
 import { ConversationIntelligenceInspector } from "./ConversationIntelligenceInspector";
+import { CharacterPortrait } from "./CharacterPortrait";
 import { DiscordEventLogPanel } from "./DiscordEventLogPanel";
 import { DiscordServerProfilesPanel } from "./DiscordServerProfilesPanel";
 import { PaperDrawer, PaperModal } from "./NotebookUI";
@@ -29,6 +30,7 @@ import { useI18n } from "./i18n";
 import { InteractionSessionsPanel } from "./InteractionSessionsPanel";
 import { KnowledgeBasePanel } from "./KnowledgeBasePanel";
 import { SmartParticipationStudio } from "./SmartParticipationStudio";
+import { serverRuntimeApi } from "./serverRuntimeApi";
 
 interface Props {
   cards: CharacterCard[];
@@ -68,6 +70,57 @@ const platformNotes: Record<PlatformId, { en: string; zh: string }> = {
 
 function statusLabel(status: string): string {
   return status.replaceAll("_", " ");
+}
+
+function participationLabel(mode: ParticipationMode, zh: boolean): string {
+  const labels: Record<ParticipationMode, { en: string; zh: string }> = {
+    mention_only: { en: "Mention only", zh: "仅被提及时" },
+    reply_only: { en: "Reply only", zh: "仅回复消息时" },
+    mention_and_reply: { en: "Mention + reply", zh: "提及或回复时" },
+    smart: { en: "Smart participation", zh: "智能参与" }
+  };
+  return zh ? labels[mode].zh : labels[mode].en;
+}
+
+function participationHelp(mode: ParticipationMode, zh: boolean): string {
+  const help: Record<ParticipationMode, { en: string; zh: string }> = {
+    mention_only: {
+      en: "Respond only when the Character is explicitly mentioned.",
+      zh: "只有明确提及该角色时才回应。"
+    },
+    reply_only: {
+      en: "Respond only when someone replies to the Character's message.",
+      zh: "只有回复该角色的消息时才回应。"
+    },
+    mention_and_reply: {
+      en: "Respond to explicit mentions and direct replies.",
+      zh: "明确提及或直接回复时回应。"
+    },
+    smart: {
+      en: "Let Smart Participation decide from the current conversation context.",
+      zh: "由 Smart Participation 根据当前对话语境决定是否参与。"
+    }
+  };
+  return zh ? help[mode].zh : help[mode].en;
+}
+
+function memoryLabel(scope: MemoryScope, zh: boolean): string {
+  const labels: Record<MemoryScope, { en: string; zh: string }> = {
+    channel_isolated: { en: "Channel isolated", zh: "Channel 隔离" },
+    server_shared: { en: "Server shared", zh: "Server 共享" },
+    custom: { en: "Custom", zh: "自定义" }
+  };
+  return zh ? labels[scope].zh : labels[scope].en;
+}
+
+function activityLabel(value: string | null, zh: boolean): string {
+  if (!value) return zh ? "尚无消息活动" : "No message activity yet";
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return value;
+  return new Intl.DateTimeFormat(zh ? "zh-CN" : "en", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(timestamp);
 }
 
 function destination(deployment: CharacterDeployment, zh: boolean): string {
@@ -173,6 +226,8 @@ export function DeploymentCenter({
     attention: 0
   });
   const [identities, setIdentities] = useState<DeploymentMessageIdentity[]>([]);
+  const [deploymentTools, setDeploymentTools] = useState<Record<string, string[]>>({});
+  const [serverTimezone, setServerTimezone] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -182,6 +237,7 @@ export function DeploymentCenter({
   const serverSelectionInitialized = useRef(false);
 
   const [connectionOpen, setConnectionOpen] = useState(false);
+  const [connectionManagerOpen, setConnectionManagerOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<PlatformConnection | null>(null);
   const [connectionPlatform, setConnectionPlatform] = useState<PlatformId>("discord");
   const [connectionMode, setConnectionMode] = useState<ConnectionMode>("managed");
@@ -244,6 +300,18 @@ export function DeploymentCenter({
         attention: nextDeployments.attention
       });
       setIdentities(nextIdentities);
+      const toolProfiles = await Promise.allSettled(
+        nextDeployments.items.map((item) => deploymentApi.getDeploymentTools(item.id))
+      );
+      setDeploymentTools(
+        Object.fromEntries(
+          toolProfiles.flatMap((result, index) =>
+            result.status === "fulfilled"
+              ? [[nextDeployments.items[index].id, result.value.enabled_tools] as const]
+              : []
+          )
+        )
+      );
       setDraftConnectionId((current) =>
         current && nextConnections.some((item) => item.id === current)
           ? current
@@ -281,6 +349,20 @@ export function DeploymentCenter({
   }, [selectedServerProfileId, serverNotebookTab]);
 
   useEffect(() => {
+    let active = true;
+    setServerTimezone(null);
+    if (!selectedServerProfileId) return () => { active = false; };
+    serverRuntimeApi.getTimezone(selectedServerProfileId)
+      .then((runtime) => {
+        if (active) setServerTimezone(runtime.timezone);
+      })
+      .catch(() => {
+        if (active) setServerTimezone(null);
+      });
+    return () => { active = false; };
+  }, [selectedServerProfileId]);
+
+  useEffect(() => {
     if (!initialCharacterId) return;
     setCharacterFilter(initialCharacterId);
     setDraftCharacterId(initialCharacterId);
@@ -316,6 +398,10 @@ export function DeploymentCenter({
     () => new Map(serverProfiles.map((profile) => [profile.id, profile])),
     [serverProfiles]
   );
+  const cardMap = useMemo(
+    () => new Map(cards.map((card) => [card.id, card])),
+    [cards]
+  );
 
   const selectedWorkspaceProfile = profileMap.get(selectedServerProfileId);
   const selectedWorkspaceCatalog = selectedWorkspaceProfile
@@ -324,6 +410,9 @@ export function DeploymentCenter({
           server.connection_id === selectedWorkspaceProfile.connection_id &&
           server.guild_id === selectedWorkspaceProfile.guild_id
       )
+    : undefined;
+  const selectedWorkspaceConnection = selectedWorkspaceProfile
+    ? connections.find((item) => item.id === selectedWorkspaceProfile.connection_id)
     : undefined;
 
   useEffect(() => {
@@ -375,7 +464,18 @@ export function DeploymentCenter({
     setEditingConnection(null);
     setConnectionPlatform("discord");
     setConnectionMode("managed");
+    setConnectionManagerOpen(true);
     setConnectionOpen(true);
+  }
+
+  function openConnectionManager() {
+    setServerNotebookTab("characters");
+    setConnectionManagerOpen(true);
+  }
+
+  function closeConnectionManager() {
+    closeConnectionForm();
+    setConnectionManagerOpen(false);
   }
 
   function openEditConnection(item: PlatformConnection) {
@@ -601,44 +701,79 @@ export function DeploymentCenter({
 
   return (
     <main className="deployment-page">
-      <header className="deployment-header">
-        <div>
-          <p className="kicker">CHARACTER RELAY / DEPLOYMENT CENTER</p>
-          <h1>{zh ? "角色部署与平台连接" : "Character deployments and platform connections"}</h1>
+      <section className="deployment-workspace-top">
+        <header className="deployment-header">
+          <div>
+          <h1>{zh ? "部署工作区" : "DEPLOYMENT WORKSPACE"}</h1>
           <p>
             {zh
-              ? "Discord Server 只需配置一次。部署角色时选择对应配置，默认覆盖全部 Channel，并按角色排除少数位置。"
-              : "Configure each Discord server once. Character deployments select that profile, cover all channels by default, and exclude only a few destinations when needed."}
+              ? "在 Discord Server 中管理角色、知识与互动。"
+              : "Manage characters, knowledge, and interactions inside your Discord servers."}
           </p>
-        </div>
-        <div className="deployment-header-actions">
-          {!demoMode && (
-            <button
-              className="ink-button"
-              onClick={openNewDeployment}
-              disabled={!cards.length || !selectedWorkspaceProfile}
-            >
-              {zh ? "+ 新部署" : "+ New deployment"}
+          </div>
+          <div className="deployment-header-actions">
+            {!demoMode && (
+              <button className="paper-button" onClick={openConnectionManager}>
+                {zh ? "平台连接" : "Connections"}
+              </button>
+            )}
+            <button className="paper-button" onClick={onClose}>
+              {zh ? "返回角色库" : "Back to library"}
             </button>
-          )}
-          <button className="paper-button" onClick={onClose}>
-            {zh ? "返回角色库" : "Back to library"}
-          </button>
-        </div>
-      </header>
+          </div>
+        </header>
 
-      <DiscordServerProfilesPanel
-        connections={connections}
-        profiles={serverProfiles}
-        catalog={serverCatalog}
-        selectedProfileId={selectedServerProfileId}
-        demoMode={demoMode}
-        zh={zh}
-        onSelectProfile={setSelectedServerProfileId}
-        onChanged={load}
-        onError={(message) => setError(message || null)}
-        onOpenLogs={() => setEventLogOpen(true)}
-      />
+        <section className="server-passport-shell" aria-label={zh ? "Server 护照" : "Server passport"}>
+          <DiscordServerProfilesPanel
+            connections={connections}
+            profiles={serverProfiles}
+            catalog={serverCatalog}
+            selectedProfileId={selectedServerProfileId}
+            demoMode={demoMode}
+            zh={zh}
+            onSelectProfile={setSelectedServerProfileId}
+            onChanged={load}
+            onError={(message) => setError(message || null)}
+            onOpenLogs={() => setEventLogOpen(true)}
+          />
+          {selectedWorkspaceProfile && (
+            <div className="server-passport-meta">
+              <span className="server-passport-label">SERVER PASSPORT</span>
+              <dl>
+                <div>
+                  <dt>{zh ? "时区" : "Timezone"}</dt>
+                  <dd>{serverTimezone ?? (loading ? (zh ? "读取中…" : "Loading…") : "—")}</dd>
+                </div>
+                <div>
+                  <dt>{zh ? "连接状态" : "Connector"}</dt>
+                  <dd>{selectedWorkspaceConnection ? statusLabel(selectedWorkspaceConnection.status) : "—"}</dd>
+                </div>
+                <div>
+                  <dt>{zh ? "Discord 身份" : "Discord identity"}</dt>
+                  <dd>
+                    {selectedWorkspaceConnection
+                      ? connectorDisplayName(selectedWorkspaceConnection) || selectedWorkspaceConnection.display_name
+                      : "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{zh ? "最近同步" : "Catalog synced"}</dt>
+                  <dd>{selectedWorkspaceCatalog ? activityLabel(selectedWorkspaceCatalog.synced_at, zh) : "—"}</dd>
+                </div>
+              </dl>
+            </div>
+          )}
+        </section>
+
+        <aside className="deployment-workspace-quote" aria-label={zh ? "工作区说明" : "Workspace note"}>
+          <p>
+            {zh
+              ? "让角色在同一个地方生活、互动并共同成长。"
+              : "A place where characters live, interact, and grow together."}
+          </p>
+          <span aria-hidden="true">♡</span>
+        </aside>
+      </section>
 
       {error && (
         <p className="error-note deployment-error" role="alert">
@@ -647,11 +782,12 @@ export function DeploymentCenter({
       )}
 
       <section className="server-notebook-shell">
-        <aside className="server-notebook-tabs" aria-label={zh ? "Server 手帐分页" : "Server notebook pages"}>
+        <nav className="server-notebook-tabs" aria-label={zh ? "Server 手帐分页" : "Server notebook pages"}>
           <span className="server-notebook-caption">SERVER NOTEBOOK</span>
           <button
             type="button"
             className={serverNotebookTab === "characters" ? "is-active" : ""}
+            aria-current={serverNotebookTab === "characters" ? "page" : undefined}
             onClick={() => setServerNotebookTab("characters")}
           >
             <span aria-hidden="true">♙</span>
@@ -661,6 +797,7 @@ export function DeploymentCenter({
           <button
             type="button"
             className={serverNotebookTab === "knowledge" ? "is-active" : ""}
+            aria-current={serverNotebookTab === "knowledge" ? "page" : undefined}
             onClick={() => setServerNotebookTab("knowledge")}
             disabled={!selectedWorkspaceProfile}
           >
@@ -670,6 +807,7 @@ export function DeploymentCenter({
           <button
             type="button"
             className={serverNotebookTab === "interactions" ? "is-active" : ""}
+            aria-current={serverNotebookTab === "interactions" ? "page" : undefined}
             onClick={() => setServerNotebookTab("interactions")}
             disabled={!selectedWorkspaceProfile}
           >
@@ -679,6 +817,7 @@ export function DeploymentCenter({
           <button
             type="button"
             className={serverNotebookTab === "intelligence" ? "is-active" : ""}
+            aria-current={serverNotebookTab === "intelligence" ? "page" : undefined}
             onClick={() => setServerNotebookTab("intelligence")}
             disabled={!selectedWorkspaceProfile}
           >
@@ -688,25 +827,36 @@ export function DeploymentCenter({
           <small className="server-notebook-hint">
             {zh ? "每次只展开一页，减少纵向堆叠。" : "One server page at a time."}
           </small>
-        </aside>
+        </nav>
 
         <div className="server-notebook-content">
           {serverNotebookTab === "characters" && (
-            <>
-              <section className="deployment-summary-grid">
+            <div className="server-characters-page">
+              <div className="server-characters-main">
+                <section className="deployment-summary-grid">
                 <article className="paper-sheet deployment-summary-card">
-                  <span>{zh ? "部署总数" : "Deployments"}</span>
-                  <strong>{deploymentTotal}</strong>
+                  <span>{zh ? "总数" : "Total"}</span>
+                  <strong>{selectedWorkspaceProfile ? deploymentTotal : "—"}</strong>
                   <small>{zh ? "精确位置或 Server 范围" : "Exact or server-wide scopes"}</small>
                 </article>
                 <article className="paper-sheet deployment-summary-card">
                   <span>{zh ? "运行中" : "Active"}</span>
-                  <strong>{deploymentCounts.active}</strong>
+                  <strong>{selectedWorkspaceProfile ? deploymentCounts.active : "—"}</strong>
                   <small>{zh ? "Connector 正在读取的部署" : "Read by the connector"}</small>
                 </article>
                 <article className="paper-sheet deployment-summary-card">
+                  <span>{zh ? "已暂停" : "Paused"}</span>
+                  <strong>{selectedWorkspaceProfile ? deploymentCounts.paused : "—"}</strong>
+                  <small>{zh ? "保留配置但不参与" : "Configured but not participating"}</small>
+                </article>
+                <article className="paper-sheet deployment-summary-card">
+                  <span>{zh ? "需要处理" : "Needs attention"}</span>
+                  <strong>{selectedWorkspaceProfile ? deploymentCounts.attention : "—"}</strong>
+                  <small>{zh ? "离线或错误状态" : "Offline or error states"}</small>
+                </article>
+                <article className="paper-sheet deployment-summary-card">
                   <span>{zh ? "同步 Channel" : "Synced Channels"}</span>
-                  <strong>{selectedWorkspaceCatalog?.channels.length ?? 0}</strong>
+                  <strong>{selectedWorkspaceProfile ? selectedWorkspaceCatalog?.channels.length ?? "—" : "—"}</strong>
                   <small>
                     {selectedWorkspaceProfile
                       ? selectedWorkspaceProfile.guild_name
@@ -715,15 +865,16 @@ export function DeploymentCenter({
                         : "No Server selected"}
                   </small>
                 </article>
-                <article className="paper-sheet deployment-summary-card">
-                  <span>{zh ? "需要处理" : "Needs attention"}</span>
-                  <strong>{deploymentCounts.attention}</strong>
-                  <small>{zh ? "离线或错误状态" : "Offline or error states"}</small>
-                </article>
-              </section>
+                </section>
 
-              <section className="deployment-layout">
-                <aside className="deployment-sidebar">
+                <section className="deployment-layout deployment-files-layout">
+                {connectionManagerOpen && !demoMode && (
+                  <PaperDrawer
+                    onClose={closeConnectionManager}
+                    ariaLabel={zh ? "平台连接" : "Platform connections"}
+                    className="connection-manager-drawer"
+                  >
+                  <aside className="deployment-sidebar">
                   <section className="paper-sheet connection-panel">
                     <div className="panel-heading-row">
                       <div>
@@ -738,17 +889,6 @@ export function DeploymentCenter({
                     </div>
 
                     {connectionOpen && !demoMode && (
-                      <PaperDrawer
-                        onClose={closeConnectionForm}
-                        ariaLabel={editingConnection
-                          ? zh
-                            ? "编辑平台账户"
-                            : "Edit platform account"
-                          : zh
-                            ? "添加平台账户"
-                            : "Add platform account"}
-                        className="connection-editor-drawer"
-                      >
                       <form
                         className="connection-form"
                         onSubmit={saveConnection}
@@ -833,7 +973,6 @@ export function DeploymentCenter({
                                 : "Save connection"}
                         </button>
                       </form>
-                      </PaperDrawer>
                     )}
 
                     <div className="connection-list">
@@ -894,6 +1033,8 @@ export function DeploymentCenter({
                     </div>
                   </section>
                 </aside>
+                  </PaperDrawer>
+                )}
 
                 <section className="deployment-main">
                   {deploymentOpen && !demoMode && (
@@ -1213,6 +1354,9 @@ export function DeploymentCenter({
                             <option value="mention_and_reply">Mention + reply</option>
                             <option value="smart">Smart participation</option>
                           </select>
+                          <small className="deployment-participation-help">
+                            {participationHelp(draftParticipationMode, zh)}
+                          </small>
                         </label>
                         <label>
                           {zh ? "记忆范围" : "Memory scope"}
@@ -1361,11 +1505,16 @@ export function DeploymentCenter({
                   <section className="paper-sheet deployment-list-sheet">
                     <div className="panel-heading-row deployment-list-heading">
                       <div>
-                        <p className="tape-label">DEPLOYMENT LIST</p>
-                        <h2>{zh ? "目前部署到哪些位置" : "Where characters are deployed"}</h2>
+                        <p className="tape-label">CHARACTER DEPLOYMENT FILES</p>
+                        <h2>{zh ? "这个 Server 中的角色" : "CHARACTERS IN THIS SERVER"}</h2>
+                        <p className="deployment-list-subtitle">
+                          {zh
+                            ? "每份档案都保留角色在当前 Server 的 Presence、参与、记忆与 Discord 身份。"
+                            : "Each file records this Character's Presence, participation, memory, and Discord identity in the selected Server."}
+                        </p>
                       </div>
                       <span>
-                        {deployments.length} / {deploymentTotal}
+                        {selectedWorkspaceProfile ? `${deployments.length} / ${deploymentTotal}` : "—"}
                       </span>
                       {!demoMode && (
                         <button
@@ -1418,7 +1567,11 @@ export function DeploymentCenter({
                     ) : deployments.length === 0 ? (
                       <div className="deployment-empty">
                         <strong>
-                          {deploymentTotal
+                          {!selectedWorkspaceProfile
+                            ? zh
+                              ? "先添加或选择一个 Discord Server"
+                              : "Choose a Discord Server to open its Character files"
+                            : deploymentTotal
                             ? zh
                               ? "没有符合筛选条件的部署"
                               : "No deployments match the filters"
@@ -1427,79 +1580,115 @@ export function DeploymentCenter({
                               : "No character deployments yet"}
                         </strong>
                         <p>
-                          {zh
-                            ? "Discord 新部署会复用 Server 配置，并默认覆盖全部 Channel。"
-                            : "New Discord deployments reuse a server profile and cover all channels by default."}
+                          {!selectedWorkspaceProfile
+                            ? zh
+                              ? "Server 是部署、Interaction 与运行状态的权限范围。"
+                              : "Server scope protects deployments, interactions, and runtime state."
+                            : zh
+                              ? "Discord 新部署会复用 Server 配置，并默认覆盖全部 Channel。"
+                              : "New Discord deployments reuse a server profile and cover all channels by default."}
                         </p>
                       </div>
                     ) : (
-                      <div className="deployment-table" role="table">
-                        <div className="deployment-row deployment-row-head" role="row">
-                          <span>{zh ? "角色 / 版本" : "Character / version"}</span>
-                          <span>{zh ? "平台位置" : "Platform destination"}</span>
-                          <span>{zh ? "行为 / 身份" : "Behavior / identity"}</span>
-                          <span>{zh ? "状态" : "Status"}</span>
-                          <span>{zh ? "操作" : "Actions"}</span>
-                        </div>
+                      <div className="deployment-file-grid" role="list">
                         {deployments.map((item) => {
                           const identity = identityMap.get(item.id) ?? defaultIdentity(item);
+                          const card = cardMap.get(item.character_card_id);
+                          const tools = deploymentTools[item.id];
                           const profile = item.server_profile_id
                             ? profileMap.get(item.server_profile_id)
                             : undefined;
                           const totalExclusions =
-                            item.excluded_channel_ids.length +
-                            item.excluded_category_ids.length +
-                            (profile?.excluded_channel_ids.length ?? 0) +
-                            (profile?.excluded_category_ids.length ?? 0);
+                            new Set([
+                              ...(profile?.excluded_channel_ids ?? []),
+                              ...item.excluded_channel_ids
+                            ]).size +
+                            new Set([
+                              ...(profile?.excluded_category_ids ?? []),
+                              ...item.excluded_category_ids
+                            ]).size;
                           return (
-                            <article className="deployment-row" role="row" key={item.id}>
-                              <div>
-                                <strong>{item.character_display_name}</strong>
-                                <span>{item.version_label}</span>
-                              </div>
-                              <div>
-                                <strong>{platformLabels[item.platform]}</strong>
-                                <span>{destination(item, zh)}</span>
-                                {item.channel_scope_mode === "all_except" && (
-                                  <small>
-                                    {item.server_profile_name || profile?.name} ·{" "}
-                                    {zh ? "总排除" : "total exclusions"} {totalExclusions}
-                                  </small>
-                                )}
-                              </div>
-                              <div>
-                                <strong>{item.participation_mode.replaceAll("_", " ")}</strong>
-                                <span>
-                                  {item.memory_scope.replaceAll("_", " ")} · {item.sticker_count}{" "}
-                                  {zh ? "贴图" : "stickers"}
-                                </span>
-                                {item.platform === "discord" && (
-                                  <span className="deployment-identity-line">
-                                    {identity.mode === "webhook" ? "Webhook" : "Bot"} ·{" "}
-                                    {identity.display_name} · {statusLabel(identity.webhook_status)}
-                                  </span>
-                                )}
-                                {identity.last_error && (
-                                  <small className="deployment-inline-error">{identity.last_error}</small>
-                                )}
-                              </div>
-                              <div>
+                            <article
+                              className={`deployment-file deployment-file-${item.status}`}
+                              role="listitem"
+                              key={item.id}
+                            >
+                              <span className="deployment-file-tab">DEPLOYMENT FILE</span>
+                              <header className="deployment-file-header">
+                                <div className={`deployment-file-portrait portrait-${card?.portrait_variant ?? "lavender"}`}>
+                                  <CharacterPortrait
+                                    cardId={item.character_card_id}
+                                    alt={item.character_display_name}
+                                  />
+                                </div>
+                                <div className="deployment-file-identity">
+                                  <span>{item.version_label}</span>
+                                  <h3>{item.character_display_name}</h3>
+                                  <p>{card?.subtitle || (zh ? "角色部署档案" : "Character deployment file")}</p>
+                                </div>
                                 <span className={`deployment-status status-${item.status}`}>
                                   {statusLabel(item.status)}
                                 </span>
-                                {item.last_error && (
-                                  <small className="deployment-inline-error">{item.last_error}</small>
-                                )}
-                              </div>
-                              <div className="deployment-actions">
+                              </header>
+
+                              <dl className="deployment-file-facts">
+                                <div className="deployment-file-presence">
+                                  <dt>{zh ? "Presence / Channel 范围" : "Presence / Channel scope"}</dt>
+                                  <dd>{destination(item, zh)}</dd>
+                                  {item.channel_scope_mode === "all_except" && (
+                                    <small>
+                                      {item.server_profile_name || profile?.name} ·{" "}
+                                      {zh ? `共排除 ${totalExclusions} 个位置` : `${totalExclusions} total exclusions`}
+                                    </small>
+                                  )}
+                                </div>
+                                <div>
+                                  <dt>{zh ? "参与方式" : "Participation"}</dt>
+                                  <dd>{participationLabel(item.participation_mode, zh)}</dd>
+                                </div>
+                                <div>
+                                  <dt>{zh ? "记忆范围" : "Memory"}</dt>
+                                  <dd>{memoryLabel(item.memory_scope, zh)}</dd>
+                                </div>
+                                <div>
+                                  <dt>{zh ? "Discord 身份" : "Discord identity"}</dt>
+                                  <dd>{identity.mode === "webhook" ? "Webhook" : "Bot"} · {identity.display_name}</dd>
+                                  <small>{statusLabel(identity.webhook_status)}</small>
+                                </div>
+                                <div>
+                                  <dt>{zh ? "工具" : "Tools"}</dt>
+                                  <dd>
+                                    {tools === undefined
+                                      ? "—"
+                                      : zh
+                                        ? `${tools.length} 个已启用`
+                                        : `${tools.length} enabled`}
+                                  </dd>
+                                  {tools && tools.length > 0 && (
+                                    <small title={tools.join(", ")}>{tools.slice(0, 2).join(" · ")}</small>
+                                  )}
+                                </div>
+                              </dl>
+
+                              {(item.last_error || identity.last_error) && (
+                                <div className="deployment-file-error" role="status">
+                                  {item.last_error || identity.last_error}
+                                </div>
+                              )}
+
+                              <footer className="deployment-file-footer">
+                                <div className="deployment-file-activity">
+                                  <span>{zh ? "最近活动" : "Last activity"}</span>
+                                  <strong>{activityLabel(item.last_message_at, zh)}</strong>
+                                </div>
                                 {!demoMode && (
-                                  <>
+                                  <div className="deployment-actions">
                                     <button
-                                      className="paper-button"
+                                      className="ink-button"
                                       onClick={() => openEditDeployment(item)}
                                       disabled={working}
                                     >
-                                      {zh ? "编辑" : "Edit"}
+                                      {zh ? "打开部署" : "Open Deployment"}
                                     </button>
                                     <button
                                       className="paper-button"
@@ -1518,16 +1707,19 @@ export function DeploymentCenter({
                                           ? "启用"
                                           : "Activate"}
                                     </button>
-                                    <button
-                                      className="text-button danger-text"
-                                      onClick={() => void removeDeployment(item)}
-                                      disabled={working}
-                                    >
-                                      {zh ? "移除" : "Remove"}
-                                    </button>
-                                  </>
+                                    <details className="deployment-file-more">
+                                      <summary>{zh ? "更多" : "More"}</summary>
+                                      <button
+                                        className="text-button danger-text"
+                                        onClick={() => void removeDeployment(item)}
+                                        disabled={working}
+                                      >
+                                        {zh ? "移除部署" : "Remove deployment"}
+                                      </button>
+                                    </details>
+                                  </div>
                                 )}
-                              </div>
+                              </footer>
                             </article>
                           );
                         })}
@@ -1543,7 +1735,90 @@ export function DeploymentCenter({
                   </section>
                 </section>
               </section>
-            </>
+              </div>
+
+              <aside className="server-characters-rail" aria-label={zh ? "Server 边栏" : "Server workspace notes"}>
+                <section className="server-rail-note server-scope-note">
+                  <span>{zh ? "SERVER 范围" : "SERVER SCOPE"}</span>
+                  {selectedWorkspaceProfile ? (
+                    <dl>
+                      <div>
+                        <dt>{zh ? "Server" : "Server"}</dt>
+                        <dd>{selectedWorkspaceProfile.guild_name}</dd>
+                      </div>
+                      <div>
+                        <dt>{zh ? "可见 Channel" : "Visible Channels"}</dt>
+                        <dd>{selectedWorkspaceCatalog?.channels.length ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt>{zh ? "默认排除" : "Default Exclusions"}</dt>
+                        <dd>
+                          {selectedWorkspaceProfile.excluded_channel_ids.length +
+                            selectedWorkspaceProfile.excluded_category_ids.length}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>{zh ? "时区" : "Timezone"}</dt>
+                        <dd>{serverTimezone ?? "—"}</dd>
+                      </div>
+                    </dl>
+                  ) : (
+                    <p>
+                      {zh
+                        ? "添加或选择 Server 后，这里会显示它的真实范围。"
+                        : "Add or choose a Server to see its authoritative scope."}
+                    </p>
+                  )}
+                </section>
+
+                <section className="server-rail-note server-quick-links">
+                  <span>{zh ? "快捷入口" : "QUICK LINKS"}</span>
+                  {!demoMode && (
+                    <button type="button" onClick={openConnectionManager}>
+                      {zh ? "平台连接" : "Platform Connections"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setEventLogOpen(true)}
+                    disabled={!selectedWorkspaceProfile}
+                  >
+                    {zh ? "Server 日志" : "Server Log"}
+                  </button>
+                  {!demoMode && (
+                    <button
+                      type="button"
+                      onClick={openNewDeployment}
+                      disabled={!cards.length || !selectedWorkspaceProfile}
+                    >
+                      {zh ? "部署角色" : "Deploy Character"}
+                    </button>
+                  )}
+                </section>
+
+                <section className="server-rail-note server-health-note">
+                  <span>{zh ? "运行检查" : "HEALTH CHECK"}</span>
+                  <ul>
+                    <li className={selectedWorkspaceProfile ? "is-good" : "needs-attention"}>
+                      <span>{zh ? "Server 配置" : "Server Profile"}</span>
+                      <strong>{selectedWorkspaceProfile ? "✓" : "—"}</strong>
+                    </li>
+                    <li className={selectedWorkspaceConnection?.status === "connected" ? "is-good" : "needs-attention"}>
+                      <span>{zh ? "连接" : "Connection"}</span>
+                      <strong>{selectedWorkspaceConnection ? statusLabel(selectedWorkspaceConnection.status) : "—"}</strong>
+                    </li>
+                    <li className={selectedWorkspaceCatalog ? "is-good" : "needs-attention"}>
+                      <span>{zh ? "Channel Catalog" : "Channel Catalog"}</span>
+                      <strong>{selectedWorkspaceCatalog ? "✓" : "—"}</strong>
+                    </li>
+                    <li className={serverTimezone ? "is-good" : "needs-attention"}>
+                      <span>{zh ? "时区" : "Timezone"}</span>
+                      <strong>{serverTimezone ? "✓" : "—"}</strong>
+                    </li>
+                  </ul>
+                </section>
+              </aside>
+            </div>
           )}
 
           {serverNotebookTab === "knowledge" && (

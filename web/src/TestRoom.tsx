@@ -25,9 +25,9 @@ import {
   StickyNote,
   Toast
 } from "./components/ui";
+import { CharacterPortrait } from "./CharacterPortrait";
 import { CredentialModal } from "./CredentialModal";
 import { useI18n } from "./i18n";
-import { LanguageSwitcher } from "./LanguageSwitcher";
 import { latestScenarioName, payloadNumber, payloadText, visibleEvents } from "./live";
 import { ReportModal } from "./ReportModal";
 import { firstBreakpoint, integrityBand } from "./summary";
@@ -95,6 +95,18 @@ function configText(target: TargetView, key: string, fallback: string): string {
   return typeof value === "string" && value ? value : fallback;
 }
 
+function eventTimeLabel(value: string | null | undefined, language: string): string {
+  if (!value) return "—";
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return "—";
+  return new Intl.DateTimeFormat(language === "zh-CN" ? "zh-CN" : "en", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(timestamp);
+}
+
 export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
   const { language, t } = useI18n();
   const [selected, setSelected] = useState<TestKind[]>(
@@ -112,6 +124,7 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
   const [showCredential, setShowCredential] = useState(false);
   const [reportFormat, setReportFormat] = useState<ReportFormat | null>(null);
   const [busy, setBusy] = useState(false);
+  const [autoScroll, setAutoScroll] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
 
@@ -124,6 +137,7 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
     ? rawScenarioName
     : t("room.waitingRoom");
   const eventCount = evidenceCount(events);
+  const replyCount = events.filter((item) => item.event_type === "subject_response").length;
   const credentialReady = credential?.configured ?? target.target_kind !== "prompt_model";
   const adaptiveReady = runtime?.adaptive.configured ?? false;
   const semanticReady = runtime?.judge.configured ?? false;
@@ -139,6 +153,26 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
         : credential.source === "environment"
           ? t("credential.environmentReady")
           : t("credential.sessionReady");
+  const setupReady =
+    credentialReady &&
+    selected.length > 0 &&
+    (testerMode !== "adaptive" || adaptiveReady) &&
+    (judgeMode === "rules" || semanticReady);
+  const sessionLabel = run
+    ? t(statusKeys[run.status])
+    : credential === null && target.target_kind === "prompt_model"
+      ? t("credential.checking")
+      : setupReady
+        ? t("room.ready")
+        : t("room.configurationRequired");
+  const sessionTone = run?.status === "failed"
+    ? "danger"
+    : run?.status === "running" || run?.status === "completed"
+      ? "success"
+      : setupReady
+        ? "success"
+        : "warning";
+  const firstEventAt = events[0]?.created_at;
 
   useEffect(() => {
     if (runtime?.default_judge_mode && !busy) {
@@ -158,11 +192,12 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
   }, [card.id]);
 
   useEffect(() => {
+    if (!autoScroll) return;
     transcriptRef.current?.scrollTo({
       top: transcriptRef.current.scrollHeight,
       behavior: mode === "watch" ? "smooth" : "auto"
     });
-  }, [displayEvents, mode]);
+  }, [autoScroll, displayEvents, mode]);
 
   function toggleSuite(id: TestKind) {
     setSelected((current) =>
@@ -239,21 +274,39 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
     <>
       <main className="room-page">
         <header className="room-header">
-          <Button variant="secondary" className="back-button" onClick={onBack}>{t("room.back")}</Button>
-          <div><p className="kicker">{t("room.kicker")}</p><h1>{t("room.title")}</h1></div>
+          <Button variant="secondary" className="back-button" onClick={onBack}>
+            {language === "zh-CN"
+              ? `← 返回 ${card.display_name} / 角色档案`
+              : `← Back to ${card.display_name} / Character File`}
+          </Button>
+          <div className="room-title-block">
+            <h1>LIVE CHARACTER EXPERIMENT</h1>
+            <p className="room-subject-line">{card.display_name} · {card.subtitle}</p>
+          </div>
           <div className="room-header-actions">
-            <LanguageSwitcher />
-            <Button variant="secondary" onClick={onAdmin}>{t("shelf.admin")}</Button>
-            <StatusIndicator tone={busy ? "info" : "neutral"} pulse={busy}>
-              {busy ? t("room.sessionLive") : t("room.ready")}
-            </StatusIndicator>
+            <div className="room-session-state">
+              <StatusIndicator tone={sessionTone} pulse={busy}>{sessionLabel}</StatusIndicator>
+              <small>
+                {firstEventAt
+                  ? `${language === "zh-CN" ? "开始" : "Started"} ${eventTimeLabel(firstEventAt, language)}`
+                  : language === "zh-CN" ? "尚未开始" : "Not started"}
+              </small>
+            </div>
+            <div className="room-session-id-note">
+              <span>SESSION ID</span>
+              <strong>{run?.id ?? "—"}</strong>
+            </div>
           </div>
         </header>
 
         <section className="room-grid">
           <aside className="room-sidebar paper-sheet">
+            <div className="room-setup-heading">
+              <span>EXPERIMENT SETUP</span>
+              <small className={setupReady ? "is-ready" : "needs-setup"}>{sessionLabel}</small>
+            </div>
             <div className={`mini-card portrait-${card.portrait_variant}`}>
-              <img src="/assets/character-silhouette.svg" alt="" />
+              <CharacterPortrait cardId={card.id} alt="" />
               <div>
                 <span>{t(subjectKeys[card.subject_type])}</span>
                 <strong>{card.display_name}</strong>
@@ -262,13 +315,18 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
             </div>
 
             {target.target_kind === "prompt_model" && (
-              <div className={credentialReady ? "connection-card ready" : "connection-card missing"}>
+              <details
+                className={credentialReady ? "connection-card ready" : "connection-card missing"}
+                open={!credentialReady}
+              >
+                <summary>
+                  <span>{t("room.aiConnection")}</span>
+                  <strong>{credentialCopy}</strong>
+                </summary>
                 <div className="connection-title">
-                  <span>{t("room.aiConnection")}</span><strong>{credentialCopy}</strong>
+                  <span>{t("room.provider")}</span><strong>{provider} · {model}</strong>
                 </div>
                 <dl>
-                  <div><dt>{t("room.provider")}</dt><dd>{provider}</dd></div>
-                  <div><dt>{t("room.model")}</dt><dd>{model}</dd></div>
                   <div><dt>{t("room.baseUrl")}</dt><dd title={baseUrl}>{baseUrl}</dd></div>
                 </dl>
                 <Button
@@ -279,13 +337,14 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
                 >
                   {credentialReady ? t("room.replaceKey") : t("room.configureKey")}
                 </Button>
-              </div>
+              </details>
             )}
 
             <p className="section-label">{t("room.testerStyle")}</p>
             <div className="tester-mode-switch">
               <button
                 className={testerMode === "benchmark" ? "selected" : ""}
+                aria-pressed={testerMode === "benchmark"}
                 onClick={() => setTesterMode("benchmark")}
                 disabled={busy}
               >
@@ -293,19 +352,13 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
               </button>
               <button
                 className={testerMode === "adaptive" ? "selected" : ""}
+                aria-pressed={testerMode === "adaptive"}
                 onClick={() => setTesterMode("adaptive")}
                 disabled={busy || !adaptiveReady}
               >
                 {t("room.adaptive")}<small>{t("room.adaptiveHelp")}</small>
               </button>
             </div>
-            <RuntimeSummary
-              title={t("room.pressureAgent")}
-              configured={adaptiveReady}
-              provider={runtime?.adaptive.provider ?? "—"}
-              model={runtime?.adaptive.model ?? "—"}
-              onAdmin={onAdmin}
-            />
 
             <p className="section-label">{t("room.judgeMode")}</p>
             <div className="judge-mode-switch">
@@ -313,6 +366,7 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
                 <button
                   key={item}
                   className={judgeMode === item ? "selected" : ""}
+                  aria-pressed={judgeMode === item}
                   onClick={() => setJudgeMode(item)}
                   disabled={busy || (item !== "rules" && !semanticReady)}
                 >
@@ -321,19 +375,13 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
                 </button>
               ))}
             </div>
-            <RuntimeSummary
-              title={t("room.semanticJudge")}
-              configured={semanticReady}
-              provider={runtime?.judge.provider ?? "—"}
-              model={runtime?.judge.model ?? "—"}
-              onAdmin={onAdmin}
-            />
 
             <p className="section-label">{t("room.testLanguage")}</p>
             <p className="section-help">{t("room.testLanguageHelp")}</p>
             <div className="test-language-switch">
               <button
                 className={testLanguage === "en" ? "selected" : ""}
+                aria-pressed={testLanguage === "en"}
                 onClick={() => setTestLanguage("en")}
                 disabled={busy}
               >
@@ -341,6 +389,7 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
               </button>
               <button
                 className={testLanguage === "zh-CN" ? "selected" : ""}
+                aria-pressed={testLanguage === "zh-CN"}
                 onClick={() => setTestLanguage("zh-CN")}
                 disabled={busy}
               >
@@ -354,6 +403,7 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
                 <button
                   key={suite.id}
                   className={selected.includes(suite.id) ? "room-choice selected" : "room-choice"}
+                  aria-pressed={selected.includes(suite.id)}
                   onClick={() => toggleSuite(suite.id)}
                   disabled={busy}
                 >
@@ -366,6 +416,7 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
             <div className="mode-switch">
               <button
                 className={mode === "watch" ? "selected" : ""}
+                aria-pressed={mode === "watch"}
                 onClick={() => setMode("watch")}
                 disabled={busy}
               >
@@ -373,6 +424,7 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
               </button>
               <button
                 className={mode === "fast" ? "selected" : ""}
+                aria-pressed={mode === "fast"}
                 onClick={() => setMode("fast")}
                 disabled={busy}
               >
@@ -403,14 +455,20 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
           <section className="chat-sheet paper-sheet">
             <div className="chat-heading">
               <div>
-                <StickyLabel variant="link" className="room-live-label">{t("room.liveRoom")}</StickyLabel>
+                <StickyLabel variant="link" className="room-live-label">LIVE CONVERSATION</StickyLabel>
                 <h2>{scenarioName}</h2>
               </div>
-              <span className="round-counter">
-                {t("room.replies", {
-                  count: events.filter((item) => item.event_type === "subject_response").length
-                })}
-              </span>
+              <div className="room-chat-controls">
+                <label className="room-auto-scroll">
+                  <span>Auto-scroll</span>
+                  <input
+                    type="checkbox"
+                    checked={autoScroll}
+                    onChange={(event) => setAutoScroll(event.currentTarget.checked)}
+                  />
+                </label>
+                <span className="round-counter">{t("room.replies", { count: replyCount })}</span>
+              </div>
             </div>
             <div className="chatroom" ref={transcriptRef} aria-live="polite">
               {displayEvents.length === 0 ? (
@@ -422,64 +480,107 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
                 />
               ) : (
                 displayEvents.map((event) => (
-                  <LiveEvent key={event.sequence} event={event} card={card} />
+                  <div className="room-timeline-event" key={event.sequence}>
+                    <time dateTime={event.created_at}>{eventTimeLabel(event.created_at, language)}</time>
+                    <div className="room-timeline-content">
+                      <LiveEvent event={event} card={card} />
+                    </div>
+                  </div>
                 ))
               )}
             </div>
           </section>
 
           <aside className="observation-sidebar paper-sheet">
-            <StickyLabel variant="image" className="room-observation-label">{t("room.notes")}</StickyLabel>
-            <StickyNote
-              variant={run?.result?.review_required ? "warning" : "note"}
-              size="md"
-              className={run?.result?.review_required ? "integrity-card review" : "integrity-card"}
-            >
-              <span>{t("room.integrity")}</span><strong>{run?.result ? Math.round(score) : "—"}</strong>
-              <small>
-                {run?.result?.review_required
-                  ? t("judge.review")
-                  : run?.result
-                    ? t(integrityKeys[integrityBand(score)])
-                    : t("room.stillObserving")}
-              </small>
-            </StickyNote>
-            <dl className="signal-list">
-              <div><dt>{t("room.tester")}</dt><dd>{testerMode === "adaptive" ? t("room.adaptive") : t("room.benchmark")}</dd></div>
-              <div><dt>{t("room.judgeMode")}</dt><dd>{t(`judge.${judgeMode}` as "judge.rules")}</dd></div>
-              <div><dt>{t("room.currentRoom")}</dt><dd>{scenarioName}</dd></div>
-              <div><dt>{t("room.evidence")}</dt><dd>{eventCount}</dd></div>
-              <div>
-                <dt>{t("room.firstFracture")}</dt>
-                <dd>
+            <StickyLabel variant="image" className="room-observation-label">OBSERVATION BOARD</StickyLabel>
+            <div className="room-observation-stats">
+              <StickyNote
+                variant={run?.result?.review_required ? "warning" : "note"}
+                size="md"
+                className={run?.result?.review_required ? "integrity-card review" : "integrity-card"}
+              >
+                <span>{t("room.integrity")}</span><strong>{run?.result ? Math.round(score) : "—"}</strong>
+                <small>
+                  {run?.result?.review_required
+                    ? t("judge.review")
+                    : run?.result
+                      ? t(integrityKeys[integrityBand(score)])
+                      : t("room.stillObserving")}
+                </small>
+              </StickyNote>
+              <StickyNote variant="character" size="md" className="evidence-card">
+                <span>{t("room.evidence")}</span>
+                <strong>{eventCount}</strong>
+                <small>{run ? t(statusKeys[run.status]) : t("room.unobserved")}</small>
+              </StickyNote>
+            </div>
+            <div className="room-observation-board-grid">
+              <section className="room-session-overview">
+                <span>SESSION OVERVIEW</span>
+                <dl className="signal-list">
+                  <div><dt>{t("room.tester")}</dt><dd>{testerMode === "adaptive" ? t("room.adaptive") : t("room.benchmark")}</dd></div>
+                  <div><dt>{t("room.judgeMode")}</dt><dd>{t(`judge.${judgeMode}` as "judge.rules")}</dd></div>
+                  <div><dt>{language === "zh-CN" ? "测试语言" : "Language"}</dt><dd>{testLanguage === "zh-CN" ? "简体中文" : "English"}</dd></div>
+                  <div><dt>{t("room.currentRoom")}</dt><dd>{scenarioName}</dd></div>
+                  <div><dt>{language === "zh-CN" ? "回合" : "Turns"}</dt><dd>{replyCount}</dd></div>
+                  <div><dt>{t("room.sessionState")}</dt><dd>{run ? t(statusKeys[run.status]) : t("room.unobserved")}</dd></div>
+                </dl>
+              </section>
+              <StickyNote variant={breakpoint ? "warning" : "character"} size="sm" className="room-fracture-note">
+                <span>{t("room.firstFracture")}</span>
+                <strong>
                   {breakpoint
                     ? `${breakpoint.scenario.name} · ${t("event.turn", { turn: breakpoint.breakpoint ?? 0 })}`
                     : t("room.noneYet")}
-                </dd>
+                </strong>
+                <small>{breakpoint ? t("judge.review") : language === "zh-CN" ? "继续观察…" : "Keep watching…"}</small>
+              </StickyNote>
+              <div className={comparison ? (comparison.gate_passed ? "comparison pass" : "comparison fail") : "comparison pending"}>
+                <span>{language === "zh-CN" ? "对比" : "COMPARISON"}</span>
+                {comparison ? (
+                  <>
+                    <Stamp variant={comparison.gate_passed ? "success" : "danger"}>
+                      {comparison.gate_passed ? t("room.noRegression") : t("room.regression")}
+                    </Stamp>
+                    <small>{comparison.score_delta >= 0 ? "+" : ""}{comparison.score_delta.toFixed(1)} {t("room.scoreSuffix")}</small>
+                  </>
+                ) : (
+                  <small>{language === "zh-CN" ? "尚无可比较的基准运行。" : "No comparable benchmark run yet."}</small>
+                )}
               </div>
-              <div><dt>{t("room.sessionState")}</dt><dd>{run ? t(statusKeys[run.status]) : t("room.unobserved")}</dd></div>
-            </dl>
-            {comparison && (
-              <div className={comparison.gate_passed ? "comparison pass" : "comparison fail"}>
-                <span>{t("room.compared")}</span>
-                <Stamp variant={comparison.gate_passed ? "success" : "danger"}>
-                  {comparison.gate_passed ? t("room.noRegression") : t("room.regression")}
-                </Stamp>
-                <small>{comparison.score_delta >= 0 ? "+" : ""}{comparison.score_delta.toFixed(1)} {t("room.scoreSuffix")}</small>
-              </div>
-            )}
-            <StickyNote variant="character" size="sm" className="card-profile-note">
-              <span>{t("room.personaNote")}</span>
-              <p>{card.persona_summary || t("room.noPersona")}</p>
-            </StickyNote>
-            {run?.status === "completed" && (
-              <div className="report-links">
-                <Button variant="secondary" onClick={() => setReportFormat("markdown")}>{t("room.labNote")}</Button>
-                <Button variant="ghost" onClick={() => setReportFormat("json")}>{t("room.json")}</Button>
-              </div>
-            )}
+              <StickyNote variant="character" size="sm" className="card-profile-note">
+                <span>{t("room.personaNote")}</span>
+                <p>{card.persona_summary || t("room.noPersona")}</p>
+              </StickyNote>
+              <section className="room-session-actions">
+                <span>{language === "zh-CN" ? "会话操作" : "SESSION ACTIONS"}</span>
+                <Button
+                  variant="secondary"
+                  onClick={() => setReportFormat("markdown")}
+                  disabled={run?.status !== "completed"}
+                >
+                  {t("room.labNote")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setReportFormat("json")}
+                  disabled={run?.status !== "completed"}
+                >
+                  {t("room.json")}
+                </Button>
+              </section>
+            </div>
           </aside>
         </section>
+
+        <footer className="room-readiness-strip" aria-label={language === "zh-CN" ? "实验运行状态" : "Experiment readiness"}>
+          <div><span>{t("room.provider")}</span><strong>{provider}</strong></div>
+          <div><span>{t("room.model")}</span><strong title={model}>{model}</strong></div>
+          <div><span>{language === "zh-CN" ? "凭证" : "Credential"}</span><strong className={credentialReady ? "ready" : "missing"}>{credentialCopy}</strong></div>
+          <div><span>{t("room.pressureAgent")}</span><strong className={adaptiveReady ? "ready" : "missing"}>{adaptiveReady ? `${runtime?.adaptive.provider} · ${runtime?.adaptive.model}` : t("room.configurationRequired")}</strong></div>
+          <div><span>{t("room.semanticJudge")}</span><strong className={semanticReady ? "ready" : "missing"}>{semanticReady ? `${runtime?.judge.provider} · ${runtime?.judge.model}` : t("room.configurationRequired")}</strong></div>
+          <Button variant="ghost" onClick={onAdmin}>{t("shelf.admin")}</Button>
+        </footer>
       </main>
 
       {showCredential && (
@@ -498,30 +599,6 @@ export function TestRoom({ card, target, runtime, onBack, onAdmin }: Props) {
         />
       )}
     </>
-  );
-}
-
-function RuntimeSummary({
-  title,
-  configured,
-  provider,
-  model,
-  onAdmin
-}: {
-  title: string;
-  configured: boolean;
-  provider: string;
-  model: string;
-  onAdmin: () => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <div className={configured ? "adaptive-summary" : "adaptive-summary missing"}>
-      <span>{title}</span>
-      <strong>{configured ? `${provider} · ${model}` : t("room.configurationRequired")}</strong>
-      <small>{configured ? t("room.adminManaged") : t("room.adminRuntimeMissing")}</small>
-      <Button variant="secondary" className="full" onClick={onAdmin}>{t("room.openAdmin")}</Button>
-    </div>
   );
 }
 
@@ -569,7 +646,7 @@ function LiveEvent({ event, card }: { event: TrialEvent; card: CharacterCard }) 
           <span>{card.display_name}</span><p><i /><i /><i /></p>
         </div>
         <div className={`chat-avatar subject-avatar portrait-${card.portrait_variant}`}>
-          <img src="/assets/character-silhouette.svg" alt="" />
+          <CharacterPortrait cardId={card.id} alt="" />
         </div>
       </div>
     );
@@ -583,7 +660,7 @@ function LiveEvent({ event, card }: { event: TrialEvent; card: CharacterCard }) 
           <p>{payloadText(event, "message")}</p>
         </div>
         <div className={`chat-avatar subject-avatar portrait-${card.portrait_variant}`}>
-          <img src="/assets/character-silhouette.svg" alt="" />
+          <CharacterPortrait cardId={card.id} alt="" />
         </div>
       </div>
     );
