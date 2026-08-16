@@ -22,6 +22,7 @@ import "./scrapbook-character-workflow-v2.css";
 import "./scrapbook-character-workflow-v2-components.css";
 import "./scrapbook-behavior-notebook-v2.css";
 import "./scrapbook-behavior-notebook-components.css";
+import "./scrapbook-complete-migration.css";
 import { DomainShowcase } from "./DomainShowcase";
 import { I18nProvider } from "./i18n";
 import { SemanticRoutingJudgeDock } from "./SemanticRoutingJudgeDock";
