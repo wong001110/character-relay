@@ -23,6 +23,11 @@ from echo_masque.persistence import (
     ScheduledReminderRepository,
     SmartParticipationRepository,
 )
+from echo_masque.persistence.server_knowledge_repository import (
+    ConsolidationCheckpointRepository,
+    ConversationAuthorityGraphRepository,
+    ServerWikiRepository,
+)
 from echo_masque.persistence.wiki_page_repository import WikiPageRepository
 
 
@@ -47,6 +52,13 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         generated_media_repository: GeneratedMediaArtifactRepository | None = None,
         wiki_page_repository: WikiPageRepository | None = None,
         memory_vnext_repository: MemoryVNextRepository | None = None,
+        server_wiki_repository: ServerWikiRepository | None = None,
+        conversation_authority_graph_repository: (
+            ConversationAuthorityGraphRepository | None
+        ) = None,
+        consolidation_checkpoint_repository: (
+            ConsolidationCheckpointRepository | None
+        ) = None,
     ) -> None:
         super().__init__(
             database,
@@ -82,6 +94,15 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             generated_media_repository or GeneratedMediaArtifactRepository(database)
         )
         self.memory_vnext_repository = memory_vnext_repository or MemoryVNextRepository(database)
+        self.server_wiki_repository = server_wiki_repository or ServerWikiRepository(database)
+        self.conversation_authority_graph_repository = (
+            conversation_authority_graph_repository
+            or ConversationAuthorityGraphRepository(database)
+        )
+        self.consolidation_checkpoint_repository = (
+            consolidation_checkpoint_repository
+            or ConsolidationCheckpointRepository(database)
+        )
 
     def delete_account(self, user_id: str, *, email: str) -> dict[str, int]:
         evaluation_counts = self.evaluation_repository.delete_owner(user_id)
@@ -97,6 +118,13 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         conversation_media_count = self.conversation_media_repository.delete_owner(user_id)
         generated_media_count = self.generated_media_repository.delete_owner(user_id)
         memory_vnext_count = self.memory_vnext_repository.delete_owner(user_id)
+        server_wiki_count = self.server_wiki_repository.delete_owner(user_id)
+        authority_graph_count = self.conversation_authority_graph_repository.delete_owner(
+            user_id
+        )
+        consolidation_checkpoint_count = (
+            self.consolidation_checkpoint_repository.delete_owner(user_id)
+        )
         deployment_counts = self.deployment_repository.delete_owner(user_id)
         deleted = super().delete_account(user_id, email=email)
         return {
@@ -113,6 +141,9 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "conversation_media_references": conversation_media_count,
             "generated_media_artifacts": generated_media_count,
             "conversation_memory_vnext": memory_vnext_count,
+            "server_wiki_pages": server_wiki_count,
+            "conversation_authority_edges": authority_graph_count,
+            "conversation_consolidation_checkpoints": consolidation_checkpoint_count,
             **deployment_counts,
         }
 
@@ -180,6 +211,20 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "local-user",
             actor_user_id,
         )
+        server_wiki_count = self.server_wiki_repository.claim_owner(
+            "local-user",
+            actor_user_id,
+        )
+        authority_graph_count = self.conversation_authority_graph_repository.claim_owner(
+            "local-user",
+            actor_user_id,
+        )
+        consolidation_checkpoint_count = (
+            self.consolidation_checkpoint_repository.claim_owner(
+                "local-user",
+                actor_user_id,
+            )
+        )
         combined = {
             **base_counts,
             **evaluation_counts,
@@ -190,6 +235,9 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "conversation_media_references": conversation_media_count,
             "generated_media_artifacts": generated_media_count,
             "conversation_memory_vnext": memory_vnext_count,
+            "server_wiki_pages": server_wiki_count,
+            "conversation_authority_edges": authority_graph_count,
+            "conversation_consolidation_checkpoints": consolidation_checkpoint_count,
             **identity_counts,
             **interaction_counts,
             **expression_counts,

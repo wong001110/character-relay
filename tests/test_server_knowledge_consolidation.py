@@ -1,8 +1,7 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
-
-import pytest
 
 from echo_masque.conversation_consolidation import ConversationConsolidationService
 from echo_masque.conversation_consolidation_events import ConversationConsolidationEventBus
@@ -127,8 +126,7 @@ def test_server_wiki_is_isolated_by_discord_guild() -> None:
     assert guild_b == []
 
 
-@pytest.mark.asyncio
-async def test_topic_cooling_signal_builds_wiki_and_typed_graph() -> None:
+def test_topic_cooling_signal_builds_wiki_and_typed_graph() -> None:
     database = _database()
     topic = _topic(database)
     episode = _episode(database, topic.id)
@@ -140,7 +138,7 @@ async def test_topic_cooling_signal_builds_wiki_and_typed_graph() -> None:
             owner_id="owner-1",
             status="cooling",
         )
-        processed = await service.run_once()
+        processed = asyncio.run(service.run_once())
     finally:
         ConversationConsolidationEventBus.configure(None)
 
