@@ -5,7 +5,7 @@ from echo_masque.media_dependency import (
 
 
 def test_explicit_media_question_is_runtime_required() -> None:
-    decision = resolve_media_dependency(text="这个视频里面讲了什么？", has_media=True)
+    decision = resolve_media_dependency(text="这个视频里面讲了什么?", has_media=True)
     assert decision.dependency == "required"
     assert decision.locked is True
     assert decision.utility_refinement_allowed is False

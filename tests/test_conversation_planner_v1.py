@@ -47,7 +47,7 @@ def test_planner_accepts_only_supplied_refs_and_simple_admission() -> None:
     planner = ConversationAdmissionPlanner(cast(Any, FakeGateway(envelope)))
     result = planner.resolve(
         burst_id="burst-1",
-        current_burst="大家怎么看这个剧情？",
+        current_burst="大家怎么看这个剧情?",
         candidates=candidates(),
         maximum_participants=2,
     )

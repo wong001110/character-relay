@@ -1,5 +1,5 @@
-from echo_masque.api.smart_participation_v4_schemas import SmartParticipationResolveRequest
 from echo_masque.api.routes.smart_participation_v4 import _analysis_text
+from echo_masque.api.smart_participation_v4_schemas import SmartParticipationResolveRequest
 from echo_masque.planner_media import PlannerMediaDescriptor, PlannerMediaResult
 
 

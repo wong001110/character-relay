@@ -29,12 +29,6 @@ from echo_masque.character_learned_state import (
     LearnedStateEvidence,
 )
 from echo_masque.config import Settings
-from echo_masque.conversation_planner import (
-    ConversationAdmissionPlanner,
-    ConversationPlannerCandidate,
-    ConversationPlannerResult,
-    rollout_decision,
-)
 from echo_masque.conversation_graph_shadow import (
     ConversationGraphShadowService,
     GraphShadowObservation,
@@ -42,6 +36,12 @@ from echo_masque.conversation_graph_shadow import (
 from echo_masque.conversation_graph_topic_shadow import (
     ConversationGraphTopicShadowService,
     TopicGraphShadowObservation,
+)
+from echo_masque.conversation_planner import (
+    ConversationAdmissionPlanner,
+    ConversationPlannerCandidate,
+    ConversationPlannerResult,
+    rollout_decision,
 )
 from echo_masque.participation_context_rerank import (
     ParticipationContextCandidate,
