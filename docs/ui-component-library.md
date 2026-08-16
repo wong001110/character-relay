@@ -11,7 +11,11 @@ design tokens
       -> Character Relay domain components
 ```
 
-The first implementation lives under `web/src/components/ui/` and is intentionally additive. Existing feature pages are not migrated in this foundation PR.
+Implementation is split intentionally:
+
+- `web/src/components/ui/` contains business-agnostic primitives and scrapbook objects;
+- `web/src/components/shared/` contains reusable Character Relay-aware compositions;
+- feature pages compose the shared layers instead of copying their CSS or behavior.
 
 ## Base controls
 
@@ -105,9 +109,52 @@ Strong result/status mark for Saved, OOC, Inspected, Topic Matched, and similar 
 
 Secondary handwritten-note treatment for generated-by information, timestamps, small explanatory cues, or side comments.
 
-## Character Relay compositions
+## Shared feedback and technical UI
 
-These compositions can be built on top of the primitives without adding business knowledge to the base layer.
+Phase 2 adds reusable feedback and technical-inspection primitives in `web/src/components/ui/FeedbackUI.tsx`:
+
+- `StatusIndicator` — compact live/ready/warning/failure status with optional pulse;
+- `InspectorSection` — lower-decoration technical paper section for dense evidence;
+- `EmptyState` — centered empty-state layout with an illustration slot that may use generated raster art;
+- `SearchField` — shared paper search input;
+- `Tooltip` and `Popover` — supporting explanation/detail surfaces;
+- `Spinner` and `Skeleton` — loading states that remain visually consistent with the paper system;
+- `Divider` — semantic paper divider;
+- `Toast` — small pinned-note feedback surface for success/warning/error state.
+
+These components remain business-agnostic and live in the `ui/` layer.
+
+## Character Relay shared/domain components
+
+Reusable product-aware compositions live in `web/src/components/shared/`.
+
+### ProviderSelect
+
+`FormField + Select` composition for choosing a configured provider. Provider knowledge belongs here rather than in the base Select primitive.
+
+### ModelSelect
+
+Model selector that can expose compact model metadata while retaining standard select behavior.
+
+### ApiKeyField
+
+`FormField + Input + Button` composition for credential visibility and status. The base Input does not know what an API credential is.
+
+### TopicNote
+
+StickyNote composition for current conversation topic, confidence, participants, and optional topic state.
+
+### TemporaryRoleNote
+
+Small removable/temporary role note. Changing a temporary social role should feel like replacing a note rather than editing permanent character identity.
+
+### ParticipantCard
+
+`PaperCard + Avatar + StickyLabel + attached StickyNote` composition for stable participant identity plus runtime state.
+
+## Additional Character Relay compositions
+
+The following compositions remain valid targets as more pages migrate:
 
 ### CharacterCard
 
@@ -123,35 +170,43 @@ Compact participant/character selection item. May show avatar, name, and optiona
 
 Consistent title + description + control layout for switch/checkbox/select settings.
 
-### ProviderSelect / ModelSelect
-
-Domain selectors built on Select. Rich model/provider metadata belongs here rather than inside the base Select primitive.
-
-### ApiKeyField
-
-`FormField + Input + IconButton` composition for credential visibility, validation, and clearing.
-
-### TopicNote
-
-StickyNote composition for current conversation topic and optional supporting metadata.
-
-### TemporaryRoleNote
-
-StickyNote composition attached to a character/participant context. Changing a role should feel like replacing a removable note.
-
-### ParticipantCard
-
-PaperCard for stable participant identity with attached small note/label for runtime state.
-
 ### InspectorSection
 
 Dense technical paper section using the same tokens with reduced decoration. Prefer compact rows, stamps, and annotations over decorative sticky-note grids.
+
+## Current adoption examples
+
+Phase 2 feature migration deliberately uses the shared system in production-facing pages rather than keeping it isolated to the component library:
+
+- Test Room uses shared buttons, status, sticky notes, stamps, empty states, and toast feedback;
+- Prompt Inspector uses PaperTab, Stamp, StickyLabel, Button, Select, Spinner, and Toast;
+- Behavior Notebook uses PaperTab, SearchField, StatusIndicator, StickyNote, Stamp, InspectorSection, EmptyState, Spinner, Toast, and shared icon/action controls while keeping raw Runtime semantics unchanged.
+
+This is the preferred migration pattern: reuse actual components first, then keep page-specific CSS only for layout/composition that is genuinely unique to the feature.
 
 ## Overlay and feedback components
 
 Existing shared `PaperDrawer` and `PaperModal` in `web/src/NotebookUI.tsx` remain valid bridge components. They are re-exported from the new UI entry point so new code can use the shared namespace without forcing an immediate migration.
 
-Future shared feedback coverage should include Popover, Tooltip, Toast, Spinner, and Skeleton. This foundation does not need to replace every existing implementation at once.
+## Living showcase
+
+`/dev/ui` is the development-only living component showcase. It should be updated whenever a reusable UI primitive or Character Relay shared composition is added.
+
+The showcase currently covers:
+
+- actions and status;
+- form controls;
+- PageFlags / PaperTabs;
+- StickyNotes / labels / stamps / annotations;
+- technical inspector patterns;
+- tooltip / popover;
+- spinner / skeleton / toast;
+- illustration-safe empty states;
+- avatar and settings rows;
+- Provider / Model / API Key compositions;
+- TopicNote / TemporaryRoleNote / ParticipantCard.
+
+Generated illustration slots shown in the showcase are examples only. Production artwork must follow the image-generation contract in `docs/ui-ux-contract.md`.
 
 ## Styling rules
 
@@ -162,10 +217,11 @@ Future shared feedback coverage should include Popover, Tooltip, Toast, Spinner,
 - Sticky-note tilt is slight and never applied to long structured content.
 - Functional controls stay aligned even when their surface suggests paper/stationery.
 - Decorations never become required controls.
+- Dense developer/trace views intentionally use lower decoration intensity than character-facing pages.
 
 ## Adoption
 
-New feature code should import from:
+Business-agnostic primitives:
 
 ```ts
 import {
@@ -175,6 +231,18 @@ import {
   PageFlag,
   PaperCard
 } from "./components/ui";
+```
+
+Character Relay-aware shared compositions:
+
+```ts
+import {
+  ApiKeyField,
+  ModelSelect,
+  ParticipantCard,
+  ProviderSelect,
+  TopicNote
+} from "./components/shared";
 ```
 
 Existing screens can migrate incrementally. Do not mix UI migration with unrelated business-logic refactors unless the change is very small and conflict-safe.

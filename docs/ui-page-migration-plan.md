@@ -146,6 +146,15 @@ Observation margin candidates:
 
 Default UX should explain what happened in human-readable form first. Raw traces expand on demand.
 
+Phase 2 implementation status:
+
+- live transcript is now the dominant paper sheet;
+- setup controls are visually grouped as a compact experiment setup page;
+- observation/integrity/persona/report information is treated as attached notes rather than an equal third dashboard column;
+- visible state/action surfaces use shared Button, StatusIndicator, StickyLabel, StickyNote, Stamp, EmptyState, and Toast primitives;
+- transcript readability remains intentionally cleaner than the observation margin;
+- trial/runtime behavior remains unchanged.
+
 Scrapbook intensity: medium-high.
 
 ## 6. Prompt Inspector
@@ -157,6 +166,16 @@ Suggested PaperTabs:
 - System Prompt
 - Runtime Injections
 - Final Composed Prompt
+
+The current runtime only exposes Raw Prompt and Compiled Character Prompt, so Phase 2 does not invent unavailable layers. Raw / Compiled use PaperTab navigation until the data model provides additional authoritative layers.
+
+Phase 2 implementation status:
+
+- Raw and Compiled layers use shared PaperTab navigation;
+- source/runtime distinction uses Stamp and StickyLabel;
+- copy/export/loading/error states use shared UI primitives;
+- Escape-to-close is supported;
+- generated imagery remains unnecessary here.
 
 Prioritize typography and readability. Generated imagery is unnecessary here.
 
@@ -262,6 +281,15 @@ Expandable evidence may include Media Understanding, Topic Judge, Participant Ru
 
 Principle: Narrative first → Trace second.
 
+Phase 2 implementation status:
+
+- Behavior / Flow / State / Raw now use the shared PaperTab language;
+- turn summaries and evidence use real StickyNote components;
+- search/filter/status/error/loading surfaces are migrating to SearchField, Button, StatusIndicator, Toast, EmptyState, and Spinner;
+- observation, state, raw trace, and provider evidence use InspectorSection so dense technical surfaces share the same low-decoration foundation;
+- provider result detail reads as a technical receipt/side insert rather than a separate monitoring product;
+- runtime/business logic and evidence semantics remain unchanged.
+
 Scrapbook intensity: medium.
 
 ## 14. Provider Calls
@@ -356,6 +384,8 @@ Scrapbook intensity: high.
 
 ## Phase 1 — visual hierarchy and safe adoption
 
+Status: implemented on `main` through the initial scrapbook foundation/page pass.
+
 - Global Shell
 - Dashboard
 - Character Shelf visual hierarchy
@@ -365,10 +395,20 @@ Scrapbook intensity: high.
 
 ## Phase 2 — character workflow
 
-- Character Creator true page navigation after form state is safe
-- Test Room
-- Behavior Notebook
-- Prompt Inspector
+Status: in progress in the Phase 2 character-workflow PR.
+
+Implemented / actively migrated:
+
+- Test Room presentation and shared component adoption;
+- Behavior Notebook narrative/trace hierarchy and shared component adoption;
+- Prompt Inspector manuscript treatment;
+- feedback/technical primitives;
+- `/dev/ui` living component showcase;
+- Character Relay shared/domain components for Provider, Model, API Key, Topic, Temporary Role, and Participant patterns.
+
+Still structural follow-up:
+
+- Character Creator true page navigation after form state is safe.
 
 ## Phase 3 — server workflow
 
