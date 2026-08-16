@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 
 import { api, type CharacterCard, type CredentialStatus, type TargetView } from "./api";
 import { useI18n } from "./i18n";
@@ -114,7 +115,7 @@ export function CredentialModal(props: Props) {
     }
   }
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" role="presentation" onMouseDown={props.onClose}>
       <section
         className="credential-sheet paper-sheet"
@@ -181,6 +182,7 @@ export function CredentialModal(props: Props) {
           {message && <p className="error-note">{message}</p>}
         </form>
       </section>
-    </div>
+    </div>,
+    document.body
   );
 }

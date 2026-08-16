@@ -1,0 +1,31 @@
+/*
+ * Character Relay overlay stack
+ *
+ * Portal/fixed overlays must follow one semantic order:
+ *   page chrome < drawer < modal < confirmation < critical global overlay
+ *
+ * Keep this stylesheet imported after feature styles. It intentionally maps
+ * legacy and shared overlay selectors onto the same design-system scale so a
+ * Drawer -> Modal flow can never place the dialog underneath the drawer.
+ */
+
+.paper-drawer-backdrop,
+.server-drawer-backdrop,
+.interaction-drawer-backdrop {
+  z-index: var(--cr-z-overlay-drawer, 1000);
+}
+
+.paper-modal-backdrop,
+.modal-backdrop,
+.prompt-inspector-backdrop {
+  z-index: var(--cr-z-overlay-modal, 2000);
+}
+
+.cr-confirm-dialog__backdrop {
+  z-index: var(--cr-z-overlay-confirm, 3000);
+}
+
+/*
+ * Local menus/tooltips stay inside their owning surface and therefore do not
+ * enter the global overlay stack. Do not raise them above blocking dialogs.
+ */

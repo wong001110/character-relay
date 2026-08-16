@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import type { CharacterCard } from "./api";
 import {
@@ -151,7 +152,7 @@ export function PromptInspector({ card, onClose }: Props) {
     link.remove();
   }
 
-  return (
+  return createPortal(
     <div className="prompt-inspector-backdrop" role="presentation" onMouseDown={onClose}>
       <section
         className="prompt-inspector paper-sheet"
@@ -289,6 +290,7 @@ export function PromptInspector({ card, onClose }: Props) {
           </>
         )}
       </section>
-    </div>
+    </div>,
+    document.body
   );
 }
