@@ -1,0 +1,180 @@
+diff --git a/connectors/discord/src/index.ts b/connectors/discord/src/index.ts
+index c514573..9be66ee 100644
+--- a/connectors/discord/src/index.ts
++++ b/connectors/discord/src/index.ts
+@@ -2986,6 +2986,10 @@ async function processMessage(
+         emojis: socialSource ? [] : emojis,
+         stickers: socialSource ? [] : stickers,
+         burst_media_message_ids: socialSource ? [] : burstMediaMessageIds,
++        conversation_burst_id: socialSource ? "" : participationBurstId,
++        burst_source_message_ids: socialSource
++          ? []
++          : participationBurstMessages.map((item) => item.message_id),
+         interaction_session_id: "",
+         interaction_type: "",
+         interaction_intensity: "",
+diff --git a/connectors/discord/src/types.ts b/connectors/discord/src/types.ts
+index cd1ead4..f93921e 100644
+--- a/connectors/discord/src/types.ts
++++ b/connectors/discord/src/types.ts
+@@ -284,6 +284,8 @@ export interface DiscordInboundMessage {
+   author_is_bot: boolean;
+   stickers: DiscordStickerContent[];
+   burst_media_message_ids?: string[];
++  conversation_burst_id?: string;
++  burst_source_message_ids?: string[];
+   available_characters: string[];
+   mentionable_participants: DiscordActionParticipant[];
+   recent_messages: DiscordContextMessage[];
+diff --git a/src/echo_masque/api/connector_schemas.py b/src/echo_masque/api/connector_schemas.py
+index 5239525..8e2f8d6 100644
+--- a/src/echo_masque/api/connector_schemas.py
++++ b/src/echo_masque/api/connector_schemas.py
+@@ -317,6 +317,8 @@ class DiscordInboundMessage(BaseModel):
+     attachments: list[DiscordAttachmentContent] = Field(default_factory=list, max_length=10)
+     embeds: list[DiscordEmbedContent] = Field(default_factory=list, max_length=10)
+     burst_media_message_ids: list[str] = Field(default_factory=list, max_length=3)
++    conversation_burst_id: str = Field(default="", max_length=80)
++    burst_source_message_ids: list[str] = Field(default_factory=list, max_length=20)
+     available_characters: list[str] = Field(default_factory=list, max_length=30)
+     mentionable_participants: list[DiscordActionParticipant] = Field(
+         default_factory=list, max_length=20
+diff --git a/src/echo_masque/conversation_episode.py b/src/echo_masque/conversation_episode.py
+new file mode 100644
+index 0000000..c246f55
+--- /dev/null
++++ b/src/echo_masque/conversation_episode.py
+@@ -0,0 +1,90 @@
++"""Episode projection service: organize raw conversation events without replacing them."""
++
++from __future__ import annotations
++
++import hashlib
++from dataclasses import dataclass
++from datetime import UTC, datetime
++from typing import TYPE_CHECKING
++
++from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
++
++if TYPE_CHECKING:
++    from echo_masque.api.connector_schemas import DiscordInboundMessage
++
++
++@dataclass(slots=True)
++class ConversationEpisodeProjectionService:
++    repository: ConversationEpisodeRepository
++
++    @staticmethod
++    def _episode_key(payload: DiscordInboundMessage) -> str:
++        burst_id = payload.conversation_burst_id.strip()
++        if burst_id:
++            return f"burst:{burst_id}"[:120]
++        identity = "\x1f".join(
++            (
++                payload.connection_id,
++                payload.guild_id,
++                payload.channel_id,
++                payload.thread_id,
++                payload.message_id,
++            )
++        )
++        return "message:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:48]
++
++    @staticmethod
++    def _source_ids(payload: DiscordInboundMessage) -> list[str]:
++        return list(
++            dict.fromkeys(
++                [
++                    *payload.burst_source_message_ids,
++                    payload.message_id,
++                ]
++            )
++        )
++
++    @staticmethod
++    def _media_refs(payload: DiscordInboundMessage) -> list[str]:
++        values = [f"message:{item}" for item in payload.burst_media_message_ids]
++        values.extend(
++            f"attachment:{item.attachment_id}"
++            for item in payload.attachments
++            if item.attachment_id
++        )
++        values.extend(f"url:{item.url}" for item in payload.embeds if item.url)
++        return list(dict.fromkeys(values))[:20]
++
++    def observe(
++        self,
++        *,
++        owner_id: str,
++        payload: DiscordInboundMessage,
++        topic_id: str = "",
++        topic_evidence: bool = True,
++        now: datetime | None = None,
++    ) -> None:
++        current = now or datetime.now(UTC)
++        summary = " ".join(payload.text.split())[:800]
++        key_points = [summary] if summary else []
++        self.repository.upsert_projection(
++            owner_id=owner_id,
++            platform="discord",
++            connection_id=payload.connection_id,
++            guild_id=payload.guild_id,
++            channel_id=payload.channel_id,
++            thread_id=payload.thread_id,
++            episode_key=self._episode_key(payload),
++            topic_id=topic_id if topic_evidence else "",
++            burst_ids=[payload.conversation_burst_id] if payload.conversation_burst_id else [],
++            source_message_ids=self._source_ids(payload),
++            participant_refs=[payload.author_id] if payload.author_id else [],
++            media_refs=self._media_refs(payload),
++            summary=summary,
++            key_points=key_points,
++            status="closed",
++            now=current,
++        )
++
++
++__all__ = ["ConversationEpisodeProjectionService"]
+diff --git a/src/echo_masque/conversation_topic.py b/src/echo_masque/conversation_topic.py
+index 5840396..985e3cd 100644
+--- a/src/echo_masque/conversation_topic.py
++++ b/src/echo_masque/conversation_topic.py
+@@ -4,6 +4,7 @@ from __future__ import annotations
+ 
+ import json
+ import math
++import re
+ from collections import Counter
+ from dataclasses import dataclass
+ from datetime import UTC, datetime, timedelta
+@@ -13,7 +14,9 @@ from typing import TYPE_CHECKING, ClassVar, Literal
+ from pydantic import BaseModel, ConfigDict, Field
+ 
+ from echo_masque.config import Settings, get_settings
++from echo_masque.conversation_episode import ConversationEpisodeProjectionService
+ from echo_masque.expression_retrieval import semantic_tokens
++from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
+ from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
+ from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
+ from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
+@@ -30,15 +33,22 @@ if TYPE_CHECKING:
+ _TOPIC_VECTOR_NAMESPACE = "conversation-topic"
+ _TOPIC_CONTINUITY_MINIMUM = 0.42
+ _TOPIC_SPARSE_CONTINUITY_MINIMUM = 0.18
++_STALE_TOPIC_CONTINUITY_MINIMUM = 0.56
++_STALE_TOPIC_SPARSE_CONTINUITY_MINIMUM = 0.28
++_RESUME_TOPIC_CONTINUITY_MINIMUM = 0.58
++_RESUME_TOPIC_SPARSE_MINIMUM = 0.30
+ _CONTINUATION_ACT_MINIMUM = 0.48
+ _SWITCH_ACT_MINIMUM = 0.56
+ _SWITCH_ACT_MARGIN = 0.05
++_FRESH_CONTEXT_WINDOW = timedelta(minutes=30)
++_STALE_TOPIC_AFTER = timedelta(hours=6)
+ _CAPSULE_MAX_CHARS = 1400
+ _CAPSULE_MAX_LINES = 6
+ _KEYWORD_LIMIT = 24
+ _PARTICIPANT_LIMIT = 20
+ _PENDING_ACTION_LIMIT = 12
+ _DEFAULT_PENDING_TTL = timedelta(hours=6)
++_URL_PATTERN = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+ 
