@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -13,7 +14,9 @@ from typing import TYPE_CHECKING, ClassVar, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from echo_masque.config import Settings, get_settings
+from echo_masque.conversation_episode import ConversationEpisodeProjectionService
 from echo_masque.expression_retrieval import semantic_tokens
+from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
 from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
 from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
 from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
@@ -30,15 +33,22 @@ if TYPE_CHECKING:
 _TOPIC_VECTOR_NAMESPACE = "conversation-topic"
 _TOPIC_CONTINUITY_MINIMUM = 0.42
 _TOPIC_SPARSE_CONTINUITY_MINIMUM = 0.18
+_STALE_TOPIC_CONTINUITY_MINIMUM = 0.56
+_STALE_TOPIC_SPARSE_CONTINUITY_MINIMUM = 0.28
+_RESUME_TOPIC_CONTINUITY_MINIMUM = 0.58
+_RESUME_TOPIC_SPARSE_MINIMUM = 0.30
 _CONTINUATION_ACT_MINIMUM = 0.48
 _SWITCH_ACT_MINIMUM = 0.56
 _SWITCH_ACT_MARGIN = 0.05
+_FRESH_CONTEXT_WINDOW = timedelta(minutes=30)
+_STALE_TOPIC_AFTER = timedelta(hours=6)
 _CAPSULE_MAX_CHARS = 1400
 _CAPSULE_MAX_LINES = 6
 _KEYWORD_LIMIT = 24
 _PARTICIPANT_LIMIT = 20
 _PENDING_ACTION_LIMIT = 12
 _DEFAULT_PENDING_TTL = timedelta(hours=6)
+_URL_PATTERN = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
 
 TopicStatus = Literal["active", "cooling", "closed", "archived"]
 PendingActionState = Literal[
@@ -75,6 +85,22 @@ _CONVERSATION_ACT_PROFILES: dict[str, str] = {
         "different question, by the way something else, 换个话题, 另外一件事, 说点别的."
     ),
 }
+
+
+def _topic_subject_text(value: str) -> str:
+    compact = " ".join(value.split())
+    without_urls = _URL_PATTERN.sub(" ", compact)
+    return " ".join(without_urls.split())[:4000]
+
+
+def _topic_evidence_text(value: str) -> str:
+    compact = " ".join(value.split())[:4000]
+    if not compact:
+        return ""
+    if _URL_PATTERN.search(compact):
+        subject = _topic_subject_text(compact)
+        return subject if semantic_tokens(subject) else ""
+    return compact
 
 
 class ConversationPendingAction(BaseModel):
@@ -174,6 +200,9 @@ class ConversationTopicMemoryService:
             else self.settings.semantic_embedding_runtime_enabled
         )
         self._vectors = SemanticVectorRepository(repository.database)
+        self.episode_projection = ConversationEpisodeProjectionService(
+            ConversationEpisodeRepository(repository.database)
+        )
 
     def _get_encoder(self) -> SemanticEncoder:
         if self._encoder is None:
@@ -242,15 +271,8 @@ class ConversationTopicMemoryService:
 
     @staticmethod
     def _topic_semantic_text(record: ConversationTopicRecord) -> str:
-        return "\n".join(
-            item
-            for item in (
-                f"Topic: {record.topic_label}",
-                f"Summary: {record.summary}" if record.summary else "",
-                f"Keywords: {record.keywords_json}" if record.keywords_json != "[]" else "",
-            )
-            if item
-        )[:6000]
+        identity = _topic_subject_text(record.topic_label) or record.topic_label
+        return f"Topic identity: {identity}"[:2000]
 
     def _topic_vector(self, record: ConversationTopicRecord, encoder: SemanticEncoder) -> list[float]:
         semantic_text = self._topic_semantic_text(record)
@@ -298,8 +320,8 @@ class ConversationTopicMemoryService:
 
     @staticmethod
     def _sparse_similarity(text: str, record: ConversationTopicRecord) -> float:
-        left = Counter(semantic_tokens(text))
-        right = Counter(semantic_tokens(f"{record.topic_label} {record.summary}"))
+        left = Counter(semantic_tokens(_topic_subject_text(text)))
+        right = Counter(semantic_tokens(_topic_subject_text(record.topic_label)))
         if not left or not right:
             return 0.0
         dot = sum(value * right.get(key, 0) for key, value in left.items())
@@ -309,14 +331,36 @@ class ConversationTopicMemoryService:
             return 0.0
         return dot / (left_norm * right_norm)
 
+    @staticmethod
+    def _idle_for(active: ConversationTopicRecord, current: datetime) -> timedelta:
+        last_active = active.last_active_at
+        if last_active.tzinfo is None:
+            last_active = last_active.replace(tzinfo=UTC)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=UTC)
+        return max(current - last_active, timedelta(0))
+
     def classify_continuity(
         self,
         *,
         text: str,
         active: ConversationTopicRecord,
+        now: datetime | None = None,
     ) -> TopicContinuityDecision:
+        current = now or datetime.now(UTC)
         normalized = " ".join(text.split())[:4000]
-        sparse = self._sparse_similarity(normalized, active)
+        subject_text = _topic_evidence_text(normalized)
+        sparse = self._sparse_similarity(subject_text, active)
+        idle_for = self._idle_for(active, current)
+        stale = idle_for >= _STALE_TOPIC_AFTER
+        topic_minimum = (
+            _STALE_TOPIC_CONTINUITY_MINIMUM if stale else _TOPIC_CONTINUITY_MINIMUM
+        )
+        sparse_minimum = (
+            _STALE_TOPIC_SPARSE_CONTINUITY_MINIMUM
+            if stale
+            else _TOPIC_SPARSE_CONTINUITY_MINIMUM
+        )
         if not normalized:
             return TopicContinuityDecision(
                 same_topic=True,
@@ -325,18 +369,25 @@ class ConversationTopicMemoryService:
                 acts=ConversationActScores(),
                 reason="empty_message_keeps_active_topic",
             )
+        if _URL_PATTERN.search(normalized) and not subject_text:
+            return TopicContinuityDecision(
+                same_topic=True,
+                topic_similarity=0.0,
+                sparse_similarity=0.0,
+                acts=ConversationActScores(),
+                reason="unresolved_link_without_topic_evidence",
+            )
         if not self._semantic_enabled:
             return TopicContinuityDecision(
-                same_topic=sparse >= _TOPIC_SPARSE_CONTINUITY_MINIMUM,
+                same_topic=sparse >= sparse_minimum,
                 topic_similarity=0.0,
                 sparse_similarity=sparse,
                 acts=ConversationActScores(),
                 reason="semantic_disabled_sparse_fallback",
             )
-
         try:
             encoder = self._get_encoder()
-            query_vector = encoder.embed_query(normalized)
+            query_vector = encoder.embed_query(subject_text)
             topic_similarity = _cosine(query_vector, self._topic_vector(active, encoder))
             act_values = {
                 name: _cosine(query_vector, self._act_vector(name, encoder))
@@ -345,28 +396,34 @@ class ConversationTopicMemoryService:
             acts = ConversationActScores(**act_values)
         except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
             return TopicContinuityDecision(
-                same_topic=sparse >= _TOPIC_SPARSE_CONTINUITY_MINIMUM,
+                same_topic=sparse >= sparse_minimum,
                 topic_similarity=0.0,
                 sparse_similarity=sparse,
                 acts=ConversationActScores(),
                 reason="semantic_unavailable_sparse_fallback",
             )
-
+        identity_match = topic_similarity >= topic_minimum or sparse >= sparse_minimum
+        fresh_contextual_continuation = (
+            idle_for <= _FRESH_CONTEXT_WINDOW
+            and acts.continuation >= _CONTINUATION_ACT_MINIMUM
+        )
         switch_wins = (
             acts.switch_topic >= _SWITCH_ACT_MINIMUM
             and acts.switch_topic >= acts.continuation + _SWITCH_ACT_MARGIN
-            and topic_similarity < _CONTINUATION_ACT_MINIMUM
+            and not identity_match
         )
         if switch_wins:
             same_topic = False
             reason = "semantic_switch_topic"
-        elif (
-            topic_similarity >= _TOPIC_CONTINUITY_MINIMUM
-            or sparse >= _TOPIC_SPARSE_CONTINUITY_MINIMUM
-            or acts.continuation >= _CONTINUATION_ACT_MINIMUM
-        ):
+        elif identity_match:
             same_topic = True
-            reason = "semantic_continuation"
+            reason = "semantic_identity_continuation"
+        elif fresh_contextual_continuation:
+            same_topic = True
+            reason = "fresh_contextual_continuation"
+        elif stale and acts.continuation >= _CONTINUATION_ACT_MINIMUM:
+            same_topic = False
+            reason = "stale_topic_requires_identity"
         else:
             same_topic = False
             reason = "semantic_new_topic"
@@ -377,6 +434,52 @@ class ConversationTopicMemoryService:
             acts=acts,
             reason=reason,
         )
+
+    def historical_topic_candidate(
+        self,
+        *,
+        owner_id: str,
+        payload: DiscordInboundMessage,
+        topic_text: str,
+        exclude_topic_id: str = "",
+    ) -> ConversationTopicRecord | None:
+        if not topic_text:
+            return None
+        candidates = self.repository.recent_for_scope(
+            owner_id=owner_id,
+            platform="discord",
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+            limit=12,
+        )
+        best: tuple[float, ConversationTopicRecord] | None = None
+        query_vector: list[float] | None = None
+        encoder: SemanticEncoder | None = None
+        if self._semantic_enabled:
+            try:
+                encoder = self._get_encoder()
+                query_vector = encoder.embed_query(topic_text)
+            except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
+                encoder = None
+                query_vector = None
+        for candidate in candidates:
+            if candidate.id == exclude_topic_id or candidate.status == "active":
+                continue
+            sparse = self._sparse_similarity(topic_text, candidate)
+            dense = 0.0
+            if encoder is not None and query_vector is not None:
+                try:
+                    dense = _cosine(query_vector, self._topic_vector(candidate, encoder))
+                except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
+                    dense = 0.0
+            if dense < _RESUME_TOPIC_CONTINUITY_MINIMUM and sparse < _RESUME_TOPIC_SPARSE_MINIMUM:
+                continue
+            score = max(dense, sparse)
+            if best is None or score > best[0]:
+                best = (score, candidate)
+        return best[1] if best is not None else None
 
     @staticmethod
     def _label(text: str) -> str:
@@ -411,6 +514,23 @@ class ConversationTopicMemoryService:
             results.append({"user_id": user_id[:200], "display_name": display_name[:160]})
         return results[-_PARTICIPANT_LIMIT:]
 
+    def _project_episode(
+        self,
+        *,
+        owner_id: str,
+        payload: DiscordInboundMessage,
+        topic: ConversationTopicSnapshot | None,
+        topic_evidence: bool,
+        now: datetime,
+    ) -> None:
+        self.episode_projection.observe(
+            owner_id=owner_id,
+            payload=payload,
+            topic_id=topic.id if topic is not None else "",
+            topic_evidence=topic_evidence,
+            now=now,
+        )
+
     def active_for_turn(
         self,
         *,
@@ -438,6 +558,7 @@ class ConversationTopicMemoryService:
     ) -> ConversationTopicSnapshot | None:
         current = now or datetime.now(UTC)
         text = " ".join(payload.text.split())[:4000]
+        topic_text = _topic_evidence_text(text)
         active = self.repository.active_for_scope(
             owner_id=owner_id,
             platform=platform,
@@ -449,9 +570,64 @@ class ConversationTopicMemoryService:
         if active is not None and active.last_message_id == payload.message_id:
             return self.snapshot(active)
         if not text:
-            return self.snapshot(active) if active is not None else None
+            snapshot = self.snapshot(active) if active is not None else None
+            if payload.attachments or payload.embeds or payload.burst_media_message_ids:
+                self._project_episode(
+                    owner_id=owner_id,
+                    payload=payload,
+                    topic=snapshot,
+                    topic_evidence=False,
+                    now=current,
+                )
+            return snapshot
+        if _URL_PATTERN.search(text) and not topic_text:
+            snapshot = self.snapshot(active) if active is not None else None
+            self._project_episode(
+                owner_id=owner_id,
+                payload=payload,
+                topic=snapshot,
+                topic_evidence=False,
+                now=current,
+            )
+            return snapshot
 
         if active is None:
+            resumed = self.historical_topic_candidate(
+                owner_id=owner_id,
+                payload=payload,
+                topic_text=topic_text,
+            )
+            if resumed is not None:
+                participants = self._participants(
+                    self.snapshot(resumed).participants,
+                    payload.author_id,
+                    payload.author_display_name,
+                )
+                record = self.repository.resume(
+                    topic_id=resumed.id,
+                    owner_id=owner_id,
+                    platform=platform,
+                    connection_id=payload.connection_id,
+                    guild_id=payload.guild_id,
+                    channel_id=payload.channel_id,
+                    thread_id=payload.thread_id,
+                    summary=self._append_summary(
+                        resumed.summary, payload.author_display_name, topic_text
+                    ),
+                    keywords_json=json.dumps(
+                        self._keywords(self.snapshot(resumed).keywords, topic_text),
+                        ensure_ascii=False,
+                    ),
+                    participants_json=json.dumps(participants, ensure_ascii=False),
+                    last_message_id=payload.message_id,
+                    now=current,
+                )
+                snapshot = self.snapshot(record)
+                self._project_episode(
+                    owner_id=owner_id, payload=payload, topic=snapshot, topic_evidence=True, now=current
+                )
+                return snapshot
+
             participants = self._participants([], payload.author_id, payload.author_display_name)
             record = self.repository.create(
                 owner_id=owner_id,
@@ -460,19 +636,61 @@ class ConversationTopicMemoryService:
                 guild_id=payload.guild_id,
                 channel_id=payload.channel_id,
                 thread_id=payload.thread_id,
-                topic_label=self._label(text),
-                summary=self._append_summary("", payload.author_display_name, text),
-                keywords_json=json.dumps(self._keywords([], text), ensure_ascii=False),
+                topic_label=self._label(topic_text),
+                summary=self._append_summary("", payload.author_display_name, topic_text),
+                keywords_json=json.dumps(self._keywords([], topic_text), ensure_ascii=False),
                 open_loops_json="[]",
                 pending_actions_json="[]",
                 participants_json=json.dumps(participants, ensure_ascii=False),
                 last_message_id=payload.message_id,
                 now=current,
             )
-            return self.snapshot(record)
+            snapshot = self.snapshot(record)
+            self._project_episode(
+                owner_id=owner_id, payload=payload, topic=snapshot, topic_evidence=True, now=current
+            )
+            return snapshot
 
-        continuity = self.classify_continuity(text=text, active=active)
+        continuity = self.classify_continuity(text=topic_text, active=active, now=current)
         if not continuity.same_topic:
+            resumed = self.historical_topic_candidate(
+                owner_id=owner_id,
+                payload=payload,
+                topic_text=topic_text,
+                exclude_topic_id=active.id,
+            )
+            if resumed is not None:
+                record = self.repository.resume(
+                    topic_id=resumed.id,
+                    owner_id=owner_id,
+                    platform=platform,
+                    connection_id=payload.connection_id,
+                    guild_id=payload.guild_id,
+                    channel_id=payload.channel_id,
+                    thread_id=payload.thread_id,
+                    summary=self._append_summary(
+                        resumed.summary, payload.author_display_name, topic_text
+                    ),
+                    keywords_json=json.dumps(
+                        self._keywords(self.snapshot(resumed).keywords, topic_text),
+                        ensure_ascii=False,
+                    ),
+                    participants_json=json.dumps(
+                        self._participants(
+                            self.snapshot(resumed).participants,
+                            payload.author_id,
+                            payload.author_display_name,
+                        ),
+                        ensure_ascii=False,
+                    ),
+                    last_message_id=payload.message_id,
+                    now=current,
+                )
+                snapshot = self.snapshot(record)
+                self._project_episode(
+                    owner_id=owner_id, payload=payload, topic=snapshot, topic_evidence=True, now=current
+                )
+                return snapshot
             self.repository.set_status(
                 topic_id=active.id,
                 owner_id=owner_id,
@@ -487,24 +705,28 @@ class ConversationTopicMemoryService:
                 guild_id=payload.guild_id,
                 channel_id=payload.channel_id,
                 thread_id=payload.thread_id,
-                topic_label=self._label(text),
-                summary=self._append_summary("", payload.author_display_name, text),
-                keywords_json=json.dumps(self._keywords([], text), ensure_ascii=False),
+                topic_label=self._label(topic_text),
+                summary=self._append_summary("", payload.author_display_name, topic_text),
+                keywords_json=json.dumps(self._keywords([], topic_text), ensure_ascii=False),
                 open_loops_json="[]",
                 pending_actions_json="[]",
                 participants_json=json.dumps(participants, ensure_ascii=False),
                 last_message_id=payload.message_id,
                 now=current,
             )
-            return self.snapshot(record)
+            snapshot = self.snapshot(record)
+            self._project_episode(
+                owner_id=owner_id, payload=payload, topic=snapshot, topic_evidence=True, now=current
+            )
+            return snapshot
 
         snapshot = self.snapshot(active)
         updated = self.repository.update_capsule(
             topic_id=active.id,
             owner_id=owner_id,
             topic_label=active.topic_label,
-            summary=self._append_summary(active.summary, payload.author_display_name, text),
-            keywords_json=json.dumps(self._keywords(snapshot.keywords, text), ensure_ascii=False),
+            summary=self._append_summary(active.summary, payload.author_display_name, topic_text),
+            keywords_json=json.dumps(self._keywords(snapshot.keywords, topic_text), ensure_ascii=False),
             open_loops_json=json.dumps(snapshot.open_loops, ensure_ascii=False),
             pending_actions_json=json.dumps(
                 [item.model_dump(mode="json") for item in snapshot.pending_actions],
@@ -518,7 +740,11 @@ class ConversationTopicMemoryService:
             increment_message_count=True,
             now=current,
         )
-        return self.snapshot(updated)
+        result = self.snapshot(updated)
+        self._project_episode(
+            owner_id=owner_id, payload=payload, topic=result, topic_evidence=True, now=current
+        )
+        return result
 
     def record_pending_action(
         self,

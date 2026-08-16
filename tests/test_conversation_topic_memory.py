@@ -210,3 +210,49 @@ def test_pending_action_is_structured_and_actor_scoped() -> None:
 
     assert eligible == (action,)
     assert wrong_user == ()
+
+
+def test_historical_topic_is_resumed_instead_of_creating_duplicate() -> None:
+    service = _service()
+    cat = service.observe_turn(
+        owner_id="owner-1",
+        payload=_payload("generate a cat image", message_id="m-resume-1"),
+    )
+    weather = service.observe_turn(
+        owner_id="owner-1",
+        payload=_payload("what is tomorrow's weather", message_id="m-resume-2"),
+    )
+    resumed = service.observe_turn(
+        owner_id="owner-1",
+        payload=_payload("back to the cat image", message_id="m-resume-3"),
+    )
+
+    assert cat is not None and weather is not None and resumed is not None
+    assert weather.id != cat.id
+    assert resumed.id == cat.id
+    assert service.repository.get(weather.id, "owner-1").status == "cooling"  # type: ignore[union-attr]
+
+
+def test_unresolved_url_only_turn_does_not_create_or_refresh_topic() -> None:
+    service = _service()
+    before = datetime(2026, 8, 15, 10, 0, tzinfo=UTC)
+    topic = service.observe_turn(
+        owner_id="owner-1",
+        payload=_payload("generate a cat image", message_id="m-url-1"),
+        now=before,
+    )
+    assert topic is not None
+    result = service.observe_turn(
+        owner_id="owner-1",
+        payload=_payload("https://b23.tv/unknown", message_id="m-url-2"),
+        now=before + timedelta(hours=2),
+    )
+    assert result is not None
+    assert result.id == topic.id
+    persisted = service.repository.get(topic.id, "owner-1")
+    assert persisted is not None
+    assert persisted.message_count == 1
+    persisted_active = persisted.last_active_at
+    if persisted_active.tzinfo is None:
+        persisted_active = persisted_active.replace(tzinfo=UTC)
+    assert persisted_active == before

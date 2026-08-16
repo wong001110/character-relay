@@ -18,6 +18,8 @@ from echo_masque.persistence.calibration_repository import (
 )
 from echo_masque.persistence.condition_watch_models import ConditionWatchRecord
 from echo_masque.persistence.condition_watch_repository import ConditionWatchRepository
+from echo_masque.persistence.conversation_episode_models import ConversationEpisodeRecord
+from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
 from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord
 from echo_masque.persistence.conversation_media_repository import (
     ConversationMediaReferenceRepository,
@@ -156,6 +158,8 @@ __all__ = [
     "CharacterSemanticProfileRecord",
     "ConditionWatchRecord",
     "ConditionWatchRepository",
+    "ConversationEpisodeRecord",
+    "ConversationEpisodeRepository",
     "ConversationMediaReferenceRecord",
     "ConversationMediaReferenceRepository",
     "ConversationTopicRecord",

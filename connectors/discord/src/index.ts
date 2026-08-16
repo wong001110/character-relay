@@ -2986,6 +2986,10 @@ async function processMessage(
         emojis: socialSource ? [] : emojis,
         stickers: socialSource ? [] : stickers,
         burst_media_message_ids: socialSource ? [] : burstMediaMessageIds,
+        conversation_burst_id: socialSource ? "" : participationBurstId,
+        burst_source_message_ids: socialSource
+          ? []
+          : participationBurstMessages.map((item) => item.message_id),
         interaction_session_id: "",
         interaction_type: "",
         interaction_intensity: "",
