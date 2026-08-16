@@ -18,14 +18,19 @@ jobs:
         with:
           ref: feat/memory-vnext-internal-tools
           fetch-depth: 0
-      - name: Apply staged Memory vNext and Internal Tool patch
+      - name: Apply validated file-aligned patches
         shell: bash
         run: |
           set -euo pipefail
-          cat .github/phase-f.patch.0* > /tmp/phase-f.patch
-          git apply --check /tmp/phase-f.patch
-          git apply /tmp/phase-f.patch
-          rm -f .github/phase-f.patch.0* .github/workflows/apply-phase-f.yml
+          for patch in .github/phase-f-file-*.patch; do
+            echo "checking $patch"
+            git apply --check "$patch"
+            git apply "$patch"
+          done
+          rm -f \
+            .github/phase-f.patch.0* \
+            .github/phase-f-file-*.patch \
+            .github/workflows/apply-phase-f.yml
       - name: Validate Phase F syntax
         shell: bash
         run: |
