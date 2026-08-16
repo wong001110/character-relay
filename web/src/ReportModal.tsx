@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { api, type ReportFormat } from "./api";
 import { useI18n } from "./i18n";
@@ -53,7 +54,7 @@ export function ReportModal({ runId, format, onClose }: Props) {
     URL.revokeObjectURL(url);
   }
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section
         className="report-sheet paper-sheet"
@@ -87,6 +88,7 @@ export function ReportModal({ runId, format, onClose }: Props) {
           <div className="report-loading">{t("report.opening")}</div>
         )}
       </section>
-    </div>
+    </div>,
+    document.body
   );
 }
