@@ -1,0 +1,188 @@
+.scheduled-reminders-v3 {
+  display: grid;
+  gap: 18px;
+  padding: clamp(18px, 3vw, 30px);
+  background:
+    linear-gradient(rgba(255,253,248,.94), rgba(255,253,248,.94)),
+    repeating-linear-gradient(0deg, transparent 0 31px, rgba(189,163,142,.05) 32px),
+    var(--cr-paper-raised);
+}
+
+.scheduled-reminders-v3 .scheduled-reminders-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--cr-line-strong);
+}
+
+.scheduled-reminders-v3 .scheduled-reminders-header h2 {
+  margin: 10px 0 7px;
+  font-size: clamp(1.8rem, 3vw, 2.6rem);
+}
+
+.scheduled-reminders-v3 .scheduled-reminders-header p {
+  max-width: 78ch;
+  margin: 0;
+  color: var(--cr-ink-soft);
+  line-height: 1.6;
+}
+
+.scheduled-reminders-v3 .scheduled-reminders-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px dashed var(--cr-line);
+  border-radius: 8px 12px 10px 7px;
+  background: var(--cr-paper-muted);
+}
+
+.scheduled-reminders-v3 .scheduled-reminders-toolbar > label:first-child {
+  display: grid;
+  gap: 5px;
+  min-width: 190px;
+}
+
+.scheduled-reminders-v3 .scheduled-reminders-toolbar > label:first-child > span {
+  color: var(--cr-ink-muted);
+  font-size: .66rem;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.scheduled-reminders-v3 .scheduled-reminders-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.scheduled-reminders-v3 .scheduled-reminders-summary > span {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--cr-line);
+  border-radius: 7px 10px 8px 6px;
+  background: var(--cr-paper-raised);
+  color: var(--cr-ink-soft);
+}
+
+.scheduled-reminders-v3 .scheduled-reminders-summary strong {
+  color: var(--cr-ink);
+  font-size: 1.15rem;
+}
+
+.scheduled-reminder-note-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.scheduled-reminders-v3 .scheduled-reminder-card.cr-sticky-note {
+  width: 100%;
+  min-width: 0;
+  min-height: 260px;
+  margin: 0;
+}
+
+.scheduled-reminders-v3 .scheduled-reminder-card-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.scheduled-reminders-v3 .scheduled-reminder-card-heading > div {
+  min-width: 0;
+}
+
+.scheduled-reminders-v3 .scheduled-reminder-card-heading strong,
+.scheduled-reminders-v3 .scheduled-reminder-card-heading small {
+  display: block;
+}
+
+.scheduled-reminders-v3 .scheduled-reminder-card-heading small {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--cr-ink-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduled-reminders-v3 .scheduled-reminder-text {
+  margin: 16px 0;
+  color: var(--cr-ink);
+  font: 700 1rem/1.55 Georgia, "Times New Roman", serif;
+  white-space: pre-wrap;
+}
+
+.scheduled-reminders-v3 .scheduled-reminder-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0;
+}
+
+.scheduled-reminders-v3 .scheduled-reminder-card dl > div {
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: rgba(255,255,255,.42);
+}
+
+.scheduled-reminders-v3 .scheduled-reminder-card dt {
+  color: var(--cr-ink-muted);
+  font-size: .58rem;
+  text-transform: uppercase;
+}
+
+.scheduled-reminders-v3 .scheduled-reminder-card dd {
+  margin: 3px 0 0;
+  color: var(--cr-ink-soft);
+  font-size: .72rem;
+  overflow-wrap: anywhere;
+}
+
+.scheduled-reminders-v3 .scheduled-reminder-card footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  margin-top: 15px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(95,75,64,.18);
+}
+
+.scheduled-reminders-v3 .scheduled-reminder-card code {
+  color: var(--cr-ink-muted);
+  font-size: .62rem;
+}
+
+.scheduled-reminders-pagination {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+  margin-top: 16px;
+}
+
+@media (max-width: 720px) {
+  .scheduled-reminders-v3 .scheduled-reminders-header {
+    flex-direction: column;
+  }
+  .scheduled-reminders-v3 .scheduled-reminders-summary,
+  .scheduled-reminders-v3 .scheduled-reminder-card dl {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .scheduled-reminders-v3 .scheduled-reminders-summary,
+  .scheduled-reminders-v3 .scheduled-reminder-card dl {
+    grid-template-columns: 1fr;
+  }
+}
