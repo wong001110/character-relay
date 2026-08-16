@@ -1,5 +1,10 @@
 import {
   forwardRef,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type CSSProperties,
   type HTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode
@@ -43,8 +48,8 @@ export function StatusIndicator({
 }
 
 export interface InspectorSectionProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
-  title: ReactNode;
   eyebrow?: ReactNode;
+  title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
   density?: "comfortable" | "compact";
@@ -120,3 +125,179 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
     </label>
   );
 });
+
+export interface TooltipProps extends HTMLAttributes<HTMLSpanElement> {
+  content: ReactNode;
+  side?: "top" | "bottom";
+  children: ReactNode;
+}
+
+export function Tooltip({
+  className = "",
+  content,
+  side = "top",
+  children,
+  ...props
+}: TooltipProps) {
+  const tooltipId = useId();
+  return (
+    <span
+      className={cx("cr-tooltip", `cr-tooltip--${side}`, className)}
+      aria-describedby={tooltipId}
+      {...props}
+    >
+      {children}
+      <span className="cr-tooltip__bubble" id={tooltipId} role="tooltip">
+        {content}
+      </span>
+    </span>
+  );
+}
+
+export interface PopoverProps extends Omit<HTMLAttributes<HTMLDivElement>, "content"> {
+  trigger: ReactNode;
+  children: ReactNode;
+  align?: "start" | "end";
+  label?: string;
+}
+
+export function Popover({
+  className = "",
+  trigger,
+  children,
+  align = "start",
+  label = "Open details",
+  ...props
+}: PopoverProps) {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className={cx("cr-popover", `cr-popover--${align}`, className)} {...props}>
+      <button
+        type="button"
+        className="cr-popover__trigger"
+        aria-label={label}
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {trigger}
+      </button>
+      {open && (
+        <div className="cr-popover__panel" id={panelId} role="dialog" aria-label={label}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export interface SpinnerProps extends HTMLAttributes<HTMLSpanElement> {
+  size?: "sm" | "md" | "lg";
+  label?: string;
+}
+
+export function Spinner({
+  className = "",
+  size = "md",
+  label = "Loading",
+  ...props
+}: SpinnerProps) {
+  return (
+    <span
+      className={cx("cr-spinner", `cr-spinner--${size}`, className)}
+      role="status"
+      aria-label={label}
+      {...props}
+    >
+      <span aria-hidden="true" />
+    </span>
+  );
+}
+
+export interface SkeletonProps extends HTMLAttributes<HTMLSpanElement> {
+  variant?: "text" | "block" | "circle";
+  width?: CSSProperties["width"];
+  height?: CSSProperties["height"];
+}
+
+export function Skeleton({
+  className = "",
+  variant = "text",
+  width,
+  height,
+  style,
+  ...props
+}: SkeletonProps) {
+  return (
+    <span
+      className={cx("cr-skeleton", `cr-skeleton--${variant}`, className)}
+      aria-hidden="true"
+      style={{ width, height, ...style }}
+      {...props}
+    />
+  );
+}
+
+export interface DividerProps extends HTMLAttributes<HTMLDivElement> {
+  label?: ReactNode;
+}
+
+export function Divider({ className = "", label, ...props }: DividerProps) {
+  return (
+    <div className={cx("cr-divider", className)} role="separator" {...props}>
+      <span aria-hidden="true" />
+      {label && <em>{label}</em>}
+      <span aria-hidden="true" />
+    </div>
+  );
+}
+
+export interface ToastProps extends HTMLAttributes<HTMLDivElement> {
+  tone?: StatusTone;
+  title?: ReactNode;
+  action?: ReactNode;
+  children?: ReactNode;
+}
+
+export function Toast({
+  className = "",
+  tone = "neutral",
+  title,
+  action,
+  children,
+  ...props
+}: ToastProps) {
+  return (
+    <div
+      className={cx("cr-toast", `cr-toast--${tone}`, className)}
+      role={tone === "danger" ? "alert" : "status"}
+      {...props}
+    >
+      <span className="cr-toast__pin" aria-hidden="true" />
+      <div className="cr-toast__copy">
+        {title && <strong>{title}</strong>}
+        {children && <p>{children}</p>}
+      </div>
+      {action && <div className="cr-toast__action">{action}</div>}
+    </div>
+  );
+}
