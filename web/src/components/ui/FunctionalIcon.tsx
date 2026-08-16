@@ -1,4 +1,4 @@
-import type { SVGProps } from "react";
+import type { ReactNode, SVGProps } from "react";
 
 export type FunctionalIconName =
   | "home"
@@ -35,7 +35,7 @@ export function FunctionalIcon({ name, size = 18, ...props }: Props) {
     "aria-hidden": props["aria-label"] ? undefined : true
   };
 
-  const paths: Record<FunctionalIconName, React.ReactNode> = {
+  const paths: Record<FunctionalIconName, ReactNode> = {
     home: <><path d="M3.5 10.5 12 3.8l8.5 6.7"/><path d="M5.5 9.3V20h13V9.3"/><path d="M9.5 20v-6h5v6"/></>,
     characters: <><circle cx="9" cy="8" r="3"/><path d="M3.8 19c.6-3.3 2.5-5 5.2-5s4.6 1.7 5.2 5"/><circle cx="17.2" cy="9" r="2.2"/><path d="M15.3 14.4c2.8-.7 4.8.7 5.2 3.6"/></>,
     deployment: <><path d="M4 7.5h10.5v9H4z"/><path d="M14.5 10h2.8l2.7 2.8v3.7h-5.5z"/><circle cx="8" cy="18" r="1.7"/><circle cx="17" cy="18" r="1.7"/></>,
