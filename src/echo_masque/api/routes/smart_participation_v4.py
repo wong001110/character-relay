@@ -119,15 +119,28 @@ def _smart_repository(request: Request) -> SmartParticipationRepository:
 
 
 def _analysis_text(payload: SmartParticipationResolveRequest) -> str:
-    if not payload.burst_messages:
-        return " ".join(payload.message.split())[:4_000]
     lines: list[str] = []
-    for item in payload.burst_messages:
-        text = " ".join(item.text.split())
-        if not text:
+    if payload.burst_messages:
+        for item in payload.burst_messages:
+            text = " ".join(item.text.split())
+            if not text:
+                continue
+            author = " ".join(item.author_display_name.split())[:120]
+            lines.append(f"{author}: {text}" if author else text)
+    elif payload.message.strip():
+        lines.append(" ".join(payload.message.split()))
+
+    for item in payload.media_descriptors:
+        if not item.topic_evidence or item.state != "resolved":
             continue
-        author = " ".join(item.author_display_name.split())[:120]
-        lines.append(f"{author}: {text}" if author else text)
+        subject = " ".join((item.subject or item.summary or item.label).split())[:500]
+        summary = " ".join(item.summary.split())[:800]
+        if not subject and not summary:
+            continue
+        line = f"[resolved media {item.kind}] {subject}"
+        if summary and summary != subject:
+            line += f" — {summary}"
+        lines.append(line)
     return "\n".join(lines)[-4_000:]
 
 

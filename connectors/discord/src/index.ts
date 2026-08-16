@@ -36,7 +36,8 @@ import { compareParticipationShadowPlan } from "./participationShadowParity.js";
 import {
   RelayClient,
   type DiscordParticipationShadowCandidate,
-  type DiscordParticipationShadowPlanItem
+  type DiscordParticipationShadowPlanItem,
+  type DiscordPlannerMediaResult
 } from "./relayClient.js";
 import { RecoveryLoop } from "./recoveryLoop.js";
 import {
@@ -2122,6 +2123,66 @@ async function processMessage(
         }))
       : [];
 
+    let plannerMedia: DiscordPlannerMediaResult | null = null;
+    const hasPlannerMediaInput =
+      guildMessage.attachments.size > 0 ||
+      guildMessage.embeds.length > 0 ||
+      /https?:\/\//iu.test(guildMessage.content) ||
+      burstMediaMessageIds.length > 0;
+    if (hasPlannerMediaInput) {
+      try {
+        plannerMedia = await relay.resolvePlannerMedia({
+          message_id: guildMessage.id,
+          guild_id: guildMessage.guildId,
+          channel_id: location.channelId,
+          thread_id: location.threadId,
+          text: originalText || guildMessage.content,
+          burst_media_message_ids: burstMediaMessageIds
+        });
+        reportDiscordEvent({
+          level: "info",
+          eventType: "planner_media_resolved",
+          message: "Planner-only media context was resolved before Smart Participation.",
+          guildId: guildMessage.guildId,
+          guildName: guildMessage.guild.name,
+          channelId: location.channelId,
+          channelName: location.channelName,
+          threadId: location.threadId,
+          threadName: location.threadName,
+          sourceMessageId: guildMessage.id,
+          details: {
+            descriptor_count: plannerMedia.descriptors.length,
+            resolved_descriptor_count: plannerMedia.descriptors.filter(
+              (item) => item.state === "resolved" && item.topic_evidence
+            ).length,
+            media_dependency: plannerMedia.dependency,
+            dependency_locked: plannerMedia.dependency_locked
+          }
+        });
+      } catch (error) {
+        reportDiscordEvent({
+          level: "warning",
+          eventType: "planner_media_failed",
+          message: "Planner-only media resolution failed; routing continued without guessed content.",
+          guildId: guildMessage.guildId,
+          guildName: guildMessage.guild.name,
+          channelId: location.channelId,
+          channelName: location.channelName,
+          threadId: location.threadId,
+          threadName: location.threadName,
+          sourceMessageId: guildMessage.id,
+          details: { error: error instanceof Error ? error.message : String(error) }
+        });
+      }
+    }
+    const participationAnalysisText = [
+      participationText,
+      plannerMedia?.planning_text ?? ""
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+
     let interactionClaim: DiscordInteractionClaim = interactionClaimOverride ?? {
       claimed: false,
       run_id: null,
@@ -2202,12 +2263,12 @@ async function processMessage(
     if (
       config.smartParticipationEnabled &&
       !replyTarget.deploymentId &&
-      participationText.trim()
+      participationAnalysisText.trim()
     ) {
       const semanticPreflightNow = Date.now();
       const semanticPreflight = preflightSmartParticipationRuntime(
         candidates,
-        participationText,
+        participationAnalysisText,
         semanticPreflightNow,
         smartRuntimeScopeKey
       );
@@ -2216,14 +2277,14 @@ async function processMessage(
       const baseEvidenceById = new Map(
         buildSmartParticipationBaseEvidence(
           candidates,
-          participationText,
+          participationAnalysisText,
           semanticPreflightNow
         ).map((item) => [item.deploymentId, item])
       );
       if (!semanticPreflight.skipSemantic && smartDeploymentIds.length) {
         try {
           const semantic = await relay.scoreSmartParticipation({
-            message: participationText,
+            message: participationAnalysisText,
             deployment_ids: smartDeploymentIds,
             guild_id: guildMessage.guildId,
             channel_id: location.channelId,
@@ -2238,6 +2299,7 @@ async function processMessage(
             channel_cooldown_seconds: config.smartParticipationChannelCooldownSeconds,
             window_seconds: config.smartParticipationWindowSeconds,
             max_replies_per_window: config.smartParticipationMaxRepliesPerWindow,
+            media_descriptors: plannerMedia?.descriptors ?? [],
             candidate_preflight: smartDeploymentIds.map((deploymentId) => {
               const evidence = baseEvidenceById.get(deploymentId);
               return {

@@ -64,9 +64,11 @@ from echo_masque.discord_inventory import DiscordInventoryService
 from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService
 from echo_masque.judge_evaluation import JudgeEvaluationService
+from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
 from echo_masque.live_media_scoped import KeyGroupScopedLiveMediaContextService
 from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
 from echo_masque.media_tools import MediaToolRegistry
+from echo_masque.planner_media import PlannerMediaDescriptorService
 from echo_masque.orchestration import (
     CharacterTurnGraphRunner,
     ConditionWatchGraphRunner,
@@ -111,6 +113,9 @@ from echo_masque.semantic_participation import CharacterParticipationSemanticSer
 from echo_masque.services import MatrixService, RuntimeService, TrialService
 from echo_masque.smart_participation_generation import SmartParticipationGenerationService
 from echo_masque.template_sharing import EvaluationTemplateService
+from echo_masque.utility_gateway_live import ExistingProviderUtilityCaller
+from echo_masque.utility_gateway_router import UtilityGatewayRouter
+from echo_masque.utility_media_provider import UtilityMediaUnderstandingProvider
 
 logger = logging.getLogger(__name__)
 
@@ -339,6 +344,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     repository.seed_demo_targets()
     repository.remove_demo_character_cards()
     runtime_service = RuntimeService(repository, resolved, credential_store)
+    planner_utility_gateway = UtilityGatewayRouter(
+        runtime_service,
+        caller=ExistingProviderUtilityCaller(),
+    )
+    planner_media_service = PlannerMediaDescriptorService(
+        media=EnhancedLiveMediaContextService.from_service(
+            live_media_service,
+            browser_runtime=browser_runtime,
+        ),
+        utility_provider=UtilityMediaUnderstandingProvider(planner_utility_gateway),
+    )
     authoring_runtime_service = AuthoringRuntimeService(
         database,
         auth_repository,
@@ -436,6 +452,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.generated_media_repository = generated_media_repository
     app.state.image_creation_service = image_creation_service
     app.state.live_media_service = live_media_service
+    app.state.planner_media_service = planner_media_service
     app.state.discord_connector_runtime = discord_connector_runtime
     app.state.character_turn_graph_runner = character_turn_graph_runner
     app.state.social_turn_graph_runner = social_turn_graph_runner

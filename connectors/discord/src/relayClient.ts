@@ -95,6 +95,27 @@ export interface DiscordConversationBurstRuntimeConfig {
   max_characters: number;
 }
 
+
+export interface DiscordPlannerMediaDescriptor {
+  ref: string;
+  kind: "image" | "video" | "article" | "link" | "file";
+  state: "resolved" | "preview_only" | "unresolved";
+  label: string;
+  subject: string;
+  summary: string;
+  source_key: string;
+  source_url: string;
+  topic_evidence: boolean;
+}
+
+export interface DiscordPlannerMediaResult {
+  descriptors: DiscordPlannerMediaDescriptor[];
+  dependency: "required" | "optional" | "none";
+  dependency_reason: string;
+  dependency_locked: boolean;
+  planning_text: string;
+}
+
 export interface DiscordSmartParticipationScoreRequest {
   message: string;
   deployment_ids: string[];
@@ -112,6 +133,7 @@ export interface DiscordSmartParticipationScoreRequest {
   window_seconds?: number;
   max_replies_per_window?: number;
   candidate_preflight?: DiscordSmartParticipationCandidatePreflight[];
+  media_descriptors?: DiscordPlannerMediaDescriptor[];
 }
 
 interface DiscordV4ParticipationCandidate {
@@ -477,6 +499,7 @@ export class RelayClient {
             channel_cooldown_seconds: payload.channel_cooldown_seconds ?? 45,
             window_seconds: payload.window_seconds ?? 600,
             max_replies_per_window: payload.max_replies_per_window ?? 3,
+            media_descriptors: payload.media_descriptors ?? [],
             candidates: payload.deployment_ids.map((deploymentId) => {
               const runtime = runtimePreflightById.get(deploymentId);
               const hard = hardPreflightById.get(deploymentId);
@@ -632,6 +655,30 @@ export class RelayClient {
       {
         method: "POST",
         body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
+  }
+
+  async resolvePlannerMedia(payload: {
+    message_id: string;
+    guild_id: string;
+    channel_id: string;
+    thread_id: string;
+    text: string;
+    burst_media_message_ids?: string[];
+  }): Promise<DiscordPlannerMediaResult> {
+    const channelId = payload.thread_id || payload.channel_id;
+    const media = await this.discordMedia(channelId, payload.message_id);
+    return this.request<DiscordPlannerMediaResult>(
+      "/api/connectors/discord/media/describe",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          connection_id: this.connectionId,
+          ...payload,
+          attachments: media.attachments,
+          embeds: media.embeds
+        })
       }
     );
   }

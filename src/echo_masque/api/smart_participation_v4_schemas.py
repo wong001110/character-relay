@@ -18,6 +18,20 @@ class SmartParticipationBurstMessage(BaseModel):
     reply_to_message_id: str = Field(default="", max_length=200)
 
 
+class SmartParticipationMediaDescriptor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ref: str = Field(min_length=1, max_length=220)
+    kind: str = Field(min_length=1, max_length=32)
+    state: str = Field(min_length=1, max_length=32)
+    label: str = Field(default="", max_length=300)
+    subject: str = Field(default="", max_length=500)
+    summary: str = Field(default="", max_length=1200)
+    source_key: str = Field(default="", max_length=500)
+    source_url: str = Field(default="", max_length=3000)
+    topic_evidence: bool = False
+
+
 class SmartParticipationResolveCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -51,6 +65,10 @@ class SmartParticipationResolveRequest(BaseModel):
     channel_cooldown_seconds: int = Field(default=45, ge=0, le=86_400)
     window_seconds: int = Field(default=600, ge=1, le=86_400)
     max_replies_per_window: int = Field(default=3, ge=1, le=100)
+    media_descriptors: list[SmartParticipationMediaDescriptor] = Field(
+        default_factory=list,
+        max_length=6,
+    )
     candidates: list[SmartParticipationResolveCandidate] = Field(
         min_length=1,
         max_length=24,
@@ -127,6 +145,7 @@ class SmartParticipationResolveView(BaseModel):
 
 __all__ = [
     "SmartParticipationBurstMessage",
+    "SmartParticipationMediaDescriptor",
     "SmartParticipationResolveCandidate",
     "SmartParticipationResolveCandidateView",
     "SmartParticipationResolveRequest",
