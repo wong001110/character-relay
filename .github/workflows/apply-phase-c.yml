@@ -1,0 +1,44 @@
+name: Apply Phase C
+
+on:
+  push:
+    branches:
+      - feat/media-dependency-two-stage-resolution
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/media-dependency-two-stage-resolution
+          fetch-depth: 0
+      - name: Apply staged patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i 's/^ diff --git /diff --git /' .github/phase-c-backend.patch
+          git apply --check .github/phase-c-ts.patch
+          git apply --check .github/phase-c-backend.patch
+          git apply .github/phase-c-ts.patch
+          git apply .github/phase-c-backend.patch
+          rm -f \
+            .github/phase-c-ts.patch \
+            .github/phase-c-backend.patch \
+            .github/phase-c.patch.00 \
+            .github/workflows/export-working-tree.yml \
+            .github/workflows/apply-phase-c.yml
+      - name: Commit Phase C
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: add two-stage media dependency resolution'
+          git push origin HEAD:feat/media-dependency-two-stage-resolution
