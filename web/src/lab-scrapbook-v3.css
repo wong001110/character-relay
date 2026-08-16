@@ -1,0 +1,226 @@
+/* Echo Masque remains an experimental notebook inside Character Relay.
+ * Keep dense data readable while giving the lab a stronger separate-book identity.
+ */
+
+.workspace-page,
+.matrix-page {
+  width: min(1480px, calc(100% - 34px));
+  margin: 0 auto;
+  padding: 26px 0 58px;
+  color: var(--cr-ink);
+}
+
+.workspace-header,
+.matrix-header {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  padding: 22px 24px 18px;
+  border: 1px solid var(--cr-line);
+  border-radius: 10px 18px 15px 9px;
+  background:
+    radial-gradient(circle at 88% 10%, rgba(234,165,174,.16), transparent 16rem),
+    var(--cr-paper-raised);
+  box-shadow: var(--cr-shadow-paper);
+}
+
+.workspace-header::after,
+.matrix-header::after {
+  content: "EXPERIMENT NOTEBOOK";
+  position: absolute;
+  top: -9px;
+  right: 26px;
+  padding: 3px 9px;
+  background: var(--cr-rose-soft);
+  color: var(--cr-ink-soft);
+  font: 800 .54rem var(--cr-font-ui);
+  letter-spacing: .08em;
+  transform: rotate(1.2deg);
+}
+
+.workspace-header .kicker,
+.matrix-header .kicker {
+  margin-bottom: 7px;
+  color: var(--cr-ink-muted);
+  font-family: var(--cr-font-note);
+  letter-spacing: .08em;
+}
+
+.workspace-header h1,
+.matrix-header h1 {
+  margin: 0 0 8px;
+  font-size: clamp(2.2rem, 5vw, 4.2rem);
+  letter-spacing: -.045em;
+}
+
+.workspace-header > div:first-child > p:last-child,
+.matrix-header > div:first-child > p:last-child {
+  max-width: 70ch;
+  margin: 0;
+  color: var(--cr-ink-soft);
+  line-height: 1.6;
+}
+
+.workspace-tabs,
+.matrix-tabs {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  padding: 12px 14px 0;
+  border-radius: 10px 10px 0 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.workspace-tabs button,
+.matrix-tabs button {
+  min-height: 42px;
+  padding: 9px 15px;
+  border: 1px solid var(--cr-line);
+  border-bottom-color: var(--cr-line-strong);
+  border-radius: 8px 8px 3px 3px;
+  background: var(--cr-paper-muted);
+  color: var(--cr-ink-soft);
+  font-weight: 800;
+  transform: translateY(2px);
+}
+
+.workspace-tabs button.selected,
+.matrix-tabs button.selected {
+  transform: translateY(0);
+  background: var(--cr-rose-soft);
+  color: var(--cr-ink);
+  box-shadow: 1px -2px 5px rgba(75,57,47,.06);
+}
+
+.workspace-section,
+.matrix-section,
+.matrix-builder,
+.matrix-queue,
+.matrix-analytics,
+.prompt-versions-panel {
+  border-color: var(--cr-line) !important;
+  background:
+    linear-gradient(rgba(255,253,248,.95), rgba(255,253,248,.95)),
+    repeating-linear-gradient(0deg, transparent 0 31px, rgba(189,163,142,.045) 32px),
+    var(--cr-paper-raised) !important;
+}
+
+.workspace-card,
+.scenario-card,
+.pack-card,
+.experiment-card,
+.matrix-card,
+.matrix-task-card,
+.matrix-analytics-card,
+.prompt-version-card {
+  border-color: var(--cr-line) !important;
+  border-radius: 7px 11px 10px 6px !important;
+  background: var(--cr-paper-raised) !important;
+  box-shadow: 2px 4px 8px rgba(75,57,47,.045) !important;
+}
+
+.workspace-form,
+.matrix-form,
+.matrix-builder-form {
+  border-color: var(--cr-line) !important;
+  border-radius: 9px 14px 12px 8px !important;
+  background: var(--cr-paper-muted) !important;
+  box-shadow: var(--cr-shadow-paper) !important;
+}
+
+.workspace-page input,
+.workspace-page textarea,
+.workspace-page select,
+.matrix-page input,
+.matrix-page textarea,
+.matrix-page select {
+  border-color: var(--cr-line) !important;
+  background: var(--cr-paper-raised) !important;
+  color: var(--cr-ink) !important;
+}
+
+.workspace-page input:focus,
+.workspace-page textarea:focus,
+.workspace-page select:focus,
+.matrix-page input:focus,
+.matrix-page textarea:focus,
+.matrix-page select:focus {
+  outline: 0;
+  border-color: var(--cr-focus) !important;
+  box-shadow: 0 0 0 3px var(--cr-focus-ring);
+}
+
+.matrix-page table,
+.matrix-page .matrix-table {
+  background: var(--cr-paper-raised);
+}
+
+.matrix-page th {
+  color: var(--cr-ink-muted);
+  background: var(--cr-paper-muted);
+}
+
+.matrix-page td {
+  border-color: color-mix(in srgb, var(--cr-line) 65%, transparent);
+}
+
+.matrix-page pre,
+.workspace-page pre {
+  font-family: var(--cr-font-mono);
+  background: var(--cr-paper-muted);
+}
+
+.matrix-page .status-pass,
+.workspace-page .status-pass {
+  border-color: var(--cr-success) !important;
+  background: var(--cr-success-soft) !important;
+}
+
+.matrix-page .status-fail,
+.workspace-page .status-fail {
+  border-color: var(--cr-danger) !important;
+  background: var(--cr-danger-soft) !important;
+}
+
+.matrix-page .status-review,
+.workspace-page .status-review {
+  border-color: var(--cr-warning) !important;
+  background: var(--cr-warning-soft) !important;
+}
+
+@media (max-width: 760px) {
+  .workspace-page,
+  .matrix-page {
+    width: min(100% - 20px, 1480px);
+    padding-top: 14px;
+  }
+
+  .workspace-header,
+  .matrix-header {
+    flex-direction: column;
+  }
+
+  .workspace-tabs,
+  .matrix-tabs {
+    overflow-x: auto;
+    padding-inline: 4px;
+  }
+
+  .workspace-tabs button,
+  .matrix-tabs button {
+    flex: 0 0 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-tabs button,
+  .matrix-tabs button,
+  .workspace-header::after,
+  .matrix-header::after {
+    transform: none;
+  }
+}
