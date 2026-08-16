@@ -2,6 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { CharacterCard } from "./api";
 import {
+  Button,
+  EmptyState,
+  IconButton,
+  InspectorSection,
+  PaperTab,
+  SearchField,
+  Spinner,
+  Stamp,
+  StatusIndicator,
+  type StatusTone,
+  StickyLabel,
+  StickyNote,
+  Toast
+} from "./components/ui";
+import {
   deploymentApi,
   type DiscordConnectorLog
 } from "./deploymentApi";
@@ -104,6 +119,13 @@ const SIGNAL_LABELS: Record<string, { en: string; zh: string }> = {
   profile_disabled_blocked: { en: "Profile disabled", zh: "Profile 已关闭" }
 };
 
+const TAB_TONES = {
+  behavior: "yellow",
+  flow: "blue",
+  state: "mint",
+  raw: "lavender"
+} as const;
+
 function metadataRecord(values: Array<[string, string]>): Record<string, string> {
   return Object.fromEntries(values);
 }
@@ -143,6 +165,21 @@ function durationLabel(value: number | null): string {
 
 function shortId(value: string): string {
   return value ? `${value.slice(0, 8)}…${value.slice(-4)}` : "—";
+}
+
+function statusTone(value: string): StatusTone {
+  if (["completed", "succeeded", "selected", "ready"].includes(value)) return "success";
+  if (["failed", "error", "rejected"].includes(value)) return "danger";
+  if (["running", "pending"].includes(value)) return "info";
+  if (["cancelled", "skipped", "silent"].includes(value)) return "neutral";
+  return "warning";
+}
+
+function stampVariant(value: string): "success" | "danger" | "info" | "accent" {
+  if (["completed", "succeeded", "selected"].includes(value)) return "success";
+  if (["failed", "rejected"].includes(value)) return "danger";
+  if (["running", "pending"].includes(value)) return "info";
+  return "accent";
 }
 
 function projectSteps(events: RuntimeTraceEvent[]): ProjectedStep[] {
@@ -423,17 +460,20 @@ export function BehaviorNotebook({ cards }: Props) {
             <h2>{selectedCount ? (zh ? `这一轮选中了 ${selectedCount} 个角色` : `${selectedCount} character(s) selected`) : (zh ? "这一轮没有角色被选中" : "No character was selected")}</h2>
             <p>Discord · {formatPortalTimestamp(log.occurred_at, zh)} · {candidates.length} {zh ? "个候选" : "candidates"}</p>
           </div>
-          <div className={`behavior-completed-stamp ${selectedCount ? "stamp-completed" : "stamp-silent"}`}>
+          <Stamp
+            className={`behavior-completed-stamp ${selectedCount ? "stamp-completed" : "stamp-silent"}`}
+            variant={selectedCount ? "success" : "accent"}
+          >
             {selectedCount ? "SELECTED" : "SILENT"}
-          </div>
+          </Stamp>
         </header>
 
         <div className="behavior-selection-body">
-          <section className="behavior-trigger-note">
-            <span>{zh ? "这一轮实际检查的消息" : "Trigger inspected this turn"}</span>
+          <StickyNote className="behavior-trigger-note" variant="note" size="lg">
+            <StickyLabel variant="warning">{zh ? "这一轮实际检查的消息" : "TRIGGER INSPECTED"}</StickyLabel>
             <blockquote>{trigger || (zh ? "没有保存可读消息预览。" : "No readable trigger preview was persisted.")}</blockquote>
-            <small>{zh ? `Selection reason · ${reason}` : `Selection reason · ${reason}`}</small>
-          </section>
+            <small>{`Selection reason · ${reason}`}</small>
+          </StickyNote>
 
           <section className="behavior-judge-note">
             <header>
@@ -441,7 +481,7 @@ export function BehaviorNotebook({ cards }: Props) {
                 <span>{zh ? "选人前检查" : "PRE-SELECTION CHECKS"}</span>
                 <strong>{semanticLog ? (zh ? "E5 语义评分已运行" : "E5 semantic scoring ran") : (zh ? "没有 E5 / Judge 事件" : "No E5 / Judge event")}</strong>
               </div>
-              {tieBreakUsed && <em>UTILITY TIE-BREAK USED</em>}
+              {tieBreakUsed && <StickyLabel variant="success">UTILITY TIE-BREAK USED</StickyLabel>}
             </header>
             {semanticLog ? (
               <>
@@ -500,7 +540,9 @@ export function BehaviorNotebook({ cards }: Props) {
                         <small>#{index + 1} · {candidate.participation_mode || "smart"}</small>
                         <strong>{candidate.character_name}</strong>
                       </div>
-                      <span>{status === "selected" ? (zh ? "已选中" : "SELECTED") : status === "blocked" ? (zh ? "被阻断" : "BLOCKED") : status === "below" ? (zh ? "未过线" : "BELOW") : (zh ? "未评分" : "NOT SCORED")}</span>
+                      <StickyLabel variant={status === "selected" ? "success" : status === "blocked" ? "danger" : "neutral"}>
+                        {status === "selected" ? (zh ? "已选中" : "SELECTED") : status === "blocked" ? (zh ? "被阻断" : "BLOCKED") : status === "below" ? (zh ? "未过线" : "BELOW") : (zh ? "未评分" : "NOT SCORED")}
+                      </StickyLabel>
                     </header>
                     <div className="behavior-score-row">
                       <div><small>Score</small><strong>{candidate.score?.toFixed(3) ?? "—"}</strong></div>
@@ -527,7 +569,12 @@ export function BehaviorNotebook({ cards }: Props) {
                   </article>
                 );
               })}
-              {candidates.length === 0 && <p className="behavior-empty">{zh ? "这轮没有 Smart Participation 候选。" : "No Smart Participation candidates were recorded."}</p>}
+              {candidates.length === 0 && (
+                <EmptyState
+                  className="behavior-empty"
+                  title={zh ? "这轮没有 Smart Participation 候选。" : "No Smart Participation candidates were recorded."}
+                />
+              )}
             </div>
           </section>
 
@@ -543,7 +590,15 @@ export function BehaviorNotebook({ cards }: Props) {
   function renderCharacterTurn() {
     if (selectedEntry?.kind !== "character") return null;
     if (!selectedRun) {
-      return <main className="behavior-notebook-page"><div className="behavior-loading-note">{zh ? "正在翻开角色回合…" : "Opening Character Turn…"}</div></main>;
+      return (
+        <main className="behavior-notebook-page">
+          <EmptyState
+            className="behavior-loading-note"
+            illustration={<Spinner label={zh ? "正在载入角色回合" : "Loading character turn"} />}
+            title={zh ? "正在翻开角色回合…" : "Opening Character Turn…"}
+          />
+        </main>
+      );
     }
     const steps = projectSteps(selectedRun.events);
     const card = cards.find((item) => item.id === selectedRun.character_card_id) ?? null;
@@ -571,7 +626,12 @@ export function BehaviorNotebook({ cards }: Props) {
               <div className="behavior-step-card">
                 <header>
                   <div><span className="behavior-step-icon" aria-hidden="true">{copy.icon}</span><strong>{step.nodeName}</strong><small>{zh ? copy.zh : copy.en}</small></div>
-                  <div className="behavior-step-status"><span className={`behavior-status behavior-status-${step.status}`}>{step.status}</span><b>{durationLabel(step.durationMs)}</b></div>
+                  <div className="behavior-step-status">
+                    <StatusIndicator tone={statusTone(step.status)} className={`behavior-status behavior-status-${step.status}`}>
+                      {step.status}
+                    </StatusIndicator>
+                    <b>{durationLabel(step.durationMs)}</b>
+                  </div>
                 </header>
                 {Object.keys(meta).length > 0 && <div className="behavior-meta-chips">{Object.entries(meta).slice(0, 8).map(([key, value]) => <span key={key}><small>{key}</small>{value || "—"}</span>)}</div>}
                 {providers.map((provider, providerIndex) => (
@@ -579,7 +639,9 @@ export function BehaviorNotebook({ cards }: Props) {
                     <span>{step.nodeName === "turn_smart_output" ? (zh ? `格式修复 API #${providerIndex + 1}` : `Format-repair API #${providerIndex + 1}`) : `Provider API #${providerIndex + 1}`}</span>
                     <strong>{provider.response_model || provider.request_model || "Model call"}</strong>
                     <small>{durationLabel(provider.latency_ms)} · {provider.input_tokens ?? "—"} → {provider.output_tokens ?? "—"} tokens</small>
-                    <em className={`behavior-status behavior-status-${provider.status}`}>{provider.status === "succeeded" ? "API SUCCESS" : provider.status}</em>
+                    <StatusIndicator tone={statusTone(provider.status)} className={`behavior-status behavior-status-${provider.status}`}>
+                      {provider.status === "succeeded" ? "API SUCCESS" : provider.status}
+                    </StatusIndicator>
                   </button>
                 ))}
                 {step.nodeName === "turn_smart_output" && (
@@ -593,12 +655,12 @@ export function BehaviorNotebook({ cards }: Props) {
                 )}
                 {step.nodeName === "turn_tool_execution" && <div className="behavior-tool-ticket"><span>{zh ? "工具票据" : "Tool ticket"}</span><strong>{meta.executed_count ?? "0"} {zh ? "个工具已执行" : "tool(s) executed"}</strong></div>}
                 {step.nodeName === "turn_media_epistemic" && <div className="behavior-media-note"><span>{zh ? "媒体便签" : "Media note"}</span><strong>{meta.actual_perception || "—"}</strong><small>{meta.response_stance ? `${zh ? "姿态" : "stance"}: ${meta.response_stance}` : ""}</small></div>}
-                {step.error && <p className="error-note">{step.error}</p>}
+                {step.error && <Toast tone="danger" title={zh ? "Runtime step error" : "Runtime step error"}>{step.error}</Toast>}
               </div>
             </article>
           );
         })}
-        {steps.length > 0 && <div className="behavior-end-stamp">END OF TURN · ᓚᘏᗢ</div>}
+        {steps.length > 0 && <Stamp className="behavior-end-stamp" variant="accent">END OF TURN · ᓚᘏᗢ</Stamp>}
       </section>
     );
 
@@ -610,23 +672,124 @@ export function BehaviorNotebook({ cards }: Props) {
             <span className="portal-v2-tape">CHARACTER TURN NOTEBOOK</span>
             <h2>{card ? `${card.display_name} ${zh ? "进入了角色 Runtime" : "entered Character Runtime"}` : (zh ? "角色回合" : "Character turn")}</h2>
             <p>Discord · {formatPortalTimestamp(selectedRun.created_at, zh)} → {formatPortalTimestamp(selectedRun.updated_at, zh)} · {durationLabel(totalMs)}</p>
-            <nav className="behavior-tabs" aria-label={zh ? "观察视图" : "Observation view"}>
-              {(["behavior", "flow", "state", "raw"] as NotebookTab[]).map((item) => <button type="button" key={item} className={tab === item ? "is-active" : ""} onClick={() => setTab(item)}>{item === "behavior" ? "✿ " : item === "flow" ? "↝ " : item === "state" ? "⇄ " : "▤ "}{item === "behavior" ? (zh ? "行为" : "Behavior") : item === "flow" ? "Flow" : item === "state" ? "State" : "Raw"}</button>)}
+            <nav className="behavior-tabs" role="tablist" aria-label={zh ? "观察视图" : "Observation view"}>
+              {(["behavior", "flow", "state", "raw"] as NotebookTab[]).map((item) => (
+                <PaperTab
+                  type="button"
+                  key={item}
+                  tone={TAB_TONES[item]}
+                  active={tab === item}
+                  className={tab === item ? "is-active" : ""}
+                  onClick={() => setTab(item)}
+                >
+                  {item === "behavior" ? "✿ " : item === "flow" ? "↝ " : item === "state" ? "⇄ " : "▤ "}
+                  {item === "behavior" ? (zh ? "行为" : "Behavior") : item === "flow" ? "Flow" : item === "state" ? "State" : "Raw"}
+                </PaperTab>
+              ))}
             </nav>
           </div>
-          <div className={`behavior-completed-stamp stamp-${selectedRun.status}`}>{selectedRun.status}</div>
+          <Stamp className={`behavior-completed-stamp stamp-${selectedRun.status}`} variant={stampVariant(selectedRun.status)}>
+            {selectedRun.status}
+          </Stamp>
         </header>
         <div className="behavior-notebook-body">
           <div className="behavior-main-column">
-            {tab === "behavior" && <><section className="behavior-summary-row"><article className="behavior-sticky behavior-sticky-yellow"><span>{zh ? "行为摘要" : "Behavior summary"} ✧</span><ul><li>{zh ? `执行了 ${steps.length} 个 Runtime 步骤。` : `${steps.length} Runtime steps were observed.`}</li><li>{zh ? `正式 Character generation ${modelSteps.length} 次。` : `${modelSteps.length} Character generation step(s).`}</li><li>{runProviders.filter((item) => item.runtime_node === "turn_smart_output").length ? (zh ? "Smart Output 曾触发格式修复 Provider call。" : "Smart Output invoked a format-repair provider call.") : (zh ? "没有额外格式修复模型调用。" : "No extra format-repair model call.")}</li><li>{zh ? `最终 Runtime authority = ${authorityMeta.action || selectedRun.status}。` : `Final Runtime authority = ${authorityMeta.action || selectedRun.status}.`}</li></ul></article><article className="behavior-sticky behavior-sticky-blue"><span>{zh ? "这一轮的证据" : "Evidence from this turn"}</span><div className="behavior-evidence-grid"><p><small>RAG</small><strong>{contextMeta.rag_pipeline || "—"}</strong></p><p><small>Provider API</small><strong>{runProviders.length}</strong></p><p><small>Tools</small><strong>{toolSteps.length}</strong></p><p><small>Outcome</small><strong>{authorityMeta.action || selectedRun.status}</strong></p></div></article></section>{renderFlow()}</>}
+            {tab === "behavior" && (
+              <>
+                <section className="behavior-summary-row">
+                  <StickyNote className="behavior-sticky behavior-sticky-yellow" variant="note" size="lg">
+                    <span>{zh ? "行为摘要" : "Behavior summary"} ✧</span>
+                    <ul>
+                      <li>{zh ? `执行了 ${steps.length} 个 Runtime 步骤。` : `${steps.length} Runtime steps were observed.`}</li>
+                      <li>{zh ? `正式 Character generation ${modelSteps.length} 次。` : `${modelSteps.length} Character generation step(s).`}</li>
+                      <li>{runProviders.filter((item) => item.runtime_node === "turn_smart_output").length ? (zh ? "Smart Output 曾触发格式修复 Provider call。" : "Smart Output invoked a format-repair provider call.") : (zh ? "没有额外格式修复模型调用。" : "No extra format-repair model call.")}</li>
+                      <li>{zh ? `最终 Runtime authority = ${authorityMeta.action || selectedRun.status}。` : `Final Runtime authority = ${authorityMeta.action || selectedRun.status}.`}</li>
+                    </ul>
+                  </StickyNote>
+                  <StickyNote className="behavior-sticky behavior-sticky-blue" variant="system" size="lg">
+                    <span>{zh ? "这一轮的证据" : "Evidence from this turn"}</span>
+                    <div className="behavior-evidence-grid">
+                      <p><small>RAG</small><strong>{contextMeta.rag_pipeline || "—"}</strong></p>
+                      <p><small>Provider API</small><strong>{runProviders.length}</strong></p>
+                      <p><small>Tools</small><strong>{toolSteps.length}</strong></p>
+                      <p><small>Outcome</small><strong>{authorityMeta.action || selectedRun.status}</strong></p>
+                    </div>
+                  </StickyNote>
+                </section>
+                {renderFlow()}
+              </>
+            )}
             {tab === "flow" && renderFlow()}
-            {tab === "state" && <section className="behavior-state-board"><div className="behavior-section-title"><span className="behavior-doodle">⇄</span><h3>{zh ? "State 变化索引" : "State change index"}</h3></div>{steps.filter((step) => step.changedKeys.length).map((step) => <article key={step.key}><strong>{step.nodeName}</strong><div>{step.changedKeys.map((key) => <span key={key}>{key}</span>)}</div></article>)}</section>}
-            {tab === "raw" && <section className="behavior-raw-sheet"><header><span>{zh ? "档案袋 / Raw Runtime Trace" : "Archive sheet / Raw Runtime Trace"}</span></header><pre>{JSON.stringify(selectedRun, null, 2)}</pre></section>}
+            {tab === "state" && (
+              <InspectorSection
+                className="behavior-state-board"
+                eyebrow={zh ? "状态变化" : "State changes"}
+                title={zh ? "State 变化索引" : "State change index"}
+                density="compact"
+              >
+                {steps.filter((step) => step.changedKeys.length).map((step) => (
+                  <article key={step.key}>
+                    <strong>{step.nodeName}</strong>
+                    <div>{step.changedKeys.map((key) => <span key={key}>{key}</span>)}</div>
+                  </article>
+                ))}
+              </InspectorSection>
+            )}
+            {tab === "raw" && (
+              <InspectorSection
+                className="behavior-raw-sheet"
+                eyebrow={zh ? "档案袋" : "Archive sheet"}
+                title="Raw Runtime Trace"
+                density="compact"
+              >
+                <pre>{JSON.stringify(selectedRun, null, 2)}</pre>
+              </InspectorSection>
+            )}
           </div>
           <aside className="behavior-observation-margin">
-            <section className="behavior-margin-card observation-card"><span className="behavior-margin-tab">Observation</span><dl><div><dt>{zh ? "模型步骤" : "Model steps"}</dt><dd>{modelSteps.length}</dd></div><div><dt>{zh ? "格式修复" : "Format repair"}</dt><dd>{runProviders.filter((item) => item.runtime_node === "turn_smart_output").length}</dd></div><div><dt>{zh ? "Provider API" : "Provider API"}</dt><dd>{runProviders.length}</dd></div><div><dt>{zh ? "总耗时" : "Total latency"}</dt><dd>{durationLabel(totalMs)}</dd></div></dl><div className="behavior-margin-pills"><span>RAG · {contextMeta.rag_pipeline || "—"}</span><span>Media · {mediaMeta.actual_perception || "—"}</span><span>Authority · {authorityMeta.action || selectedRun.status}</span></div></section>
-            {runProviders.length > 0 && <section className="behavior-margin-card provider-card"><span className="behavior-margin-tab">Provider API</span>{runProviders.map((provider, index) => <button type="button" key={provider.trace_id} onClick={() => void inspectProvider(provider.trace_id)}><small>#{index + 1} · {provider.runtime_node || provider.category}</small><strong>{provider.response_model || provider.request_model}</strong><span>{provider.status === "succeeded" ? "API SUCCESS" : provider.status} · {durationLabel(provider.latency_ms)}</span></button>)}</section>}
-            <section className="behavior-margin-card operation-card"><span className="behavior-margin-tab">Operation</span><p>{shortId(selectedRun.operation_id)}</p><small>{shortId(selectedRun.graph_run_id)}</small></section>
+            <InspectorSection
+              className="behavior-margin-card observation-card"
+              eyebrow="Observation"
+              title={zh ? "这一轮发生了什么" : "What happened this turn"}
+              density="compact"
+            >
+              <dl>
+                <div><dt>{zh ? "模型步骤" : "Model steps"}</dt><dd>{modelSteps.length}</dd></div>
+                <div><dt>{zh ? "格式修复" : "Format repair"}</dt><dd>{runProviders.filter((item) => item.runtime_node === "turn_smart_output").length}</dd></div>
+                <div><dt>{zh ? "Provider API" : "Provider API"}</dt><dd>{runProviders.length}</dd></div>
+                <div><dt>{zh ? "总耗时" : "Total latency"}</dt><dd>{durationLabel(totalMs)}</dd></div>
+              </dl>
+              <div className="behavior-margin-pills">
+                <span>RAG · {contextMeta.rag_pipeline || "—"}</span>
+                <span>Media · {mediaMeta.actual_perception || "—"}</span>
+                <span>Authority · {authorityMeta.action || selectedRun.status}</span>
+              </div>
+            </InspectorSection>
+            {runProviders.length > 0 && (
+              <InspectorSection
+                className="behavior-margin-card provider-card"
+                eyebrow="Technical evidence"
+                title="Provider API"
+                density="compact"
+              >
+                {runProviders.map((provider, index) => (
+                  <button type="button" key={provider.trace_id} onClick={() => void inspectProvider(provider.trace_id)}>
+                    <small>#{index + 1} · {provider.runtime_node || provider.category}</small>
+                    <strong>{provider.response_model || provider.request_model}</strong>
+                    <span>{provider.status === "succeeded" ? "API SUCCESS" : provider.status} · {durationLabel(provider.latency_ms)}</span>
+                  </button>
+                ))}
+              </InspectorSection>
+            )}
+            <InspectorSection
+              className="behavior-margin-card operation-card"
+              eyebrow="Trace identity"
+              title="Operation"
+              density="compact"
+            >
+              <p>{shortId(selectedRun.operation_id)}</p>
+              <small>{shortId(selectedRun.graph_run_id)}</small>
+            </InspectorSection>
           </aside>
         </div>
       </main>
@@ -636,36 +799,115 @@ export function BehaviorNotebook({ cards }: Props) {
   return (
     <div className="behavior-notebook-shell">
       <aside className="behavior-run-sidebar">
-        <div className="behavior-side-title"><span className="portal-v2-tape">ALL BEHAVIOR TURNS</span><button className="behavior-refresh" type="button" onClick={() => void loadRuns()} aria-label={zh ? "刷新" : "Refresh"}>↻</button></div>
-        <div className="behavior-turn-filters">
-          {(["all", "selection", "character"] as TurnFilter[]).map((value) => <button type="button" key={value} className={filter === value ? "is-active" : ""} onClick={() => setFilter(value)}>{value === "all" ? (zh ? "全部" : "All") : value === "selection" ? (zh ? "选人" : "Selection") : (zh ? "角色" : "Character")}</button>)}
+        <div className="behavior-side-title">
+          <span className="portal-v2-tape">ALL BEHAVIOR TURNS</span>
+          <IconButton className="behavior-refresh" type="button" onClick={() => void loadRuns()} aria-label={zh ? "刷新" : "Refresh"}>↻</IconButton>
         </div>
-        <input className="behavior-run-search" value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={zh ? "搜索角色、触发消息或 reason…" : "Search character, trigger, or reason…"} />
+        <div className="behavior-turn-filters">
+          {(["all", "selection", "character"] as TurnFilter[]).map((value) => (
+            <Button
+              type="button"
+              key={value}
+              variant={filter === value ? "secondary" : "ghost"}
+              size="sm"
+              className={filter === value ? "is-active" : ""}
+              onClick={() => setFilter(value)}
+            >
+              {value === "all" ? (zh ? "全部" : "All") : value === "selection" ? (zh ? "选人" : "Selection") : (zh ? "角色" : "Character")}
+            </Button>
+          ))}
+        </div>
+        <SearchField
+          className="behavior-run-search"
+          value={query}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          label={zh ? "搜索行为回合" : "Search behavior turns"}
+          placeholder={zh ? "搜索角色、触发消息或 reason…" : "Search character, trigger, or reason…"}
+        />
         <div className="behavior-run-list">
           {visibleEntries.map((entry) => {
             if (entry.kind === "selection") {
               const candidates = candidateDecisions(entry.log);
               const selectedNames = candidates.filter((item) => item.selected).map((item) => item.character_name);
-              return <button type="button" key={entry.id} className={`behavior-selection-run ${selectedEntryId === entry.id ? "is-active" : ""}`} onClick={() => setSelectedEntryId(entry.id)}><span className="behavior-mini-avatar selection-avatar">✦</span><span className="behavior-run-copy"><strong>{selectedNames.length ? selectedNames.join(" · ") : (zh ? "无人入选" : "No selection")}</strong><small>{formatPortalTimestamp(entry.createdAt, zh)}</small><em>{zh ? `选人 · ${candidates.length} 候选` : `Selection · ${candidates.length} candidates`}</em></span><span className={`behavior-status ${selectedNames.length ? "behavior-status-completed" : "behavior-status-skipped"}`}>{selectedNames.length ? "selected" : "silent"}</span></button>;
+              return (
+                <button type="button" key={entry.id} className={`behavior-selection-run ${selectedEntryId === entry.id ? "is-active" : ""}`} onClick={() => setSelectedEntryId(entry.id)}>
+                  <span className="behavior-mini-avatar selection-avatar">✦</span>
+                  <span className="behavior-run-copy">
+                    <strong>{selectedNames.length ? selectedNames.join(" · ") : (zh ? "无人入选" : "No selection")}</strong>
+                    <small>{formatPortalTimestamp(entry.createdAt, zh)}</small>
+                    <em>{zh ? `选人 · ${candidates.length} 候选` : `Selection · ${candidates.length} candidates`}</em>
+                  </span>
+                  <StatusIndicator tone={selectedNames.length ? "success" : "neutral"} className={`behavior-status ${selectedNames.length ? "behavior-status-completed" : "behavior-status-skipped"}`}>
+                    {selectedNames.length ? "selected" : "silent"}
+                  </StatusIndicator>
+                </button>
+              );
             }
             const runCard = cards.find((item) => item.id === entry.run.character_card_id);
-            return <button type="button" key={entry.id} className={selectedEntryId === entry.id ? "is-active" : ""} onClick={() => setSelectedEntryId(entry.id)}><span className={`behavior-mini-avatar portrait-${runCard?.portrait_variant ?? "lavender"}`}>{runCard?.display_name.slice(0, 1) || "C"}</span><span className="behavior-run-copy"><strong>{runCard?.display_name || (zh ? "角色回合" : "Character turn")}</strong><small>{formatPortalTimestamp(entry.createdAt, zh)}</small><em>{zh ? "角色 Runtime" : "Character Runtime"} · {entry.run.event_count} events</em></span><span className={`behavior-status behavior-status-${entry.run.status}`}>{entry.run.status}</span></button>;
+            return (
+              <button type="button" key={entry.id} className={selectedEntryId === entry.id ? "is-active" : ""} onClick={() => setSelectedEntryId(entry.id)}>
+                <span className={`behavior-mini-avatar portrait-${runCard?.portrait_variant ?? "lavender"}`}>{runCard?.display_name.slice(0, 1) || "C"}</span>
+                <span className="behavior-run-copy">
+                  <strong>{runCard?.display_name || (zh ? "角色回合" : "Character turn")}</strong>
+                  <small>{formatPortalTimestamp(entry.createdAt, zh)}</small>
+                  <em>{zh ? "角色 Runtime" : "Character Runtime"} · {entry.run.event_count} events</em>
+                </span>
+                <StatusIndicator tone={statusTone(entry.run.status)} className={`behavior-status behavior-status-${entry.run.status}`}>
+                  {entry.run.status}
+                </StatusIndicator>
+              </button>
+            );
           })}
-          {!loading && visibleEntries.length === 0 && <p className="behavior-empty">{zh ? "还没有可观察的行为回合。" : "No observable behavior turns yet."}</p>}
+          {!loading && visibleEntries.length === 0 && (
+            <EmptyState
+              className="behavior-empty"
+              title={zh ? "还没有可观察的行为回合。" : "No observable behavior turns yet."}
+              description={query ? (zh ? "试试更短的搜索词。" : "Try a shorter search query.") : undefined}
+            />
+          )}
         </div>
       </aside>
 
-      {error && <p className="error-note behavior-page-error">{error}</p>}
+      {error && (
+        <Toast className="behavior-page-error" tone="danger" title={zh ? "Behavior Notebook error" : "Behavior Notebook error"}>
+          {error}
+        </Toast>
+      )}
       {!selectedEntry ? (
-        <main className="behavior-notebook-page"><div className="behavior-loading-note">{loading ? (zh ? "正在翻开行为手帐…" : "Opening the behavior notebook…") : (zh ? "选择一个行为回合。" : "Select a behavior turn.")}</div></main>
+        <main className="behavior-notebook-page">
+          <EmptyState
+            className="behavior-loading-note"
+            illustration={loading ? <Spinner label={zh ? "正在载入行为手帐" : "Loading behavior notebook"} /> : undefined}
+            title={loading ? (zh ? "正在翻开行为手帐…" : "Opening the behavior notebook…") : (zh ? "选择一个行为回合。" : "Select a behavior turn.")}
+          />
+        </main>
       ) : selectedEntry.kind === "selection" ? renderSelectionTurn(selectedEntry.log) : renderCharacterTurn()}
 
       {selectedProvider && (
         <aside className="behavior-provider-inspector">
-          <div className="behavior-provider-inspector-top"><div><span>PROVIDER API RECEIPT</span><h3>{selectedProvider.response_model || selectedProvider.request_model}</h3><p>{selectedProvider.runtime_node || selectedProvider.category} · {durationLabel(selectedProvider.latency_ms)}</p></div><button type="button" onClick={() => setSelectedProvider(null)}>×</button></div>
-          <dl><div><dt>API status</dt><dd>{selectedProvider.status}</dd></div><div><dt>Tokens</dt><dd>{selectedProvider.input_tokens ?? "—"} → {selectedProvider.output_tokens ?? "—"}</dd></div><div><dt>Endpoint</dt><dd>{selectedProvider.endpoint}</dd></div><div><dt>Runtime node</dt><dd>{selectedProvider.runtime_node || "—"}</dd></div></dl>
-          <p className="behavior-provider-caveat">{zh ? "API SUCCESS 只代表 Provider 成功返回；是否采用、发送或保持沉默，以 Smart Output validation 与 Runtime authority 为准。" : "API SUCCESS only means the provider returned successfully. Smart Output validation and Runtime authority decide whether it is accepted or delivered."}</p>
-          <div className="behavior-provider-json"><span>Request summary</span><pre>{JSON.stringify(selectedProvider.request, null, 2)}</pre></div><div className="behavior-provider-json"><span>Response summary</span><pre>{JSON.stringify(selectedProvider.response, null, 2)}</pre></div>
+          <div className="behavior-provider-inspector-top">
+            <div>
+              <StickyLabel variant="link">PROVIDER API RECEIPT</StickyLabel>
+              <h3>{selectedProvider.response_model || selectedProvider.request_model}</h3>
+              <p>{selectedProvider.runtime_node || selectedProvider.category} · {durationLabel(selectedProvider.latency_ms)}</p>
+            </div>
+            <IconButton type="button" onClick={() => setSelectedProvider(null)} aria-label={zh ? "关闭 Provider 票据" : "Close provider receipt"}>×</IconButton>
+          </div>
+          <dl>
+            <div><dt>API status</dt><dd><StatusIndicator tone={statusTone(selectedProvider.status)}>{selectedProvider.status}</StatusIndicator></dd></div>
+            <div><dt>Tokens</dt><dd>{selectedProvider.input_tokens ?? "—"} → {selectedProvider.output_tokens ?? "—"}</dd></div>
+            <div><dt>Endpoint</dt><dd>{selectedProvider.endpoint}</dd></div>
+            <div><dt>Runtime node</dt><dd>{selectedProvider.runtime_node || "—"}</dd></div>
+          </dl>
+          <StickyNote className="behavior-provider-caveat" variant="system" size="sm">
+            {zh ? "API SUCCESS 只代表 Provider 成功返回；是否采用、发送或保持沉默，以 Smart Output validation 与 Runtime authority 为准。" : "API SUCCESS only means the provider returned successfully. Smart Output validation and Runtime authority decide whether it is accepted or delivered."}
+          </StickyNote>
+          <InspectorSection className="behavior-provider-json" title="Request summary" density="compact">
+            <pre>{JSON.stringify(selectedProvider.request, null, 2)}</pre>
+          </InspectorSection>
+          <InspectorSection className="behavior-provider-json" title="Response summary" density="compact">
+            <pre>{JSON.stringify(selectedProvider.response, null, 2)}</pre>
+          </InspectorSection>
         </aside>
       )}
     </div>
