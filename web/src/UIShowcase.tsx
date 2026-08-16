@@ -5,6 +5,7 @@ import {
   Avatar,
   Button,
   Checkbox,
+  Divider,
   EmptyState,
   FormField,
   Input,
@@ -13,16 +14,21 @@ import {
   PageFlagGroup,
   PaperCard,
   PaperTab,
+  Popover,
   Radio,
   SearchField,
   Select,
   SettingsRow,
+  Skeleton,
+  Spinner,
   Stamp,
   StatusIndicator,
   StickyLabel,
   StickyNote,
   Switch,
-  Textarea
+  Textarea,
+  Toast,
+  Tooltip
 } from "./components/ui";
 import "./ui-showcase.css";
 
@@ -215,6 +221,45 @@ export function UIShowcase() {
             description="Allow this character to inspect images when the runtime requires it."
             control={<Switch defaultChecked aria-label="Media understanding" />}
           />
+        </PaperCard>
+
+        <PaperCard className="ui-showcase-panel ui-showcase-panel--wide">
+          <div className="ui-showcase-panel-heading">
+            <span>07 / FEEDBACK & LAYERS</span>
+            <h2>Tooltip, popover, loading & toast</h2>
+          </div>
+          <div className="ui-showcase-feedback-row">
+            <Tooltip content="Small annotations can explain a control without changing its layout.">
+              <Button variant="secondary">Hover / focus me</Button>
+            </Tooltip>
+            <Popover
+              label="Runtime note"
+              trigger={<span>Open runtime note</span>}
+              align="start"
+            >
+              <StickyLabel variant="tool">TECHNICAL NOTE</StickyLabel>
+              <p>Popover content behaves like a small attached sheet, while critical actions stay normal controls.</p>
+            </Popover>
+            <Spinner label="Loading runtime" />
+          </div>
+
+          <Divider label="loading surfaces" />
+          <div className="ui-showcase-loading-grid">
+            <Skeleton variant="circle" />
+            <div>
+              <Skeleton width="42%" />
+              <Skeleton width="78%" />
+              <Skeleton width="61%" />
+            </div>
+            <Skeleton variant="block" />
+          </div>
+
+          <Divider label="feedback" />
+          <div className="ui-showcase-toast-grid">
+            <Toast tone="success" title="Saved">Character settings were filed successfully.</Toast>
+            <Toast tone="warning" title="Review suggested">The judge found a boundary worth checking.</Toast>
+            <Toast tone="danger" title="Provider failed">The request did not complete. No result was applied.</Toast>
+          </div>
         </PaperCard>
       </section>
     </main>
