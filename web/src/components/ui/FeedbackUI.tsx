@@ -271,7 +271,7 @@ export function Divider({ className = "", label, ...props }: DividerProps) {
   );
 }
 
-export interface ToastProps extends HTMLAttributes<HTMLDivElement> {
+export interface ToastProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
   tone?: StatusTone;
   title?: ReactNode;
   action?: ReactNode;
