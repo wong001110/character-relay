@@ -1,6 +1,6 @@
 name: Validate Phase G
 
-# Re-run against the post-lint-cleanup stack head.
+# Final full-stack validation after Ruff and Mypy cleanup.
 on:
   push:
     branches:
