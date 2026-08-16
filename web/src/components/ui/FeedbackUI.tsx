@@ -126,7 +126,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
   );
 });
 
-export interface TooltipProps extends HTMLAttributes<HTMLSpanElement> {
+export interface TooltipProps extends Omit<HTMLAttributes<HTMLSpanElement>, "content"> {
   content: ReactNode;
   side?: "top" | "bottom";
   children: ReactNode;
