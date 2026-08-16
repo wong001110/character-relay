@@ -1,5 +1,6 @@
 name: Validate Phase G
 
+# Re-run against the post-lint-cleanup stack head.
 on:
   push:
     branches:
