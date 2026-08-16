@@ -136,14 +136,16 @@ def _analysis_text(payload: SmartParticipationResolveRequest) -> str:
     elif payload.message.strip():
         lines.append(" ".join(payload.message.split()))
 
-    for item in payload.media_descriptors:
-        if not item.topic_evidence or item.state != "resolved":
+    for descriptor in payload.media_descriptors:
+        if not descriptor.topic_evidence or descriptor.state != "resolved":
             continue
-        subject = " ".join((item.subject or item.summary or item.label).split())[:500]
-        summary = " ".join(item.summary.split())[:800]
+        subject = " ".join(
+            (descriptor.subject or descriptor.summary or descriptor.label).split()
+        )[:500]
+        summary = " ".join(descriptor.summary.split())[:800]
         if not subject and not summary:
             continue
-        line = f"[resolved media {item.kind}] {subject}"
+        line = f"[resolved media {descriptor.kind}] {subject}"
         if summary and summary != subject:
             line += f" — {summary}"
         lines.append(line)

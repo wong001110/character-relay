@@ -7,7 +7,7 @@ through REQUIRED Runtime resolution or an explicit ``media.inspect`` Tool call.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -65,6 +65,11 @@ class PlannerMediaDescriptorService:
 
     media: EnhancedLiveMediaContextService
     utility_provider: MediaUnderstandingProvider | None = None
+    _utility: MediaUnderstandingService | None = field(
+        init=False,
+        default=None,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         self._utility = (
@@ -235,25 +240,25 @@ class PlannerMediaDescriptorService:
             except ValueError:
                 descriptors.append(preview)
                 continue
-            context: LiveMediaContext | None = None
+            resolved_context: LiveMediaContext | None = None
             try:
-                context = await self.media._article_context(source)
+                resolved_context = await self.media._article_context(source)
             except Exception:
-                context = None
+                resolved_context = None
             if (
-                context is None
+                resolved_context is None
                 and needs_objective_subject
                 and source.kind in {"image", "video"}
             ):
-                context = await self._utility_public_context(
+                resolved_context = await self._utility_public_context(
                     source=source,
                     media_type=cast(Literal["image", "video"], source.kind),
                 )
-            if context is not None:
+            if resolved_context is not None:
                 descriptors.append(
                     self._from_context(
                         ref=f"url:{index}",
-                        context=context,
+                        context=resolved_context,
                         source_url=source.canonical_url,
                     )
                 )

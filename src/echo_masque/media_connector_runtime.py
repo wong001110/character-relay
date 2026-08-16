@@ -190,9 +190,10 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         target = prepared.resolved.target
         enabled = self._enabled_tools_for_turn(prepared)
         forced = self._forced_tool_ids(prepared)
-        direct_tool_path = isinstance(target, PromptModelTarget) and bool(enabled)
+        direct_tool_path = False
         try:
-            if direct_tool_path:
+            if isinstance(target, PromptModelTarget) and enabled:
+                direct_tool_path = True
                 return await target.send_with_tools(
                     prepared.prompt,
                     tool_registry=self.tool_registry,
