@@ -2251,6 +2251,13 @@ async function processMessage(
     let serverSpeakerPlan: DiscordParticipationShadowPlanItem[] | undefined;
     let serverSpeakerPlanAuthoritative = false;
     let serverShadowPlan: DiscordParticipationShadowPlanItem[] | undefined;
+    let serverConversationPlannerPlan:
+      | DiscordParticipationShadowPlanItem[]
+      | undefined;
+    let serverConversationPlannerAuthoritative = false;
+    let serverConversationPlannerAccepted = false;
+    let serverConversationPlannerRolloutBucket = 0;
+    let serverConversationPlannerRolloutPercent = 0;
     let serverShadowCandidateScores:
       | DiscordParticipationShadowCandidate[]
       | undefined;
@@ -2300,6 +2307,8 @@ async function processMessage(
             window_seconds: config.smartParticipationWindowSeconds,
             max_replies_per_window: config.smartParticipationMaxRepliesPerWindow,
             media_descriptors: plannerMedia?.descriptors ?? [],
+            media_dependency: plannerMedia?.dependency ?? "none",
+            media_dependency_locked: plannerMedia?.dependency_locked ?? false,
             candidate_preflight: smartDeploymentIds.map((deploymentId) => {
               const evidence = baseEvidenceById.get(deploymentId);
               return {
@@ -2315,6 +2324,17 @@ async function processMessage(
           serverSpeakerPlanAuthoritative = Boolean(semantic.speaker_plan_authoritative);
           serverShadowPlan = semantic.shadow_speaker_plan;
           serverShadowCandidateScores = semantic.shadow_candidate_scores;
+          serverConversationPlannerPlan = semantic.conversation_planner_shadow_plan;
+          serverConversationPlannerAuthoritative = Boolean(
+            semantic.conversation_planner_authoritative
+          );
+          serverConversationPlannerAccepted = Boolean(
+            semantic.conversation_planner_accepted
+          );
+          serverConversationPlannerRolloutBucket =
+            semantic.conversation_planner_rollout_bucket ?? 0;
+          serverConversationPlannerRolloutPercent =
+            semantic.conversation_planner_rollout_percent ?? 0;
           if (semantic.available) {
             for (const candidate of semantic.candidates) {
               if (candidate.profile_ready && Number.isFinite(candidate.semantic_relevance)) {
@@ -2350,6 +2370,18 @@ async function processMessage(
               shadow_speaker_plan: semantic.shadow_speaker_plan ?? [],
               shadow_candidate_scores: semantic.shadow_candidate_scores ?? [],
               speaker_plan_authoritative: semantic.speaker_plan_authoritative ?? false,
+              conversation_plan_version: semantic.conversation_plan_version ?? null,
+              conversation_planner_used: semantic.conversation_planner_used ?? false,
+              conversation_planner_accepted:
+                semantic.conversation_planner_accepted ?? false,
+              conversation_planner_authoritative:
+                semantic.conversation_planner_authoritative ?? false,
+              conversation_planner_rollout_bucket:
+                semantic.conversation_planner_rollout_bucket ?? null,
+              conversation_planner_rollout_percent:
+                semantic.conversation_planner_rollout_percent ?? null,
+              conversation_planner_shadow_plan:
+                semantic.conversation_planner_shadow_plan ?? [],
               scores: semantic.candidates.map((candidate) => ({
                 deployment_id: candidate.deployment_id,
                 semantic_relevance: candidate.semantic_relevance,
@@ -2571,6 +2603,41 @@ async function processMessage(
         }
       });
     }
+    if (serverConversationPlannerAccepted) {
+      const proposedIds = (serverConversationPlannerPlan ?? []).map(
+        (item) => item.deployment_id
+      );
+      const actualIds = [...actualSmartDeploymentIds];
+      const proposed = new Set(proposedIds);
+      const actual = new Set(actualIds);
+      const overlap = proposedIds.filter((item) => actual.has(item)).length;
+      const extra = proposedIds.filter((item) => !actual.has(item));
+      const missing = actualIds.filter((item) => !proposed.has(item));
+      reportDiscordEvent({
+        level: "info",
+        eventType: "conversation_planner_shadow_outcome",
+        message: "Conversation Planner admission outcome was compared with the current authority.",
+        guildId: guildMessage.guildId,
+        guildName: guildMessage.guild.name,
+        channelId: location.channelId,
+        channelName: location.channelName,
+        threadId: location.threadId,
+        threadName: location.threadName,
+        sourceMessageId: guildMessage.id,
+        details: {
+          authoritative: serverConversationPlannerAuthoritative,
+          rollout_bucket: serverConversationPlannerRolloutBucket,
+          rollout_percent: serverConversationPlannerRolloutPercent,
+          proposed_count: proposedIds.length,
+          actual_count: actualIds.length,
+          overlap_count: overlap,
+          extra_ids: extra,
+          missing_ids: missing,
+          flood_delta: proposedIds.length - actualIds.length
+        }
+      });
+    }
+
     if (!audience.deployments.length) {
       if (mentionedBot || replyTarget.characterMessage) {
         reportDiscordEvent({
@@ -2903,6 +2970,12 @@ async function processMessage(
           : guildMessage.author.id,
         author_display_name: sourceDisplayName,
         text: turnText,
+        participation_guidance:
+          !socialSource && smartParticipationAudience
+            ? (serverSpeakerPlan ?? []).find(
+                (item) => item.deployment_id === deployment.deployment_id
+              )?.guidance ?? ""
+            : "",
         mentioned_bot: socialSource ? true : mentionedBot,
         replied_to_bot: socialSource ? false : isReplyToCharacter,
         smart_candidate: socialSource
@@ -3167,6 +3240,12 @@ async function processMessage(
           expression_resource_key: execution.resourceKey || null,
           expression_fallback: execution.fallback,
           latency_ms: reply.latency_ms ?? null,
+          input_tokens: reply.input_tokens ?? null,
+          output_tokens: reply.output_tokens ?? null,
+          conversation_planner_proposed: (serverConversationPlannerPlan ?? []).some(
+            (item) => item.deployment_id === deployment.deployment_id
+          ),
+          conversation_planner_authoritative: serverConversationPlannerAuthoritative,
           identity_mode: deployment.identity_mode,
           webhook_status: deployment.webhook_status
         }

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from echo_masque.participation_admission_policy import resolve_admission_limit
@@ -69,6 +71,8 @@ class SmartParticipationResolveRequest(BaseModel):
         default_factory=list,
         max_length=6,
     )
+    media_dependency: Literal["required", "optional", "none"] = "none"
+    media_dependency_locked: bool = False
     candidates: list[SmartParticipationResolveCandidate] = Field(
         min_length=1,
         max_length=24,
@@ -111,8 +115,9 @@ class SmartParticipationSpeakerPlanItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     deployment_id: str
-    turn_role: str = "primary"
+    turn_role: str = "participant"
     reason: str = ""
+    guidance: str = Field(default="", max_length=240)
 
 
 class SmartParticipationResolveView(BaseModel):
@@ -130,6 +135,15 @@ class SmartParticipationResolveView(BaseModel):
     speaker_plan: list[SmartParticipationSpeakerPlanItem] = Field(default_factory=list)
     shadow_speaker_plan: list[SmartParticipationSpeakerPlanItem] = Field(default_factory=list)
     speaker_plan_authoritative: bool = False
+    conversation_plan_version: str = ""
+    conversation_planner_used: bool = False
+    conversation_planner_accepted: bool = False
+    conversation_planner_authoritative: bool = False
+    conversation_planner_rollout_bucket: int = Field(default=0, ge=0, le=99)
+    conversation_planner_rollout_percent: int = Field(default=0, ge=0, le=100)
+    conversation_planner_shadow_plan: list[SmartParticipationSpeakerPlanItem] = Field(
+        default_factory=list
+    )
     graph_shadow_observed: bool = False
     graph_shadow_node_count: int = 0
     graph_shadow_edge_count: int = 0

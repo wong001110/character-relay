@@ -275,6 +275,7 @@ export interface DiscordInboundMessage {
   author_id: string;
   author_display_name: string;
   text: string;
+  participation_guidance?: string;
   emojis: DiscordExpressionContent[];
   mentioned_bot: boolean;
   replied_to_bot: boolean;

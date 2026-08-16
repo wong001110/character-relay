@@ -18,7 +18,7 @@ class SmartParticipationOutcomeObservation(BaseModel):
     burst_id: str = Field(default="", max_length=80)
     author_id: str = Field(default="", max_length=200)
     reply_to_message_id: str = Field(default="", max_length=200)
-    selected_deployment_ids: list[str] = Field(default_factory=list, max_length=3)
+    selected_deployment_ids: list[str] = Field(default_factory=list, max_length=10)
     candidate_deployment_ids: list[str] = Field(default_factory=list, max_length=24)
 
 

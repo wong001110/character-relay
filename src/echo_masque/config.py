@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     smart_participation_v4_speaker_mode: ConversationIntelligenceRolloutMode = "shadow"
     smart_participation_v4_utility_mode: ConversationIntelligenceRolloutMode = "shadow"
 
+    # Burst-level admission planner. Shadow is the safe default; active authority is sampled
+    # deterministically by rollout percent so retries and replicas make the same choice.
+    conversation_planner_mode: ConversationIntelligenceRolloutMode = "shadow"
+    conversation_planner_rollout_percent: int = Field(default=0, ge=0, le=100)
+
     # Shared semantic embedding runtime. semantic_embedding_enabled allows Knowledge RAG,
     # Media Recall, and Expression retrieval to use the same local multilingual E5 model
     # without requiring Smart Participation itself to be enabled. Existing deployments that
