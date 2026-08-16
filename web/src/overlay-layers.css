@@ -9,7 +9,9 @@
  * Drawer -> Modal flow can never place the dialog underneath the drawer.
  */
 
-.paper-drawer-backdrop {
+.paper-drawer-backdrop,
+.server-drawer-backdrop,
+.interaction-drawer-backdrop {
   z-index: var(--cr-z-overlay-drawer, 1000);
 }
 
