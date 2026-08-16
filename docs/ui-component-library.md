@@ -174,6 +174,16 @@ Consistent title + description + control layout for switch/checkbox/select setti
 
 Dense technical paper section using the same tokens with reduced decoration. Prefer compact rows, stamps, and annotations over decorative sticky-note grids.
 
+## Current adoption examples
+
+Phase 2 feature migration deliberately uses the shared system in production-facing pages rather than keeping it isolated to the component library:
+
+- Test Room uses shared buttons, status, sticky notes, stamps, empty states, and toast feedback;
+- Prompt Inspector uses PaperTab, Stamp, StickyLabel, Button, Select, Spinner, and Toast;
+- Behavior Notebook uses PaperTab, SearchField, StatusIndicator, StickyNote, Stamp, InspectorSection, EmptyState, Spinner, Toast, and shared icon/action controls while keeping raw Runtime semantics unchanged.
+
+This is the preferred migration pattern: reuse actual components first, then keep page-specific CSS only for layout/composition that is genuinely unique to the feature.
+
 ## Overlay and feedback components
 
 Existing shared `PaperDrawer` and `PaperModal` in `web/src/NotebookUI.tsx` remain valid bridge components. They are re-exported from the new UI entry point so new code can use the shared namespace without forcing an immediate migration.
