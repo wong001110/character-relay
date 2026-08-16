@@ -44,19 +44,33 @@ For new feature work:
 - Add a supported variant to the shared component when the variation is reusable.
 - Business/domain components may compose primitives but MUST NOT push business-specific behavior down into base primitives.
 
-This PR is additive. Existing native controls and `NotebookUI.tsx` are not force-migrated and no hard lint rule is introduced yet.
+This contract is incremental. Existing native controls and `NotebookUI.tsx` are not force-migrated and no hard lint rule is introduced yet.
 
 Dependency direction:
 
 ```text
 feature UI
-  -> Character Relay shared components
+  -> Character Relay shared/domain components
     -> scrapbook components
       -> base primitives
         -> design tokens
 ```
 
 Base primitives MUST NOT import feature code.
+
+### Business-agnostic UI vs Character Relay-aware shared UI
+
+`web/src/components/ui/` is the business-agnostic layer. Components here may know about paper, tabs, status, form behavior, accessibility, and scrapbook interaction language, but they MUST NOT know what a Provider, Character, Topic, API Key, or participant means.
+
+`web/src/components/shared/` is the reusable Character Relay-aware layer. This is where compositions such as `ProviderSelect`, `ModelSelect`, `ApiKeyField`, `TopicNote`, `TemporaryRoleNote`, and `ParticipantCard` belong.
+
+Rules:
+
+- domain components compose `ui/` primitives rather than re-implementing them;
+- feature pages may use both `shared/` and `ui/` components;
+- if a pattern is reused across multiple Character Relay pages and requires product semantics, promote it into `shared/`;
+- if a pattern is reusable outside Character Relay business semantics, keep it in `ui/`;
+- do not move business rules, API calls, runtime authority, or provider credentials into visual primitives.
 
 ## 4. Semantic scrapbook objects
 
@@ -201,3 +215,4 @@ Decision rule: **use code for function and deterministic geometry; use generated
 3. Migrate existing screens when those screens are already being touched or through focused migration PRs.
 4. Introduce lint enforcement only after shared coverage is broad enough; start with warnings or scoped checks before hard CI errors.
 5. Avoid broad UI rewrites in feature branches that are simultaneously changing business logic.
+6. Keep `/dev/ui` as the living showcase for reusable primitives and Character Relay shared/domain compositions; new reusable components should be represented there as part of their adoption work.
