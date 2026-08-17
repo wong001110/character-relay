@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol, cast
 
 from pydantic import BaseModel, Field
 
@@ -38,6 +38,9 @@ INTERNAL_CONTEXT_TOOL_IDS = (
     "conversation.search",
     "wiki.lookup",
 )
+
+MemorySearchOrigin = Literal["core", "synthesized"]
+MemorySearchRecord = CharacterCoreMemoryRecord | ConversationMemoryVNextRecord
 
 
 class InternalSearchInput(BaseModel):
@@ -187,7 +190,7 @@ class InternalContextService:
             status="active",
             limit=100,
         )
-        ranked: list[tuple[float, str, object]] = []
+        ranked: list[tuple[float, MemorySearchOrigin, MemorySearchRecord]] = []
         try:
             encoder = self._encoder()
             query_vector = encoder.embed_query(payload.query)
@@ -218,7 +221,7 @@ class InternalContextService:
                     ranked.append((score, "synthesized", record))
         ranked.sort(key=lambda item: item[0], reverse=True)
 
-        selected: list[tuple[float, str, object]] = []
+        selected: list[tuple[float, MemorySearchOrigin, MemorySearchRecord]] = []
         seen_content: set[str] = set()
         # Core Memory wins exact-content dedup even if a synthesized copy has a slightly higher
         # semantic score. It is explicit user-controlled truth and must remain the durable layer.
@@ -227,8 +230,7 @@ class InternalContextService:
                 score, item_origin, record = item
                 if item_origin != origin:
                     continue
-                content = str(getattr(record, "content", ""))
-                key = _normalized_content(content)
+                key = _normalized_content(record.content)
                 if not key or key in seen_content:
                     continue
                 seen_content.add(key)
@@ -237,12 +239,12 @@ class InternalContextService:
         selected = selected[: payload.limit]
 
         core_ids = tuple(
-            str(getattr(record, "id"))
+            cast(CharacterCoreMemoryRecord, record).id
             for _score, origin, record in selected
             if origin == "core"
         )
         synthesized_ids = tuple(
-            str(getattr(record, "id"))
+            cast(ConversationMemoryVNextRecord, record).id
             for _score, origin, record in selected
             if origin == "synthesized"
         )
@@ -252,33 +254,29 @@ class InternalContextService:
         memories: list[dict[str, object]] = []
         for score, origin, record in selected:
             if origin == "core":
-                core_record = record
+                core_record = cast(CharacterCoreMemoryRecord, record)
                 memories.append(
                     {
-                        "ref": getattr(core_record, "id"),
+                        "ref": core_record.id,
                         "origin": "core",
-                        "scope_type": getattr(core_record, "scope_type"),
-                        "memory_type": getattr(core_record, "memory_type"),
-                        "content": getattr(core_record, "content"),
-                        "priority": round(float(getattr(core_record, "priority")), 3),
+                        "scope_type": core_record.scope_type,
+                        "memory_type": core_record.memory_type,
+                        "content": core_record.content,
+                        "priority": round(core_record.priority, 3),
                         "score": round(score, 4),
                     }
                 )
             else:
-                synthesized_record = record
+                synthesized_record = cast(ConversationMemoryVNextRecord, record)
                 memories.append(
                     {
-                        "ref": getattr(synthesized_record, "id"),
+                        "ref": synthesized_record.id,
                         "origin": "synthesized",
-                        "scope_type": getattr(synthesized_record, "scope_type"),
-                        "memory_type": getattr(synthesized_record, "memory_type"),
-                        "content": getattr(synthesized_record, "content"),
-                        "confidence": round(
-                            float(getattr(synthesized_record, "confidence")), 3
-                        ),
-                        "importance": round(
-                            float(getattr(synthesized_record, "importance")), 3
-                        ),
+                        "scope_type": synthesized_record.scope_type,
+                        "memory_type": synthesized_record.memory_type,
+                        "content": synthesized_record.content,
+                        "confidence": round(synthesized_record.confidence, 3),
+                        "importance": round(synthesized_record.importance, 3),
                         "score": round(score, 4),
                     }
                 )
