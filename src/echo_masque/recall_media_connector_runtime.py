@@ -56,6 +56,7 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
             subject_user_id=payload.author_id,
             topic_id=prepared.tool_context.topic_id,
             query=payload.text,
+            exclude_source_message_id=payload.message_id,
             limit=4,
         )
         guidance = bundle.prompt_guidance(max_chars=900)
