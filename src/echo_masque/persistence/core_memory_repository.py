@@ -6,7 +6,7 @@ import hashlib
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from echo_masque.persistence.core_memory_models import CharacterCoreMemoryRecord
 from echo_masque.persistence.database import Database
@@ -132,9 +132,7 @@ class CoreMemoryRepository:
                 query = query.where(CharacterCoreMemoryRecord.status == status)
             if connection_id and guild_id:
                 query = query.where(
-                    (
-                        CharacterCoreMemoryRecord.scope_type == "character_global"
-                    )
+                    (CharacterCoreMemoryRecord.scope_type == "character_global")
                     | (
                         (CharacterCoreMemoryRecord.connection_id == connection_id)
                         & (CharacterCoreMemoryRecord.guild_id == guild_id)
@@ -234,6 +232,16 @@ class CoreMemoryRepository:
                 delete(CharacterCoreMemoryRecord).where(
                     CharacterCoreMemoryRecord.owner_id == owner_id
                 )
+            )
+            session.commit()
+            return int(getattr(result, "rowcount", 0) or 0)
+
+    def claim_owner(self, source_owner_id: str, target_owner_id: str) -> int:
+        with self.database.session() as session:
+            result = session.execute(
+                update(CharacterCoreMemoryRecord)
+                .where(CharacterCoreMemoryRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
             )
             session.commit()
             return int(getattr(result, "rowcount", 0) or 0)
