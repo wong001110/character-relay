@@ -121,6 +121,30 @@ export interface CharacterMemorySnapshot {
   items: MemoryInspection[];
 }
 
+export interface CoreMemory {
+  id: string;
+  character_card_id: string;
+  connection_id: string;
+  guild_id: string;
+  scope_type: string;
+  subject_user_id: string;
+  memory_type: string;
+  content: string;
+  priority: number;
+  status: string;
+  source_memory_id: string;
+  source_message_id: string;
+  use_count: number;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CoreMemorySnapshot {
+  character_card_id: string;
+  items: CoreMemory[];
+}
+
 export interface TopicDeleteImpact {
   topic_id: string;
   topic_found: boolean;
@@ -336,6 +360,72 @@ export const conversationIntelligenceApi = {
   memories(characterCardId: string, connectionId: string, guildId: string) {
     return request<CharacterMemorySnapshot>(
       `/api/conversation-intelligence/characters/${encodeURIComponent(characterCardId)}/memories?${serverQuery(connectionId, guildId)}`
+    );
+  },
+
+  coreMemories(characterCardId: string, connectionId: string, guildId: string) {
+    return request<CoreMemorySnapshot>(
+      `/api/conversation-intelligence/characters/${encodeURIComponent(characterCardId)}/core-memories?${serverQuery(connectionId, guildId)}`
+    );
+  },
+
+  createCoreMemory(characterCardId: string, input: {
+    content: string;
+    scopeType: "character_global" | "character_server" | "character_user";
+    connectionId?: string;
+    guildId?: string;
+    subjectUserId?: string;
+    memoryType?: string;
+    priority?: number;
+  }) {
+    return request<CoreMemory>(
+      `/api/conversation-intelligence/characters/${encodeURIComponent(characterCardId)}/core-memories`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          content: input.content,
+          scope_type: input.scopeType,
+          connection_id: input.connectionId ?? "",
+          guild_id: input.guildId ?? "",
+          subject_user_id: input.subjectUserId ?? "",
+          memory_type: input.memoryType ?? "other",
+          priority: input.priority ?? 0.75
+        })
+      }
+    );
+  },
+
+  updateCoreMemory(memoryId: string, input: {
+    content?: string;
+    memoryType?: string;
+    priority?: number;
+    status?: "active" | "archived";
+  }) {
+    return request<CoreMemory>(
+      `/api/conversation-intelligence/core-memories/${encodeURIComponent(memoryId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          content: input.content,
+          memory_type: input.memoryType,
+          priority: input.priority,
+          status: input.status
+        })
+      }
+    );
+  },
+
+  deleteCoreMemory(memoryId: string) {
+    return request<{ deleted: boolean }>(
+      `/api/conversation-intelligence/core-memories/${encodeURIComponent(memoryId)}`,
+      { method: "DELETE" }
+    );
+  },
+
+  promoteMemory(memoryId: string, priority = 0.85) {
+    return request<CoreMemory>(
+      `/api/conversation-intelligence/memories/${encodeURIComponent(memoryId)}/promote`,
+      { method: "POST", body: JSON.stringify({ priority }) }
     );
   },
 
