@@ -24,6 +24,8 @@ from echo_masque.semantic_participation import (
 from echo_masque.tool_runtime import ToolExecutionContext
 
 _INTERNAL_MEMORY_NAMESPACE = "internal-memory-vnext"
+_INTERNAL_TOPIC_NAMESPACE = "internal-topic-recall"
+_INTERNAL_EPISODE_NAMESPACE = "internal-episode-recall"
 INTERNAL_CONTEXT_TOOL_IDS = (
     "memory.search",
     "topic.search",
@@ -92,35 +94,54 @@ class InternalContextService:
             )
         return self.encoder
 
-    def _memory_vector(
+    def _semantic_vector(
         self,
-        record: ConversationMemoryVNextRecord,
+        *,
+        owner_id: str,
+        namespace: str,
+        resource_id: str,
+        semantic_text: str,
         encoder: SemanticEncoder,
     ) -> list[float]:
         source_hash = self.vectors.source_hash(
-            record.content, encoder.model_name, encoder.dimension
+            semantic_text,
+            encoder.model_name,
+            encoder.dimension,
         )
         cached = self.vectors.get(
-            owner_id=record.owner_id,
-            namespace=_INTERNAL_MEMORY_NAMESPACE,
-            resource_id=record.id,
+            owner_id=owner_id,
+            namespace=namespace,
+            resource_id=resource_id,
             model_name=encoder.model_name,
             dimension=encoder.dimension,
             source_hash=source_hash,
         )
         if cached is not None:
             return cached
-        vector = encoder.embed_passage(record.content)
+        vector = encoder.embed_passage(semantic_text)
         self.vectors.upsert(
-            owner_id=record.owner_id,
-            namespace=_INTERNAL_MEMORY_NAMESPACE,
-            resource_id=record.id,
-            semantic_text=record.content,
+            owner_id=owner_id,
+            namespace=namespace,
+            resource_id=resource_id,
+            semantic_text=semantic_text,
             model_name=encoder.model_name,
             dimension=encoder.dimension,
             vector=vector,
         )
         return vector
+
+    def _memory_vector(
+        self,
+        record: ConversationMemoryVNextRecord,
+        encoder: SemanticEncoder,
+    ) -> list[float]:
+        return self._semantic_vector(
+            owner_id=record.owner_id,
+            namespace=_INTERNAL_MEMORY_NAMESPACE,
+            resource_id=record.id,
+            semantic_text=record.content,
+            encoder=encoder,
+        )
 
     def memory_search(self, arguments: dict[str, object], context: ToolExecutionContext) -> str:
         payload = InternalSearchInput.model_validate(arguments)
@@ -181,14 +202,31 @@ class InternalContextService:
             thread_id=context.thread_id,
             limit=20,
         )
-        scored = sorted(
-            (
+        scored: list[tuple[float, object]] = []
+        try:
+            encoder = self._encoder()
+            query_vector = encoder.embed_query(payload.query)
+            for item in records:
+                semantic_text = f"{item.topic_label} {item.summary}".strip()
+                semantic = _cosine(
+                    query_vector,
+                    self._semantic_vector(
+                        owner_id=item.owner_id,
+                        namespace=_INTERNAL_TOPIC_NAMESPACE,
+                        resource_id=item.id,
+                        semantic_text=semantic_text,
+                        encoder=encoder,
+                    ),
+                )
+                sparse = _sparse(payload.query, semantic_text)
+                if semantic >= 0.30 or sparse >= 0.12:
+                    scored.append((semantic * 0.82 + sparse * 0.18, item))
+        except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
+            scored = [
                 (_sparse(payload.query, f"{item.topic_label} {item.summary}"), item)
                 for item in records
-            ),
-            key=lambda item: (item[0], item[1].last_active_at),
-            reverse=True,
-        )
+            ]
+        scored.sort(key=lambda item: (item[0], item[1].last_active_at), reverse=True)  # type: ignore[attr-defined]
         selected = [(score, item) for score, item in scored if score > 0][: payload.limit]
         return json.dumps(
             {
@@ -201,9 +239,10 @@ class InternalContextService:
                         "label": item.topic_label,
                         "summary": item.summary[:800],
                         "status": item.status,
+                        "score": round(score, 4),
                         "last_active_at": item.last_active_at.isoformat(),
                     }
-                    for _, item in selected
+                    for score, item in selected
                 ],
             },
             ensure_ascii=False,
@@ -224,14 +263,31 @@ class InternalContextService:
             thread_id=context.thread_id,
             limit=80,
         )
-        ranked = sorted(
-            (
+        ranked: list[tuple[float, object]] = []
+        try:
+            encoder = self._encoder()
+            query_vector = encoder.embed_query(payload.query)
+            for item in records:
+                semantic_text = f"{item.summary} {item.key_points_json}".strip()
+                semantic = _cosine(
+                    query_vector,
+                    self._semantic_vector(
+                        owner_id=item.owner_id,
+                        namespace=_INTERNAL_EPISODE_NAMESPACE,
+                        resource_id=item.id,
+                        semantic_text=semantic_text,
+                        encoder=encoder,
+                    ),
+                )
+                sparse = _sparse(payload.query, semantic_text)
+                if semantic >= 0.30 or sparse >= 0.12:
+                    ranked.append((semantic * 0.82 + sparse * 0.18, item))
+        except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
+            ranked = [
                 (_sparse(payload.query, f"{item.summary} {item.key_points_json}"), item)
                 for item in records
-            ),
-            key=lambda item: (item[0], item[1].ended_at),
-            reverse=True,
-        )
+            ]
+        ranked.sort(key=lambda item: (item[0], item[1].ended_at), reverse=True)  # type: ignore[attr-defined]
         selected = [(score, item) for score, item in ranked if score > 0][: payload.limit]
         return json.dumps(
             {
@@ -247,9 +303,10 @@ class InternalContextService:
                         "source_message_refs": json.loads(
                             item.source_message_ids_json or "[]"
                         )[:12],
+                        "score": round(score, 4),
                         "ended_at": item.ended_at.isoformat(),
                     }
-                    for _, item in selected
+                    for score, item in selected
                 ],
             },
             ensure_ascii=False,
