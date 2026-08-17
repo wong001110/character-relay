@@ -11,7 +11,9 @@ from pydantic import BaseModel, Field
 
 from echo_masque.config import Settings, get_settings
 from echo_masque.expression_retrieval import semantic_tokens
+from echo_masque.persistence.conversation_episode_models import ConversationEpisodeRecord
 from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
+from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
 from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
 from echo_masque.persistence.memory_vnext_models import ConversationMemoryVNextRecord
 from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
@@ -166,7 +168,11 @@ class InternalContextService:
             for record in records:
                 semantic = _sparse(payload.query, record.content)
                 if semantic >= 0.10:
-                    score = semantic * 0.72 + record.importance * 0.18 + record.confidence * 0.10
+                    score = (
+                        semantic * 0.72
+                        + record.importance * 0.18
+                        + record.confidence * 0.10
+                    )
                     scored.append((score, record))
         scored.sort(key=lambda item: item[0], reverse=True)
         selected = scored[: payload.limit]
@@ -202,7 +208,7 @@ class InternalContextService:
             thread_id=context.thread_id,
             limit=20,
         )
-        scored: list[tuple[float, object]] = []
+        scored: list[tuple[float, ConversationTopicRecord]] = []
         try:
             encoder = self._encoder()
             query_vector = encoder.embed_query(payload.query)
@@ -226,7 +232,7 @@ class InternalContextService:
                 (_sparse(payload.query, f"{item.topic_label} {item.summary}"), item)
                 for item in records
             ]
-        scored.sort(key=lambda item: (item[0], item[1].last_active_at), reverse=True)  # type: ignore[attr-defined]
+        scored.sort(key=lambda item: (item[0], item[1].last_active_at), reverse=True)
         selected = [(score, item) for score, item in scored if score > 0][: payload.limit]
         return json.dumps(
             {
@@ -263,7 +269,7 @@ class InternalContextService:
             thread_id=context.thread_id,
             limit=80,
         )
-        ranked: list[tuple[float, object]] = []
+        ranked: list[tuple[float, ConversationEpisodeRecord]] = []
         try:
             encoder = self._encoder()
             query_vector = encoder.embed_query(payload.query)
@@ -287,7 +293,7 @@ class InternalContextService:
                 (_sparse(payload.query, f"{item.summary} {item.key_points_json}"), item)
                 for item in records
             ]
-        ranked.sort(key=lambda item: (item[0], item[1].ended_at), reverse=True)  # type: ignore[attr-defined]
+        ranked.sort(key=lambda item: (item[0], item[1].ended_at), reverse=True)
         selected = [(score, item) for score, item in ranked if score > 0][: payload.limit]
         return json.dumps(
             {
