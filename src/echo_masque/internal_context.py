@@ -15,6 +15,7 @@ from echo_masque.persistence.conversation_episode_models import ConversationEpis
 from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
 from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
 from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
+from echo_masque.persistence.episodic_sql_rag_repository import EpisodicSqlRagRepository
 from echo_masque.persistence.memory_vnext_models import ConversationMemoryVNextRecord
 from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
 from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
@@ -84,6 +85,7 @@ class InternalContextService:
     def __post_init__(self) -> None:
         self.settings = self.settings or get_settings()
         self.vectors = SemanticVectorRepository(self.memory_repository.database)
+        self.episodic_sql_rag = EpisodicSqlRagRepository(self.memory_repository.database)
 
     def _encoder(self) -> SemanticEncoder:
         if self.encoder is None:
@@ -254,25 +256,16 @@ class InternalContextService:
             ensure_ascii=False,
         )
 
-    def conversation_search(
+    def _episode_scores(
         self,
-        arguments: dict[str, object],
-        context: ToolExecutionContext,
-    ) -> str:
-        payload = InternalSearchInput.model_validate(arguments)
-        records = self.episode_repository.recent_for_scope(
-            owner_id=context.owner_id,
-            platform=context.platform,
-            connection_id=context.connection_id,
-            guild_id=context.guild_id,
-            channel_id=context.channel_id,
-            thread_id=context.thread_id,
-            limit=80,
-        )
-        ranked: list[tuple[float, ConversationEpisodeRecord]] = []
+        *,
+        query: str,
+        records: tuple[ConversationEpisodeRecord, ...],
+    ) -> dict[str, float]:
+        scores: dict[str, float] = {}
         try:
             encoder = self._encoder()
-            query_vector = encoder.embed_query(payload.query)
+            query_vector = encoder.embed_query(query)
             for item in records:
                 semantic_text = f"{item.summary} {item.key_points_json}".strip()
                 semantic = _cosine(
@@ -285,31 +278,94 @@ class InternalContextService:
                         encoder=encoder,
                     ),
                 )
-                sparse = _sparse(payload.query, semantic_text)
-                if semantic >= 0.30 or sparse >= 0.12:
-                    ranked.append((semantic * 0.82 + sparse * 0.18, item))
+                sparse = _sparse(query, semantic_text)
+                if semantic >= 0.24 or sparse >= 0.10:
+                    scores[item.id] = semantic * 0.84 + sparse * 0.16
         except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
-            ranked = [
-                (_sparse(payload.query, f"{item.summary} {item.key_points_json}"), item)
-                for item in records
-            ]
+            for item in records:
+                sparse = _sparse(query, f"{item.summary} {item.key_points_json}")
+                if sparse >= 0.08:
+                    scores[item.id] = sparse
+        return scores
+
+    def conversation_search(
+        self,
+        arguments: dict[str, object],
+        context: ToolExecutionContext,
+    ) -> str:
+        payload = InternalSearchInput.model_validate(arguments)
+        # Server-wide episodic recall is permitted only through explicit CharacterEpisodeAccess
+        # evidence. Old/unproven server history deliberately fails closed rather than making a
+        # Character omniscient.
+        perceived = self.episodic_sql_rag.accessible_episodes(
+            owner_id=context.owner_id,
+            character_card_id=context.character_card_id,
+            connection_id=context.connection_id,
+            guild_id=context.guild_id,
+            limit=240,
+        )
+        base_scores = self._episode_scores(query=payload.query, records=perceived)
+        seed_limit = max(6, payload.limit * 2)
+        seed_ids = tuple(
+            episode_id
+            for episode_id, _score in sorted(
+                base_scores.items(), key=lambda item: item[1], reverse=True
+            )[:seed_limit]
+        )
+        expanded_ids = self.episodic_sql_rag.expand_episode_ids(
+            owner_id=context.owner_id,
+            character_card_id=context.character_card_id,
+            seed_episode_ids=seed_ids,
+            connection_id=context.connection_id,
+            guild_id=context.guild_id,
+            max_entity_degree=48,
+            limit=96,
+        )
+        expanded_records = self.episodic_sql_rag.episodes_by_ids(
+            owner_id=context.owner_id,
+            character_card_id=context.character_card_id,
+            connection_id=context.connection_id,
+            guild_id=context.guild_id,
+            episode_ids=expanded_ids,
+        )
+        expanded_scores = self._episode_scores(query=payload.query, records=expanded_records)
+        seed_set = set(seed_ids)
+        expanded_set = set(expanded_ids) - seed_set
+        ranked: list[tuple[float, ConversationEpisodeRecord]] = []
+        for item in expanded_records:
+            semantic_score = expanded_scores.get(item.id, base_scores.get(item.id, 0.0))
+            structural_boost = 0.12 if item.id in expanded_set else 0.0
+            current_location_boost = (
+                0.04
+                if item.channel_id == context.channel_id and item.thread_id == context.thread_id
+                else 0.0
+            )
+            score = semantic_score + structural_boost + current_location_boost
+            if score > 0.0:
+                ranked.append((score, item))
         ranked.sort(key=lambda item: (item[0], item[1].ended_at), reverse=True)
-        selected = [(score, item) for score, item in ranked if score > 0][: payload.limit]
+        selected = ranked[: payload.limit]
         return json.dumps(
             {
                 "ok": True,
-                "scope": "current_discord_location",
+                "scope": "current_discord_server_perceived",
+                "retrieval_mode": "e5_seed_sql_event_entity_expand",
+                "seed_count": len(seed_ids),
+                "expanded_count": len(expanded_set),
                 "count": len(selected),
                 "episodes": [
                     {
                         "ref": item.id,
                         "topic_ref": item.topic_id,
+                        "channel_ref": item.channel_id,
+                        "thread_ref": item.thread_id,
                         "summary": item.summary,
                         "key_points": json.loads(item.key_points_json or "[]")[:8],
                         "source_message_refs": json.loads(
                             item.source_message_ids_json or "[]"
                         )[:12],
                         "score": round(score, 4),
+                        "expanded_via_entity": item.id in expanded_set,
                         "ended_at": item.ended_at.isoformat(),
                     }
                     for score, item in selected
