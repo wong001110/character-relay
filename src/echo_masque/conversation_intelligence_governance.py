@@ -1,8 +1,8 @@
 """Owner-scoped governance for derived Conversation Intelligence data.
 
 Raw Discord message/event evidence is intentionally outside this service. Topic, Episode, Memory,
-Wiki, Graph, Learned State, consolidation checkpoints, and semantic vectors are derived/rebuildable
-intelligence and may be inspected or removed when historical data is polluted.
+Wiki, Graph, Learned State, consolidation checkpoints, semantic vectors, and decision traces are
+derived/rebuildable intelligence and may be inspected or removed when historical data is polluted.
 """
 
 from __future__ import annotations
@@ -18,6 +18,9 @@ from echo_masque.persistence.conversation_episode_models import ConversationEpis
 from echo_masque.persistence.conversation_graph_models import (
     ConversationGraphEdgeRecord,
     ConversationGraphNodeRecord,
+)
+from echo_masque.persistence.conversation_topic_decision_repository import (
+    ConversationTopicDecisionRepository,
 )
 from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
 from echo_masque.persistence.database import Database
@@ -40,11 +43,6 @@ def _decode_strings(raw: str) -> set[str]:
     if not isinstance(value, list):
         return set()
     return {str(item) for item in value if isinstance(item, str) and item}
-
-
-def _rowcount(result: object) -> int:
-    value = getattr(result, "rowcount", 0)
-    return value if isinstance(value, int) else 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +75,8 @@ class TopicDerivedImpact:
         )
 
 
-@dataclass(frozen=True, slots=True)
+# Keep a normal instance __dict__: the API layer deliberately serializes this compact aggregate.
+@dataclass(frozen=True)
 class DerivedResetResult:
     topics: int = 0
     episodes: int = 0
@@ -110,6 +109,7 @@ class ConversationIntelligenceGovernanceService:
 
     def __init__(self, database: Database) -> None:
         self.database = database
+        self.topic_decisions = ConversationTopicDecisionRepository(database)
 
     def list_character_memories(
         self,
@@ -479,6 +479,9 @@ class ConversationIntelligenceGovernanceService:
                 )
             )
             session.commit()
+        # Decision observations are derived traces as well and must not retain references to a
+        # deliberately purged polluted Topic.
+        self.topic_decisions.delete_topic(owner_id=owner_id, topic_id=topic_id)
         return impact
 
     def reset_topic_scope(
