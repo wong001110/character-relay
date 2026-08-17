@@ -15,6 +15,21 @@ from echo_masque.persistence.episodic_sql_rag_models import (
     ConversationEpisodeEntityRecord,
 )
 
+_EXPANSION_ENTITY_TYPES = (
+    "topic",
+    "actor",
+    "character",
+    "media",
+    "concept",
+    "project",
+    "goal",
+    "preference",
+    "product",
+    "organization",
+    "location",
+    "named_entity",
+)
+
 
 class EpisodicSqlRagRepository:
     def __init__(self, database: Database) -> None:
@@ -166,12 +181,83 @@ class EpisodicSqlRagRepository:
             )
         return tuple(dict.fromkeys(values))
 
+    def accessible_episodes(
+        self,
+        *,
+        owner_id: str,
+        character_card_id: str,
+        connection_id: str,
+        guild_id: str,
+        limit: int = 240,
+    ) -> tuple[ConversationEpisodeRecord, ...]:
+        """Return only server Episodes this Character is proven to have perceived."""
+
+        with self.database.session() as session:
+            records = list(
+                session.scalars(
+                    select(ConversationEpisodeRecord)
+                    .join(
+                        CharacterEpisodeAccessRecord,
+                        and_(
+                            CharacterEpisodeAccessRecord.episode_id
+                            == ConversationEpisodeRecord.id,
+                            CharacterEpisodeAccessRecord.owner_id == owner_id,
+                            CharacterEpisodeAccessRecord.character_card_id == character_card_id,
+                        ),
+                    )
+                    .where(
+                        ConversationEpisodeRecord.owner_id == owner_id,
+                        ConversationEpisodeRecord.connection_id == connection_id,
+                        ConversationEpisodeRecord.guild_id == guild_id,
+                    )
+                    .order_by(ConversationEpisodeRecord.ended_at.desc())
+                    .limit(max(1, min(limit, 1000)))
+                )
+            )
+        return tuple(records)
+
+    def episodes_by_ids(
+        self,
+        *,
+        owner_id: str,
+        character_card_id: str,
+        connection_id: str,
+        guild_id: str,
+        episode_ids: tuple[str, ...],
+    ) -> tuple[ConversationEpisodeRecord, ...]:
+        if not episode_ids:
+            return ()
+        with self.database.session() as session:
+            records = list(
+                session.scalars(
+                    select(ConversationEpisodeRecord)
+                    .join(
+                        CharacterEpisodeAccessRecord,
+                        and_(
+                            CharacterEpisodeAccessRecord.episode_id
+                            == ConversationEpisodeRecord.id,
+                            CharacterEpisodeAccessRecord.owner_id == owner_id,
+                            CharacterEpisodeAccessRecord.character_card_id == character_card_id,
+                        ),
+                    )
+                    .where(
+                        ConversationEpisodeRecord.owner_id == owner_id,
+                        ConversationEpisodeRecord.connection_id == connection_id,
+                        ConversationEpisodeRecord.guild_id == guild_id,
+                        ConversationEpisodeRecord.id.in_(episode_ids),
+                    )
+                    .order_by(ConversationEpisodeRecord.ended_at.desc())
+                )
+            )
+        return tuple(records)
+
     def entity_ids_for_episodes(
         self,
         *,
         owner_id: str,
         episode_ids: tuple[str, ...],
         max_entity_degree: int = 80,
+        entity_types: tuple[str, ...] = _EXPANSION_ENTITY_TYPES,
     ) -> tuple[str, ...]:
         if not episode_ids:
             return ()
@@ -189,9 +275,14 @@ class EpisodicSqlRagRepository:
                 session.scalars(
                     select(ConversationEpisodeEntityRecord.entity_id)
                     .join(degree, degree.c.entity_id == ConversationEpisodeEntityRecord.entity_id)
+                    .join(
+                        ConversationEntityRecord,
+                        ConversationEntityRecord.id == ConversationEpisodeEntityRecord.entity_id,
+                    )
                     .where(
                         ConversationEpisodeEntityRecord.owner_id == owner_id,
                         ConversationEpisodeEntityRecord.episode_id.in_(episode_ids),
+                        ConversationEntityRecord.entity_type.in_(entity_types),
                         degree.c.degree <= max(2, max_entity_degree),
                     )
                 )
