@@ -12,6 +12,7 @@ from echo_masque.persistence.conversation_graph_models import (
     ConversationGraphEdgeRecord,
     ConversationGraphNodeRecord,
 )
+from echo_masque.persistence.conversation_topic_decision_models import ConversationTopicDecisionRecord
 from echo_masque.persistence.memory_vnext_models import (
     ConversationMemoryVNextRecord,
     MemoryVNextStateRecord,
@@ -48,6 +49,7 @@ class Database:
             UtilityProviderQuotaRecord,
             ConversationMemoryVNextRecord,
             MemoryVNextStateRecord,
+            ConversationTopicDecisionRecord,
         )
         Base.metadata.create_all(self.engine)
 
