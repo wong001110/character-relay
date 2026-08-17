@@ -10,9 +10,11 @@ from sqlalchemy import delete, select, update
 
 from echo_masque.persistence.core_memory_models import CharacterCoreMemoryRecord
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
 
 _CORE_SCOPES = {"character_global", "character_server", "character_user"}
 _CORE_STATUSES = {"active", "archived"}
+_CORE_VECTOR_NAMESPACES = ("internal-core-memory", "character-recall-core")
 
 
 def _compact(value: str, maximum: int) -> str:
@@ -27,6 +29,7 @@ def _normalized_key(content: str) -> str:
 class CoreMemoryRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
+        self.semantic_vectors = SemanticVectorRepository(database)
 
     def upsert(
         self,
@@ -224,7 +227,13 @@ class CoreMemoryRepository:
                 return False
             session.delete(record)
             session.commit()
-            return True
+        for namespace in _CORE_VECTOR_NAMESPACES:
+            self.semantic_vectors.delete_resource(
+                owner_id=owner_id,
+                namespace=namespace,
+                resource_id=memory_id,
+            )
+        return True
 
     def delete_owner(self, owner_id: str) -> int:
         with self.database.session() as session:
@@ -234,7 +243,10 @@ class CoreMemoryRepository:
                 )
             )
             session.commit()
-            return int(getattr(result, "rowcount", 0) or 0)
+            count = int(getattr(result, "rowcount", 0) or 0)
+        for namespace in _CORE_VECTOR_NAMESPACES:
+            self.semantic_vectors.delete_namespace(owner_id=owner_id, namespace=namespace)
+        return count
 
     def claim_owner(self, source_owner_id: str, target_owner_id: str) -> int:
         with self.database.session() as session:
@@ -244,7 +256,12 @@ class CoreMemoryRepository:
                 .values(owner_id=target_owner_id)
             )
             session.commit()
-            return int(getattr(result, "rowcount", 0) or 0)
+            count = int(getattr(result, "rowcount", 0) or 0)
+        # Core vectors are derived caches. Rebuild them under the new owner on first recall instead
+        # of copying stale ownership metadata.
+        for namespace in _CORE_VECTOR_NAMESPACES:
+            self.semantic_vectors.delete_namespace(owner_id=source_owner_id, namespace=namespace)
+        return count
 
 
 __all__ = ["CoreMemoryRepository"]
