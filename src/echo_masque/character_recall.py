@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from dataclasses import dataclass
@@ -51,6 +52,16 @@ def _sparse(query: str, content: str) -> float:
     if not left or not right:
         return 0.0
     return len(left & right) / max(1, len(left | right))
+
+
+def _source_message_ids(value: str) -> set[str]:
+    try:
+        decoded = json.loads(value or "[]")
+    except (json.JSONDecodeError, TypeError):
+        return set()
+    if not isinstance(decoded, list):
+        return set()
+    return {str(item) for item in decoded if isinstance(item, str) and item}
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +222,7 @@ class CharacterRecallService:
         subject_user_id: str,
         topic_id: str,
         query: str,
+        exclude_source_message_id: str = "",
         limit: int = 4,
     ) -> CharacterRecallBundle:
         normalized = " ".join(query.split())[:1200]
@@ -295,6 +307,10 @@ class CharacterRecallService:
             )
             episode_scores: list[tuple[float, str, str]] = []
             for record in perceived:
+                if exclude_source_message_id and exclude_source_message_id in _source_message_ids(
+                    record.source_message_ids_json
+                ):
+                    continue
                 text = f"{record.summary} {record.key_points_json}".strip()
                 semantic = _sparse(normalized, text)
                 if encoder is not None and query_vector is not None:
@@ -330,6 +346,10 @@ class CharacterRecallService:
             )
             score_by_id = {item[1]: item[0] for item in episode_scores}
             for record in expanded_records[:4]:
+                if exclude_source_message_id and exclude_source_message_id in _source_message_ids(
+                    record.source_message_ids_json
+                ):
+                    continue
                 base = score_by_id.get(record.id, 0.0)
                 if base == 0.0 and record.id not in seed_ids:
                     base = 0.56
