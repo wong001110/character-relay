@@ -50,6 +50,7 @@ from echo_masque.authoring_archive import AuthoringArchiveService
 from echo_masque.authoring_generation import AuthoringGenerationService
 from echo_masque.authoring_runtime import AuthoringRuntimeService
 from echo_masque.browser_runtime import BrowserCapabilityManager, BrowserRuntimeSettings
+from echo_masque.character_recall import CharacterRecallService
 from echo_masque.condition_watch_runtime import (
     ConditionWatchEvaluatorRuntime,
     ConditionWatchReminderNotifier,
@@ -59,6 +60,7 @@ from echo_masque.config import Settings, get_settings
 from echo_masque.context_layer import ContextOrchestrator
 from echo_masque.conversation_consolidation import ConversationConsolidationService
 from echo_masque.conversation_media import ConversationMediaReferenceService
+from echo_masque.conversation_topic_observed import ObservedConversationTopicMemoryService
 from echo_masque.coverage_analytics import CoverageAnalyticsService
 from echo_masque.credentials import CredentialVault
 from echo_masque.discord_inventory import DiscordInventoryService
@@ -68,7 +70,6 @@ from echo_masque.internal_context import InternalContextService
 from echo_masque.judge_evaluation import JudgeEvaluationService
 from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
 from echo_masque.live_media_scoped import KeyGroupScopedLiveMediaContextService
-from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
 from echo_masque.media_tools import MediaToolRegistry
 from echo_masque.orchestration import (
     CharacterTurnGraphRunner,
@@ -118,6 +119,7 @@ from echo_masque.providers.trace import configure_provider_trace_sink
 from echo_masque.public_demo import PublicDemoService
 from echo_masque.public_demo_middleware import PublicDemoReadOnlyMiddleware
 from echo_masque.public_demo_quota import PublicDemoQuotaService
+from echo_masque.recall_media_connector_runtime import RecallAwareMediaDiscordConnectorRuntime
 from echo_masque.scheduled_reminder_service import ScheduledReminderDeliveryService
 from echo_masque.semantic_participation import CharacterParticipationSemanticService
 from echo_masque.services import MatrixService, RuntimeService, TrialService
@@ -196,7 +198,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         database
     )
     consolidation_checkpoint_repository = ConsolidationCheckpointRepository(database)
-    context_orchestrator = ContextOrchestrator(knowledge_repository)
+    topic_repository = ConversationTopicRepository(database)
+    topic_memory_service = ObservedConversationTopicMemoryService(
+        topic_repository,
+        settings=resolved,
+    )
+    context_orchestrator = ContextOrchestrator(
+        knowledge_repository,
+        settings=resolved,
+        topic_memory=topic_memory_service,
+    )
     if bootstrap_admin is not None:
         centralized = DiscordInventoryService(database).centralize(bootstrap_admin.id)
         if any(centralized.values()):
@@ -247,7 +258,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     internal_context_service = InternalContextService(
         memory_repository=memory_vnext_repository,
-        topic_repository=ConversationTopicRepository(database),
+        topic_repository=topic_repository,
         episode_repository=ConversationEpisodeRepository(database),
         settings=resolved,
         wiki_lookup_backend=server_wiki_repository.lookup,
@@ -305,7 +316,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         processor=condition_watch_graph_runner,
         poll_seconds=resolved.condition_watch_poll_seconds,
     )
-    discord_connector_runtime = MediaAwareDiscordConnectorRuntime(
+    character_recall_service = CharacterRecallService(
+        memory_vnext_repository,
+        settings=resolved,
+    )
+    discord_connector_runtime = RecallAwareMediaDiscordConnectorRuntime(
         repository,
         deployment_repository,
         credential_store,
@@ -314,6 +329,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tool_registry=tool_registry,
         live_media_service=live_media_service,
         conversation_media_service=conversation_media_service,
+        character_recall_service=character_recall_service,
     )
     character_turn_graph_runner = (
         CharacterTurnGraphRunner(
@@ -345,7 +361,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "Public Demo ready: user=%s characters=%s scenarios=%s packs=%s",
             public_demo_result.user_id,
             public_demo_result.character_count,
-            public_demo_result.scenario_count,
             public_demo_result.test_pack_count,
         )
     quota_service = PublicDemoQuotaService(database, resolved)
@@ -383,7 +398,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         caller=ExistingProviderUtilityCaller(),
     )
     conversation_consolidation_service = ConversationConsolidationService(
-        topic_repository=ConversationTopicRepository(database),
+        topic_repository=topic_repository,
         episode_repository=ConversationEpisodeRepository(database),
         memory_repository=memory_vnext_repository,
         wiki_repository=server_wiki_repository,
@@ -489,6 +504,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.semantic_participation_service = semantic_participation_service
     app.state.knowledge_repository = knowledge_repository
     app.state.context_orchestrator = context_orchestrator
+    app.state.topic_memory_service = topic_memory_service
+    app.state.character_recall_service = character_recall_service
     app.state.provider_trace_repository = provider_trace_repository
     app.state.durable_runtime_repository = durable_runtime_repository
     app.state.key_group_repository = key_group_repository
