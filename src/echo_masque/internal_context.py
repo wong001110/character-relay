@@ -15,6 +15,8 @@ from echo_masque.persistence.conversation_episode_models import ConversationEpis
 from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
 from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
 from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
+from echo_masque.persistence.core_memory_models import CharacterCoreMemoryRecord
+from echo_masque.persistence.core_memory_repository import CoreMemoryRepository
 from echo_masque.persistence.episodic_sql_rag_repository import EpisodicSqlRagRepository
 from echo_masque.persistence.memory_vnext_models import ConversationMemoryVNextRecord
 from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
@@ -27,6 +29,7 @@ from echo_masque.semantic_participation import (
 from echo_masque.tool_runtime import ToolExecutionContext
 
 _INTERNAL_MEMORY_NAMESPACE = "internal-memory-vnext"
+_INTERNAL_CORE_MEMORY_NAMESPACE = "internal-core-memory"
 _INTERNAL_TOPIC_NAMESPACE = "internal-topic-recall"
 _INTERNAL_EPISODE_NAMESPACE = "internal-episode-recall"
 INTERNAL_CONTEXT_TOOL_IDS = (
@@ -73,6 +76,10 @@ def _sparse(query: str, content: str) -> float:
     return len(left & right) / max(1, len(left | right))
 
 
+def _normalized_content(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
 @dataclass
 class InternalContextService:
     memory_repository: MemoryVNextRepository
@@ -85,6 +92,7 @@ class InternalContextService:
     def __post_init__(self) -> None:
         self.settings = self.settings or get_settings()
         self.vectors = SemanticVectorRepository(self.memory_repository.database)
+        self.core_memory = CoreMemoryRepository(self.memory_repository.database)
         self.episodic_sql_rag = EpisodicSqlRagRepository(self.memory_repository.database)
 
     def _encoder(self) -> SemanticEncoder:
@@ -147,9 +155,22 @@ class InternalContextService:
             encoder=encoder,
         )
 
+    def _core_memory_vector(
+        self,
+        record: CharacterCoreMemoryRecord,
+        encoder: SemanticEncoder,
+    ) -> list[float]:
+        return self._semantic_vector(
+            owner_id=record.owner_id,
+            namespace=_INTERNAL_CORE_MEMORY_NAMESPACE,
+            resource_id=record.id,
+            semantic_text=record.content,
+            encoder=encoder,
+        )
+
     def memory_search(self, arguments: dict[str, object], context: ToolExecutionContext) -> str:
         payload = InternalSearchInput.model_validate(arguments)
-        records = self.memory_repository.active_candidates(
+        synthesized = self.memory_repository.active_candidates(
             owner_id=context.owner_id,
             character_card_id=context.character_card_id,
             connection_id=context.connection_id,
@@ -157,17 +178,36 @@ class InternalContextService:
             subject_user_id=context.initiator_user_id,
             topic_id=context.topic_id,
         )
-        scored: list[tuple[float, ConversationMemoryVNextRecord]] = []
+        core = self.core_memory.list_for_character(
+            owner_id=context.owner_id,
+            character_card_id=context.character_card_id,
+            connection_id=context.connection_id,
+            guild_id=context.guild_id,
+            subject_user_id=context.initiator_user_id,
+            status="active",
+            limit=100,
+        )
+        ranked: list[tuple[float, str, object]] = []
         try:
             encoder = self._encoder()
             query_vector = encoder.embed_query(payload.query)
-            for record in records:
+            for record in core:
+                semantic = _cosine(query_vector, self._core_memory_vector(record, encoder))
+                score = record.priority * 0.58 + max(0.0, semantic) * 0.42
+                if record.priority >= 0.85 or semantic >= 0.28:
+                    ranked.append((score, "core", record))
+            for record in synthesized:
                 semantic = _cosine(query_vector, self._memory_vector(record, encoder))
                 score = semantic * 0.72 + record.importance * 0.18 + record.confidence * 0.10
                 if semantic >= 0.34:
-                    scored.append((score, record))
+                    ranked.append((score, "synthesized", record))
         except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
-            for record in records:
+            for record in core:
+                sparse = _sparse(payload.query, record.content)
+                score = record.priority * 0.70 + sparse * 0.30
+                if record.priority >= 0.85 or sparse >= 0.08:
+                    ranked.append((score, "core", record))
+            for record in synthesized:
                 semantic = _sparse(payload.query, record.content)
                 if semantic >= 0.10:
                     score = (
@@ -175,26 +215,79 @@ class InternalContextService:
                         + record.importance * 0.18
                         + record.confidence * 0.10
                     )
-                    scored.append((score, record))
-        scored.sort(key=lambda item: item[0], reverse=True)
-        selected = scored[: payload.limit]
-        self.memory_repository.mark_used(tuple(item.id for _, item in selected))
+                    ranked.append((score, "synthesized", record))
+        ranked.sort(key=lambda item: item[0], reverse=True)
+
+        selected: list[tuple[float, str, object]] = []
+        seen_content: set[str] = set()
+        # Core Memory wins exact-content dedup even if a synthesized copy has a slightly higher
+        # semantic score. It is explicit user-controlled truth and must remain the durable layer.
+        for origin in ("core", "synthesized"):
+            for item in ranked:
+                score, item_origin, record = item
+                if item_origin != origin:
+                    continue
+                content = str(getattr(record, "content", ""))
+                key = _normalized_content(content)
+                if not key or key in seen_content:
+                    continue
+                seen_content.add(key)
+                selected.append((score, item_origin, record))
+        selected.sort(key=lambda item: item[0], reverse=True)
+        selected = selected[: payload.limit]
+
+        core_ids = tuple(
+            str(getattr(record, "id"))
+            for _score, origin, record in selected
+            if origin == "core"
+        )
+        synthesized_ids = tuple(
+            str(getattr(record, "id"))
+            for _score, origin, record in selected
+            if origin == "synthesized"
+        )
+        self.core_memory.mark_used(core_ids)
+        self.memory_repository.mark_used(synthesized_ids)
+
+        memories: list[dict[str, object]] = []
+        for score, origin, record in selected:
+            if origin == "core":
+                core_record = record
+                memories.append(
+                    {
+                        "ref": getattr(core_record, "id"),
+                        "origin": "core",
+                        "scope_type": getattr(core_record, "scope_type"),
+                        "memory_type": getattr(core_record, "memory_type"),
+                        "content": getattr(core_record, "content"),
+                        "priority": round(float(getattr(core_record, "priority")), 3),
+                        "score": round(score, 4),
+                    }
+                )
+            else:
+                synthesized_record = record
+                memories.append(
+                    {
+                        "ref": getattr(synthesized_record, "id"),
+                        "origin": "synthesized",
+                        "scope_type": getattr(synthesized_record, "scope_type"),
+                        "memory_type": getattr(synthesized_record, "memory_type"),
+                        "content": getattr(synthesized_record, "content"),
+                        "confidence": round(
+                            float(getattr(synthesized_record, "confidence")), 3
+                        ),
+                        "importance": round(
+                            float(getattr(synthesized_record, "importance")), 3
+                        ),
+                        "score": round(score, 4),
+                    }
+                )
         return json.dumps(
             {
                 "ok": True,
-                "scope": "runtime_injected",
-                "count": len(selected),
-                "memories": [
-                    {
-                        "ref": item.id,
-                        "scope_type": item.scope_type,
-                        "memory_type": item.memory_type,
-                        "content": item.content,
-                        "confidence": round(item.confidence, 3),
-                        "importance": round(item.importance, 3),
-                    }
-                    for _, item in selected
-                ],
+                "scope": "character_memory_layers",
+                "count": len(memories),
+                "memories": memories,
             },
             ensure_ascii=False,
         )
