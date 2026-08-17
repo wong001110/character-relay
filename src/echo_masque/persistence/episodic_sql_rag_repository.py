@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import and_, delete, func, select, update
 
 from echo_masque.persistence.conversation_episode_models import ConversationEpisodeRecord
 from echo_masque.persistence.database import Database
@@ -384,6 +384,58 @@ class EpisodicSqlRagRepository:
                 )
             )
             session.commit()
+
+    def delete_owner(self, owner_id: str) -> dict[str, int]:
+        with self.database.session() as session:
+            access_result = session.execute(
+                delete(CharacterEpisodeAccessRecord).where(
+                    CharacterEpisodeAccessRecord.owner_id == owner_id
+                )
+            )
+            incidence_result = session.execute(
+                delete(ConversationEpisodeEntityRecord).where(
+                    ConversationEpisodeEntityRecord.owner_id == owner_id
+                )
+            )
+            entity_result = session.execute(
+                delete(ConversationEntityRecord).where(
+                    ConversationEntityRecord.owner_id == owner_id
+                )
+            )
+            session.commit()
+            return {
+                "character_episode_access": int(getattr(access_result, "rowcount", 0) or 0),
+                "conversation_episode_entities": int(
+                    getattr(incidence_result, "rowcount", 0) or 0
+                ),
+                "conversation_entities": int(getattr(entity_result, "rowcount", 0) or 0),
+            }
+
+    def claim_owner(self, source_owner_id: str, target_owner_id: str) -> dict[str, int]:
+        with self.database.session() as session:
+            access_result = session.execute(
+                update(CharacterEpisodeAccessRecord)
+                .where(CharacterEpisodeAccessRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
+            incidence_result = session.execute(
+                update(ConversationEpisodeEntityRecord)
+                .where(ConversationEpisodeEntityRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
+            entity_result = session.execute(
+                update(ConversationEntityRecord)
+                .where(ConversationEntityRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
+            session.commit()
+            return {
+                "character_episode_access": int(getattr(access_result, "rowcount", 0) or 0),
+                "conversation_episode_entities": int(
+                    getattr(incidence_result, "rowcount", 0) or 0
+                ),
+                "conversation_entities": int(getattr(entity_result, "rowcount", 0) or 0),
+            }
 
 
 __all__ = ["EpisodicSqlRagRepository"]
