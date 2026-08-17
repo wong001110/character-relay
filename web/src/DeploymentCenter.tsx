@@ -150,6 +150,33 @@ function defaultIdentity(deployment: CharacterDeployment): DeploymentMessageIden
   };
 }
 
+interface DeploymentPortraitProps {
+  identity: DeploymentMessageIdentity;
+  cardId: string;
+  alt: string;
+}
+
+function DeploymentPortrait({ identity, cardId, alt }: DeploymentPortraitProps) {
+  const publicAvatarUrl = identity.avatar_url.trim();
+  const [publicAvatarFailed, setPublicAvatarFailed] = useState(false);
+
+  useEffect(() => {
+    setPublicAvatarFailed(false);
+  }, [publicAvatarUrl]);
+
+  if (publicAvatarUrl && !publicAvatarFailed) {
+    return (
+      <img
+        src={publicAvatarUrl}
+        alt={alt}
+        onError={() => setPublicAvatarFailed(true)}
+      />
+    );
+  }
+
+  return <CharacterPortrait cardId={cardId} alt={alt} />;
+}
+
 function connectorDisplayName(connection: PlatformConnection): string {
   const value = connection.metadata.connector_display_name;
   return typeof value === "string" ? value : "";
@@ -1616,7 +1643,8 @@ export function DeploymentCenter({
                               <span className="deployment-file-tab">DEPLOYMENT FILE</span>
                               <header className="deployment-file-header">
                                 <div className={`deployment-file-portrait portrait-${card?.portrait_variant ?? "lavender"}`}>
-                                  <CharacterPortrait
+                                  <DeploymentPortrait
+                                    identity={identity}
                                     cardId={item.character_card_id}
                                     alt={item.character_display_name}
                                   />
@@ -1633,7 +1661,7 @@ export function DeploymentCenter({
 
                               <dl className="deployment-file-facts">
                                 <div className="deployment-file-presence">
-                                  <dt>{zh ? "Presence / Channel 范围" : "Presence / Channel scope"}</dt>
+                                  <dt>{zh ? "频道范围" : "Presence / Channel scope"}</dt>
                                   <dd>{destination(item, zh)}</dd>
                                   {item.channel_scope_mode === "all_except" && (
                                     <small>
@@ -1671,7 +1699,11 @@ export function DeploymentCenter({
                               </dl>
 
                               {(item.last_error || identity.last_error) && (
-                                <div className="deployment-file-error" role="status">
+                                <div
+                                  className="deployment-file-error"
+                                  role="status"
+                                  title={item.last_error || identity.last_error}
+                                >
                                   {item.last_error || identity.last_error}
                                 </div>
                               )}

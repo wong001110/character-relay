@@ -1906,21 +1906,39 @@
 }
 
 .portal-v2-page-frame .deployment-file-facts dt {
-  min-height: 25px;
+  display: -webkit-box;
+  min-height: 0;
+  overflow: hidden;
   font-size: .5rem;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .portal-v2-page-frame .deployment-file-facts dd {
+  display: -webkit-box;
+  overflow: hidden;
   font-size: .61rem;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .portal-v2-page-frame .deployment-file-facts small {
+  display: -webkit-box;
+  overflow: hidden;
   white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
 }
 
 .portal-v2-page-frame .deployment-file-error {
   grid-column: 2;
   margin: -18px 5px 4px;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .portal-v2-page-frame .deployment-file-footer {

@@ -77,11 +77,9 @@ export function PortalShell({
         <div className="portal-v2-account">
           <span className="portal-v2-language-control"><LanguageSwitcher /></span>
           {publicDemo && <span className="portal-v2-demo-stamp">DEMO</span>}
-          {theme === "dark" && (
-            <span className="portal-v2-notification" aria-hidden="true">
-              <FunctionalIcon name="bell" size={20} />
-            </span>
-          )}
+          <span className="portal-v2-notification" aria-hidden="true">
+            <FunctionalIcon name="bell" size={20} />
+          </span>
           <button
             type="button"
             className="portal-v2-theme-toggle"
