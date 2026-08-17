@@ -16,6 +16,7 @@ from echo_masque.persistence.conversation_graph_models import (
     ConversationGraphNodeRecord,
 )
 from echo_masque.persistence.conversation_topic_decision_models import ConversationTopicDecisionRecord
+from echo_masque.persistence.core_memory_models import CharacterCoreMemoryRecord
 from echo_masque.persistence.episodic_sql_rag_models import (
     CharacterEpisodeAccessRecord,
     ConversationEntityRecord,
@@ -62,6 +63,7 @@ class Database:
             ConversationEntityRecord,
             ConversationEpisodeEntityRecord,
             CharacterEpisodeAccessRecord,
+            CharacterCoreMemoryRecord,
         )
         Base.metadata.create_all(self.engine)
 
