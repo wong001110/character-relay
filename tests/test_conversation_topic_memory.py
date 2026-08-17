@@ -235,7 +235,7 @@ def test_historical_topic_is_resumed_instead_of_creating_duplicate() -> None:
 
 def test_unresolved_url_only_turn_does_not_create_or_refresh_topic() -> None:
     service = _service()
-    before = datetime(2026, 8, 15, 10, 0, tzinfo=UTC)
+    before = datetime.now(UTC)
     topic = service.observe_turn(
         owner_id="owner-1",
         payload=_payload("generate a cat image", message_id="m-url-1"),
