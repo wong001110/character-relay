@@ -15,8 +15,18 @@ from echo_masque.persistence.episodic_sql_rag_models import (
 )
 from echo_masque.persistence.semantic_vector_models import SemanticVectorRecord
 
-_EPISODE_VECTOR_NAMESPACES = ("internal-episode-recall",)
-_SYNTHESIZED_MEMORY_VECTOR_NAMESPACES = ("internal-memory-vnext",)
+_EPISODE_VECTOR_NAMESPACES = (
+    "internal-episode-recall",
+    "character-recall-episode",
+)
+_SYNTHESIZED_MEMORY_VECTOR_NAMESPACES = (
+    "internal-memory-vnext",
+    "character-recall-synthesized",
+)
+_CORE_MEMORY_VECTOR_NAMESPACES = (
+    "internal-core-memory",
+    "character-recall-core",
+)
 
 
 class ConversationIntelligenceDerivedCleanup:
@@ -87,6 +97,24 @@ class ConversationIntelligenceDerivedCleanup:
                 delete(SemanticVectorRecord).where(
                     SemanticVectorRecord.owner_id == owner_id,
                     SemanticVectorRecord.namespace.in_(_SYNTHESIZED_MEMORY_VECTOR_NAMESPACES),
+                    SemanticVectorRecord.resource_id.in_(memory_ids),
+                )
+            )
+            session.commit()
+
+    def delete_core_memory_vectors(
+        self,
+        *,
+        owner_id: str,
+        memory_ids: tuple[str, ...],
+    ) -> None:
+        if not memory_ids:
+            return
+        with self.database.session() as session:
+            session.execute(
+                delete(SemanticVectorRecord).where(
+                    SemanticVectorRecord.owner_id == owner_id,
+                    SemanticVectorRecord.namespace.in_(_CORE_MEMORY_VECTOR_NAMESPACES),
                     SemanticVectorRecord.resource_id.in_(memory_ids),
                 )
             )
