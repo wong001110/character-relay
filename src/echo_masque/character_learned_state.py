@@ -17,6 +17,9 @@ from uuid import uuid4
 from sqlalchemy import delete, select
 from sqlalchemy.engine import CursorResult
 
+from echo_masque.persistence.character_learned_state_event_models import (
+    CharacterLearnedStateEventRecord,
+)
 from echo_masque.persistence.character_learned_state_models import CharacterLearnedStateRecord
 from echo_masque.persistence.database import Database
 
@@ -62,6 +65,10 @@ class LearnedStateEvidence:
     source_message_id: str = ""
     source_burst_id: str = ""
     reason_code: str = ""
+    connection_id: str = ""
+    guild_id: str = ""
+    channel_id: str = ""
+    topic_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,6 +256,33 @@ class CharacterLearnedStateService:
             record.last_evidence_at = current
             record.updated_at = current
             record.expires_at = current + timedelta(seconds=retention_seconds)
+            session.add(
+                CharacterLearnedStateEventRecord(
+                    id=str(uuid4()),
+                    state_id=record.id,
+                    owner_id=owner_id,
+                    character_card_id=character_card_id,
+                    state_type=evidence.state_type,
+                    subject_type=evidence.subject_type,
+                    subject_key=subject_key,
+                    connection_id=_compact(evidence.connection_id, 64),
+                    guild_id=_compact(evidence.guild_id, 200),
+                    channel_id=_compact(evidence.channel_id, 200),
+                    topic_id=_compact(evidence.topic_id, 64),
+                    delta=round(delta, 6),
+                    evidence_confidence=round(evidence_confidence, 6),
+                    value_before=round(prior_value, 6),
+                    value_after=record.value,
+                    confidence_before=round(prior_confidence, 6),
+                    confidence_after=record.confidence,
+                    contradiction=contradiction,
+                    source_type=source_type,
+                    source_message_id=_compact(evidence.source_message_id, 200),
+                    source_burst_id=_compact(evidence.source_burst_id, 80),
+                    reason_code=_compact(evidence.reason_code, 120),
+                    recorded_at=current,
+                )
+            )
             session.commit()
             session.refresh(record)
             return self._view(record, current)
@@ -316,6 +350,42 @@ class CharacterLearnedStateService:
                 continue
             values.append(view)
         return tuple(values)
+
+    def list_events_for_character(
+        self,
+        *,
+        owner_id: str,
+        character_card_id: str,
+        connection_id: str = "",
+        guild_id: str = "",
+        state_types: tuple[LearnedStateType, ...] = (),
+        limit: int = 200,
+    ) -> tuple[CharacterLearnedStateEventRecord, ...]:
+        with self.database.session() as session:
+            query = select(CharacterLearnedStateEventRecord).where(
+                CharacterLearnedStateEventRecord.owner_id == _compact(owner_id, 120),
+                CharacterLearnedStateEventRecord.character_card_id
+                == _compact(character_card_id, 64),
+            )
+            if connection_id:
+                query = query.where(
+                    CharacterLearnedStateEventRecord.connection_id
+                    == _compact(connection_id, 64)
+                )
+            if guild_id:
+                query = query.where(
+                    CharacterLearnedStateEventRecord.guild_id == _compact(guild_id, 200)
+                )
+            if state_types:
+                query = query.where(CharacterLearnedStateEventRecord.state_type.in_(state_types))
+            records = list(
+                session.scalars(
+                    query.order_by(CharacterLearnedStateEventRecord.recorded_at.desc()).limit(
+                        max(1, min(limit, 500))
+                    )
+                )
+            )
+        return tuple(records)
 
     def cleanup_expired(self, *, now: datetime | None = None) -> int:
         current = _aware(now) if now is not None else datetime.now(UTC)
