@@ -57,13 +57,16 @@ from echo_masque.condition_watch_runtime import (
 from echo_masque.condition_watch_service import ConditionWatchService
 from echo_masque.config import Settings, get_settings
 from echo_masque.context_layer import ContextOrchestrator
+from echo_masque.conversation_consolidation import ConversationConsolidationService
 from echo_masque.conversation_media import ConversationMediaReferenceService
 from echo_masque.coverage_analytics import CoverageAnalyticsService
 from echo_masque.credentials import CredentialVault
 from echo_masque.discord_inventory import DiscordInventoryService
 from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService
+from echo_masque.internal_context import InternalContextService
 from echo_masque.judge_evaluation import JudgeEvaluationService
+from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
 from echo_masque.live_media_scoped import KeyGroupScopedLiveMediaContextService
 from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
 from echo_masque.media_tools import MediaToolRegistry
@@ -99,7 +102,16 @@ from echo_masque.persistence import (
     WorkspaceRepository,
     inspect_storage,
 )
+from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
+from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
+from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
+from echo_masque.persistence.server_knowledge_repository import (
+    ConsolidationCheckpointRepository,
+    ConversationAuthorityGraphRepository,
+    ServerWikiRepository,
+)
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
+from echo_masque.planner_media import PlannerMediaDescriptorService
 from echo_masque.prompt_inspector import CharacterPromptInspector
 from echo_masque.provider_credentials import KeyGroupProviderCredentialResolver
 from echo_masque.providers.trace import configure_provider_trace_sink
@@ -111,6 +123,9 @@ from echo_masque.semantic_participation import CharacterParticipationSemanticSer
 from echo_masque.services import MatrixService, RuntimeService, TrialService
 from echo_masque.smart_participation_generation import SmartParticipationGenerationService
 from echo_masque.template_sharing import EvaluationTemplateService
+from echo_masque.utility_gateway_live import ExistingProviderUtilityCaller
+from echo_masque.utility_gateway_router import UtilityGatewayRouter
+from echo_masque.utility_media_provider import UtilityMediaUnderstandingProvider
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +135,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     storage_status = inspect_storage(resolved)
     database = Database(resolved.database_url)
     database.initialize()
+    memory_vnext_repository = MemoryVNextRepository(database)
+    reset_legacy_memory = memory_vnext_repository.reset_legacy_dirty_data_once()
+    if reset_legacy_memory:
+        logger.info(
+            "Reset %s legacy derived Memory record(s) for Memory vNext.",
+            reset_legacy_memory,
+        )
     migrated_timezones = ServerRuntimeRepository(database).migrate_legacy_utc_defaults()
     if migrated_timezones:
         logger.info(
@@ -169,6 +191,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved,
     )
     knowledge_repository = KnowledgeRepository(database)
+    server_wiki_repository = ServerWikiRepository(database)
+    conversation_authority_graph_repository = ConversationAuthorityGraphRepository(
+        database
+    )
+    consolidation_checkpoint_repository = ConsolidationCheckpointRepository(database)
     context_orchestrator = ContextOrchestrator(knowledge_repository)
     if bootstrap_admin is not None:
         centralized = DiscordInventoryService(database).centralize(bootstrap_admin.id)
@@ -218,6 +245,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         conversation_media_repository=conversation_media_repository,
         artifact_repository=generated_media_repository,
     )
+    internal_context_service = InternalContextService(
+        memory_repository=memory_vnext_repository,
+        topic_repository=ConversationTopicRepository(database),
+        episode_repository=ConversationEpisodeRepository(database),
+        settings=resolved,
+        wiki_lookup_backend=server_wiki_repository.lookup,
+    )
     tool_registry = MediaToolRegistry(
         browser_runtime=browser_runtime,
         reminder_repository=scheduled_reminder_repository,
@@ -226,6 +260,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         discord_bot_token=resolved.discord_tool_bot_token,
         side_effect_store=durable_runtime_repository,
         image_creation_service=image_creation_service,
+        internal_context_service=internal_context_service,
     )
     live_media_service = KeyGroupScopedLiveMediaContextService(
         media_repository=media_analysis_repository,
@@ -329,6 +364,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         deployment_tool_repository,
         scheduled_reminder_repository,
         condition_watch_repository,
+        memory_vnext_repository=memory_vnext_repository,
+        server_wiki_repository=server_wiki_repository,
+        conversation_authority_graph_repository=conversation_authority_graph_repository,
+        consolidation_checkpoint_repository=consolidation_checkpoint_repository,
     )
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
@@ -339,6 +378,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     repository.seed_demo_targets()
     repository.remove_demo_character_cards()
     runtime_service = RuntimeService(repository, resolved, credential_store)
+    planner_utility_gateway = UtilityGatewayRouter(
+        runtime_service,
+        caller=ExistingProviderUtilityCaller(),
+    )
+    conversation_consolidation_service = ConversationConsolidationService(
+        topic_repository=ConversationTopicRepository(database),
+        episode_repository=ConversationEpisodeRepository(database),
+        memory_repository=memory_vnext_repository,
+        wiki_repository=server_wiki_repository,
+        graph_repository=conversation_authority_graph_repository,
+        checkpoint_repository=consolidation_checkpoint_repository,
+        gateway=planner_utility_gateway,
+    )
+    planner_media_service = PlannerMediaDescriptorService(
+        media=EnhancedLiveMediaContextService.from_service(
+            live_media_service,
+            browser_runtime=browser_runtime,
+        ),
+        utility_provider=UtilityMediaUnderstandingProvider(planner_utility_gateway),
+    )
     authoring_runtime_service = AuthoringRuntimeService(
         database,
         auth_repository,
@@ -381,9 +440,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await browser_runtime.start()
         await scheduled_reminder_delivery.start()
         await condition_watch_service.start()
+        await conversation_consolidation_service.start()
         try:
             yield
         finally:
+            await conversation_consolidation_service.stop()
             await condition_watch_service.stop()
             await scheduled_reminder_delivery.stop()
             await browser_runtime.stop()
@@ -436,6 +497,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.generated_media_repository = generated_media_repository
     app.state.image_creation_service = image_creation_service
     app.state.live_media_service = live_media_service
+    app.state.memory_vnext_repository = memory_vnext_repository
+    app.state.server_wiki_repository = server_wiki_repository
+    app.state.conversation_authority_graph_repository = (
+        conversation_authority_graph_repository
+    )
+    app.state.consolidation_checkpoint_repository = consolidation_checkpoint_repository
+    app.state.conversation_consolidation_service = conversation_consolidation_service
+    app.state.internal_context_service = internal_context_service
+    app.state.planner_media_service = planner_media_service
     app.state.discord_connector_runtime = discord_connector_runtime
     app.state.character_turn_graph_runner = character_turn_graph_runner
     app.state.social_turn_graph_runner = social_turn_graph_runner

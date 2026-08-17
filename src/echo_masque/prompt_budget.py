@@ -123,31 +123,47 @@ class BudgetSmartOutputContext(SmartOutputContext):
         sticker_aliases = {
             alias: item for alias, item in aliases.items() if item.resource_type == "sticker"
         }
-        actions = ["ignore", "message"]
-        if any("reaction" in item.allowed_actions for item in emoji_aliases.values()):
-            actions.append("react")
-        if any("sticker" in item.allowed_actions for item in sticker_aliases.values()):
-            actions.append("sticker")
+        actions = list(self._available_actions(candidates))
 
         lines = [
             "Smart Output: choose exactly one natural Discord action; Runtime validates references.",
             f"Allowed actions this turn: {', '.join(actions)}.",
-            "Return exactly one [[CR_OUTPUT {...}]] line and no reasoning or surrounding prose.",
-            'Message shape: [[CR_OUTPUT {"action":"message","content":[{"text":"..."}]}]]',
-            'Silence shape: [[CR_OUTPUT {"action":"ignore"}]]',
-            (
-                "For message content, every array item must be one separate JSON object containing "
-                "exactly one of: text, emoji, mention. Never embed an emoji or mention object inside "
-                "a text string."
-            ),
         ]
+        if self.participation_required:
+            lines.extend(
+                (
+                    "Runtime has already admitted this Character for the current turn.",
+                    "Return one visible action. Silence/ignore is not available for this turn.",
+                )
+            )
+        lines.extend(
+            (
+                "Return exactly one [[CR_OUTPUT {...}]] line and no reasoning or surrounding prose.",
+                'Message shape: [[CR_OUTPUT {"action":"message","content":[{"text":"..."}]}]]',
+                (
+                    'Short message shape: [[CR_OUTPUT {"action":"short_message",'
+                    '"content":[{"text":"..."}]}]]'
+                ),
+                (
+                    "For message content, every array item must be one separate JSON object containing "
+                    "exactly one of: text, emoji, mention. Never embed an emoji or mention object inside "
+                    "a text string."
+                ),
+            )
+        )
+        if not self.participation_required:
+            lines.append('Silence shape: [[CR_OUTPUT {"action":"ignore"}]]')
         references = ", ".join(self.message_alias_to_id.keys())
         lines.append(f"Message references: {references}.")
         if len(self.message_alias_to_id) > 1:
-            lines.append("For message/sticker, optional reply_to may use one supplied message reference.")
+            lines.append(
+                "For message/short_message/sticker, optional reply_to may use one supplied message reference."
+            )
 
         if self.participant_alias_descriptions:
-            lines.append("Mentionable participants (use {\"mention\":\"pN\"} as its own message-content item):")
+            lines.append(
+                "Mentionable participants (use {\"mention\":\"pN\"} as its own message-content item):"
+            )
             lines.extend(self.participant_alias_descriptions)
 
         if emoji_aliases or sticker_aliases:
@@ -175,7 +191,9 @@ class BudgetSmartOutputContext(SmartOutputContext):
         if sticker_aliases:
             lines.append("Sticker: action=sticker with sticker=sN; it is the whole social action.")
         if self.participant_alias_descriptions or aliases:
-            lines.append("Never invent participant, message, Emoji, or Sticker aliases; never mention yourself.")
+            lines.append(
+                "Never invent participant, message, Emoji, or Sticker aliases; never mention yourself."
+            )
         return tuple(lines)
 
 
@@ -194,7 +212,13 @@ def _tool_encoder(settings: Settings) -> SemanticEncoder:
         return _TOOL_ENCODER
 
 
-def _tool_profile_text(tool_id: str, display_name: str, description: str, category: str, operation: str) -> str:
+def _tool_profile_text(
+    tool_id: str,
+    display_name: str,
+    description: str,
+    category: str,
+    operation: str,
+) -> str:
     hints = _TOOL_USAGE_HINTS.get(tool_id, "")
     return "\n".join(
         item
@@ -242,14 +266,20 @@ def select_tool_ids_for_turn(
     if not resolved.semantic_embedding_runtime_enabled:
         return assigned
 
-    catalog = {item.id: item for item in registry.catalog() if item.id in assigned and item.available}
+    catalog = {
+        item.id: item for item in registry.catalog() if item.id in assigned and item.available
+    }
     available = tuple(item for item in assigned if item in catalog)
     if not available:
         return ()
 
     query = " ".join(context.trigger_text.split())[:4000]
     if not query:
-        return ("character.invite",) if "character.invite" in available and _character_invite_available(context) else ()
+        return (
+            ("character.invite",)
+            if "character.invite" in available and _character_invite_available(context)
+            else ()
+        )
 
     turn_signals = SemanticTurnSignalStore.get(context.deployment_id, context.message_id)
     continuation_tool_ids = set(

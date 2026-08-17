@@ -29,6 +29,7 @@ from echo_masque.api.routes.interactions import router as interactions_router
 from echo_masque.api.routes.key_group_scout import router as key_group_scout_router
 from echo_masque.api.routes.knowledge import router as knowledge_router
 from echo_masque.api.routes.matrices import router as matrices_router
+from echo_masque.api.routes.planner_media import router as planner_media_router
 from echo_masque.api.routes.prompt_inspector import router as prompt_inspector_router
 from echo_masque.api.routes.provider_traces import router as provider_traces_router
 from echo_masque.api.routes.reports import router as reports_router
@@ -38,6 +39,7 @@ from echo_masque.api.routes.smart_participation import router as smart_participa
 from echo_masque.api.routes.smart_participation_v4 import (
     router as smart_participation_v4_router,
 )
+from echo_masque.api.routes.social_turn_interrupt import router as social_turn_interrupt_router
 from echo_masque.api.routes.targets import router as targets_router
 from echo_masque.api.routes.templates import router as templates_router
 from echo_masque.api.routes.tools import router as tools_router
@@ -53,9 +55,11 @@ characters_router.include_router(character_portraits_router)
 # lifecycle router does not become the home for provider discovery logic.
 accounts_router.include_router(key_group_scout_router)
 
-# Generated binary artifacts are an internal Discord connector sub-route. Keep them under the
-# existing authenticated connector prefix without adding another top-level router to create_app.
+# Generated binary artifacts and Social Turn interruption are internal Discord connector
+# sub-routes. Keep them under the existing authenticated connector prefix.
 connectors_router.include_router(generated_media_router)
+connectors_router.include_router(planner_media_router)
+connectors_router.include_router(social_turn_interrupt_router)
 
 # V4 resolver shares the existing Smart Participation prefix/auth boundary. Keeping the new route
 # in a separate module avoids expanding the legacy per-message implementation during migration.

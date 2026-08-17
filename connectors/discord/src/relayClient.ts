@@ -48,6 +48,7 @@ export interface DiscordParticipationShadowPlanItem {
   deployment_id: string;
   turn_role: string;
   reason: string;
+  guidance?: string;
 }
 
 export interface DiscordParticipationShadowCandidate {
@@ -68,6 +69,13 @@ export interface DiscordSemanticParticipationResult {
   shadow_speaker_plan?: DiscordParticipationShadowPlanItem[];
   shadow_candidate_scores?: DiscordParticipationShadowCandidate[];
   speaker_plan_authoritative?: boolean;
+  conversation_plan_version?: string;
+  conversation_planner_used?: boolean;
+  conversation_planner_accepted?: boolean;
+  conversation_planner_authoritative?: boolean;
+  conversation_planner_rollout_bucket?: number;
+  conversation_planner_rollout_percent?: number;
+  conversation_planner_shadow_plan?: DiscordParticipationShadowPlanItem[];
 }
 
 export interface DiscordParticipationBurstMessage {
@@ -95,6 +103,27 @@ export interface DiscordConversationBurstRuntimeConfig {
   max_characters: number;
 }
 
+
+export interface DiscordPlannerMediaDescriptor {
+  ref: string;
+  kind: "image" | "video" | "article" | "link" | "file";
+  state: "resolved" | "preview_only" | "unresolved";
+  label: string;
+  subject: string;
+  summary: string;
+  source_key: string;
+  source_url: string;
+  topic_evidence: boolean;
+}
+
+export interface DiscordPlannerMediaResult {
+  descriptors: DiscordPlannerMediaDescriptor[];
+  dependency: "required" | "optional" | "none";
+  dependency_reason: string;
+  dependency_locked: boolean;
+  planning_text: string;
+}
+
 export interface DiscordSmartParticipationScoreRequest {
   message: string;
   deployment_ids: string[];
@@ -112,6 +141,9 @@ export interface DiscordSmartParticipationScoreRequest {
   window_seconds?: number;
   max_replies_per_window?: number;
   candidate_preflight?: DiscordSmartParticipationCandidatePreflight[];
+  media_descriptors?: DiscordPlannerMediaDescriptor[];
+  media_dependency?: "required" | "optional" | "none";
+  media_dependency_locked?: boolean;
 }
 
 interface DiscordV4ParticipationCandidate {
@@ -134,6 +166,13 @@ interface DiscordV4ParticipationResult {
   speaker_plan?: DiscordParticipationShadowPlanItem[];
   shadow_speaker_plan?: DiscordParticipationShadowPlanItem[];
   speaker_plan_authoritative?: boolean;
+  conversation_plan_version?: string;
+  conversation_planner_used?: boolean;
+  conversation_planner_accepted?: boolean;
+  conversation_planner_authoritative?: boolean;
+  conversation_planner_rollout_bucket?: number;
+  conversation_planner_rollout_percent?: number;
+  conversation_planner_shadow_plan?: DiscordParticipationShadowPlanItem[];
 }
 
 interface ConnectorAttachment {
@@ -477,6 +516,9 @@ export class RelayClient {
             channel_cooldown_seconds: payload.channel_cooldown_seconds ?? 45,
             window_seconds: payload.window_seconds ?? 600,
             max_replies_per_window: payload.max_replies_per_window ?? 3,
+            media_descriptors: payload.media_descriptors ?? [],
+            media_dependency: payload.media_dependency ?? "none",
+            media_dependency_locked: payload.media_dependency_locked ?? false,
             candidates: payload.deployment_ids.map((deploymentId) => {
               const runtime = runtimePreflightById.get(deploymentId);
               const hard = hardPreflightById.get(deploymentId);
@@ -506,6 +548,17 @@ export class RelayClient {
           shadow_selected: candidate.shadow_selected
         })),
         speaker_plan_authoritative: resolved.speaker_plan_authoritative ?? false,
+        conversation_plan_version: resolved.conversation_plan_version ?? "",
+        conversation_planner_used: resolved.conversation_planner_used ?? false,
+        conversation_planner_accepted: resolved.conversation_planner_accepted ?? false,
+        conversation_planner_authoritative:
+          resolved.conversation_planner_authoritative ?? false,
+        conversation_planner_rollout_bucket:
+          resolved.conversation_planner_rollout_bucket ?? 0,
+        conversation_planner_rollout_percent:
+          resolved.conversation_planner_rollout_percent ?? 0,
+        conversation_planner_shadow_plan:
+          resolved.conversation_planner_shadow_plan ?? [],
         candidates: resolved.candidates.map((candidate) => ({
           deployment_id: candidate.deployment_id,
           character_card_id: candidate.character_card_id,
@@ -583,6 +636,23 @@ export class RelayClient {
     );
   }
 
+  async cancelSocialTurnOperation(payload: {
+    operation_id: string;
+    guild_id: string;
+    channel_id: string;
+    thread_id: string;
+    superseding_message_id: string;
+    reason?: string;
+  }): Promise<{ canceled: boolean; status: string; reason: string }> {
+    return this.request<{ canceled: boolean; status: string; reason: string }>(
+      "/api/connectors/discord/social-turns/operations/cancel",
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
+  }
+
   async claimSocialTurnDelivery(
     payload: DiscordDeliveryClaimRequest
   ): Promise<DiscordDeliveryClaim> {
@@ -615,6 +685,30 @@ export class RelayClient {
       {
         method: "POST",
         body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      }
+    );
+  }
+
+  async resolvePlannerMedia(payload: {
+    message_id: string;
+    guild_id: string;
+    channel_id: string;
+    thread_id: string;
+    text: string;
+    burst_media_message_ids?: string[];
+  }): Promise<DiscordPlannerMediaResult> {
+    const channelId = payload.thread_id || payload.channel_id;
+    const media = await this.discordMedia(channelId, payload.message_id);
+    return this.request<DiscordPlannerMediaResult>(
+      "/api/connectors/discord/media/describe",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          connection_id: this.connectionId,
+          ...payload,
+          attachments: media.attachments,
+          embeds: media.embeds
+        })
       }
     );
   }

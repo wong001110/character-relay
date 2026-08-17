@@ -37,6 +37,12 @@ from echo_masque.conversation_graph_topic_shadow import (
     ConversationGraphTopicShadowService,
     TopicGraphShadowObservation,
 )
+from echo_masque.conversation_planner import (
+    ConversationAdmissionPlanner,
+    ConversationPlannerCandidate,
+    ConversationPlannerResult,
+    rollout_decision,
+)
 from echo_masque.participation_context_rerank import (
     ParticipationContextCandidate,
     ParticipationContextPlanItem,
@@ -119,15 +125,30 @@ def _smart_repository(request: Request) -> SmartParticipationRepository:
 
 
 def _analysis_text(payload: SmartParticipationResolveRequest) -> str:
-    if not payload.burst_messages:
-        return " ".join(payload.message.split())[:4_000]
     lines: list[str] = []
-    for item in payload.burst_messages:
-        text = " ".join(item.text.split())
-        if not text:
+    if payload.burst_messages:
+        for item in payload.burst_messages:
+            text = " ".join(item.text.split())
+            if not text:
+                continue
+            author = " ".join(item.author_display_name.split())[:120]
+            lines.append(f"{author}: {text}" if author else text)
+    elif payload.message.strip():
+        lines.append(" ".join(payload.message.split()))
+
+    for descriptor in payload.media_descriptors:
+        if not descriptor.topic_evidence or descriptor.state != "resolved":
             continue
-        author = " ".join(item.author_display_name.split())[:120]
-        lines.append(f"{author}: {text}" if author else text)
+        subject = " ".join(
+            (descriptor.subject or descriptor.summary or descriptor.label).split()
+        )[:500]
+        summary = " ".join(descriptor.summary.split())[:800]
+        if not subject and not summary:
+            continue
+        line = f"[resolved media {descriptor.kind}] {subject}"
+        if summary and summary != subject:
+            line += f" — {summary}"
+        lines.append(line)
     return "\n".join(lines)[-4_000:]
 
 
@@ -231,6 +252,21 @@ def _context_reranker(request: Request) -> ParticipationContextReranker:
     return service
 
 
+def _conversation_planner(request: Request) -> ConversationAdmissionPlanner:
+    current = getattr(request.app.state, "conversation_admission_planner_v1", None)
+    if isinstance(current, ConversationAdmissionPlanner):
+        return current
+    runtime = getattr(request.app.state, "runtime_service", None)
+    if not isinstance(runtime, RuntimeService):
+        settings = cast(Settings, request.app.state.settings)
+        database = _deployment_repository(request).database
+        runtime = RuntimeService(Repository(database), settings)
+    gateway = UtilityGatewayRouter(runtime, caller=ExistingProviderUtilityCaller())
+    service = ConversationAdmissionPlanner(gateway)
+    request.app.state.conversation_admission_planner_v1 = service
+    return service
+
+
 def _final_utility(request: Request) -> ParticipationFinalUtilityResolver:
     current = getattr(request.app.state, "participation_final_utility_v4", None)
     if isinstance(current, ParticipationFinalUtilityResolver):
@@ -292,12 +328,16 @@ def _display_names(request: Request, records: list[object]) -> dict[str, str]:
 
 def _plan_views(
     plan: tuple[ParticipationShadowPlanItem, ...] | tuple[ParticipationContextPlanItem, ...],
+    *,
+    guidance_by_id: Mapping[str, str] | None = None,
 ) -> list[SmartParticipationSpeakerPlanItem]:
+    guidance = guidance_by_id or {}
     return [
         SmartParticipationSpeakerPlanItem(
             deployment_id=str(getattr(item, "deployment_id", "")),
-            turn_role=str(getattr(item, "turn_role", "primary")),
+            turn_role=str(getattr(item, "turn_role", "participant")),
             reason=str(getattr(item, "reason", "")),
+            guidance=guidance.get(str(getattr(item, "deployment_id", "")), ""),
         )
         for item in plan
         if str(getattr(item, "deployment_id", ""))
@@ -472,7 +512,83 @@ def resolve_smart_participation_v4(
         if utility_result.accepted:
             effective_plan = utility_result.plan
 
-    speaker_authoritative = settings.smart_participation_v4_speaker_mode == "active"
+    planner_result = ConversationPlannerResult(False, (), "disabled")
+    planner_rollout = rollout_decision(
+        identity=payload.burst_id or payload.message_id or analysis,
+        mode=settings.conversation_planner_mode,
+        percent=settings.conversation_planner_rollout_percent,
+    )
+    planner_guidance: dict[str, str] = {}
+    planner_plan: tuple[ParticipationContextPlanItem, ...] = ()
+    if settings.conversation_planner_mode != "off" and analysis and eligible:
+        display_names = _display_names(request, list(eligible))
+        planner_candidates: list[ConversationPlannerCandidate] = []
+        for requested in payload.candidates:
+            if not effective_eligible_by_id.get(requested.deployment_id, False):
+                continue
+            semantic = score_by_id.get(requested.deployment_id)
+            contextual = context_score_by_id.get(requested.deployment_id)
+            planner_candidates.append(
+                ConversationPlannerCandidate(
+                    deployment_ref=requested.deployment_id,
+                    display_name=display_names.get(
+                        requested.deployment_id, requested.deployment_id
+                    ),
+                    deterministic_score=requested.deterministic_score,
+                    semantic_score=(semantic.relevance if semantic is not None else 0.0),
+                    contextual_score=(
+                        contextual.contextual_final_score
+                        if contextual is not None
+                        else requested.deterministic_score
+                    ),
+                    evidence=tuple(
+                        f"{item.source}:{item.name}:{item.adjustment:+.3f}"
+                        for item in (contextual.evidence if contextual is not None else ())
+                    )[:8],
+                )
+            )
+        planner_result = _conversation_planner(request).resolve(
+            burst_id=payload.burst_id,
+            current_burst=analysis,
+            candidates=tuple(planner_candidates),
+            media_dependency=payload.media_dependency,
+            media_dependency_locked=payload.media_dependency_locked,
+            maximum_participants=payload.max_participants,
+        )
+        if planner_result.accepted:
+            planner_guidance = planner_result.guidance_by_ref()
+            admitted = set(planner_result.admitted_refs)
+            ranking = [item.deployment_id for item in context_result.plan]
+            ranking.extend(
+                item.deployment_id
+                for item in effective_plan
+                if item.deployment_id not in ranking
+            )
+            ranking.extend(
+                item.deployment_ref
+                for item in planner_candidates
+                if item.deployment_ref not in ranking
+            )
+            planner_plan = tuple(
+                ParticipationContextPlanItem(
+                    deployment_id=deployment_id,
+                    turn_role="participant",
+                    reason="conversation_planner_admitted",
+                )
+                for deployment_id in ranking
+                if deployment_id in admitted
+            )
+
+    planner_authoritative = bool(
+        planner_result.accepted and planner_rollout.authoritative
+    )
+    if planner_authoritative:
+        effective_plan = planner_plan
+
+    speaker_authoritative = (
+        planner_authoritative
+        or settings.smart_participation_v4_speaker_mode == "active"
+    )
     shadow_plan: tuple[ParticipationContextPlanItem, ...] = (
         context_result.plan
         if (graph_enabled or learned_enabled)
@@ -520,9 +636,22 @@ def resolve_smart_participation_v4(
         burst_message_count=len(payload.burst_messages) or (1 if payload.message else 0),
         analysis_chars=len(analysis),
         candidates=candidates,
-        speaker_plan=_plan_views(tuple(effective_plan)) if speaker_authoritative else [],
+        speaker_plan=(
+            _plan_views(tuple(effective_plan), guidance_by_id=planner_guidance)
+            if speaker_authoritative
+            else []
+        ),
         shadow_speaker_plan=_plan_views(tuple(shadow_plan)),
         speaker_plan_authoritative=speaker_authoritative,
+        conversation_plan_version="conversation-plan.v1",
+        conversation_planner_used=settings.conversation_planner_mode != "off",
+        conversation_planner_accepted=planner_result.accepted,
+        conversation_planner_authoritative=planner_authoritative,
+        conversation_planner_rollout_bucket=planner_rollout.bucket,
+        conversation_planner_rollout_percent=planner_rollout.percent,
+        conversation_planner_shadow_plan=_plan_views(
+            planner_plan, guidance_by_id=planner_guidance
+        ),
         graph_shadow_observed=graph_shadow.observed,
         graph_shadow_node_count=graph_shadow.node_count,
         graph_shadow_edge_count=graph_shadow.edge_count,

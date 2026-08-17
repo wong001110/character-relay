@@ -179,6 +179,64 @@ class ConversationTopicRepository:
             session.refresh(record)
             return record
 
+    def resume(
+        self,
+        *,
+        topic_id: str,
+        owner_id: str,
+        platform: str,
+        connection_id: str,
+        guild_id: str,
+        channel_id: str,
+        thread_id: str,
+        summary: str,
+        keywords_json: str,
+        participants_json: str,
+        last_message_id: str,
+        now: datetime | None = None,
+    ) -> ConversationTopicRecord:
+        current = now or datetime.now(UTC)
+        scope = self._scope_conditions(
+            owner_id=owner_id,
+            platform=platform,
+            connection_id=connection_id,
+            guild_id=guild_id,
+            channel_id=channel_id,
+            thread_id=thread_id,
+        )
+        with self.database.session() as session:
+            session.execute(
+                update(ConversationTopicRecord)
+                .where(
+                    *scope,
+                    ConversationTopicRecord.status == "active",
+                    ConversationTopicRecord.id != topic_id,
+                )
+                .values(status="cooling", updated_at=current)
+            )
+            record = session.scalar(
+                select(ConversationTopicRecord).where(
+                    ConversationTopicRecord.id == topic_id,
+                    ConversationTopicRecord.owner_id == owner_id,
+                    *scope[1:],
+                )
+            )
+            if record is None:
+                raise KeyError("topic")
+            record.status = "active"
+            record.closed_at = None
+            record.summary = summary
+            record.keywords_json = keywords_json
+            record.participants_json = participants_json
+            record.last_message_id = last_message_id[:200]
+            record.last_active_at = current
+            record.updated_at = current
+            record.message_count += 1
+            record.capsule_version += 1
+            session.commit()
+            session.refresh(record)
+            return record
+
     def set_status(
         self,
         *,
