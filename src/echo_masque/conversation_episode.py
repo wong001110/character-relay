@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 @dataclass(slots=True)
 class ConversationEpisodeProjectionService:
     repository: ConversationEpisodeRepository
+    sql_rag_indexer: EpisodicSqlRagIndexer = field(init=False)
 
     def __post_init__(self) -> None:
         self.sql_rag_indexer = EpisodicSqlRagIndexer(
