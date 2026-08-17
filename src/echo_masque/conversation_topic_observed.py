@@ -5,13 +5,20 @@ from __future__ import annotations
 import hashlib
 from collections import OrderedDict
 from datetime import datetime
+from typing import TYPE_CHECKING
 
+from echo_masque.config import Settings
 from echo_masque.conversation_topic import (
     ConversationTopicMemoryService,
     ConversationTopicSnapshot,
     TopicContinuityDecision,
 )
 from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
+from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
+from echo_masque.semantic_participation import SemanticEncoder
+
+if TYPE_CHECKING:
+    from echo_masque.api.connector_schemas import DiscordInboundMessage
 
 _CACHE_LIMIT = 128
 
@@ -25,8 +32,20 @@ class ObservedConversationTopicMemoryService(ConversationTopicMemoryService):
     Raw message text is never retained in the cache key.
     """
 
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+    def __init__(
+        self,
+        repository: ConversationTopicRepository,
+        *,
+        settings: Settings | None = None,
+        encoder: SemanticEncoder | None = None,
+        semantic_enabled: bool | None = None,
+    ) -> None:
+        super().__init__(
+            repository,
+            settings=settings,
+            encoder=encoder,
+            semantic_enabled=semantic_enabled,
+        )
         self._continuity_cache: OrderedDict[
             tuple[str, int, str], TopicContinuityDecision
         ] = OrderedDict()
@@ -63,30 +82,22 @@ class ObservedConversationTopicMemoryService(ConversationTopicMemoryService):
         self,
         *,
         owner_id: str,
-        payload: object,
+        payload: DiscordInboundMessage,
         platform: str = "discord",
         now: datetime | None = None,
     ) -> ConversationTopicSnapshot | None:
-        # Keep this wrapper payload-agnostic at runtime while using the same attributes required by
-        # the base service. The concrete connector schema is intentionally not imported here.
-        connection_id = str(getattr(payload, "connection_id"))
-        guild_id = str(getattr(payload, "guild_id"))
-        channel_id = str(getattr(payload, "channel_id"))
-        thread_id = str(getattr(payload, "thread_id"))
-        message_id = str(getattr(payload, "message_id"))
-        text = str(getattr(payload, "text"))
         active = self.repository.active_for_scope(
             owner_id=owner_id,
             platform=platform,
-            connection_id=connection_id,
-            guild_id=guild_id,
-            channel_id=channel_id,
-            thread_id=thread_id,
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
         )
-        key = self._cache_key(text=text, active=active) if active is not None else None
+        key = self._cache_key(text=payload.text, active=active) if active is not None else None
         result = super().observe_turn(
             owner_id=owner_id,
-            payload=payload,  # type: ignore[arg-type]
+            payload=payload,
             platform=platform,
             now=now,
         )
@@ -94,7 +105,7 @@ class ObservedConversationTopicMemoryService(ConversationTopicMemoryService):
         if decision is not None:
             self.repository.decisions.enrich_message_decision(
                 owner_id=owner_id,
-                message_id=message_id,
+                message_id=payload.message_id,
                 reason=decision.reason,
                 dense_score=decision.topic_similarity,
                 sparse_score=decision.sparse_similarity,
