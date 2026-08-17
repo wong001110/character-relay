@@ -145,7 +145,7 @@ export const PaperCard = forwardRef<HTMLDivElement, PaperCardProps>(function Pap
   return <div ref={ref} className={cx("cr-paper-card", interactive && "cr-paper-card--interactive", className)} {...props} />;
 });
 
-export type StickyNoteVariant = "note" | "topic" | "reminder" | "character" | "temporary" | "warning" | "system";
+export type StickyNoteVariant = "note" | "topic" | "reminder" | "character" | "memory" | "temporary" | "warning" | "system";
 export interface StickyNoteProps extends HTMLAttributes<HTMLDivElement> { variant?: StickyNoteVariant; size?: "sm" | "md" | "lg"; pinned?: boolean; }
 export const StickyNote = forwardRef<HTMLDivElement, StickyNoteProps>(function StickyNote({ className = "", variant = "note", size = "md", pinned = false, children, ...props }, ref) {
   return <div ref={ref} className={cx("cr-sticky-note", `cr-sticky-note--${variant}`, `cr-sticky-note--${size}`, pinned && "cr-sticky-note--pinned", className)} {...props}>{pinned && <span className="cr-sticky-note__pin" aria-hidden="true">●</span>}{children}</div>;
@@ -184,7 +184,7 @@ export type AvatarStatus = "active" | "listening" | "thinking" | "idle" | "offli
 export interface AvatarProps extends HTMLAttributes<HTMLSpanElement> { name: string; src?: string; alt?: string; size?: "sm" | "md" | "lg"; status?: AvatarStatus; }
 export function Avatar({ className = "", name, src, alt, size = "md", status, ...props }: AvatarProps) {
   const initials = name.trim().split(/\s+/).filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
-  return <span className={cx("cr-avatar", `cr-avatar--${size}`, className)} role={src ? undefined : "img"} aria-label={src ? undefined : alt ?? name} {...props}>{src ? <img src={src} alt={alt ?? name} /> : <span aria-hidden="true">{initials || "?"}</span>}{status && <span className={cx("cr-avatar__status", `cr-avatar__status--${status}`)} aria-hidden="true" />}</span>;
+  return <span className={cx("cr-avatar", `cr-avatar--${size}`, className)} role={src ? undefined : "img"} aria-label={src ? undefined : alt ?? name} {...props}>{src ? <img src={src} alt={alt ?? name} /> : <span aria-hidden="true">{initials || "?"}</span>}{status && <span className={cx("cr-avatar__status", `cr-avatar__status--${status}`, className)} aria-hidden="true" />}</span>;
 }
 
 export interface CharacterChipProps extends HTMLAttributes<HTMLDivElement> { name: string; avatarSrc?: string; onRemove?: () => void; }

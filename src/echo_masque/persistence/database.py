@@ -7,10 +7,25 @@ from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from echo_masque.persistence.character_learned_state_event_models import (
+    CharacterLearnedStateEventRecord,
+)
 from echo_masque.persistence.character_learned_state_models import CharacterLearnedStateRecord
 from echo_masque.persistence.conversation_graph_models import (
     ConversationGraphEdgeRecord,
     ConversationGraphNodeRecord,
+)
+from echo_masque.persistence.conversation_topic_decision_models import ConversationTopicDecisionRecord
+from echo_masque.persistence.core_memory_models import CharacterCoreMemoryRecord
+from echo_masque.persistence.episodic_sql_rag_models import (
+    CharacterEpisodeAccessRecord,
+    ConversationEntityRecord,
+    ConversationEpisodeEntityRecord,
+)
+from echo_masque.persistence.memory_layer_models import (
+    CharacterCoreMemoryRevisionRecord,
+    CharacterMemorySummaryRecord,
+    SynthesizedMemoryFreshnessRecord,
 )
 from echo_masque.persistence.memory_vnext_models import (
     ConversationMemoryVNextRecord,
@@ -43,11 +58,20 @@ class Database:
             ConversationGraphNodeRecord,
             ConversationGraphEdgeRecord,
             CharacterLearnedStateRecord,
+            CharacterLearnedStateEventRecord,
             SmartParticipationScopeStateRecord,
             SmartParticipationDeploymentStateRecord,
             UtilityProviderQuotaRecord,
             ConversationMemoryVNextRecord,
             MemoryVNextStateRecord,
+            ConversationTopicDecisionRecord,
+            ConversationEntityRecord,
+            ConversationEpisodeEntityRecord,
+            CharacterEpisodeAccessRecord,
+            CharacterCoreMemoryRecord,
+            CharacterCoreMemoryRevisionRecord,
+            SynthesizedMemoryFreshnessRecord,
+            CharacterMemorySummaryRecord,
         )
         Base.metadata.create_all(self.engine)
 

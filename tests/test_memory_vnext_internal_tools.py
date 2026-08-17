@@ -110,7 +110,7 @@ def test_internal_tools_are_runtime_owned_and_hidden_from_manual_catalog() -> No
         )
     )
     assert result.trace.status == "completed"
-    assert '"scope": "runtime_injected"' in result.content
+    assert '"scope": "character_memory_layers"' in result.content
 
 
 def test_legacy_dirty_memory_is_deleted_only_once() -> None:

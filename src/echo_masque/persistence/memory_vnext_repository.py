@@ -107,6 +107,19 @@ class MemoryVNextRepository:
             session.refresh(record)
             return record
 
+    def get(
+        self,
+        memory_id: str,
+        owner_id: str = "",
+    ) -> ConversationMemoryVNextRecord | None:
+        with self.database.session() as session:
+            record = session.get(ConversationMemoryVNextRecord, memory_id)
+            if record is None:
+                return None
+            if owner_id and record.owner_id != owner_id:
+                return None
+            return record
+
     def active_candidates(
         self,
         *,

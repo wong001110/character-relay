@@ -136,6 +136,9 @@ class SmartParticipationOutcomeService:
                 source_type="runtime_admission",
                 source_message_id=payload.message_id,
                 source_burst_id=burst_key,
+                connection_id=payload.connection_id,
+                guild_id=payload.guild_id,
+                channel_id=payload.channel_id,
             )
             self.learned.record_evidence(
                 LearnedStateEvidence(
@@ -187,6 +190,7 @@ class SmartParticipationOutcomeService:
                         delta=delta,
                         confidence=confidence,
                         reason_code=reason,
+                        topic_id=topic.id,
                         **evidence_base,
                     )
                 )

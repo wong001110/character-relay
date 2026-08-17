@@ -23,6 +23,7 @@ from echo_masque.character_prompts import (
 from echo_masque.context_layer import CharacterTurnContext, ContextOrchestrator
 from echo_masque.credentials import CredentialStore
 from echo_masque.domain import TargetResponse
+from echo_masque.interaction_grounding import ground_interaction
 from echo_masque.persistence import (
     DeploymentRepository,
     DeploymentToolRepository,
@@ -210,6 +211,7 @@ class DiscordConnectorRuntime:
         )
         prompt = self._social_prompt(
             character_name=card.display_name,
+            role_hint=card.subtitle,
             payload=payload,
             smart_context=smart_context,
             turn_context=turn_context,
@@ -586,6 +588,7 @@ class DiscordConnectorRuntime:
     def _social_prompt(
         *,
         character_name: str,
+        role_hint: str = "",
         payload: DiscordInboundMessage,
         smart_context: SmartOutputContext | None = None,
         turn_context: CharacterTurnContext | None = None,
@@ -594,6 +597,12 @@ class DiscordConnectorRuntime:
             payload,
             character_name=character_name,
         )
+        grounding = ground_interaction(
+            payload=payload,
+            character_name=character_name,
+            role_hint=role_hint,
+        )
+        grounding_guidance = grounding.prompt_guidance()
         knowledge_guidance = (
             turn_context.knowledge_prompt_guidance() if turn_context is not None else ()
         )
@@ -696,6 +705,7 @@ class DiscordConnectorRuntime:
                 admission_guidance,
                 source_guidance,
                 *participation_guidance,
+                *grounding_guidance,
                 *interaction_guidance,
                 *smart_context.prompt_guidance(payload.expression_candidates),
                 *knowledge_guidance,
