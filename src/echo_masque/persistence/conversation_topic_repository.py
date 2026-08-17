@@ -19,6 +19,12 @@ from echo_masque.persistence.semantic_vector_repository import SemanticVectorRep
 _TOPIC_VECTOR_NAMESPACE = "conversation-topic"
 
 
+def _aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 class ConversationTopicRepository:
     """Store topic capsules under exact platform/server/channel/thread scope."""
 
@@ -122,7 +128,7 @@ class ConversationTopicRepository:
         last_message_id: str,
         now: datetime | None = None,
     ) -> ConversationTopicRecord:
-        current = now or datetime.now(UTC)
+        current = _aware(now) if now is not None else datetime.now(UTC)
         scope = self._scope_conditions(
             owner_id=owner_id,
             platform=platform,
@@ -181,7 +187,7 @@ class ConversationTopicRepository:
             decision="create",
             reason="new_topic_created",
             idle_seconds=(
-                max(0, int((current - previous.last_active_at).total_seconds()))
+                max(0, int((current - _aware(previous.last_active_at)).total_seconds()))
                 if previous is not None
                 else 0
             ),
@@ -204,7 +210,7 @@ class ConversationTopicRepository:
         increment_message_count: bool,
         now: datetime | None = None,
     ) -> ConversationTopicRecord:
-        current = now or datetime.now(UTC)
+        current = _aware(now) if now is not None else datetime.now(UTC)
         with self.database.session() as session:
             record = session.scalar(
                 select(ConversationTopicRecord).where(
@@ -214,7 +220,7 @@ class ConversationTopicRepository:
             )
             if record is None:
                 raise KeyError("topic")
-            previous_active = record.last_active_at
+            previous_active = _aware(record.last_active_at)
             record.topic_label = topic_label[:240]
             record.summary = summary
             record.keywords_json = keywords_json
@@ -263,7 +269,7 @@ class ConversationTopicRepository:
         last_message_id: str,
         now: datetime | None = None,
     ) -> ConversationTopicRecord:
-        current = now or datetime.now(UTC)
+        current = _aware(now) if now is not None else datetime.now(UTC)
         scope = self._scope_conditions(
             owner_id=owner_id,
             platform=platform,
@@ -301,7 +307,10 @@ class ConversationTopicRepository:
             )
             if record is None:
                 raise KeyError("topic")
-            idle_seconds = max(0, int((current - record.last_active_at).total_seconds()))
+            idle_seconds = max(
+                0,
+                int((current - _aware(record.last_active_at)).total_seconds()),
+            )
             record.status = "active"
             record.closed_at = None
             record.summary = summary
@@ -342,7 +351,7 @@ class ConversationTopicRepository:
     ) -> ConversationTopicRecord:
         if status not in {"active", "cooling", "closed", "archived"}:
             raise ValueError("Unsupported conversation topic status.")
-        current = now or datetime.now(UTC)
+        current = _aware(now) if now is not None else datetime.now(UTC)
         with self.database.session() as session:
             record = session.scalar(
                 select(ConversationTopicRecord).where(
@@ -353,6 +362,7 @@ class ConversationTopicRepository:
             if record is None:
                 raise KeyError("topic")
             previous_status = record.status
+            last_active = _aware(record.last_active_at)
             record.status = status
             record.updated_at = current
             if status in {"closed", "archived"}:
@@ -372,7 +382,7 @@ class ConversationTopicRepository:
                 to_topic_id=record.id,
                 decision="lifecycle",
                 reason=f"{previous_status}_to_{status}:{reason}",
-                idle_seconds=max(0, int((current - record.last_active_at).total_seconds())),
+                idle_seconds=max(0, int((current - last_active).total_seconds())),
                 now=current,
             )
         return record
@@ -407,8 +417,7 @@ class ConversationTopicRepository:
                     .limit(bounded)
                 )
             )
-        advanced = [self._advance_lifecycle(record) for record in records]
-        return advanced
+        return [self._advance_lifecycle(record) for record in records]
 
     def claim_owner(self, source_owner_id: str, target_owner_id: str) -> int:
         with self.database.session() as session:
