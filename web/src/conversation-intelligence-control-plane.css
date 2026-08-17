@@ -120,7 +120,7 @@
   position: absolute;
   inset: 0 auto 0 0;
   width: 3px;
-  background: var(--cr-lavender);
+  background: var(--cr-accent);
   opacity: 0.65;
 }
 
@@ -167,8 +167,8 @@
 }
 
 .ci-decision-route span {
-  color: var(--cr-info);
-  font-family: var(--cr-font-mono);
+  color: var(--cr-info-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.78rem;
 }
 
@@ -186,7 +186,7 @@
 
 .ci-score-grid b {
   color: var(--cr-ink);
-  font-family: var(--cr-font-mono);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .ci-core-composer {
@@ -241,15 +241,15 @@
   height: 100%;
   min-width: 2px;
   border-radius: inherit;
-  background: var(--cr-lavender);
+  background: var(--cr-accent);
 }
 
 .ci-interest-card .ci-strength-track > i {
-  background: var(--cr-yellow);
+  background: var(--cr-sticky-yellow);
 }
 
 .ci-social-row .ci-strength-track > i {
-  background: var(--cr-rose);
+  background: var(--cr-sticky-pink);
 }
 
 .ci-history-event p,
@@ -282,14 +282,14 @@
 }
 
 .ci-social-center {
-  fill: var(--cr-lavender-soft);
-  stroke: var(--cr-lavender);
+  fill: var(--cr-accent-soft);
+  stroke: var(--cr-accent);
   stroke-width: 2;
 }
 
 .ci-social-node {
   fill: var(--cr-paper-raised);
-  stroke: var(--cr-rose);
+  stroke: var(--cr-sticky-pink);
   stroke-width: 1.5;
 }
 
@@ -320,7 +320,7 @@
   padding: 9px 12px;
   border: 1px dashed var(--cr-line);
   border-radius: var(--cr-radius-sm);
-  background: var(--cr-success-soft);
+  background: var(--cr-success-bg);
 }
 
 @media (max-width: 980px) {
