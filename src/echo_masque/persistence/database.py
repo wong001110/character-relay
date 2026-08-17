@@ -22,6 +22,11 @@ from echo_masque.persistence.episodic_sql_rag_models import (
     ConversationEntityRecord,
     ConversationEpisodeEntityRecord,
 )
+from echo_masque.persistence.memory_layer_models import (
+    CharacterCoreMemoryRevisionRecord,
+    CharacterMemorySummaryRecord,
+    SynthesizedMemoryFreshnessRecord,
+)
 from echo_masque.persistence.memory_vnext_models import (
     ConversationMemoryVNextRecord,
     MemoryVNextStateRecord,
@@ -64,6 +69,9 @@ class Database:
             ConversationEpisodeEntityRecord,
             CharacterEpisodeAccessRecord,
             CharacterCoreMemoryRecord,
+            CharacterCoreMemoryRevisionRecord,
+            SynthesizedMemoryFreshnessRecord,
+            CharacterMemorySummaryRecord,
         )
         Base.metadata.create_all(self.engine)
 
