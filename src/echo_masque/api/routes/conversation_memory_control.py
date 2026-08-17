@@ -407,11 +407,27 @@ def restore_core_memory_revision(
     request: Request,
     user: CurrentUserDependency,
 ) -> CoreMemoryView:
-    revisions = CoreMemoryRevisionRepository(_database(request))
+    database = _database(request)
+    revisions = CoreMemoryRevisionRepository(database)
+    revision = revisions.get(owner_id=user.id, revision_id=revision_id)
+    if revision is None:
+        raise HTTPException(status_code=404, detail="Core Memory revision not found.")
+    core = CoreMemoryRepository(database)
+    existing = core.get(owner_id=user.id, memory_id=revision.core_memory_id)
     try:
-        record = revisions.restore(owner_id=user.id, revision_id=revision_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Core Memory revision not found.") from exc
+        if existing is not None:
+            record = core.update(
+                owner_id=user.id,
+                memory_id=existing.id,
+                content=revision.content,
+                memory_type=revision.memory_type,
+                priority=revision.priority,
+                status=revision.status,
+            )
+        else:
+            record = revisions.restore(owner_id=user.id, revision_id=revision_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     _record_core_revision(request, record=record, action="restored")
     _refresh_scoped_summary(request, record)
     _auth(request).audit(
