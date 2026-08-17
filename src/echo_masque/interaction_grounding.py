@@ -174,18 +174,9 @@ def ground_interaction(
             ),
         )
 
-    if _GROUP_INVITATION.search(text):
-        return InteractionGrounding(
-            audience="group_invited",
-            interaction_type="group_request",
-            directed_at_character=False,
-            expertise_relevant=role_relevant,
-            expertise_requested=bool(role_relevant and question),
-            response_posture="group_participant",
-            confidence=0.94,
-            reason="explicit_group_invitation",
-        )
-
+    # A profession/group-qualified "you all" is more specific than a generic group invitation.
+    # Resolve it first so "你們做律師的..." is grounded as role-group address rather than as a
+    # request to every participant in the room.
     if role_relevant and _ROLE_GROUP_DIRECTION.search(text):
         return InteractionGrounding(
             audience="role_group_directed",
@@ -196,6 +187,18 @@ def ground_interaction(
             response_posture="role_peer",
             confidence=0.82,
             reason="role_group_address",
+        )
+
+    if _GROUP_INVITATION.search(text):
+        return InteractionGrounding(
+            audience="group_invited",
+            interaction_type="group_request",
+            directed_at_character=False,
+            expertise_relevant=role_relevant,
+            expertise_requested=bool(role_relevant and question),
+            response_posture="group_participant",
+            confidence=0.94,
+            reason="explicit_group_invitation",
         )
 
     # A question about a relevant profession is still ambient unless the message addresses the
