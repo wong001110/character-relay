@@ -23,6 +23,8 @@ from echo_masque.persistence import (
     ScheduledReminderRepository,
     SmartParticipationRepository,
 )
+from echo_masque.persistence.core_memory_repository import CoreMemoryRepository
+from echo_masque.persistence.episodic_sql_rag_repository import EpisodicSqlRagRepository
 from echo_masque.persistence.server_knowledge_repository import (
     ConsolidationCheckpointRepository,
     ConversationAuthorityGraphRepository,
@@ -94,6 +96,8 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             generated_media_repository or GeneratedMediaArtifactRepository(database)
         )
         self.memory_vnext_repository = memory_vnext_repository or MemoryVNextRepository(database)
+        self.core_memory_repository = CoreMemoryRepository(database)
+        self.episodic_sql_rag_repository = EpisodicSqlRagRepository(database)
         self.server_wiki_repository = server_wiki_repository or ServerWikiRepository(database)
         self.conversation_authority_graph_repository = (
             conversation_authority_graph_repository
@@ -117,6 +121,8 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         deployment_tool_count = self.deployment_tool_repository.delete_owner(user_id)
         conversation_media_count = self.conversation_media_repository.delete_owner(user_id)
         generated_media_count = self.generated_media_repository.delete_owner(user_id)
+        core_memory_count = self.core_memory_repository.delete_owner(user_id)
+        episodic_sql_counts = self.episodic_sql_rag_repository.delete_owner(user_id)
         memory_vnext_count = self.memory_vnext_repository.delete_owner(user_id)
         server_wiki_count = self.server_wiki_repository.delete_owner(user_id)
         authority_graph_count = self.conversation_authority_graph_repository.delete_owner(
@@ -135,11 +141,13 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             **smart_counts,
             **knowledge_counts,
             **identity_counts,
+            **episodic_sql_counts,
             "scheduled_reminders": reminder_count,
             "condition_watches": watch_count,
             "deployment_tool_profiles": deployment_tool_count,
             "conversation_media_references": conversation_media_count,
             "generated_media_artifacts": generated_media_count,
+            "character_core_memories": core_memory_count,
             "conversation_memory_vnext": memory_vnext_count,
             "server_wiki_pages": server_wiki_count,
             "conversation_authority_edges": authority_graph_count,
@@ -207,6 +215,14 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "local-user",
             actor_user_id,
         )
+        core_memory_count = self.core_memory_repository.claim_owner(
+            "local-user",
+            actor_user_id,
+        )
+        episodic_sql_counts = self.episodic_sql_rag_repository.claim_owner(
+            "local-user",
+            actor_user_id,
+        )
         memory_vnext_count = self.memory_vnext_repository.claim_owner(
             "local-user",
             actor_user_id,
@@ -234,10 +250,12 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "condition_watches": watch_count,
             "conversation_media_references": conversation_media_count,
             "generated_media_artifacts": generated_media_count,
+            "character_core_memories": core_memory_count,
             "conversation_memory_vnext": memory_vnext_count,
             "server_wiki_pages": server_wiki_count,
             "conversation_authority_edges": authority_graph_count,
             "conversation_consolidation_checkpoints": consolidation_checkpoint_count,
+            **episodic_sql_counts,
             **identity_counts,
             **interaction_counts,
             **expression_counts,
