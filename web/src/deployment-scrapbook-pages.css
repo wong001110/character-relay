@@ -2089,6 +2089,84 @@
   color: #4f8562;
 }
 
+/* Keep the server context readable: the selector and Server card share a row,
+   while the managed Discord connection has a full-width row of its own. */
+.portal-v2-page-frame .server-passport-shell > .server-workspace-panel {
+  gap: 16px;
+  padding: 19px 22px 18px;
+}
+
+.portal-v2-page-frame .server-workspace-selector-row {
+  grid-template-columns: minmax(250px, .78fr) minmax(0, 1.42fr);
+  gap: 14px;
+}
+
+.portal-v2-page-frame .server-workspace-selector-row > label,
+.portal-v2-page-frame .server-workspace-current-card {
+  min-height: 132px;
+  padding: 16px 18px;
+}
+
+.portal-v2-page-frame .server-workspace-connection-note {
+  grid-column: 1 / -1;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 7px 12px;
+  min-height: 82px;
+  padding: 14px 16px 12px;
+}
+
+.portal-v2-page-frame .server-workspace-connection-copy {
+  gap: 3px;
+}
+
+.portal-v2-page-frame .server-workspace-connection-copy strong {
+  font-size: .82rem;
+}
+
+.portal-v2-page-frame .server-workspace-connection-copy span,
+.portal-v2-page-frame .server-workspace-connection-copy small {
+  font-size: .64rem;
+}
+
+.portal-v2-page-frame .server-workspace-connection-policy {
+  padding-top: 7px;
+}
+
+.portal-v2-page-frame .server-passport-meta {
+  grid-template-columns: 124px minmax(0, 1fr);
+  gap: 14px;
+  margin: 14px 0 0;
+  padding: 11px 15px;
+}
+
+.portal-v2-page-frame .server-passport-label {
+  align-self: start;
+  padding-top: 4px;
+}
+
+.portal-v2-page-frame .server-passport-meta dl > div {
+  padding: 3px 12px;
+}
+
+/* The count badge stays a compact badge, never a strip over the tab title. */
+.portal-v2-page-frame .server-notebook-tabs > button small {
+  display: grid;
+  width: 26px;
+  min-width: 26px;
+  min-height: 22px;
+  place-items: center;
+  box-sizing: border-box;
+  justify-self: end;
+  padding: 2px 4px;
+  line-height: 1;
+}
+
+.portal-v2-page-frame .server-notebook-tabs > button strong {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
 @media (max-width: 1180px) {
   .portal-v2-page-frame .deployment-workspace-top {
     grid-template-columns: minmax(230px, .72fr) minmax(560px, 2fr);

@@ -1,0 +1,87 @@
+/* Shared material layer: lightly used scrapbook paper without reducing legibility. */
+:root {
+  --cr-texture-paper: url("/assets/scrapbook/paper-worn-ivory.png");
+  --cr-texture-lavender: url("/assets/scrapbook/paper-worn-lavender.png");
+  --cr-texture-ink: url("/assets/scrapbook/paper-worn-ink.png");
+}
+
+.portal-theme-light .portal-v2-topbar {
+  background-image:
+    linear-gradient(rgba(255, 251, 243, 0.9), rgba(255, 251, 243, 0.9)),
+    var(--cr-texture-paper);
+  background-size: auto, 640px 640px;
+}
+
+.portal-theme-dark .portal-v2-topbar {
+  background-image:
+    linear-gradient(rgba(17, 15, 14, 0.64), rgba(17, 15, 14, 0.64)),
+    var(--cr-texture-ink);
+  background-size: auto, 640px 640px;
+}
+
+.portal-theme-light .portal-v2-page-frame,
+.portal-theme-dark .portal-v2-page-frame,
+.cr-paper-card,
+.paper-sheet,
+.character-file-paper,
+.character-editor-book-page {
+  background-image:
+    linear-gradient(rgba(255, 252, 246, 0.78), rgba(255, 252, 246, 0.78)),
+    var(--cr-texture-paper);
+  background-size: auto, 520px 520px;
+}
+
+.cr-sticky-note,
+.cr-page-flag,
+.cr-paper-tab,
+.cr-button--primary,
+.cr-page-flag.is-active,
+.cr-paper-tab.is-active {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.22)),
+    var(--cr-texture-lavender);
+  background-size: auto, 360px 360px;
+}
+
+.cr-button:not(.cr-button--ghost):not(.cr-button--danger),
+.paper-button {
+  background-image:
+    linear-gradient(rgba(255, 252, 246, 0.42), rgba(255, 252, 246, 0.42)),
+    var(--cr-texture-paper);
+  background-size: auto, 280px 280px;
+}
+
+.cr-button--primary,
+.ink-button {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.12)),
+    var(--cr-texture-lavender);
+  background-size: auto, 280px 280px;
+}
+
+.cr-button--danger {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.18)),
+    var(--cr-texture-paper);
+  background-size: auto, 280px 280px;
+}
+
+/* Preserve transparent ghost controls and card-specific status colours. */
+.cr-button--ghost {
+  background-image: none;
+}
+
+@media (prefers-reduced-data: reduce) {
+  .portal-v2-topbar,
+  .portal-v2-page-frame,
+  .cr-paper-card,
+  .paper-sheet,
+  .cr-sticky-note,
+  .cr-page-flag,
+  .cr-paper-tab,
+  .cr-button,
+  .paper-button,
+  .ink-button {
+    background-image: none !important;
+  }
+}

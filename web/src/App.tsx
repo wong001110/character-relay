@@ -420,7 +420,6 @@ export default function App() {
         cards={cards}
         initialCharacterId={deploymentCharacterId}
         demoMode={publicDemo}
-        onClose={() => navigate("characters")}
       />,
       "deployments"
     );

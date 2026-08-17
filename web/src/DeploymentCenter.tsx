@@ -36,7 +36,6 @@ interface Props {
   cards: CharacterCard[];
   initialCharacterId?: string | null;
   demoMode?: boolean;
-  onClose: () => void;
 }
 
 interface ChannelGroup {
@@ -235,8 +234,7 @@ function toggleSet(
 export function DeploymentCenter({
   cards,
   initialCharacterId = null,
-  demoMode = false,
-  onClose
+  demoMode = false
 }: Props) {
   const { language } = useI18n();
   const zh = language === "zh-CN";
@@ -744,9 +742,6 @@ export function DeploymentCenter({
                 {zh ? "平台连接" : "Connections"}
               </button>
             )}
-            <button className="paper-button" onClick={onClose}>
-              {zh ? "返回角色库" : "Back to library"}
-            </button>
           </div>
         </header>
 

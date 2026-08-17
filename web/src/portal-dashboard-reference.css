@@ -948,9 +948,43 @@
 }
 
 .portal-v3-activity-panel {
-  min-height: 124px;
-  max-height: 145px;
-  overflow: auto;
+  display: flex;
+  min-height: 268px;
+  max-height: 268px;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.portal-v3-activity-panel .portal-v3-panel-heading {
+  flex: 0 0 auto;
+}
+
+.portal-v3-activity-panel .portal-v3-activity-list {
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.portal-v3-activity-list li > div {
+  min-width: 0;
+}
+
+.portal-v3-activity-list p {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.portal-v3-activity-list small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .portal-v3-character-panel {
@@ -1096,5 +1130,10 @@
 
   .portal-v3-dashboard-margin {
     grid-template-columns: 1fr;
+  }
+
+  .portal-v3-activity-panel {
+    min-height: 238px;
+    max-height: 238px;
   }
 }
