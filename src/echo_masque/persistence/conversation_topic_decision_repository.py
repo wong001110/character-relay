@@ -66,7 +66,6 @@ class ConversationTopicDecisionRepository:
             created_at=current,
         )
         with self.database.session() as session:
-            # Idempotent retries of the same message/decision must not create duplicate trace rows.
             existing = session.scalar(
                 select(ConversationTopicDecisionRecord).where(
                     ConversationTopicDecisionRecord.owner_id == owner_id,
@@ -79,6 +78,48 @@ class ConversationTopicDecisionRepository:
             if existing is not None and message_id:
                 return existing
             session.add(record)
+            session.commit()
+            session.refresh(record)
+            return record
+
+    def enrich_message_decision(
+        self,
+        *,
+        owner_id: str,
+        message_id: str,
+        reason: str,
+        dense_score: float,
+        sparse_score: float,
+        continuation_score: float,
+        switch_score: float,
+    ) -> ConversationTopicDecisionRecord | None:
+        """Attach the reused semantic continuity decision to the persisted transition trace."""
+
+        if not message_id:
+            return None
+        with self.database.session() as session:
+            record = session.scalar(
+                select(ConversationTopicDecisionRecord)
+                .where(
+                    ConversationTopicDecisionRecord.owner_id == owner_id,
+                    ConversationTopicDecisionRecord.message_id == message_id[:200],
+                    ConversationTopicDecisionRecord.decision.in_(
+                        ("continue", "create", "resume", "switch")
+                    ),
+                )
+                .order_by(ConversationTopicDecisionRecord.created_at.desc())
+                .limit(1)
+            )
+            if record is None:
+                return None
+            existing_reason = record.reason.strip()
+            semantic_reason = reason.strip()
+            if semantic_reason and semantic_reason not in existing_reason:
+                record.reason = f"{semantic_reason}|{existing_reason}"[:120]
+            record.dense_score = max(-1.0, min(1.0, dense_score))
+            record.sparse_score = max(0.0, min(1.0, sparse_score))
+            record.continuation_score = max(-1.0, min(1.0, continuation_score))
+            record.switch_score = max(-1.0, min(1.0, switch_score))
             session.commit()
             session.refresh(record)
             return record
