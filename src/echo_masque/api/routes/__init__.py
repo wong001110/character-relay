@@ -25,6 +25,9 @@ from echo_masque.api.routes.conversation_intelligence_observation import (
 from echo_masque.api.routes.conversation_memory_control import (
     router as conversation_memory_control_router,
 )
+from echo_masque.api.routes.conversation_retrieval_observation import (
+    router as conversation_retrieval_observation_router,
+)
 from echo_masque.api.routes.coverage import router as coverage_router
 from echo_masque.api.routes.deployments import router as deployments_router
 from echo_masque.api.routes.discord_identities import router as discord_identities_router
@@ -67,10 +70,12 @@ connectors_router.include_router(generated_media_router)
 connectors_router.include_router(planner_media_router)
 connectors_router.include_router(social_turn_interrupt_router)
 
-# Conversation Intelligence observation and explicit Core Memory controls remain under the same
-# authenticated control-plane prefix while living outside destructive governance endpoints.
+# Conversation Intelligence observation, explicit Core Memory controls, and retrieval diagnostics
+# remain under the same authenticated control-plane prefix while living outside destructive
+# governance endpoints.
 conversation_intelligence_router.include_router(conversation_intelligence_observation_router)
 conversation_intelligence_router.include_router(conversation_memory_control_router)
+conversation_intelligence_router.include_router(conversation_retrieval_observation_router)
 
 # V4 resolver shares the existing Smart Participation prefix/auth boundary. Keeping the new route
 # in a separate module avoids expanding the legacy per-message implementation during migration.
