@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from echo_masque.episodic_sql_rag import EpisodicSqlRagIndexer
 from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
+from echo_masque.persistence.episodic_sql_rag_repository import EpisodicSqlRagRepository
 
 if TYPE_CHECKING:
     from echo_masque.api.connector_schemas import DiscordInboundMessage
@@ -16,6 +18,11 @@ if TYPE_CHECKING:
 @dataclass(slots=True)
 class ConversationEpisodeProjectionService:
     repository: ConversationEpisodeRepository
+
+    def __post_init__(self) -> None:
+        self.sql_rag_indexer = EpisodicSqlRagIndexer(
+            EpisodicSqlRagRepository(self.repository.database)
+        )
 
     @staticmethod
     def _episode_key(payload: DiscordInboundMessage) -> str:
@@ -67,7 +74,7 @@ class ConversationEpisodeProjectionService:
         current = now or datetime.now(UTC)
         summary = " ".join(payload.text.split())[:800]
         key_points = [summary] if summary else []
-        self.repository.upsert_projection(
+        episode = self.repository.upsert_projection(
             owner_id=owner_id,
             platform="discord",
             connection_id=payload.connection_id,
@@ -84,6 +91,13 @@ class ConversationEpisodeProjectionService:
             key_points=key_points,
             status="closed",
             now=current,
+        )
+        # This projection is reached from a concrete Character turn. Recording the receiving
+        # deployment here means episodic recall can later prove that the Character actually had
+        # this Episode in runtime context even if it chose to stay silent.
+        self.sql_rag_indexer.index_episode(
+            episode,
+            deployment_id=payload.deployment_id,
         )
 
 
