@@ -1,8 +1,9 @@
 """Owner-scoped governance for derived Conversation Intelligence data.
 
 Raw Discord message/event evidence is intentionally outside this service. Topic, Episode, Memory,
-Wiki, Graph, Learned State, consolidation checkpoints, semantic vectors, and decision traces are
-derived/rebuildable intelligence and may be inspected or removed when historical data is polluted.
+Wiki, Graph, Learned State, consolidation checkpoints, semantic vectors, SQL-RAG indexes, and
+decision traces are derived/rebuildable intelligence and may be removed when historical data is
+polluted. Explicit Core Memory is user-controlled and is deliberately outside derived cleanup.
 """
 
 from __future__ import annotations
@@ -13,6 +14,9 @@ from datetime import UTC, datetime
 
 from sqlalchemy import delete, or_, select
 
+from echo_masque.conversation_intelligence_derived_cleanup import (
+    ConversationIntelligenceDerivedCleanup,
+)
 from echo_masque.persistence.character_learned_state_models import CharacterLearnedStateRecord
 from echo_masque.persistence.conversation_episode_models import ConversationEpisodeRecord
 from echo_masque.persistence.conversation_graph_models import (
@@ -33,6 +37,8 @@ from echo_masque.persistence.server_knowledge_models import (
 )
 
 _TOPIC_VECTOR_NAMESPACE = "conversation-topic"
+_EPISODE_VECTOR_NAMESPACE = "internal-episode-recall"
+_MEMORY_VECTOR_NAMESPACE = "internal-memory-vnext"
 
 
 def _decode_strings(raw: str) -> set[str]:
@@ -110,6 +116,7 @@ class ConversationIntelligenceGovernanceService:
     def __init__(self, database: Database) -> None:
         self.database = database
         self.topic_decisions = ConversationTopicDecisionRepository(database)
+        self.derived_cleanup = ConversationIntelligenceDerivedCleanup(database)
 
     def list_character_memories(
         self,
@@ -202,7 +209,11 @@ class ConversationIntelligenceGovernanceService:
             )
             session.delete(memory)
             session.commit()
-            return True
+        self.derived_cleanup.delete_synthesized_memory_vectors(
+            owner_id=owner_id,
+            memory_ids=(memory_id,),
+        )
+        return True
 
     def reset_character_memories(
         self,
@@ -212,6 +223,7 @@ class ConversationIntelligenceGovernanceService:
         connection_id: str,
         guild_id: str,
     ) -> int:
+        memory_ids: tuple[str, ...] = ()
         with self.database.session() as session:
             memories = list(
                 session.scalars(
@@ -223,6 +235,7 @@ class ConversationIntelligenceGovernanceService:
                     )
                 )
             )
+            memory_ids = tuple(item.id for item in memories)
             refs = [f"memory:{item.id}" for item in memories]
             if refs:
                 session.execute(
@@ -239,7 +252,11 @@ class ConversationIntelligenceGovernanceService:
             for item in memories:
                 session.delete(item)
             session.commit()
-            return len(memories)
+        self.derived_cleanup.delete_synthesized_memory_vectors(
+            owner_id=owner_id,
+            memory_ids=memory_ids,
+        )
+        return len(memory_ids)
 
     def _topic_components(
         self,
@@ -317,8 +334,10 @@ class ConversationIntelligenceGovernanceService:
         )
         if topic is None:
             return TopicDerivedImpact(topic_id=topic_id, topic_found=False)
-        episode_refs = [f"episode:{item.id}" for item in episodes]
-        memory_refs = [f"memory:{item.id}" for item in memories]
+        episode_ids = [item.id for item in episodes]
+        memory_ids = [item.id for item in memories]
+        episode_refs = [f"episode:{item}" for item in episode_ids]
+        memory_refs = [f"memory:{item}" for item in memory_ids]
         wiki_refs = [f"wiki:{item.id}" for item in wiki_pages]
         refs = [f"topic:{topic_id}", *episode_refs, *memory_refs, *wiki_refs]
         node_ids = [item.id for item in graph_nodes]
@@ -365,12 +384,25 @@ class ConversationIntelligenceGovernanceService:
                         )
                     )
                 )
+            vector_conditions = [
+                (SemanticVectorRecord.namespace == _TOPIC_VECTOR_NAMESPACE)
+                & (SemanticVectorRecord.resource_id == topic_id)
+            ]
+            if episode_ids:
+                vector_conditions.append(
+                    (SemanticVectorRecord.namespace == _EPISODE_VECTOR_NAMESPACE)
+                    & (SemanticVectorRecord.resource_id.in_(episode_ids))
+                )
+            if memory_ids:
+                vector_conditions.append(
+                    (SemanticVectorRecord.namespace == _MEMORY_VECTOR_NAMESPACE)
+                    & (SemanticVectorRecord.resource_id.in_(memory_ids))
+                )
             vectors = list(
                 session.scalars(
                     select(SemanticVectorRecord).where(
                         SemanticVectorRecord.owner_id == owner_id,
-                        SemanticVectorRecord.namespace == _TOPIC_VECTOR_NAMESPACE,
-                        SemanticVectorRecord.resource_id == topic_id,
+                        or_(*vector_conditions),
                     )
                 )
             )
@@ -403,11 +435,28 @@ class ConversationIntelligenceGovernanceService:
         )
         if topic is None:
             return TopicDerivedImpact(topic_id=topic_id, topic_found=False)
-        episode_refs = [f"episode:{item.id}" for item in episodes]
-        memory_refs = [f"memory:{item.id}" for item in memories]
+        episode_ids = tuple(item.id for item in episodes)
+        memory_ids = tuple(item.id for item in memories)
+        episode_refs = [f"episode:{item}" for item in episode_ids]
+        memory_refs = [f"memory:{item}" for item in memory_ids]
         wiki_refs = [f"wiki:{item.id}" for item in wiki_pages]
         refs = [f"topic:{topic_id}", *episode_refs, *memory_refs, *wiki_refs]
         node_ids = [item.id for item in graph_nodes]
+
+        # Remove indexes that point at Episodes/Memories before the projection rows disappear.
+        self.derived_cleanup.delete_episode_indexes(
+            owner_id=owner_id,
+            episode_ids=episode_ids,
+        )
+        self.derived_cleanup.delete_synthesized_memory_vectors(
+            owner_id=owner_id,
+            memory_ids=memory_ids,
+        )
+        self.derived_cleanup.delete_topic_learned_history(
+            owner_id=owner_id,
+            topic_id=topic_id,
+        )
+
         with self.database.session() as session:
             if node_ids:
                 session.execute(
@@ -454,16 +503,16 @@ class ConversationIntelligenceGovernanceService:
                     SemanticVectorRecord.resource_id == topic_id,
                 )
             )
-            if memories:
+            if memory_ids:
                 session.execute(
                     delete(ConversationMemoryVNextRecord).where(
-                        ConversationMemoryVNextRecord.id.in_([item.id for item in memories])
+                        ConversationMemoryVNextRecord.id.in_(memory_ids)
                     )
                 )
-            if episodes:
+            if episode_ids:
                 session.execute(
                     delete(ConversationEpisodeRecord).where(
-                        ConversationEpisodeRecord.id.in_([item.id for item in episodes])
+                        ConversationEpisodeRecord.id.in_(episode_ids)
                     )
                 )
             session.execute(
