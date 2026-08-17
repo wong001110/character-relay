@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections import OrderedDict
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -49,6 +50,25 @@ class ObservedConversationTopicMemoryService(ConversationTopicMemoryService):
         self._continuity_cache: OrderedDict[
             tuple[str, int, str], TopicContinuityDecision
         ] = OrderedDict()
+
+    @staticmethod
+    def _topic_semantic_text(topic: ConversationTopicRecord) -> str:
+        try:
+            raw_keywords = json.loads(topic.keywords_json or "[]")
+        except (json.JSONDecodeError, TypeError):
+            raw_keywords = []
+        keywords = " ".join(
+            str(item).strip() for item in raw_keywords if str(item).strip()
+        )
+        return "\n".join(
+            part
+            for part in (
+                f"Topic identity: {topic.topic_label}",
+                f"Rolling summary: {topic.summary}" if topic.summary.strip() else "",
+                f"Keywords: {keywords}" if keywords else "",
+            )
+            if part
+        )
 
     @staticmethod
     def _cache_key(
