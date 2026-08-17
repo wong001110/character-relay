@@ -232,6 +232,7 @@ class DiscordConnectorRuntime:
             trigger_text=payload.text,
             initiator_is_bot=payload.author_is_bot,
             initiator_user_id=payload.author_id,
+            topic_id=(turn_context.trace.topic_id if turn_context is not None else ""),
             operation_id=payload.runtime_operation_id,
             step_id=payload.runtime_step_id,
         )
@@ -656,6 +657,25 @@ class DiscordConnectorRuntime:
             if payload.author_is_bot
             else "The latest triggering message was written by a human Discord member."
         )
+        participation_guidance: tuple[str, ...] = ()
+        if payload.participation_guidance.strip():
+            participation_guidance = (
+                "Runtime participation hint (non-binding): "
+                + payload.participation_guidance.strip(),
+                (
+                    "Use this only as context for why your participation may be relevant. "
+                    "Your persona and the supplied conversation still determine what you say "
+                    "and which visible Smart Output action you choose."
+                ),
+            )
+        admission_guidance = (
+            (
+                "Runtime already admitted this Character for this turn; choose a natural "
+                "visible action."
+            )
+            if smart_context.participation_required
+            else "You may stay silent when that is the natural Character behavior."
+        )
         latest_message = DiscordContextMessage(
             message_id=payload.message_id,
             author_id=payload.author_id,
@@ -672,9 +692,10 @@ class DiscordConnectorRuntime:
                 "through Character Relay.",
                 f"Continue acting as {character_name} using the existing system "
                 "prompt and persona.",
-                "Decide the most natural behavior for the latest triggering message. "
-                "You do not need to speak or react to every turn.",
+                "Decide the most natural behavior for the latest triggering message.",
+                admission_guidance,
                 source_guidance,
+                *participation_guidance,
                 *interaction_guidance,
                 *smart_context.prompt_guidance(payload.expression_candidates),
                 *knowledge_guidance,

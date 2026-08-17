@@ -1,11 +1,16 @@
 import {
+  Children,
+  cloneElement,
   forwardRef,
+  isValidElement,
   type ButtonHTMLAttributes,
   type HTMLAttributes,
   type InputHTMLAttributes,
+  type ReactElement,
   type ReactNode,
   type SelectHTMLAttributes,
-  type TextareaHTMLAttributes
+  type TextareaHTMLAttributes,
+  useId
 } from "react";
 import { FunctionalIcon } from "./FunctionalIcon";
 import "./tokens.css";
@@ -51,14 +56,41 @@ export interface FormFieldProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 export function FormField({ label, htmlFor, hint, error, required = false, children, className = "", ...props }: FormFieldProps) {
+  const generatedId = `cr-field-${useId().replaceAll(":", "")}`;
+  const onlyChild = Children.count(children) === 1 && isValidElement<FormFieldControlProps>(children)
+    ? children
+    : null;
+  const autoLabelable = onlyChild ? isAutoLabelableControl(onlyChild) : false;
+  const controlId = htmlFor ?? (autoLabelable ? onlyChild?.props.id : undefined) ?? generatedId;
+  const hintId = hint ? `${controlId}-hint` : undefined;
+  const errorId = error ? `${controlId}-error` : undefined;
+  const describedBy = autoLabelable
+    ? [onlyChild?.props["aria-describedby"], hintId, errorId].filter(Boolean).join(" ") || undefined
+    : undefined;
+  const fieldChildren = autoLabelable && onlyChild
+    ? cloneElement(onlyChild, { id: controlId, "aria-describedby": describedBy })
+    : children;
+
   return (
     <div className={cx("cr-form-field", Boolean(error) && "cr-form-field--error", className)} {...props}>
-      <label className="cr-form-field__label" htmlFor={htmlFor}>{label}{required && <span className="cr-form-field__required" aria-hidden="true">*</span>}</label>
-      {hint && <div className="cr-form-field__hint">{hint}</div>}
-      {children}
-      {error && <div className="cr-form-field__error" role="alert">{error}</div>}
+      <label className="cr-form-field__label" htmlFor={autoLabelable ? controlId : htmlFor}>{label}{required && <span className="cr-form-field__required" aria-hidden="true">*</span>}</label>
+      {hint && <div className="cr-form-field__hint" id={hintId}>{hint}</div>}
+      {fieldChildren}
+      {error && <div className="cr-form-field__error" id={errorId} role="alert">{error}</div>}
     </div>
   );
+}
+
+interface FormFieldControlProps {
+  id?: string;
+  "aria-describedby"?: string;
+}
+
+function isAutoLabelableControl(child: ReactElement<FormFieldControlProps>): boolean {
+  if (typeof child.type === "string") {
+    return ["input", "select", "textarea"].includes(child.type);
+  }
+  return child.type === Input || child.type === Select || child.type === Textarea;
 }
 
 interface InvalidControlProp {
@@ -122,12 +154,12 @@ export const StickyNote = forwardRef<HTMLDivElement, StickyNoteProps>(function S
 export type PageFlagTone = "rose" | "peach" | "yellow" | "mint" | "blue" | "lavender";
 export interface PageFlagProps extends ButtonHTMLAttributes<HTMLButtonElement> { tone?: PageFlagTone; active?: boolean; }
 export const PageFlag = forwardRef<HTMLButtonElement, PageFlagProps>(function PageFlag({ className = "", tone = "lavender", active = false, type = "button", ...props }, ref) {
-  return <button ref={ref} type={type} role="tab" aria-selected={active} className={cx("cr-page-flag", `cr-page-flag--${tone}`, active && "is-active", className)} {...props} />;
+  return <button ref={ref} type={type} aria-pressed={active} className={cx("cr-page-flag", `cr-page-flag--${tone}`, active && "is-active", className)} {...props} />;
 });
 
 export interface PageFlagGroupProps extends HTMLAttributes<HTMLDivElement> { orientation?: "horizontal" | "vertical"; label?: string; }
 export function PageFlagGroup({ className = "", orientation = "vertical", label, ...props }: PageFlagGroupProps) {
-  return <div role="tablist" aria-orientation={orientation} aria-label={label} className={cx("cr-page-flag-group", `cr-page-flag-group--${orientation}`, className)} {...props} />;
+  return <div role="group" aria-label={label} className={cx("cr-page-flag-group", `cr-page-flag-group--${orientation}`, className)} {...props} />;
 }
 
 export interface PaperTabProps extends ButtonHTMLAttributes<HTMLButtonElement> { tone?: PageFlagTone; active?: boolean; }

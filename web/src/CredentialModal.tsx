@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 
 import { api, type CharacterCard, type CredentialStatus, type TargetView } from "./api";
@@ -61,8 +61,11 @@ async function configureUtilityCredential(memberId: string, value: string): Prom
 export function CredentialModal(props: Props) {
   const { t } = useI18n();
   const beforeUtilityCredentialSave = useBeforeUtilityCredentialSave();
+  const dialogRef = useRef<HTMLElement>(null);
+  const closeRef = useRef(props.onClose);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  closeRef.current = props.onClose;
   const utility = props.utility;
   const provider = utility
     ? utility.provider
@@ -71,6 +74,59 @@ export function CredentialModal(props: Props) {
     ? utility.model
     : String(props.target.config.model ?? "Unspecified model");
   const displayName = utility ? utility.name : props.card.display_name;
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const focusableElements = () => dialog
+      ? Array.from(dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )).filter((element) => !element.hasAttribute("hidden"))
+      : [];
+
+    const frame = window.requestAnimationFrame(() => {
+      const preferred = dialog?.querySelector<HTMLElement>('input:not([disabled])');
+      (preferred ?? focusableElements()[0])?.focus();
+    });
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = focusableElements();
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !dialog?.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialog?.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previouslyFocused?.focus();
+    };
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -118,6 +174,7 @@ export function CredentialModal(props: Props) {
   return createPortal(
     <div className="modal-backdrop" role="presentation" onMouseDown={props.onClose}>
       <section
+        ref={dialogRef}
         className="credential-sheet paper-sheet"
         role="dialog"
         aria-modal="true"

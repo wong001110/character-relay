@@ -1,10 +1,13 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useId,
+  useRef,
   useState,
   type InputHTMLAttributes,
   type ReactNode,
+  type RefObject,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes
 } from "react";
@@ -80,11 +83,15 @@ interface OverlayProps {
 
 function useAnimatedClose(onClose: () => void) {
   const [leaving, setLeaving] = useState(false);
-  function requestClose() {
-    if (leaving) return;
+  const leavingRef = useRef(false);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const requestClose = useCallback(() => {
+    if (leavingRef.current) return;
+    leavingRef.current = true;
     setLeaving(true);
-    window.setTimeout(onClose, 190);
-  }
+    window.setTimeout(() => onCloseRef.current(), 190);
+  }, []);
   return { leaving, requestClose };
 }
 
@@ -96,21 +103,83 @@ function CloseButton({ onClick, label }: { onClick: () => void; label: string })
   );
 }
 
+const overlayFocusSelector = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])'
+].join(",");
+
+function useOverlayLifecycle(
+  panelRef: RefObject<HTMLElement | null>,
+  requestClose: () => void
+) {
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+
+    function focusableElements() {
+      return Array.from(panelRef.current?.querySelectorAll<HTMLElement>(overlayFocusSelector) ?? [])
+        .filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        requestClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const panel = panelRef.current;
+      const focusable = focusableElements();
+      if (!panel || focusable.length === 0) {
+        event.preventDefault();
+        panel?.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !panel.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !panel.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusTimer = window.setTimeout(() => {
+      const first = focusableElements()[0];
+      (first ?? panelRef.current)?.focus();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, [panelRef, requestClose]);
+}
+
 export function PaperDrawer({ children, onClose, ariaLabel, className = "" }: OverlayProps) {
   const titleId = useId();
+  const panelRef = useRef<HTMLElement>(null);
   const { leaving, requestClose } = useAnimatedClose(onClose);
-
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) { if (event.key === "Escape") requestClose(); }
-    document.addEventListener("keydown", onKeyDown);
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.removeEventListener("keydown", onKeyDown); document.body.style.overflow = previous; };
-  }, []);
+  useOverlayLifecycle(panelRef, requestClose);
 
   return createPortal(
     <div className={`paper-drawer-backdrop${leaving ? " is-leaving" : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose(); }}>
-      <aside className={`paper-drawer-panel ${className}${leaving ? " is-leaving" : ""}`.trim()} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <aside ref={panelRef} tabIndex={-1} className={`paper-drawer-panel ${className}${leaving ? " is-leaving" : ""}`.trim()} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className="paper-drawer-topline"><span id={titleId}>{ariaLabel}</span><CloseButton onClick={requestClose} label={ariaLabel} /></div>
         {children}
       </aside>
@@ -121,19 +190,13 @@ export function PaperDrawer({ children, onClose, ariaLabel, className = "" }: Ov
 
 export function PaperModal({ children, onClose, ariaLabel, className = "" }: OverlayProps) {
   const titleId = useId();
+  const panelRef = useRef<HTMLElement>(null);
   const { leaving, requestClose } = useAnimatedClose(onClose);
-
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) { if (event.key === "Escape") requestClose(); }
-    document.addEventListener("keydown", onKeyDown);
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.removeEventListener("keydown", onKeyDown); document.body.style.overflow = previous; };
-  }, []);
+  useOverlayLifecycle(panelRef, requestClose);
 
   return createPortal(
     <div className={`paper-modal-backdrop${leaving ? " is-leaving" : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose(); }}>
-      <section className={`paper-modal-sheet ${className}${leaving ? " is-leaving" : ""}`.trim()} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <section ref={panelRef} tabIndex={-1} className={`paper-modal-sheet ${className}${leaving ? " is-leaving" : ""}`.trim()} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className="paper-modal-topline"><span id={titleId}>{ariaLabel}</span><CloseButton onClick={requestClose} label={ariaLabel} /></div>
         {children}
       </section>

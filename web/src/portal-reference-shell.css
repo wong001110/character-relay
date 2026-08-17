@@ -1,0 +1,312 @@
+/* Approved-reference chrome shared by the six scrapbook pages. */
+.portal-v3-shell {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 18% 4%, rgba(137, 103, 76, 0.2), transparent 30%),
+    linear-gradient(135deg, #31251f, #161310 48%, #3a2a22);
+}
+
+.portal-v3-shell .portal-v2-topbar {
+  position: relative;
+  z-index: 20;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.portal-v3-shell .portal-v2-brand img {
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.portal-v3-shell .portal-v2-brand {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  text-align: left;
+}
+
+.portal-v2-brand-copy {
+  min-width: 0;
+  display: grid;
+  color: #252129;
+}
+
+.portal-v2-brand-copy strong {
+  font: 700 1.08rem/1.05 "STKaiti", "KaiTi", var(--cr-font-note), sans-serif;
+  white-space: nowrap;
+}
+
+.portal-v2-brand-copy small {
+  margin-top: 3px;
+  font-size: 0.58rem;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.portal-v3-shell[data-section="dashboard"] .portal-v2-language-control,
+.portal-v3-shell[data-section="characters"] .portal-v2-language-control,
+.portal-v3-shell[data-section="deployments"] .portal-v2-language-control {
+  display: none;
+}
+
+.portal-v2-theme-toggle {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  font: 700 0.68rem/1 var(--cr-font-ui);
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.portal-v2-theme-toggle:focus-visible {
+  outline: 3px solid rgba(141, 92, 190, 0.55);
+  outline-offset: 2px;
+}
+
+.portal-theme-light .portal-v2-theme-toggle {
+  color: #493a55;
+  border-color: rgba(97, 74, 93, 0.22);
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.portal-theme-light .portal-v2-theme-toggle:hover {
+  background: rgba(235, 224, 247, 0.9);
+}
+
+.portal-theme-dark .portal-v2-theme-toggle {
+  color: #f4eadf;
+  border-color: rgba(255, 246, 235, 0.25);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.portal-theme-dark .portal-v2-theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.portal-theme-light .portal-v2-topbar {
+  min-height: 82px;
+  height: 82px;
+  grid-template-columns: minmax(230px, 290px) 1fr minmax(170px, 240px);
+  padding: 6px clamp(22px, 4vw, 68px);
+  border-bottom: 1px solid rgba(83, 65, 54, 0.18);
+  background:
+    linear-gradient(rgba(255, 251, 243, 0.95), rgba(255, 251, 243, 0.95)),
+    url("/assets/scrapbook/handmade-paper.jpg") center / 620px auto;
+  box-shadow: none;
+}
+
+.portal-theme-light .portal-v2-brand img {
+  width: 52px;
+  height: 52px;
+  filter: grayscale(1) sepia(0.25) saturate(0.55) brightness(0.38);
+}
+
+.portal-theme-light .portal-v2-main-nav button {
+  min-height: 54px;
+  padding: 8px clamp(12px, 1.5vw, 25px);
+  border-radius: 2px;
+  color: #2f2931;
+  font-size: clamp(0.78rem, 1vw, 0.98rem);
+}
+
+.portal-theme-light .portal-v2-main-nav button.is-active {
+  background: rgba(247, 243, 247, 0.82);
+  box-shadow: 0 9px 13px rgba(72, 48, 77, 0.08);
+}
+
+.portal-theme-light .portal-v2-main-nav button.is-active::after {
+  height: 4px;
+  bottom: -5px;
+  background: #8f62bf;
+  box-shadow: 0 1px 5px rgba(114, 74, 161, 0.38);
+}
+
+.portal-theme-light .portal-v2-page-frame {
+  width: calc(100% - clamp(22px, 3.4vw, 52px));
+  min-height: calc(100vh - 98px);
+  margin: 8px auto 12px;
+  border: 1px solid rgba(84, 62, 47, 0.3);
+  border-radius: 22px;
+  background:
+    linear-gradient(rgba(255, 251, 243, 0.92), rgba(255, 251, 243, 0.92)),
+    url("/assets/scrapbook/handmade-paper.jpg") center / 720px auto;
+  box-shadow:
+    0 0 0 10px rgba(54, 40, 35, 0.72),
+    0 0 0 13px rgba(167, 128, 94, 0.28),
+    0 16px 38px rgba(24, 17, 15, 0.34),
+    inset 0 0 20px rgba(113, 85, 62, 0.13);
+}
+
+.portal-theme-dark .portal-v2-topbar {
+  min-height: 74px;
+  height: 74px;
+  grid-template-columns: minmax(255px, 330px) 1fr minmax(130px, 210px);
+  padding: 5px clamp(24px, 3.3vw, 58px);
+  border: 0;
+  background:
+    radial-gradient(circle at 16% 0%, rgba(96, 78, 66, 0.2), transparent 32%),
+    linear-gradient(180deg, #171513, #0f0e0d);
+  color: #f6efe3;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+}
+
+.portal-theme-dark .portal-v2-brand img {
+  width: 50px;
+  height: 50px;
+  filter: grayscale(1) brightness(3.5) sepia(0.12);
+}
+
+.portal-theme-dark .portal-v2-brand-copy {
+  color: #f7efe4;
+}
+
+.portal-theme-dark .portal-v2-brand-copy strong {
+  font-size: 1.25rem;
+}
+
+.portal-theme-dark .portal-v2-main-nav {
+  gap: clamp(7px, 1.4vw, 24px);
+}
+
+.portal-theme-dark .portal-v2-main-nav button {
+  min-height: 50px;
+  padding: 9px clamp(10px, 1.25vw, 20px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #e8dfd4;
+  font: 0.96rem/1.1 var(--cr-font-note);
+  box-shadow: none;
+}
+
+.portal-theme-dark .portal-v2-main-nav button:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.portal-theme-dark .portal-v2-main-nav button.is-active {
+  color: #fffaf2;
+  background: transparent;
+  box-shadow: none;
+}
+
+.portal-theme-dark .portal-v2-main-nav button.is-active::after {
+  left: 18%;
+  right: 18%;
+  bottom: -2px;
+  height: 3px;
+  background: #c17bdd;
+}
+
+.portal-theme-dark .portal-v2-account {
+  color: #f8f0e5;
+}
+
+.portal-theme-dark .portal-v2-notification {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  color: #eee4d6;
+}
+
+.portal-theme-dark .portal-v2-user-chip {
+  color: #f6efe4;
+  background: transparent;
+  box-shadow: none;
+}
+
+.portal-theme-dark .portal-v2-user-chip small {
+  display: none;
+}
+
+.portal-theme-dark .portal-v2-user-avatar {
+  border-color: rgba(255, 255, 255, 0.4);
+  background: #5a405f;
+  color: white;
+}
+
+.portal-theme-dark .portal-v2-page-frame {
+  width: calc(100% - 26px);
+  min-height: calc(100vh - 88px);
+  margin: 7px auto 10px;
+  padding: clamp(22px, 2vw, 32px) clamp(18px, 2.45vw, 38px) 26px;
+  border: 1px solid rgba(88, 62, 43, 0.55);
+  border-radius: 6px 18px 15px 7px;
+  background:
+    linear-gradient(rgba(252, 247, 236, 0.91), rgba(252, 247, 236, 0.91)),
+    url("/assets/scrapbook/handmade-paper.jpg") center / 680px auto;
+  box-shadow:
+    8px 7px 0 rgba(116, 76, 51, 0.58),
+    13px 12px 0 rgba(36, 28, 23, 0.58),
+    0 18px 44px rgba(0, 0, 0, 0.44),
+    inset 0 0 22px rgba(102, 75, 52, 0.13);
+}
+
+.portal-theme-dark .portal-v2-section-marker {
+  display: none;
+}
+
+@media (max-width: 980px) {
+  .portal-theme-light .portal-v2-topbar,
+  .portal-theme-dark .portal-v2-topbar {
+    height: auto;
+    min-height: 72px;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "brand account" "nav nav";
+  }
+
+  .portal-theme-light .portal-v2-main-nav,
+  .portal-theme-dark .portal-v2-main-nav {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .portal-theme-light .portal-v2-topbar,
+  .portal-theme-dark .portal-v2-topbar {
+    padding-inline: 10px;
+  }
+
+  .portal-theme-light .portal-v2-brand img,
+  .portal-theme-dark .portal-v2-brand img {
+    width: 42px;
+    height: 42px;
+  }
+
+  .portal-v2-brand-copy strong {
+    font-size: 0.9rem;
+  }
+
+  .portal-v2-brand-copy small {
+    display: none;
+  }
+
+  .portal-v2-theme-toggle {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .portal-v2-theme-toggle span {
+    display: none;
+  }
+
+  .portal-theme-dark .portal-v2-notification {
+    display: none;
+  }
+
+  .portal-theme-light .portal-v2-page-frame,
+  .portal-theme-dark .portal-v2-page-frame {
+    width: calc(100% - 12px);
+    margin-top: 6px;
+    border-radius: 9px;
+    box-shadow: 0 8px 24px rgba(43, 31, 27, 0.25);
+  }
+}

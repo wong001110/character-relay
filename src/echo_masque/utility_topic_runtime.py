@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from echo_masque.conversation_topic import (
+    _STALE_TOPIC_AFTER,
     ConversationTopicMemoryService,
     TopicContinuityDecision,
 )
@@ -29,6 +31,8 @@ class UtilityTopicMemoryService(ConversationTopicMemoryService):
         if decision.reason in {
             "empty_message_keeps_active_topic",
             "semantic_switch_topic",
+            "stale_topic_requires_identity",
+            "unresolved_link_without_topic_evidence",
         }:
             return True
         return bool(
@@ -43,15 +47,20 @@ class UtilityTopicMemoryService(ConversationTopicMemoryService):
         *,
         text: str,
         active: ConversationTopicRecord,
+        now: datetime | None = None,
     ) -> TopicContinuityDecision:
-        base = super().classify_continuity(text=text, active=active)
+        current = now or datetime.now(UTC)
+        base = super().classify_continuity(text=text, active=active, now=current)
+        if not base.same_topic and self._idle_for(active, current) >= _STALE_TOPIC_AFTER:
+            return base
         if self._clear(base):
             return base
         prompt = "\n".join(
             (
                 f"Current message: {text[:3000]}",
-                f"Active topic: {active.topic_label[:500]}",
-                f"Topic summary: {active.summary[:1600]}",
+                f"Stable topic identity: {self._topic_semantic_text(active)[:500]}",
+                f"Recent rolling context (non-authoritative): {active.summary[:1600]}",
+                f"Base decision: {base.reason}",
                 f"E5 topic similarity: {base.topic_similarity:.4f}",
                 f"Sparse similarity: {base.sparse_similarity:.4f}",
                 f"Continuation act: {base.acts.continuation:.4f}",

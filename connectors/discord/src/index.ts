@@ -36,7 +36,8 @@ import { compareParticipationShadowPlan } from "./participationShadowParity.js";
 import {
   RelayClient,
   type DiscordParticipationShadowCandidate,
-  type DiscordParticipationShadowPlanItem
+  type DiscordParticipationShadowPlanItem,
+  type DiscordPlannerMediaResult
 } from "./relayClient.js";
 import { RecoveryLoop } from "./recoveryLoop.js";
 import {
@@ -159,6 +160,10 @@ const context = new ContextBuffer(config.maxContextMessages);
 const characterContextTurnIntelligenceMetrics =
   new CharacterContextTurnIntelligenceMetrics();
 const queues = new Map<string, Promise<void>>();
+const latestHumanTurnByDestination = new Map<
+  string,
+  { epoch: number; messageId: string }
+>();
 const processedMessages = new Map<string, number>();
 const sentCharacterRoutes = new Map<
   string,
@@ -1985,6 +1990,22 @@ async function processMessage(
     return;
   }
   const key = destinationKey(location.channelId, location.threadId);
+  const previousHumanTurn = latestHumanTurnByDestination.get(key);
+  const currentHumanTurn = options?.recovery
+    ? previousHumanTurn ?? { epoch: 0, messageId: guildMessage.id }
+    : {
+        epoch: (previousHumanTurn?.epoch ?? 0) + 1,
+        messageId: guildMessage.id
+      };
+  if (!options?.recovery) {
+    latestHumanTurnByDestination.set(key, currentHumanTurn);
+  }
+  const turnEpoch = currentHumanTurn.epoch;
+  const supersedingHumanTurn = (): { epoch: number; messageId: string } | null => {
+    const latest = latestHumanTurnByDestination.get(key);
+    if (!latest || latest.epoch === turnEpoch) return null;
+    return latest;
+  };
   const authorDisplayName =
     guildMessage.member?.displayName ??
     guildMessage.author.globalName ??
@@ -2102,6 +2123,66 @@ async function processMessage(
         }))
       : [];
 
+    let plannerMedia: DiscordPlannerMediaResult | null = null;
+    const hasPlannerMediaInput =
+      guildMessage.attachments.size > 0 ||
+      guildMessage.embeds.length > 0 ||
+      /https?:\/\//iu.test(guildMessage.content) ||
+      burstMediaMessageIds.length > 0;
+    if (hasPlannerMediaInput) {
+      try {
+        plannerMedia = await relay.resolvePlannerMedia({
+          message_id: guildMessage.id,
+          guild_id: guildMessage.guildId,
+          channel_id: location.channelId,
+          thread_id: location.threadId,
+          text: originalText || guildMessage.content,
+          burst_media_message_ids: burstMediaMessageIds
+        });
+        reportDiscordEvent({
+          level: "info",
+          eventType: "planner_media_resolved",
+          message: "Planner-only media context was resolved before Smart Participation.",
+          guildId: guildMessage.guildId,
+          guildName: guildMessage.guild.name,
+          channelId: location.channelId,
+          channelName: location.channelName,
+          threadId: location.threadId,
+          threadName: location.threadName,
+          sourceMessageId: guildMessage.id,
+          details: {
+            descriptor_count: plannerMedia.descriptors.length,
+            resolved_descriptor_count: plannerMedia.descriptors.filter(
+              (item) => item.state === "resolved" && item.topic_evidence
+            ).length,
+            media_dependency: plannerMedia.dependency,
+            dependency_locked: plannerMedia.dependency_locked
+          }
+        });
+      } catch (error) {
+        reportDiscordEvent({
+          level: "warning",
+          eventType: "planner_media_failed",
+          message: "Planner-only media resolution failed; routing continued without guessed content.",
+          guildId: guildMessage.guildId,
+          guildName: guildMessage.guild.name,
+          channelId: location.channelId,
+          channelName: location.channelName,
+          threadId: location.threadId,
+          threadName: location.threadName,
+          sourceMessageId: guildMessage.id,
+          details: { error: error instanceof Error ? error.message : String(error) }
+        });
+      }
+    }
+    const participationAnalysisText = [
+      participationText,
+      plannerMedia?.planning_text ?? ""
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+
     let interactionClaim: DiscordInteractionClaim = interactionClaimOverride ?? {
       claimed: false,
       run_id: null,
@@ -2170,6 +2251,13 @@ async function processMessage(
     let serverSpeakerPlan: DiscordParticipationShadowPlanItem[] | undefined;
     let serverSpeakerPlanAuthoritative = false;
     let serverShadowPlan: DiscordParticipationShadowPlanItem[] | undefined;
+    let serverConversationPlannerPlan:
+      | DiscordParticipationShadowPlanItem[]
+      | undefined;
+    let serverConversationPlannerAuthoritative = false;
+    let serverConversationPlannerAccepted = false;
+    let serverConversationPlannerRolloutBucket = 0;
+    let serverConversationPlannerRolloutPercent = 0;
     let serverShadowCandidateScores:
       | DiscordParticipationShadowCandidate[]
       | undefined;
@@ -2182,12 +2270,12 @@ async function processMessage(
     if (
       config.smartParticipationEnabled &&
       !replyTarget.deploymentId &&
-      participationText.trim()
+      participationAnalysisText.trim()
     ) {
       const semanticPreflightNow = Date.now();
       const semanticPreflight = preflightSmartParticipationRuntime(
         candidates,
-        participationText,
+        participationAnalysisText,
         semanticPreflightNow,
         smartRuntimeScopeKey
       );
@@ -2196,14 +2284,14 @@ async function processMessage(
       const baseEvidenceById = new Map(
         buildSmartParticipationBaseEvidence(
           candidates,
-          participationText,
+          participationAnalysisText,
           semanticPreflightNow
         ).map((item) => [item.deploymentId, item])
       );
       if (!semanticPreflight.skipSemantic && smartDeploymentIds.length) {
         try {
           const semantic = await relay.scoreSmartParticipation({
-            message: participationText,
+            message: participationAnalysisText,
             deployment_ids: smartDeploymentIds,
             guild_id: guildMessage.guildId,
             channel_id: location.channelId,
@@ -2218,6 +2306,9 @@ async function processMessage(
             channel_cooldown_seconds: config.smartParticipationChannelCooldownSeconds,
             window_seconds: config.smartParticipationWindowSeconds,
             max_replies_per_window: config.smartParticipationMaxRepliesPerWindow,
+            media_descriptors: plannerMedia?.descriptors ?? [],
+            media_dependency: plannerMedia?.dependency ?? "none",
+            media_dependency_locked: plannerMedia?.dependency_locked ?? false,
             candidate_preflight: smartDeploymentIds.map((deploymentId) => {
               const evidence = baseEvidenceById.get(deploymentId);
               return {
@@ -2233,6 +2324,17 @@ async function processMessage(
           serverSpeakerPlanAuthoritative = Boolean(semantic.speaker_plan_authoritative);
           serverShadowPlan = semantic.shadow_speaker_plan;
           serverShadowCandidateScores = semantic.shadow_candidate_scores;
+          serverConversationPlannerPlan = semantic.conversation_planner_shadow_plan;
+          serverConversationPlannerAuthoritative = Boolean(
+            semantic.conversation_planner_authoritative
+          );
+          serverConversationPlannerAccepted = Boolean(
+            semantic.conversation_planner_accepted
+          );
+          serverConversationPlannerRolloutBucket =
+            semantic.conversation_planner_rollout_bucket ?? 0;
+          serverConversationPlannerRolloutPercent =
+            semantic.conversation_planner_rollout_percent ?? 0;
           if (semantic.available) {
             for (const candidate of semantic.candidates) {
               if (candidate.profile_ready && Number.isFinite(candidate.semantic_relevance)) {
@@ -2268,6 +2370,18 @@ async function processMessage(
               shadow_speaker_plan: semantic.shadow_speaker_plan ?? [],
               shadow_candidate_scores: semantic.shadow_candidate_scores ?? [],
               speaker_plan_authoritative: semantic.speaker_plan_authoritative ?? false,
+              conversation_plan_version: semantic.conversation_plan_version ?? null,
+              conversation_planner_used: semantic.conversation_planner_used ?? false,
+              conversation_planner_accepted:
+                semantic.conversation_planner_accepted ?? false,
+              conversation_planner_authoritative:
+                semantic.conversation_planner_authoritative ?? false,
+              conversation_planner_rollout_bucket:
+                semantic.conversation_planner_rollout_bucket ?? null,
+              conversation_planner_rollout_percent:
+                semantic.conversation_planner_rollout_percent ?? null,
+              conversation_planner_shadow_plan:
+                semantic.conversation_planner_shadow_plan ?? [],
               scores: semantic.candidates.map((candidate) => ({
                 deployment_id: candidate.deployment_id,
                 semantic_relevance: candidate.semantic_relevance,
@@ -2489,6 +2603,41 @@ async function processMessage(
         }
       });
     }
+    if (serverConversationPlannerAccepted) {
+      const proposedIds = (serverConversationPlannerPlan ?? []).map(
+        (item) => item.deployment_id
+      );
+      const actualIds = [...actualSmartDeploymentIds];
+      const proposed = new Set(proposedIds);
+      const actual = new Set(actualIds);
+      const overlap = proposedIds.filter((item) => actual.has(item)).length;
+      const extra = proposedIds.filter((item) => !actual.has(item));
+      const missing = actualIds.filter((item) => !proposed.has(item));
+      reportDiscordEvent({
+        level: "info",
+        eventType: "conversation_planner_shadow_outcome",
+        message: "Conversation Planner admission outcome was compared with the current authority.",
+        guildId: guildMessage.guildId,
+        guildName: guildMessage.guild.name,
+        channelId: location.channelId,
+        channelName: location.channelName,
+        threadId: location.threadId,
+        threadName: location.threadName,
+        sourceMessageId: guildMessage.id,
+        details: {
+          authoritative: serverConversationPlannerAuthoritative,
+          rollout_bucket: serverConversationPlannerRolloutBucket,
+          rollout_percent: serverConversationPlannerRolloutPercent,
+          proposed_count: proposedIds.length,
+          actual_count: actualIds.length,
+          overlap_count: overlap,
+          extra_ids: extra,
+          missing_ids: missing,
+          flood_delta: proposedIds.length - actualIds.length
+        }
+      });
+    }
+
     if (!audience.deployments.length) {
       if (mentionedBot || replyTarget.characterMessage) {
         reportDiscordEvent({
@@ -2655,6 +2804,58 @@ async function processMessage(
       (socialTurnEnabled && socialNextTurn) ||
       (!socialTurnEnabled && legacyQueue.length)
     ) {
+      const supersedingTurn = supersedingHumanTurn();
+      if (supersedingTurn) {
+        if (socialTurnEnabled && durableOperationId) {
+          try {
+            await relay.cancelSocialTurnOperation({
+              operation_id: durableOperationId,
+              guild_id: guildMessage.guildId,
+              channel_id: location.channelId,
+              thread_id: location.threadId,
+              superseding_message_id: supersedingTurn.messageId,
+              reason: "new_human_input"
+            });
+          } catch (error) {
+            reportDiscordEvent({
+              level: "warning",
+              eventType: "social_turn_interrupt_failed",
+              message: "A newer human turn arrived, but durable Social Turn cancellation failed.",
+              guildId: guildMessage.guildId,
+              guildName: guildMessage.guild.name,
+              channelId: location.channelId,
+              channelName: location.channelName,
+              threadId: location.threadId,
+              threadName: location.threadName,
+              sourceMessageId: guildMessage.id,
+              details: {
+                operation_id: durableOperationId,
+                superseding_message_id: supersedingTurn.messageId,
+                error: error instanceof Error ? error.message : String(error)
+              }
+            });
+          }
+        }
+        reportDiscordEvent({
+          level: "info",
+          eventType: "participation_plan_interrupted",
+          message: "A newer human message superseded the remaining sequential Character plan.",
+          guildId: guildMessage.guildId,
+          guildName: guildMessage.guild.name,
+          channelId: location.channelId,
+          channelName: location.channelName,
+          threadId: location.threadId,
+          threadName: location.threadName,
+          sourceMessageId: guildMessage.id,
+          details: {
+            completed_character_responses: processedResponses,
+            superseding_message_id: supersedingTurn.messageId,
+            remaining_legacy_turns: legacyQueue.length,
+            durable_operation_id: durableOperationId || null
+          }
+        });
+        break;
+      }
       const pendingTurn: DiscordSocialPendingTurn = socialTurnEnabled
         ? (socialNextTurn as DiscordSocialPendingTurn)
         : {
@@ -2769,6 +2970,12 @@ async function processMessage(
           : guildMessage.author.id,
         author_display_name: sourceDisplayName,
         text: turnText,
+        participation_guidance:
+          !socialSource && smartParticipationAudience
+            ? (serverSpeakerPlan ?? []).find(
+                (item) => item.deployment_id === deployment.deployment_id
+              )?.guidance ?? ""
+            : "",
         mentioned_bot: socialSource ? true : mentionedBot,
         replied_to_bot: socialSource ? false : isReplyToCharacter,
         smart_candidate: socialSource
@@ -2779,6 +2986,10 @@ async function processMessage(
         emojis: socialSource ? [] : emojis,
         stickers: socialSource ? [] : stickers,
         burst_media_message_ids: socialSource ? [] : burstMediaMessageIds,
+        conversation_burst_id: socialSource ? "" : participationBurstId,
+        burst_source_message_ids: socialSource
+          ? []
+          : participationBurstMessages.map((item) => item.message_id),
         interaction_session_id: "",
         interaction_type: "",
         interaction_intensity: "",
@@ -3033,6 +3244,12 @@ async function processMessage(
           expression_resource_key: execution.resourceKey || null,
           expression_fallback: execution.fallback,
           latency_ms: reply.latency_ms ?? null,
+          input_tokens: reply.input_tokens ?? null,
+          output_tokens: reply.output_tokens ?? null,
+          conversation_planner_proposed: (serverConversationPlannerPlan ?? []).some(
+            (item) => item.deployment_id === deployment.deployment_id
+          ),
+          conversation_planner_authoritative: serverConversationPlannerAuthoritative,
           identity_mode: deployment.identity_mode,
           webhook_status: deployment.webhook_status
         }

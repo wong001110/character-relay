@@ -15,9 +15,11 @@ export type PortalSection =
 
 interface Props {
   active: PortalSection;
+  theme: "light" | "dark";
   user: AuthUser;
   publicDemo: boolean;
   onNavigate: (section: PortalSection) => void;
+  onThemeToggle: () => void;
   children: ReactNode;
 }
 
@@ -36,9 +38,11 @@ const navItems: Array<{
 
 export function PortalShell({
   active,
+  theme,
   user,
   publicDemo,
   onNavigate,
+  onThemeToggle,
   children
 }: Props) {
   const { language } = useI18n();
@@ -47,10 +51,18 @@ export function PortalShell({
   const activeItem = navItems.find((item) => item.id === active) ?? navItems[0];
 
   return (
-    <div className="portal-v2-shell portal-v3-shell">
+    <div
+      className={`portal-v2-shell portal-v3-shell portal-theme-${theme}`}
+      data-theme={theme}
+      data-section={active}
+    >
       <header className="portal-v2-topbar">
         <button type="button" className="portal-v2-brand" onClick={() => onNavigate("dashboard")} aria-label="Character Relay">
-          <img src="/assets/brand/character-relay-wordmark.png" alt="Character Relay" />
+          <img src="/assets/brand/character-relay-mark.png" alt="" aria-hidden="true" />
+          <span className="portal-v2-brand-copy">
+            <strong>Character Relay</strong>
+            <small>{zh ? "角色研究工作室" : "AI Characters in the Real World"}</small>
+          </span>
         </button>
 
         <nav className="portal-v2-main-nav" aria-label={zh ? "主要导航" : "Primary navigation"}>
@@ -63,8 +75,24 @@ export function PortalShell({
         </nav>
 
         <div className="portal-v2-account">
-          <LanguageSwitcher />
+          <span className="portal-v2-language-control"><LanguageSwitcher /></span>
           {publicDemo && <span className="portal-v2-demo-stamp">DEMO</span>}
+          {theme === "dark" && (
+            <span className="portal-v2-notification" aria-hidden="true">
+              <FunctionalIcon name="bell" size={20} />
+            </span>
+          )}
+          <button
+            type="button"
+            className="portal-v2-theme-toggle"
+            onClick={onThemeToggle}
+            aria-pressed={theme === "dark"}
+            aria-label={theme === "dark" ? (zh ? "切换到浅色主题" : "Switch to light theme") : (zh ? "切换到深色主题" : "Switch to dark theme")}
+            title={theme === "dark" ? (zh ? "切换到浅色主题" : "Switch to light theme") : (zh ? "切换到深色主题" : "Switch to dark theme")}
+          >
+            <FunctionalIcon name={theme === "dark" ? "sun" : "moon"} size={16} />
+            <span>{theme === "dark" ? (zh ? "深色" : "Dark") : (zh ? "浅色" : "Light")}</span>
+          </button>
           <button type="button" className="portal-v2-user-chip" onClick={() => onNavigate("settings")}>
             <span className="portal-v2-user-avatar" aria-hidden="true">{initials}</span>
             <span><strong>{user.display_name}</strong><small>{user.role === "admin" ? "Super Admin ✦" : "Creator"}</small></span>
@@ -74,7 +102,11 @@ export function PortalShell({
       </header>
 
       <div className="portal-v2-page-frame" data-section={active}>
-        <StickyLabel className="portal-v2-section-marker">NOTEBOOK / {zh ? activeItem.zh : activeItem.en}</StickyLabel>
+        <StickyLabel className="portal-v2-section-marker">
+          {active === "dashboard"
+            ? zh ? "创作研究桌" : "CREATOR DESK"
+            : `NOTEBOOK / ${zh ? activeItem.zh : activeItem.en}`}
+        </StickyLabel>
         <div className="portal-v2-corner-tape portal-v2-corner-tape-left" aria-hidden="true" />
         <div className="portal-v2-corner-tape portal-v2-corner-tape-right" aria-hidden="true" />
         {children}

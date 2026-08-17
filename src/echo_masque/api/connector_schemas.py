@@ -306,6 +306,7 @@ class DiscordInboundMessage(BaseModel):
     author_id: str = Field(min_length=1, max_length=200)
     author_display_name: str = Field(min_length=1, max_length=160)
     text: str = Field(default="", max_length=10000)
+    participation_guidance: str = Field(default="", max_length=240)
     emojis: list[ExpressionContent] = Field(default_factory=list, max_length=20)
     mentioned_bot: bool = False
     replied_to_bot: bool = False
@@ -316,6 +317,8 @@ class DiscordInboundMessage(BaseModel):
     attachments: list[DiscordAttachmentContent] = Field(default_factory=list, max_length=10)
     embeds: list[DiscordEmbedContent] = Field(default_factory=list, max_length=10)
     burst_media_message_ids: list[str] = Field(default_factory=list, max_length=3)
+    conversation_burst_id: str = Field(default="", max_length=80)
+    burst_source_message_ids: list[str] = Field(default_factory=list, max_length=20)
     available_characters: list[str] = Field(default_factory=list, max_length=30)
     mentionable_participants: list[DiscordActionParticipant] = Field(
         default_factory=list, max_length=20

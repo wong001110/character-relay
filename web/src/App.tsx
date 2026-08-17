@@ -17,6 +17,7 @@ import { CharacterCreator } from "./CharacterCreator";
 import { CharacterShelf } from "./CharacterShelf";
 import { CoverageLab } from "./CoverageLab";
 import { DeploymentCenter } from "./DeploymentCenter";
+import { deploymentApi, type CharacterDeployment } from "./deploymentApi";
 import { EvaluationLab } from "./EvaluationLab";
 import { useI18n } from "./i18n";
 import { MatrixWorkspace } from "./MatrixWorkspace";
@@ -38,8 +39,20 @@ import "./provider-traces.css";
 import "./notebook-ui.css";
 import "./admin-runtimes.css";
 import "./portal-v2.css";
+import "./portal-reference-shell.css";
 
 const SHOW_ADVANCED_LABS = false;
+type PortalTheme = "light" | "dark";
+const THEME_STORAGE_KEY = "character-relay-theme";
+
+function initialTheme(): PortalTheme {
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    return stored === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
 
 export default function App() {
   const { language, t } = useI18n();
@@ -49,9 +62,12 @@ export default function App() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [cards, setCards] = useState<CharacterCard[]>([]);
   const [targets, setTargets] = useState<TargetView[]>([]);
+  const [deployments, setDeployments] = useState<CharacterDeployment[]>([]);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [section, setSection] = useState<PortalSection>("dashboard");
+  const [theme, setTheme] = useState<PortalTheme>(initialTheme);
   const [activeCard, setActiveCard] = useState<CharacterCard | null>(null);
+  const [fileCard, setFileCard] = useState<CharacterCard | null>(null);
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<CharacterCard | null>(null);
   const [promptCard, setPromptCard] = useState<CharacterCard | null>(null);
@@ -102,20 +118,33 @@ export default function App() {
     if (workspaceAllowed) void load();
   }, [workspaceAllowed]);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // Theme preference is cosmetic; rendering must not depend on storage access.
+    }
+  }, [theme]);
+
   async function load() {
     try {
-      const [nextCards, nextTargets, nextRuntime] = await Promise.all([
+      const [nextCards, nextTargets, nextDeployments, nextRuntime] = await Promise.all([
         api.listCharacters(),
         api.listTargets(),
+        deploymentApi.listDeployments(),
         api.getRuntimeStatus()
       ]);
       setCards(nextCards);
       setTargets(nextTargets);
+      setDeployments(nextDeployments);
       setRuntime(nextRuntime);
       setActiveCard((current) =>
         current ? nextCards.find((item) => item.id === current.id) ?? null : null
       );
       setPromptCard((current) =>
+        current ? nextCards.find((item) => item.id === current.id) ?? null : null
+      );
+      setFileCard((current) =>
         current ? nextCards.find((item) => item.id === current.id) ?? null : null
       );
       setError(null);
@@ -127,9 +156,11 @@ export default function App() {
   function clearWorkspaceState() {
     setCards([]);
     setTargets([]);
+    setDeployments([]);
     setRuntime(null);
     setSection("dashboard");
     setActiveCard(null);
+    setFileCard(null);
     setCreatorOpen(false);
     setEditingCard(null);
     setPromptCard(null);
@@ -161,6 +192,7 @@ export default function App() {
   function saved(card: CharacterCard) {
     setCreatorOpen(false);
     setEditingCard(null);
+    setFileCard(card);
     setCards((current) =>
       current.some((item) => item.id === card.id)
         ? current.map((item) => (item.id === card.id ? card : item))
@@ -196,6 +228,9 @@ export default function App() {
     setMatrixOpen(false);
     if (next !== "characters") {
       setActiveCard(null);
+      setFileCard(null);
+      setCreatorOpen(false);
+      setEditingCard(null);
       setPromptCard(null);
     }
     if (next !== "deployments") setDeploymentCharacterId(null);
@@ -206,15 +241,20 @@ export default function App() {
     navigate("deployments");
   }
 
-  function withShell(content: ReactNode, active: PortalSection = section) {
+  function withShell(
+    content: ReactNode,
+    active: PortalSection = section
+  ) {
     if (!user) return content;
     return (
       <>
         <PortalShell
           active={active}
+          theme={theme}
           user={user}
           publicDemo={publicDemo}
           onNavigate={navigate}
+          onThemeToggle={() => setTheme((current) => current === "light" ? "dark" : "light")}
         >
           {content}
         </PortalShell>
@@ -365,6 +405,7 @@ export default function App() {
         onNavigate={navigate}
         onCreateCharacter={() => {
           setSection("characters");
+          setFileCard(null);
           setEditingCard(null);
           setCreatorOpen(true);
         }}
@@ -411,6 +452,22 @@ export default function App() {
     );
   }
 
+  if (creatorOpen && !publicDemo) {
+    return withShell(
+      <CharacterCreator
+        targets={targets}
+        card={editingCard}
+        target={editingTarget}
+        onClose={() => {
+          setCreatorOpen(false);
+          setEditingCard(null);
+        }}
+        onSaved={saved}
+      />,
+      "characters"
+    );
+  }
+
   if (activeCard) {
     const target = targets.find((item) => item.id === activeCard.target_id);
     if (!target) {
@@ -443,13 +500,20 @@ export default function App() {
     <>
       <CharacterShelf
         cards={cards}
+        targets={targets}
+        deployments={deployments}
+        selectedCard={fileCard}
         error={error}
         demoMode={publicDemo}
         onCreate={() => {
+          setFileCard(null);
           setEditingCard(null);
           setCreatorOpen(true);
         }}
+        onOpenFile={setFileCard}
+        onCloseFile={() => setFileCard(null)}
         onEdit={(card) => {
+          setFileCard(card);
           setEditingCard(card);
           setCreatorOpen(true);
         }}
@@ -457,18 +521,6 @@ export default function App() {
         onEnter={setActiveCard}
         onDeploy={(card) => openDeployments(card.id)}
       />
-      {creatorOpen && !publicDemo && (
-        <CharacterCreator
-          targets={targets}
-          card={editingCard}
-          target={editingTarget}
-          onClose={() => {
-            setCreatorOpen(false);
-            setEditingCard(null);
-          }}
-          onSaved={saved}
-        />
-      )}
       {promptCard && (
         <PromptInspector card={promptCard} onClose={() => setPromptCard(null)} />
       )}

@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import {
   api,
@@ -10,14 +10,15 @@ import {
   type TargetView,
   type TestKind
 } from "./api";
+import { CharacterPortrait } from "./CharacterPortrait";
 import { ApiKeyField, ProviderSelect } from "./components/shared";
 import {
   Button,
   FormField,
+  FunctionalIcon,
   Input,
   PageFlag,
   PageFlagGroup,
-  PaperDrawer,
   PaperTab,
   Select,
   Spinner,
@@ -25,6 +26,7 @@ import {
   StickyNote,
   Textarea,
   Toast,
+  type FunctionalIconName,
   type PageFlagTone
 } from "./components/ui";
 import { useI18n } from "./i18n";
@@ -51,16 +53,17 @@ type EditorSection =
 const editorSections: Array<{
   id: EditorSection;
   tone: PageFlagTone;
+  icon: FunctionalIconName;
   en: string;
   zh: string;
 }> = [
-  { id: "identity", tone: "lavender", en: "Identity", zh: "身份" },
-  { id: "persona", tone: "peach", en: "Persona", zh: "人物" },
-  { id: "voice", tone: "blue", en: "Voice", zh: "语气" },
-  { id: "boundaries", tone: "rose", en: "Boundaries", zh: "边界" },
-  { id: "memory", tone: "yellow", en: "Memory", zh: "记忆" },
-  { id: "runtime", tone: "mint", en: "Runtime", zh: "模型" },
-  { id: "review", tone: "lavender", en: "Review", zh: "确认" }
+  { id: "identity", tone: "lavender", icon: "identity", en: "Identity", zh: "身份" },
+  { id: "persona", tone: "peach", icon: "persona", en: "Persona", zh: "人物" },
+  { id: "voice", tone: "blue", icon: "voice", en: "Voice", zh: "语气" },
+  { id: "boundaries", tone: "rose", icon: "boundaries", en: "Boundaries", zh: "边界" },
+  { id: "memory", tone: "yellow", icon: "memory", en: "Memory", zh: "记忆" },
+  { id: "runtime", tone: "mint", icon: "settings", en: "Runtime", zh: "模型" },
+  { id: "review", tone: "lavender", icon: "review", en: "Review", zh: "确认" }
 ];
 
 const allSuites: TestKind[] = [
@@ -68,6 +71,25 @@ const allSuites: TestKind[] = [
   "false_memory",
   "prompt_injection",
   "long_conversation_drift"
+];
+
+const aiDraftSections = new Set<EditorSection>([
+  "identity",
+  "persona",
+  "voice",
+  "boundaries",
+  "memory"
+]);
+
+const portraitOptions: Array<{
+  value: CharacterCard["portrait_variant"];
+  motif: string;
+  labelKey: "palette.lavender" | "palette.rose" | "palette.mint" | "palette.night";
+}> = [
+  { value: "lavender", motif: "❋", labelKey: "palette.lavender" },
+  { value: "rose", motif: "✿", labelKey: "palette.rose" },
+  { value: "mint", motif: "❀", labelKey: "palette.mint" },
+  { value: "night", motif: "✦", labelKey: "palette.night" }
 ];
 
 const providerNoteKeys = {
@@ -134,15 +156,20 @@ export function CharacterCreator({
 
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [assistantOpen, setAssistantOpen] = useState(!editing);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantBrief, setAssistantBrief] = useState("");
   const [assistantRelationship, setAssistantRelationship] = useState("");
   const [assistantConstraints, setAssistantConstraints] = useState("");
   const [assistantWorking, setAssistantWorking] = useState(false);
   const [assistantMessage, setAssistantMessage] = useState<string | null>(null);
+  const [assistantDrafted, setAssistantDrafted] = useState(false);
 
   const promptFields = bindingMode === "prompt" || target?.target_kind === "prompt_model";
   const sectionIndex = editorSections.findIndex((item) => item.id === editorSection);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, [editorSection]);
 
   function changeProvider(nextProvider: ProviderId) {
     const preset = getProviderPreset(nextProvider);
@@ -223,6 +250,7 @@ export function CharacterCreator({
       setForbiddenBehaviors(suggestion.forbidden_behaviors.join("\n"));
       setMemorySummary(suggestion.memory_summary);
       if (promptFields) setSystemPrompt(suggestion.system_prompt);
+      setAssistantDrafted(true);
       setAssistantMessage(
         zh
           ? `已使用 ${suggestion.provider_model} 填入草稿。黄色标记代表仍需逐页确认；Provider 与 API Key 未被修改。`
@@ -312,23 +340,32 @@ export function CharacterCreator({
         return (
           <section className="character-editor-page" aria-labelledby="character-editor-page-title">
             <header><StickyLabel variant="neutral">01 / IDENTITY</StickyLabel><h3 id="character-editor-page-title">{zh ? "角色名片" : "Character identity"}</h3><p>{zh ? "先让别人能在十秒内理解这个角色是谁。" : "Make the character understandable in ten seconds."}</p></header>
-            <div className="character-editor-fields">
-              <FormField label={t("creator.displayName")} hint={zh ? "角色在列表、Discord 与测试房中显示的名称。" : "Shown in the shelf, Discord, and test rooms."} required>
-                <Input value={displayName} onChange={(event) => setDisplayName(event.currentTarget.value)} placeholder={t("creator.displayNamePlaceholder")} autoFocus />
-              </FormField>
-              <FormField label={t("creator.subtitle")} hint={zh ? "一句话说明身份、关系或主要用途。" : "A short role, relationship, or purpose."}>
-                <Input value={subtitle} onChange={(event) => setSubtitle(event.currentTarget.value)} placeholder={t("creator.subtitlePlaceholder")} />
-              </FormField>
-              <FormField label={t("creator.subjectType")} hint={zh ? "用于角色库筛选，不会直接改变 Prompt。" : "Used for shelf filtering; it does not directly change the prompt."}>
-                <Select value={subjectType} onChange={(event) => setSubjectType(event.currentTarget.value as CharacterCard["subject_type"])}>
-                  <option value="companion">{t("subject.companion")}</option><option value="npc">{t("subject.npc")}</option><option value="assistant">{t("subject.assistant")}</option><option value="custom">{t("subject.custom")}</option>
-                </Select>
-              </FormField>
-              <FormField label={t("creator.portraitPalette")} hint={zh ? "角色卡与无图片状态的默认色调。" : "Default palette for the character card and portrait fallback."}>
-                <Select value={portraitVariant} onChange={(event) => setPortraitVariant(event.currentTarget.value as CharacterCard["portrait_variant"])}>
-                  <option value="lavender">{t("palette.lavender")}</option><option value="rose">{t("palette.rose")}</option><option value="mint">{t("palette.mint")}</option><option value="night">{t("palette.night")}</option>
-                </Select>
-              </FormField>
+            <div className="character-editor-identity-layout">
+              <div className="character-editor-fields">
+                <FormField label={t("creator.displayName")} hint={zh ? "角色在列表、Discord 与测试房中显示的名称。" : "Shown in the shelf, Discord, and test rooms."} required>
+                  <Input value={displayName} onChange={(event) => setDisplayName(event.currentTarget.value)} placeholder={t("creator.displayNamePlaceholder")} autoFocus />
+                </FormField>
+                <FormField label={t("creator.subtitle")} hint={zh ? "一句话说明身份、关系或主要用途。" : "A short role, relationship, or purpose."}>
+                  <Input value={subtitle} onChange={(event) => setSubtitle(event.currentTarget.value)} placeholder={t("creator.subtitlePlaceholder")} />
+                </FormField>
+                <FormField label={t("creator.subjectType")} hint={zh ? "用于角色库筛选，不会直接改变 Prompt。" : "Used for shelf filtering; it does not directly change the prompt."}>
+                  <Select value={subjectType} onChange={(event) => setSubjectType(event.currentTarget.value as CharacterCard["subject_type"])}>
+                    <option value="companion">{t("subject.companion")}</option><option value="npc">{t("subject.npc")}</option><option value="assistant">{t("subject.assistant")}</option><option value="custom">{t("subject.custom")}</option>
+                  </Select>
+                </FormField>
+                <FormField className="character-editor-about" label={zh ? "关于这个角色（可选）" : "About this character (optional)"} hint={zh ? "概括背景、动机和关系；Persona 页可以继续完善。" : "Summarize background, motives, and relationships. You can refine this on the Persona page."}><Textarea rows={4} value={personaSummary} onChange={(event) => setPersonaSummary(event.currentTarget.value)} placeholder={t("creator.personaPlaceholder")} /></FormField>
+              </div>
+              <aside className={`character-editor-preview portrait-${portraitVariant}`} aria-label={zh ? "角色预览" : "Character preview"}>
+                <span>{zh ? "即时预览" : "LIVE PREVIEW"}</span>
+                <div>{card ? <CharacterPortrait cardId={card.id} alt={displayName || card.display_name} /> : <img src="/assets/character-silhouette.svg" alt="" />}</div>
+                <strong>{displayName || (zh ? "未命名角色" : "Unnamed character")}</strong>
+                <small>{subtitle || t(`subject.${subjectType}`)}</small>
+              </aside>
+              <fieldset className="character-editor-portrait-options">
+                <legend>{zh ? "画像配色" : "Portrait Variant"}</legend>
+                <div>{portraitOptions.map((option) => <button type="button" className={`portrait-${option.value}${portraitVariant === option.value ? " is-selected" : ""}`} aria-pressed={portraitVariant === option.value} onClick={() => setPortraitVariant(option.value)} key={option.value}><span aria-hidden="true">{option.motif}</span><small>{t(option.labelKey)}</small></button>)}</div>
+                <p>{zh ? "保存后仍可从角色档案更换画像。" : "You can change the portrait after the file is saved."}</p>
+              </fieldset>
             </div>
           </section>
         );
@@ -358,7 +395,10 @@ export function CharacterCreator({
         return (
           <section className="character-editor-page">
             <header><StickyLabel variant="danger">04 / BOUNDARIES</StickyLabel><h3>{zh ? "行为边界" : "Behavior boundaries"}</h3><p>{zh ? "写清楚哪些行为一出现就代表角色失真，以及应该避免什么。" : "List concrete behaviors that indicate drift and what the character must avoid."}</p></header>
-            <FormField label={t("creator.forbidden")} hint={zh ? "每行一个禁区，例如泄露系统提示、虚构共同记忆、突然改变关系定位。" : "Use one boundary per line, such as revealing prompts, inventing shared memories, or changing relationship status."}><Textarea rows={10} value={forbiddenBehaviors} onChange={(event) => setForbiddenBehaviors(event.currentTarget.value)} placeholder={t("creator.forbiddenPlaceholder")} /></FormField>
+            <div className="character-boundary-editor">
+              <FormField label={t("creator.forbidden")} hint={zh ? "每行一个禁区，例如泄露系统提示、虚构共同记忆、突然改变关系定位。" : "Use one boundary per line, such as revealing prompts, inventing shared memories, or changing relationship status."}><Textarea rows={10} value={forbiddenBehaviors} onChange={(event) => setForbiddenBehaviors(event.currentTarget.value)} placeholder={t("creator.forbiddenPlaceholder")} /></FormField>
+              <StickyNote variant="warning" size="md"><strong>{zh ? "当前边界清单" : "CURRENT BOUNDARIES"}</strong>{splitList(forbiddenBehaviors).length > 0 ? <ol>{splitList(forbiddenBehaviors).map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ol> : <p>{zh ? "每写一行，这里就会增加一条可检查的边界。" : "Each line becomes a reviewable boundary here."}</p>}</StickyNote>
+            </div>
           </section>
         );
       case "memory":
@@ -398,26 +438,47 @@ export function CharacterCreator({
   };
 
   return (
-    <PaperDrawer onClose={onClose} ariaLabel={editing ? t("creator.editHeading") : t("creator.heading")} className="character-editor-drawer character-editor-drawer-v3">
+    <main className="notebook-shell character-creator-page">
       <form className="character-editor-notebook" onSubmit={submit}>
         <header className="notebook-form-intro character-editor-intro">
-          <p className="tape-label">{editing ? t("creator.editLabel") : t("creator.label")}</p>
-          <h2>{editing ? t("creator.editHeading") : t("creator.heading")}</h2>
-          <p>{zh ? "这次不是滚动长表单：每张索引贴都是一页角色档案，最后在 Review 页一次确认。" : "This is a real indexed character notebook: one page per topic, with one final Review before saving."}</p>
+          <Button type="button" variant="ghost" onClick={onClose}>← {zh ? "返回角色档案" : "Back to Character Archive"}</Button>
+          <div><h2>{editing ? (zh ? "编辑角色档案" : "Edit Character File") : (zh ? "创建角色档案" : "Create Character File")}</h2><p>{zh ? "把一个新角色写进真实世界。" : "Write a new character into the world."}</p></div>
+          <StickyNote variant="temporary" size="sm"><strong>{zh ? "尚未保存" : "NOT SAVED YET"}</strong><p>{zh ? "只有 Review 页的保存按钮会提交。" : "Only the Review page commits changes."}</p></StickyNote>
         </header>
 
         <div className="character-editor-workspace">
           <aside className="character-editor-index">
             <PageFlagGroup orientation="vertical" label={zh ? "角色设定索引" : "Character editor index"}>
-              {editorSections.map((section) => <PageFlag key={section.id} tone={section.tone} active={editorSection === section.id} onClick={() => openEditorSection(section.id)}>{zh ? section.zh : section.en}</PageFlag>)}
+              {editorSections.map((section, index) => (
+                <PageFlag key={section.id} tone={section.tone} active={editorSection === section.id} onClick={() => openEditorSection(section.id)}>
+                  <FunctionalIcon name={section.icon} size={17} />
+                  <small className="cr-page-flag__index">{String(index + 1).padStart(2, "0")}</small>
+                  <span className="cr-page-flag__label">{zh ? section.zh : section.en}</span>
+                  {assistantDrafted && aiDraftSections.has(section.id) && <small className="character-editor-ai-mark">AI</small>}
+                </PageFlag>
+              ))}
             </PageFlagGroup>
-            <StickyNote variant="temporary" size="sm"><strong>{zh ? "自动保存？" : "Auto-save?"}</strong><p>{zh ? "不会。只有 Review 页的保存按钮会提交。" : "No. Only the Save button on Review commits changes."}</p></StickyNote>
+            <span className="character-editor-index-mark" aria-hidden="true">✎</span>
           </aside>
 
           <div className="character-editor-book-page">
+            {message && <Toast tone="danger" title={zh ? "这一页还没完成" : "This page needs attention"}>{message}</Toast>}
+            {renderPage()}
+
+            <footer className="character-editor-page-actions">
+              <Button type="button" variant="ghost" onClick={onClose}>{t("creator.cancel")}</Button>
+              <span className="character-editor-guidance"><FunctionalIcon name="review" size={16} /> {zh ? "提示：可使用左侧页签逐页完善。" : "Tip: use the index flags to move through the file."}</span>
+              <div>
+                <Button type="button" variant="secondary" onClick={() => movePage(-1)} disabled={sectionIndex === 0}>{zh ? "上一页" : "Previous"}</Button>
+                {editorSection !== "review" && <Button type="button" variant="primary" onClick={() => movePage(1)}>{zh ? "下一页" : "Next"}</Button>}
+              </div>
+            </footer>
+          </div>
+
+          <aside className="character-editor-margin">
             <section className={`character-ai-drafter${assistantOpen ? " is-open" : ""}`}>
               <button className="character-ai-drafter-toggle" type="button" onClick={() => setAssistantOpen((current) => !current)} aria-expanded={assistantOpen}>
-                <span className="toolbox-sticker sticker-lavender">AI DRAFT</span><span><strong>{zh ? "让 AI 帮你起草角色卡" : "Draft the Character Card with AI"}</strong><small>{zh ? "AI 只写角色内容，不碰 Provider 或 Credential。" : "AI writes character content only; Provider and credentials stay untouched."}</small></span><b aria-hidden="true">{assistantOpen ? "−" : "+"}</b>
+                <span className="toolbox-sticker sticker-lavender">AI DRAFT ASSISTANT</span><span><strong>{zh ? "让 AI 帮你起草角色卡" : "Draft the Character Card with AI"}</strong><small>{zh ? "AI 只写角色内容，不碰 Provider 或 Credential。" : "AI writes character content only; Provider and credentials stay untouched."}</small></span><b aria-hidden="true">{assistantOpen ? "−" : "+"}</b>
               </button>
               {assistantOpen && <div className="character-ai-drafter-body character-ai-drafter-v3">
                 <FormField label={zh ? "角色概念与核心定位" : "Character concept and core positioning"} hint={zh ? "写身份、性格方向、主要关系、世界观或用途。" : "Describe identity, personality direction, relationships, world, or purpose."}><Textarea rows={4} value={assistantBrief} onChange={(event) => setAssistantBrief(event.currentTarget.value)} placeholder={zh ? "例如：一位擅长把混乱需求整理成产品路线图的 AI 产品制作人……" : "Example: an AI product producer who turns vague ideas into executable roadmaps…"} /></FormField>
@@ -426,20 +487,11 @@ export function CharacterCreator({
                 {assistantMessage && <Toast tone={assistantMessage.includes("已使用") || assistantMessage.includes("Drafted") ? "success" : "warning"}>{assistantMessage}</Toast>}
               </div>}
             </section>
-
-            {message && <Toast tone="danger" title={zh ? "这一页还没完成" : "This page needs attention"}>{message}</Toast>}
-            {renderPage()}
-
-            <footer className="character-editor-page-actions">
-              <Button type="button" variant="ghost" onClick={onClose}>{t("creator.cancel")}</Button>
-              <div>
-                <Button type="button" variant="secondary" onClick={() => movePage(-1)} disabled={sectionIndex === 0}>{zh ? "上一页" : "Previous"}</Button>
-                {editorSection !== "review" && <Button type="button" variant="primary" onClick={() => movePage(1)}>{zh ? "下一页" : "Next"}</Button>}
-              </div>
-            </footer>
-          </div>
+            <StickyNote variant="note" size="md" className="character-creator-context-note"><strong>{zh ? "你正在创建" : "WHAT YOU’RE CREATING"}</strong><ul><li>{zh ? `类型：${t(`subject.${subjectType}`)}` : `${t(`subject.${subjectType}`)} character file`}</li><li>{promptFields ? (zh ? "使用独立 Prompt + Model Runtime" : "Uses a dedicated Prompt + Model runtime") : (zh ? "复用现有 Runtime Target" : "Reuses an existing Runtime Target")}</li><li>{zh ? "保存前可随时返回任一页检查" : "Every page remains reviewable before save"}</li></ul></StickyNote>
+            <StickyNote variant="reminder" size="md" className="character-creator-progress-note"><strong>{zh ? "进度清单" : "PROGRESS CHECKLIST"}</strong><ol>{editorSections.map((section) => <li className={editorSection === section.id ? "is-current" : ""} key={section.id}><span aria-hidden="true">{editorSection === section.id ? "●" : "○"}</span>{zh ? section.zh : section.en}</li>)}</ol></StickyNote>
+          </aside>
         </div>
       </form>
-    </PaperDrawer>
+    </main>
   );
 }
