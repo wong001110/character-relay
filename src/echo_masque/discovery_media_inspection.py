@@ -8,7 +8,7 @@ from typing import Literal, Protocol, cast
 from echo_masque.config import Settings
 from echo_masque.content_resolver import resolve_static_url
 from echo_masque.deployment_discovery_intelligence import DeploymentDiscoverySeeds
-from echo_masque.live_media import LiveMediaContext, LiveMediaContextService
+from echo_masque.live_media import LiveMediaContext
 from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
 from echo_masque.semantic_participation import (
     FastEmbedSemanticEncoder,
@@ -30,23 +30,6 @@ class PublicMediaContextReader(Protocol):
 
 class DiscoveryMediaContextService(EnhancedLiveMediaContextService):
     """Expose Enhanced Live Media's existing public-URL path without faking a Discord turn."""
-
-    @classmethod
-    def from_service(
-        cls,
-        service: LiveMediaContextService,
-        *,
-        browser_runtime: object | None,
-    ) -> DiscoveryMediaContextService:
-        # Keep the parent's dependency-preserving factory semantics while narrowing the return
-        # type for callers. browser_runtime is intentionally passed through unchanged.
-        return cast(
-            DiscoveryMediaContextService,
-            super().from_service(
-                service,
-                browser_runtime=browser_runtime,  # type: ignore[arg-type]
-            ),
-        )
 
     async def inspect_public_url(
         self,
