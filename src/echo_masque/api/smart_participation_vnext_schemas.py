@@ -20,6 +20,16 @@ class ConversationSegmentRouteView(BaseModel):
     source: str
 
 
+class ReplyTargetRouteView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    deployment_id: str
+    segment_id: str
+    semantic_thread_id: str
+    score: float
+    reason: str
+
+
 class SmartParticipationResolveVNextView(SmartParticipationResolveView):
     model_config = ConfigDict(extra="forbid")
 
@@ -27,6 +37,11 @@ class SmartParticipationResolveVNextView(SmartParticipationResolveView):
     segmentation_used: bool = False
     segmentation_source: str = ""
     conversation_segments: list[ConversationSegmentRouteView] = Field(default_factory=list)
+    reply_targets: list[ReplyTargetRouteView] = Field(default_factory=list)
 
 
-__all__ = ["ConversationSegmentRouteView", "SmartParticipationResolveVNextView"]
+__all__ = [
+    "ConversationSegmentRouteView",
+    "ReplyTargetRouteView",
+    "SmartParticipationResolveVNextView",
+]
