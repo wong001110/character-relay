@@ -88,6 +88,21 @@ class Settings(BaseSettings):
     youtube_discovery_popular_cache_seconds: int = Field(default=60 * 60, ge=300, le=86400)
     youtube_discovery_max_search_queries_per_session: int = Field(default=2, ge=0, le=5)
 
+    # Deployment Activity Runtime. The first browsing phase intentionally models at most one
+    # bounded daily leisure opportunity per enabled Deployment. Stable hashing chooses whether
+    # it occurs, its time, and duration so process restarts do not reroll Character history.
+    discovery_activity_poll_seconds: int = Field(default=60, ge=10, le=1800)
+    discovery_activity_session_probability_percent: int = Field(default=70, ge=0, le=100)
+    discovery_activity_window_start_minute: int = Field(default=10 * 60, ge=0, le=1439)
+    discovery_activity_window_end_minute: int = Field(default=23 * 60, ge=1, le=1440)
+    discovery_activity_duration_min_minutes: int = Field(default=12, ge=5, le=120)
+    discovery_activity_duration_max_minutes: int = Field(default=30, ge=5, le=180)
+    discovery_activity_latest_start_delay_minutes: int = Field(default=90, ge=5, le=240)
+    discovery_activity_candidate_budget: int = Field(default=12, ge=3, le=30)
+    discovery_activity_open_budget: int = Field(default=3, ge=0, le=10)
+    discovery_activity_watch_budget: int = Field(default=1, ge=0, le=5)
+    discovery_activity_exploration_percent: int = Field(default=20, ge=0, le=100)
+
     # Browser Capability. Chromium launches lazily on first use, stays warm briefly for
     # repeated search/read calls, then closes automatically when idle or after hard limits.
     browser_tools_enabled: bool = True
