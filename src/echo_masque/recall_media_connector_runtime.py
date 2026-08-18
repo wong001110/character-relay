@@ -9,6 +9,9 @@ from echo_masque.character_recall import CharacterRecallBundle, CharacterRecallS
 from echo_masque.connector_runtime import PreparedCharacterTurn, ResolvedCharacterTurn
 from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
 from echo_masque.memory_layers import SynthesizedMemoryFreshnessRepository
+from echo_masque.persistence.deployment_presence_notice_repository import (
+    DeploymentPresenceNoticeRepository,
+)
 from echo_masque.persistence.deployment_presence_repository import DeploymentPresenceRepository
 from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
 
@@ -29,6 +32,7 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
         )
         self.memory_freshness = SynthesizedMemoryFreshnessRepository(database)
         self.deployment_presence = DeploymentPresenceRepository(database)
+        self.deployment_presence_notices = DeploymentPresenceNoticeRepository(database)
 
     def resolve_character_turn(
         self,
@@ -49,13 +53,23 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
                 deployment.character_card_id,
                 deployment.owner_id,
             )
+            display_name = card.display_name if card is not None else "Character"
+            if payload.mentioned_bot or payload.replied_to_bot:
+                self.deployment_presence_notices.enqueue_sleeping_notice(
+                    owner_id=deployment.owner_id,
+                    deployment_id=deployment.id,
+                    connection_id=deployment.connection_id,
+                    guild_id=payload.guild_id,
+                    channel_id=payload.channel_id,
+                    thread_id=payload.thread_id,
+                    source_message_id=payload.message_id,
+                    character_display_name=display_name,
+                )
             return None, DiscordConnectorReplyView(
                 action="silent",
                 reason="deployment_presence_sleeping",
                 deployment_id=deployment.id,
-                character_display_name=(
-                    card.display_name if card is not None else "Character"
-                ),
+                character_display_name=display_name,
             )
         return super().resolve_character_turn(payload)
 
