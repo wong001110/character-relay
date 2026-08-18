@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Index, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from echo_masque.persistence.models import Base, utcnow
@@ -30,6 +30,33 @@ class DiscoveryItemRecord(Base):
     metadata_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class DiscoverySourceQueryCacheRecord(Base):
+    """Persist source query results so API quota is shared across Deployment sessions/restarts."""
+
+    __tablename__ = "discovery_source_query_cache"
+    __table_args__ = (
+        UniqueConstraint("source", "query_key", name="uq_discovery_source_query_cache"),
+        Index("ix_discovery_source_query_cache_expiry", "source", "expires_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    query_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    query_kind: Mapped[str] = mapped_column(String(32), default="search", nullable=False)
+    # Raw interest/search text is deliberately not persisted. normalized_query_hash is enough
+    # for cache identity while avoiding a second durable store of private server interests.
+    normalized_query_hash: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    region: Mapped[str] = mapped_column(String(16), default="", nullable=False)
+    language: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    result_keys_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    result_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -77,7 +104,7 @@ class DeploymentDiscoveryExposureRecord(Base):
     attention_level: Mapped[str] = mapped_column(String(24), default="notice", nullable=False)
     interest_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     subjective_reason: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    exposure_count: Mapped[int] = mapped_column(default=1, nullable=False)
+    exposure_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     first_exposed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_exposed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -116,4 +143,5 @@ __all__ = [
     "DeploymentDiscoveryExposureRecord",
     "DeploymentDiscoveryProfileRecord",
     "DiscoveryItemRecord",
+    "DiscoverySourceQueryCacheRecord",
 ]
