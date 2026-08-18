@@ -16,6 +16,13 @@ from echo_masque.persistence.deployment_activity_models import (
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 
 _TERMINAL_STATES = frozenset({"completed", "skipped", "failed", "cancelled"})
+_ATTENTION_RANK = {
+    "scroll_past": 0,
+    "notice": 1,
+    "open": 2,
+    "watch": 3,
+    "engage": 4,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,6 +362,7 @@ class DeploymentActivityRepository:
         now: datetime | None = None,
     ) -> DeploymentActivitySessionItemRecord | None:
         current = (now or datetime.now(UTC)).astimezone(UTC)
+        normalized_attention = attention_level[:24]
         with self.database.session() as session:
             activity = session.get(DeploymentActivitySessionRecord, session_id)
             if (
@@ -377,14 +385,22 @@ class DeploymentActivityRepository:
                     session_id=session_id,
                     discovery_item_id=discovery_item_id,
                     rank_position=max(1, rank_position),
-                    attention_level=attention_level[:24],
+                    attention_level=normalized_attention,
                     score=max(0.0, min(float(score), 1.0)),
                     reason=reason[:1000],
                     created_at=current,
                 )
                 session.add(record)
-                session.commit()
-                session.refresh(record)
+            elif _ATTENTION_RANK.get(normalized_attention, -1) > _ATTENTION_RANK.get(
+                record.attention_level, -1
+            ):
+                # Phase 7 may promote OPEN -> WATCH/ENGAGE after the existing media runtime
+                # actually inspects the item. Promotion is still the same lived encounter.
+                record.attention_level = normalized_attention
+                record.score = max(0.0, min(float(score), 1.0))
+                record.reason = reason[:1000]
+            session.commit()
+            session.refresh(record)
             return record
 
     def list_items(
