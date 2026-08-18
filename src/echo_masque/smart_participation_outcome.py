@@ -1,4 +1,4 @@
-"""Project authoritative Smart Participation outcomes into derived/durable V4 state."""
+"""Project authoritative Smart Participation outcomes into derived/durable state."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from echo_masque.api.smart_participation_outcome_schemas import SmartParticipationOutcomeObservation
 from echo_masque.character_learned_state import CharacterLearnedStateService, LearnedStateEvidence
+from echo_masque.character_relationships import CharacterRelationshipService
 from echo_masque.persistence import DeploymentRepository, Repository
 from echo_masque.persistence.conversation_graph_repository import (
     ConversationGraphRepository,
@@ -39,6 +40,7 @@ class SmartParticipationOutcomeService:
         self.topics = ConversationTopicRepository(self.database)
         self.identities = DiscordIdentityRepository(self.database)
         self.learned = CharacterLearnedStateService(self.database)
+        self.relationships = CharacterRelationshipService(self.database)
         self.durable = SmartParticipationDurableStateService(self.database)
 
     @staticmethod
@@ -51,6 +53,23 @@ class SmartParticipationOutcomeService:
     def _character_label(self, *, owner_id: str, character_card_id: str) -> str:
         card = self.repository.get_character_card(character_card_id, owner_id)
         return card.display_name if card is not None else character_card_id
+
+    def _social_target(
+        self,
+        *,
+        payload: SmartParticipationOutcomeObservation,
+        source_deployment_id: str,
+    ) -> tuple[str, str]:
+        if payload.author_is_bot and payload.message_id:
+            route = self.identities.resolve_message_route(
+                connection_id=payload.connection_id,
+                message_id=payload.message_id,
+            )
+            if route is not None and route.deployment_id != source_deployment_id:
+                return "deployment", route.deployment_id
+        if payload.author_id:
+            return "actor", payload.author_id
+        return "actor", ""
 
     def record(
         self,
@@ -169,6 +188,8 @@ class SmartParticipationOutcomeService:
             )
             learned_count += 1
             if payload.author_id:
+                # Legacy scalar remains temporarily for Discovery/Social Graph compatibility, but
+                # its meaning is now explicitly familiarity rather than liking/trust/comfort.
                 self.learned.record_evidence(
                     LearnedStateEvidence(
                         state_type="relationship",
@@ -176,11 +197,27 @@ class SmartParticipationOutcomeService:
                         subject_key=f"actor:{payload.author_id}",
                         delta=0.20,
                         confidence=0.55,
-                        reason_code="direct_group_interaction",
+                        reason_code="legacy_familiarity_compatibility",
                         **evidence_base,
                     )
                 )
                 learned_count += 1
+                target_type, target_key = self._social_target(
+                    payload=payload,
+                    source_deployment_id=record.id,
+                )
+                if target_key:
+                    try:
+                        self.relationships.record_interaction_familiarity(
+                            owner_id=record.owner_id,
+                            source_deployment_id=record.id,
+                            target_type=target_type,  # type: ignore[arg-type]
+                            target_key=target_key,
+                            source_message_id=payload.message_id,
+                            source_burst_id=burst_key,
+                        )
+                    except (KeyError, ValueError):
+                        pass
 
             topic = self.topics.active_for_scope(
                 owner_id=record.owner_id,
