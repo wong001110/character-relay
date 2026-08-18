@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { deploymentApi, type ToolCatalogItem } from "./deploymentApi";
 import { DeploymentDiscoveryPanel } from "./DeploymentDiscoveryPanel";
+import { DeploymentRelationshipPanel } from "./DeploymentRelationshipPanel";
 
 interface Props {
   deploymentId: string;
@@ -133,6 +134,12 @@ export function DeploymentToolSelector({
       </section>
 
       <DeploymentDiscoveryPanel
+        deploymentId={deploymentId}
+        disabled={disabled}
+        zh={zh}
+      />
+
+      <DeploymentRelationshipPanel
         deploymentId={deploymentId}
         disabled={disabled}
         zh={zh}

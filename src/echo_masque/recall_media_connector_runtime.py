@@ -1,4 +1,4 @@
-"""Media-aware Discord runtime with conservative automatic Character recall."""
+"""Media-aware Discord runtime with conservative Character recall and bounded Social Context."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from typing import Any
 
 from echo_masque.api.connector_schemas import DiscordConnectorReplyView, DiscordInboundMessage
 from echo_masque.character_recall import CharacterRecallBundle, CharacterRecallService
+from echo_masque.character_relationships import CharacterRelationshipService
 from echo_masque.connector_runtime import PreparedCharacterTurn, ResolvedCharacterTurn
 from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
 from echo_masque.memory_layers import SynthesizedMemoryFreshnessRepository
@@ -13,11 +14,12 @@ from echo_masque.persistence.deployment_presence_notice_repository import (
     DeploymentPresenceNoticeRepository,
 )
 from echo_masque.persistence.deployment_presence_repository import DeploymentPresenceRepository
+from echo_masque.persistence.discord_identity_repository import DiscordIdentityRepository
 from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
 
 
 class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime):
-    """Inject high-confidence recall and enforce Deployment Presence before model work."""
+    """Inject high-confidence recall/social context and enforce Deployment Presence."""
 
     def __init__(
         self,
@@ -33,6 +35,8 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
         self.memory_freshness = SynthesizedMemoryFreshnessRepository(database)
         self.deployment_presence = DeploymentPresenceRepository(database)
         self.deployment_presence_notices = DeploymentPresenceNoticeRepository(database)
+        self.relationships = CharacterRelationshipService(database)
+        self.discord_identities = DiscordIdentityRepository(database)
 
     def resolve_character_turn(
         self,
@@ -74,7 +78,7 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
         return super().resolve_character_turn(payload)
 
     @staticmethod
-    def _inject_recall_guidance(prompt: str, guidance: tuple[str, ...]) -> str:
+    def _inject_guidance(prompt: str, guidance: tuple[str, ...]) -> str:
         if not guidance:
             return prompt
         block = "\n".join(guidance)
@@ -101,6 +105,23 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
             explicit_history_cue=bundle.explicit_history_cue,
         )
 
+    def _social_target(
+        self,
+        *,
+        resolved: ResolvedCharacterTurn,
+    ) -> tuple[str, str]:
+        payload = resolved.payload
+        if payload.author_is_bot and payload.message_id:
+            route = self.discord_identities.resolve_message_route(
+                connection_id=payload.connection_id,
+                message_id=payload.message_id,
+            )
+            if route is not None and route.deployment_id != resolved.deployment.id:
+                return "deployment", route.deployment_id
+        if payload.author_id:
+            return "actor", payload.author_id
+        return "actor", ""
+
     def prepare_character_turn(
         self,
         resolved: ResolvedCharacterTurn,
@@ -120,9 +141,21 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
             limit=4,
         )
         bundle = self._fresh_for_auto_recall(bundle)
-        guidance = bundle.prompt_guidance(max_chars=900)
-        if guidance:
-            prepared.prompt = self._inject_recall_guidance(prepared.prompt, guidance)
+        recall_guidance = bundle.prompt_guidance(max_chars=900)
+        if recall_guidance:
+            prepared.prompt = self._inject_guidance(prepared.prompt, recall_guidance)
+
+        target_type, target_key = self._social_target(resolved=resolved)
+        if target_key:
+            social_guidance = self.relationships.social_prompt_guidance(
+                owner_id=deployment.owner_id,
+                source_deployment_id=deployment.id,
+                target_type=target_type,  # type: ignore[arg-type]
+                target_key=target_key,
+                max_chars=480,
+            )
+            if social_guidance:
+                prepared.prompt = self._inject_guidance(prepared.prompt, social_guidance)
         return prepared
 
 
