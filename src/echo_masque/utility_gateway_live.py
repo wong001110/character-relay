@@ -5,11 +5,17 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
+from echo_masque.provider_capabilities import ProviderModelCapabilityRegistry
 from echo_masque.providers.base import ChatMessage, ProviderCompletion
 from echo_masque.providers.errors import (
     ProviderAuthenticationError,
+    ProviderBillingRequiredError,
+    ProviderCapabilityUnsupportedError,
     ProviderError,
+    ProviderInsufficientBalanceError,
+    ProviderModelNotFoundError,
     ProviderProtocolError,
+    ProviderQuotaExhaustedError,
     ProviderRateLimitError,
     ProviderTimeoutError,
     ProviderUnavailableError,
@@ -40,12 +46,7 @@ class _GeminiOpenAIProvider(OpenAICompatibleProvider):
 
 
 class ExistingProviderUtilityCaller(UtilityProviderCaller):
-    """Keep network credential handling inside the existing provider implementation.
-
-    Standard OpenAI-compatible Utility providers are first asked for JSON-object mode. If a
-    provider rejects that request shape, the caller retries that provider once in prompt-only
-    compatibility mode. Runtime still validates the returned Pydantic contract.
-    """
+    """Run Utility calls with model-scoped structured-output compatibility learning."""
 
     @staticmethod
     def _base_url(route: UtilityRoute) -> str:
@@ -120,6 +121,13 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
             future.cancel()
             raise ProviderTimeoutError("utility caller timeout") from exc
 
+    @staticmethod
+    def _reset_from_quota(exc: ProviderRateLimitError | ProviderQuotaExhaustedError):
+        resets = [item.reset_at for item in exc.quota_observations if item.reset_at is not None]
+        reset_at = min(resets) if resets else None
+        zero = next((item for item in exc.quota_observations if item.remaining == 0), None)
+        return reset_at, zero
+
     def call(
         self,
         route: UtilityRoute,
@@ -129,7 +137,16 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
         max_output_tokens: int,
         temperature: float,
     ) -> UtilityCallReply:
-        use_json_object = route.provider in _JSON_OBJECT_PROVIDERS
+        base_url = self._base_url(route)
+        use_json_object = (
+            route.provider in _JSON_OBJECT_PROVIDERS
+            and ProviderModelCapabilityRegistry.allows(
+                provider=route.provider,
+                model=route.model,
+                base_url=base_url,
+                capability="json_object",
+            )
+        )
         try:
             try:
                 completion = self._wait_for_completion(
@@ -140,9 +157,25 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
                     temperature=temperature,
                     json_object=use_json_object,
                 )
-            except ProviderProtocolError:
-                if not use_json_object:
+                if use_json_object:
+                    ProviderModelCapabilityRegistry.observe(
+                        provider=route.provider,
+                        model=route.model,
+                        base_url=base_url,
+                        capability="json_object",
+                        supported=True,
+                    )
+            except ProviderCapabilityUnsupportedError as exc:
+                if not use_json_object or exc.capability != "json_object":
                     raise
+                ProviderModelCapabilityRegistry.observe(
+                    provider=route.provider,
+                    model=route.model,
+                    base_url=base_url,
+                    capability="json_object",
+                    supported=False,
+                    detail=str(exc),
+                )
                 completion = self._wait_for_completion(
                     route,
                     system_prompt=system_prompt,
@@ -151,23 +184,51 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
                     temperature=temperature,
                     json_object=False,
                 )
-        except ProviderRateLimitError as exc:
-            resets = [item.reset_at for item in exc.quota_observations if item.reset_at is not None]
-            reset_at = min(resets) if resets else None
-            zero = next(
-                (item for item in exc.quota_observations if item.remaining == 0),
-                None,
-            )
+            except ProviderProtocolError:
+                if not use_json_object:
+                    raise
+                # Compatibility retry remains available for providers that reject JSON mode
+                # without a machine-readable capability error. Do not permanently downgrade
+                # the model from this ambiguous signal alone.
+                completion = self._wait_for_completion(
+                    route,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    max_output_tokens=max_output_tokens,
+                    temperature=temperature,
+                    json_object=False,
+                )
+        except (ProviderRateLimitError, ProviderQuotaExhaustedError) as exc:
+            reset_at, zero = self._reset_from_quota(exc)
             raise UtilityCallFailed(
                 "quota",
-                detail=str(exc),
-                remaining_value=zero.remaining if zero is not None else None,
-                remaining_unit=zero.unit if zero is not None else "",
+                detail=(
+                    f"free_tier_exhausted:{exc}" if isinstance(exc, ProviderQuotaExhaustedError) and exc.free_tier
+                    else f"quota_exhausted:{exc}"
+                ),
+                remaining_value=0 if isinstance(exc, ProviderQuotaExhaustedError) else (
+                    zero.remaining if zero is not None else None
+                ),
+                remaining_unit=(zero.unit if zero is not None else "requests"),
                 reset_at=reset_at,
                 quota_observations=exc.quota_observations,
             ) from exc
+        except ProviderBillingRequiredError as exc:
+            # FREE ONLY member: use a non-transient blocked state rather than a two-minute
+            # quota retry loop. A model/provider config change clears this by creating a new
+            # member/model identity.
+            raise UtilityCallFailed("authentication", detail=f"billing_required:{exc}") from exc
+        except ProviderInsufficientBalanceError as exc:
+            raise UtilityCallFailed("authentication", detail=f"insufficient_balance:{exc}") from exc
+        except ProviderModelNotFoundError as exc:
+            raise UtilityCallFailed("authentication", detail=f"model_not_found:{exc}") from exc
         except ProviderAuthenticationError as exc:
             raise UtilityCallFailed("authentication", detail=str(exc)) from exc
+        except ProviderCapabilityUnsupportedError as exc:
+            raise UtilityCallFailed(
+                "protocol",
+                detail=f"capability_unsupported:{exc.capability}:{exc}",
+            ) from exc
         except ProviderTimeoutError as exc:
             raise UtilityCallFailed("timeout", detail=str(exc)) from exc
         except ProviderUnavailableError as exc:

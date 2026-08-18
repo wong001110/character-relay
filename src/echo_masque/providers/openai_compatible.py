@@ -11,6 +11,11 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import SecretStr
 
+from echo_masque.provider_capabilities import ModelCapability
+from echo_masque.provider_failure_classifier import (
+    NormalizedProviderFailure,
+    classify_provider_response,
+)
 from echo_masque.providers.base import (
     ChatMessage,
     ChatToolCall,
@@ -20,8 +25,14 @@ from echo_masque.providers.base import (
 )
 from echo_masque.providers.errors import (
     ProviderAuthenticationError,
+    ProviderBillingRequiredError,
+    ProviderCapabilityUnsupportedError,
     ProviderError,
+    ProviderInsufficientBalanceError,
+    ProviderModelNotFoundError,
+    ProviderModelUnavailableError,
     ProviderProtocolError,
+    ProviderQuotaExhaustedError,
     ProviderRateLimitError,
     ProviderTimeoutError,
     ProviderUnavailableError,
@@ -98,9 +109,9 @@ def _quota_observations(headers: httpx.Headers) -> tuple[ProviderQuotaObservatio
     seen: set[tuple[str, str]] = set()
     for kind, unit, remaining_header, limit_header, reset_header in dimensions:
         remaining = _float_header(headers, remaining_header)
-        limit = _float_header(headers, limit_header)
+        limit_value = _float_header(headers, limit_header)
         reset_at = _reset_time(headers.get(reset_header), now=now)
-        if remaining is None and limit is None and reset_at is None:
+        if remaining is None and limit_value is None and reset_at is None:
             continue
         key = (kind, reset_header)
         if key in seen:
@@ -110,7 +121,7 @@ def _quota_observations(headers: httpx.Headers) -> tuple[ProviderQuotaObservatio
             ProviderQuotaObservation(
                 kind=kind,
                 remaining=remaining,
-                limit=limit,
+                limit=limit_value,
                 unit=unit,
                 reset_at=reset_at,
                 source="response_header",
@@ -127,6 +138,65 @@ def _quota_observations(headers: httpx.Headers) -> tuple[ProviderQuotaObservatio
             )
         )
     return tuple(observations)
+
+
+def _requested_capabilities(
+    *,
+    tools: tuple[ChatToolDefinition, ...],
+    response_format: dict[str, object] | None,
+) -> tuple[ModelCapability, ...]:
+    values: list[ModelCapability] = []
+    if tools:
+        values.append("native_tool_calling")
+    if response_format is not None:
+        format_type = str(response_format.get("type") or "").casefold()
+        if format_type == "json_schema":
+            values.append("json_schema")
+        elif format_type == "json_object":
+            values.append("json_object")
+    return tuple(values)
+
+
+def _failure_error(
+    failure: NormalizedProviderFailure,
+    *,
+    quota_observations: tuple[ProviderQuotaObservation, ...],
+) -> ProviderError:
+    detail = failure.detail or failure.kind
+    if failure.kind == "rate_limited":
+        return ProviderRateLimitError(detail, quota_observations=quota_observations)
+    if failure.kind in {"quota_exhausted", "free_tier_exhausted"}:
+        observations = quota_observations
+        if not any(item.remaining == 0 for item in observations):
+            observations = (
+                *observations,
+                ProviderQuotaObservation(
+                    kind="free_tier" if failure.kind == "free_tier_exhausted" else "quota",
+                    remaining=0,
+                    unit="requests",
+                    source="response_body",
+                ),
+            )
+        return ProviderQuotaExhaustedError(
+            detail,
+            quota_observations=observations,
+            free_tier=failure.kind == "free_tier_exhausted",
+        )
+    if failure.kind == "billing_required":
+        return ProviderBillingRequiredError(detail)
+    if failure.kind == "insufficient_balance":
+        return ProviderInsufficientBalanceError(detail)
+    if failure.kind == "authentication_invalid":
+        return ProviderAuthenticationError(detail)
+    if failure.kind == "capability_unsupported" and failure.capability is not None:
+        return ProviderCapabilityUnsupportedError(detail, capability=failure.capability)
+    if failure.kind == "model_not_found":
+        return ProviderModelNotFoundError(detail)
+    if failure.kind == "model_unavailable":
+        return ProviderModelUnavailableError(detail)
+    if failure.kind == "temporary_unavailable":
+        return ProviderUnavailableError(detail)
+    return ProviderProtocolError(detail)
 
 
 class OpenAICompatibleProvider:
@@ -164,10 +234,7 @@ class OpenAICompatibleProvider:
 
     @staticmethod
     def _message_payload(message: ChatMessage) -> dict[str, object]:
-        value: dict[str, object] = {
-            "role": message.role,
-            "content": message.content,
-        }
+        value: dict[str, object] = {"role": message.role, "content": message.content}
         if message.tool_call_id is not None:
             value["tool_call_id"] = message.tool_call_id
         if message.tool_calls:
@@ -228,13 +295,7 @@ class OpenAICompatibleProvider:
     ) -> ProviderCompletion:
         tool_payloads = [item.model_dump() for item in tools]
         tool_schema_chars = (
-            len(
-                json.dumps(
-                    tool_payloads,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-            )
+            len(json.dumps(tool_payloads, ensure_ascii=False, separators=(",", ":")))
             if tool_payloads
             else 0
         )
@@ -267,12 +328,10 @@ class OpenAICompatibleProvider:
             tool_schema_count=len(tool_payloads),
             tool_schema_chars=tool_schema_chars,
         )
+        requested = _requested_capabilities(tools=tools, response_format=response_format)
 
         try:
-            async with httpx.AsyncClient(
-                timeout=self._timeout,
-                transport=self._transport,
-            ) as client:
+            async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
                 for attempt in range(self._max_retries + 1):
                     try:
                         response = await client.post(self.endpoint, json=payload, headers=headers)
@@ -286,71 +345,16 @@ class OpenAICompatibleProvider:
                         ) from exc
                     except httpx.RequestError as exc:
                         if attempt < self._max_retries:
-                            trace.retry(
-                                attempt=attempt + 1,
-                                reason="network_error",
-                            )
+                            trace.retry(attempt=attempt + 1, reason="network_error")
                             await asyncio.sleep(0)
                             continue
                         trace.error(
                             reason=ProviderUnavailableError.reason_code,
                             detail=self._request_error_detail(exc),
                         )
-                        raise ProviderUnavailableError(
-                            "Model provider could not be reached."
-                        ) from exc
-
-                    if response.status_code in {401, 403}:
-                        trace.error(
-                            reason=ProviderAuthenticationError.reason_code,
-                            status_code=response.status_code,
-                            detail="The provider rejected the configured credential.",
-                        )
-                        raise ProviderAuthenticationError("Model provider rejected the credential.")
+                        raise ProviderUnavailableError("Model provider could not be reached.") from exc
 
                     quota_observations = _quota_observations(response.headers)
-
-                    if response.status_code == 429:
-                        if attempt < self._max_retries:
-                            trace.retry(
-                                attempt=attempt + 1,
-                                reason="rate_limited",
-                                status_code=response.status_code,
-                            )
-                            await asyncio.sleep(0)
-                            continue
-                        trace.error(
-                            reason=ProviderRateLimitError.reason_code,
-                            status_code=response.status_code,
-                            response_body=response.text,
-                            detail="The provider rate limit remained active after retries.",
-                        )
-                        raise ProviderRateLimitError(
-                            "Model provider rate limit was exceeded.",
-                            quota_observations=quota_observations,
-                        )
-
-                    if response.status_code >= 500:
-                        if attempt < self._max_retries:
-                            trace.retry(
-                                attempt=attempt + 1,
-                                reason="server_error",
-                                status_code=response.status_code,
-                            )
-                            await asyncio.sleep(0)
-                            continue
-                        trace.error(
-                            reason=ProviderUnavailableError.reason_code,
-                            status_code=response.status_code,
-                            response_body=response.text,
-                            detail=(
-                                f"The provider returned HTTP {response.status_code} after retries."
-                            ),
-                        )
-                        raise ProviderUnavailableError(
-                            f"Model provider remained unavailable (HTTP {response.status_code})."
-                        )
-
                     if response.status_code == 408:
                         trace.error(
                             reason=ProviderTimeoutError.reason_code,
@@ -360,21 +364,44 @@ class OpenAICompatibleProvider:
                         )
                         raise ProviderTimeoutError("Model provider returned HTTP 408.")
 
-                    if response.is_error:
+                    failure = classify_provider_response(
+                        status_code=response.status_code,
+                        body=response.text,
+                        headers=dict(response.headers),
+                        requested_capabilities=requested,
+                    )
+                    if failure is not None:
+                        retryable_failure = failure.kind in {"rate_limited", "temporary_unavailable", "model_unavailable"}
+                        if retryable_failure and attempt < self._max_retries:
+                            trace.retry(
+                                attempt=attempt + 1,
+                                reason=failure.kind,
+                                status_code=response.status_code,
+                            )
+                            await asyncio.sleep(0)
+                            continue
+                        error = _failure_error(failure, quota_observations=quota_observations)
                         trace.error(
-                            reason="provider_http_error",
+                            reason=error.reason_code,
                             status_code=response.status_code,
                             response_body=response.text,
-                            detail=f"The provider returned HTTP {response.status_code}.",
+                            detail=failure.detail,
                         )
-                        raise ProviderProtocolError(
-                            f"Model provider returned HTTP {response.status_code}."
-                        )
+                        raise error
 
                     try:
                         body = response.json()
-                        choice = body["choices"][0]
+                        if not isinstance(body, dict):
+                            raise TypeError("response must be an object")
+                        choices = body["choices"]
+                        if not isinstance(choices, list) or not choices:
+                            raise TypeError("choices must be a non-empty list")
+                        choice = choices[0]
+                        if not isinstance(choice, dict):
+                            raise TypeError("choice must be an object")
                         message = choice["message"]
+                        if not isinstance(message, dict):
+                            raise TypeError("message must be an object")
                         raw_content = message.get("content")
                         if raw_content is None:
                             text = ""
@@ -387,9 +414,7 @@ class OpenAICompatibleProvider:
                             raw_tool_calls = []
                         if not isinstance(raw_tool_calls, list):
                             raise TypeError("Chat-completion tool_calls must be a list.")
-                        tool_calls = tuple(
-                            ChatToolCall.model_validate(item) for item in raw_tool_calls
-                        )
+                        tool_calls = tuple(ChatToolCall.model_validate(item) for item in raw_tool_calls)
                         usage = body.get("usage", {})
                         if not isinstance(usage, dict):
                             raise TypeError("Chat-completion usage must be an object.")
@@ -437,7 +462,7 @@ class OpenAICompatibleProvider:
                         text=trace_text,
                         input_tokens=input_tokens if isinstance(input_tokens, int) else None,
                         output_tokens=output_tokens if isinstance(output_tokens, int) else None,
-                        finish_reason=(str(finish_reason) if finish_reason is not None else None),
+                        finish_reason=str(finish_reason) if finish_reason is not None else None,
                         tool_call_names=tuple(item.function.name for item in tool_calls),
                     )
                     return ProviderCompletion(
@@ -446,7 +471,7 @@ class OpenAICompatibleProvider:
                         latency_ms=round((perf_counter() - started) * 1000),
                         input_tokens=input_tokens if isinstance(input_tokens, int) else None,
                         output_tokens=output_tokens if isinstance(output_tokens, int) else None,
-                        finish_reason=(str(finish_reason) if finish_reason is not None else None),
+                        finish_reason=str(finish_reason) if finish_reason is not None else None,
                         tool_calls=tool_calls,
                         quota_observations=quota_observations,
                     )
@@ -457,10 +482,7 @@ class OpenAICompatibleProvider:
             )
             raise ProviderUnavailableError("Model provider returned no terminal result.")
         except asyncio.CancelledError:
-            trace.error(
-                reason="request_cancelled",
-                detail="The provider task was cancelled before a terminal response was recorded.",
-            )
+            trace.error(reason="request_cancelled", detail="Provider task was cancelled.")
             raise
         except ProviderError:
             raise
@@ -468,7 +490,7 @@ class OpenAICompatibleProvider:
             detail = str(exc).replace("\x00", "").strip()
             trace.error(
                 reason="provider_client_error",
-                detail=(f"{type(exc).__name__}: {detail[:700]}" if detail else type(exc).__name__),
+                detail=f"{type(exc).__name__}: {detail[:700]}" if detail else type(exc).__name__,
             )
             raise ProviderProtocolError(
                 "Model provider call failed before a valid response was produced."
