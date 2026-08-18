@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -71,8 +72,7 @@ def youtube_popular_item(video_id: str, title: str) -> dict[str, object]:
     }
 
 
-@pytest.mark.asyncio
-async def test_youtube_adapter_caps_search_queries_dedupes_and_reuses_persisted_cache(
+def test_youtube_adapter_caps_search_queries_dedupes_and_reuses_persisted_cache(
     tmp_path: Path,
 ) -> None:
     database = Database(f"sqlite:///{tmp_path / 'youtube-cache.db'}")
@@ -110,7 +110,7 @@ async def test_youtube_adapter_caps_search_queries_dedupes_and_reuses_persisted_
         limit=10,
         include_popular=True,
     )
-    first = await adapter.fetch_candidates(request)
+    first = asyncio.run(adapter.fetch_candidates(request))
     assert {item.canonical_key for item in first} == {
         "youtube:robot-1",
         "youtube:agent-1",
@@ -123,7 +123,7 @@ async def test_youtube_adapter_caps_search_queries_dedupes_and_reuses_persisted_
 
     # Same source snapshot is served from SQLite without consuming another YouTube request.
     before = len(requests)
-    second = await adapter.fetch_candidates(request)
+    second = asyncio.run(adapter.fetch_candidates(request))
     assert [item.canonical_key for item in second] == [item.canonical_key for item in first]
     assert len(requests) == before
 
@@ -137,8 +137,7 @@ async def test_youtube_adapter_caps_search_queries_dedupes_and_reuses_persisted_
     assert "AI agent" not in serialized
 
 
-@pytest.mark.asyncio
-async def test_youtube_adapter_fails_softly_with_typed_unavailable_error(tmp_path: Path) -> None:
+def test_youtube_adapter_fails_softly_with_typed_unavailable_error(tmp_path: Path) -> None:
     database = Database(f"sqlite:///{tmp_path / 'youtube-error.db'}")
     database.initialize()
 
@@ -148,8 +147,10 @@ async def test_youtube_adapter_fails_softly_with_typed_unavailable_error(tmp_pat
         http_transport=httpx.MockTransport(lambda request: httpx.Response(429, json={})),
     )
     with pytest.raises(YouTubeDiscoveryUnavailable, match="HTTP 429"):
-        await adapter.fetch_candidates(
-            DiscoveryFetchRequest(queries=("robot",), include_popular=False)
+        asyncio.run(
+            adapter.fetch_candidates(
+                DiscoveryFetchRequest(queries=("robot",), include_popular=False)
+            )
         )
 
 
