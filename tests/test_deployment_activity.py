@@ -1,7 +1,7 @@
+import asyncio
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-import pytest
 from pydantic import SecretStr
 
 from echo_masque.config import Settings
@@ -168,8 +168,7 @@ def test_daily_browsing_opportunity_is_stable_for_same_deployment_and_date(
     assert 12 <= first.duration_minutes <= 30
 
 
-@pytest.mark.asyncio
-async def test_sleeping_deployment_does_not_start_scheduled_browsing(tmp_path: Path) -> None:
+def test_sleeping_deployment_does_not_start_scheduled_browsing(tmp_path: Path) -> None:
     database = Database(f"sqlite:///{tmp_path / 'sleep-block.db'}")
     database.initialize()
     seed_deployment(database, deployment_id="deployment-a", guild_id="guild-a")
@@ -199,7 +198,7 @@ async def test_sleeping_deployment_does_not_start_scheduled_browsing(tmp_path: P
     )
     assert activity is not None
 
-    result = await service.run_session(activity, now=now)
+    result = asyncio.run(service.run_session(activity, now=now))
     assert result is not None
     assert result.status == "scheduled"
     assert preview.calls == 0
@@ -207,8 +206,7 @@ async def test_sleeping_deployment_does_not_start_scheduled_browsing(tmp_path: P
     assert current is not None and current.state == "sleeping"
 
 
-@pytest.mark.asyncio
-async def test_manual_shadow_browsing_persists_exposure_and_presence_until_end(
+def test_manual_shadow_browsing_persists_exposure_and_presence_until_end(
     tmp_path: Path,
 ) -> None:
     database = Database(f"sqlite:///{tmp_path / 'browsing-session.db'}")
@@ -221,13 +219,15 @@ async def test_manual_shadow_browsing_persists_exposure_and_presence_until_end(
     activities = DeploymentActivityRepository(database)
     now = datetime(2026, 8, 18, 8, 0, tzinfo=UTC)
 
-    activity = await service.run_manual(
-        owner_id="owner-1",
-        deployment_id="deployment-a",
-        duration_minutes=12,
-        candidate_budget=3,
-        open_budget=1,
-        now=now,
+    activity = asyncio.run(
+        service.run_manual(
+            owner_id="owner-1",
+            deployment_id="deployment-a",
+            duration_minutes=12,
+            candidate_budget=3,
+            open_budget=1,
+            now=now,
+        )
     )
     assert activity.status == "active"
     assert activity.candidate_count == 3
@@ -262,8 +262,7 @@ async def test_manual_shadow_browsing_persists_exposure_and_presence_until_end(
     assert current is not None and current.state == "idle"
 
 
-@pytest.mark.asyncio
-async def test_sleep_interrupt_cancels_browsing_without_waking_character(tmp_path: Path) -> None:
+def test_sleep_interrupt_cancels_browsing_without_waking_character(tmp_path: Path) -> None:
     database = Database(f"sqlite:///{tmp_path / 'sleep-interrupt.db'}")
     database.initialize()
     seed_deployment(database, deployment_id="deployment-a", guild_id="guild-a")
@@ -276,11 +275,13 @@ async def test_sleep_interrupt_cancels_browsing_without_waking_character(tmp_pat
     activities = DeploymentActivityRepository(database)
     now = datetime(2026, 8, 18, 8, 0, tzinfo=UTC)
 
-    activity = await service.run_manual(
-        owner_id="owner-1",
-        deployment_id="deployment-a",
-        duration_minutes=30,
-        now=now,
+    activity = asyncio.run(
+        service.run_manual(
+            owner_id="owner-1",
+            deployment_id="deployment-a",
+            duration_minutes=30,
+            now=now,
+        )
     )
     assert activity.status == "active"
     presence.set_state(
@@ -299,8 +300,7 @@ async def test_sleep_interrupt_cancels_browsing_without_waking_character(tmp_pat
     assert current is not None and current.state == "sleeping"
 
 
-@pytest.mark.asyncio
-async def test_same_card_other_server_keeps_independent_presence(tmp_path: Path) -> None:
+def test_same_card_other_server_keeps_independent_presence(tmp_path: Path) -> None:
     database = Database(f"sqlite:///{tmp_path / 'cross-server-activity.db'}")
     database.initialize()
     seed_deployment(database, deployment_id="deployment-a", guild_id="guild-a")
@@ -313,10 +313,12 @@ async def test_same_card_other_server_keeps_independent_presence(tmp_path: Path)
     presence = DeploymentPresenceRepository(database)
     now = datetime(2026, 8, 18, 8, 0, tzinfo=UTC)
 
-    activity = await service.run_manual(
-        owner_id="owner-1",
-        deployment_id="deployment-a",
-        now=now,
+    activity = asyncio.run(
+        service.run_manual(
+            owner_id="owner-1",
+            deployment_id="deployment-a",
+            now=now,
+        )
     )
     assert activity.status == "active"
     first = presence.get(owner_id="owner-1", deployment_id="deployment-a")
