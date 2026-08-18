@@ -108,7 +108,7 @@ END;
 """
 
 _SQLITE_DEPLOYMENT_PRESENCE_DELETE_TRIGGER = """
-CREATE TRIGGER IF NOT EXISTS cr_delete_deployment_presence
+CREATE TRIGGER cr_delete_deployment_presence
 AFTER DELETE ON character_deployments
 BEGIN
     DELETE FROM deployment_presence WHERE deployment_id = OLD.id;
@@ -176,8 +176,22 @@ class Database:
         if self.engine.dialect.name != "sqlite":
             return
         with self.engine.begin() as connection:
+            columns = {
+                str(row[1])
+                for row in connection.exec_driver_sql(
+                    "PRAGMA table_info(deployment_activity_sessions)"
+                ).all()
+            }
+            if columns and "planned_duration_minutes" not in columns:
+                connection.exec_driver_sql(
+                    "ALTER TABLE deployment_activity_sessions "
+                    "ADD COLUMN planned_duration_minutes INTEGER NOT NULL DEFAULT 20"
+                )
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_SERVER_INSERT_TRIGGER)
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_SERVER_UPDATE_TRIGGER)
+            # This trigger evolves with runtime-owned tables; replace it so existing databases
+            # receive cleanup coverage instead of keeping an older IF-NOT-EXISTS definition.
+            connection.exec_driver_sql("DROP TRIGGER IF EXISTS cr_delete_deployment_presence")
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_PRESENCE_DELETE_TRIGGER)
 
     def inspect_deployment_server_duplicates(self) -> tuple[DeploymentServerDuplicate, ...]:
