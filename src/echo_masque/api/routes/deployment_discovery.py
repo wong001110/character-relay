@@ -14,11 +14,19 @@ from echo_masque.api.deployment_discovery_schemas import (
     DeploymentDiscoveryExposureView,
     DeploymentDiscoveryProfileUpdate,
     DeploymentDiscoveryProfileView,
+    DeploymentDiscoveryShadowPreviewView,
     DiscoveryItemView,
+    DiscoverySeedView,
+    RankedDiscoveryCandidateView,
+)
+from echo_masque.deployment_discovery_service import (
+    DeploymentDiscoveryPreviewService,
+    DeploymentDiscoveryUnavailable,
 )
 from echo_masque.discovery_contracts import DiscoveryMode
 from echo_masque.persistence.discovery_models import DiscoveryItemRecord
 from echo_masque.persistence.discovery_repository import DiscoveryRepository
+from echo_masque.youtube_discovery import YouTubeDiscoveryUnavailable
 
 router = APIRouter(tags=["deployments"])
 
@@ -93,6 +101,74 @@ def update_discovery_profile(
         mode=current.mode.value,
         youtube_enabled=current.youtube_enabled,
         bilibili_enabled=current.bilibili_enabled,
+    )
+
+
+@router.post(
+    "/deployments/{deployment_id}/discovery/shadow-preview",
+    response_model=DeploymentDiscoveryShadowPreviewView,
+)
+async def run_discovery_shadow_preview(
+    deployment_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+    region: str = Query(default="", max_length=16),
+    language: str = Query(default="", max_length=32),
+    limit: int = Query(default=10, ge=1, le=30),
+) -> DeploymentDiscoveryShadowPreviewView:
+    """Collect/rank public candidates without exposure, Character LLM, or delivery side effects."""
+
+    settings = request.app.state.runtime_service.settings
+    service = DeploymentDiscoveryPreviewService(request.app.state.database, settings)
+    try:
+        preview = await service.run(
+            owner_id=user.id,
+            deployment_id=deployment_id,
+            region=region,
+            language=language,
+            limit=limit,
+        )
+    except DeploymentDiscoveryUnavailable as exc:
+        detail = str(exc)
+        status = 404 if detail == "Deployment not found." else 409
+        if "YOUTUBE_DATA_API_KEY" in detail:
+            status = 503
+        raise HTTPException(status_code=status, detail=detail) from exc
+    except YouTubeDiscoveryUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    candidates: list[RankedDiscoveryCandidateView] = []
+    with request.app.state.database.session() as session:
+        for ranked in preview.ranked:
+            record = session.get(DiscoveryItemRecord, ranked.discovery_item_id)
+            if record is None:
+                continue
+            candidates.append(
+                RankedDiscoveryCandidateView(
+                    item=_item(record),
+                    semantic_relevance=ranked.semantic_relevance,
+                    sparse_relevance=ranked.sparse_relevance,
+                    freshness=ranked.freshness,
+                    novelty=ranked.novelty,
+                    exploration=ranked.exploration,
+                    final_score=ranked.final_score,
+                    reason=ranked.reason,
+                )
+            )
+    return DeploymentDiscoveryShadowPreviewView(
+        deployment_id=deployment_id,
+        queries=list(preview.seeds.queries),
+        seeds=[
+            DiscoverySeedView(
+                text=seed.text,
+                weight=seed.weight,
+                source=seed.source,
+                evidence_ref=seed.evidence_ref,
+            )
+            for seed in preview.seeds.seeds
+        ],
+        candidates=candidates,
+        side_effects=False,
     )
 
 
