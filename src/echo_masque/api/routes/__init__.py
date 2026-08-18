@@ -29,6 +29,7 @@ from echo_masque.api.routes.conversation_retrieval_observation import (
     router as conversation_retrieval_observation_router,
 )
 from echo_masque.api.routes.coverage import router as coverage_router
+from echo_masque.api.routes.deployment_discovery import router as deployment_discovery_router
 from echo_masque.api.routes.deployment_presence import router as deployment_presence_router
 from echo_masque.api.routes.deployments import router as deployments_router
 from echo_masque.api.routes.discord_identities import router as discord_identities_router
@@ -71,9 +72,10 @@ connectors_router.include_router(generated_media_router)
 connectors_router.include_router(planner_media_router)
 connectors_router.include_router(social_turn_interrupt_router)
 
-# Presence is Deployment-scoped lived runtime state. Keep it under the existing authenticated
-# Deployment prefix instead of attaching mutable state to Character Card routes.
+# Presence and Discovery are Deployment-scoped lived runtime state. Character Cards remain reusable
+# definitions and do not gain hidden cross-server consciousness.
 deployments_router.include_router(deployment_presence_router)
+deployments_router.include_router(deployment_discovery_router)
 
 # Conversation Intelligence observation, explicit Core Memory controls, and retrieval diagnostics
 # remain under the same authenticated control-plane prefix while living outside destructive
