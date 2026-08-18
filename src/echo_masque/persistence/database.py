@@ -21,6 +21,12 @@ from echo_masque.persistence.core_memory_models import CharacterCoreMemoryRecord
 from echo_masque.persistence.deployment_presence_models import DeploymentPresenceRecord
 from echo_masque.persistence.deployment_presence_notice_models import DeploymentPresenceNoticeRecord
 from echo_masque.persistence.deployment_presence_rhythm_models import DeploymentPresenceRhythmRecord
+from echo_masque.persistence.discovery_models import (
+    DeploymentDiscoveryDecisionRecord,
+    DeploymentDiscoveryExposureRecord,
+    DeploymentDiscoveryProfileRecord,
+    DiscoveryItemRecord,
+)
 from echo_masque.persistence.discord_identity_models import DiscordGuildActorIdentityRecord
 from echo_masque.persistence.episodic_sql_rag_models import (
     CharacterEpisodeAccessRecord,
@@ -103,6 +109,9 @@ BEGIN
     DELETE FROM deployment_presence WHERE deployment_id = OLD.id;
     DELETE FROM deployment_presence_notices WHERE deployment_id = OLD.id;
     DELETE FROM deployment_presence_rhythms WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_discovery_profiles WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_discovery_exposures WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_discovery_decisions WHERE deployment_id = OLD.id;
 END;
 """
 
@@ -143,6 +152,10 @@ class Database:
             DeploymentPresenceRecord,
             DeploymentPresenceNoticeRecord,
             DeploymentPresenceRhythmRecord,
+            DiscoveryItemRecord,
+            DeploymentDiscoveryProfileRecord,
+            DeploymentDiscoveryExposureRecord,
+            DeploymentDiscoveryDecisionRecord,
         )
         Base.metadata.create_all(self.engine)
         self._ensure_sqlite_deployment_runtime_invariants()
