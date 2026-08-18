@@ -6,10 +6,18 @@ from typing import Protocol
 
 from sqlalchemy import select
 
-from echo_masque.deployment_activity import DeploymentBrowsingActivityService
-from echo_masque.deployment_discovery_intelligence import DeploymentDiscoverySeedBuilder
+from echo_masque.config import Settings
+from echo_masque.deployment_activity import (
+    DeploymentBrowsingActivityService,
+    DiscoveryPreviewRunner,
+)
+from echo_masque.deployment_discovery_intelligence import (
+    DeploymentDiscoverySeedBuilder,
+    DeploymentDiscoverySeeds,
+)
 from echo_masque.discovery_contracts import DiscoveryAttentionLevel
 from echo_masque.discovery_media_inspection import DiscoveryMediaInspection
+from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_activity_repository import DeploymentActivitySessionView
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.discovery_models import DiscoveryItemRecord
@@ -25,17 +33,24 @@ class DiscoveryMediaInspector(Protocol):
         owner_id: str,
         character_card_id: str,
         url: str,
-        seeds: object,
+        seeds: DeploymentDiscoverySeeds,
     ) -> DiscoveryMediaInspection | None: ...
 
 
 class MediaAwareDeploymentBrowsingActivityService(DeploymentBrowsingActivityService):
     """Promote a small OPEN shortlist after real existing-runtime media inspection."""
 
-    def __init__(self, *args: object, media_inspector: DiscoveryMediaInspector, **kwargs: object) -> None:
-        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+    def __init__(
+        self,
+        database: Database,
+        settings: Settings,
+        *,
+        media_inspector: DiscoveryMediaInspector,
+        preview: DiscoveryPreviewRunner | None = None,
+    ) -> None:
+        super().__init__(database, settings, preview=preview)
         self.media_inspector = media_inspector
-        self.seed_builder = DeploymentDiscoverySeedBuilder(self.database)
+        self.seed_builder = DeploymentDiscoverySeedBuilder(database)
 
     async def _observe_candidates(
         self,
@@ -67,6 +82,8 @@ class MediaAwareDeploymentBrowsingActivityService(DeploymentBrowsingActivityServ
                 if item.attention_level == DiscoveryAttentionLevel.OPEN.value
                 and item.score >= _WATCH_RANK_THRESHOLD
             ][: session.watch_budget]
+            if not open_items:
+                return
             content_by_id = {
                 record.id: record
                 for record in db_session.scalars(
