@@ -5,9 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Iterable
 
 from sqlalchemy import select
 
@@ -23,13 +23,13 @@ from echo_masque.persistence.discovery_models import DeploymentDiscoveryExposure
 from echo_masque.persistence.discovery_repository import DiscoveryRepository
 from echo_masque.persistence.repository import Repository
 from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
+from echo_masque.persistence.smart_participation_repository import decode_strings
 from echo_masque.semantic_participation import (
     FastEmbedSemanticEncoder,
     SemanticEmbeddingUnavailable,
     SemanticEncoder,
     _cosine,
 )
-from echo_masque.persistence.smart_participation_repository import decode_strings
 
 _DISCOVERY_VECTOR_NAMESPACE = "discovery_item_v1"
 
@@ -337,7 +337,7 @@ class DiscoveryCandidateRanker:
     @staticmethod
     def _exploration(deployment_id: str, canonical_key: str, now: datetime) -> float:
         digest = hashlib.sha256(
-            f"{deployment_id}|{canonical_key}|{now.date().isoformat()}".encode("utf-8")
+            f"{deployment_id}|{canonical_key}|{now.date().isoformat()}".encode()
         ).digest()
         return int.from_bytes(digest[:4], "big") / float(2**32 - 1)
 
@@ -410,14 +410,18 @@ class DiscoveryCandidateRanker:
             stored.append((candidate, item.id))
         item_ids = [item_id for _, item_id in stored]
         with self.database.session() as session:
-            exposed_ids = set(
-                session.scalars(
-                    select(DeploymentDiscoveryExposureRecord.discovery_item_id).where(
-                        DeploymentDiscoveryExposureRecord.deployment_id == deployment_id,
-                        DeploymentDiscoveryExposureRecord.discovery_item_id.in_(item_ids),
+            exposed_ids = (
+                set(
+                    session.scalars(
+                        select(DeploymentDiscoveryExposureRecord.discovery_item_id).where(
+                            DeploymentDiscoveryExposureRecord.deployment_id == deployment_id,
+                            DeploymentDiscoveryExposureRecord.discovery_item_id.in_(item_ids),
+                        )
                     )
                 )
-            ) if item_ids else set()
+                if item_ids
+                else set()
+            )
 
         ranked: list[RankedDiscoveryCandidate] = []
         for candidate, item_id in stored:
