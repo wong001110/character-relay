@@ -7,6 +7,7 @@ inferring social identities from display names.
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -55,6 +56,14 @@ def _clamp(value: float, minimum: float = -1.0, maximum: float = 1.0) -> float:
     return max(minimum, min(maximum, value))
 
 
+def _default_discord_avatar_url(user_id: str) -> str:
+    try:
+        bucket = (int(user_id) >> 22) % 6
+    except ValueError:
+        return ""
+    return f"https://cdn.discordapp.com/embed/avatars/{bucket}.png"
+
+
 @dataclass(frozen=True, slots=True)
 class TopicOverview:
     total: int
@@ -95,6 +104,9 @@ class SocialNeighbor:
     subject_key: str
     subject_type: str
     label: str
+    avatar_url: str
+    discord_user_id: str
+    is_bot: bool
     character_card_id: str
     value: float
     confidence: float
@@ -318,6 +330,50 @@ class ConversationIntelligenceObservationService:
                 )
             )
 
+    def _participant_labels(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+    ) -> dict[str, str]:
+        with self.database.session() as session:
+            topics = list(
+                session.scalars(
+                    select(ConversationTopicRecord)
+                    .where(
+                        ConversationTopicRecord.owner_id == owner_id,
+                        ConversationTopicRecord.platform == "discord",
+                        ConversationTopicRecord.connection_id == connection_id,
+                        ConversationTopicRecord.guild_id == guild_id,
+                    )
+                    .order_by(ConversationTopicRecord.last_active_at.desc())
+                    .limit(100)
+                )
+            )
+        labels: dict[str, str] = {}
+        for topic in topics:
+            try:
+                participants = json.loads(topic.participants_json)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(participants, list):
+                continue
+            for raw in participants:
+                if not isinstance(raw, dict):
+                    continue
+                user_id = raw.get("user_id")
+                display_name = raw.get("display_name")
+                if (
+                    isinstance(user_id, str)
+                    and user_id
+                    and isinstance(display_name, str)
+                    and display_name.strip()
+                    and user_id not in labels
+                ):
+                    labels[user_id] = display_name.strip()[:160]
+        return labels
+
     def social_ego_graph(
         self,
         *,
@@ -336,6 +392,11 @@ class ConversationIntelligenceObservationService:
             state_type="relationship",
         )
         replayed = self._replay(events, state_type="relationship", now=current)
+        participant_labels = self._participant_labels(
+            owner_id=owner_id,
+            connection_id=connection_id,
+            guild_id=guild_id,
+        )
         latest_event = {
             key: max(
                 (item for item in events if item.subject_key == key),
@@ -356,21 +417,71 @@ class ConversationIntelligenceObservationService:
             )
             if route is not None and route.character_card_id != character_card_id:
                 card = self.repository.get_character_card(route.character_card_id, owner_id)
-                label = card.display_name if card is not None else route.character_card_id
+                deployment_identity = self.identities.get_identity(route.deployment_id, owner_id)
+                deployment_label = (
+                    deployment_identity.display_name.strip()
+                    if deployment_identity is not None
+                    else ""
+                )
+                label = (
+                    deployment_label
+                    or (card.display_name if card is not None else "")
+                    or route.character_card_id
+                )
+                avatar_url = (
+                    deployment_identity.avatar_url.strip()
+                    if deployment_identity is not None
+                    else ""
+                )
+                if not avatar_url and card is not None:
+                    avatar_url = f"/api/characters/portraits/{card.id}"
                 subject_type = "character"
                 canonical_key = f"character:{route.character_card_id}"
                 target_card_id = route.character_card_id
+                discord_user_id = ""
+                is_bot = True
             else:
-                label = subject_key.removeprefix("actor:") or subject_key
+                discord_user_id = subject_key.removeprefix("actor:")
+                identity = self.identities.get_guild_actor_identity(
+                    owner_id=owner_id,
+                    connection_id=connection_id,
+                    guild_id=guild_id,
+                    user_id=discord_user_id,
+                )
+                if identity is not None:
+                    label = (
+                        identity.guild_display_name.strip()
+                        or identity.global_display_name.strip()
+                        or identity.username.strip()
+                        or participant_labels.get(discord_user_id, "")
+                        or discord_user_id
+                    )
+                    avatar_url = identity.avatar_url.strip()
+                    is_bot = identity.is_bot
+                else:
+                    label = participant_labels.get(discord_user_id, "") or discord_user_id
+                    avatar_url = ""
+                    is_bot = False
+                if not avatar_url:
+                    avatar_url = _default_discord_avatar_url(discord_user_id)
                 subject_type = "actor"
                 canonical_key = subject_key
                 target_card_id = ""
-            trend = "rising" if state.recent_delta > 0.05 else "falling" if state.recent_delta < -0.05 else "steady"
+            trend = (
+                "rising"
+                if state.recent_delta > 0.05
+                else "falling"
+                if state.recent_delta < -0.05
+                else "steady"
+            )
             values.append(
                 SocialNeighbor(
                     subject_key=canonical_key,
                     subject_type=subject_type,
                     label=label,
+                    avatar_url=avatar_url,
+                    discord_user_id=discord_user_id,
+                    is_bot=is_bot,
                     character_card_id=target_card_id,
                     value=state.value,
                     confidence=state.confidence,
