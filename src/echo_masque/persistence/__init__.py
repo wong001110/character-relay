@@ -36,6 +36,12 @@ from echo_masque.persistence.deployment_models import (
     DiscordServerProfileRecord,
     PlatformConnectionRecord,
 )
+from echo_masque.persistence.deployment_presence_models import DeploymentPresenceRecord
+from echo_masque.persistence.deployment_presence_repository import (
+    DeploymentPresenceRepository,
+    DeploymentPresenceState,
+    DeploymentPresenceView,
+)
 from echo_masque.persistence.deployment_repository import (
     DeploymentConflict,
     DeploymentRepository,
@@ -171,6 +177,10 @@ __all__ = [
     "DeploymentConflict",
     "DeploymentMessageAliasRecord",
     "DeploymentMessageIdentityRecord",
+    "DeploymentPresenceRecord",
+    "DeploymentPresenceRepository",
+    "DeploymentPresenceState",
+    "DeploymentPresenceView",
     "DeploymentRepository",
     "DeploymentToolProfileRecord",
     "DeploymentToolRepository",
