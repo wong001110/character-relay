@@ -20,6 +20,7 @@ from echo_masque.persistence.conversation_topic_decision_models import Conversat
 from echo_masque.persistence.core_memory_models import CharacterCoreMemoryRecord
 from echo_masque.persistence.deployment_presence_models import DeploymentPresenceRecord
 from echo_masque.persistence.deployment_presence_notice_models import DeploymentPresenceNoticeRecord
+from echo_masque.persistence.deployment_presence_rhythm_models import DeploymentPresenceRhythmRecord
 from echo_masque.persistence.discord_identity_models import DiscordGuildActorIdentityRecord
 from echo_masque.persistence.episodic_sql_rag_models import (
     CharacterEpisodeAccessRecord,
@@ -101,6 +102,7 @@ AFTER DELETE ON character_deployments
 BEGIN
     DELETE FROM deployment_presence WHERE deployment_id = OLD.id;
     DELETE FROM deployment_presence_notices WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_presence_rhythms WHERE deployment_id = OLD.id;
 END;
 """
 
@@ -140,6 +142,7 @@ class Database:
             DiscordGuildActorIdentityRecord,
             DeploymentPresenceRecord,
             DeploymentPresenceNoticeRecord,
+            DeploymentPresenceRhythmRecord,
         )
         Base.metadata.create_all(self.engine)
         self._ensure_sqlite_deployment_runtime_invariants()
