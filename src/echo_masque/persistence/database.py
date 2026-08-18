@@ -18,6 +18,7 @@ from echo_masque.persistence.conversation_graph_models import (
 )
 from echo_masque.persistence.conversation_topic_decision_models import ConversationTopicDecisionRecord
 from echo_masque.persistence.core_memory_models import CharacterCoreMemoryRecord
+from echo_masque.persistence.deployment_presence_models import DeploymentPresenceRecord
 from echo_masque.persistence.discord_identity_models import DiscordGuildActorIdentityRecord
 from echo_masque.persistence.episodic_sql_rag_models import (
     CharacterEpisodeAccessRecord,
@@ -93,6 +94,14 @@ BEGIN
 END;
 """
 
+_SQLITE_DEPLOYMENT_PRESENCE_DELETE_TRIGGER = """
+CREATE TRIGGER IF NOT EXISTS cr_delete_deployment_presence
+AFTER DELETE ON character_deployments
+BEGIN
+    DELETE FROM deployment_presence WHERE deployment_id = OLD.id;
+END;
+"""
+
 
 class Database:
     def __init__(self, url: str) -> None:
@@ -127,24 +136,20 @@ class Database:
             SynthesizedMemoryFreshnessRecord,
             CharacterMemorySummaryRecord,
             DiscordGuildActorIdentityRecord,
+            DeploymentPresenceRecord,
         )
         Base.metadata.create_all(self.engine)
-        self._ensure_sqlite_deployment_server_invariant()
+        self._ensure_sqlite_deployment_runtime_invariants()
 
-    def _ensure_sqlite_deployment_server_invariant(self) -> None:
-        """Install non-destructive guards for old SQLite databases.
-
-        Existing duplicate rows are deliberately left untouched. The triggers only reject
-        future INSERT/UPDATE operations that would create another incarnation of the same
-        Character Card in one Discord guild. Owners can inspect legacy conflicts through
-        ``inspect_deployment_server_duplicates`` and repair them explicitly.
-        """
+    def _ensure_sqlite_deployment_runtime_invariants(self) -> None:
+        """Install non-destructive compatibility guards for SQLite databases."""
 
         if self.engine.dialect.name != "sqlite":
             return
         with self.engine.begin() as connection:
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_SERVER_INSERT_TRIGGER)
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_SERVER_UPDATE_TRIGGER)
+            connection.exec_driver_sql(_SQLITE_DEPLOYMENT_PRESENCE_DELETE_TRIGGER)
 
     def inspect_deployment_server_duplicates(self) -> tuple[DeploymentServerDuplicate, ...]:
         """Return legacy same-Card/same-Discord-server duplicate groups without mutating them."""
