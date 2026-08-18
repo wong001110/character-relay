@@ -8,6 +8,11 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from echo_masque.api.dependencies import CurrentUserDependency
 from echo_masque.api.deployment_discovery_schemas import (
+    DeploymentActivitySessionDetailView,
+    DeploymentActivitySessionItemView,
+    DeploymentActivitySessionListView,
+    DeploymentActivitySessionView,
+    DeploymentDiscoveryBrowseShadowRequest,
     DeploymentDiscoveryDecisionListView,
     DeploymentDiscoveryDecisionView,
     DeploymentDiscoveryExposureListView,
@@ -24,6 +29,10 @@ from echo_masque.deployment_discovery_service import (
     DeploymentDiscoveryUnavailable,
 )
 from echo_masque.discovery_contracts import DiscoveryMode
+from echo_masque.persistence.deployment_activity_repository import (
+    DeploymentActivityRepository,
+    DeploymentActivitySessionView as ActivityDomainView,
+)
 from echo_masque.persistence.discovery_models import DiscoveryItemRecord
 from echo_masque.persistence.discovery_repository import DiscoveryRepository
 from echo_masque.youtube_discovery import YouTubeDiscoveryUnavailable
@@ -33,6 +42,10 @@ router = APIRouter(tags=["deployments"])
 
 def repository(request: Request) -> DiscoveryRepository:
     return DiscoveryRepository(request.app.state.database)
+
+
+def activity_repository(request: Request) -> DeploymentActivityRepository:
+    return DeploymentActivityRepository(request.app.state.database)
 
 
 def _item(record: DiscoveryItemRecord) -> DiscoveryItemView:
@@ -46,6 +59,65 @@ def _item(record: DiscoveryItemRecord) -> DiscoveryItemView:
         url=record.url,
         thumbnail_url=record.thumbnail_url,
         published_at=record.published_at,
+    )
+
+
+def _activity(value: ActivityDomainView) -> DeploymentActivitySessionView:
+    return DeploymentActivitySessionView(
+        id=value.id,
+        deployment_id=value.deployment_id,
+        activity_type=value.activity_type,
+        platform=value.platform,
+        status=value.status,
+        source=value.source,
+        local_date=value.local_date,
+        schedule_timezone=value.schedule_timezone,
+        scheduled_start_at=value.scheduled_start_at,
+        latest_start_at=value.latest_start_at,
+        planned_duration_minutes=value.planned_duration_minutes,
+        started_at=value.started_at,
+        expected_end_at=value.expected_end_at,
+        ended_at=value.ended_at,
+        candidate_budget=value.candidate_budget,
+        open_budget=value.open_budget,
+        watch_budget=value.watch_budget,
+        share_intent_budget=value.share_intent_budget,
+        exploration_percent=value.exploration_percent,
+        candidate_count=value.candidate_count,
+        notice_count=value.notice_count,
+        open_count=value.open_count,
+        watch_count=value.watch_count,
+        engage_count=value.engage_count,
+        reason=value.reason,
+        error=value.error,
+    )
+
+
+def _activity_detail(
+    request: Request,
+    *,
+    owner_id: str,
+    activity: ActivityDomainView,
+) -> DeploymentActivitySessionDetailView:
+    repo = activity_repository(request)
+    items: list[DeploymentActivitySessionItemView] = []
+    with request.app.state.database.session() as session:
+        for row in repo.list_items(owner_id=owner_id, session_id=activity.id):
+            content = session.get(DiscoveryItemRecord, row.discovery_item_id)
+            if content is None:
+                continue
+            items.append(
+                DeploymentActivitySessionItemView(
+                    rank_position=row.rank_position,
+                    attention_level=row.attention_level,
+                    score=row.score,
+                    reason=row.reason,
+                    item=_item(content),
+                )
+            )
+    return DeploymentActivitySessionDetailView(
+        session=_activity(activity),
+        items=items,
     )
 
 
@@ -169,6 +241,78 @@ async def run_discovery_shadow_preview(
         ],
         candidates=candidates,
         side_effects=False,
+    )
+
+
+@router.post(
+    "/deployments/{deployment_id}/discovery/browse-shadow",
+    response_model=DeploymentActivitySessionDetailView,
+)
+async def run_browsing_shadow_session(
+    deployment_id: str,
+    payload: DeploymentDiscoveryBrowseShadowRequest,
+    request: Request,
+    user: CurrentUserDependency,
+) -> DeploymentActivitySessionDetailView:
+    """Start one lived Shadow browsing session using the same runtime as the scheduler."""
+
+    try:
+        activity = await request.app.state.deployment_activity_service.run_manual(
+            owner_id=user.id,
+            deployment_id=deployment_id,
+            duration_minutes=payload.duration_minutes,
+            candidate_budget=payload.candidate_budget,
+            open_budget=payload.open_budget,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Deployment not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _activity_detail(
+        request,
+        owner_id=user.id,
+        activity=activity,
+    )
+
+
+@router.get(
+    "/deployments/{deployment_id}/discovery/sessions",
+    response_model=DeploymentActivitySessionListView,
+)
+def list_browsing_sessions(
+    deployment_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> DeploymentActivitySessionListView:
+    profile = repository(request).get_profile(owner_id=user.id, deployment_id=deployment_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Deployment not found.")
+    rows = activity_repository(request).list_for_deployment(
+        owner_id=user.id,
+        deployment_id=deployment_id,
+        limit=limit,
+    )
+    return DeploymentActivitySessionListView(items=[_activity(row) for row in rows])
+
+
+@router.get(
+    "/deployments/{deployment_id}/discovery/sessions/{session_id}",
+    response_model=DeploymentActivitySessionDetailView,
+)
+def get_browsing_session(
+    deployment_id: str,
+    session_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+) -> DeploymentActivitySessionDetailView:
+    activity = activity_repository(request).get(owner_id=user.id, session_id=session_id)
+    if activity is None or activity.deployment_id != deployment_id:
+        raise HTTPException(status_code=404, detail="Browsing session not found.")
+    return _activity_detail(
+        request,
+        owner_id=user.id,
+        activity=activity,
     )
 
 
