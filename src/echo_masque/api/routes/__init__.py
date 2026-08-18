@@ -50,6 +50,9 @@ from echo_masque.api.routes.smart_participation import router as smart_participa
 from echo_masque.api.routes.smart_participation_v4 import (
     router as smart_participation_v4_router,
 )
+from echo_masque.api.routes.smart_participation_vnext import (
+    router as smart_participation_vnext_router,
+)
 from echo_masque.api.routes.social_turn_interrupt import router as social_turn_interrupt_router
 from echo_masque.api.routes.targets import router as targets_router
 from echo_masque.api.routes.templates import router as templates_router
@@ -84,8 +87,11 @@ conversation_intelligence_router.include_router(conversation_intelligence_observ
 conversation_intelligence_router.include_router(conversation_memory_control_router)
 conversation_intelligence_router.include_router(conversation_retrieval_observation_router)
 
-# V4 resolver shares the existing Smart Participation prefix/auth boundary. Keeping the new route
-# in a separate module avoids expanding the legacy per-message implementation during migration.
+# vNext intentionally registers before V4 for the same /resolve path. It delegates all admission
+# authority to V4 and adds Segment/Semantic Thread evidence, allowing a compatibility migration
+# without changing the Discord Connector URL. The original V4 route remains available internally
+# and as the implementation authority called by the wrapper.
+smart_participation_router.include_router(smart_participation_vnext_router)
 smart_participation_router.include_router(smart_participation_v4_router)
 
 __all__ = [
