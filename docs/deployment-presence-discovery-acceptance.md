@@ -3,7 +3,7 @@
 Branch: `agent/deployment-presence-discovery`  
 Base: `main` at `fb71f21ef38227fdb6e9fa842079660b8ee3f1e1`
 
-Status: **implementation batch complete through Phase 11; final batch CI pending**
+Status: **implementation complete through Phase 11 — source validation green at `14fc10f715ad75a22b81f4f177f2fe595bbe4dc8`; owner acceptance pending**
 
 This is the branch-local acceptance/evidence record required by
 `docs/ai-agent-development-workflow.md`. Generated OpenWiki pages remain a merged-`main`
@@ -146,17 +146,16 @@ Existing runtime reused rather than duplicated:
 
 ## Final batch validation gate
 
-Run only after the complete module batch lands:
+Validated on source head `14fc10f715ad75a22b81f4f177f2fe595bbe4dc8`:
 
-- [ ] Ruff — Python 3.12 / 3.13
-- [ ] MyPy — Python 3.12 / 3.13
-- [ ] Full Pytest — Python 3.12 / 3.13
-- [ ] Web typecheck/test/build
-- [ ] Discord Connector typecheck/test/build + image build
-- [ ] Docker storage/runtime smoke
-- [ ] Railway Smoke
-
-The immediately preceding stable Phase 7 service-layer head passed all of the above core CI gates.
+- [x] Ruff — Python 3.12 / 3.13
+- [x] MyPy — Python 3.12 / 3.13
+- [x] Full Pytest — Python 3.12 / 3.13 (`632 passed` per Python job)
+- [x] Web typecheck/test/build
+- [x] Discord Connector typecheck/test/build + image build
+- [x] Docker storage/runtime smoke
+- [x] Railway Smoke
+- [ ] Public Demo Status Check — deployment readiness endpoint did not become ready; the code/runtime CI above is green and this check failed before any public-demo verification step could run.
 
 ## Owner acceptance pass
 
