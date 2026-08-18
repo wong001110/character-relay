@@ -72,6 +72,32 @@ class DeploymentDiscoveryDecisionListView(BaseModel):
     items: list[DeploymentDiscoveryDecisionView]
 
 
+class DiscoverySeedView(BaseModel):
+    text: str
+    weight: float
+    source: str
+    evidence_ref: str
+
+
+class RankedDiscoveryCandidateView(BaseModel):
+    item: DiscoveryItemView
+    semantic_relevance: float
+    sparse_relevance: float
+    freshness: float
+    novelty: float
+    exploration: float
+    final_score: float
+    reason: str
+
+
+class DeploymentDiscoveryShadowPreviewView(BaseModel):
+    deployment_id: str
+    queries: list[str]
+    seeds: list[DiscoverySeedView]
+    candidates: list[RankedDiscoveryCandidateView]
+    side_effects: Literal[False] = False
+
+
 __all__ = [
     "DeploymentDiscoveryDecisionListView",
     "DeploymentDiscoveryDecisionView",
@@ -79,5 +105,8 @@ __all__ = [
     "DeploymentDiscoveryExposureView",
     "DeploymentDiscoveryProfileUpdate",
     "DeploymentDiscoveryProfileView",
+    "DeploymentDiscoveryShadowPreviewView",
     "DiscoveryItemView",
+    "DiscoverySeedView",
+    "RankedDiscoveryCandidateView",
 ]
