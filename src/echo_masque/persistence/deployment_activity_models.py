@@ -47,6 +47,7 @@ class DeploymentActivitySessionRecord(Base):
     latest_start_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    planned_duration_minutes: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expected_end_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
