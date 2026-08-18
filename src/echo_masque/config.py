@@ -79,6 +79,15 @@ class Settings(BaseSettings):
     # tests and source checkouts never download a model merely by creating a Character Card.
     semantic_participation_enabled: bool = False
 
+    # Character Discovery public-source configuration. YouTube public Data API access is an
+    # application capability, not a Character/social-account binding. The API key therefore
+    # stays process-scoped and outside Character Cards/Deployments. Discovery remains disabled
+    # per Deployment until its profile is explicitly enabled.
+    youtube_data_api_key: SecretStr | None = None
+    youtube_discovery_search_cache_seconds: int = Field(default=4 * 60 * 60, ge=300, le=86400)
+    youtube_discovery_popular_cache_seconds: int = Field(default=60 * 60, ge=300, le=86400)
+    youtube_discovery_max_search_queries_per_session: int = Field(default=2, ge=0, le=5)
+
     # Browser Capability. Chromium launches lazily on first use, stays warm briefly for
     # repeated search/read calls, then closes automatically when idle or after hard limits.
     browser_tools_enabled: bool = True
