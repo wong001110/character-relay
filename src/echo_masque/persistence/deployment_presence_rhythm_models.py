@@ -29,13 +29,19 @@ class DeploymentPresenceRhythmRecord(Base):
     # reused across process restarts instead of rolling new pseudo-random offsets.
     schedule_local_date: Mapped[str] = mapped_column(String(10), default="", nullable=False)
     schedule_timezone: Mapped[str] = mapped_column(String(120), default="", nullable=False)
-    scheduled_sleep_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    scheduled_wake_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    scheduled_sleep_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    scheduled_wake_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     next_transition_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), index=True, nullable=True
     )
     next_state: Mapped[str] = mapped_column(String(24), default="", nullable=False)
-    last_transition_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_transition_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_transition_reason: Mapped[str] = mapped_column(String(160), default="", nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
