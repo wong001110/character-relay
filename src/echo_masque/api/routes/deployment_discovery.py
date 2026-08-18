@@ -31,6 +31,8 @@ from echo_masque.deployment_discovery_service import (
 from echo_masque.discovery_contracts import DiscoveryMode
 from echo_masque.persistence.deployment_activity_repository import (
     DeploymentActivityRepository,
+)
+from echo_masque.persistence.deployment_activity_repository import (
     DeploymentActivitySessionView as ActivityDomainView,
 )
 from echo_masque.persistence.discovery_models import DiscoveryItemRecord
