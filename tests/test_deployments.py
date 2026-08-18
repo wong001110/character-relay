@@ -58,6 +58,48 @@ def create_character(client: TestClient) -> dict[str, object]:
     return response.json()
 
 
+def create_connection(client: TestClient, suffix: str = "primary") -> dict[str, object]:
+    response = client.post(
+        "/api/connections",
+        json={
+            "platform": "discord",
+            "display_name": f"Discord Bot {suffix}",
+            "connection_mode": "managed",
+            "external_account_id": f"bot-{suffix}",
+            "status": "connected",
+            "metadata": {},
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def deployment_payload(
+    *,
+    character_id: object,
+    connection_id: object,
+    workspace_id: str,
+    channel_id: str,
+    channel_name: str,
+    status: str = "paused",
+) -> dict[str, object]:
+    return {
+        "character_card_id": character_id,
+        "connection_id": connection_id,
+        "workspace_id": workspace_id,
+        "workspace_name": f"Server {workspace_id}",
+        "channel_id": channel_id,
+        "channel_name": channel_name,
+        "thread_id": "",
+        "thread_name": "",
+        "participation_mode": "mention_and_reply",
+        "memory_scope": "channel_isolated",
+        "version_label": "v1.0",
+        "sticker_count": 12,
+        "status": status,
+    }
+
+
 def test_connection_and_deployment_lifecycle(tmp_path: Path) -> None:
     client = TestClient(create_app(settings(tmp_path / "deployments.db")))
     login(client)
@@ -77,22 +119,14 @@ def test_connection_and_deployment_lifecycle(tmp_path: Path) -> None:
     assert connection_response.status_code == 201, connection_response.text
     connection = connection_response.json()
 
-    deployment_payload = {
-        "character_card_id": character["id"],
-        "connection_id": connection["id"],
-        "workspace_id": "guild-001",
-        "workspace_name": "Juen Test Server",
-        "channel_id": "channel-001",
-        "channel_name": "#ann-room",
-        "thread_id": "",
-        "thread_name": "",
-        "participation_mode": "mention_and_reply",
-        "memory_scope": "channel_isolated",
-        "version_label": "v1.0",
-        "sticker_count": 12,
-        "status": "paused",
-    }
-    deployment_response = client.post("/api/deployments", json=deployment_payload)
+    payload = deployment_payload(
+        character_id=character["id"],
+        connection_id=connection["id"],
+        workspace_id="guild-001",
+        channel_id="channel-001",
+        channel_name="#ann-room",
+    )
+    deployment_response = client.post("/api/deployments", json=payload)
     assert deployment_response.status_code == 201, deployment_response.text
     deployment = deployment_response.json()
     assert deployment["character_display_name"] == "Ann"
@@ -100,8 +134,18 @@ def test_connection_and_deployment_lifecycle(tmp_path: Path) -> None:
     assert deployment["channel_name"] == "#ann-room"
     assert deployment["sticker_count"] == 12
 
-    duplicate = client.post("/api/deployments", json=deployment_payload)
+    duplicate = client.post("/api/deployments", json=payload)
     assert duplicate.status_code == 409
+
+    duplicate_other_channel = client.post(
+        "/api/deployments",
+        json={
+            **payload,
+            "channel_id": "channel-002",
+            "channel_name": "#another-room",
+        },
+    )
+    assert duplicate_other_channel.status_code == 409
 
     listed = client.get(f"/api/deployments?character_card_id={character['id']}")
     assert listed.status_code == 200
@@ -131,6 +175,50 @@ def test_connection_and_deployment_lifecycle(tmp_path: Path) -> None:
     assert deleted_connection.status_code == 204
     assert client.get("/api/connections").json() == []
     assert client.get("/api/deployments").json() == []
+
+
+def test_same_character_can_deploy_to_different_discord_servers_but_not_move_into_conflict(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(create_app(settings(tmp_path / "deployment-server-identity.db")))
+    login(client)
+    character = create_character(client)
+    connection = create_connection(client, "server-identity")
+
+    first = client.post(
+        "/api/deployments",
+        json=deployment_payload(
+            character_id=character["id"],
+            connection_id=connection["id"],
+            workspace_id="guild-a",
+            channel_id="channel-a",
+            channel_name="#a",
+        ),
+    )
+    assert first.status_code == 201, first.text
+
+    second = client.post(
+        "/api/deployments",
+        json=deployment_payload(
+            character_id=character["id"],
+            connection_id=connection["id"],
+            workspace_id="guild-b",
+            channel_id="channel-b",
+            channel_name="#b",
+        ),
+    )
+    assert second.status_code == 201, second.text
+
+    conflict_move = client.put(
+        f"/api/deployments/{second.json()['id']}",
+        json={
+            "workspace_id": "guild-a",
+            "workspace_name": "Server guild-a",
+            "channel_id": "channel-c",
+            "channel_name": "#c",
+        },
+    )
+    assert conflict_move.status_code == 409, conflict_move.text
 
 
 def test_platform_account_is_editable_and_keeps_user_label_after_heartbeat(
@@ -206,10 +294,10 @@ def test_deployment_rejects_missing_owned_resources(tmp_path: Path) -> None:
     )
     assert response.status_code == 404
 
+
 def test_deployment_page_filters_and_reports_global_counts(tmp_path: Path) -> None:
     client = TestClient(create_app(settings(tmp_path / "deployment-pagination.db")))
     login(client)
-    character = create_character(client)
     connection = client.post(
         "/api/connections",
         json={
@@ -222,6 +310,7 @@ def test_deployment_page_filters_and_reports_global_counts(tmp_path: Path) -> No
         },
     ).json()
     for index in range(5):
+        character = create_character(client)
         created = client.post(
             "/api/deployments",
             json={
