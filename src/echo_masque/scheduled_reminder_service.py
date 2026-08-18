@@ -11,6 +11,8 @@ import httpx
 from pydantic import SecretStr
 
 from echo_masque.credentials import CredentialVault
+from echo_masque.deployment_presence_rhythm import DeploymentPresenceRhythmService
+from echo_masque.deployment_presence_scheduler import DeploymentPresenceScheduler
 from echo_masque.media_retention import MediaRetentionService
 from echo_masque.persistence import DeploymentRepository, DiscordIdentityRepository
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
@@ -45,6 +47,7 @@ class ScheduledReminderDeliveryService:
         max_attempts: int = 3,
         http_transport: httpx.AsyncBaseTransport | None = None,
         media_retention_service: MediaRetentionService | None = None,
+        presence_scheduler: DeploymentPresenceScheduler | None = None,
     ) -> None:
         self.repository = repository
         self.deployment_repository = deployment_repository
@@ -56,6 +59,9 @@ class ScheduledReminderDeliveryService:
         self.max_attempts = max(1, max_attempts)
         self.http_transport = http_transport
         self.presence_notices = DeploymentPresenceNoticeRepository(repository.database)
+        self.presence_scheduler = presence_scheduler or DeploymentPresenceScheduler(
+            DeploymentPresenceRhythmService(repository.database)
+        )
         self.media_retention_service = (
             media_retention_service
             or MediaRetentionService.for_database(repository.database)
@@ -69,6 +75,7 @@ class ScheduledReminderDeliveryService:
         self.presence_notices.recover_interrupted()
         self.repository.purge_orphans()
         await self.media_retention_service.start()
+        await self.presence_scheduler.start()
         self._task = asyncio.create_task(
             self._run(),
             name="character-relay-reminder-delivery",
@@ -81,6 +88,7 @@ class ScheduledReminderDeliveryService:
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+        await self.presence_scheduler.stop()
         await self.media_retention_service.stop()
 
     async def deliver_due_once(self) -> int:
