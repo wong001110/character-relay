@@ -12,6 +12,7 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.sql.elements import ColumnElement
 
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.deployment_presence_models import DeploymentPresenceRecord
 from echo_masque.persistence.smart_participation_state_models import (
     SmartParticipationDeploymentStateRecord,
     SmartParticipationScopeStateRecord,
@@ -101,7 +102,24 @@ class SmartParticipationDurableStateService:
                         rate_limited = window_count >= max(1, max_replies_per_window)
 
             blocked: set[str] = set()
+            candidate_ids = tuple(candidate_cooldowns)
+            if candidate_ids:
+                # Presence is a hard Runtime authority signal, not a score penalty. A sleeping
+                # Deployment is removed before E5/context rerank/Utility by entering the same
+                # authoritative blocked set used by the V4 resolver.
+                blocked.update(
+                    str(item)
+                    for item in session.scalars(
+                        select(DeploymentPresenceRecord.deployment_id).where(
+                            DeploymentPresenceRecord.deployment_id.in_(candidate_ids),
+                            DeploymentPresenceRecord.state == "sleeping",
+                        )
+                    )
+                )
+
             for deployment_id, cooldown_seconds in candidate_cooldowns.items():
+                if deployment_id in blocked:
+                    continue
                 record = session.scalar(
                     select(SmartParticipationDeploymentStateRecord).where(
                         *self._scope_conditions(

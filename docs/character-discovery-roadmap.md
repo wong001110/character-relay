@@ -1,548 +1,334 @@
-# Character Discovery / Social Discovery Roadmap
+# Character Relay — Deployment Presence and Discovery Roadmap
 
-> Status: **Planned / documentation only**
->
-> This roadmap records a future Character Relay direction. It does **not** authorize implementation work yet. No OAuth flow, platform login, social-account mutation, automated posting, liking, following, commenting, or external account action should be implemented as part of this roadmap entry.
+Status: **IMPLEMENTED THROUGH PHASE 11 — OWNER ACCEPTANCE PENDING**
 
-## Goal
+Branch: `agent/deployment-presence-discovery`
 
-Extend Character Relay so a character can discover interesting content from external social/content platforms in a way that resembles ordinary social behavior:
+This document is the canonical architecture/phase plan for the current Presence + Discovery work. It follows `docs/ai-agent-development-workflow.md` and `openwiki/INSTRUCTIONS.md`: current source/tests remain authoritative for implemented behavior, this document records accepted intent, and generated OpenWiki pages should be refreshed from merged `main` only after this work is accepted and merged.
 
-```text
-Discover something
-  -> decide whether it is interesting to this character
-  -> understand the content when needed
-  -> form a reaction / opinion
-  -> associate it with a person, topic, or previous conversation
-  -> remember it when useful
-  -> optionally bring it back into Discord naturally
-```
+## Implementation status
 
-The product goal is **character presence and initiative**, not a generic feed aggregator or social-media automation bot.
+The feature branch now implements the planned Deployment-scoped Presence + public Character Discovery V1 through Phase 11:
 
-A successful first version should make behavior such as this possible:
+- Phase 0 — contracts / OpenWiki evidence baseline;
+- Phase 1 — one Character Card per Discord Server invariant;
+- Phase 2 — Deployment Presence + Sleep Policy V1;
+- Phase 3 — deterministic, persisted Presence rhythm;
+- Phase 4 — shared Discovery domain + Deployment-scoped exposure/decision;
+- Phase 5 — YouTube public candidate collector + server-scoped E5 ranking;
+- Phase 6 — persisted Browsing Activity Sessions;
+- Phase 7 — selective reuse of existing Media Understanding;
+- Phase 8 — perception-safe episodic SQL-RAG / Topic / relationship association;
+- Phase 9 — Review-mode Discord share proposal/approval/outbox;
+- Phase 10 — bounded AUTO initiative with global + Deployment opt-in, budget, cooldown and retry/idempotency;
+- Phase 11 — Bilibili Experimental read-only adapter behind a global kill switch.
 
-> A character notices a video related to something discussed in Discord yesterday, remembers the connection, and later shares it into the relevant conversation with an in-character reaction.
+The source validation gate is green on `14fc10f715ad75a22b81f4f177f2fe595bbe4dc8`: Ruff, MyPy, full Pytest on Python 3.12/3.13, Web, Discord Connector, Docker and Railway Smoke. Public Demo Status Check remains an external deployment-readiness failure and did not reach demo verification.
 
-## Product principles
+Detailed acceptance evidence and manual owner acceptance steps live in `docs/deployment-presence-discovery-acceptance.md`.
 
-### 1. Discovery comes before external account automation
+## 1. Product goal
 
-The first implementation should prove that Character Relay can generate believable discovery behavior without requiring every character to own a real account on every platform.
+Make a deployed Character feel persistently present outside direct Discord turns without turning Character Relay into a full life simulator.
 
-A platform account is an optional actuator / identity, not the source of the character's interests or social cognition.
-
-```text
-Character Social Cognition
-  -> Social Intent
-  -> optional Platform Capability
-```
-
-Characters should still be able to conceptually like, dislike, remember, recommend, or want to follow something even when no external account is connected.
-
-### 2. One Character Discovery Engine, many source adapters
-
-Do not build a separate recommendation system for every platform.
+The target loop is:
 
 ```text
-YouTube --------┐
-Bilibili -------┤
-X --------------┤
-Reddit ---------┤ -> Source Adapters
-Instagram ------┘
-                     |
-                     v
-              Normalized Content
-                     |
-                     v
-              Candidate Pool
-                     |
-                     v
-             Character Discovery
+Deployment has a current Presence state
+  -> sometimes sleeps / idles / browses
+  -> browsing sessions discover external content
+  -> cheap ranking decides what deserves attention
+  -> existing Media Runtime understands only shortlisted content
+  -> the Deployment forms subjective exposure / interest / associations
+  -> most items are ignored or merely remembered
+  -> strong items may create a Social Intent
+  -> bounded policy may later share into Discord
 ```
 
-Platform-specific code should stop at the adapter boundary. Character interest, ranking, memory, reasoning, and sharing behavior remain platform-independent.
+The feature exists to create **time-continuous experience that can affect later conversation**, not to manufacture decorative activity logs.
 
-### 3. Share behavior is not the same as interest
+## 2. Fixed product boundaries
 
-A character liking content does not automatically mean it should be posted into Discord.
+### 2.1 Character Card remains a reusable definition
 
-The runtime should distinguish at least:
+Character Card keeps its current responsibility: persona/identity definition and authoring/runtime configuration source.
+
+Do **not** add cross-server lived state to Character Card. In particular, Character Card does not own:
+
+- current sleeping/idle/browsing state;
+- current YouTube/Bilibili session;
+- server-specific learned interests;
+- server-specific relationships;
+- server-specific memories/topics;
+- Discovery exposure/history;
+- a hidden global cross-server consciousness.
+
+### 2.2 Deployment owns lived runtime state
+
+A Deployment is the concrete runtime incarnation of a Character Card in one Discord Server.
 
 ```text
-Recommended
-  -> Interested?
-  -> Inspect / understand?
-  -> React?
-  -> Remember?
-  -> Relevant to somebody / some conversation?
-  -> Share?
+Character Card: Zhi
+  |
+  +-- Deployment / Server A
+  |     +-- Presence
+  |     +-- Activity sessions
+  |     +-- Discovery exposure
+  |     +-- Topics / Memory / Learned State / Social context
+  |
+  +-- Deployment / Server B
+        +-- independent Presence
+        +-- independent Activity sessions
+        +-- independent Discovery experience
 ```
 
-This is required to avoid spammy behavior and preserve believable initiative.
+The same Character Card may therefore be sleeping in Server A while browsing YouTube in Server B. That is intentional: the product does not claim these Deployments share one cross-server consciousness.
 
-### 4. Discovery should include exploration, not only exact interests
+### 2.3 One Character Card per Discord Server
 
-The virtual feed must not become a rigid keyword filter. Candidate selection should eventually mix:
+Hard product invariant:
 
-- persistent character interests;
-- temporary/recent interests;
-- current Discord topics;
-- relationship relevance ("this person may like it");
-- novelty;
-- exploration outside the normal interest profile;
-- selected trending/popular content.
+> For one owner/account, one Character Card may have at most one Deployment in the same Discord Server.
 
-Exact weights are deliberately unspecified until an implementation phase is approved.
-
-## Platform priority
-
-### P0 — first Discovery sources
-
-#### YouTube
-
-Preferred first stable source.
-
-Target use cases:
-
-- long-form video discovery;
-- Shorts where accessible through supported data paths;
-- technology / AI;
-- gaming;
-- anime / ACG-adjacent content;
-- music;
-- creator content.
-
-The implementation should prefer supported official APIs wherever possible.
-
-#### Bilibili
-
-High-value Discovery source for Chinese-language, ACG, AI, technology, gaming, meme, music, and creator content.
-
-Status: **Experimental adapter**.
-
-Bilibili discovery capabilities may require less stable platform-facing mechanisms than YouTube. The adapter must therefore be isolated so upstream changes cannot break the Character Discovery Engine.
-
-### P1 — later sources
-
-#### X
-
-Primary value:
-
-- real-time topics;
-- developer discussion;
-- memes;
-- short-form public conversation;
-- emerging events and project demos.
-
-#### Reddit
-
-Primary value:
-
-- interest communities;
-- niche topics;
-- longer discussion;
-- question/answer and opinion-rich content.
-
-### P2 — later visual source
-
-#### Instagram
-
-Primary value:
-
-- image-heavy discovery;
-- creator posts;
-- visual trends;
-- Reels where supported by the available integration path.
-
-### Deferred
-
-#### TikTok
-
-High product value for short-form discovery, but defer until a reliable and acceptable integration path is available.
-
-### Explicitly not planned
-
-#### Bluesky
-
-Bluesky is not required for the current Character Discovery roadmap.
-
-## Proposed high-level pipeline
+The uniqueness identity is conceptually:
 
 ```text
-External Sources
-    |
-    v
-Source Adapters
-    |
-    v
-Normalized Content
-    |
-    v
-Global Candidate Pool
-    |
-    +--> cache / freshness / source metadata
-    +--> cross-source deduplication
-    |
-    v
-Cheap Retrieval / Embedding Rank
-    |
-    v
-Per-Character Interest Rank
-    |
-    v
-Top Candidate Shortlist
-    |
-    v
-Media / Content Understanding when needed
-    |
-    v
-Bounded Judge / Decision Layer
-    |
-    +--> ignore
-    +--> remember
-    +--> react
-    +--> associate with person/topic/memory
-    +--> share to Discord
+owner_id
++ platform
++ connection_id
++ workspace_id / Discord guild_id
++ character_card_id
 ```
 
-The expensive Character model should not be used as the first-pass filter for every collected item.
+Channel/thread is **not** part of the identity. Channels are activity scope inside the one server Deployment.
 
-## Character interest model
+### 2.4 Shared content is global; subjective experience is Deployment-scoped
 
-The future system should support more than a flat list of tags.
-
-Conceptually:
+Objective public content may be shared/deduplicated globally:
 
 ```text
-Character Interest Profile
-├── explicit interests
-│   └── Character Card / creator configuration
-├── learned interests
-│   └── repeated positive interaction with discovered content
-├── temporary interests
-│   └── recently active curiosity that decays over time
-├── social/context interests
-│   └── current Discord topics and people the character knows
-└── negative interests
-    └── topics normally filtered or strongly deprioritized
+ExternalContent / DiscoveryItem
+MediaAnalysis
+canonical source resolution
 ```
 
-The exact persistence and learning mechanism is intentionally deferred.
-
-## Social association and Discord initiative
-
-Discovery becomes valuable to Character Relay when external content can connect back to the character's existing social context.
-
-Examples:
-
-- `RELATED_TO_CURRENT_TOPIC`
-- `RELATED_TO_PAST_CONVERSATION`
-- `REMIND_ME_OF_SOMEONE`
-- `FUNNY`
-- `INTERESTING`
-- `USEFUL`
-- `ASK_FOR_OPINION`
-- `EMOTIONAL_REACTION`
-
-A possible future decision record may include:
+Subjective state must be Deployment-scoped:
 
 ```text
-content interest
-novelty
-current-topic relevance
-past-memory relevance
-relationship relevance
-share motivation
-share confidence
-cooldown / attention budget
+DeploymentPresence
+DeploymentActivitySession
+DeploymentDiscoveryExposure
+DeploymentDiscoveryDecision
+DeploymentDiscoverySharePolicy / Share outbox
 ```
 
-The system should allow a character to see and remember content without sharing it immediately. A later Discord topic may retrieve that memory and create a natural delayed share.
+Fetching a YouTube/Bilibili item does not mean every Deployment has seen it.
 
-## Shared cache and cost boundary
+## 3. Presence Runtime
 
-The same external content must not be fetched and fully understood separately for every character.
+Presence is Runtime authority, not a roleplay prompt suggestion.
 
-Preferred shape:
+Initial states:
 
 ```text
-Platform source
-   -> fetch once
-   -> normalize once
-   -> shared cache
-   -> shared base content understanding where safe
-   -> per-character relevance / reaction
+SLEEPING
+IDLE
+BROWSING
+BUSY
 ```
 
-Per-character work should focus on subjective relevance and behavior, while objective content extraction/understanding should be reusable when the input and analysis contract are equivalent.
+### 3.1 Availability gate
 
-This should align with Character Relay's existing media-understanding cache direction rather than introducing a second unrelated cache system.
+Presence must be evaluated before Smart Participation ranking and before invoking the Character model.
 
-## Attention and anti-spam behavior
+`SLEEPING` is a hard exclusion:
 
-Discovery must have an attention budget. The character should not share every item that passes an interest threshold.
+- no Smart Participation candidacy;
+- no Character model call;
+- no Character Tool call;
+- no Discovery browsing session;
+- no autonomous Discovery share.
 
-Future controls may include:
+### 3.2 Sleep Policy V1
 
-- bounded browse/discovery sessions;
-- per-character daily or rolling attention budget;
-- share-attempt budget;
-- same-topic cooldown;
-- same-source cooldown;
-- duplicate-content suppression;
-- channel/activity awareness;
-- recent-share penalty;
-- exploration probability.
+Ambient group message while sleeping: the Deployment is excluded silently.
 
-Exact values are an implementation-phase concern.
-
-# Reserved future account integration
-
-Real platform accounts are **not part of the first implementation**, but the architecture must not make them difficult to add later.
-
-The Character Discovery Engine and Character Social Brain must therefore stay independent from platform credentials and write APIs.
-
-## Required future-facing abstractions
-
-The following boundaries should be reserved in the domain architecture when this roadmap is eventually implemented.
-
-### PlatformIdentity
-
-Represents a character's identity on an external platform without embedding credentials into the Character Card or Social Brain.
-
-Conceptual fields:
+Explicit mention or reply to a sleeping Character:
 
 ```text
-character_id
-platform
-external_account_id
-handle / display identity
-status
-capability_profile
-credential_reference
+explicit address
+  -> DeploymentPresence == SLEEPING
+  -> Character Runtime is NOT invoked
+  -> real Character Relay Discord Bot sends a system status notice
 ```
 
-### AccountBinding
+V1 does **not** implement wake-on-mention, wake probability, dream replies, or interrupted-sleep roleplay.
 
-Represents the user's explicit connection between a Character Relay character/deployment and an external social account.
+### 3.3 Rhythm and persistence
 
-It should remain separate from interest data and discovered-content history.
+Presence simulation uses bounded, persisted scheduling rather than rerolling every process restart. The scheduler reuses the Discord Server IANA timezone and no Character LLM.
 
-### CredentialReference / OAuth Adapter
+## 4. Discovery Runtime
 
-Credentials must stay in Character Relay's encrypted credential infrastructure. Social components receive opaque references/capabilities rather than raw tokens.
+Discovery is an external perception source feeding existing Conversation Intelligence, not a second Character brain.
 
-No OAuth implementation is requested at this stage.
+Reuse current systems for:
 
-### PlatformCapability
+- Topic lifecycle/keywords;
+- server-scoped Learned State evidence;
+- E5 semantic ranking/query-vector cache;
+- perception-safe episodic SQL-RAG;
+- Social Graph/relationship context;
+- shared Media Understanding and MediaAnalysis cache;
+- existing Character provider only for final share phrasing.
 
-Each adapter should declare what the connected account can actually do.
+Do **not** create parallel `DiscoveryInterest`, `DiscoveryMemory`, or `DiscoveryRelationshipGraph` systems.
 
-Examples:
+### 4.1 Source adapters
+
+Platform priority:
+
+- **YouTube** — stable public source through the official Data API;
+- **Bilibili** — Experimental read-only source, globally kill-switchable;
+- X + Reddit / Instagram remain future source adapters;
+- TikTok remains deferred;
+- Bluesky remains intentionally excluded.
+
+### 4.2 Candidate versus exposure
 
 ```text
-READ_PUBLIC_CONTENT
-READ_HOME_FEED
-READ_MENTIONS
-PUBLISH
-REPLY
-LIKE
-REPOST
-FOLLOW
-SAVE
-COMMENT
-DIRECT_MESSAGE
+DiscoveryItem
+= content exists in the shared candidate pool
+
+DeploymentDiscoveryExposure
+= this Deployment actually noticed/opened/watched/engaged with it
 ```
 
-Capabilities must be platform-specific and permission-aware rather than assuming every social network supports the same operations.
+Only exposure can become lived evidence for later decisions.
 
-### SocialIntent
+### 4.3 Browsing sessions
 
-The Character Social Brain should express intent independently from execution.
-
-Example:
-
-```json
-{
-  "content_ref": "external-content-id",
-  "reaction": "LIKE",
-  "want_to_share": true,
-  "share_target": "discord",
-  "want_to_follow_creator": false
-}
-```
-
-A SocialIntent may exist even if no platform account is attached.
-
-### CapabilityRouter
-
-Resolves whether a SocialIntent has a valid actuator.
+Browsing is a persisted Activity Session, not a blind fixed cron.
 
 ```text
+DeploymentPresence = IDLE
+  -> bounded daily leisure opportunity
+  -> stable/randomized YouTube or Bilibili session
+  -> DeploymentPresence = BROWSING
+  -> candidate/open/watch/share budgets
+  -> planned end
+  -> DeploymentPresence = IDLE
+```
+
+Attention levels:
+
+```text
+SCROLL_PAST
+NOTICE
+OPEN
+WATCH
+ENGAGE
+```
+
+### 4.4 Discovery seeds and ranking
+
+Seeds come from the Deployment's existing Server context: active/cooling Topics, server-scoped Learned-State event evidence, weak Character definition priors and exploration/freshness/novelty.
+
+Ranking remains cheap-first:
+
+```text
+many candidates
+  -> deterministic/source filters
+  -> shared E5 / sparse / freshness / novelty
+  -> small shortlist
+  -> existing Media Runtime only for a bounded OPEN subset
+```
+
+### 4.5 Selective Media Understanding
+
+`WATCH/ENGAGE` reuses the existing canonical public-video resolver, yt-dlp transcript/metadata, Key Group credential routing and `MediaAnalysis` cache. Objective analysis may be shared; subjective exposure stays Deployment-scoped.
+
+### 4.6 Social association
+
+Only `WATCH/ENGAGE` content can enter social association. The runtime searches only Episodes the Character has `CharacterEpisodeAccess` to, then reuses E5 + bounded SQL event→entity→event expansion. Topic/destination and person association must be backed by perceived Episode / same-Server relationship evidence.
+
+Possible motivations include:
+
+```text
+RELATED_TO_CURRENT_TOPIC
+RELATED_TO_PAST_CONVERSATION
+REMIND_ME_OF_SOMEONE
+INTERESTING
+```
+
+## 5. Sharing modes
+
+### SHADOW
+
+`WOULD_SHARE` is evidence only. No proposal and no Discord side effect.
+
+### REVIEW
+
+```text
+WOULD_SHARE
+  -> system selects eligible item/destination
+  -> Character provider phrases final message only
+  -> durable pending_review proposal
+  -> owner approve / reject
+  -> policy recheck
+  -> durable Discord outbox
+```
+
+### AUTO
+
+AUTO is globally disabled by default and requires all gates:
+
+```text
+mode = AUTO
+AND Deployment auto_share_enabled = true
+AND global discovery_auto_share_global_enabled = true
+AND daily budget available
+AND cooldown passed
+AND Deployment active
+AND destination still in scope
+AND Presence not sleeping/busy
+```
+
+A durable outbox provides bounded retry/recovery and `(deployment_id, discovery_item_id)` uniqueness prevents duplicate proposals/shares.
+
+## 6. Bilibili Experimental
+
+The Bilibili adapter is read-only, low-rate and globally kill-switchable. It uses yt-dlp `bilisearch` for candidate discovery, persists only hashed query cache identity/result keys, introduces no cookies/login/account mutation, and reuses the same Bilibili/yt-dlp Media Runtime for selected content.
+
+A Bilibili source failure must not break a working YouTube source.
+
+## 7. Reserved future account integration
+
+Real platform accounts remain out of the current implementation scope. Reserved abstractions include:
+
+```text
+PlatformIdentity
+AccountBinding
+CredentialReference / OAuthAdapter
+PlatformCapability
 SocialIntent
-   -> account connected?
-   -> capability granted?
-   -> policy allows action?
-   -> execute or retain as conceptual intent only
-```
-
-### PolicyGate
-
-All future external mutations must cross a policy layer after the character decision.
-
-The PolicyGate should be able to apply:
-
-- owner configuration;
-- platform rules/capability limits;
-- action risk level;
-- rate/cooldown limits;
-- approval requirements;
-- anti-spam rules;
-- destination/audience restrictions.
-
-### ActionExecutor
-
-Platform-specific write operations belong below the PolicyGate.
-
-The Character model should never directly call arbitrary social APIs with credentials.
-
-```text
-Character Social Brain
-       |
-       v
-   SocialIntent
-       |
-       v
 CapabilityRouter
-       |
-       v
-   PolicyGate
-       |
-       v
-Platform Action Executor
-       |
-       v
-External Platform
+PolicyGate
+ActionExecutor
 ```
 
-## Read / write separation
+Public Discovery adapters and future account/action adapters stay separate. Current implementation does not add OAuth, Like/Follow/Comment/Post/DM automation or external account mutation.
 
-Discovery adapters and account-action adapters should be logically separable.
+## 8. Validation and owner acceptance
 
-For example:
+Source validation is complete; owner product acceptance remains pending. Use:
 
-```text
-BilibiliDiscoveryAdapter
-BilibiliAccountAdapter   (future)
+- `docs/deployment-presence-discovery-acceptance.md`
 
-YouTubeDiscoveryAdapter
-YouTubeAccountAdapter    (future)
+After owner acceptance and merge to `main`:
+
+```bash
+openwiki --update
 ```
 
-They may share transport/client primitives later, but the domain contract must not require account write access just to discover content.
-
-## Future account phases
-
-The following is only a directional sequence, not an approved implementation schedule.
-
-### Account Phase A — identity and binding
-
-- platform identity domain;
-- account binding lifecycle;
-- encrypted credential references;
-- capability discovery;
-- no autonomous mutation required yet.
-
-### Account Phase B — low-risk explicit actions
-
-Potential examples:
-
-- publish only after explicit approval;
-- react to already-approved content;
-- narrowly scoped account operations.
-
-Exact supported actions depend on each platform's official capabilities and policies at implementation time.
-
-### Account Phase C — bounded autonomous social presence
-
-Only after Discovery and Social Intent quality are validated:
-
-- mentions/replies;
-- limited posting;
-- follow/repost/like where appropriate;
-- persistent external interaction history;
-- external relationships entering Character Memory under explicit privacy rules.
-
-This phase requires a separate safety, platform-policy, consent, observability, and failure-recovery design review before implementation.
-
-## Non-goals for the current roadmap entry
-
-Do not implement yet:
-
-- OAuth/login flows;
-- browser automation for social accounts;
-- automatic liking;
-- automatic following;
-- automatic commenting;
-- automatic posting;
-- automatic reposting;
-- direct messages;
-- per-character platform account farming;
-- platform recommendation training through fake engagement;
-- a second media-understanding stack dedicated only to social discovery.
-
-## Suggested future implementation sequence
-
-When this roadmap is explicitly activated, the intended order is:
-
-```text
-Phase 1 — External Perception
-YouTube + Bilibili candidate collection and normalized content contract
-
-Phase 2 — Character Discovery Feed
-Interest ranking, exploration, deduplication, attention budget
-
-Phase 3 — Content Understanding
-Reuse Character Relay media understanding and shared cache boundaries
-
-Phase 4 — Social Association
-Current topic, past conversation, relationship, and memory relevance
-
-Phase 5 — Discord Initiative
-Natural bounded sharing / topic initiation with observability
-
-Phase 6 — Persistent Discovery Memory
-Remember seen, ignored, interesting, and shared content
-
----------------- validation gate ----------------
-
-Phase 7 — Platform Identity / Account Binding
-Reserved interfaces become real integrations
-
-Phase 8 — External Account Actions
-Policy-gated, capability-aware Like / Reply / Follow / Post where supported
-
-Phase 9 — External Relationships
-Persistent platform interaction history and relationship memory
-```
-
-Phase transitions should be approved based on observed behavior quality rather than platform count.
-
-## Validation target for the first implementation
-
-Before adding real social accounts, Character Relay should be able to demonstrate this loop reliably:
-
-```text
-YouTube / Bilibili
-    -> discover candidate
-    -> rank for a specific character
-    -> inspect only when justified
-    -> form an in-character reaction
-    -> connect to relevant Discord context or memory
-    -> decide not to share most items
-    -> occasionally share a strong match naturally
-    -> preserve enough trace evidence to explain why
-```
-
-If this behavior is not convincing, adding external account actions should not be treated as the solution.
+Review generated OpenWiki output against merged source/tests. Generated pages must not claim future OAuth/external-account actions are already implemented.

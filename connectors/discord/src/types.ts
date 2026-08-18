@@ -8,6 +8,7 @@ export type IdentityMode = "bot" | "webhook";
 export type WebhookStatus = "pending" | "active" | "error" | "not_required";
 export type ChannelScopeMode = "exact" | "all_except";
 export type LangGraphMode = "off" | "condition_watch" | "character_turn" | "social_turn";
+export type DeploymentPresenceState = "sleeping" | "idle" | "browsing" | "busy";
 
 export interface DiscordDeployment {
   deployment_id: string;
@@ -28,6 +29,8 @@ export interface DiscordDeployment {
   participation_mode: ParticipationMode;
   version_label: string;
   status: "active";
+  presence_state?: DeploymentPresenceState;
+  presence_activity_type?: string;
   identity_mode: IdentityMode;
   identity_display_name: string;
   identity_avatar_url: string;
