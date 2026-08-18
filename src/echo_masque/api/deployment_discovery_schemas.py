@@ -98,7 +98,64 @@ class DeploymentDiscoveryShadowPreviewView(BaseModel):
     side_effects: Literal[False] = False
 
 
+class DeploymentDiscoveryBrowseShadowRequest(BaseModel):
+    duration_minutes: int | None = Field(default=None, ge=5, le=120)
+    candidate_budget: int | None = Field(default=None, ge=3, le=30)
+    open_budget: int | None = Field(default=None, ge=0, le=10)
+
+
+class DeploymentActivitySessionView(BaseModel):
+    id: str
+    deployment_id: str
+    activity_type: str
+    platform: str
+    status: str
+    source: str
+    local_date: str
+    schedule_timezone: str
+    scheduled_start_at: datetime | None
+    latest_start_at: datetime | None
+    planned_duration_minutes: int
+    started_at: datetime | None
+    expected_end_at: datetime | None
+    ended_at: datetime | None
+    candidate_budget: int
+    open_budget: int
+    watch_budget: int
+    share_intent_budget: int
+    exploration_percent: int
+    candidate_count: int
+    notice_count: int
+    open_count: int
+    watch_count: int
+    engage_count: int
+    reason: str
+    error: str
+
+
+class DeploymentActivitySessionItemView(BaseModel):
+    rank_position: int
+    attention_level: str
+    score: float
+    reason: str
+    item: DiscoveryItemView
+
+
+class DeploymentActivitySessionDetailView(BaseModel):
+    session: DeploymentActivitySessionView
+    items: list[DeploymentActivitySessionItemView]
+
+
+class DeploymentActivitySessionListView(BaseModel):
+    items: list[DeploymentActivitySessionView]
+
+
 __all__ = [
+    "DeploymentActivitySessionDetailView",
+    "DeploymentActivitySessionItemView",
+    "DeploymentActivitySessionListView",
+    "DeploymentActivitySessionView",
+    "DeploymentDiscoveryBrowseShadowRequest",
     "DeploymentDiscoveryDecisionListView",
     "DeploymentDiscoveryDecisionView",
     "DeploymentDiscoveryExposureListView",
