@@ -18,6 +18,10 @@ from echo_masque.persistence.conversation_graph_models import (
 )
 from echo_masque.persistence.conversation_topic_decision_models import ConversationTopicDecisionRecord
 from echo_masque.persistence.core_memory_models import CharacterCoreMemoryRecord
+from echo_masque.persistence.deployment_activity_models import (
+    DeploymentActivitySessionItemRecord,
+    DeploymentActivitySessionRecord,
+)
 from echo_masque.persistence.deployment_presence_models import DeploymentPresenceRecord
 from echo_masque.persistence.deployment_presence_notice_models import DeploymentPresenceNoticeRecord
 from echo_masque.persistence.deployment_presence_rhythm_models import DeploymentPresenceRhythmRecord
@@ -110,6 +114,8 @@ BEGIN
     DELETE FROM deployment_presence WHERE deployment_id = OLD.id;
     DELETE FROM deployment_presence_notices WHERE deployment_id = OLD.id;
     DELETE FROM deployment_presence_rhythms WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_activity_session_items WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_activity_sessions WHERE deployment_id = OLD.id;
     DELETE FROM deployment_discovery_profiles WHERE deployment_id = OLD.id;
     DELETE FROM deployment_discovery_exposures WHERE deployment_id = OLD.id;
     DELETE FROM deployment_discovery_decisions WHERE deployment_id = OLD.id;
@@ -153,6 +159,8 @@ class Database:
             DeploymentPresenceRecord,
             DeploymentPresenceNoticeRecord,
             DeploymentPresenceRhythmRecord,
+            DeploymentActivitySessionRecord,
+            DeploymentActivitySessionItemRecord,
             DiscoveryItemRecord,
             DiscoverySourceQueryCacheRecord,
             DeploymentDiscoveryProfileRecord,
