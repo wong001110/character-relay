@@ -32,6 +32,10 @@ from echo_masque.persistence.discovery_models import (
     DiscoveryItemRecord,
     DiscoverySourceQueryCacheRecord,
 )
+from echo_masque.persistence.discovery_share_models import (
+    DeploymentDiscoverySharePolicyRecord,
+    DeploymentDiscoveryShareRecord,
+)
 from echo_masque.persistence.discord_identity_models import DiscordGuildActorIdentityRecord
 from echo_masque.persistence.episodic_sql_rag_models import (
     CharacterEpisodeAccessRecord,
@@ -119,6 +123,8 @@ BEGIN
     DELETE FROM deployment_discovery_profiles WHERE deployment_id = OLD.id;
     DELETE FROM deployment_discovery_exposures WHERE deployment_id = OLD.id;
     DELETE FROM deployment_discovery_decisions WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_discovery_share_policies WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_discovery_shares WHERE deployment_id = OLD.id;
 END;
 """
 
@@ -134,8 +140,6 @@ class Database:
         self.session_factory = sessionmaker(self.engine, expire_on_commit=False)
 
     def initialize(self) -> None:
-        # Keep derived models attached to Base.metadata before create_all().
-        # Other persistence models are registered by the package import graph.
         _ = (
             WikiPageRecord,
             ConversationGraphNodeRecord,
@@ -166,13 +170,13 @@ class Database:
             DeploymentDiscoveryProfileRecord,
             DeploymentDiscoveryExposureRecord,
             DeploymentDiscoveryDecisionRecord,
+            DeploymentDiscoverySharePolicyRecord,
+            DeploymentDiscoveryShareRecord,
         )
         Base.metadata.create_all(self.engine)
         self._ensure_sqlite_deployment_runtime_invariants()
 
     def _ensure_sqlite_deployment_runtime_invariants(self) -> None:
-        """Install non-destructive compatibility guards for SQLite databases."""
-
         if self.engine.dialect.name != "sqlite":
             return
         with self.engine.begin() as connection:
@@ -189,14 +193,10 @@ class Database:
                 )
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_SERVER_INSERT_TRIGGER)
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_SERVER_UPDATE_TRIGGER)
-            # This trigger evolves with runtime-owned tables; replace it so existing databases
-            # receive cleanup coverage instead of keeping an older IF-NOT-EXISTS definition.
             connection.exec_driver_sql("DROP TRIGGER IF EXISTS cr_delete_deployment_presence")
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_PRESENCE_DELETE_TRIGGER)
 
     def inspect_deployment_server_duplicates(self) -> tuple[DeploymentServerDuplicate, ...]:
-        """Return legacy same-Card/same-Discord-server duplicate groups without mutating them."""
-
         if self.engine.dialect.name != "sqlite":
             return ()
         query = """

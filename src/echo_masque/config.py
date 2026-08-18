@@ -39,33 +39,15 @@ class Settings(BaseSettings):
     provider_trace_retention_days: int = 7
     provider_trace_max_records: int = 2000
 
-    # One cumulative rollout value controls LangGraph adoption. Moving forward through the
-    # modes keeps already-migrated workflows enabled; "off" is the global rollback state.
     langgraph_mode: LangGraphMode = "off"
-
-    # Character-turn Utility consolidation is independently rollable because it changes the
-    # decision point for ambiguous Knowledge routing and pending Tool continuation. "off" keeps
-    # the legacy standalone Judges; "shadow" computes one unified decision for comparison only;
-    # "active" may apply accepted fields while each rejected field falls back independently.
     turn_intelligence_character_context_mode: CharacterTurnIntelligenceMode = "off"
-
-    # Smart Participation V4 rollout remains independently reversible. The resolver always
-    # computes bounded shadow evidence when available; these switches decide whether contextual
-    # Graph/Learned-State reranking or the server speaker plan may become authoritative.
     smart_participation_v4_graph_rerank_mode: ConversationIntelligenceRolloutMode = "shadow"
     smart_participation_v4_learned_state_mode: ConversationIntelligenceRolloutMode = "shadow"
     smart_participation_v4_speaker_mode: ConversationIntelligenceRolloutMode = "shadow"
     smart_participation_v4_utility_mode: ConversationIntelligenceRolloutMode = "shadow"
-
-    # Burst-level admission planner. Shadow is the safe default; active authority is sampled
-    # deterministically by rollout percent so retries and replicas make the same choice.
     conversation_planner_mode: ConversationIntelligenceRolloutMode = "shadow"
     conversation_planner_rollout_percent: int = Field(default=0, ge=0, le=100)
 
-    # Shared semantic embedding runtime. semantic_embedding_enabled allows Knowledge RAG,
-    # Media Recall, and Expression retrieval to use the same local multilingual E5 model
-    # without requiring Smart Participation itself to be enabled. Existing deployments that
-    # already enable semantic participation also keep the shared embedding runtime available.
     semantic_embedding_enabled: bool = False
     semantic_embedding_model: str = "intfloat/multilingual-e5-small"
     semantic_embedding_model_file: str = "onnx/model_O4.onnx"
@@ -74,23 +56,27 @@ class Settings(BaseSettings):
     knowledge_semantic_retrieval_enabled: bool = True
     media_semantic_recall_enabled: bool = True
     expression_semantic_retrieval_enabled: bool = True
-
-    # Smart Participation V3 semantic relevance. Production explicitly enables this so
-    # tests and source checkouts never download a model merely by creating a Character Card.
     semantic_participation_enabled: bool = False
 
-    # Character Discovery public-source configuration. YouTube public Data API access is an
-    # application capability, not a Character/social-account binding. The API key therefore
-    # stays process-scoped and outside Character Cards/Deployments. Discovery remains disabled
-    # per Deployment until its profile is explicitly enabled.
+    # Public Character Discovery source configuration. Public API/search credentials never live
+    # on Character Card. Per-Deployment profiles remain the authority for source enablement.
     youtube_data_api_key: SecretStr | None = None
     youtube_discovery_search_cache_seconds: int = Field(default=4 * 60 * 60, ge=300, le=86400)
     youtube_discovery_popular_cache_seconds: int = Field(default=60 * 60, ge=300, le=86400)
     youtube_discovery_max_search_queries_per_session: int = Field(default=2, ge=0, le=5)
+    bilibili_discovery_experimental_enabled: bool = False
+    bilibili_discovery_search_cache_seconds: int = Field(default=4 * 60 * 60, ge=300, le=86400)
+    bilibili_discovery_max_search_queries_per_session: int = Field(default=1, ge=0, le=3)
+    bilibili_discovery_max_results_per_query: int = Field(default=6, ge=1, le=12)
 
-    # Deployment Activity Runtime. The first browsing phase intentionally models at most one
-    # bounded daily leisure opportunity per enabled Deployment. Stable hashing chooses whether
-    # it occurs, its time, and duration so process restarts do not reroll Character history.
+    # Complete Discovery Runtime remains independently kill-switchable. Media inspection reuses
+    # the existing Key Group + MediaAnalysis runtime; AUTO has an additional hard global switch.
+    discovery_complete_runtime_enabled: bool = True
+    discovery_media_inspection_enabled: bool = True
+    discovery_auto_share_global_enabled: bool = False
+
+    # Deployment Activity Runtime. Stable hashing chooses whether a bounded daily leisure session
+    # occurs, its platform/time/duration, and persisted sessions survive process restarts.
     discovery_activity_poll_seconds: int = Field(default=60, ge=10, le=1800)
     discovery_activity_session_probability_percent: int = Field(default=70, ge=0, le=100)
     discovery_activity_window_start_minute: int = Field(default=10 * 60, ge=0, le=1439)
@@ -103,8 +89,6 @@ class Settings(BaseSettings):
     discovery_activity_watch_budget: int = Field(default=1, ge=0, le=5)
     discovery_activity_exploration_percent: int = Field(default=20, ge=0, le=100)
 
-    # Browser Capability. Chromium launches lazily on first use, stays warm briefly for
-    # repeated search/read calls, then closes automatically when idle or after hard limits.
     browser_tools_enabled: bool = True
     browser_page_idle_seconds: int = 180
     browser_context_idle_seconds: int = 300
@@ -114,25 +98,16 @@ class Settings(BaseSettings):
     browser_max_concurrent_contexts: int = 3
     browser_navigation_timeout_ms: int = 15_000
 
-    # V1.2 reminder delivery. Reminders are persisted in SQLite and delivered later using
-    # the deployment's Discord webhook identity (or the managed Bot identity when selected).
     scheduler_poll_seconds: int = 5
     scheduler_retry_seconds: int = 30
     scheduler_max_attempts: int = 3
-
-    # V2 condition watches are intentionally lower-frequency than reminder delivery. Each
-    # individual watch also enforces a minimum 5-minute evaluation cadence in Runtime.
     condition_watch_poll_seconds: int = 60
 
-    # Discord read/write/file Tools use the same managed Bot credential name as the
-    # Discord Connector. DISCORD_BOT_TOKEN is intentionally shared between services.
     discord_tool_bot_token: SecretStr | None = Field(
         default=None,
         validation_alias="DISCORD_BOT_TOKEN",
     )
 
-    # Environment credentials remain optional runtime fallbacks. Admin API access is
-    # role-based and never trusts a shared token in place of authenticated authorization.
     admin_token: SecretStr | None = None
     adaptive_api_key: SecretStr | None = None
     judge_api_key: SecretStr | None = None

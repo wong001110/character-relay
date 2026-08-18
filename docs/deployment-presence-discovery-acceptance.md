@@ -1,15 +1,17 @@
 # Deployment Presence + Discovery — Acceptance Checklist
 
-Branch: `agent/deployment-presence-discovery`
+Branch: `agent/deployment-presence-discovery`  
 Base: `main` at `fb71f21ef38227fdb6e9fa842079660b8ee3f1e1`
 
-Status: **implementation in progress — Phase 0–6 runtime landed; full CI revalidation pending**
+Status: **implementation batch complete through Phase 11; final batch CI pending**
 
-This checklist is the branch-local acceptance/evidence record required by `docs/ai-agent-development-workflow.md`. Generated OpenWiki baseline remains merged-main documentation and is intentionally not regenerated on this feature branch.
+This is the branch-local acceptance/evidence record required by
+`docs/ai-agent-development-workflow.md`. Generated OpenWiki pages remain a merged-`main`
+baseline and are intentionally not regenerated on this feature branch.
 
-## Evidence map
+## OpenWiki / repository-grounded evidence
 
-### Canonical docs read
+Canonical sources read before implementation:
 
 - `docs/character-discovery-roadmap.md`
 - `docs/ai-agent-development-workflow.md`
@@ -17,232 +19,169 @@ This checklist is the branch-local acceptance/evidence record required by `docs/
 - `docs/conversation-intelligence-control-plane-roadmap.md`
 - `docs/ai-utility-gateway-roadmap.md`
 
-### Source contracts inspected before implementation
+Existing runtime reused rather than duplicated:
 
-Deployment/runtime:
+- Deployment/Discord authority and server-profile scope
+- Conversation Topics and server-scoped Learned-State event evidence
+- perception-safe `CharacterEpisodeAccess` + episodic SQL-RAG
+- shared multilingual E5 + `SemanticVectorRepository`
+- `YtDlpMediaResolver`, Enhanced Live Media, Key Group credential routing and MediaAnalysis cache
+- Character provider target/runtime for final roleplay phrasing only
+- Discord Bot/webhook identity and message-route boundaries
 
-- `src/echo_masque/persistence/deployment_models.py`
-- `src/echo_masque/persistence/deployment_repository.py`
-- `src/echo_masque/api/deployment_schemas.py`
-- `src/echo_masque/api/routes/deployments.py`
-- `src/echo_masque/persistence/database.py`
+## Fixed product invariants
 
-Conversation Intelligence:
-
-- `src/echo_masque/character_learned_state.py`
-- `src/echo_masque/smart_participation_outcome.py`
-- `src/echo_masque/persistence/conversation_topic_models.py`
-- `src/echo_masque/persistence/conversation_episode_models.py`
-- `src/echo_masque/episodic_sql_rag.py`
-- `src/echo_masque/layered_conversation_consolidation.py`
-
-Discord Connector:
-
-- `connectors/discord/src/types.ts`
-- `connectors/discord/src/relayClient.ts`
-- `connectors/discord/src/index.ts`
-
-Existing reusable infrastructure:
-
-- shared E5/query-vector reuse
-- public video canonicalization and `yt-dlp` transcript/metadata resolution
-- shared Media Analysis cache/single-flight
-- Condition Watch persisted scheduler pattern (pattern only; Discovery uses a separate scheduler)
-- Utility Gateway gray-zone-only policy
-
-Phase 7 reuse boundary additionally inspected:
-
-- `src/echo_masque/content_resolver.py`
-- `src/echo_masque/live_media.py`
-- `src/echo_masque/live_media_scoped.py`
-- existing `MediaUnderstandingService` / `MediaAnalysisRepository` path
-
-## Fixed invariants
-
-- [x] Character Card stays a reusable definition; no hidden global cross-server consciousness is added.
-- [x] Presence/Activity/Discovery lived state is Deployment-scoped.
+- [x] Character Card remains a reusable definition; no hidden global cross-server consciousness.
+- [x] Presence, Activity, Discovery exposure/decision/share state is Deployment-scoped.
 - [x] One Character Card may have at most one Deployment in one Discord Server.
-- [x] Channel/thread scope cannot be used to create a duplicate incarnation in the same Server.
-- [x] Shared public content/media analysis may be global, but subjective exposure/decision is Deployment-scoped.
-- [x] Collected external content does not automatically become a conversation Episode or Character memory.
-- [x] Sleeping is Runtime authority, not a prompt instruction.
-- [x] Sleep Policy V1 has no wake-on-mention behavior.
-- [x] Explicit address to a sleeping Character is answered by the real Character Relay Discord Bot, not the Character webhook.
-- [x] Ambient chat does not emit sleep notices.
-- [x] Discovery/account-action adapters remain separate; OAuth/social write actions are out of scope.
+- [x] Channel/thread scope cannot create a second incarnation in that Server.
+- [x] Shared public content/objective analysis may be reused; subjective perception stays Deployment-scoped.
+- [x] Collected content is not automatically a conversation Episode or Character memory.
+- [x] Sleeping is Runtime authority, not prompt text.
+- [x] Sleep Policy V1 never wakes on mention.
+- [x] Explicit mention/reply while sleeping is answered by the real Character Relay Bot.
+- [x] Ambient chat silently excludes sleeping Deployments.
+- [x] Public Discovery remains separate from future external-account actions/OAuth.
 
-## Phase status
+## Phase 0 — Contracts / evidence baseline
 
-### Phase 0 — Contracts / OpenWiki evidence baseline
+- [x] Canonical roadmap and branch acceptance contract exist.
+- [x] Deployment/Character/Card/Server ownership boundaries are explicit.
 
-- [x] Canonical roadmap revised.
-- [x] Branch evidence map created.
-- [x] Fixed invariants recorded before runtime changes.
-- [x] Source/test changes linked in this checklist as phases land.
+## Phase 1 — One Character Card per Discord Server
 
-### Phase 1 — One Character Card per Discord Server
+- [x] New INSERT/UPDATE duplicates are blocked by Server identity, not channel identity.
+- [x] Existing duplicate data is inspected, not silently deleted.
+- [x] Cross-Server Deployments of the same Card remain independent.
 
-- [x] Repository/database guard uses Server identity rather than channel identity.
-- [x] Server-profile deployments reject duplicate Character Card in same guild.
-- [x] Legacy exact-channel deployments cannot create another incarnation in the same workspace/guild.
-- [x] Update/move path cannot create a duplicate server incarnation.
-- [x] Existing duplicate data is reported/left for explicit repair, not silently deleted.
-- [ ] Full regression suite passes on final Phase 6 head.
+## Phase 2 — Deployment Presence + Sleep Policy V1
 
-Evidence:
-
-- SQLite INSERT/UPDATE guards use owner + Discord connection + workspace/guild + Character Card.
-- `inspect_deployment_server_duplicates()` provides non-destructive legacy inspection.
-- Existing pagination fixture was changed to multiple Character Cards rather than preserving the invalid duplicate model.
-
-### Phase 2 — Deployment Presence + Sleep Policy V1
-
-- [x] Presence persistence exists and is owner/deployment scoped.
-- [x] Manual Presence read/update API exists.
-- [x] Server-side Smart Participation authority excludes sleeping Deployments before semantic/planner candidacy.
-- [x] `SLEEPING` blocks Character Runtime before Character model/Tool execution.
-- [x] Explicit mention/reply is intercepted while sleeping.
-- [x] Real Bot sends bounded sleep notice.
+- [x] Presence persistence/API is Deployment-scoped.
+- [x] `SLEEPING` hard-excludes Smart Participation/Character Runtime/Tools.
 - [x] Ambient messages are silent.
-- [x] Repeated explicit addresses respect notice cooldown/dedupe.
-- [x] No Character model/Tool call occurs for sleeping explicit addresses.
+- [x] Explicit mention/reply queues a deduped Bot-only sleeping notice.
 - [x] No wake behavior exists.
-- [x] Cross-server Deployments of the same Character Card remain independent.
-- [ ] Final Phase 6 head passes the complete Python regression suite.
 
-Evidence:
+## Phase 3 — Presence rhythm
 
-- Presence state is not stored on Character Card.
-- Sleep notice uses a persisted system-notice queue and Discord Bot token; Character webhook identity is never used for the notice.
-- Current V1 keeps alias/name-only sleeping addressing silent unless it resolves through the explicit mention/reply authority path; no Character reply is generated.
+- [x] LLM-free scheduler uses existing Server IANA timezone.
+- [x] Stable hash + persisted daily sleep/wake schedule survives restarts.
+- [x] Wake only clears sleep owned by the rhythm scheduler.
 
-### Phase 3 — Presence scheduler / rhythm
+## Phase 4 — Discovery domain / Shadow safety
 
-- [x] Dedicated Presence scheduler/service exists outside Condition Watch.
-- [x] Rhythm is opt-in.
-- [x] Daily sleep schedule is persisted/recoverable and does not reroll on restart.
-- [x] Sleep transitions are deterministic-with-bounded-variation.
-- [x] Existing Discord Server IANA timezone is reused.
-- [x] Scheduler performs no Character LLM calls.
-- [x] Wake only clears sleep state owned by the rhythm scheduler.
-- [ ] Final Phase 6 head passes scheduler regression tests.
+- [x] Shared `DiscoveryItem` and hashed source-query cache exist.
+- [x] Exposure/decision/profile are Deployment-scoped.
+- [x] Shadow mode structurally cannot `PROPOSE_SHARE` or `SHARE`.
+- [x] Future account-capability contracts contain no credential/action implementation.
 
-### Phase 4 — Discovery domain / Shadow mode
+## Phase 5 — YouTube collector / cheap ranking
 
-- [x] Shared DiscoveryItem contract/persistence exists.
-- [x] Deployment-scoped exposure and decision persistence exists.
-- [x] Candidate collection alone does not grant perception.
-- [x] Shadow mode cannot record executed/proposed share side effects.
-- [x] Account-capability domain boundary is reserved without credentials/actions.
-- [x] Public-source query cache does not persist raw private interest query text.
-- [ ] Final Phase 6 head passes Discovery persistence tests.
+- [x] Official YouTube Data API collector is application-key scoped.
+- [x] Search calls are capped and cached across sessions/restarts.
+- [x] Seeds use current Server Topics + server-scoped Learned-State events.
+- [x] Character-global Learned-State aggregate is not Discovery authority.
+- [x] Shared E5/vector cache ranks before expensive understanding.
+- [x] Manual Shadow Preview has no exposure/model/send side effects.
 
-### Phase 5 — YouTube collector / cheap ranking
+## Phase 6 — Browsing Activity Session
 
-- [x] YouTube adapter collects supported public candidates through the official Data API.
-- [x] Candidate data normalizes into shared DiscoveryItem.
-- [x] Search calls are session-capped and query results persist across Deployment sessions/restarts.
-- [x] Seed builder uses Deployment Server Topic + server-scoped Learned-State event evidence.
-- [x] Character-global Learned-State aggregate is not used as Discovery lived-interest authority.
-- [x] Existing shared E5 runtime and SemanticVectorRepository are reused.
-- [x] E5/cheap ranking precedes expensive understanding.
-- [x] Exploration/freshness/novelty budgets are bounded.
-- [x] No per-candidate Character LLM loop.
-- [x] Manual Shadow Preview collects/ranks without exposure, Discord send, or Character LLM.
-- [ ] Final Phase 6 head passes YouTube/seed/ranking regression tests.
+- [x] Daily leisure opportunity/start/duration are stable per Deployment/date.
+- [x] Persisted `IDLE -> BROWSING -> IDLE` lifecycle is restart-recoverable.
+- [x] Sleep/busy blocks or interrupts browsing without waking the Character.
+- [x] Candidate/open/watch/share budgets are bounded.
+- [x] Owner APIs expose session/item evidence.
 
-### Phase 6 — Browsing Activity Session
+## Phase 7 — Selective Media Understanding
 
-- [x] Persisted DeploymentActivitySession and per-item session evidence exist.
-- [x] Daily browsing opportunity/start/duration are generated from stable Deployment/date hashing.
-- [x] Same day/restart does not reroll the planned browsing opportunity.
-- [x] Browsing scheduler is independent from Presence sleep scheduler and Condition Watch.
-- [x] `IDLE -> BROWSING -> IDLE` lifecycle is persisted and restart-recoverable.
-- [x] Browsing cannot start while sleeping/busy.
-- [x] Sleep/busy interruption cancels browsing without waking or clearing the stronger Presence state.
-- [x] Candidate/open/watch/share budgets exist; Shadow share budget is fixed to zero.
-- [x] Phase 6 records only `SCROLL_PAST`, `NOTICE`, and `OPEN`; `WATCH/ENGAGE` remain reserved for Phase 7 selective Media Understanding.
-- [x] Session/list/detail owner APIs expose current/past browsing evidence for acceptance.
-- [x] Same Character Card in another Server keeps an independent Presence/Activity state.
-- [ ] Ruff passes on final Phase 6 head.
-- [ ] MyPy passes on final Phase 6 head.
-- [ ] Full Pytest passes on final Phase 6 head.
+- [x] Existing Enhanced Media/yt-dlp/MediaAnalysis runtime is reused.
+- [x] Only a bounded high-score `OPEN` shortlist may become `WATCH/ENGAGE`.
+- [x] Objective analysis may be shared; exposure promotion remains Deployment-scoped.
+- [x] `OPEN -> WATCH/ENGAGE` promotion does not double-count exposure.
+- [x] Media failure degrades one item instead of failing the whole browsing session.
+- [x] `discovery_media_inspection_enabled` is an independent kill switch.
 
-Current CI cleanup evidence:
+## Phase 8 — Social association / SocialIntent evidence
 
-- Earlier Python gate exposed 14 Ruff issues; those formatting/import issues were fixed.
-- Diagnostic artifacts then exposed 11 MyPy issues in Presence/YouTube/seed-builder code; fixes are on the branch.
-- Diagnostic Pytest artifacts exposed unsupported `pytest.mark.asyncio`; tests now use standard-library `asyncio.run()` instead of adding a new dev dependency.
-- Railway Smoke has continued to pass during Phase 6 iterations.
+- [x] Only `WATCH/ENGAGE` content is eligible.
+- [x] Past-conversation association uses Character-accessible Episodes only.
+- [x] E5 seed + bounded SQL event→entity→event expansion reuses episodic SQL-RAG.
+- [x] Topic/destination comes from perceived Episode evidence.
+- [x] Person association uses same-Server relationship evidence for Episode participants.
+- [x] Decision evidence stores refs/scores rather than copying conversation text.
+- [x] `WOULD_SHARE` itself has no Discord side effect.
 
-### Phase 7 — Selective Media Understanding / exposure
+## Phase 9 — Review-mode Discord sharing
 
-- [ ] Existing Media Runtime is reused rather than duplicated.
-- [ ] `OPEN` shortlist is selectively promoted to `WATCH/ENGAGE`; collection/ranking alone is insufficient.
-- [ ] Objective analysis is reused across Deployments where cache rules allow.
-- [ ] Subjective exposure remains Deployment-scoped.
-- [ ] No Discovery-specific transcript/vision/cache stack is introduced.
-- [ ] Learned interest evidence remains Server/Deployment-safe; no Character-global aggregate leak is introduced.
+- [x] `WOULD_SHARE` may create one durable `pending_review` proposal in REVIEW mode.
+- [x] Eligibility/association happens before Character model phrasing.
+- [x] Character model is used only to phrase the final proposed Discord message; no Tools are enabled.
+- [x] Owner can list, approve, or reject proposals.
+- [x] Approval rechecks budget/cooldown before queueing.
+- [x] Delivery rechecks Deployment scope and Presence before Discord side effect.
+- [x] Bot/webhook identity follows existing Deployment identity configuration.
+- [x] Message route is registered after delivery for normal reply routing.
 
-### Phase 8 — Social association / Shadow SocialIntent
+## Phase 10 — Limited AUTO initiative
 
-- [ ] Topic association uses current/recent Topic data.
-- [ ] Past-conversation association uses perception-safe episodic SQL-RAG.
-- [ ] Person association uses existing Social Graph/relationship evidence.
-- [ ] `WOULD_SHARE` remains shadow-only.
-- [ ] Decision trace contains reason/evidence.
+- [x] AUTO requires `mode=auto`.
+- [x] AUTO additionally requires per-Deployment `auto_share_enabled=true`.
+- [x] AUTO additionally requires global `discovery_auto_share_global_enabled=true`.
+- [x] Daily share budget and cooldown are enforced.
+- [x] `(deployment_id, discovery_item_id)` uniqueness prevents duplicate proposals/shares.
+- [x] Durable outbox recovers interrupted delivery and retries bounded failures.
+- [x] Sleeping/busy Presence defers queued delivery.
+- [x] Default configuration keeps AUTO globally disabled.
 
-### Phase 9 — Review-mode Discord sharing
+## Phase 11 — Bilibili Experimental
 
-- [ ] Proposed share requires review/approval.
-- [ ] Runtime chooses eligibility before Character model phrases the message.
-- [ ] Policy/cooldown/dedupe/destination authority is enforced.
-- [ ] Accept/reject evidence is retained for calibration.
+- [x] Bilibili source is isolated behind `bilibili_discovery_experimental_enabled`.
+- [x] Adapter is read-only and uses low-rate yt-dlp `bilisearch` discovery.
+- [x] No cookies/login/account mutation is introduced.
+- [x] Raw interest queries are not persisted; shared cache stores hashes + canonical result keys.
+- [x] Bilibili candidates normalize into the same shared `DiscoveryItem` contract.
+- [x] Deep understanding reuses the existing Bilibili/yt-dlp media path.
+- [x] One source failure is isolated when another enabled source can still return candidates.
+- [x] When YouTube + Bilibili are enabled, daily browsing platform selection is stable/randomized per Deployment/date.
 
-### Phase 10 — Limited AUTO initiative
+## Final batch validation gate
 
-- [ ] Explicit opt-in per Deployment.
-- [ ] Strict share budgets/cooldowns/idempotency.
-- [ ] One-click disable prevents new autonomous sends.
-- [ ] Sustained soak does not spam channels.
+Run only after the complete module batch lands:
 
-### Phase 11 — Bilibili Experimental
+- [ ] Ruff — Python 3.12 / 3.13
+- [ ] MyPy — Python 3.12 / 3.13
+- [ ] Full Pytest — Python 3.12 / 3.13
+- [ ] Web typecheck/test/build
+- [ ] Discord Connector typecheck/test/build + image build
+- [ ] Docker storage/runtime smoke
+- [ ] Railway Smoke
 
-- [ ] Adapter is isolated/feature-flagged/kill-switchable.
-- [ ] Same normalized DiscoveryItem/exposure semantics as YouTube.
-- [ ] Existing Bilibili/yt-dlp content understanding is reused.
-- [ ] No Bilibili account/login/action automation.
-- [ ] Bilibili failure cannot break core Discovery/YouTube behavior.
+The immediately preceding stable Phase 7 service-layer head passed all of the above core CI gates.
 
-## Manual owner acceptance targets
+## Owner acceptance pass
 
-The final owner acceptance should explicitly exercise:
-
-1. Same Character Card cannot be deployed twice to one Discord Server.
-2. Same Character Card can still have independent Deployments in different Servers.
-3. Set Deployment A to sleeping; ambient chat ignores it.
-4. Explicitly mention/reply to Deployment A; real Bot reports sleeping without Character webhook/model output.
-5. Verify repeated mentions do not spam the status notice.
-6. Verify another Server's Deployment of the same Card can remain awake.
-7. Enable rhythm and verify sleep schedule survives restart without rerolling.
-8. Enable YouTube Shadow Discovery and inspect manual Shadow Preview ranking.
-9. Start a Shadow browsing session and verify Presence remains `BROWSING` for the planned duration.
-10. Verify another Server's Deployment of the same Card stays independent during that session.
-11. Force/observe sleep while browsing and verify browsing cancels without waking the Character.
-12. Verify collected-but-unseen items do not enter Character lived history.
-13. Verify Phase 6 has no `WATCH/ENGAGE` until selective Media Understanding lands.
-14. After Phase 7, verify only a small shortlist reaches existing Media Understanding.
-15. Verify a past Discord topic can create a traceable content association.
-16. In REVIEW mode, approve/reject proposed shares and inspect evidence.
-17. Only after review quality is acceptable, optionally test AUTO under strict budgets.
-18. Enable/disable Bilibili Experimental and verify isolation.
+1. Same Character Card cannot be deployed twice in one Discord Server.
+2. Same Card in another Server has independent Presence/Discovery history.
+3. Sleeping Deployment is absent from ambient participation and cannot browse/share.
+4. Explicit mention/reply while sleeping receives the real Bot sleeping notice.
+5. Daily sleep and browsing schedules survive restart without rerolling.
+6. YouTube Shadow Preview shows seeds/ranking without perception side effects.
+7. Browsing session visibly remains `BROWSING` for its planned duration.
+8. Only selected content reaches `WATCH/ENGAGE` and existing Media Understanding.
+9. Perceived past Episode/Topic/person association is visible in decision evidence.
+10. REVIEW proposal can be approved/rejected and only approved items reach Discord.
+11. AUTO remains inert until both Deployment and global switches are enabled.
+12. AUTO obeys budget/cooldown and sleeping/busy deferral.
+13. Bilibili cannot be enabled unless the Experimental global gate is enabled.
+14. Bilibili failure does not break a working YouTube source.
 
 ## OpenWiki after merge
 
-After this feature is accepted and merged to `main`:
+After owner acceptance and merge to `main`:
 
 ```bash
 openwiki --update
 ```
 
-Review the generated wiki diff against the merged source/tests and this canonical roadmap. Do not merge generated claims that present unimplemented future account phases as current behavior.
+Review the generated diff against merged source/tests and this canonical acceptance record.
+Do not present future external-account OAuth/social mutation contracts as implemented behavior.

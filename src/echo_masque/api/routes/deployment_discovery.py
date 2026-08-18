@@ -19,6 +19,8 @@ from echo_masque.api.deployment_discovery_schemas import (
     DeploymentDiscoveryExposureView,
     DeploymentDiscoveryProfileUpdate,
     DeploymentDiscoveryProfileView,
+    DeploymentDiscoveryShareListView,
+    DeploymentDiscoveryShareView,
     DeploymentDiscoveryShadowPreviewView,
     DiscoveryItemView,
     DiscoverySeedView,
@@ -29,15 +31,16 @@ from echo_masque.deployment_discovery_service import (
     DeploymentDiscoveryUnavailable,
 )
 from echo_masque.discovery_contracts import DiscoveryMode
-from echo_masque.persistence.deployment_activity_repository import (
-    DeploymentActivityRepository,
-)
+from echo_masque.discovery_runtime import CompleteDeploymentDiscoveryActivityService
+from echo_masque.discovery_share import DiscoveryShareCoordinator
+from echo_masque.persistence.deployment_activity_repository import DeploymentActivityRepository
 from echo_masque.persistence.deployment_activity_repository import (
     DeploymentActivitySessionView as ActivityDomainView,
 )
 from echo_masque.persistence.discovery_models import DiscoveryItemRecord
 from echo_masque.persistence.discovery_repository import DiscoveryRepository
-from echo_masque.youtube_discovery import YouTubeDiscoveryUnavailable
+from echo_masque.persistence.discovery_share_models import DeploymentDiscoveryShareRecord
+from echo_masque.persistence.discovery_share_repository import DiscoveryShareRepository
 
 router = APIRouter(tags=["deployments"])
 
@@ -48,6 +51,10 @@ def repository(request: Request) -> DiscoveryRepository:
 
 def activity_repository(request: Request) -> DeploymentActivityRepository:
     return DeploymentActivityRepository(request.app.state.database)
+
+
+def share_repository(request: Request) -> DiscoveryShareRepository:
+    return DiscoveryShareRepository(request.app.state.database)
 
 
 def _item(record: DiscoveryItemRecord) -> DiscoveryItemView:
@@ -61,6 +68,35 @@ def _item(record: DiscoveryItemRecord) -> DiscoveryItemView:
         url=record.url,
         thumbnail_url=record.thumbnail_url,
         published_at=record.published_at,
+    )
+
+
+def _profile_view(
+    request: Request,
+    *,
+    deployment_id: str,
+    owner_id: str,
+) -> DeploymentDiscoveryProfileView | None:
+    profile = repository(request).get_profile(owner_id=owner_id, deployment_id=deployment_id)
+    policy = share_repository(request).get_policy(
+        owner_id=owner_id,
+        deployment_id=deployment_id,
+    )
+    if profile is None or policy is None:
+        return None
+    settings = request.app.state.settings
+    return DeploymentDiscoveryProfileView(
+        deployment_id=deployment_id,
+        mode=profile.mode.value,
+        youtube_enabled=profile.youtube_enabled,
+        bilibili_enabled=profile.bilibili_enabled,
+        bilibili_experimental_available=(
+            settings.bilibili_discovery_experimental_enabled
+        ),
+        auto_share_enabled=policy.auto_share_enabled,
+        auto_global_enabled=settings.discovery_auto_share_global_enabled,
+        daily_share_budget=policy.daily_share_budget,
+        share_cooldown_minutes=policy.share_cooldown_minutes,
     )
 
 
@@ -117,9 +153,38 @@ def _activity_detail(
                     item=_item(content),
                 )
             )
-    return DeploymentActivitySessionDetailView(
-        session=_activity(activity),
-        items=items,
+    return DeploymentActivitySessionDetailView(session=_activity(activity), items=items)
+
+
+def _share_view(
+    request: Request,
+    record: DeploymentDiscoveryShareRecord,
+) -> DeploymentDiscoveryShareView | None:
+    with request.app.state.database.session() as session:
+        item = session.get(DiscoveryItemRecord, record.discovery_item_id)
+        if item is None:
+            return None
+    return DeploymentDiscoveryShareView(
+        id=record.id,
+        deployment_id=record.deployment_id,
+        item=_item(item),
+        mode=record.mode,
+        status=record.status,
+        motivation=record.motivation,
+        confidence=record.confidence,
+        topic_id=record.topic_id,
+        relationship_subject_key=record.relationship_subject_key,
+        channel_id=record.channel_id,
+        thread_id=record.thread_id,
+        draft_text=record.draft_text,
+        attempt_count=record.attempt_count,
+        last_error=record.last_error,
+        approved_at=record.approved_at,
+        rejected_at=record.rejected_at,
+        queued_at=record.queued_at,
+        delivered_at=record.delivered_at,
+        discord_message_id=record.discord_message_id,
+        created_at=record.created_at,
     )
 
 
@@ -140,15 +205,10 @@ def get_discovery_profile(
     request: Request,
     user: CurrentUserDependency,
 ) -> DeploymentDiscoveryProfileView:
-    current = repository(request).get_profile(owner_id=user.id, deployment_id=deployment_id)
-    if current is None:
+    value = _profile_view(request, deployment_id=deployment_id, owner_id=user.id)
+    if value is None:
         raise HTTPException(status_code=404, detail="Deployment not found.")
-    return DeploymentDiscoveryProfileView(
-        deployment_id=current.deployment_id,
-        mode=current.mode.value,
-        youtube_enabled=current.youtube_enabled,
-        bilibili_enabled=current.bilibili_enabled,
-    )
+    return value
 
 
 @router.put(
@@ -161,6 +221,12 @@ def update_discovery_profile(
     request: Request,
     user: CurrentUserDependency,
 ) -> DeploymentDiscoveryProfileView:
+    settings = request.app.state.settings
+    if payload.bilibili_enabled and not settings.bilibili_discovery_experimental_enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="Bilibili Discovery is experimental and globally disabled.",
+        )
     current = repository(request).set_profile(
         owner_id=user.id,
         deployment_id=deployment_id,
@@ -170,12 +236,16 @@ def update_discovery_profile(
     )
     if current is None:
         raise HTTPException(status_code=404, detail="Deployment not found.")
-    return DeploymentDiscoveryProfileView(
-        deployment_id=current.deployment_id,
-        mode=current.mode.value,
-        youtube_enabled=current.youtube_enabled,
-        bilibili_enabled=current.bilibili_enabled,
+    share_repository(request).set_policy(
+        owner_id=user.id,
+        deployment_id=deployment_id,
+        auto_share_enabled=payload.auto_share_enabled,
+        daily_share_budget=payload.daily_share_budget,
+        share_cooldown_minutes=payload.share_cooldown_minutes,
     )
+    value = _profile_view(request, deployment_id=deployment_id, owner_id=user.id)
+    assert value is not None
+    return value
 
 
 @router.post(
@@ -188,10 +258,9 @@ async def run_discovery_shadow_preview(
     user: CurrentUserDependency,
     region: str = Query(default="", max_length=16),
     language: str = Query(default="", max_length=32),
+    source: str = Query(default="", max_length=32),
     limit: int = Query(default=10, ge=1, le=30),
 ) -> DeploymentDiscoveryShadowPreviewView:
-    """Collect/rank public candidates without exposure, Character LLM, or delivery side effects."""
-
     settings = request.app.state.runtime_service.settings
     service = DeploymentDiscoveryPreviewService(request.app.state.database, settings)
     try:
@@ -201,15 +270,14 @@ async def run_discovery_shadow_preview(
             region=region,
             language=language,
             limit=limit,
+            sources=((source.casefold().strip(),) if source.strip() else ()),
         )
     except DeploymentDiscoveryUnavailable as exc:
         detail = str(exc)
         status = 404 if detail == "Deployment not found." else 409
-        if "YOUTUBE_DATA_API_KEY" in detail:
+        if "api_key_missing" in detail:
             status = 503
         raise HTTPException(status_code=status, detail=detail) from exc
-    except YouTubeDiscoveryUnavailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     candidates: list[RankedDiscoveryCandidateView] = []
     with request.app.state.database.session() as session:
@@ -242,6 +310,8 @@ async def run_discovery_shadow_preview(
             for seed in preview.seeds.seeds
         ],
         candidates=candidates,
+        sources=list(preview.sources),
+        source_errors=list(preview.source_errors),
         side_effects=False,
     )
 
@@ -250,31 +320,38 @@ async def run_discovery_shadow_preview(
     "/deployments/{deployment_id}/discovery/browse-shadow",
     response_model=DeploymentActivitySessionDetailView,
 )
-async def run_browsing_shadow_session(
+async def run_browsing_session(
     deployment_id: str,
     payload: DeploymentDiscoveryBrowseShadowRequest,
     request: Request,
     user: CurrentUserDependency,
 ) -> DeploymentActivitySessionDetailView:
-    """Start one lived Shadow browsing session using the same runtime as the scheduler."""
-
+    service = request.app.state.deployment_activity_scheduler.service
     try:
-        activity = await request.app.state.deployment_activity_service.run_manual(
-            owner_id=user.id,
-            deployment_id=deployment_id,
-            duration_minutes=payload.duration_minutes,
-            candidate_budget=payload.candidate_budget,
-            open_budget=payload.open_budget,
-        )
+        if isinstance(service, CompleteDeploymentDiscoveryActivityService):
+            activity = await service.run_manual_discovery(
+                owner_id=user.id,
+                deployment_id=deployment_id,
+                platform=payload.platform or "",
+                duration_minutes=payload.duration_minutes,
+                candidate_budget=payload.candidate_budget,
+                open_budget=payload.open_budget,
+            )
+        else:
+            if payload.platform not in {None, "youtube"}:
+                raise ValueError("This runtime currently supports YouTube only.")
+            activity = await service.run_manual(
+                owner_id=user.id,
+                deployment_id=deployment_id,
+                duration_minutes=payload.duration_minutes,
+                candidate_budget=payload.candidate_budget,
+                open_budget=payload.open_budget,
+            )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Deployment not found.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return _activity_detail(
-        request,
-        owner_id=user.id,
-        activity=activity,
-    )
+    return _activity_detail(request, owner_id=user.id, activity=activity)
 
 
 @router.get(
@@ -311,11 +388,7 @@ def get_browsing_session(
     activity = activity_repository(request).get(owner_id=user.id, session_id=session_id)
     if activity is None or activity.deployment_id != deployment_id:
         raise HTTPException(status_code=404, detail="Browsing session not found.")
-    return _activity_detail(
-        request,
-        owner_id=user.id,
-        activity=activity,
-    )
+    return _activity_detail(request, owner_id=user.id, activity=activity)
 
 
 @router.get(
@@ -329,8 +402,7 @@ def list_discovery_exposures(
     limit: int = Query(default=100, ge=1, le=500),
 ) -> DeploymentDiscoveryExposureListView:
     repo = repository(request)
-    profile = repo.get_profile(owner_id=user.id, deployment_id=deployment_id)
-    if profile is None:
+    if repo.get_profile(owner_id=user.id, deployment_id=deployment_id) is None:
         raise HTTPException(status_code=404, detail="Deployment not found.")
     rows = repo.list_exposures(owner_id=user.id, deployment_id=deployment_id, limit=limit)
     items: list[DeploymentDiscoveryExposureView] = []
@@ -366,8 +438,7 @@ def list_discovery_decisions(
     limit: int = Query(default=100, ge=1, le=500),
 ) -> DeploymentDiscoveryDecisionListView:
     repo = repository(request)
-    profile = repo.get_profile(owner_id=user.id, deployment_id=deployment_id)
-    if profile is None:
+    if repo.get_profile(owner_id=user.id, deployment_id=deployment_id) is None:
         raise HTTPException(status_code=404, detail="Deployment not found.")
     rows = repo.list_decisions(owner_id=user.id, deployment_id=deployment_id, limit=limit)
     items: list[DeploymentDiscoveryDecisionView] = []
@@ -391,6 +462,79 @@ def list_discovery_decisions(
                 )
             )
     return DeploymentDiscoveryDecisionListView(items=items)
+
+
+@router.get(
+    "/deployments/{deployment_id}/discovery/shares",
+    response_model=DeploymentDiscoveryShareListView,
+)
+def list_discovery_shares(
+    deployment_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> DeploymentDiscoveryShareListView:
+    if repository(request).get_profile(owner_id=user.id, deployment_id=deployment_id) is None:
+        raise HTTPException(status_code=404, detail="Deployment not found.")
+    values = []
+    for row in share_repository(request).list_for_deployment(
+        owner_id=user.id,
+        deployment_id=deployment_id,
+        limit=limit,
+    ):
+        view = _share_view(request, row)
+        if view is not None:
+            values.append(view)
+    return DeploymentDiscoveryShareListView(items=values)
+
+
+@router.post(
+    "/deployments/{deployment_id}/discovery/shares/{share_id}/approve",
+    response_model=DeploymentDiscoveryShareView,
+)
+def approve_discovery_share(
+    deployment_id: str,
+    share_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+) -> DeploymentDiscoveryShareView:
+    coordinator = DiscoveryShareCoordinator(
+        request.app.state.database,
+        request.app.state.settings,
+    )
+    try:
+        record = coordinator.approve(owner_id=user.id, share_id=share_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if record is None or record.deployment_id != deployment_id:
+        raise HTTPException(status_code=404, detail="Discovery share proposal not found.")
+    view = _share_view(request, record)
+    if view is None:
+        raise HTTPException(status_code=404, detail="Discovery item not found.")
+    return view
+
+
+@router.post(
+    "/deployments/{deployment_id}/discovery/shares/{share_id}/reject",
+    response_model=DeploymentDiscoveryShareView,
+)
+def reject_discovery_share(
+    deployment_id: str,
+    share_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+) -> DeploymentDiscoveryShareView:
+    coordinator = DiscoveryShareCoordinator(
+        request.app.state.database,
+        request.app.state.settings,
+    )
+    record = coordinator.reject(owner_id=user.id, share_id=share_id)
+    if record is None or record.deployment_id != deployment_id:
+        raise HTTPException(status_code=404, detail="Discovery share proposal not found.")
+    view = _share_view(request, record)
+    if view is None:
+        raise HTTPException(status_code=404, detail="Discovery item not found.")
+    return view
 
 
 __all__ = ["router"]

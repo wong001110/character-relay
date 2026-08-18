@@ -3,21 +3,19 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
-DiscoveryRolloutMode = Literal["off", "shadow"]
+DiscoveryRolloutMode = Literal["off", "shadow", "review", "auto"]
+DiscoveryPlatform = Literal["youtube", "bilibili"]
 
 
 class DeploymentDiscoveryProfileUpdate(BaseModel):
     mode: DiscoveryRolloutMode = "off"
     youtube_enabled: bool = False
     bilibili_enabled: bool = False
-
-    @model_validator(mode="after")
-    def block_unimplemented_bilibili(self) -> "DeploymentDiscoveryProfileUpdate":
-        if self.bilibili_enabled:
-            raise ValueError("Bilibili Discovery remains experimental and is not enabled yet.")
-        return self
+    auto_share_enabled: bool = False
+    daily_share_budget: int = Field(default=1, ge=0, le=8)
+    share_cooldown_minutes: int = Field(default=180, ge=15, le=1440)
 
 
 class DeploymentDiscoveryProfileView(BaseModel):
@@ -25,6 +23,11 @@ class DeploymentDiscoveryProfileView(BaseModel):
     mode: str
     youtube_enabled: bool
     bilibili_enabled: bool
+    bilibili_experimental_available: bool = False
+    auto_share_enabled: bool = False
+    auto_global_enabled: bool = False
+    daily_share_budget: int = 1
+    share_cooldown_minutes: int = 180
 
 
 class DiscoveryItemView(BaseModel):
@@ -95,10 +98,13 @@ class DeploymentDiscoveryShadowPreviewView(BaseModel):
     queries: list[str]
     seeds: list[DiscoverySeedView]
     candidates: list[RankedDiscoveryCandidateView]
+    sources: list[str] = Field(default_factory=list)
+    source_errors: list[str] = Field(default_factory=list)
     side_effects: Literal[False] = False
 
 
 class DeploymentDiscoveryBrowseShadowRequest(BaseModel):
+    platform: DiscoveryPlatform | None = None
     duration_minutes: int | None = Field(default=None, ge=5, le=120)
     candidate_budget: int | None = Field(default=None, ge=3, le=30)
     open_budget: int | None = Field(default=None, ge=0, le=10)
@@ -150,6 +156,33 @@ class DeploymentActivitySessionListView(BaseModel):
     items: list[DeploymentActivitySessionView]
 
 
+class DeploymentDiscoveryShareView(BaseModel):
+    id: str
+    deployment_id: str
+    item: DiscoveryItemView
+    mode: str
+    status: str
+    motivation: str
+    confidence: float
+    topic_id: str
+    relationship_subject_key: str
+    channel_id: str
+    thread_id: str
+    draft_text: str
+    attempt_count: int
+    last_error: str
+    approved_at: datetime | None
+    rejected_at: datetime | None
+    queued_at: datetime | None
+    delivered_at: datetime | None
+    discord_message_id: str
+    created_at: datetime
+
+
+class DeploymentDiscoveryShareListView(BaseModel):
+    items: list[DeploymentDiscoveryShareView]
+
+
 __all__ = [
     "DeploymentActivitySessionDetailView",
     "DeploymentActivitySessionItemView",
@@ -162,8 +195,12 @@ __all__ = [
     "DeploymentDiscoveryExposureView",
     "DeploymentDiscoveryProfileUpdate",
     "DeploymentDiscoveryProfileView",
+    "DeploymentDiscoveryShareListView",
+    "DeploymentDiscoveryShareView",
     "DeploymentDiscoveryShadowPreviewView",
     "DiscoveryItemView",
+    "DiscoveryPlatform",
+    "DiscoveryRolloutMode",
     "DiscoverySeedView",
     "RankedDiscoveryCandidateView",
 ]
