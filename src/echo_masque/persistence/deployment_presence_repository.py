@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from sqlalchemy import delete, select
+from sqlalchemy.engine import CursorResult
 
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
@@ -187,7 +188,8 @@ class DeploymentPresenceRepository:
                 )
             )
             session.commit()
-            return bool(result.rowcount)
+            rowcount = cast(CursorResult[Any], result).rowcount or 0
+            return bool(rowcount)
 
     def delete_owner(self, owner_id: str) -> int:
         with self.database.session() as session:
@@ -197,7 +199,7 @@ class DeploymentPresenceRepository:
                 )
             )
             session.commit()
-            return int(result.rowcount or 0)
+            return int(cast(CursorResult[Any], result).rowcount or 0)
 
 
 __all__ = [
