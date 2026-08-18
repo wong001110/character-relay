@@ -11,6 +11,7 @@ import httpx
 from pydantic import SecretStr
 
 from echo_masque.credentials import CredentialVault
+from echo_masque.deployment_activity_scheduler import DeploymentActivityScheduler
 from echo_masque.deployment_presence_rhythm import DeploymentPresenceRhythmService
 from echo_masque.deployment_presence_scheduler import DeploymentPresenceScheduler
 from echo_masque.media_retention import MediaRetentionService
@@ -48,6 +49,7 @@ class ScheduledReminderDeliveryService:
         http_transport: httpx.AsyncBaseTransport | None = None,
         media_retention_service: MediaRetentionService | None = None,
         presence_scheduler: DeploymentPresenceScheduler | None = None,
+        activity_scheduler: DeploymentActivityScheduler | None = None,
     ) -> None:
         self.repository = repository
         self.deployment_repository = deployment_repository
@@ -62,6 +64,7 @@ class ScheduledReminderDeliveryService:
         self.presence_scheduler = presence_scheduler or DeploymentPresenceScheduler(
             DeploymentPresenceRhythmService(repository.database)
         )
+        self.activity_scheduler = activity_scheduler
         self.media_retention_service = (
             media_retention_service
             or MediaRetentionService.for_database(repository.database)
@@ -76,6 +79,8 @@ class ScheduledReminderDeliveryService:
         self.repository.purge_orphans()
         await self.media_retention_service.start()
         await self.presence_scheduler.start()
+        if self.activity_scheduler is not None:
+            await self.activity_scheduler.start()
         self._task = asyncio.create_task(
             self._run(),
             name="character-relay-reminder-delivery",
@@ -88,6 +93,8 @@ class ScheduledReminderDeliveryService:
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+        if self.activity_scheduler is not None:
+            await self.activity_scheduler.stop()
         await self.presence_scheduler.stop()
         await self.media_retention_service.stop()
 
