@@ -63,6 +63,8 @@ from echo_masque.conversation_media import ConversationMediaReferenceService
 from echo_masque.conversation_topic_observed import ObservedConversationTopicMemoryService
 from echo_masque.coverage_analytics import CoverageAnalyticsService
 from echo_masque.credentials import CredentialVault
+from echo_masque.deployment_activity import DeploymentBrowsingActivityService
+from echo_masque.deployment_activity_scheduler import DeploymentActivityScheduler
 from echo_masque.discord_inventory import DiscordInventoryService
 from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService
@@ -278,6 +280,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         credential_resolver=media_credential_resolver,
         discord_bot_token=resolved.discord_tool_bot_token,
     )
+    deployment_activity_service = DeploymentBrowsingActivityService(database, resolved)
+    deployment_activity_scheduler = DeploymentActivityScheduler(
+        deployment_activity_service,
+        poll_seconds=resolved.discovery_activity_poll_seconds,
+    )
     scheduled_reminder_delivery = ScheduledReminderDeliveryService(
         scheduled_reminder_repository,
         deployment_repository,
@@ -287,6 +294,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         poll_seconds=resolved.scheduler_poll_seconds,
         retry_seconds=resolved.scheduler_retry_seconds,
         max_attempts=resolved.scheduler_max_attempts,
+        activity_scheduler=deployment_activity_scheduler,
     )
     condition_watch_evaluator = ConditionWatchEvaluatorRuntime(
         repository,
@@ -361,7 +369,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "Public Demo ready: user=%s characters=%s scenarios=%s packs=%s",
             public_demo_result.user_id,
             public_demo_result.character_count,
-            public_demo_result.scenario_count,
             public_demo_result.test_pack_count,
         )
     quota_service = PublicDemoQuotaService(database, resolved)
@@ -495,6 +502,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.browser_runtime = browser_runtime
     app.state.scheduled_reminder_repository = scheduled_reminder_repository
     app.state.scheduled_reminder_delivery = scheduled_reminder_delivery
+    app.state.deployment_activity_service = deployment_activity_service
+    app.state.deployment_activity_scheduler = deployment_activity_scheduler
     app.state.condition_watch_repository = condition_watch_repository
     app.state.condition_watch_graph_runner = condition_watch_graph_runner
     app.state.condition_watch_service = condition_watch_service
