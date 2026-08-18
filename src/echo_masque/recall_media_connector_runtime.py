@@ -42,8 +42,6 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
         self,
         payload: DiscordInboundMessage,
     ) -> tuple[ResolvedCharacterTurn | None, DiscordConnectorReplyView | None]:
-        """Hard-gate sleeping Deployments before context, Tools, or provider resolution."""
-
         deployment = self.deployment_repository.deployment_matches_discord_destination(
             payload.deployment_id,
             connection_id=payload.connection_id,
@@ -78,7 +76,7 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
         return super().resolve_character_turn(payload)
 
     @staticmethod
-    def _inject_guidance(prompt: str, guidance: tuple[str, ...]) -> str:
+    def _inject_prompt_guidance(prompt: str, guidance: tuple[str, ...]) -> str:
         if not guidance:
             return prompt
         block = "\n".join(guidance)
@@ -143,7 +141,7 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
         bundle = self._fresh_for_auto_recall(bundle)
         recall_guidance = bundle.prompt_guidance(max_chars=900)
         if recall_guidance:
-            prepared.prompt = self._inject_guidance(prepared.prompt, recall_guidance)
+            prepared.prompt = self._inject_prompt_guidance(prepared.prompt, recall_guidance)
 
         target_type, target_key = self._social_target(resolved=resolved)
         if target_key:
@@ -155,7 +153,10 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
                 max_chars=480,
             )
             if social_guidance:
-                prepared.prompt = self._inject_guidance(prepared.prompt, social_guidance)
+                prepared.prompt = self._inject_prompt_guidance(
+                    prepared.prompt,
+                    social_guidance,
+                )
         return prepared
 
 
