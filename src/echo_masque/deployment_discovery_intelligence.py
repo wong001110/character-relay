@@ -189,8 +189,8 @@ class DeploymentDiscoverySeedBuilder:
             )
             decay = math.pow(0.5, age_days / 30.0)
             score = float(event.delta) * float(event.evidence_confidence) * decay
-            key = (event.subject_type, event.subject_key)
-            interest_scores[key] = interest_scores.get(key, 0.0) + score
+            interest_key = (event.subject_type, event.subject_key)
+            interest_scores[interest_key] = interest_scores.get(interest_key, 0.0) + score
 
         for (subject_type, subject_key), score in sorted(
             interest_scores.items(),
@@ -200,8 +200,12 @@ class DeploymentDiscoverySeedBuilder:
             if score <= 0.05:
                 continue
             if subject_type == "topic" and subject_key.startswith("topic:"):
-                topic = topic_by_id.get(subject_key.removeprefix("topic:"))
-                text = " ".join(topic.topic_label.split()) if topic is not None else ""
+                matched_topic = topic_by_id.get(subject_key.removeprefix("topic:"))
+                text = (
+                    " ".join(matched_topic.topic_label.split())
+                    if matched_topic is not None
+                    else ""
+                )
             elif subject_type in {"concept", "media", "event"}:
                 text = self._clean_subject(subject_key)
             else:
@@ -237,10 +241,10 @@ class DeploymentDiscoverySeedBuilder:
 
         deduped: dict[str, DiscoverySeed] = {}
         for seed in seeds:
-            key = seed.text.casefold()
-            previous = deduped.get(key)
+            seed_key = seed.text.casefold()
+            previous = deduped.get(seed_key)
             if previous is None or seed.weight > previous.weight:
-                deduped[key] = seed
+                deduped[seed_key] = seed
         ranked = tuple(
             sorted(deduped.values(), key=lambda item: item.weight, reverse=True)[:bounded]
         )
