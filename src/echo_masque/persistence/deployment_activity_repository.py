@@ -30,6 +30,7 @@ class DeploymentActivitySessionView:
     schedule_timezone: str
     scheduled_start_at: datetime | None
     latest_start_at: datetime | None
+    planned_duration_minutes: int
     started_at: datetime | None
     expected_end_at: datetime | None
     ended_at: datetime | None
@@ -74,6 +75,7 @@ class DeploymentActivityRepository:
             schedule_timezone=record.schedule_timezone,
             scheduled_start_at=cls._aware(record.scheduled_start_at),
             latest_start_at=cls._aware(record.latest_start_at),
+            planned_duration_minutes=record.planned_duration_minutes,
             started_at=cls._aware(record.started_at),
             expected_end_at=cls._aware(record.expected_end_at),
             ended_at=cls._aware(record.ended_at),
@@ -102,6 +104,7 @@ class DeploymentActivityRepository:
         schedule_timezone: str,
         scheduled_start_at: datetime,
         latest_start_at: datetime,
+        planned_duration_minutes: int,
         candidate_budget: int,
         open_budget: int,
         watch_budget: int,
@@ -133,6 +136,7 @@ class DeploymentActivityRepository:
                     schedule_timezone=schedule_timezone[:120],
                     scheduled_start_at=scheduled_start_at,
                     latest_start_at=latest_start_at,
+                    planned_duration_minutes=max(5, min(planned_duration_minutes, 180)),
                     candidate_budget=max(1, min(candidate_budget, 50)),
                     open_budget=max(0, min(open_budget, 20)),
                     watch_budget=max(0, min(watch_budget, 10)),
@@ -153,6 +157,7 @@ class DeploymentActivityRepository:
         owner_id: str,
         deployment_id: str,
         platform: str,
+        planned_duration_minutes: int,
         candidate_budget: int,
         open_budget: int,
         watch_budget: int,
@@ -176,6 +181,7 @@ class DeploymentActivityRepository:
                 schedule_key=None,
                 scheduled_start_at=current,
                 latest_start_at=current,
+                planned_duration_minutes=max(5, min(planned_duration_minutes, 180)),
                 candidate_budget=max(1, min(candidate_budget, 50)),
                 open_budget=max(0, min(open_budget, 20)),
                 watch_budget=max(0, min(watch_budget, 10)),
