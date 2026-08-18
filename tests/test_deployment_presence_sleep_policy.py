@@ -1,8 +1,9 @@
+import asyncio
+import json
 from pathlib import Path
 from unittest.mock import Mock
 
 import httpx
-import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
@@ -147,7 +148,7 @@ def test_sleeping_is_hard_runtime_gate_and_only_explicit_address_queues_notice(
     assert sleeping.status_code == 200, sleeping.text
 
     # If a sleeping request crosses Presence authority and starts resolving a Character target,
-    # the test must fail immediately. This proves the hard gate precedes model/tool setup.
+    # the test fails immediately. This proves the hard gate precedes model/tool setup.
     runtime = app.state.discord_connector_runtime
     runtime._target = Mock(side_effect=AssertionError("sleeping Character target must not resolve"))
 
@@ -240,18 +241,13 @@ def test_sleeping_reply_queues_notice_and_delivery_uses_real_bot_identity(
         discord_bot_token=SecretStr("real-discord-bot-token"),
         http_transport=httpx.MockTransport(handler),
     )
-    delivered = pytest.run(async_fn=delivery.deliver_due_once) if False else None
-    # pytest itself has no async runner helper; execute the coroutine through the test app's
-    # standard asyncio-compatible path without starting the background worker.
-    import asyncio
-
     delivered = asyncio.run(delivery.deliver_due_once())
     assert delivered == 1
     assert len(requests) == 1
     request = requests[0]
     assert request.url.path == "/api/v10/channels/channel-sleep/messages"
     assert request.headers["authorization"] == "Bot real-discord-bot-token"
-    payload = __import__("json").loads(request.content.decode("utf-8"))
+    payload = json.loads(request.content.decode("utf-8"))
     assert payload["content"] == "Ann 当前正在睡觉中。"
     assert payload["allowed_mentions"] == {"parse": []}
     assert payload["message_reference"] == {
