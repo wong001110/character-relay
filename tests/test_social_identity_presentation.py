@@ -38,6 +38,7 @@ def _relationship(
     *,
     subject_key: str,
     source_message_id: str,
+    connection_id: str = "connection-1",
 ) -> None:
     CharacterLearnedStateService(database).record_evidence(
         LearnedStateEvidence(
@@ -50,7 +51,7 @@ def _relationship(
             confidence=0.8,
             source_type="runtime_admission",
             source_message_id=source_message_id,
-            connection_id="connection-1",
+            connection_id=connection_id,
             guild_id="guild-1",
             channel_id="general",
         )
@@ -142,6 +143,7 @@ def test_social_graph_prefers_deployment_identity_for_character_neighbor() -> No
         database,
         subject_key="actor:discord-bot-user",
         source_message_id="character-message",
+        connection_id=connection.id,
     )
 
     items = ConversationIntelligenceObservationService(database).social_ego_graph(
