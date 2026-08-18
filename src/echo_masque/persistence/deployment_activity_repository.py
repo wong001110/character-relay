@@ -227,6 +227,22 @@ class DeploymentActivityRepository:
             )
             return self._view(record) if record is not None else None
 
+    def list_active(
+        self,
+        *,
+        limit: int = 200,
+    ) -> tuple[DeploymentActivitySessionView, ...]:
+        with self.database.session() as session:
+            records = list(
+                session.scalars(
+                    select(DeploymentActivitySessionRecord)
+                    .where(DeploymentActivitySessionRecord.status == "active")
+                    .order_by(DeploymentActivitySessionRecord.expected_end_at)
+                    .limit(max(1, min(limit, 1000)))
+                )
+            )
+        return tuple(self._view(record) for record in records)
+
     def list_for_deployment(
         self,
         *,
@@ -291,6 +307,35 @@ class DeploymentActivityRepository:
             record.started_at = current
             record.expected_end_at = expected_end_at
             record.reason = "browsing_session_started"
+            record.updated_at = current
+            session.commit()
+            session.refresh(record)
+            return self._view(record)
+
+    def update_counters(
+        self,
+        *,
+        owner_id: str,
+        session_id: str,
+        candidate_count: int,
+        notice_count: int,
+        open_count: int,
+        watch_count: int = 0,
+        engage_count: int = 0,
+        reason: str = "browsing_candidates_observed",
+        now: datetime | None = None,
+    ) -> DeploymentActivitySessionView | None:
+        current = (now or datetime.now(UTC)).astimezone(UTC)
+        with self.database.session() as session:
+            record = session.get(DeploymentActivitySessionRecord, session_id)
+            if record is None or record.owner_id != owner_id:
+                return None
+            record.candidate_count = max(0, candidate_count)
+            record.notice_count = max(0, notice_count)
+            record.open_count = max(0, open_count)
+            record.watch_count = max(0, watch_count)
+            record.engage_count = max(0, engage_count)
+            record.reason = reason[:1000]
             record.updated_at = current
             session.commit()
             session.refresh(record)
@@ -368,11 +413,11 @@ class DeploymentActivityRepository:
         status: str = "completed",
         reason: str = "browsing_session_completed",
         error: str = "",
-        candidate_count: int = 0,
-        notice_count: int = 0,
-        open_count: int = 0,
-        watch_count: int = 0,
-        engage_count: int = 0,
+        candidate_count: int | None = None,
+        notice_count: int | None = None,
+        open_count: int | None = None,
+        watch_count: int | None = None,
+        engage_count: int | None = None,
         now: datetime | None = None,
     ) -> DeploymentActivitySessionView | None:
         if status not in _TERMINAL_STATES:
@@ -384,11 +429,16 @@ class DeploymentActivityRepository:
                 return None
             record.status = status
             record.ended_at = current
-            record.candidate_count = max(0, candidate_count)
-            record.notice_count = max(0, notice_count)
-            record.open_count = max(0, open_count)
-            record.watch_count = max(0, watch_count)
-            record.engage_count = max(0, engage_count)
+            if candidate_count is not None:
+                record.candidate_count = max(0, candidate_count)
+            if notice_count is not None:
+                record.notice_count = max(0, notice_count)
+            if open_count is not None:
+                record.open_count = max(0, open_count)
+            if watch_count is not None:
+                record.watch_count = max(0, watch_count)
+            if engage_count is not None:
+                record.engage_count = max(0, engage_count)
             record.reason = reason[:1000]
             record.error = error[:2000]
             record.updated_at = current
