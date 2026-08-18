@@ -14,6 +14,8 @@ from echo_masque.conversation_intelligence_observation import (
 )
 from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.deployment_repository import DeploymentRepository
+from echo_masque.persistence.discord_identity_repository import DiscordIdentityRepository
 from echo_masque.persistence.repository import Repository
 
 router = APIRouter(tags=["conversation-intelligence"])
@@ -98,6 +100,9 @@ class SocialNeighborView(BaseModel):
     subject_key: str
     subject_type: Literal["actor", "character"]
     label: str
+    avatar_url: str
+    discord_user_id: str
+    is_bot: bool
     character_card_id: str
     value: float
     confidence: float
@@ -111,6 +116,7 @@ class SocialEgoGraphView(BaseModel):
 
     character_card_id: str
     character_display_name: str
+    character_avatar_url: str
     connection_id: str
     guild_id: str
     items: tuple[SocialNeighborView, ...] = ()
@@ -162,6 +168,50 @@ def _subject_label(
         return subject_key.removeprefix("actor:") or subject_key
     topic = topics.get(subject_key.removeprefix("topic:"), owner_id)
     return topic.topic_label if topic is not None and topic.topic_label.strip() else subject_key
+
+
+def _character_social_presentation(
+    request: Request,
+    *,
+    owner_id: str,
+    character_card_id: str,
+    connection_id: str,
+    guild_id: str,
+    card_display_name: str,
+) -> tuple[str, str]:
+    database = _database(request)
+    candidates = [
+        item
+        for item in DeploymentRepository(database).list_connector_deployments(
+            platform="discord",
+            connection_id=connection_id,
+        )
+        if item.owner_id == owner_id
+        and item.character_card_id == character_card_id
+        and item.workspace_id == guild_id
+    ]
+    candidates.sort(
+        key=lambda item: (
+            0 if item.channel_id.startswith("@server:") else 1,
+            item.channel_name,
+            item.id,
+        )
+    )
+    identities = DiscordIdentityRepository(database)
+    display_name = card_display_name
+    avatar_url = ""
+    for deployment in candidates:
+        identity = identities.get_identity(deployment.id, owner_id)
+        if identity is None:
+            continue
+        if identity.display_name.strip():
+            display_name = identity.display_name.strip()
+        if identity.avatar_url.strip():
+            avatar_url = identity.avatar_url.strip()
+        break
+    if not avatar_url:
+        avatar_url = f"/api/characters/portraits/{character_card_id}"
+    return display_name, avatar_url
 
 
 @router.get("/overview", response_model=TopicOverviewView)
@@ -314,6 +364,14 @@ def inspect_social_graph(
     card = _repository(request).get_character_card(character_card_id, user.id)
     if card is None:
         raise HTTPException(status_code=404, detail="Character Card not found.")
+    display_name, avatar_url = _character_social_presentation(
+        request,
+        owner_id=user.id,
+        character_card_id=character_card_id,
+        connection_id=connection_id,
+        guild_id=guild_id,
+        card_display_name=card.display_name,
+    )
     items = _observation(request).social_ego_graph(
         owner_id=user.id,
         character_card_id=character_card_id,
@@ -322,7 +380,8 @@ def inspect_social_graph(
     )
     return SocialEgoGraphView(
         character_card_id=character_card_id,
-        character_display_name=card.display_name,
+        character_display_name=display_name,
+        character_avatar_url=avatar_url,
         connection_id=connection_id,
         guild_id=guild_id,
         items=tuple(
@@ -330,6 +389,9 @@ def inspect_social_graph(
                 subject_key=item.subject_key,
                 subject_type=cast(Literal["actor", "character"], item.subject_type),
                 label=item.label,
+                avatar_url=item.avatar_url,
+                discord_user_id=item.discord_user_id,
+                is_bot=item.is_bot,
                 character_card_id=item.character_card_id,
                 value=item.value,
                 confidence=item.confidence,
