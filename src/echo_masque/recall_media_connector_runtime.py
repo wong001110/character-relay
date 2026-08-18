@@ -4,19 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
+from echo_masque.api.connector_schemas import DiscordConnectorReplyView, DiscordInboundMessage
 from echo_masque.character_recall import CharacterRecallBundle, CharacterRecallService
 from echo_masque.connector_runtime import PreparedCharacterTurn, ResolvedCharacterTurn
 from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
 from echo_masque.memory_layers import SynthesizedMemoryFreshnessRepository
+from echo_masque.persistence.deployment_presence_repository import DeploymentPresenceRepository
 from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
 
 
 class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime):
-    """Inject only high-confidence memory before the normal Character model turn.
-
-    Deep historical retrieval remains available through the existing internal Tools. This wrapper
-    only supplies a tiny continuity fallback for providers that do not proactively call them.
-    """
+    """Inject high-confidence recall and enforce Deployment Presence before model work."""
 
     def __init__(
         self,
@@ -30,6 +28,36 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
             MemoryVNextRepository(database)
         )
         self.memory_freshness = SynthesizedMemoryFreshnessRepository(database)
+        self.deployment_presence = DeploymentPresenceRepository(database)
+
+    def resolve_character_turn(
+        self,
+        payload: DiscordInboundMessage,
+    ) -> tuple[ResolvedCharacterTurn | None, DiscordConnectorReplyView | None]:
+        """Hard-gate sleeping Deployments before context, Tools, or provider resolution."""
+
+        deployment = self.deployment_repository.deployment_matches_discord_destination(
+            payload.deployment_id,
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+            category_id=payload.category_id,
+        )
+        if deployment is not None and self.deployment_presence.is_sleeping(deployment):
+            card = self.repository.get_character_card(
+                deployment.character_card_id,
+                deployment.owner_id,
+            )
+            return None, DiscordConnectorReplyView(
+                action="silent",
+                reason="deployment_presence_sleeping",
+                deployment_id=deployment.id,
+                character_display_name=(
+                    card.display_name if card is not None else "Character"
+                ),
+            )
+        return super().resolve_character_turn(payload)
 
     @staticmethod
     def _inject_recall_guidance(prompt: str, guidance: tuple[str, ...]) -> str:
