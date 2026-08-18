@@ -260,10 +260,36 @@ def test_seed_builder_does_not_leak_other_server_interests(tmp_path: Path) -> No
         channel_id="channel-b",
     )
     with database.session() as session:
-        session.add(topic(topic_id="topic-a", guild_id="guild-a", label="Desktop robots", keywords=("AI robot",)))
-        session.add(topic(topic_id="topic-b", guild_id="guild-b", label="Anime music", keywords=("anisong",)))
-        session.add(interest_event(event_id="event-a", guild_id="guild-a", subject_key="concept:robotics"))
-        session.add(interest_event(event_id="event-b", guild_id="guild-b", subject_key="concept:cooking"))
+        session.add(
+            topic(
+                topic_id="topic-a",
+                guild_id="guild-a",
+                label="Desktop robots",
+                keywords=("AI robot",),
+            )
+        )
+        session.add(
+            topic(
+                topic_id="topic-b",
+                guild_id="guild-b",
+                label="Anime music",
+                keywords=("anisong",),
+            )
+        )
+        session.add(
+            interest_event(
+                event_id="event-a",
+                guild_id="guild-a",
+                subject_key="concept:robotics",
+            )
+        )
+        session.add(
+            interest_event(
+                event_id="event-b",
+                guild_id="guild-b",
+                subject_key="concept:cooking",
+            )
+        )
         session.commit()
 
     seeds_a = DeploymentDiscoverySeedBuilder(database).build(
@@ -289,7 +315,14 @@ def test_e5_ranker_reuses_candidate_vectors_and_prefers_server_interest(tmp_path
         channel_id="channel-a",
     )
     with database.session() as session:
-        session.add(topic(topic_id="topic-a", guild_id="guild-a", label="Desktop robot", keywords=("robot",)))
+        session.add(
+            topic(
+                topic_id="topic-a",
+                guild_id="guild-a",
+                label="Desktop robot",
+                keywords=("robot",),
+            )
+        )
         session.commit()
 
     seeds = DeploymentDiscoverySeedBuilder(database).build(
