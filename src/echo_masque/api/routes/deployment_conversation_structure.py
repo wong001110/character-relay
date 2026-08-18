@@ -1,10 +1,11 @@
-# ruff: noqa: E501
 """Owner-facing observability for Burst Segments and concurrent Semantic Threads."""
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 
 from echo_masque.api.dependencies import CurrentUserDependency
+from echo_masque.persistence.conversation_segment_models import SemanticThreadRecord
 from echo_masque.persistence.conversation_segment_repository import ConversationSegmentRepository
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 
@@ -58,15 +59,21 @@ def deployment_conversation_structure(
         deployment = session.get(CharacterDeploymentRecord, deployment_id)
         if deployment is None or deployment.owner_id != user.id:
             raise HTTPException(status_code=404, detail="Deployment not found.")
+        thread_records = list(
+            session.scalars(
+                select(SemanticThreadRecord)
+                .where(
+                    SemanticThreadRecord.owner_id == user.id,
+                    SemanticThreadRecord.connection_id == deployment.connection_id,
+                    SemanticThreadRecord.guild_id == deployment.workspace_id,
+                    SemanticThreadRecord.status != "archived",
+                )
+                .order_by(SemanticThreadRecord.last_active_at.desc())
+                .limit(20)
+            )
+        )
     repository = ConversationSegmentRepository(database)
-    threads = repository.recent_threads(
-        owner_id=user.id,
-        connection_id=deployment.connection_id,
-        guild_id=deployment.workspace_id,
-        channel_id=deployment.channel_id,
-        discord_thread_id=deployment.thread_id,
-        limit=20,
-    )
+    threads = tuple(repository.thread_view(item) for item in thread_records)
     segments = repository.recent_segments(
         owner_id=user.id,
         connection_id=deployment.connection_id,
