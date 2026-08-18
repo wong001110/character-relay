@@ -508,7 +508,11 @@ class DeploymentBrowsingActivityService:
             candidate_budget=(
                 candidate_budget or self.settings.discovery_activity_candidate_budget
             ),
-            open_budget=(open_budget if open_budget is not None else self.settings.discovery_activity_open_budget),
+            open_budget=(
+                open_budget
+                if open_budget is not None
+                else self.settings.discovery_activity_open_budget
+            ),
             watch_budget=self.settings.discovery_activity_watch_budget,
             share_intent_budget=0,
             exploration_percent=self.settings.discovery_activity_exploration_percent,
