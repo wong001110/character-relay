@@ -41,6 +41,15 @@ interface Props {
 }
 
 type IntelligenceTab = "overview" | "topics" | "memories" | "mind" | "social" | "hygiene";
+type SocialIdentityNeighbor = SocialEgoGraph["items"][number] & {
+  avatar_url?: string;
+  discord_user_id?: string;
+  is_bot?: boolean;
+};
+type SocialIdentityGraph = Omit<SocialEgoGraph, "items"> & {
+  character_avatar_url?: string;
+  items: SocialIdentityNeighbor[];
+};
 
 const tabTones = ["lavender", "blue", "yellow", "mint", "rose", "peach"] as const;
 const nowStateTypes = new Set(["salience", "conversation_ownership", "participation_fatigue"]);
@@ -100,16 +109,25 @@ function StateCard({ item, zh }: { item: LearnedStateInspection; zh: boolean }) 
 }
 
 function SocialGraphCanvas({ graph }: { graph: SocialEgoGraph }) {
-  const nodes = graph.items.slice(0, 8);
+  const identityGraph = graph as SocialIdentityGraph;
+  const nodes = identityGraph.items.slice(0, 8);
   const centerX = 180;
-  const centerY = 150;
-  const radius = 112;
+  const centerY = 142;
+  const radius = 104;
   const positions = nodes.map((item, index) => {
     const angle = -Math.PI / 2 + (Math.PI * 2 * index) / Math.max(1, nodes.length);
-    return { item, x: centerX + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius };
+    return { item, index, x: centerX + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius };
   });
   return (
-    <svg className="ci-social-svg" viewBox="0 0 360 300" role="img" aria-label="Character social ego graph">
+    <svg className="ci-social-svg" viewBox="0 0 360 320" role="img" aria-label="Character social ego graph">
+      <defs>
+        <clipPath id="ci-social-center-avatar"><circle cx={centerX} cy={centerY} r="37" /></clipPath>
+        {positions.map(({ item, index, x, y }) => (
+          <clipPath key={`clip-${item.subject_key}`} id={`ci-social-avatar-${index}`}>
+            <circle cx={x} cy={y} r={21 + Math.abs(item.value) * 7} />
+          </clipPath>
+        ))}
+      </defs>
       {positions.map(({ item, x, y }) => (
         <line
           key={`edge-${item.subject_key}`}
@@ -122,13 +140,38 @@ function SocialGraphCanvas({ graph }: { graph: SocialEgoGraph }) {
         />
       ))}
       <circle className="ci-social-center" cx={centerX} cy={centerY} r="38" />
-      <text className="ci-social-center-label" x={centerX} y={centerY + 4} textAnchor="middle">{graph.character_display_name.slice(0, 12)}</text>
-      {positions.map(({ item, x, y }) => (
-        <g key={item.subject_key}>
-          <circle className="ci-social-node" cx={x} cy={y} r={22 + Math.abs(item.value) * 7} />
-          <text className="ci-social-node-label" x={x} y={y + 4} textAnchor="middle">{item.label.slice(0, 10)}</text>
-        </g>
-      ))}
+      {identityGraph.character_avatar_url ? (
+        <image
+          href={identityGraph.character_avatar_url}
+          x={centerX - 37}
+          y={centerY - 37}
+          width="74"
+          height="74"
+          preserveAspectRatio="xMidYMid slice"
+          clipPath="url(#ci-social-center-avatar)"
+        />
+      ) : null}
+      <text className="ci-social-center-label" x={centerX} y={centerY + 55} textAnchor="middle">{identityGraph.character_display_name.slice(0, 18)}</text>
+      {positions.map(({ item, index, x, y }) => {
+        const nodeRadius = 22 + Math.abs(item.value) * 7;
+        return (
+          <g key={item.subject_key}>
+            <circle className="ci-social-node" cx={x} cy={y} r={nodeRadius} />
+            {item.avatar_url ? (
+              <image
+                href={item.avatar_url}
+                x={x - nodeRadius + 1}
+                y={y - nodeRadius + 1}
+                width={(nodeRadius - 1) * 2}
+                height={(nodeRadius - 1) * 2}
+                preserveAspectRatio="xMidYMid slice"
+                clipPath={`url(#ci-social-avatar-${index})`}
+              />
+            ) : null}
+            <text className="ci-social-node-label" x={x} y={y + nodeRadius + 14} textAnchor="middle">{item.label.slice(0, 16)}</text>
+          </g>
+        );
+      })}
     </svg>
   );
 }
@@ -224,6 +267,7 @@ export function ConversationIntelligenceInspector({ cards, profile, catalog, zh 
   const nowStates = (character?.items ?? []).filter((item) => nowStateTypes.has(item.state_type));
   const developingStates = (character?.items ?? []).filter((item) => developingStateTypes.has(item.state_type));
   const relationshipStates = (character?.items ?? []).filter((item) => item.state_type === "relationship");
+  const socialItems = (social?.items ?? []) as SocialIdentityNeighbor[];
 
   const runAction = async (action: () => Promise<unknown>, reload: () => Promise<void>, message: string) => {
     setBusy(true); setError(""); setNotice("");
@@ -347,7 +391,12 @@ export function ConversationIntelligenceInspector({ cards, profile, catalog, zh 
       {tab === "social" && (
         <div className="ci-two-column">
           <InspectorSection eyebrow="EGO GRAPH / SERVER" title={social?.character_display_name ?? selectedCard?.display_name ?? "—"}>{social && social.items.length ? <SocialGraphCanvas graph={social} /> : <EmptyState title={zh ? "暂无关系 evidence" : "No relationship evidence yet"} />}</InspectorSection>
-          <InspectorSection eyebrow="RELATIONSHIP EVIDENCE" title={zh ? "邻接关系" : "Immediate relationships"}><div className="ci-social-list">{(social?.items ?? []).map((item) => <PaperCard key={item.subject_key} className="ci-social-row"><div><strong>{item.label}</strong><span>{item.subject_type === "character" ? "CHARACTER" : "USER"}</span></div><div className="ci-strength-track"><i style={{ width: `${percent(item.value)}%` }} /></div><small>{formatValue(item.value)} · confidence {item.confidence.toFixed(2)} · {item.evidence_count} evidence · {trendGlyph(item.trend)}</small></PaperCard>)}</div><div className="ci-hidden-state-count">{relationshipStates.length} aggregate relationship state(s)</div></InspectorSection>
+          <InspectorSection eyebrow="RELATIONSHIP EVIDENCE" title={zh ? "邻接关系" : "Immediate relationships"}>
+            <div className="ci-social-list">
+              {socialItems.map((item) => <PaperCard key={item.subject_key} className="ci-social-row"><div className="ci-social-row__head"><div className="ci-social-identity">{item.avatar_url ? <img src={item.avatar_url} alt="" /> : <span className="ci-social-avatar-fallback">{item.label.slice(0, 1).toUpperCase()}</span>}<div><strong>{item.label}</strong>{item.discord_user_id && <small className="ci-social-user-id">{item.discord_user_id}</small>}</div></div><span>{item.subject_type === "character" ? "CHARACTER" : item.is_bot ? "BOT" : "USER"}</span></div><div className="ci-strength-track"><i style={{ width: `${percent(item.value)}%` }} /></div><small>{formatValue(item.value)} · confidence {item.confidence.toFixed(2)} · {item.evidence_count} evidence · {trendGlyph(item.trend)}</small></PaperCard>)}
+            </div>
+            <div className="ci-hidden-state-count">{relationshipStates.length} aggregate relationship state(s)</div>
+          </InspectorSection>
         </div>
       )}
 

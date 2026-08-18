@@ -2539,6 +2539,13 @@ async function processMessage(
           message_id: guildMessage.id,
           burst_id: participationBurstId,
           author_id: guildMessage.author.id,
+          author_display_name: authorDisplayName,
+          author_global_name: guildMessage.author.globalName ?? "",
+          author_username: guildMessage.author.username,
+          author_avatar_url:
+            guildMessage.member?.displayAvatarURL({ extension: "png", size: 128 }) ??
+            guildMessage.author.displayAvatarURL({ extension: "png", size: 128 }),
+          author_is_bot: guildMessage.author.bot,
           reply_to_message_id: guildMessage.reference?.messageId ?? "",
           selected_deployment_ids: actualSmartDeploymentIds,
           candidate_deployment_ids: candidates

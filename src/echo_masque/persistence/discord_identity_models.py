@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from echo_masque.persistence.models import Base, utcnow
@@ -34,6 +34,41 @@ class DeploymentMessageAliasRecord(Base):
     deployment_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
     aliases_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class DiscordGuildActorIdentityRecord(Base):
+    """Last observed presentation for one Discord member inside one guild.
+
+    Relationship authority continues to use the stable Discord user id. This row is only a
+    presentation cache so nickname/avatar changes never split learned social state.
+    """
+
+    __tablename__ = "discord_guild_actor_identities"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id",
+            "connection_id",
+            "guild_id",
+            "user_id",
+            name="uq_discord_guild_actor_identity",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    connection_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    guild_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
+    guild_display_name: Mapped[str] = mapped_column(String(160), default="", nullable=False)
+    global_display_name: Mapped[str] = mapped_column(String(160), default="", nullable=False)
+    username: Mapped[str] = mapped_column(String(160), default="", nullable=False)
+    avatar_url: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    is_bot: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

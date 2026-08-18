@@ -17,6 +17,7 @@ from echo_masque.persistence.deployment_models import (
 from echo_masque.persistence.discord_identity_models import (
     DeploymentMessageAliasRecord,
     DeploymentMessageIdentityRecord,
+    DiscordGuildActorIdentityRecord,
     DiscordMessageRouteRecord,
     DiscordWebhookBindingRecord,
 )
@@ -101,6 +102,77 @@ class DiscordIdentityRepository:
             record = session.get(DeploymentMessageIdentityRecord, deployment_id)
             if record is None or record.owner_id != owner_id:
                 return None
+            return record
+
+    def get_guild_actor_identity(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        user_id: str,
+    ) -> DiscordGuildActorIdentityRecord | None:
+        with self.database.session() as session:
+            return session.scalar(
+                select(DiscordGuildActorIdentityRecord).where(
+                    DiscordGuildActorIdentityRecord.owner_id == owner_id,
+                    DiscordGuildActorIdentityRecord.connection_id == connection_id,
+                    DiscordGuildActorIdentityRecord.guild_id == guild_id,
+                    DiscordGuildActorIdentityRecord.user_id == user_id,
+                )
+            )
+
+    def upsert_guild_actor_identity(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        user_id: str,
+        guild_display_name: str = "",
+        global_display_name: str = "",
+        username: str = "",
+        avatar_url: str = "",
+        is_bot: bool = False,
+        now: datetime | None = None,
+    ) -> DiscordGuildActorIdentityRecord:
+        current = now or datetime.now(UTC)
+        with self.database.session() as session:
+            record = session.scalar(
+                select(DiscordGuildActorIdentityRecord).where(
+                    DiscordGuildActorIdentityRecord.owner_id == owner_id,
+                    DiscordGuildActorIdentityRecord.connection_id == connection_id,
+                    DiscordGuildActorIdentityRecord.guild_id == guild_id,
+                    DiscordGuildActorIdentityRecord.user_id == user_id,
+                )
+            )
+            if record is None:
+                record = DiscordGuildActorIdentityRecord(
+                    id=str(uuid4()),
+                    owner_id=owner_id,
+                    connection_id=connection_id,
+                    guild_id=guild_id,
+                    user_id=user_id,
+                    guild_display_name=guild_display_name[:160],
+                    global_display_name=global_display_name[:160],
+                    username=username[:160],
+                    avatar_url=avatar_url,
+                    is_bot=is_bot,
+                    last_seen_at=current,
+                    created_at=current,
+                    updated_at=current,
+                )
+                session.add(record)
+            else:
+                record.guild_display_name = guild_display_name[:160]
+                record.global_display_name = global_display_name[:160]
+                record.username = username[:160]
+                record.avatar_url = avatar_url
+                record.is_bot = is_bot
+                record.last_seen_at = current
+                record.updated_at = current
+            session.commit()
+            session.refresh(record)
             return record
 
     def get_address_aliases(self, deployment_id: str, owner_id: str) -> list[str]:
@@ -420,6 +492,11 @@ class DiscordIdentityRepository:
                     DeploymentMessageIdentityRecord.owner_id == owner_id
                 )
             )
+            actor_result = session.execute(
+                delete(DiscordGuildActorIdentityRecord).where(
+                    DiscordGuildActorIdentityRecord.owner_id == owner_id
+                )
+            )
             alias_result = session.execute(
                 delete(DeploymentMessageAliasRecord).where(
                     DeploymentMessageAliasRecord.owner_id == owner_id
@@ -434,6 +511,7 @@ class DiscordIdentityRepository:
         return {
             "discord_message_routes": int(getattr(route_result, "rowcount", 0) or 0),
             "deployment_identities": int(getattr(identity_result, "rowcount", 0) or 0),
+            "discord_guild_actor_identities": int(getattr(actor_result, "rowcount", 0) or 0),
             "deployment_aliases": int(getattr(alias_result, "rowcount", 0) or 0),
             "discord_webhooks": int(getattr(binding_result, "rowcount", 0) or 0),
         }
@@ -450,6 +528,11 @@ class DiscordIdentityRepository:
                 .where(DeploymentMessageIdentityRecord.owner_id == source_owner_id)
                 .values(owner_id=target_owner_id)
             )
+            actor_result = session.execute(
+                update(DiscordGuildActorIdentityRecord)
+                .where(DiscordGuildActorIdentityRecord.owner_id == source_owner_id)
+                .values(owner_id=target_owner_id)
+            )
             alias_result = session.execute(
                 update(DeploymentMessageAliasRecord)
                 .where(DeploymentMessageAliasRecord.owner_id == source_owner_id)
@@ -464,6 +547,7 @@ class DiscordIdentityRepository:
         return {
             "discord_message_routes": int(getattr(route_result, "rowcount", 0) or 0),
             "deployment_identities": int(getattr(identity_result, "rowcount", 0) or 0),
+            "discord_guild_actor_identities": int(getattr(actor_result, "rowcount", 0) or 0),
             "deployment_aliases": int(getattr(alias_result, "rowcount", 0) or 0),
             "discord_webhooks": int(getattr(binding_result, "rowcount", 0) or 0),
         }

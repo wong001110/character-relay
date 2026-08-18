@@ -607,6 +607,11 @@ export class RelayClient {
     message_id: string;
     burst_id: string;
     author_id: string;
+    author_display_name: string;
+    author_global_name: string;
+    author_username: string;
+    author_avatar_url: string;
+    author_is_bot: boolean;
     reply_to_message_id: string;
     selected_deployment_ids: string[];
     candidate_deployment_ids: string[];

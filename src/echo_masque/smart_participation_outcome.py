@@ -12,6 +12,7 @@ from echo_masque.persistence.conversation_graph_repository import (
     ConversationGraphScope,
 )
 from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
+from echo_masque.persistence.discord_identity_repository import DiscordIdentityRepository
 from echo_masque.smart_participation_durable_state import SmartParticipationDurableStateService
 
 _PUBLIC_BURST_TTL = 24 * 60 * 60
@@ -36,6 +37,7 @@ class SmartParticipationOutcomeService:
         self.repository = Repository(self.database)
         self.graph = ConversationGraphRepository(self.database)
         self.topics = ConversationTopicRepository(self.database)
+        self.identities = DiscordIdentityRepository(self.database)
         self.learned = CharacterLearnedStateService(self.database)
         self.durable = SmartParticipationDurableStateService(self.database)
 
@@ -67,6 +69,20 @@ class SmartParticipationOutcomeService:
         selected = [record_by_id[item] for item in selected_ids if item in record_by_id]
         if not selected:
             return SmartParticipationOutcomeProjection(False, 0, 0, 0, False)
+
+        if payload.author_id and payload.guild_id:
+            for owner_id in dict.fromkeys(record.owner_id for record in selected):
+                self.identities.upsert_guild_actor_identity(
+                    owner_id=owner_id,
+                    connection_id=payload.connection_id,
+                    guild_id=payload.guild_id,
+                    user_id=payload.author_id,
+                    guild_display_name=payload.author_display_name,
+                    global_display_name=payload.author_global_name,
+                    username=payload.author_username,
+                    avatar_url=payload.author_avatar_url,
+                    is_bot=payload.author_is_bot,
+                )
 
         self.durable.record_admission(
             connection_id=payload.connection_id,
