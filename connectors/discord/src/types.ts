@@ -8,6 +8,7 @@ export type IdentityMode = "bot" | "webhook";
 export type WebhookStatus = "pending" | "active" | "error" | "not_required";
 export type ChannelScopeMode = "exact" | "all_except";
 export type LangGraphMode = "off" | "condition_watch" | "character_turn" | "social_turn";
+export type DeploymentPresenceState = "sleeping" | "idle" | "browsing" | "busy";
 
 export interface DiscordDeployment {
   deployment_id: string;
@@ -28,6 +29,8 @@ export interface DiscordDeployment {
   participation_mode: ParticipationMode;
   version_label: string;
   status: "active";
+  presence_state: DeploymentPresenceState;
+  presence_activity_type: string;
   identity_mode: IdentityMode;
   identity_display_name: string;
   identity_avatar_url: string;
@@ -138,116 +141,45 @@ export interface DiscordSmartOutput {
   reply_to_message_id: string | null;
   target_message_id: string | null;
   emoji_resource_key: string | null;
-  sticker_resource_key: string | null;
+  sticker_id: string | null;
+  reaction_emoji: string | null;
+  participants: DiscordActionParticipant[];
+  plain_text: string;
 }
 
-export interface DiscordContextTraceItem {
-  knowledge_base_id: string;
-  document_id: string;
-  document_title: string;
-  chunk_index: number;
-  score: number;
+export interface DiscordToolTrace {
+  tool_name: string;
+  status: "success" | "error";
+  result_summary: string;
 }
 
-export interface DiscordContextTrace {
-  rag_status: "skipped" | "completed" | "failed";
-  rag_reason: string;
-  retrieval_mode: "current" | "contextual_fallback";
-  carryover_message_count: number;
-  initial_hit_count: number;
-  fallback_hit_count: number;
-  query_chars: number;
-  eligible_base_count: number;
-  candidate_chunk_count: number;
-  selected_chunk_count: number;
-  selected_knowledge_tokens: number;
-  knowledge_token_budget: number;
-  selected: DiscordContextTraceItem[];
-}
-
-export interface DiscordToolExecutionTrace {
-  tool_id: string;
-  status: "completed" | "failed" | "rejected";
-  duration_ms: number;
-  error: string;
-}
-
-export interface DiscordExpressionResolveRequest {
-  guild_id: string;
-  resource_type: "emoji" | "sticker";
-  resource_id: string;
-  name: string;
-  animated: boolean;
-  available: boolean;
-  asset_url: string;
-}
-
-export interface DiscordExpressionRetrieveRequest {
-  guild_id: string;
-  channel_id: string;
-  source_message_id: string;
+export interface DiscordReply {
+  action: "message" | "react" | "sticker" | "silent";
+  content: string;
+  reason: string;
   deployment_id: string;
-  query: string;
-  allowed_actions: Array<"inline" | "reaction" | "sticker">;
-  excluded_resource_keys: string[];
-  top_k: number;
-  run_id?: string | null;
-}
-
-export interface DiscordExpressionRetrieval {
-  run_id: string;
-  attempt: number;
-  retrieval_backend: "hybrid_sparse_v1";
-  candidates: DiscordExpressionCandidate[];
-}
-
-export interface DiscordExpressionNodeReport {
-  node_name: string;
-  status: "running" | "completed" | "failed" | "skipped";
-  input_summary: Record<string, unknown>;
-  output_summary: Record<string, unknown>;
-  error: string;
-  selected_action?: DiscordExpressionAction | null;
-  selected_resource_key?: string | null;
-  final_status?: "running" | "completed" | "failed" | "skipped" | null;
-}
-
-export interface DiscordStickerObservation {
-  guild_id: string;
-  sticker_id: string;
-  name: string;
-  description: string;
-  tags: string[];
-  format_type: string;
-  asset_url: string;
-}
-
-export interface DiscordInteractionSession {
-  id: string;
-  participant_deployment_ids: string[];
-  rounds_per_trigger: number;
-  intensity: "light" | "playful" | "sharp";
-  target_user_id: string;
-  target_display_name: string;
-}
-
-export interface DiscordInteractionClaim {
-  claimed: boolean;
-  run_id: string | null;
-  session: DiscordInteractionSession | null;
-}
-
-export interface DiscordInteractionClaimRequest {
-  guild_id: string;
-  channel_id: string;
-  target_user_id: string;
-  source_message_id: string;
-}
-
-export interface DiscordInteractionRunComplete {
-  status: "completed" | "failed";
-  reply_count: number;
-  stop_reason: string;
+  character_display_name: string;
+  conversation_id: string;
+  turn_index: number;
+  smart_output: DiscordSmartOutput | null;
+  tool_traces: DiscordToolTrace[];
+  media_state?: string;
+  media_understanding_attempted?: boolean;
+  media_understanding_succeeded?: boolean;
+  media_provider?: string;
+  media_model?: string;
+  media_cache_hit?: boolean;
+  media_context_summary?: string;
+  provider?: string;
+  model?: string;
+  orchestration_mode?: LangGraphMode;
+  runtime_trace_id?: string;
+  generated_media_artifacts?: Array<{
+    artifact_id: string;
+    filename: string;
+    mime_type: string;
+    download_url: string;
+  }>;
 }
 
 export interface DiscordContextMessage {
@@ -255,142 +187,115 @@ export interface DiscordContextMessage {
   author_id: string;
   author_display_name: string;
   text: string;
-  emojis: DiscordExpressionContent[];
-  stickers: DiscordStickerContent[];
-  created_at?: string;
+  emojis: Array<{
+    emoji_id: string;
+    name: string;
+    animated: boolean;
+    asset_url: string;
+  }>;
+  stickers: Array<{
+    sticker_id: string;
+    name: string;
+    description: string;
+    tags: string[];
+    format_type: string;
+    asset_url: string;
+  }>;
+  created_at: string;
   is_bot: boolean;
 }
 
-export interface DiscordInboundMessage {
+export interface DiscordMediaAttachment {
+  attachment_id: string;
+  filename: string;
+  url: string;
+  content_type: string;
+  size: number;
+  width?: number | null;
+  height?: number | null;
+}
+
+export interface DiscordMediaEmbed {
+  embed_type: string;
+  url: string;
+  title: string;
+  description: string;
+  image_url: string;
+  thumbnail_url: string;
+  provider_name: string;
+  author_name: string;
+}
+
+export interface DiscordMediaReference {
+  message_id: string;
+  channel_id: string;
+  author_id: string;
+  author_display_name: string;
+  text: string;
+  attachments: DiscordMediaAttachment[];
+  embeds: DiscordMediaEmbed[];
+}
+
+export interface DiscordInbound {
   connection_id: string;
   deployment_id: string;
   message_id: string;
   guild_id: string;
-  guild_name: string;
+  category_id?: string;
   channel_id: string;
-  channel_name: string;
-  category_id: string;
   thread_id: string;
-  thread_name: string;
   author_id: string;
   author_display_name: string;
   text: string;
-  participation_guidance?: string;
-  emojis: DiscordExpressionContent[];
-  mentioned_bot: boolean;
-  replied_to_bot: boolean;
-  reply_to_message_id?: string;
-  smart_candidate: boolean;
-  author_is_bot: boolean;
-  stickers: DiscordStickerContent[];
-  burst_media_message_ids?: string[];
-  conversation_burst_id?: string;
-  burst_source_message_ids?: string[];
-  available_characters: string[];
-  mentionable_participants: DiscordActionParticipant[];
-  recent_messages: DiscordContextMessage[];
-  interaction_session_id: string;
-  interaction_type: string;
-  interaction_intensity: string;
-  interaction_round: number;
-  interaction_total_rounds: number;
-  interaction_position: number;
-  interaction_participant_count: number;
-  interaction_target_user_id: string;
-  interaction_target_display_name: string;
-  expression_run_id: string;
-  expression_candidates: DiscordExpressionCandidate[];
-  runtime_operation_id?: string;
-  runtime_step_id?: string;
+  context: DiscordContextMessage[];
+  attachments: DiscordMediaAttachment[];
+  embeds: DiscordMediaEmbed[];
+  replied_media_message_id: string;
+  replied_media?: DiscordMediaReference | null;
+  recent_media?: DiscordMediaReference[];
+  source_message_id?: string;
+  source_author_id?: string;
+  source_author_display_name?: string;
+  source_text?: string;
+  source_is_bot?: boolean;
+  social_role?: string;
+  social_depth?: number;
+  social_root_message_id?: string;
+  social_operation_id?: string;
+  participation_reason?: string;
 }
 
-export type DiscordSocialTurnOrigin = "selected" | "invite" | "mention";
-
-export interface DiscordSocialPendingTurn {
+export interface DiscordMessageRoute {
+  message_id: string;
   deployment_id: string;
-  origin: DiscordSocialTurnOrigin;
-  depth: number;
-  source_deployment_id: string;
-}
-
-export interface DiscordSocialTurnCursor {
-  pending_turns: DiscordSocialPendingTurn[];
-  completed_deployment_ids: string[];
-  continuation_budget_remaining: number;
-  max_depth: number;
-  step_index: number;
-}
-
-export interface DiscordSocialTurnStepRequest {
-  payload: DiscordInboundMessage;
-  initial_deployment_ids: string[];
-  available_deployment_ids: string[];
-  continuation_budget: number;
-  max_depth: number;
-  cursor?: DiscordSocialTurnCursor | null;
-  operation_id?: string;
-  runtime_step_id?: string;
-}
-
-export interface DiscordSocialTurnStepReply {
-  reply: DiscordReply;
-  cursor: DiscordSocialTurnCursor;
-  current_deployment_id: string;
-  next_turn?: DiscordSocialPendingTurn | null;
-  done: boolean;
-  stop_reason: string;
-  invite_candidate_deployment_id: string;
-  mentioned_character_deployment_ids: string[];
-  operation_id?: string;
-  step_id?: string;
-  step_index?: number;
-  durable_status?: "none" | "generated" | "replayed" | "delivered";
-  delivery_required?: boolean;
-}
-
-export interface DiscordReply {
-  action: "silent" | "reply" | "expression";
-  reason: string;
-  deployment_id?: string | null;
-  character_display_name?: string | null;
-  text?: string | null;
-  reply_to_message_id?: string | null;
-  latency_ms?: number | null;
-  input_tokens?: number | null;
-  output_tokens?: number | null;
-  expression: DiscordExpressionDecision;
-  smart_output?: DiscordSmartOutput | null;
-  context_trace?: DiscordContextTrace | null;
-  tool_calls: DiscordToolExecutionTrace[];
-  generated_artifact_ids: string[];
-}
-
-export type DiscordConnectorEventLevel = "info" | "warning" | "error";
-
-export interface DiscordConnectorEvent {
-  id: string;
-  occurred_at: string;
-  level: DiscordConnectorEventLevel;
-  event_type: string;
-  message: string;
-  guild_id: string;
-  guild_name: string;
+  character_card_id: string;
   channel_id: string;
-  channel_name: string;
   thread_id: string;
-  thread_name: string;
-  source_message_id: string;
-  deployment_id: string;
-  character_name: string;
-  details: Record<string, unknown>;
 }
 
-export interface DiscordConnectorEventBatch {
+export interface DiscordMessageRouteLookup {
+  route: DiscordMessageRoute | null;
+}
+
+export interface DiscordWebhookRegistration {
   connection_id: string;
-  events: DiscordConnectorEvent[];
+  deployment_id: string;
+  workspace_id: string;
+  channel_id: string;
+  category_id: string;
+  thread_id: string;
+  webhook_id: string;
+  webhook_token: string;
 }
 
-export interface ConnectorHeartbeat {
+export interface DiscordWebhookRegistrationView {
+  binding_id: string;
+  webhook_id: string;
+  webhook_token: string;
+  status: "active";
+}
+
+export interface DiscordConnectorHeartbeat {
   connection_id: string;
   bot_user_id: string;
   bot_display_name: string;
@@ -429,48 +334,382 @@ export interface ConnectorHeartbeat {
   turn_collector_last_flush_reason: string;
 }
 
-export interface DiscordWebhookRegistration {
-  connection_id: string;
-  deployment_id: string;
-  workspace_id: string;
+export interface DiscordConnectorEventItem {
+  event_id: string;
+  occurred_at: string;
+  level: "info" | "warning" | "error";
+  event_type: string;
+  message: string;
+  guild_id: string;
+  guild_name: string;
   channel_id: string;
-  category_id: string;
+  channel_name: string;
   thread_id: string;
-  webhook_id: string;
-  webhook_token: string;
-}
-
-export interface DiscordWebhookRegistrationResult {
-  binding_id: string;
-  webhook_id: string;
-  webhook_token: string;
-  status: "active";
-}
-
-export interface DiscordWebhookStatusReport {
+  thread_name: string;
+  source_message_id: string;
   deployment_id: string;
-  status: WebhookStatus;
-  last_error: string;
+  details: Record<string, unknown>;
 }
 
-export interface DiscordMessageRouteRegistration {
+export interface DiscordConnectorEventBatch {
   connection_id: string;
+  events: DiscordConnectorEventItem[];
+}
+
+export interface DiscordIdentityView {
   deployment_id: string;
+  mode: IdentityMode;
+  display_name: string;
+  avatar_url: string;
+  webhook_status: WebhookStatus;
+  last_error: string;
+  address_aliases: string[];
+}
+
+export interface DiscordInteractionSession {
+  id: string;
+  participant_deployment_ids: string[];
+  rounds_per_trigger: number;
+  intensity: "light" | "playful" | "sharp";
+  target_user_id: string;
+  target_display_name: string;
+}
+
+export interface DiscordInteractionClaim {
+  claimed: boolean;
+  run_id: string | null;
+  session: DiscordInteractionSession | null;
+}
+
+export interface DiscordInteractionRunComplete {
+  completed: boolean;
+  rounds_completed: number;
+  reason: string;
+}
+
+export interface DiscordSemanticCandidate {
+  deployment_id: string;
+  profile_ready: boolean;
+  semantic_relevance: number;
+  embedding_model: string;
+  embedding_dimension: number;
+}
+
+export interface DiscordParticipationShadowPlanItem {
+  deployment_id: string;
+  role: "primary" | "interject" | "complement";
+  score: number;
+  confidence: number;
+  reason: string;
+}
+
+export interface DiscordParticipationShadowCandidate {
+  deployment_id: string;
+  deterministic_score: number;
+  semantic_relevance: number;
+  final_score: number;
+  eligible: boolean;
+  selected: boolean;
+  reason: string;
+  signals: Record<string, number>;
+}
+
+export interface DiscordSemanticScore {
+  available: boolean;
+  reason: string;
+  model: string;
+  dimension: number;
+  candidates: DiscordSemanticCandidate[];
+  speaker_plan?: DiscordParticipationShadowPlanItem[];
+  shadow_speaker_plan?: DiscordParticipationShadowPlanItem[];
+  shadow_candidate_scores?: DiscordParticipationShadowCandidate[];
+  speaker_plan_authoritative?: boolean;
+  conversation_plan_version?: string;
+  conversation_planner_used?: boolean;
+  conversation_planner_accepted?: boolean;
+  conversation_planner_authoritative?: boolean;
+  conversation_planner_rollout_bucket?: number;
+  conversation_planner_rollout_percent?: number;
+  conversation_planner_shadow_plan?: DiscordParticipationShadowPlanItem[];
+}
+
+export interface DiscordParticipationCandidatePreflight {
+  deployment_id: string;
+  eligible: boolean;
+  deterministic_score: number;
+  minimum_score: number;
+  signals: Record<string, number>;
+}
+
+export interface DiscordSemanticScoreRequest {
+  message: string;
+  deployment_ids: string[];
   guild_id: string;
   channel_id: string;
   thread_id: string;
-  webhook_id: string;
-  message_ids: string[];
+  message_id?: string;
+  author_id?: string;
+  reply_to_message_id?: string;
+  burst_id?: string;
+  burst_messages?: Array<{
+    message_id: string;
+    author_id: string;
+    author_display_name: string;
+    text: string;
+    created_at: string;
+    reply_to_message_id: string;
+  }>;
+  minimum_margin?: number;
+  max_participants?: number;
+  channel_cooldown_seconds?: number;
+  window_seconds?: number;
+  max_replies_per_window?: number;
+  media_descriptors?: DiscordPlannerMediaDescriptor[];
+  media_dependency?: "none" | "optional" | "required";
+  media_dependency_locked?: boolean;
+  candidate_preflight?: DiscordParticipationCandidatePreflight[];
 }
 
-export interface DiscordMessageRouteView {
+export interface DiscordPlannerMediaDescriptor {
   message_id: string;
-  deployment_id: string;
-  character_card_id: string;
+  source_ref: string;
+  source_kind: "attachment" | "embed" | "url" | "reply" | "recent";
+  state: "resolved" | "unsupported" | "private" | "ambiguous" | "error";
+  content_kind: "image" | "video" | "article" | "social_post" | "unknown";
+  canonical_key: string;
+  title: string;
+  creator: string;
+  duration_seconds: number;
+  topic_evidence: string;
+  coarse_tags: string[];
+  confidence: number;
+  opaque_reason: string;
+}
+
+export interface DiscordPlannerMediaResult {
+  planning_text: string;
+  descriptors: DiscordPlannerMediaDescriptor[];
+  dependency: "none" | "optional" | "required";
+  dependency_locked: boolean;
+}
+
+export interface DiscordSmartParticipationOutcomeObservation {
+  connection_id: string;
+  guild_id: string;
   channel_id: string;
   thread_id: string;
+  message_id: string;
+  burst_id: string;
+  author_id: string;
+  author_display_name: string;
+  author_global_name: string;
+  author_username: string;
+  author_avatar_url: string;
+  author_is_bot: boolean;
+  reply_to_message_id: string;
+  selected_deployment_ids: string[];
+  candidate_deployment_ids: string[];
+  reason: string;
 }
 
-export interface DiscordMessageRouteLookup {
-  route: DiscordMessageRouteView | null;
+export interface DiscordConversationIntelligenceObservation {
+  connection_id: string;
+  guild_id: string;
+  channel_id: string;
+  thread_id: string;
+  message_id: string;
+  burst_id: string;
+  author_id: string;
+  author_display_name: string;
+  text: string;
+  reply_to_message_id: string;
+  selected_deployment_ids: string[];
+  candidate_deployment_ids: string[];
+  speaker_plan?: DiscordParticipationShadowPlanItem[];
+  shadow_speaker_plan?: DiscordParticipationShadowPlanItem[];
+  shadow_candidate_scores?: DiscordParticipationShadowCandidate[];
+  speaker_plan_authoritative?: boolean;
+  conversation_plan_version?: string;
+  conversation_planner_used?: boolean;
+  conversation_planner_accepted?: boolean;
+  conversation_planner_authoritative?: boolean;
+  conversation_planner_rollout_bucket?: number;
+  conversation_planner_rollout_percent?: number;
+  conversation_planner_shadow_plan?: DiscordParticipationShadowPlanItem[];
+  media_descriptors: DiscordPlannerMediaDescriptor[];
+  media_dependency: "none" | "optional" | "required";
+  media_dependency_locked: boolean;
+  reason: string;
+  occurred_at: string;
+}
+
+export interface DiscordRecentSpeakerRequest {
+  guild_id: string;
+  channel_id: string;
+  thread_id: string;
+  maximum_age_seconds: number;
+  allowed_deployment_ids: string[];
+}
+
+export interface DiscordRecentSpeakerResponse {
+  deployment_id: string;
+}
+
+export interface DiscordInteractionClaimRequest {
+  guild_id: string;
+  channel_id: string;
+  target_user_id: string;
+  source_message_id: string;
+}
+
+export interface DiscordExpressionResolveRequest {
+  owner_id: string;
+  connection_id: string;
+  guild_id: string;
+  resource_type: "emoji" | "sticker";
+  resource_id: string;
+  name: string;
+  animated: boolean;
+  available: boolean;
+  asset_url: string;
+  description?: string;
+  tags?: string[];
+  format_type?: string;
+}
+
+export interface DiscordExpressionRetrieveRequest {
+  owner_id: string;
+  character_card_id: string;
+  deployment_id: string;
+  connection_id: string;
+  guild_id: string;
+  query: string;
+  interaction_mode: string;
+  intensity: string;
+  limit: number;
+}
+
+export interface DiscordExpressionNodeReport {
+  node_type: string;
+  status: "pending" | "success" | "failed" | "skipped";
+  payload?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface DiscordDeliveryCursor {
+  pending_turns: Array<{
+    deployment_id: string;
+    role: string;
+    depth: number;
+    trigger_text: string;
+    source_message_id: string;
+    source_author_id: string;
+    source_author_display_name: string;
+    source_is_bot: boolean;
+  }>;
+  transcript: string[];
+  step_index: number;
+  continuation_budget_remaining: number;
+  participant_deployment_ids: string[];
+}
+
+export interface DiscordSocialOperationClaimRequest {
+  operation_id: string;
+  connection_id: string;
+  guild_id: string;
+  channel_id: string;
+  thread_id: string;
+  source_message_id: string;
+  initial_deployment_ids: string[];
+  available_deployment_ids: string[];
+  continuation_budget: number;
+  max_depth: number;
+}
+
+export interface DiscordSocialOperation {
+  operation_id: string;
+  owner_id: string;
+  connection_id: string;
+  guild_id: string;
+  channel_id: string;
+  thread_id: string;
+  source_message_id: string;
+  status: "running" | "completed" | "uncertain" | "failed";
+  cursor: DiscordDeliveryCursor;
+  max_depth: number;
+  initial_deployment_ids: string[];
+  available_deployment_ids: string[];
+  continuation_budget: number;
+  last_error: string;
+  pending_step_id: string;
+  pending_claim_nonce: string;
+  updated_at: string;
+}
+
+export interface DiscordDeliveryClaimRequest {
+  operation_id: string;
+  connection_id: string;
+  step_id: string;
+  claim_nonce: string;
+}
+
+export interface DiscordDeliveryClaimResponse {
+  claim_status: "claimed" | "already_claimed" | "already_applied" | "stale";
+  operation_status: "running" | "completed" | "uncertain" | "failed";
+  operation_id: string;
+  step_id: string;
+}
+
+export interface DiscordDeliveryAckRequest {
+  operation_id: string;
+  connection_id: string;
+  step_id: string;
+  claim_nonce: string;
+  cursor: DiscordDeliveryCursor;
+  sent_message_ids: string[];
+  outgoing_text: string;
+  applied: boolean;
+  deployment_id: string;
+}
+
+export interface DiscordDeliveryFailureRequest {
+  operation_id: string;
+  connection_id: string;
+  step_id: string;
+  claim_nonce: string;
+  error: string;
+}
+
+export interface DiscordSocialTurnStepRequest {
+  payload: DiscordInbound;
+  selected_deployment_ids: string[];
+  available_deployment_ids: string[];
+  operation_id?: string;
+  cursor?: DiscordDeliveryCursor;
+  max_depth?: number;
+}
+
+export interface DiscordSocialTurnStepReply {
+  reply: DiscordReply;
+  cursor: DiscordDeliveryCursor;
+  selected_deployment_ids: string[];
+  orchestration_mode: LangGraphMode;
+  operation_id?: string;
+  durable_status?: "fresh" | "replayed";
+}
+
+export interface DiscordSocialTurnInterruptRequest {
+  connection_id: string;
+  guild_id: string;
+  channel_id: string;
+  thread_id: string;
+  operation_id: string;
+  superseding_message_id: string;
+}
+
+export interface DiscordGeneratedMediaArtifact {
+  artifact_id: string;
+  filename: string;
+  mime_type: string;
+  download_url: string;
 }
