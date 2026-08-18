@@ -1,0 +1,49 @@
+name: Social Identity Hotfix Patcher
+
+on:
+  push:
+    branches:
+      - fix/social-identity-presentation
+    paths:
+      - .github/workflows/social-identity-hotfix-patcher.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/social-identity-presentation
+          fetch-depth: 0
+      - name: Patch connector identity payload
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          relay = Path('connectors/discord/src/relayClient.ts')
+          text = relay.read_text()
+          old = '''    author_id: string;\n    reply_to_message_id: string;\n    selected_deployment_ids: string[];'''
+          new = '''    author_id: string;\n    author_display_name: string;\n    author_global_name: string;\n    author_username: string;\n    author_avatar_url: string;\n    author_is_bot: boolean;\n    reply_to_message_id: string;\n    selected_deployment_ids: string[];'''
+          if old not in text:
+              raise SystemExit('relayClient outcome signature anchor missing')
+          relay.write_text(text.replace(old, new, 1))
+
+          index = Path('connectors/discord/src/index.ts')
+          text = index.read_text()
+          old = '''          author_id: guildMessage.author.id,\n          reply_to_message_id: guildMessage.reference?.messageId ?? "",\n          selected_deployment_ids: actualSmartDeploymentIds,'''
+          new = '''          author_id: guildMessage.author.id,\n          author_display_name: authorDisplayName,\n          author_global_name: guildMessage.author.globalName ?? "",\n          author_username: guildMessage.author.username,\n          author_avatar_url:\n            guildMessage.member?.displayAvatarURL({ extension: "png", size: 128 }) ??\n            guildMessage.author.displayAvatarURL({ extension: "png", size: 128 }),\n          author_is_bot: guildMessage.author.bot,\n          reply_to_message_id: guildMessage.reference?.messageId ?? "",\n          selected_deployment_ids: actualSmartDeploymentIds,'''
+          if old not in text:
+              raise SystemExit('index outcome payload anchor missing')
+          index.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit connector patch and remove patcher
+        run: |
+          rm .github/workflows/social-identity-hotfix-patcher.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add connectors/discord/src/index.ts connectors/discord/src/relayClient.ts .github/workflows/social-identity-hotfix-patcher.yml
+          git commit -m "fix: report Discord member presentation"
+          git push origin HEAD:fix/social-identity-presentation
