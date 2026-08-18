@@ -152,6 +152,7 @@ class DiscoveryRepository:
         attention_level: DiscoveryAttentionLevel,
         interest_score: float = 0.0,
         subjective_reason: str = "",
+        increment_count: bool = True,
         now: datetime | None = None,
     ) -> DeploymentDiscoveryExposureRecord | None:
         current = (now or datetime.now(UTC)).astimezone(UTC)
@@ -189,8 +190,9 @@ class DiscoveryRepository:
                     record.attention_level = attention_level.value
                 record.interest_score = score
                 record.subjective_reason = subjective_reason.strip()[:2000]
-                record.exposure_count += 1
-                record.last_exposed_at = current
+                if increment_count:
+                    record.exposure_count += 1
+                    record.last_exposed_at = current
                 record.updated_at = current
             session.commit()
             session.refresh(record)
