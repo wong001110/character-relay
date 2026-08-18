@@ -26,6 +26,7 @@ from echo_masque.persistence.discovery_models import (
     DeploymentDiscoveryExposureRecord,
     DeploymentDiscoveryProfileRecord,
     DiscoveryItemRecord,
+    DiscoverySourceQueryCacheRecord,
 )
 from echo_masque.persistence.discord_identity_models import DiscordGuildActorIdentityRecord
 from echo_masque.persistence.episodic_sql_rag_models import (
@@ -153,6 +154,7 @@ class Database:
             DeploymentPresenceNoticeRecord,
             DeploymentPresenceRhythmRecord,
             DiscoveryItemRecord,
+            DiscoverySourceQueryCacheRecord,
             DeploymentDiscoveryProfileRecord,
             DeploymentDiscoveryExposureRecord,
             DeploymentDiscoveryDecisionRecord,
