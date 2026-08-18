@@ -29,6 +29,9 @@ from echo_masque.api.routes.conversation_retrieval_observation import (
     router as conversation_retrieval_observation_router,
 )
 from echo_masque.api.routes.coverage import router as coverage_router
+from echo_masque.api.routes.deployment_conversation_structure import (
+    router as deployment_conversation_structure_router,
+)
 from echo_masque.api.routes.deployment_discovery import router as deployment_discovery_router
 from echo_masque.api.routes.deployment_presence import router as deployment_presence_router
 from echo_masque.api.routes.deployments import router as deployments_router
@@ -57,34 +60,19 @@ from echo_masque.api.routes.transcripts import router as transcripts_router
 from echo_masque.api.routes.trials import router as trials_router
 from echo_masque.api.routes.workspace import router as workspace_router
 
-# Character portraits and canonical relationship priors live with the Character Card resource.
 characters_router.include_router(character_portraits_router)
 characters_router.include_router(character_relationships_router)
-
-# Key Group scouting stays account-scoped but lives in a focused route module so the account
-# lifecycle router does not become the home for provider discovery logic.
 accounts_router.include_router(key_group_scout_router)
-
-# Generated binary artifacts and Social Turn interruption are internal Discord connector
-# sub-routes. Keep them under the existing authenticated connector prefix.
 connectors_router.include_router(generated_media_router)
 connectors_router.include_router(planner_media_router)
 connectors_router.include_router(social_turn_interrupt_router)
-
-# Presence, Discovery, and lived relationship state are Deployment-scoped runtime state.
 deployments_router.include_router(deployment_presence_router)
 deployments_router.include_router(deployment_discovery_router)
 deployments_router.include_router(deployment_relationships_router)
-
-# Conversation Intelligence observation, explicit Core Memory controls, and retrieval diagnostics
-# remain under the same authenticated control-plane prefix while living outside destructive
-# governance endpoints.
+deployments_router.include_router(deployment_conversation_structure_router)
 conversation_intelligence_router.include_router(conversation_intelligence_observation_router)
 conversation_intelligence_router.include_router(conversation_memory_control_router)
 conversation_intelligence_router.include_router(conversation_retrieval_observation_router)
-
-# vNext intentionally registers before V4 for the same /resolve path. It delegates all admission
-# authority to V4 and adds Segment/Semantic Thread evidence and reply targeting.
 smart_participation_router.include_router(smart_participation_vnext_router)
 smart_participation_router.include_router(smart_participation_v4_router)
 

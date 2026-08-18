@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { ConversationStructurePanel } from "./ConversationStructurePanel";
 import { deploymentApi, type ToolCatalogItem } from "./deploymentApi";
 import { DeploymentDiscoveryPanel } from "./DeploymentDiscoveryPanel";
 import { DeploymentRelationshipPanel } from "./DeploymentRelationshipPanel";
@@ -132,6 +133,8 @@ export function DeploymentToolSelector({
           </div>
         )}
       </section>
+
+      <ConversationStructurePanel deploymentId={deploymentId} zh={zh} />
 
       <DeploymentDiscoveryPanel
         deploymentId={deploymentId}
