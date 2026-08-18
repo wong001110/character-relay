@@ -9,8 +9,8 @@ from echo_masque.api.deployment_presence_schemas import (
     DeploymentPresenceUpdate,
     DeploymentPresenceView,
 )
+from echo_masque.deployment_presence_rhythm import DeploymentPresenceRhythmService
 from echo_masque.deployment_presence_rhythm import (
-    DeploymentPresenceRhythmService,
     DeploymentPresenceRhythmView as RhythmDomainView,
 )
 from echo_masque.persistence import DeploymentPresenceRepository
