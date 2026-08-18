@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime
 from typing import Any
@@ -66,8 +67,11 @@ class YouTubeDiscoveryAdapter:
             return ""
         for name in ("maxres", "standard", "high", "medium", "default"):
             raw = thumbnails.get(name)
-            if isinstance(raw, dict) and isinstance(raw.get("url"), str):
-                return raw["url"].strip()
+            if not isinstance(raw, dict):
+                continue
+            url = raw.get("url")
+            if isinstance(url, str):
+                return url.strip()
         return ""
 
     @staticmethod
@@ -320,8 +324,8 @@ class YouTubeDiscoveryAdapter:
             metadata={
                 "video_id": value,
                 "source_kind": "search",
-                "query_hash": __import__("hashlib").sha256(
-                    " ".join(query.casefold().split()).encode("utf-8")
+                "query_hash": hashlib.sha256(
+                    " ".join(query.casefold().split()).encode()
                 ).hexdigest(),
                 "channel_id": str(snippet.get("channelId") or ""),
             },
@@ -335,9 +339,11 @@ class YouTubeDiscoveryAdapter:
         if not isinstance(video_id, str) or not video_id.strip() or not isinstance(snippet, dict):
             return None
         value = video_id.strip()
-        statistics = raw.get("statistics") if isinstance(raw.get("statistics"), dict) else {}
-        content_details = (
-            raw.get("contentDetails") if isinstance(raw.get("contentDetails"), dict) else {}
+        statistics_raw = raw.get("statistics")
+        statistics: dict[str, Any] = statistics_raw if isinstance(statistics_raw, dict) else {}
+        content_details_raw = raw.get("contentDetails")
+        content_details: dict[str, Any] = (
+            content_details_raw if isinstance(content_details_raw, dict) else {}
         )
         return DiscoveryCandidate(
             source=self.source,
