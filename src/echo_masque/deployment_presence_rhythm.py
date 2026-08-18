@@ -75,7 +75,7 @@ class DeploymentPresenceRhythmService:
 
     @staticmethod
     def _stable_int(*parts: object) -> int:
-        digest = hashlib.sha256("|".join(str(part) for part in parts).encode("utf-8")).digest()
+        digest = hashlib.sha256("|".join(str(part) for part in parts).encode()).digest()
         return int.from_bytes(digest[:8], "big", signed=False)
 
     @classmethod
@@ -184,9 +184,13 @@ class DeploymentPresenceRhythmService:
                 return None
             record = session.get(DeploymentPresenceRhythmRecord, deployment_id)
             if record is None:
+                # SQLAlchemy column defaults are applied at INSERT time, not when the Python
+                # object is constructed. Seed config_version explicitly because configuration
+                # comparison/invalidation happens before the first flush.
                 record = DeploymentPresenceRhythmRecord(
                     deployment_id=deployment_id,
                     owner_id=owner_id,
+                    config_version=0,
                 )
                 session.add(record)
             changed = any(
@@ -204,7 +208,7 @@ class DeploymentPresenceRhythmService:
             record.sleep_duration_max_minutes = sleep_duration_max_minutes
             record.variation_minutes = variation_minutes
             if changed:
-                record.config_version += 1
+                record.config_version = (record.config_version or 0) + 1
                 record.schedule_local_date = ""
                 record.schedule_timezone = ""
                 record.scheduled_sleep_at = None
