@@ -145,7 +145,11 @@ def test_daily_browsing_opportunity_is_stable_for_same_deployment_and_date(
 ) -> None:
     database = Database(f"sqlite:///{tmp_path / 'stable-activity.db'}")
     database.initialize()
-    service = DeploymentBrowsingActivityService(database, settings(), preview=FakePreviewRunner(database))
+    service = DeploymentBrowsingActivityService(
+        database,
+        settings(),
+        preview=FakePreviewRunner(database),
+    )
 
     first = service.materialize_opportunity(
         deployment_id="deployment-a",
