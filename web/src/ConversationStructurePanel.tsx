@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 
 import {
-  loadConversationStructure,
-  type ConversationStructureView
-} from "./conversationStructureApi";
+  intelligenceProductApi,
+  type ServerConversationStructure
+} from "./intelligenceProductApi";
 import "./conversation-structure.css";
 
 interface Props {
-  deploymentId: string;
+  serverProfileId: string;
   zh: boolean;
 }
 
@@ -20,15 +20,16 @@ function stamp(value: string, zh: boolean): string {
   }).format(parsed);
 }
 
-export function ConversationStructurePanel({ deploymentId, zh }: Props) {
-  const [value, setValue] = useState<ConversationStructureView | null>(null);
+export function ConversationStructurePanel({ serverProfileId, zh }: Props) {
+  const [value, setValue] = useState<ServerConversationStructure | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function load() {
+    if (!serverProfileId) return;
     try {
       setLoading(true);
-      setValue(await loadConversationStructure(deploymentId));
+      setValue(await intelligenceProductApi.conversationStructure(serverProfileId));
       setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -39,7 +40,7 @@ export function ConversationStructurePanel({ deploymentId, zh }: Props) {
 
   useEffect(() => {
     void load();
-  }, [deploymentId]);
+  }, [serverProfileId]);
 
   return (
     <section className="deployment-form-wide conversation-structure-sheet">
@@ -48,8 +49,8 @@ export function ConversationStructurePanel({ deploymentId, zh }: Props) {
           <strong>{zh ? "Conversation Structure / 对话结构" : "Conversation Structure"}</strong>
           <span>
             {zh
-              ? "Burst 只是时间窗口；这里显示同一时间并存的 Semantic Threads，以及每个 Burst 被分成了哪些 Segment。"
-              : "A Burst is only a time window. Inspect concurrent Semantic Threads and how each Burst was segmented."}
+              ? "这是 Server-scoped 的当前对话模型：Burst 只是时间窗口，同一时间可以存在多个 Semantic Thread；旧 current Topic 不再是 routing authority。"
+              : "This is the Server-scoped current conversation model: a Burst is only a time window, multiple Semantic Threads may coexist, and legacy current Topic is no longer routing authority."}
           </span>
         </div>
         <button type="button" className="paper-button" disabled={loading} onClick={() => void load()}>
@@ -58,7 +59,7 @@ export function ConversationStructurePanel({ deploymentId, zh }: Props) {
       </div>
       {error && <small className="deployment-inline-error">{error}</small>}
       {!value ? (
-        <small>{zh ? "读取 Conversation Structure…" : "Loading conversation structure…"}</small>
+        <small>{zh ? "读取 Server Conversation Structure…" : "Loading Server Conversation Structure…"}</small>
       ) : (
         <div className="conversation-structure-layout">
           <div>
@@ -81,7 +82,7 @@ export function ConversationStructurePanel({ deploymentId, zh }: Props) {
           <div>
             <span className="tape-label">RECENT SEGMENTS</span>
             <div className="conversation-segment-list">
-              {value.segments.slice(0, 20).map((segment) => (
+              {value.segments.slice(0, 30).map((segment) => (
                 <article key={segment.id}>
                   <header>
                     <strong>{segment.kind}</strong>
@@ -92,8 +93,11 @@ export function ConversationStructurePanel({ deploymentId, zh }: Props) {
                     {segment.message_ids.length} msg · {segment.source} · confidence {segment.confidence.toFixed(2)}
                   </small>
                   <small>
+                    {segment.semantic_thread_id ? `Thread ${segment.semantic_thread_id}` : (zh ? "没有 Thread identity" : "No Thread identity")}
+                  </small>
+                  <small>
                     {segment.thread_evidence
-                      ? (zh ? "会更新 Thread identity" : "Thread evidence")
+                      ? (zh ? "会更新 Thread identity" : "Thread identity evidence")
                       : (zh ? "只属于上下文，不更新 identity" : "Context only; does not update identity")}
                   </small>
                 </article>

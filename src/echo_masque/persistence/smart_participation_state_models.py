@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from echo_masque.persistence.models import Base, utcnow
@@ -85,4 +85,55 @@ class SmartParticipationDeploymentStateRecord(Base):
     )
 
 
-__all__ = ["SmartParticipationDeploymentStateRecord", "SmartParticipationScopeStateRecord"]
+class SmartParticipationReplyDecisionRecord(Base):
+    """Persist the vNext Segment/Thread target chosen for one planned Character reply."""
+
+    __tablename__ = "smart_participation_reply_decisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "connection_id",
+            "guild_id",
+            "source_message_id",
+            "deployment_id",
+            name="uq_smart_participation_reply_decision",
+        ),
+        Index(
+            "ix_smart_participation_reply_decision_recent",
+            "owner_id",
+            "connection_id",
+            "guild_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    connection_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    guild_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    channel_id: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    burst_id: Mapped[str] = mapped_column(String(80), default="", nullable=False)
+    source_message_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    deployment_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    character_card_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    segment_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    semantic_thread_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    reason: Mapped[str] = mapped_column(String(240), default="", nullable=False)
+    guidance: Mapped[str] = mapped_column(String(240), default="", nullable=False)
+    plan_kind: Mapped[str] = mapped_column(String(24), default="speaker", nullable=False)
+    authoritative: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    resolver_version: Mapped[str] = mapped_column(
+        String(80), default="conversation-intelligence-vnext", nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+__all__ = [
+    "SmartParticipationDeploymentStateRecord",
+    "SmartParticipationReplyDecisionRecord",
+    "SmartParticipationScopeStateRecord",
+]

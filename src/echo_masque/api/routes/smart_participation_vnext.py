@@ -6,9 +6,12 @@ evidence and chooses one primary Segment for each admitted Character without rew
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Annotated, cast
+from uuid import uuid4
 
 from fastapi import APIRouter, Header, Request
+from sqlalchemy import select
 
 from echo_masque.api.routes.smart_participation_v4 import resolve_smart_participation_v4
 from echo_masque.api.smart_participation_v4_schemas import (
@@ -25,6 +28,9 @@ from echo_masque.conversation_reply_planner import CharacterSegmentReplyPlanner
 from echo_masque.conversation_segmentation import ConversationSegmentationService
 from echo_masque.persistence import DeploymentRepository, Repository
 from echo_masque.persistence.conversation_segment_repository import ConversationSegmentRepository
+from echo_masque.persistence.smart_participation_state_models import (
+    SmartParticipationReplyDecisionRecord,
+)
 from echo_masque.semantic_participation import CharacterParticipationSemanticService
 from echo_masque.services.runtime import RuntimeService
 from echo_masque.utility_gateway_live import ExistingProviderUtilityCaller
@@ -85,6 +91,65 @@ def _base_result(base: object, *, source: str) -> SmartParticipationResolveVNext
             "reply_targets": [],
         }
     )
+
+
+def _persist_reply_targets(
+    *,
+    payload: SmartParticipationResolveRequest,
+    request: Request,
+    owner_id: str,
+    records_by_id: Mapping[str, object],
+    targets: list[ReplyTargetRouteView],
+    guidance_by_id: Mapping[str, str],
+    authoritative_ids: set[str],
+) -> None:
+    if not targets:
+        return
+    database = cast(DeploymentRepository, request.app.state.deployment_repository).database
+    source_message_id = (
+        payload.message_id
+        or (f"burst:{payload.burst_id}" if payload.burst_id else "")
+        or targets[0].segment_id
+    )[:200]
+    with database.session() as session:
+        for target in targets:
+            record = records_by_id.get(target.deployment_id)
+            character_card_id = str(getattr(record, "character_card_id", ""))
+            existing = session.scalar(
+                select(SmartParticipationReplyDecisionRecord).where(
+                    SmartParticipationReplyDecisionRecord.connection_id == payload.connection_id,
+                    SmartParticipationReplyDecisionRecord.guild_id == payload.guild_id,
+                    SmartParticipationReplyDecisionRecord.source_message_id == source_message_id,
+                    SmartParticipationReplyDecisionRecord.deployment_id == target.deployment_id,
+                )
+            )
+            if existing is None:
+                existing = SmartParticipationReplyDecisionRecord(
+                    id=str(uuid4()),
+                    owner_id=owner_id,
+                    connection_id=payload.connection_id,
+                    guild_id=payload.guild_id,
+                    source_message_id=source_message_id,
+                    deployment_id=target.deployment_id,
+                    character_card_id=character_card_id,
+                    segment_id=target.segment_id,
+                )
+                session.add(existing)
+            existing.channel_id = payload.channel_id
+            existing.thread_id = payload.thread_id
+            existing.burst_id = payload.burst_id
+            existing.character_card_id = character_card_id
+            existing.segment_id = target.segment_id
+            existing.semantic_thread_id = target.semantic_thread_id
+            existing.score = target.score
+            existing.reason = target.reason[:240]
+            existing.guidance = guidance_by_id.get(target.deployment_id, "")[:240]
+            existing.plan_kind = (
+                "speaker" if target.deployment_id in authoritative_ids else "shadow"
+            )
+            existing.authoritative = target.deployment_id in authoritative_ids
+            existing.resolver_version = "conversation-intelligence-vnext"
+        session.commit()
 
 
 @router.post(
@@ -157,6 +222,21 @@ def resolve_smart_participation_vnext(
             )
         )
         guidance_by_id[deployment_id] = target.guidance
+
+    authoritative_ids = (
+        {item.deployment_id for item in base.speaker_plan}
+        if base.speaker_plan_authoritative
+        else set()
+    )
+    _persist_reply_targets(
+        payload=payload,
+        request=request,
+        owner_id=owner_id,
+        records_by_id=record_by_id,
+        targets=reply_targets,
+        guidance_by_id=guidance_by_id,
+        authoritative_ids=authoritative_ids,
+    )
 
     def guided(items: list[SmartParticipationSpeakerPlanItem]) -> list[SmartParticipationSpeakerPlanItem]:
         values: list[SmartParticipationSpeakerPlanItem] = []

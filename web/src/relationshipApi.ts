@@ -83,6 +83,12 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const relationshipApi = {
+  listPriors(characterId: string) {
+    return request<{ items: CharacterRelationshipPrior[] }>(
+      `/api/characters/${encodeURIComponent(characterId)}/relationships`
+    );
+  },
+
   candidates(deploymentId: string) {
     return request<DeploymentRelationshipCandidates>(
       `/api/deployments/${encodeURIComponent(deploymentId)}/relationships/candidates`

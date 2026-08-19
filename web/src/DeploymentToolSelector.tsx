@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 
 import { deploymentApi, type ToolCatalogItem } from "./deploymentApi";
 import { DeploymentDailyRhythmPanel } from "./DeploymentDailyRhythmPanel";
-import { DeploymentDiscoveryWorkspace } from "./DeploymentDiscoveryWorkspace";
-import { DeploymentRelationshipPanel } from "./DeploymentRelationshipPanel";
+import { DeploymentDiscoverySettings } from "./DeploymentDiscoverySettings";
+import "./intelligence-product-completion.css";
 import "./stabilization-hotfix.css";
 
 interface Props {
@@ -141,17 +141,20 @@ export function DeploymentToolSelector({
         zh={zh}
       />
 
-      <DeploymentDiscoveryWorkspace
+      <DeploymentDiscoverySettings
         deploymentId={deploymentId}
         disabled={disabled}
         zh={zh}
       />
 
-      <DeploymentRelationshipPanel
-        deploymentId={deploymentId}
-        disabled={disabled}
-        zh={zh}
-      />
+      <section className="deployment-form-wide intelligence-relocation-note">
+        <strong>{zh ? "Social / Participation 运行状态已移到 Intelligence" : "Social / Participation runtime state moved to Intelligence"}</strong>
+        <span>
+          {zh
+            ? "Canonical Relationship 在 Intelligence → Social 的 Character Card Relationship Sheet 编辑；lived relationship、Person Impression、Reply Planner evidence 都只在 Intelligence 观察。"
+            : "Edit Canonical Relationships in Intelligence → Social → Character Card Relationships. Lived relationships, Person Impressions, and Reply Planner evidence are observed only in Intelligence."}
+        </span>
+      </section>
     </>
   );
 }
