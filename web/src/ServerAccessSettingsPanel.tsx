@@ -1,6 +1,6 @@
-import { KeyRound, Server, ShieldCheck } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
+import { FunctionalIcon } from "./components/ui";
 import { NotebookField, NotebookInput } from "./NotebookUI";
 import {
   serverAccessApi,
@@ -54,7 +54,7 @@ export function ServerAccessSettingsPanel({ onOverviewChange }: Props) {
 
       {overview?.is_super_admin ? (
         <aside className="settings-sticky-note settings-sticky-note-mint">
-          <ShieldCheck size={18} aria-hidden />
+          <FunctionalIcon name="boundaries" size={18} />
           <div>
             <strong>Super Admin access</strong>
             <span>You can open and manage every Discord server synchronized by the global connector.</span>
@@ -63,7 +63,7 @@ export function ServerAccessSettingsPanel({ onOverviewChange }: Props) {
       ) : (
         <section className="settings-paper-card settings-join-card">
           <div className="settings-card-heading">
-            <span className="settings-card-icon"><KeyRound size={18} aria-hidden /></span>
+            <span className="settings-card-icon"><FunctionalIcon name="provider" size={18} /></span>
             <div>
               <p className="settings-card-kicker">Join a server</p>
               <h3>Enter the server code</h3>
@@ -82,7 +82,7 @@ export function ServerAccessSettingsPanel({ onOverviewChange }: Props) {
               />
             </NotebookField>
             <button className="settings-action-button" type="submit" disabled={busy || !joinCode.trim()}>
-              <KeyRound size={16} aria-hidden /> {busy ? "Joining…" : "Join server"}
+              <FunctionalIcon name="provider" size={16} /> {busy ? "Joining…" : "Join server"}
             </button>
           </form>
         </section>
@@ -90,7 +90,7 @@ export function ServerAccessSettingsPanel({ onOverviewChange }: Props) {
 
       <section className="settings-paper-card">
         <div className="settings-card-heading">
-          <span className="settings-card-icon settings-card-icon-mint"><Server size={18} aria-hidden /></span>
+          <span className="settings-card-icon settings-card-icon-mint"><FunctionalIcon name="deployment" size={18} /></span>
           <div>
             <p className="settings-card-kicker">Server access</p>
             <h3>{overview?.is_super_admin ? "All servers" : "Your servers"}</h3>
@@ -107,7 +107,7 @@ export function ServerAccessSettingsPanel({ onOverviewChange }: Props) {
             <article className="settings-server-card" key={`${server.connection_id}:${server.guild_id}`}>
               <div className="settings-server-pin" aria-hidden />
               <div className="settings-server-card-title">
-                <span className="settings-server-icon"><Server size={16} aria-hidden /></span>
+                <span className="settings-server-icon"><FunctionalIcon name="deployment" size={16} /></span>
                 <div>
                   <strong>{server.guild_name}</strong>
                   <small>Discord server</small>
@@ -126,7 +126,7 @@ export function ServerAccessSettingsPanel({ onOverviewChange }: Props) {
 
         {overview && overview.servers.length === 0 && (
           <aside className="settings-sticky-note">
-            <Server size={18} aria-hidden />
+            <FunctionalIcon name="deployment" size={18} />
             <div>
               <strong>No server joined yet</strong>
               <span>Use a join code above. You do not need to configure a Discord connector.</span>
