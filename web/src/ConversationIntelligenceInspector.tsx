@@ -8,6 +8,7 @@ import {
   type DiscordServerCatalog,
   type DiscordServerProfile
 } from "./deploymentApi";
+import { DeploymentPresencePanel } from "./DeploymentPresencePanel";
 import "./stabilization-hotfix.css";
 
 interface Props {
@@ -17,10 +18,10 @@ interface Props {
   zh: boolean;
 }
 
-type IntelligenceWorkspaceTab = "character" | "conversation";
+type IntelligenceWorkspaceTab = "presence" | "character" | "conversation";
 
 export function ConversationIntelligenceInspector({ cards, profile, catalog, zh }: Props) {
-  const [workspaceTab, setWorkspaceTab] = useState<IntelligenceWorkspaceTab>("character");
+  const [workspaceTab, setWorkspaceTab] = useState<IntelligenceWorkspaceTab>("presence");
   const [conversationDeploymentId, setConversationDeploymentId] = useState("");
   const [conversationLoading, setConversationLoading] = useState(false);
   const [conversationError, setConversationError] = useState("");
@@ -57,11 +58,18 @@ export function ConversationIntelligenceInspector({ cards, profile, catalog, zh 
           <strong>{zh ? "Server Intelligence / 运行监测" : "Server Intelligence / Runtime Observatory"}</strong>
           <small>
             {zh
-              ? "Intelligence 统一观察角色状态与 Server 对话结构；Deployment Editor 只负责修改 Deployment 配置。"
-              : "Intelligence is the shared observatory for Character state and Server conversation structure. Deployment Editor only changes Deployment configuration."}
+              ? "Intelligence 统一观察角色当前状态、学习状态与 Server 对话结构；Deployment Editor 只负责修改 Deployment 配置。"
+              : "Intelligence is the shared observatory for live Character Presence, learned state, and Server conversation structure. Deployment Editor only changes Deployment configuration."}
           </small>
         </div>
         <nav className="intelligence-workspace-tabs" aria-label={zh ? "Intelligence 页面" : "Intelligence pages"}>
+          <button
+            type="button"
+            className={workspaceTab === "presence" ? "is-active" : ""}
+            onClick={() => setWorkspaceTab("presence")}
+          >
+            {zh ? "当前状态" : "Live Presence"}
+          </button>
           <button
             type="button"
             className={workspaceTab === "character" ? "is-active" : ""}
@@ -79,7 +87,9 @@ export function ConversationIntelligenceInspector({ cards, profile, catalog, zh 
         </nav>
       </header>
 
-      {workspaceTab === "character" ? (
+      {workspaceTab === "presence" ? (
+        <DeploymentPresencePanel serverProfileId={profile.id} zh={zh} />
+      ) : workspaceTab === "character" ? (
         <CharacterIntelligenceInspector
           cards={cards}
           profile={profile}
