@@ -37,7 +37,7 @@ def test_sleeping_address_match_accepts_multilingual_character_alias_prefix() ->
     )
 
     assert RecallAwareMediaDiscordConnectorRuntime._starts_with_alias(
-        "織，姐妹你還在嗎？",
+        "織\uFF0C姐妹你還在嗎\uFF1F",
         aliases,
     )
     assert RecallAwareMediaDiscordConnectorRuntime._starts_with_alias(
@@ -49,6 +49,6 @@ def test_sleeping_address_match_accepts_multilingual_character_alias_prefix() ->
         aliases,
     )
     assert not RecallAwareMediaDiscordConnectorRuntime._starts_with_alias(
-        "刚才織说什么？",
+        "刚才織说什么\uFF1F",
         aliases,
     )
