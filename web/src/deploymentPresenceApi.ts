@@ -15,8 +15,34 @@ export interface DeploymentPresenceView {
   discovery_allowed: boolean;
 }
 
-async function request<T>(url: string): Promise<T> {
-  const response = await fetch(url, { credentials: "include" });
+export interface DeploymentPresenceRhythmView {
+  deployment_id: string;
+  enabled: boolean;
+  preferred_sleep_start_minute: number;
+  sleep_duration_min_minutes: number;
+  sleep_duration_max_minutes: number;
+  variation_minutes: number;
+  config_version: number;
+  schedule_local_date: string;
+  schedule_timezone: string;
+  scheduled_sleep_at: string | null;
+  scheduled_wake_at: string | null;
+  next_transition_at: string | null;
+  next_state: string;
+  last_transition_at: string | null;
+  last_transition_reason: string;
+}
+
+export interface DeploymentPresenceRhythmUpdate {
+  enabled: boolean;
+  preferred_sleep_start_minute: number;
+  sleep_duration_min_minutes: number;
+  sleep_duration_max_minutes: number;
+  variation_minutes: number;
+}
+
+async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, { credentials: "include", ...init });
   if (response.ok) return response.json() as Promise<T>;
   const raw = await response.text();
   try {
@@ -28,10 +54,24 @@ async function request<T>(url: string): Promise<T> {
   throw new Error(raw || `Request failed with ${response.status}`);
 }
 
+function rhythmUrl(deploymentId: string): string {
+  return `/api/deployments/${encodeURIComponent(deploymentId)}/presence/rhythm`;
+}
+
 export const deploymentPresenceApi = {
   get(deploymentId: string) {
     return request<DeploymentPresenceView>(
       `/api/deployments/${encodeURIComponent(deploymentId)}/presence`
     );
+  },
+  getRhythm(deploymentId: string) {
+    return request<DeploymentPresenceRhythmView>(rhythmUrl(deploymentId));
+  },
+  updateRhythm(deploymentId: string, payload: DeploymentPresenceRhythmUpdate) {
+    return request<DeploymentPresenceRhythmView>(rhythmUrl(deploymentId), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
   }
 };
