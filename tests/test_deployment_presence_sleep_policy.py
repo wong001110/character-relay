@@ -107,6 +107,7 @@ def inbound(
     message_id: str,
     mentioned_bot: bool,
     replied_to_bot: bool = False,
+    text: str = "Are you there?",
 ) -> dict[str, object]:
     return {
         "connection_id": connection["id"],
@@ -120,7 +121,7 @@ def inbound(
         "thread_name": "",
         "author_id": "user-1",
         "author_display_name": "Juen",
-        "text": "Ann, are you there?",
+        "text": text,
         "mentioned_bot": mentioned_bot,
         "replied_to_bot": replied_to_bot,
         "smart_candidate": False,
@@ -167,19 +168,20 @@ def test_sleeping_is_hard_runtime_gate_and_only_explicit_address_queues_notice(
     assert ambient.json()["reason"] == "deployment_presence_sleeping"
     assert notice_count(app) == 0
 
-    explicit = client.post(
+    explicit_name = client.post(
         "/api/connectors/discord/messages",
         headers=connector_headers(),
         json=inbound(
             connection,
             deployment,
-            message_id="explicit-1",
-            mentioned_bot=True,
+            message_id="explicit-name-1",
+            mentioned_bot=False,
+            text="Ann, are you there?",
         ),
     )
-    assert explicit.status_code == 200, explicit.text
-    assert explicit.json()["action"] == "silent"
-    assert explicit.json()["reason"] == "deployment_presence_sleeping"
+    assert explicit_name.status_code == 200, explicit_name.text
+    assert explicit_name.json()["action"] == "silent"
+    assert explicit_name.json()["reason"] == "deployment_presence_sleeping"
     assert notice_count(app) == 1
 
     # A second explicit source message inside the notice cooldown must not queue another notice.
@@ -248,7 +250,7 @@ def test_sleeping_reply_queues_notice_and_delivery_uses_real_bot_identity(
     assert request.url.path == "/api/v10/channels/channel-sleep/messages"
     assert request.headers["authorization"] == "Bot real-discord-bot-token"
     payload = json.loads(request.content.decode("utf-8"))
-    assert payload["content"] == "Ann 当前正在睡觉中。"
+    assert payload["content"] == "🌙 Ann 当前正在睡觉。"
     assert payload["allowed_mentions"] == {"parse": []}
     assert payload["message_reference"] == {
         "message_id": "reply-source-1",
