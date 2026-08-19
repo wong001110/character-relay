@@ -52,6 +52,7 @@ from echo_masque.api.routes.provider_traces import router as provider_traces_rou
 from echo_masque.api.routes.reports import router as reports_router
 from echo_masque.api.routes.runtime_traces import router as runtime_traces_router
 from echo_masque.api.routes.scheduled_reminders import router as scheduled_reminders_router
+from echo_masque.api.routes.server_access import router as server_access_router
 from echo_masque.api.routes.smart_participation import router as smart_participation_router
 from echo_masque.api.routes.smart_participation_v4 import router as smart_participation_v4_router
 from echo_masque.api.routes.smart_participation_vnext import router as smart_participation_vnext_router
@@ -66,6 +67,7 @@ from echo_masque.api.routes.workspace import router as workspace_router
 characters_router.include_router(character_portraits_router)
 characters_router.include_router(character_relationships_router)
 accounts_router.include_router(key_group_scout_router)
+accounts_router.include_router(server_access_router)
 connectors_router.include_router(generated_media_router)
 connectors_router.include_router(planner_media_router)
 connectors_router.include_router(social_turn_interrupt_router)
