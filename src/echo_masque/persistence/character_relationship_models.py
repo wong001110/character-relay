@@ -75,6 +75,20 @@ class DeploymentRelationshipStateRecord(Base):
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
 
+    def __init__(self, **kwargs: object) -> None:
+        # SQLAlchemy Column defaults are applied during INSERT, not while a new ORM
+        # instance is still pending. Relationship evidence reads the deltas before
+        # the first flush, so initialize them eagerly as part of the Python object.
+        super().__init__(**kwargs)
+        if self.familiarity_delta is None:
+            self.familiarity_delta = 0.0
+        if self.affinity_delta is None:
+            self.affinity_delta = 0.0
+        if self.trust_delta is None:
+            self.trust_delta = 0.0
+        if self.comfort_delta is None:
+            self.comfort_delta = 0.0
+
 
 class DeploymentRelationshipEventRecord(Base):
     """Append-only evidence for one dynamic relationship dimension."""

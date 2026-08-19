@@ -62,7 +62,11 @@ def test_multimodal_provider_sends_image_url_and_parses_objective_context() -> N
     assert body["model"] == "xiaomi/mimo-v2.5"
     messages = body["messages"]
     assert isinstance(messages, list)
-    content = messages[0]["content"]
+    assert messages[0]["role"] == "system"
+    assert "objective media-understanding parser" in messages[0]["content"]
+    assert messages[1]["role"] == "user"
+    content = messages[1]["content"]
+    assert isinstance(content, list)
     assert content[1] == {
         "type": "image_url",
         "image_url": {"url": "https://cdn.example.test/cat.png"},
@@ -124,7 +128,10 @@ def test_multimodal_provider_uses_video_url_for_video_asset() -> None:
     assert isinstance(body, dict)
     messages = body["messages"]
     assert isinstance(messages, list)
-    content = messages[0]["content"]
+    assert messages[0]["role"] == "system"
+    assert messages[1]["role"] == "user"
+    content = messages[1]["content"]
+    assert isinstance(content, list)
     assert content[1] == {
         "type": "video_url",
         "video_url": {"url": "https://www.youtube.com/watch?v=abc123"},
@@ -187,7 +194,9 @@ def test_multimodal_provider_uses_local_keyframes_instead_of_platform_video_url(
     assert isinstance(body, dict)
     messages = body["messages"]
     assert isinstance(messages, list)
-    content = messages[0]["content"]
+    assert messages[0]["role"] == "system"
+    assert messages[1]["role"] == "user"
+    content = messages[1]["content"]
     assert isinstance(content, list)
     assert "chronological sampled keyframes" in content[0]["text"]
     assert content[1:] == [
