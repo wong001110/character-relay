@@ -217,9 +217,29 @@ class DeploymentPresenceRhythmService:
                 record.next_state = ""
             record.updated_at = current
             session.commit()
-            session.refresh(record)
+
         if enabled:
-            self.reconcile_deployment(owner_id=owner_id, deployment_id=deployment_id, now=current)
+            self.reconcile_deployment(
+                owner_id=owner_id,
+                deployment_id=deployment_id,
+                now=current,
+            )
+        else:
+            # A rhythm-owned sleeping state must not survive after the rhythm is disabled.
+            # Manual/other Presence states remain authoritative and are never reset here.
+            presence = self.presence.get(
+                owner_id=owner_id,
+                deployment_id=deployment_id,
+            )
+            if presence is not None and presence.state == "sleeping" and presence.source == "rhythm":
+                self.presence.set_state(
+                    owner_id=owner_id,
+                    deployment_id=deployment_id,
+                    state="idle",
+                    source="rhythm",
+                    reason="scheduled_rhythm_disabled",
+                    now=current,
+                )
         return self.get(owner_id=owner_id, deployment_id=deployment_id)
 
     def _deployment_timezone(self, deployment: CharacterDeploymentRecord) -> str:
@@ -256,6 +276,89 @@ class DeploymentPresenceRhythmService:
         record.scheduled_wake_at = schedule.wake_at
         record.updated_at = now
 
+    @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+
+    def _materialize_for_record(
+        self,
+        *,
+        deployment: CharacterDeploymentRecord,
+        record: DeploymentPresenceRhythmRecord,
+        local_date: date,
+        timezone: str,
+    ) -> MaterializedPresenceSchedule:
+        return self.materialize_schedule(
+            deployment_id=deployment.id,
+            local_date=local_date,
+            timezone=timezone,
+            preferred_sleep_start_minute=record.preferred_sleep_start_minute,
+            sleep_duration_min_minutes=record.sleep_duration_min_minutes,
+            sleep_duration_max_minutes=record.sleep_duration_max_minutes,
+            variation_minutes=record.variation_minutes,
+            config_version=record.config_version or 0,
+        )
+
+    def _schedule_for_now(
+        self,
+        *,
+        deployment: CharacterDeploymentRecord,
+        record: DeploymentPresenceRhythmRecord,
+        current: datetime,
+        timezone: str,
+    ) -> MaterializedPresenceSchedule:
+        """Select the schedule that owns `current`, including previous-day sleep windows."""
+
+        zone = ZoneInfo(timezone)
+        local_date = current.astimezone(zone).date()
+
+        # Prefer a persisted active schedule first. This is important after a process restart
+        # between midnight and wake-up: the record can legitimately belong to yesterday.
+        if (
+            record.schedule_timezone == timezone
+            and record.schedule_local_date
+            and record.scheduled_sleep_at is not None
+            and record.scheduled_wake_at is not None
+        ):
+            stored_sleep = self._as_utc(record.scheduled_sleep_at)
+            stored_wake = self._as_utc(record.scheduled_wake_at)
+            if stored_sleep <= current < stored_wake:
+                try:
+                    stored_date = date.fromisoformat(record.schedule_local_date)
+                except ValueError:
+                    stored_date = local_date - timedelta(days=1)
+                return MaterializedPresenceSchedule(
+                    local_date=stored_date,
+                    timezone=timezone,
+                    sleep_at=stored_sleep,
+                    wake_at=stored_wake,
+                )
+
+        previous = self._materialize_for_record(
+            deployment=deployment,
+            record=record,
+            local_date=local_date - timedelta(days=1),
+            timezone=timezone,
+        )
+        if previous.sleep_at <= current < previous.wake_at:
+            return previous
+
+        today = self._materialize_for_record(
+            deployment=deployment,
+            record=record,
+            local_date=local_date,
+            timezone=timezone,
+        )
+        if current < today.wake_at:
+            return today
+
+        return self._materialize_for_record(
+            deployment=deployment,
+            record=record,
+            local_date=local_date + timedelta(days=1),
+            timezone=timezone,
+        )
+
     def reconcile_deployment(
         self,
         *,
@@ -271,38 +374,29 @@ class DeploymentPresenceRhythmService:
             record = session.get(DeploymentPresenceRhythmRecord, deployment_id)
             if record is None or not record.enabled:
                 return self._view(record) if record is not None else None
+
             timezone = self._deployment_timezone(deployment)
-            local_current = current.astimezone(ZoneInfo(timezone))
-            schedule_date = local_current.date()
+            schedule = self._schedule_for_now(
+                deployment=deployment,
+                record=record,
+                current=current,
+                timezone=timezone,
+            )
             if not self._stored_schedule_matches(
                 record,
-                local_date=schedule_date,
+                local_date=schedule.local_date,
                 timezone=timezone,
             ):
-                schedule = self.materialize_schedule(
-                    deployment_id=deployment.id,
-                    local_date=schedule_date,
-                    timezone=timezone,
-                    preferred_sleep_start_minute=record.preferred_sleep_start_minute,
-                    sleep_duration_min_minutes=record.sleep_duration_min_minutes,
-                    sleep_duration_max_minutes=record.sleep_duration_max_minutes,
-                    variation_minutes=record.variation_minutes,
-                    config_version=record.config_version,
-                )
                 self._store_schedule(record=record, schedule=schedule, now=current)
 
-            sleep_at = record.scheduled_sleep_at
-            wake_at = record.scheduled_wake_at
-            assert sleep_at is not None and wake_at is not None
-            sleep_at = sleep_at.astimezone(UTC) if sleep_at.tzinfo else sleep_at.replace(tzinfo=UTC)
-            wake_at = wake_at.astimezone(UTC) if wake_at.tzinfo else wake_at.replace(tzinfo=UTC)
-
+            sleep_at = schedule.sleep_at
+            wake_at = schedule.wake_at
             if current < sleep_at:
                 record.next_transition_at = sleep_at
                 record.next_state = "sleeping"
             elif current < wake_at:
                 presence = self.presence.get_for_runtime(deployment)
-                if presence.state != "sleeping":
+                if presence.state != "sleeping" or presence.source != "rhythm":
                     self.presence.set_state(
                         owner_id=owner_id,
                         deployment_id=deployment_id,
@@ -317,6 +411,38 @@ class DeploymentPresenceRhythmService:
                 record.next_transition_at = wake_at
                 record.next_state = "idle"
             else:
+                # Defensive fallback. _schedule_for_now normally returns tomorrow once the
+                # current day's wake has passed, so this branch should be unreachable.
+                next_schedule = self._materialize_for_record(
+                    deployment=deployment,
+                    record=record,
+                    local_date=current.astimezone(ZoneInfo(timezone)).date() + timedelta(days=1),
+                    timezone=timezone,
+                )
+                self._store_schedule(record=record, schedule=next_schedule, now=current)
+                record.next_transition_at = next_schedule.sleep_at
+                record.next_state = "sleeping"
+
+            presence = self.presence.get_for_runtime(deployment)
+            if (
+                current >= wake_at
+                and presence.state == "sleeping"
+                and presence.source == "rhythm"
+            ):
+                self.presence.set_state(
+                    owner_id=owner_id,
+                    deployment_id=deployment_id,
+                    state="idle",
+                    source="rhythm",
+                    reason="scheduled_wake",
+                    now=current,
+                )
+                record.last_transition_at = current
+                record.last_transition_reason = "scheduled_wake"
+
+            # When _schedule_for_now has already advanced to a future sleep window, an older
+            # rhythm-owned sleep row may still need to be released after a missed wake poll.
+            if current < sleep_at:
                 presence = self.presence.get_for_runtime(deployment)
                 if presence.state == "sleeping" and presence.source == "rhythm":
                     self.presence.set_state(
@@ -329,20 +455,7 @@ class DeploymentPresenceRhythmService:
                     )
                     record.last_transition_at = current
                     record.last_transition_reason = "scheduled_wake"
-                next_date = schedule_date + timedelta(days=1)
-                schedule = self.materialize_schedule(
-                    deployment_id=deployment.id,
-                    local_date=next_date,
-                    timezone=timezone,
-                    preferred_sleep_start_minute=record.preferred_sleep_start_minute,
-                    sleep_duration_min_minutes=record.sleep_duration_min_minutes,
-                    sleep_duration_max_minutes=record.sleep_duration_max_minutes,
-                    variation_minutes=record.variation_minutes,
-                    config_version=record.config_version,
-                )
-                self._store_schedule(record=record, schedule=schedule, now=current)
-                record.next_transition_at = schedule.sleep_at
-                record.next_state = "sleeping"
+
             record.updated_at = current
             session.commit()
             session.refresh(record)
