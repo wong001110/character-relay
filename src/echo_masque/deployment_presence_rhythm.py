@@ -231,7 +231,11 @@ class DeploymentPresenceRhythmService:
                 owner_id=owner_id,
                 deployment_id=deployment_id,
             )
-            if presence is not None and presence.state == "sleeping" and presence.source == "rhythm":
+            if (
+                presence is not None
+                and presence.state == "sleeping"
+                and presence.source == "rhythm"
+            ):
                 self.presence.set_state(
                     owner_id=owner_id,
                     deployment_id=deployment_id,
@@ -416,7 +420,8 @@ class DeploymentPresenceRhythmService:
                 next_schedule = self._materialize_for_record(
                     deployment=deployment,
                     record=record,
-                    local_date=current.astimezone(ZoneInfo(timezone)).date() + timedelta(days=1),
+                    local_date=current.astimezone(ZoneInfo(timezone)).date()
+                    + timedelta(days=1),
                     timezone=timezone,
                 )
                 self._store_schedule(record=record, schedule=next_schedule, now=current)
