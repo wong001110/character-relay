@@ -1,4 +1,4 @@
-"""Owner-facing product observability for current Social, Participation, and Conversation vNext state."""
+"""Owner-facing observability for current Social, Participation, and Conversation vNext state."""
 
 from __future__ import annotations
 
@@ -345,7 +345,9 @@ def deployment_social_intelligence(
                 .limit(400)
             )
         )
-        events_by_key: dict[tuple[str, str], list[DeploymentRelationshipEventRecord]] = defaultdict(list)
+        events_by_key: dict[
+            tuple[str, str], list[DeploymentRelationshipEventRecord]
+        ] = defaultdict(list)
         for event in events:
             key = (event.target_type, event.target_key)
             if len(events_by_key[key]) < 12:
@@ -548,7 +550,10 @@ def server_participation_intelligence(
         )
         latest_by_deployment: dict[str, SmartParticipationDeploymentStateRecord] = {}
         for state in deployment_state_rows:
-            if state.deployment_id in deployment_ids and state.deployment_id not in latest_by_deployment:
+            if (
+                state.deployment_id in deployment_ids
+                and state.deployment_id not in latest_by_deployment
+            ):
                 latest_by_deployment[state.deployment_id] = state
 
         scope_rows = list(
