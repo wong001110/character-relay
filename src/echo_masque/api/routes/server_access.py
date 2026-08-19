@@ -188,7 +188,7 @@ def account_server_access(
     access_repo = _access_repository(request)
 
     if super_admin:
-        servers = [
+        super_admin_servers = [
             _access_view(
                 request,
                 access=None,
@@ -198,7 +198,7 @@ def account_server_access(
             )
             for catalog in deployments.list_discord_server_catalog(catalog_owner_id)
         ]
-        return ServerAccessOverview(is_super_admin=True, servers=servers)
+        return ServerAccessOverview(is_super_admin=True, servers=super_admin_servers)
 
     access_repo.backfill_access_from_profiles(
         catalog_owner_id=catalog_owner_id,
