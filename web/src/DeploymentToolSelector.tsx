@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
 
-import { ConversationStructurePanel } from "./ConversationStructurePanel";
 import { deploymentApi, type ToolCatalogItem } from "./deploymentApi";
 import { DeploymentDiscoveryWorkspace } from "./DeploymentDiscoveryWorkspace";
 import { DeploymentRelationshipPanel } from "./DeploymentRelationshipPanel";
-import { PaperDrawer } from "./NotebookUI";
 import "./stabilization-hotfix.css";
 
 interface Props {
@@ -35,7 +33,6 @@ export function DeploymentToolSelector({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [conversationOpen, setConversationOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -137,24 +134,6 @@ export function DeploymentToolSelector({
         )}
       </section>
 
-      <section className="deployment-form-wide deployment-observatory-launcher">
-        <div>
-          <strong>{zh ? "对话结构 / Conversation Structure" : "Conversation Structure"}</strong>
-          <span>
-            {zh
-              ? "Burst、Segment 与 Semantic Thread 是 Server 共享的 Conversation Intelligence，不再铺在 Deployment 编辑表单里。"
-              : "Bursts, Segments, and Semantic Threads are server conversation intelligence and no longer occupy the Deployment editor."}
-          </span>
-        </div>
-        <button
-          type="button"
-          className="paper-button"
-          onClick={() => setConversationOpen(true)}
-        >
-          {zh ? "打开对话结构" : "Open conversation structure"}
-        </button>
-      </section>
-
       <DeploymentDiscoveryWorkspace
         deploymentId={deploymentId}
         disabled={disabled}
@@ -166,18 +145,6 @@ export function DeploymentToolSelector({
         disabled={disabled}
         zh={zh}
       />
-
-      {conversationOpen && (
-        <PaperDrawer
-          onClose={() => setConversationOpen(false)}
-          ariaLabel={zh ? "对话结构" : "Conversation Structure"}
-          className="conversation-structure-drawer"
-        >
-          <section className="paper-sheet conversation-structure-drawer-sheet">
-            <ConversationStructurePanel deploymentId={deploymentId} zh={zh} />
-          </section>
-        </PaperDrawer>
-      )}
     </>
   );
 }
