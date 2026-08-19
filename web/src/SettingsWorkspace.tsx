@@ -66,7 +66,7 @@ export function SettingsWorkspace({
           </p>
         </StickyNote>
         {publicDemo && (
-          <StickyNote variant="reference" size="sm">
+          <StickyNote variant="system" size="sm">
             <strong>{zh ? "Demo 为只读" : "Demo is read-only"}</strong>
             <p>
               {zh
