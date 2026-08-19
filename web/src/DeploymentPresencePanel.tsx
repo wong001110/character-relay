@@ -7,6 +7,7 @@ import {
 } from "./deploymentApi";
 import {
   deploymentPresenceApi,
+  type DeploymentPresenceRhythmView,
   type DeploymentPresenceState,
   type DeploymentPresenceView
 } from "./deploymentPresenceApi";
@@ -20,7 +21,9 @@ interface Props {
 interface PresenceRow {
   deployment: CharacterDeployment;
   presence: DeploymentPresenceView | null;
+  rhythm: DeploymentPresenceRhythmView | null;
   error: string;
+  rhythmError: string;
 }
 
 const REFRESH_INTERVAL_MS = 15_000;
@@ -33,6 +36,21 @@ function stamp(value: string | null, zh: boolean): string {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(parsed);
+}
+
+function rhythmStamp(value: string | null, timezone: string, zh: boolean): string {
+  if (!value) return "—";
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return value;
+  try {
+    return new Intl.DateTimeFormat(zh ? "zh-CN" : "en", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      ...(timezone ? { timeZone: timezone } : {})
+    }).format(parsed);
+  } catch {
+    return stamp(value, zh);
+  }
 }
 
 function stateLabel(state: DeploymentPresenceState, activityType: string, zh: boolean): string {
@@ -57,7 +75,14 @@ function sourceLabel(source: string, zh: boolean): string {
   const normalized = source.replaceAll("_", " ").trim();
   if (!normalized || normalized === "default") return zh ? "默认状态" : "Default state";
   if (normalized === "discovery activity") return zh ? "Discovery 活动" : "Discovery activity";
+  if (normalized === "rhythm") return zh ? "日常作息" : "Daily rhythm";
   return normalized;
+}
+
+function nextStateLabel(value: string, zh: boolean): string {
+  if (value === "sleeping") return zh ? "入睡" : "Sleep";
+  if (value === "idle") return zh ? "醒来" : "Wake";
+  return value || "—";
 }
 
 export function DeploymentPresencePanel({ serverProfileId, zh }: Props) {
@@ -73,20 +98,33 @@ export function DeploymentPresencePanel({ serverProfileId, zh }: Props) {
       else setLoading(true);
       setError("");
       const deployments = await deploymentApi.listDeploymentsForServer(serverProfileId);
-      const results = await Promise.allSettled(
-        deployments.map((deployment) => deploymentPresenceApi.get(deployment.id))
-      );
+      const [presenceResults, rhythmResults] = await Promise.all([
+        Promise.allSettled(
+          deployments.map((deployment) => deploymentPresenceApi.get(deployment.id))
+        ),
+        Promise.allSettled(
+          deployments.map((deployment) => deploymentPresenceApi.getRhythm(deployment.id))
+        )
+      ]);
       setRows(
         deployments.map((deployment, index) => {
-          const result = results[index];
+          const presenceResult = presenceResults[index];
+          const rhythmResult = rhythmResults[index];
           return {
             deployment,
-            presence: result.status === "fulfilled" ? result.value : null,
+            presence: presenceResult.status === "fulfilled" ? presenceResult.value : null,
+            rhythm: rhythmResult.status === "fulfilled" ? rhythmResult.value : null,
             error:
-              result.status === "rejected"
-                ? result.reason instanceof Error
-                  ? result.reason.message
-                  : String(result.reason)
+              presenceResult.status === "rejected"
+                ? presenceResult.reason instanceof Error
+                  ? presenceResult.reason.message
+                  : String(presenceResult.reason)
+                : "",
+            rhythmError:
+              rhythmResult.status === "rejected"
+                ? rhythmResult.reason instanceof Error
+                  ? rhythmResult.reason.message
+                  : String(rhythmResult.reason)
                 : ""
           };
         })
@@ -135,8 +173,8 @@ export function DeploymentPresencePanel({ serverProfileId, zh }: Props) {
           <h2>{zh ? "角色当前状态" : "Current Character Presence"}</h2>
           <p>
             {zh
-              ? "这里显示每个 Deployment 的实时生活状态。Discovery 开始浏览时会自动切换为 Browsing，结束后恢复 Idle。"
-              : "Live Deployment-scoped state. Discovery automatically switches Presence to Browsing during a session and restores Idle afterward."}
+              ? "这里显示每个 Deployment 的实时生活状态与下一次作息变化。Discovery 开始浏览时会自动切换为 Browsing；睡眠期间角色 Runtime 与 Discovery 会暂停。"
+              : "Live Deployment-scoped state plus the next daily-rhythm transition. Discovery switches Presence to Browsing during a session; sleeping pauses character runtime and Discovery."}
           </p>
         </div>
         <div className="presence-observatory-refresh">
@@ -177,8 +215,9 @@ export function DeploymentPresencePanel({ serverProfileId, zh }: Props) {
       </div>
 
       <div className="presence-card-grid">
-        {rows.map(({ deployment, presence, error: rowError }) => {
+        {rows.map(({ deployment, presence, rhythm, error: rowError, rhythmError }) => {
           const currentState = presence?.state ?? "idle";
+          const timezone = rhythm?.schedule_timezone ?? "";
           return (
             <article
               key={deployment.id}
@@ -243,6 +282,37 @@ export function DeploymentPresencePanel({ serverProfileId, zh }: Props) {
                       <dd>{presence.available_for_character_runtime ? (zh ? "可用" : "Available") : zh ? "暂停" : "Unavailable"}</dd>
                     </div>
                   </dl>
+
+                  <div className={`presence-rhythm-strip${rhythm?.enabled ? " is-enabled" : ""}`}>
+                    <div>
+                      <span>☾ {zh ? "下次入睡" : "Next sleep"}</span>
+                      <strong>
+                        {rhythm?.enabled
+                          ? rhythmStamp(rhythm.scheduled_sleep_at, timezone, zh)
+                          : zh
+                            ? "作息未启用"
+                            : "Rhythm off"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>☀ {zh ? "下次醒来" : "Next wake"}</span>
+                      <strong>
+                        {rhythm?.enabled
+                          ? rhythmStamp(rhythm.scheduled_wake_at, timezone, zh)
+                          : "—"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>→ {zh ? "下一次变化" : "Next transition"}</span>
+                      <strong>
+                        {rhythm?.enabled && rhythm.next_transition_at
+                          ? `${nextStateLabel(rhythm.next_state, zh)} · ${rhythmStamp(rhythm.next_transition_at, timezone, zh)}`
+                          : "—"}
+                      </strong>
+                    </div>
+                    {rhythm?.enabled && timezone && <small>{timezone}</small>}
+                  </div>
+
                   <details className="presence-card-details">
                     <summary>{zh ? "运行证据" : "Runtime evidence"}</summary>
                     <dl>
@@ -261,6 +331,14 @@ export function DeploymentPresencePanel({ serverProfileId, zh }: Props) {
                       <div>
                         <dt>{zh ? "持久化" : "Persisted"}</dt>
                         <dd>{presence.persisted ? "yes" : "default fallback"}</dd>
+                      </div>
+                      <div>
+                        <dt>{zh ? "作息状态" : "Daily rhythm"}</dt>
+                        <dd>{rhythm?.enabled ? "enabled" : rhythmError ? "unavailable" : "off"}</dd>
+                      </div>
+                      <div>
+                        <dt>{zh ? "作息读取" : "Rhythm read"}</dt>
+                        <dd>{rhythmError || "ok"}</dd>
                       </div>
                     </dl>
                   </details>
