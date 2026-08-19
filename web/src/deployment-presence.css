@@ -1,0 +1,279 @@
+.presence-observatory-shell {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.presence-observatory-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 20px;
+}
+
+.presence-observatory-header > div:first-child {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.presence-observatory-header h2,
+.presence-observatory-header p {
+  margin: 0;
+}
+
+.presence-observatory-header p {
+  max-width: 760px;
+  opacity: 0.7;
+}
+
+.presence-observatory-refresh {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.presence-observatory-refresh small {
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+.presence-observatory-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.presence-metric {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 15px;
+}
+
+.presence-metric span {
+  font-size: 0.82rem;
+  font-weight: 800;
+  opacity: 0.72;
+}
+
+.presence-metric strong {
+  font-size: 1.35rem;
+}
+
+.presence-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.presence-card {
+  display: grid;
+  gap: 15px;
+  min-width: 0;
+  padding: 17px 18px;
+  position: relative;
+  overflow: hidden;
+}
+
+.presence-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: rgba(109, 91, 132, 0.2);
+}
+
+.presence-card-browsing::before {
+  background: rgba(109, 91, 190, 0.58);
+}
+
+.presence-card-sleeping::before {
+  background: rgba(91, 103, 138, 0.46);
+}
+
+.presence-card-busy::before {
+  background: rgba(154, 101, 74, 0.48);
+}
+
+.presence-card.is-inactive-deployment {
+  opacity: 0.67;
+}
+
+.presence-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.presence-card-character {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.presence-card-character > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.presence-card-character strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presence-card-character small {
+  opacity: 0.58;
+}
+
+.presence-card-avatar {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  overflow: hidden;
+  border-radius: 13px;
+  border: 1px solid rgba(94, 74, 111, 0.13);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.presence-card-avatar img,
+.presence-card-avatar > * {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.presence-state-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  max-width: 48%;
+  padding: 7px 9px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 900;
+  line-height: 1;
+  background: rgba(112, 86, 158, 0.09);
+  color: #5f4d70;
+}
+
+.presence-state-badge.state-browsing {
+  background: rgba(112, 86, 184, 0.13);
+}
+
+.presence-state-badge.state-sleeping {
+  background: rgba(83, 98, 137, 0.11);
+}
+
+.presence-state-badge.state-busy {
+  background: rgba(154, 101, 74, 0.12);
+}
+
+.presence-state-badge.state-unknown {
+  opacity: 0.55;
+}
+
+.presence-card-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 18px;
+  margin: 0;
+}
+
+.presence-card-facts > div,
+.presence-card-details dl > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.presence-card-facts dt,
+.presence-card-details dt {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+
+.presence-card-facts dd,
+.presence-card-details dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.presence-card-details {
+  padding-top: 10px;
+  border-top: 1px dashed rgba(75, 63, 85, 0.16);
+}
+
+.presence-card-details summary {
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 800;
+  opacity: 0.67;
+}
+
+.presence-card-details dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 18px;
+  margin: 11px 0 0;
+}
+
+.presence-observatory-empty {
+  display: grid;
+  gap: 6px;
+  min-height: 130px;
+  place-content: center;
+  padding: 22px;
+  text-align: center;
+}
+
+.presence-observatory-empty p {
+  max-width: 680px;
+  margin: 0;
+  opacity: 0.68;
+}
+
+@media (max-width: 980px) {
+  .presence-observatory-metrics,
+  .presence-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .presence-observatory-header,
+  .presence-observatory-refresh,
+  .presence-card-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .presence-observatory-refresh small {
+    white-space: normal;
+  }
+
+  .presence-observatory-metrics,
+  .presence-card-grid,
+  .presence-card-facts,
+  .presence-card-details dl {
+    grid-template-columns: 1fr;
+  }
+
+  .presence-state-badge {
+    max-width: 100%;
+    width: fit-content;
+  }
+}
