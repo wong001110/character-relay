@@ -17,6 +17,12 @@ DeploymentPresenceState = Literal["sleeping", "idle", "browsing", "busy"]
 _VALID_STATES = frozenset({"sleeping", "idle", "browsing", "busy"})
 
 
+def _as_utc(value: datetime) -> datetime:
+    """Treat SQLite-naive persisted datetimes as UTC and preserve aware instants."""
+
+    return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+
+
 @dataclass(frozen=True, slots=True)
 class DeploymentPresenceView:
     deployment_id: str
@@ -51,7 +57,7 @@ class DeploymentPresenceRepository:
         deployment: CharacterDeploymentRecord,
         record: DeploymentPresenceRecord | None,
     ) -> DeploymentPresenceView:
-        fallback_time = deployment.updated_at or deployment.created_at
+        fallback_time = _as_utc(deployment.updated_at or deployment.created_at)
         if record is None:
             return DeploymentPresenceView(
                 deployment_id=deployment.id,
@@ -74,9 +80,13 @@ class DeploymentPresenceRepository:
             source=record.source,
             reason=record.reason,
             version=record.version,
-            started_at=record.started_at,
-            expected_end_at=record.expected_end_at,
-            updated_at=record.updated_at,
+            started_at=_as_utc(record.started_at),
+            expected_end_at=(
+                _as_utc(record.expected_end_at)
+                if record.expected_end_at is not None
+                else None
+            ),
+            updated_at=_as_utc(record.updated_at),
             persisted=True,
         )
 
@@ -131,10 +141,13 @@ class DeploymentPresenceRepository:
         normalized_state = state.strip().casefold()
         if normalized_state not in _VALID_STATES:
             raise ValueError(f"Unsupported Deployment Presence state: {state}")
-        current = now or datetime.now(UTC)
+        current = _as_utc(now or datetime.now(UTC))
         normalized_activity = " ".join(activity_type.split())[:40]
         normalized_source = " ".join(source.split())[:40] or "manual"
         normalized_reason = reason.strip()[:1000]
+        normalized_expected_end = (
+            _as_utc(expected_end_at) if expected_end_at is not None else None
+        )
         if normalized_state != "browsing":
             normalized_activity = ""
 
@@ -153,7 +166,7 @@ class DeploymentPresenceRepository:
                     reason=normalized_reason,
                     version=1,
                     started_at=current,
-                    expected_end_at=expected_end_at,
+                    expected_end_at=normalized_expected_end,
                     created_at=current,
                     updated_at=current,
                 )
@@ -167,7 +180,7 @@ class DeploymentPresenceRepository:
                 record.activity_type = normalized_activity
                 record.source = normalized_source
                 record.reason = normalized_reason
-                record.expected_end_at = expected_end_at
+                record.expected_end_at = normalized_expected_end
                 if changed_state:
                     record.started_at = current
                     record.version += 1
