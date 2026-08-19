@@ -1,10 +1,9 @@
-import { Server, Settings, ShieldCheck, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { AuthUser } from "./api";
 import { AccountSettingsPanel } from "./AccountSettingsPanel";
 import { AdministrationSettingsPanel } from "./AdministrationSettingsPanel";
-import { Button, StickyLabel, StickyNote } from "./components/ui";
+import { Button, FunctionalIcon, StickyLabel, StickyNote } from "./components/ui";
 import { useI18n } from "./i18n";
 import { serverAccessApi, type ServerAccessOverview } from "./serverAccessApi";
 import { ServerAccessSettingsPanel } from "./ServerAccessSettingsPanel";
@@ -69,7 +68,11 @@ export function SettingsWorkspace({
         {publicDemo && (
           <StickyNote variant="reference" size="sm">
             <strong>{zh ? "Demo 为只读" : "Demo is read-only"}</strong>
-            <p>{zh ? "加入、删除与管理员操作会被阻止。" : "Join, delete, and administration mutations are blocked."}</p>
+            <p>
+              {zh
+                ? "加入、删除与管理员操作会被阻止。"
+                : "Join, delete, and administration mutations are blocked."}
+            </p>
           </StickyNote>
         )}
       </aside>
@@ -77,7 +80,9 @@ export function SettingsWorkspace({
       <section className="settings-v2-content settings-v3-content settings-access-content">
         <header className="settings-access-header">
           <div>
-            <span className="settings-access-eyebrow"><Settings size={14} aria-hidden /> Character Relay Settings</span>
+            <span className="settings-access-eyebrow">
+              <FunctionalIcon name="settings" size={14} /> Character Relay Settings
+            </span>
             <h2>
               {tab === "account" && (zh ? "我的 Account" : "My account")}
               {tab === "server-access" && (zh ? "我的 Server Access" : "My server access")}
@@ -93,14 +98,14 @@ export function SettingsWorkspace({
             className={tab === "account" ? "is-active" : ""}
             onClick={() => setTab("account")}
           >
-            <UserRound size={16} aria-hidden /> Account
+            <FunctionalIcon name="identity" size={16} /> Account
           </button>
           <button
             type="button"
             className={tab === "server-access" ? "is-active" : ""}
             onClick={() => setTab("server-access")}
           >
-            <Server size={16} aria-hidden /> Server Access
+            <FunctionalIcon name="deployment" size={16} /> Server Access
           </button>
           {superAdmin && !publicDemo && (
             <button
@@ -108,7 +113,7 @@ export function SettingsWorkspace({
               className={tab === "administration" ? "is-active" : ""}
               onClick={() => setTab("administration")}
             >
-              <ShieldCheck size={16} aria-hidden /> Administration
+              <FunctionalIcon name="boundaries" size={16} /> Administration
             </button>
           )}
         </nav>
@@ -130,8 +135,14 @@ export function SettingsWorkspace({
             <>
               <div className="settings-runtime-strip">
                 <div>
-                  <strong>{zh ? "Runtime 配置仍保持独立" : "Runtime configuration stays separate"}</strong>
-                  <span>{zh ? "这里管理人和 Server；模型、Judge 与 Runtime 继续使用原本的 Admin Runtime 面板。" : "This page manages people and servers; model, Judge, and Runtime controls remain in the existing Admin Runtime panel."}</span>
+                  <strong>
+                    {zh ? "Runtime 配置仍保持独立" : "Runtime configuration stays separate"}
+                  </strong>
+                  <span>
+                    {zh
+                      ? "这里管理人和 Server；模型、Judge 与 Runtime 继续使用原本的 Admin Runtime 面板。"
+                      : "This page manages people and servers; model, Judge, and Runtime controls remain in the existing Admin Runtime panel."}
+                  </span>
                 </div>
                 <Button variant="primary" type="button" onClick={onAdmin}>
                   {zh ? "打开 Runtime 设置" : "Open Runtime Settings"}
