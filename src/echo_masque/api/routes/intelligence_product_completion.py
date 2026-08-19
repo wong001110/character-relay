@@ -20,6 +20,7 @@ from echo_masque.persistence.character_relationship_models import (
 )
 from echo_masque.persistence.conversation_segment_models import SemanticThreadRecord
 from echo_masque.persistence.conversation_segment_repository import ConversationSegmentRepository
+from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
     DiscordServerProfileRecord,
@@ -38,7 +39,7 @@ from echo_masque.persistence.smart_participation_state_models import (
 router = APIRouter(tags=["deployments"])
 
 
-def _database(request: Request):
+def _database(request: Request) -> Database:
     return cast(DeploymentRepository, request.app.state.deployment_repository).database
 
 
