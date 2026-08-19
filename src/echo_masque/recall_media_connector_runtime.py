@@ -23,7 +23,8 @@ from echo_masque.persistence.discord_identity_repository import DiscordIdentityR
 from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
 
 _DISCORD_API = "https://discord.com/api/v10"
-_NAME_SPLIT = re.compile(r"\s*(?:·|•|・|／|/|\||｜)\s*|\s+(?:-|—|–)\s+")
+_NAME_SPLIT = re.compile(r"\s*(?:·|•|・|/|\|)\s*|\s+(?:-|\u2014|\u2013)\s+")
+_ADDRESS_BOUNDARY = r"[\s:,、.。?!\-\u2014\u2013&/+和与與跟及]"
 
 
 class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime):
@@ -53,7 +54,7 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
     def _name_aliases(display_name: str, extra_aliases: list[str]) -> tuple[str, ...]:
         values: set[str] = set()
         for raw in (display_name, *extra_aliases):
-            full = raw.strip()
+            full = raw.normalize("NFKC").strip()
             if not full:
                 continue
             values.add(full)
@@ -66,7 +67,7 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
         for alias in aliases:
             escaped = re.escape(alias.normalize("NFKC"))
             if re.match(
-                rf"^{escaped}(?=$|[\s:：,，、.。?？!！\-—–&＆/／+和与與跟及])",
+                rf"^{escaped}(?=$|{_ADDRESS_BOUNDARY})",
                 normalized,
                 flags=re.IGNORECASE,
             ):
