@@ -202,15 +202,22 @@ class ServerAccessRepository:
         guild_id: str,
     ) -> bool:
         with self.database.session() as session:
-            result = session.execute(
-                delete(DiscordServerAccessRecord).where(
+            record_id = session.scalar(
+                select(DiscordServerAccessRecord.id).where(
                     DiscordServerAccessRecord.user_id == user_id,
                     DiscordServerAccessRecord.connection_id == connection_id,
                     DiscordServerAccessRecord.guild_id == guild_id,
                 )
             )
+            if record_id is None:
+                return False
+            session.execute(
+                delete(DiscordServerAccessRecord).where(
+                    DiscordServerAccessRecord.id == record_id
+                )
+            )
             session.commit()
-            return bool(result.rowcount)
+            return True
 
     def list_user_access(self, user_id: str) -> list[DiscordServerAccessRecord]:
         with self.database.session() as session:
@@ -249,7 +256,7 @@ class ServerAccessRepository:
         user_id: str,
         catalog: DiscordServerCatalogRecord,
     ) -> tuple[DiscordServerProfileRecord, bool]:
-        """Create the legacy owner-scoped profile required by current Deployment UI.
+        """Create the legacy owner-scoped profile required by the current Deployment UI.
 
         Access is shared independently. The profile is retained as a compatibility bridge until
         Deployment ownership is migrated to a server workspace model.
@@ -317,15 +324,21 @@ class ServerAccessRepository:
         catalog_owner_id: str,
         user_id: str | None = None,
     ) -> int:
-        """Preserve access for legacy Server Profile claims created before join codes."""
+        """Preserve access for Server Profile claims created before join codes."""
 
         with self.database.session() as session:
             query = (
                 select(DiscordServerProfileRecord)
                 .join(
                     DiscordServerCatalogRecord,
-                    (DiscordServerCatalogRecord.connection_id == DiscordServerProfileRecord.connection_id)
-                    & (DiscordServerCatalogRecord.guild_id == DiscordServerProfileRecord.guild_id),
+                    (
+                        DiscordServerCatalogRecord.connection_id
+                        == DiscordServerProfileRecord.connection_id
+                    )
+                    & (
+                        DiscordServerCatalogRecord.guild_id
+                        == DiscordServerProfileRecord.guild_id
+                    ),
                 )
                 .where(
                     DiscordServerCatalogRecord.owner_id == catalog_owner_id,
