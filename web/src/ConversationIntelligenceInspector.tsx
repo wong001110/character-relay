@@ -5,10 +5,15 @@ import { ConversationStructurePanel } from "./ConversationStructurePanel";
 import { ConversationIntelligenceInspector as CharacterIntelligenceInspector } from "./ConversationIntelligenceInspectorLegacy";
 import {
   deploymentApi,
+  type CharacterDeployment,
   type DiscordServerCatalog,
   type DiscordServerProfile
 } from "./deploymentApi";
 import { DeploymentPresencePanel } from "./DeploymentPresencePanel";
+import { DiscoveryIntelligencePanel } from "./DiscoveryIntelligencePanel";
+import { ParticipationIntelligencePanel } from "./ParticipationIntelligencePanel";
+import { SocialIntelligencePanel } from "./SocialIntelligencePanel";
+import "./intelligence-product-completion.css";
 import "./stabilization-hotfix.css";
 
 interface Props {
@@ -18,102 +23,114 @@ interface Props {
   zh: boolean;
 }
 
-type IntelligenceWorkspaceTab = "presence" | "character" | "conversation";
+type IntelligenceWorkspaceTab =
+  | "presence"
+  | "social"
+  | "participation"
+  | "conversation"
+  | "discovery"
+  | "data";
 
 export function ConversationIntelligenceInspector({ cards, profile, catalog, zh }: Props) {
   const [workspaceTab, setWorkspaceTab] = useState<IntelligenceWorkspaceTab>("presence");
-  const [conversationDeploymentId, setConversationDeploymentId] = useState("");
-  const [conversationLoading, setConversationLoading] = useState(false);
-  const [conversationError, setConversationError] = useState("");
+  const [deployments, setDeployments] = useState<CharacterDeployment[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function loadDeployments() {
+    try {
+      setLoading(true);
+      setError("");
+      setDeployments(await deploymentApi.listDeploymentsForServer(profile.id));
+    } catch (reason) {
+      setDeployments([]);
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    let active = true;
-    setConversationLoading(true);
-    setConversationError("");
-    deploymentApi
-      .listDeploymentsForServer(profile.id)
-      .then((items) => {
-        if (!active) return;
-        const preferred = items.find((item) => item.status === "active") ?? items[0];
-        setConversationDeploymentId(preferred?.id ?? "");
-      })
-      .catch((reason: unknown) => {
-        if (!active) return;
-        setConversationDeploymentId("");
-        setConversationError(reason instanceof Error ? reason.message : String(reason));
-      })
-      .finally(() => {
-        if (active) setConversationLoading(false);
-      });
-    return () => {
-      active = false;
-    };
+    void loadDeployments();
   }, [profile.id]);
 
+  const tabs: Array<{ key: IntelligenceWorkspaceTab; en: string; zh: string }> = [
+    { key: "presence", en: "Live Presence", zh: "当前状态" },
+    { key: "social", en: "Social", zh: "关系 / 看法" },
+    { key: "participation", en: "Participation", zh: "参与判断" },
+    { key: "conversation", en: "Conversation", zh: "对话结构" },
+    { key: "discovery", en: "Discovery", zh: "探索记录" },
+    { key: "data", en: "Character Data", zh: "角色数据" }
+  ];
+
   return (
-    <section className="intelligence-workspace-shell">
+    <section className="intelligence-workspace-shell intelligence-product-workspace">
       <header className="intelligence-workspace-header paper-sheet">
         <div>
           <span className="tape-label">INTELLIGENCE WORKSPACE</span>
           <strong>{zh ? "Server Intelligence / 运行监测" : "Server Intelligence / Runtime Observatory"}</strong>
           <small>
             {zh
-              ? "Intelligence 统一观察角色当前状态、学习状态与 Server 对话结构；Deployment Editor 只负责修改 Deployment 配置。"
-              : "Intelligence is the shared observatory for live Character Presence, learned state, and Server conversation structure. Deployment Editor only changes Deployment configuration."}
+              ? "Intelligence 统一观察角色 Presence、Social、Participation、Conversation 与 Discovery；Deployment Editor 只负责修改运行权限和配置。"
+              : "Intelligence is the shared observatory for Presence, Social state, Participation, Conversation, and Discovery. Deployment Editor only changes runtime policy and configuration."}
           </small>
         </div>
-        <nav className="intelligence-workspace-tabs" aria-label={zh ? "Intelligence 页面" : "Intelligence pages"}>
-          <button
-            type="button"
-            className={workspaceTab === "presence" ? "is-active" : ""}
-            onClick={() => setWorkspaceTab("presence")}
-          >
-            {zh ? "当前状态" : "Live Presence"}
-          </button>
-          <button
-            type="button"
-            className={workspaceTab === "character" ? "is-active" : ""}
-            onClick={() => setWorkspaceTab("character")}
-          >
-            {zh ? "角色 Intelligence" : "Character Intelligence"}
-          </button>
-          <button
-            type="button"
-            className={workspaceTab === "conversation" ? "is-active" : ""}
-            onClick={() => setWorkspaceTab("conversation")}
-          >
-            {zh ? "对话结构" : "Conversation Structure"}
-          </button>
-        </nav>
+        <button type="button" className="paper-button" disabled={loading} onClick={() => void loadDeployments()}>
+          {zh ? "刷新角色" : "Refresh Characters"}
+        </button>
       </header>
 
-      {workspaceTab === "presence" ? (
+      <nav className="intelligence-workspace-tabs intelligence-product-tabs" aria-label={zh ? "Intelligence 页面" : "Intelligence pages"}>
+        {tabs.map((item) => (
+          <button
+            type="button"
+            key={item.key}
+            className={workspaceTab === item.key ? "is-active" : ""}
+            onClick={() => setWorkspaceTab(item.key)}
+          >
+            {zh ? item.zh : item.en}
+          </button>
+        ))}
+      </nav>
+
+      {error && <section className="paper-sheet intelligence-workspace-empty error-note">{error}</section>}
+
+      {workspaceTab === "presence" && (
         <DeploymentPresencePanel serverProfileId={profile.id} zh={zh} />
-      ) : workspaceTab === "character" ? (
-        <CharacterIntelligenceInspector
-          cards={cards}
-          profile={profile}
-          catalog={catalog}
-          zh={zh}
-        />
-      ) : conversationLoading ? (
-        <section className="paper-sheet intelligence-workspace-empty">
-          {zh ? "正在读取 Server Conversation Structure…" : "Loading Server Conversation Structure…"}
-        </section>
-      ) : conversationError ? (
-        <section className="paper-sheet intelligence-workspace-empty error-note">
-          {conversationError}
-        </section>
-      ) : conversationDeploymentId ? (
-        <ConversationStructurePanel deploymentId={conversationDeploymentId} zh={zh} />
-      ) : (
-        <section className="paper-sheet intelligence-workspace-empty">
-          <strong>{zh ? "这个 Server 还没有 Character Deployment" : "No Character Deployment in this Server yet"}</strong>
-          <p>
-            {zh
-              ? "Conversation Structure 是 Server 范围的运行证据；建立至少一个 Deployment 后即可在这里观察 Burst、Segment 与 Semantic Thread。"
-              : "Conversation Structure is Server-scoped runtime evidence. Add at least one Deployment to inspect Bursts, Segments, and Semantic Threads here."}
-          </p>
+      )}
+
+      {workspaceTab === "social" && (
+        <SocialIntelligencePanel cards={cards} deployments={deployments} zh={zh} />
+      )}
+
+      {workspaceTab === "participation" && (
+        <ParticipationIntelligencePanel serverProfileId={profile.id} zh={zh} />
+      )}
+
+      {workspaceTab === "conversation" && (
+        <ConversationStructurePanel serverProfileId={profile.id} zh={zh} />
+      )}
+
+      {workspaceTab === "discovery" && (
+        <DiscoveryIntelligencePanel deployments={deployments} zh={zh} />
+      )}
+
+      {workspaceTab === "data" && (
+        <section className="intelligence-legacy-compat">
+          <div className="paper-sheet intelligence-compat-note">
+            <strong>{zh ? "兼容数据视图" : "Compatibility data view"}</strong>
+            <p>
+              {zh
+                ? "这里保留 Memory、Character Mind、Data Hygiene 与旧 Topic/Social 派生证据用于迁移和审计。当前 routing authority 是上方的 Conversation / Semantic Threads，当前关系 authority 是 Social Intelligence v2。"
+                : "This area retains Memory, Character Mind, Data Hygiene, and legacy Topic/Social derived evidence for migration and audit. Current routing authority is Conversation / Semantic Threads above, and current relationship authority is Social Intelligence v2."}
+            </p>
+          </div>
+          <CharacterIntelligenceInspector
+            cards={cards}
+            profile={profile}
+            catalog={catalog}
+            zh={zh}
+          />
         </section>
       )}
     </section>

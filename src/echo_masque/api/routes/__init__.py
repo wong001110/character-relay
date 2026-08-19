@@ -39,6 +39,9 @@ from echo_masque.api.routes.discord_identities import router as discord_identiti
 from echo_masque.api.routes.evaluations import router as evaluations_router
 from echo_masque.api.routes.generated_media import router as generated_media_router
 from echo_masque.api.routes.health import router as health_router
+from echo_masque.api.routes.intelligence_product_completion import (
+    router as intelligence_product_completion_router,
+)
 from echo_masque.api.routes.interactions import router as interactions_router
 from echo_masque.api.routes.key_group_scout import router as key_group_scout_router
 from echo_masque.api.routes.knowledge import router as knowledge_router
@@ -70,6 +73,7 @@ deployments_router.include_router(deployment_presence_router)
 deployments_router.include_router(deployment_discovery_router)
 deployments_router.include_router(deployment_relationships_router)
 deployments_router.include_router(deployment_conversation_structure_router)
+deployments_router.include_router(intelligence_product_completion_router)
 conversation_intelligence_router.include_router(conversation_intelligence_observation_router)
 conversation_intelligence_router.include_router(conversation_memory_control_router)
 conversation_intelligence_router.include_router(conversation_retrieval_observation_router)
