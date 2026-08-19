@@ -88,6 +88,15 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
             return prompt.replace(final_marker, f"\n{block}{final_marker}", 1)
         return f"{prompt}\n{block}"
 
+    @staticmethod
+    def _inject_recall_guidance(prompt: str, guidance: tuple[str, ...]) -> str:
+        """Backward-compatible recall helper retained for existing tests/callers."""
+
+        return RecallAwareMediaDiscordConnectorRuntime._inject_prompt_guidance(
+            prompt,
+            guidance,
+        )
+
     def _fresh_for_auto_recall(self, bundle: CharacterRecallBundle) -> CharacterRecallBundle:
         items = tuple(
             item

@@ -48,11 +48,24 @@ class CharacterSegmentReplyPlanner:
         if not segments:
             return None
         direct_pressure = self._direct_pressure(deterministic_signals)
+        direct_segments = (
+            tuple(
+                segment
+                for segment in segments
+                if latest_message_id and latest_message_id in segment.message_ids
+            )
+            if direct_pressure > 0
+            else ()
+        )
+        # Explicit current-turn address/reply evidence is structural authority. Semantic
+        # affinity may rank multiple direct candidates, but an unrelated Segment must not
+        # steal a turn that was explicitly addressed to this Character.
+        candidates = direct_segments or segments
         scores: list[tuple[float, ConversationSegmentView, str]] = []
-        for segment in segments:
+        for segment in candidates:
             base = 0.05 if segment.kind in {"reaction", "side_comment"} else 0.20
             reason = "segment_fallback"
-            if latest_message_id and latest_message_id in segment.message_ids and direct_pressure > 0:
+            if direct_segments:
                 base += min(0.55, direct_pressure / 10.0)
                 reason = "direct_current_segment"
             if segment.summary.strip() and self.semantic.enabled:
@@ -72,7 +85,7 @@ class CharacterSegmentReplyPlanner:
                         base += relevance
                         reason = (
                             "direct_and_semantic_segment"
-                            if reason == "direct_current_segment"
+                            if direct_segments
                             else "semantic_segment_relevance"
                         )
                 except (SemanticEmbeddingUnavailable, KeyError, ValueError, RuntimeError):

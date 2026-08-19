@@ -1,0 +1,148 @@
+.deployment-observatory-launcher,
+.discovery-settings-sheet {
+  border: 1px solid rgba(65, 62, 58, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.32);
+  padding: 16px;
+}
+
+.deployment-observatory-launcher {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.deployment-observatory-launcher > div,
+.discovery-settings-heading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.deployment-observatory-launcher span,
+.discovery-settings-heading span,
+.discovery-settings-actions small {
+  opacity: 0.7;
+  font-size: 0.86rem;
+}
+
+.discovery-settings-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.discovery-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.discovery-settings-grid.is-disabled {
+  opacity: 0.58;
+}
+
+.discovery-settings-grid fieldset {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px dashed rgba(65, 62, 58, 0.2);
+  border-radius: 12px;
+}
+
+.discovery-settings-grid label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.discovery-settings-grid label:has(input[type="number"]) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px;
+}
+
+.discovery-settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.discovery-settings-actions > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.discovery-observatory-sheet,
+.conversation-structure-drawer-sheet {
+  width: min(1180px, 92vw);
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.discovery-observatory-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.discovery-observatory-heading > div:last-child {
+  display: flex;
+  gap: 8px;
+}
+
+/* Smart Participation still exists as runtime compatibility state, but the
+   Deployment editor only exposes the controls that remain useful there.
+   Full legacy profile/playground data is preserved rather than deleted. */
+.smart-participation-studio.is-embedded .smart-ai-draft-row,
+.smart-participation-studio.is-embedded .smart-generation-note,
+.smart-participation-studio.is-embedded .smart-generation-rationale,
+.smart-participation-studio.is-embedded .smart-list-grid,
+.smart-participation-studio.is-embedded .smart-follow-up-fields,
+.smart-participation-studio.is-embedded .smart-playground-panel {
+  display: none;
+}
+
+.smart-participation-studio.is-embedded .smart-participation-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* In embedded mode the second direct label is the legacy permanent group-role
+   selector. Segment/Reply Planner now owns runtime coordination, so keep this
+   value for compatibility but do not make it a primary Deployment control. */
+.smart-participation-studio.is-embedded .smart-profile-panel > label:nth-of-type(2) {
+  display: none;
+}
+
+.smart-participation-studio.is-embedded .smart-profile-panel {
+  gap: 12px;
+  padding: 14px;
+}
+
+.smart-participation-studio.is-embedded .smart-participation-header p:last-child {
+  max-width: 720px;
+}
+
+@media (max-width: 820px) {
+  .deployment-observatory-launcher,
+  .discovery-settings-heading,
+  .discovery-settings-actions,
+  .discovery-observatory-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .discovery-settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
