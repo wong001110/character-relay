@@ -1,5 +1,7 @@
 """Owner-scoped inspection/control for Deployment Presence and daily rhythm."""
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, HTTPException, Request
 
 from echo_masque.api.dependencies import CurrentUserDependency
@@ -29,7 +31,17 @@ def rhythm_service(request: Request) -> DeploymentPresenceRhythmService:
     return DeploymentPresenceRhythmService(request.app.state.database)
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+
+
 def _view(value: PresenceDomainView) -> DeploymentPresenceView:
+    started_at = _as_utc(value.started_at)
+    updated_at = _as_utc(value.updated_at)
+    if started_at is None or updated_at is None:
+        raise RuntimeError("Presence timestamps are required.")
     return DeploymentPresenceView(
         deployment_id=value.deployment_id,
         state=value.state,
@@ -37,9 +49,9 @@ def _view(value: PresenceDomainView) -> DeploymentPresenceView:
         source=value.source,
         reason=value.reason,
         version=value.version,
-        started_at=value.started_at,
-        expected_end_at=value.expected_end_at,
-        updated_at=value.updated_at,
+        started_at=started_at,
+        expected_end_at=_as_utc(value.expected_end_at),
+        updated_at=updated_at,
         persisted=value.persisted,
         available_for_character_runtime=value.available_for_character_runtime,
         discovery_allowed=value.discovery_allowed,
@@ -57,11 +69,11 @@ def _rhythm_view(value: RhythmDomainView) -> DeploymentPresenceRhythmView:
         config_version=value.config_version,
         schedule_local_date=value.schedule_local_date,
         schedule_timezone=value.schedule_timezone,
-        scheduled_sleep_at=value.scheduled_sleep_at,
-        scheduled_wake_at=value.scheduled_wake_at,
-        next_transition_at=value.next_transition_at,
+        scheduled_sleep_at=_as_utc(value.scheduled_sleep_at),
+        scheduled_wake_at=_as_utc(value.scheduled_wake_at),
+        next_transition_at=_as_utc(value.next_transition_at),
         next_state=value.next_state,
-        last_transition_at=value.last_transition_at,
+        last_transition_at=_as_utc(value.last_transition_at),
         last_transition_reason=value.last_transition_reason,
     )
 
