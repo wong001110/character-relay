@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { CharacterDeployment } from "./deploymentApi";
+import { deploymentPresenceApi, type DeploymentPresenceView } from "./deploymentPresenceApi";
 import {
   discoveryApi,
   type DiscoveryDecision,
@@ -17,9 +18,14 @@ interface Props {
 
 type DiscoveryView = "overview" | "perception" | "decisions" | "shares";
 
+function instant(value: string): number {
+  const hasZone = /(?:Z|[+-]\d{2}:\d{2})$/iu.test(value);
+  return Date.parse(hasZone ? value : `${value}Z`);
+}
+
 function stamp(value: string | null, zh: boolean): string {
   if (!value) return "—";
-  const parsed = Date.parse(value);
+  const parsed = instant(value);
   if (Number.isNaN(parsed)) return value;
   return new Intl.DateTimeFormat(zh ? "zh-CN" : "en", {
     dateStyle: "short",
@@ -27,11 +33,46 @@ function stamp(value: string | null, zh: boolean): string {
   }).format(parsed);
 }
 
+function sessionReason(item: DiscoverySession, zh: boolean): string {
+  const reason = item.reason || item.error || "";
+  if (reason === "leisure_window_expired") {
+    return zh
+      ? "错过浏览时间窗口：这次计划没有在允许时间内开始，不代表来源故障。"
+      : "Missed browsing window: this scheduled visit did not start in time; the source itself did not fail.";
+  }
+  if (reason === "discovery_profile_no_longer_allows_browsing") {
+    return zh
+      ? "计划已跳过：当前 Discovery 设置已不再允许这次浏览。"
+      : "Skipped because the current Discovery policy no longer allows this visit.";
+  }
+  if (reason === "browsing_completed_with_social_intent") {
+    return zh
+      ? "浏览已完成，并产生了后续社交/分享意图。"
+      : "Browsing completed and produced a follow-up social/share intent.";
+  }
+  if (reason === "browsing_completed") {
+    return zh ? "浏览已完成。" : "Browsing completed.";
+  }
+  return reason || (zh ? "没有额外说明" : "No additional note");
+}
+
+function presenceLabel(value: DeploymentPresenceView | null, zh: boolean): string {
+  if (!value) return zh ? "读取中" : "Loading";
+  if (value.state === "browsing") {
+    const activity = value.activity_type ? ` · ${value.activity_type}` : "";
+    return `${zh ? "浏览中" : "Browsing"}${activity}`;
+  }
+  if (value.state === "sleeping") return zh ? "睡眠中" : "Sleeping";
+  if (value.state === "busy") return zh ? "忙碌" : "Busy";
+  return zh ? "空闲" : "Idle";
+}
+
 export function DiscoveryIntelligencePanel({ deployments, zh }: Props) {
   const [deploymentId, setDeploymentId] = useState(
     deployments.find((item) => item.status === "active")?.id ?? deployments[0]?.id ?? ""
   );
   const [profile, setProfile] = useState<DiscoveryProfile | null>(null);
+  const [presence, setPresence] = useState<DeploymentPresenceView | null>(null);
   const [sessions, setSessions] = useState<DiscoverySession[]>([]);
   const [exposures, setExposures] = useState<DiscoveryExposure[]>([]);
   const [decisions, setDecisions] = useState<DiscoveryDecision[]>([]);
@@ -45,7 +86,10 @@ export function DiscoveryIntelligencePanel({ deployments, zh }: Props) {
     () => shares.filter((item) => item.status === "pending_review"),
     [shares]
   );
-  const latest = sessions[0];
+  const activeSession = sessions.find((item) => item.status === "active") ?? null;
+  const latestResult =
+    sessions.find((item) => ["completed", "skipped", "failed"].includes(item.status)) ?? null;
+  const metricSession = activeSession ?? sessions[0] ?? null;
 
   useEffect(() => {
     if (!deployments.some((item) => item.id === deploymentId)) {
@@ -60,14 +104,16 @@ export function DiscoveryIntelligencePanel({ deployments, zh }: Props) {
     try {
       setLoading(true);
       setError("");
-      const [nextProfile, nextSessions, nextExposures, nextDecisions, nextShares] = await Promise.all([
+      const [nextProfile, nextPresence, nextSessions, nextExposures, nextDecisions, nextShares] = await Promise.all([
         discoveryApi.profile(deploymentId),
+        deploymentPresenceApi.get(deploymentId),
         discoveryApi.sessions(deploymentId),
         discoveryApi.exposures(deploymentId),
         discoveryApi.decisions(deploymentId),
         discoveryApi.shares(deploymentId)
       ]);
       setProfile(nextProfile);
+      setPresence(nextPresence);
       setSessions(nextSessions.items);
       setExposures(nextExposures.items);
       setDecisions(nextDecisions.items);
@@ -149,7 +195,7 @@ export function DiscoveryIntelligencePanel({ deployments, zh }: Props) {
 
       <div className="discovery-intelligence-selector">
         <label>
-          <span>{zh ? "Deployment" : "Deployment"}</span>
+          <span>Deployment</span>
           <select value={deploymentId} onChange={(event) => setDeploymentId(event.currentTarget.value)}>
             {deployments.map((item) => <option key={item.id} value={item.id}>{item.character_display_name} · {item.status}</option>)}
           </select>
@@ -181,19 +227,31 @@ export function DiscoveryIntelligencePanel({ deployments, zh }: Props) {
           {view === "overview" && (
             <>
               <div className="discovery-metrics">
-                <article><span>{zh ? "状态" : "State"}</span><strong>{latest?.status?.toUpperCase() ?? profile.mode.toUpperCase()}</strong></article>
-                <article><span>{zh ? "候选" : "Candidates"}</span><strong>{latest?.candidate_count ?? 0}</strong></article>
-                <article><span>NOTICE</span><strong>{latest?.notice_count ?? 0}</strong></article>
-                <article><span>OPEN</span><strong>{latest?.open_count ?? 0}</strong></article>
-                <article><span>WATCH</span><strong>{latest?.watch_count ?? 0}</strong></article>
-                <article><span>ENGAGE</span><strong>{latest?.engage_count ?? 0}</strong></article>
+                <article><span>{zh ? "当前状态" : "Current"}</span><strong>{presenceLabel(presence, zh)}</strong></article>
+                <article><span>{zh ? "最近结果" : "Latest result"}</span><strong>{latestResult?.status?.toUpperCase() ?? "—"}</strong></article>
+                <article><span>{zh ? "候选" : "Candidates"}</span><strong>{metricSession?.candidate_count ?? 0}</strong></article>
+                <article><span>NOTICE</span><strong>{metricSession?.notice_count ?? 0}</strong></article>
+                <article><span>OPEN</span><strong>{metricSession?.open_count ?? 0}</strong></article>
+                <article><span>WATCH</span><strong>{metricSession?.watch_count ?? 0}</strong></article>
+                <article><span>ENGAGE</span><strong>{metricSession?.engage_count ?? 0}</strong></article>
               </div>
+              <small>
+                {zh
+                  ? "SKIPPED 表示某次计划没有执行；例如错过休闲浏览窗口。它不等于 YouTube / Bilibili 来源故障。"
+                  : "SKIPPED means a scheduled visit did not execute, for example because its leisure window expired. It does not mean the YouTube/Bilibili source failed."}
+              </small>
               <div className="discovery-intelligence-list">
                 {sessions.map((item) => (
                   <article key={item.id}>
                     <header><strong>{item.platform || item.source || "Discovery"}</strong><span>{item.status.toUpperCase()}</span></header>
-                    <p>{item.reason || item.error || (zh ? "没有额外说明" : "No additional note")}</p>
+                    <p>{sessionReason(item, zh)}</p>
                     <small>{stamp(item.started_at ?? item.scheduled_start_at, zh)} · {item.planned_duration_minutes} min</small>
+                    {(item.reason || item.error) && (
+                      <details>
+                        <summary>{zh ? "运行证据" : "Runtime evidence"}</summary>
+                        <small>{item.reason || item.error}</small>
+                      </details>
+                    )}
                   </article>
                 ))}
                 {sessions.length === 0 && <small>{zh ? "还没有 browsing session。" : "No browsing sessions yet."}</small>}
