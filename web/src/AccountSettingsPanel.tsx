@@ -6,10 +6,11 @@ import { NotebookField, NotebookInput } from "./NotebookUI";
 
 interface Props {
   user: AuthUser;
-  onSignedOut: () => void;
+  onLogout: () => Promise<void>;
+  onDeleted: () => void;
 }
 
-export function AccountSettingsPanel({ user, onSignedOut }: Props) {
+export function AccountSettingsPanel({ user, onLogout, onDeleted }: Props) {
   const [sessions, setSessions] = useState<AuthSession[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -54,10 +55,7 @@ export function AccountSettingsPanel({ user, onSignedOut }: Props) {
   }
 
   async function signOut() {
-    await run(async () => {
-      await api.logout();
-      onSignedOut();
-    });
+    await run(onLogout);
   }
 
   async function revokeSession(sessionId: string) {
@@ -75,7 +73,7 @@ export function AccountSettingsPanel({ user, onSignedOut }: Props) {
         String(values.get("email") ?? ""),
         String(values.get("confirmation") ?? "")
       );
-      onSignedOut();
+      onDeleted();
     });
   }
 
