@@ -8,6 +8,10 @@ from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.deployment_presence_repository import DeploymentPresenceRepository
 
 
+def as_utc(value: datetime) -> datetime:
+    return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+
+
 def seed_deployment(database: Database, *, deployment_id: str = "deployment-rhythm") -> None:
     with database.session() as session:
         session.add(
@@ -103,12 +107,8 @@ def test_rhythm_enters_sleep_and_wakes_without_any_model_dependency(tmp_path: Pa
     assert configured.scheduled_sleep_at is not None
     assert configured.scheduled_wake_at is not None
 
-    sleep_at = configured.scheduled_sleep_at
-    wake_at = configured.scheduled_wake_at
-    if sleep_at.tzinfo is None:
-        sleep_at = sleep_at.replace(tzinfo=UTC)
-    if wake_at.tzinfo is None:
-        wake_at = wake_at.replace(tzinfo=UTC)
+    sleep_at = as_utc(configured.scheduled_sleep_at)
+    wake_at = as_utc(configured.scheduled_wake_at)
 
     service.run_once(now=sleep_at + timedelta(minutes=1))
     sleeping = DeploymentPresenceRepository(database).get(
@@ -149,8 +149,10 @@ def test_overnight_window_remains_sleeping_after_local_midnight(tmp_path: Path) 
     )
     assert configured is not None
     assert configured.schedule_timezone == "Asia/Kuala_Lumpur"
-    assert configured.scheduled_sleep_at == datetime(2026, 8, 18, 15, 0, tzinfo=UTC)
-    assert configured.scheduled_wake_at == datetime(2026, 8, 18, 23, 0, tzinfo=UTC)
+    assert configured.scheduled_sleep_at is not None
+    assert configured.scheduled_wake_at is not None
+    assert as_utc(configured.scheduled_sleep_at) == datetime(2026, 8, 18, 15, 0, tzinfo=UTC)
+    assert as_utc(configured.scheduled_wake_at) == datetime(2026, 8, 18, 23, 0, tzinfo=UTC)
 
     # 18:00 UTC is 02:00 on Aug 19 in Kuala Lumpur. The active sleep schedule still
     # belongs to Aug 18 and must not be replaced by the next night's schedule.
@@ -162,7 +164,8 @@ def test_overnight_window_remains_sleeping_after_local_midnight(tmp_path: Path) 
     assert reconciled is not None
     assert reconciled.schedule_local_date == "2026-08-18"
     assert reconciled.next_state == "idle"
-    assert reconciled.next_transition_at == datetime(2026, 8, 18, 23, 0, tzinfo=UTC)
+    assert reconciled.next_transition_at is not None
+    assert as_utc(reconciled.next_transition_at) == datetime(2026, 8, 18, 23, 0, tzinfo=UTC)
 
     presence = DeploymentPresenceRepository(database).get(
         owner_id="owner-1",
@@ -170,7 +173,8 @@ def test_overnight_window_remains_sleeping_after_local_midnight(tmp_path: Path) 
     )
     assert presence is not None
     assert presence.state == "sleeping"
-    assert presence.expected_end_at == datetime(2026, 8, 18, 23, 0, tzinfo=UTC)
+    assert presence.expected_end_at is not None
+    assert as_utc(presence.expected_end_at) == datetime(2026, 8, 18, 23, 0, tzinfo=UTC)
 
 
 def test_disabling_rhythm_releases_rhythm_owned_sleep(tmp_path: Path) -> None:
