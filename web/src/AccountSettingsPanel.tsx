@@ -1,7 +1,7 @@
-import { Download, LogOut, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { api, type AuthSession, type AuthUser } from "./api";
+import { FunctionalIcon } from "./components/ui";
 import { NotebookField, NotebookInput } from "./NotebookUI";
 
 interface Props {
@@ -83,7 +83,7 @@ export function AccountSettingsPanel({ user, onLogout, onDeleted }: Props) {
 
       <section className="settings-paper-card settings-profile-card">
         <div className="settings-card-heading">
-          <span className="settings-card-icon"><UserRound size={18} aria-hidden /></span>
+          <span className="settings-card-icon"><FunctionalIcon name="identity" size={18} /></span>
           <div>
             <p className="settings-card-kicker">Profile</p>
             <h3>Your account</h3>
@@ -99,7 +99,7 @@ export function AccountSettingsPanel({ user, onLogout, onDeleted }: Props) {
 
       <section className="settings-paper-card">
         <div className="settings-card-heading">
-          <span className="settings-card-icon settings-card-icon-mint"><ShieldCheck size={18} aria-hidden /></span>
+          <span className="settings-card-icon settings-card-icon-mint"><FunctionalIcon name="boundaries" size={18} /></span>
           <div>
             <p className="settings-card-kicker">Security</p>
             <h3>Sessions</h3>
@@ -129,13 +129,13 @@ export function AccountSettingsPanel({ user, onLogout, onDeleted }: Props) {
           {sessions.length === 0 && <p className="settings-empty-copy">No session details available.</p>}
         </div>
         <button className="settings-action-button" type="button" disabled={busy} onClick={() => void signOut()}>
-          <LogOut size={16} aria-hidden /> Sign out
+          <FunctionalIcon name="chevron" size={16} /> Sign out
         </button>
       </section>
 
       <section className="settings-paper-card">
         <div className="settings-card-heading">
-          <span className="settings-card-icon settings-card-icon-peach"><Download size={18} aria-hidden /></span>
+          <span className="settings-card-icon settings-card-icon-peach"><FunctionalIcon name="archive" size={18} /></span>
           <div>
             <p className="settings-card-kicker">Data</p>
             <h3>Workspace data</h3>
@@ -143,12 +143,12 @@ export function AccountSettingsPanel({ user, onLogout, onDeleted }: Props) {
           </div>
         </div>
         <button className="settings-action-button" type="button" disabled={busy} onClick={() => void exportWorkspace()}>
-          <Download size={16} aria-hidden /> Export my workspace
+          <FunctionalIcon name="archive" size={16} /> Export my workspace
         </button>
       </section>
 
       <details className="settings-danger-note">
-        <summary><Trash2 size={15} aria-hidden /> Delete account</summary>
+        <summary><FunctionalIcon name="warning" size={15} /> Delete account</summary>
         <p>This permanently removes your account-owned workspace and credentials.</p>
         <form className="settings-danger-form" onSubmit={deleteAccount}>
           <NotebookField label="Confirm email">
