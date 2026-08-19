@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { deploymentApi, type ToolCatalogItem } from "./deploymentApi";
+import { DeploymentDailyRhythmPanel } from "./DeploymentDailyRhythmPanel";
 import { DeploymentDiscoveryWorkspace } from "./DeploymentDiscoveryWorkspace";
 import { DeploymentRelationshipPanel } from "./DeploymentRelationshipPanel";
 import "./stabilization-hotfix.css";
@@ -133,6 +134,12 @@ export function DeploymentToolSelector({
           </div>
         )}
       </section>
+
+      <DeploymentDailyRhythmPanel
+        deploymentId={deploymentId}
+        disabled={disabled}
+        zh={zh}
+      />
 
       <DeploymentDiscoveryWorkspace
         deploymentId={deploymentId}
