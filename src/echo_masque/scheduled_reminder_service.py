@@ -254,7 +254,7 @@ class ScheduledReminderDeliveryService:
             try:
                 wake_at = presence.expected_end_at.astimezone(ZoneInfo(timezone))
                 content = (
-                    f"🌙 {notice.character_display_name} 当前正在睡觉，"
+                    f"🌙 {notice.character_display_name} 当前正在睡觉\uFF0C"
                     f"预计约 {wake_at:%H:%M} 醒来。"
                 )
             except (ValueError, KeyError):
