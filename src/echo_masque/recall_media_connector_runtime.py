@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 import httpx
@@ -54,7 +55,7 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
     def _name_aliases(display_name: str, extra_aliases: list[str]) -> tuple[str, ...]:
         values: set[str] = set()
         for raw in (display_name, *extra_aliases):
-            full = raw.normalize("NFKC").strip()
+            full = unicodedata.normalize("NFKC", raw).strip()
             if not full:
                 continue
             values.add(full)
@@ -63,9 +64,9 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
 
     @staticmethod
     def _starts_with_alias(content: str, aliases: tuple[str, ...]) -> bool:
-        normalized = content.normalize("NFKC").strip()
+        normalized = unicodedata.normalize("NFKC", content).strip()
         for alias in aliases:
-            escaped = re.escape(alias.normalize("NFKC"))
+            escaped = re.escape(unicodedata.normalize("NFKC", alias))
             if re.match(
                 rf"^{escaped}(?=$|{_ADDRESS_BOUNDARY})",
                 normalized,
