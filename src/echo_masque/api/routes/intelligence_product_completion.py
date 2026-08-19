@@ -389,7 +389,7 @@ def deployment_social_intelligence(
                 else:
                     target_kind = "user"
 
-            key = (target_type, target_key)
+            key = (cast(Literal["actor", "deployment"], target_type), target_key)
             state_value = state_by_key.get(key)
             impression_record = impression_by_key.get(key)
             impression = None
@@ -417,7 +417,7 @@ def deployment_social_intelligence(
             ]
             items.append(
                 SocialTargetProductView(
-                    target_type=cast(Literal["actor", "deployment"], target_type),
+                    target_type=key[0],
                     target_key=target_key,
                     target_kind=target_kind,
                     label=label,
@@ -550,12 +550,12 @@ def server_participation_intelligence(
             )
         )
         latest_by_deployment: dict[str, SmartParticipationDeploymentStateRecord] = {}
-        for state in deployment_state_rows:
+        for deployment_state in deployment_state_rows:
             if (
-                state.deployment_id in deployment_ids
-                and state.deployment_id not in latest_by_deployment
+                deployment_state.deployment_id in deployment_ids
+                and deployment_state.deployment_id not in latest_by_deployment
             ):
-                latest_by_deployment[state.deployment_id] = state
+                latest_by_deployment[deployment_state.deployment_id] = deployment_state
 
         scope_rows = list(
             session.scalars(
@@ -594,7 +594,7 @@ def server_participation_intelligence(
 
         deployment_views: list[ParticipationDeploymentView] = []
         for deployment in deployments:
-            state = latest_by_deployment.get(deployment.id)
+            latest_state = latest_by_deployment.get(deployment.id)
             card = cards.get(deployment.character_card_id)
             deployment_views.append(
                 ParticipationDeploymentView(
@@ -605,9 +605,11 @@ def server_participation_intelligence(
                     ),
                     status=deployment.status,
                     participation_mode=deployment.participation_mode,
-                    last_admitted_at=_iso(state.last_admitted_at) if state is not None else None,
-                    last_channel_id=state.channel_id if state is not None else "",
-                    last_thread_id=state.thread_id if state is not None else "",
+                    last_admitted_at=(
+                        _iso(latest_state.last_admitted_at) if latest_state is not None else None
+                    ),
+                    last_channel_id=latest_state.channel_id if latest_state is not None else "",
+                    last_thread_id=latest_state.thread_id if latest_state is not None else "",
                 )
             )
 
