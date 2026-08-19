@@ -212,6 +212,44 @@
   font-weight: 700;
 }
 
+.presence-rhythm-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px dashed rgba(83, 98, 137, 0.16);
+  border-radius: 12px;
+  background: rgba(83, 98, 137, 0.035);
+}
+
+.presence-rhythm-strip.is-enabled {
+  background: rgba(83, 98, 137, 0.065);
+}
+
+.presence-rhythm-strip > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.presence-rhythm-strip span {
+  font-size: 0.66rem;
+  font-weight: 800;
+  opacity: 0.55;
+}
+
+.presence-rhythm-strip strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+
+.presence-rhythm-strip > small {
+  grid-column: 1 / -1;
+  opacity: 0.5;
+  font-size: 0.68rem;
+}
+
 .presence-card-details {
   padding-top: 10px;
   border-top: 1px dashed rgba(75, 63, 85, 0.16);
@@ -411,6 +449,7 @@
   .presence-card-grid,
   .presence-card-facts,
   .presence-card-details dl,
+  .presence-rhythm-strip,
   .daily-rhythm-preview {
     grid-template-columns: 1fr;
   }
