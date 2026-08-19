@@ -131,6 +131,99 @@ def test_rhythm_enters_sleep_and_wakes_without_any_model_dependency(tmp_path: Pa
     assert awake.reason == "scheduled_wake"
 
 
+def test_overnight_window_remains_sleeping_after_local_midnight(tmp_path: Path) -> None:
+    database = Database(f"sqlite:///{tmp_path / 'rhythm-overnight.db'}")
+    database.initialize()
+    seed_deployment(database)
+    service = DeploymentPresenceRhythmService(database)
+
+    configured = service.configure(
+        owner_id="owner-1",
+        deployment_id="deployment-rhythm",
+        enabled=True,
+        preferred_sleep_start_minute=23 * 60,
+        sleep_duration_min_minutes=480,
+        sleep_duration_max_minutes=480,
+        variation_minutes=0,
+        now=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+    )
+    assert configured is not None
+    assert configured.schedule_timezone == "Asia/Kuala_Lumpur"
+    assert configured.scheduled_sleep_at == datetime(2026, 8, 18, 15, 0, tzinfo=UTC)
+    assert configured.scheduled_wake_at == datetime(2026, 8, 18, 23, 0, tzinfo=UTC)
+
+    # 18:00 UTC is 02:00 on Aug 19 in Kuala Lumpur. The active sleep schedule still
+    # belongs to Aug 18 and must not be replaced by the next night's schedule.
+    reconciled = service.reconcile_deployment(
+        owner_id="owner-1",
+        deployment_id="deployment-rhythm",
+        now=datetime(2026, 8, 18, 18, 0, tzinfo=UTC),
+    )
+    assert reconciled is not None
+    assert reconciled.schedule_local_date == "2026-08-18"
+    assert reconciled.next_state == "idle"
+    assert reconciled.next_transition_at == datetime(2026, 8, 18, 23, 0, tzinfo=UTC)
+
+    presence = DeploymentPresenceRepository(database).get(
+        owner_id="owner-1",
+        deployment_id="deployment-rhythm",
+    )
+    assert presence is not None
+    assert presence.state == "sleeping"
+    assert presence.expected_end_at == datetime(2026, 8, 18, 23, 0, tzinfo=UTC)
+
+
+def test_disabling_rhythm_releases_rhythm_owned_sleep(tmp_path: Path) -> None:
+    database = Database(f"sqlite:///{tmp_path / 'rhythm-disable-active.db'}")
+    database.initialize()
+    seed_deployment(database)
+    service = DeploymentPresenceRhythmService(database)
+
+    service.configure(
+        owner_id="owner-1",
+        deployment_id="deployment-rhythm",
+        enabled=True,
+        preferred_sleep_start_minute=23 * 60,
+        sleep_duration_min_minutes=480,
+        sleep_duration_max_minutes=480,
+        variation_minutes=0,
+        now=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+    )
+    service.run_once(now=datetime(2026, 8, 18, 16, 0, tzinfo=UTC))
+
+    sleeping = DeploymentPresenceRepository(database).get(
+        owner_id="owner-1",
+        deployment_id="deployment-rhythm",
+    )
+    assert sleeping is not None
+    assert sleeping.state == "sleeping"
+    assert sleeping.source == "rhythm"
+
+    disabled = service.configure(
+        owner_id="owner-1",
+        deployment_id="deployment-rhythm",
+        enabled=False,
+        preferred_sleep_start_minute=23 * 60,
+        sleep_duration_min_minutes=480,
+        sleep_duration_max_minutes=480,
+        variation_minutes=0,
+        now=datetime(2026, 8, 18, 16, 30, tzinfo=UTC),
+    )
+    assert disabled is not None
+    assert disabled.enabled is False
+    assert disabled.next_transition_at is None
+    assert disabled.next_state == ""
+
+    awake = DeploymentPresenceRepository(database).get(
+        owner_id="owner-1",
+        deployment_id="deployment-rhythm",
+    )
+    assert awake is not None
+    assert awake.state == "idle"
+    assert awake.source == "rhythm"
+    assert awake.reason == "scheduled_rhythm_disabled"
+
+
 def test_disabled_rhythm_never_changes_manual_presence(tmp_path: Path) -> None:
     database = Database(f"sqlite:///{tmp_path / 'rhythm-disabled.db'}")
     database.initialize()
