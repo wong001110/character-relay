@@ -98,6 +98,10 @@ def create_deployment(
     return response.json()
 
 
+def has_explicit_timezone(value: str) -> bool:
+    return value.endswith("Z") or value.endswith("+00:00")
+
+
 def test_presence_defaults_to_idle_and_is_scoped_per_deployment(tmp_path: Path) -> None:
     app = create_app(settings(tmp_path / "presence.db"))
     client = TestClient(app)
@@ -122,21 +126,59 @@ def test_presence_defaults_to_idle_and_is_scoped_per_deployment(tmp_path: Path) 
     assert initial.json()["state"] == "idle"
     assert initial.json()["persisted"] is False
     assert initial.json()["available_for_character_runtime"] is True
+    assert has_explicit_timezone(initial.json()["started_at"])
 
     sleeping = client.put(
         f"/api/deployments/{server_a['id']}/presence",
-        json={"state": "sleeping", "reason": "manual acceptance test"},
+        json={
+            "state": "sleeping",
+            "reason": "manual acceptance test",
+            "expected_end_at": "2026-08-20T06:55:00+08:00",
+        },
     )
     assert sleeping.status_code == 200, sleeping.text
     assert sleeping.json()["state"] == "sleeping"
     assert sleeping.json()["persisted"] is True
     assert sleeping.json()["available_for_character_runtime"] is False
     assert sleeping.json()["discovery_allowed"] is False
+    assert has_explicit_timezone(sleeping.json()["started_at"])
+    assert has_explicit_timezone(sleeping.json()["expected_end_at"])
 
     independent = client.get(f"/api/deployments/{server_b['id']}/presence")
     assert independent.status_code == 200
     assert independent.json()["state"] == "idle"
     assert independent.json()["persisted"] is False
+
+
+def test_rhythm_api_serializes_schedule_instants_with_timezone(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "presence-rhythm-api.db"))
+    client = TestClient(app)
+    login(client)
+    character = create_character(client)
+    connection = create_connection(client)
+    deployment = create_deployment(
+        client,
+        character_id=character["id"],
+        connection_id=connection["id"],
+        guild_id="guild-rhythm",
+    )
+
+    response = client.put(
+        f"/api/deployments/{deployment['id']}/presence/rhythm",
+        json={
+            "enabled": True,
+            "preferred_sleep_start_minute": 0,
+            "sleep_duration_min_minutes": 360,
+            "sleep_duration_max_minutes": 480,
+            "variation_minutes": 45,
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["schedule_timezone"] == "Asia/Kuala_Lumpur"
+    assert has_explicit_timezone(payload["scheduled_sleep_at"])
+    assert has_explicit_timezone(payload["scheduled_wake_at"])
+    assert has_explicit_timezone(payload["next_transition_at"])
 
 
 def test_browsing_presence_requires_activity_type_and_deletion_cleans_state(

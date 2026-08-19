@@ -34,9 +34,14 @@ function hoursLabel(minutes: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
+function scheduleInstant(value: string): number {
+  const hasZone = /(?:Z|[+-]\d{2}:\d{2})$/iu.test(value);
+  return Date.parse(hasZone ? value : `${value}Z`);
+}
+
 function scheduleStamp(value: string | null, timezone: string, zh: boolean): string {
   if (!value) return "—";
-  const parsed = Date.parse(value);
+  const parsed = scheduleInstant(value);
   if (Number.isNaN(parsed)) return value;
   try {
     return new Intl.DateTimeFormat(zh ? "zh-CN" : "en", {
@@ -182,7 +187,7 @@ export function DeploymentDailyRhythmPanel({ deploymentId, disabled = false, zh 
         <>
           <div className={`daily-rhythm-grid${enabled ? "" : " is-disabled"}`}>
             <label>
-              <span>{zh ? "偏好入睡时间" : "Preferred sleep start"}</span>
+              <span>{zh ? "偏好每日入睡时间" : "Preferred daily sleep time"}</span>
               <input
                 type="time"
                 value={sleepStart}
@@ -192,6 +197,11 @@ export function DeploymentDailyRhythmPanel({ deploymentId, disabled = false, zh 
                   setSaved(false);
                 }}
               />
+              <small>
+                {zh
+                  ? "这是每天重复的偏好时刻，不是只限今天；若今天的时刻已过，会安排下一次，并套用每日时间浮动。"
+                  : "This is a recurring daily preference, not a today-only time. If today's occurrence has passed, the next one is scheduled with the daily variation applied."}
+              </small>
             </label>
             <label>
               <span>{zh ? "睡眠时长范围" : "Sleep duration range"}</span>
@@ -251,11 +261,11 @@ export function DeploymentDailyRhythmPanel({ deploymentId, disabled = false, zh 
                 <dd>{rhythm.schedule_timezone || (zh ? "启用后计算" : "Calculated when enabled")}</dd>
               </div>
               <div>
-                <dt>{zh ? "计划入睡" : "Scheduled sleep"}</dt>
+                <dt>{zh ? "下一次计划入睡" : "Next scheduled sleep"}</dt>
                 <dd>{scheduleStamp(rhythm.scheduled_sleep_at, rhythm.schedule_timezone, zh)}</dd>
               </div>
               <div>
-                <dt>{zh ? "计划醒来" : "Scheduled wake"}</dt>
+                <dt>{zh ? "下一次计划醒来" : "Next scheduled wake"}</dt>
                 <dd>{scheduleStamp(rhythm.scheduled_wake_at, rhythm.schedule_timezone, zh)}</dd>
               </div>
               <div>
