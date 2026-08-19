@@ -21,6 +21,7 @@ from echo_masque.persistence import (
 )
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import DiscordServerCatalogRecord
+from echo_masque.persistence.models import UserRecord
 from echo_masque.persistence.server_access_models import DiscordServerAccessRecord
 from echo_masque.persistence.server_access_repository import ServerAccessRepository
 
@@ -135,21 +136,22 @@ def _access_view(
         connection_id=catalog.connection_id,
         guild_id=catalog.guild_id,
     )
+    access_source = "super_admin" if super_admin else (access.access_source if access else "direct")
     return ServerAccessView(
         connection_id=catalog.connection_id,
         guild_id=catalog.guild_id,
         guild_name=catalog.guild_name,
         profile_id=profile.id if profile is not None else None,
-        access_source="super_admin" if super_admin else (access.access_source if access else "direct"),
+        access_source=access_source,
         joined_at=None if super_admin or access is None else access.created_at,
     )
 
 
-def _member_view(access: DiscordServerAccessRecord, user: object) -> ServerMemberView:
+def _member_view(access: DiscordServerAccessRecord, user: UserRecord) -> ServerMemberView:
     return ServerMemberView(
         user_id=access.user_id,
-        display_name=str(getattr(user, "display_name")),
-        email=str(getattr(user, "email")),
+        display_name=user.display_name,
+        email=user.email,
         access_source=access.access_source,
         joined_at=access.created_at,
     )
@@ -230,14 +232,20 @@ def join_server(
     user: CurrentUserDependency,
 ) -> ServerAccessView:
     if is_super_admin(user, request.app.state.settings):
-        raise HTTPException(status_code=400, detail="Super Admin already has access to every server.")
+        raise HTTPException(
+            status_code=400,
+            detail="Super Admin already has access to every server.",
+        )
 
     access_repo = _access_repository(request)
     config = access_repo.get_join_config_by_code(payload.code)
     if config is None:
         raise HTTPException(status_code=404, detail="Server join code is not valid.")
     if not config.join_enabled:
-        raise HTTPException(status_code=403, detail="Joining this server is currently disabled.")
+        raise HTTPException(
+            status_code=403,
+            detail="Joining this server is currently disabled.",
+        )
 
     catalog = access_repo.get_catalog_server(
         catalog_owner_id=_super_admin_id(request),
@@ -358,7 +366,10 @@ def grant_server_access(
 ) -> AdminServerAccessView:
     super_admin_id = _super_admin_id(request)
     if user_id == super_admin_id:
-        raise HTTPException(status_code=400, detail="Super Admin already has global server access.")
+        raise HTTPException(
+            status_code=400,
+            detail="Super Admin already has global server access.",
+        )
     target = _auth_repository(request).get_user(user_id)
     if target is None or not target.is_active:
         raise HTTPException(status_code=404, detail="Active account not found.")
