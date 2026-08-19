@@ -137,32 +137,43 @@
 /* Server workspace information architecture                                  */
 /* -------------------------------------------------------------------------- */
 
-/* The top workspace is now one Passport surface plus one useful snapshot note.
-   The old quote card is intentionally removed, and the former bottom passport
-   metadata strip participates in the top grid as the Server Snapshot. */
+/* Keep the outer scrapbook geometry stable. The page title owns the left rail;
+   the Passport shell is one real grid container on the right. Never flatten
+   this shell with display: contents: older scrapbook selectors intentionally
+   target the nested Server Workspace panel. */
 .portal-v2-page-frame .deployment-workspace-top {
   display: grid !important;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 330px);
-  grid-template-areas:
-    "workspace-head server-snapshot"
-    "server-passport server-snapshot";
-  gap: 18px 22px;
-  align-items: start;
+  grid-template-columns: minmax(245px, 24fr) minmax(0, 76fr) !important;
+  grid-template-areas: "workspace-head server-passport" !important;
+  gap: 18px 22px !important;
+  align-items: start !important;
 }
 
 .portal-v2-page-frame .deployment-workspace-top > .deployment-header {
-  grid-area: workspace-head;
+  grid-area: workspace-head !important;
   min-width: 0;
+  align-self: start;
 }
 
 .portal-v2-page-frame .deployment-workspace-top > .server-passport-shell {
-  display: contents;
+  grid-area: server-passport !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(270px, 330px) !important;
+  gap: 18px !important;
+  align-items: start !important;
+  min-width: 0;
+  width: 100%;
 }
 
 .portal-v2-page-frame .server-passport-shell > .server-workspace-panel {
-  grid-area: server-passport;
+  grid-column: 1 !important;
+  grid-row: 1 !important;
   min-width: 0;
-  margin-bottom: 0;
+  width: 100%;
+  height: auto !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  align-self: start !important;
 }
 
 .portal-v2-page-frame .deployment-workspace-quote {
@@ -171,10 +182,14 @@
 
 .portal-v2-page-frame .server-passport-meta {
   position: relative;
-  grid-area: server-snapshot;
-  align-self: stretch;
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  align-self: start !important;
   min-width: 0;
-  margin: 0;
+  width: 100%;
+  height: auto !important;
+  min-height: 0 !important;
+  margin: 0 !important;
   padding: 30px 24px 24px;
   border: 1px solid rgba(157, 120, 49, 0.16);
   border-radius: 2px;
@@ -241,19 +256,23 @@
   overflow-wrap: anywhere;
 }
 
-/* Current Server + # identity are one visual Passport. The select is the
-   Passport header, so switching Server happens directly on the Passport card. */
+/* Current Server + # identity render as one Passport surface. The selector is
+   its header and the identity/stats card is its body. */
 .portal-v2-page-frame .server-workspace-selector-row {
   display: grid !important;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) !important;
   gap: 0 !important;
-  align-items: stretch;
+  align-items: stretch !important;
+  min-width: 0;
 }
 
 .portal-v2-page-frame .server-workspace-selector-row > label {
   position: relative;
-  min-width: 0;
-  padding: 14px 16px 11px;
+  min-width: 0 !important;
+  width: 100%;
+  min-height: 0 !important;
+  height: auto !important;
+  padding: 14px 16px 11px !important;
   border: 1px solid rgba(112, 86, 158, 0.18);
   border-bottom: 0;
   border-radius: 15px 15px 0 0;
@@ -281,21 +300,33 @@
 }
 
 .portal-v2-page-frame .server-workspace-current-card {
+  display: flex !important;
   width: 100%;
-  min-width: 0;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+  flex: none !important;
   margin-top: -1px;
-  padding: 17px 18px 18px;
+  padding: 17px 18px 18px !important;
   border-top: 1px dashed rgba(112, 86, 158, 0.15);
   border-radius: 0 0 15px 15px;
   box-shadow: 0 9px 28px rgba(68, 52, 83, 0.07);
 }
 
+.portal-v2-page-frame .server-workspace-current-card .server-workspace-stats {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
 .portal-v2-page-frame .server-workspace-connection-note {
-  margin-top: 17px;
+  margin-top: 17px !important;
+  min-width: 0;
+  height: auto !important;
+  align-self: start !important;
 }
 
 /* -------------------------------------------------------------------------- */
-/* Intelligence owns observability                                             */
+/* Intelligence owns observability                                            */
 /* -------------------------------------------------------------------------- */
 
 .intelligence-workspace-shell {
@@ -371,17 +402,33 @@
   opacity: 0.68;
 }
 
-@media (max-width: 980px) {
-  .portal-v2-page-frame .deployment-workspace-top {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "workspace-head"
-      "server-passport"
-      "server-snapshot";
+@media (max-width: 1220px) {
+  .portal-v2-page-frame .deployment-workspace-top > .server-passport-shell {
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 
   .portal-v2-page-frame .server-passport-meta {
-    min-height: 0;
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+  }
+
+  .portal-v2-page-frame .server-passport-meta dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 18px;
+  }
+
+  .portal-v2-page-frame .server-passport-meta dl > div:nth-child(2) {
+    border-top: 0;
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 980px) {
+  .portal-v2-page-frame .deployment-workspace-top {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-areas:
+      "workspace-head"
+      "server-passport" !important;
   }
 }
 
@@ -395,8 +442,24 @@
     flex-direction: column;
   }
 
-  .discovery-settings-grid {
+  .discovery-settings-grid,
+  .portal-v2-page-frame .server-passport-meta dl {
     grid-template-columns: 1fr;
+  }
+
+  .portal-v2-page-frame .server-passport-meta dl > div:nth-child(2) {
+    border-top: 1px dashed rgba(108, 82, 74, 0.18);
+    padding-top: 12px;
+  }
+
+  .portal-v2-page-frame .server-workspace-current-card {
+    align-items: flex-start !important;
+    flex-wrap: wrap;
+  }
+
+  .portal-v2-page-frame .server-workspace-current-card .server-workspace-stats {
+    width: 100%;
+    margin-left: 56px;
   }
 
   .intelligence-workspace-tabs {
