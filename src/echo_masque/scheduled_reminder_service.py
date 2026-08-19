@@ -6,6 +6,7 @@ import asyncio
 import logging
 from contextlib import suppress
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 import httpx
 from pydantic import SecretStr
@@ -23,8 +24,10 @@ from echo_masque.persistence.deployment_presence_notice_models import (
 from echo_masque.persistence.deployment_presence_notice_repository import (
     DeploymentPresenceNoticeRepository,
 )
+from echo_masque.persistence.deployment_presence_repository import DeploymentPresenceRepository
 from echo_masque.persistence.scheduled_reminder_models import ScheduledReminderRecord
 from echo_masque.persistence.scheduled_reminder_repository import ScheduledReminderRepository
+from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 
 _DISCORD_API = "https://discord.com/api/v10"
 _WEBHOOK_SCOPE = "discord_webhook"
@@ -61,6 +64,8 @@ class ScheduledReminderDeliveryService:
         self.max_attempts = max(1, max_attempts)
         self.http_transport = http_transport
         self.presence_notices = DeploymentPresenceNoticeRepository(repository.database)
+        self.presence = DeploymentPresenceRepository(repository.database)
+        self.server_runtime = ServerRuntimeRepository(repository.database)
         self.presence_scheduler = presence_scheduler or DeploymentPresenceScheduler(
             DeploymentPresenceRhythmService(repository.database)
         )
@@ -229,10 +234,34 @@ class ScheduledReminderDeliveryService:
             raise RuntimeError("Presence notice deployment is no longer active.")
         if notice.notice_type != "sleeping":
             raise RuntimeError(f"Unsupported Presence notice type: {notice.notice_type}")
-        content = f"{notice.character_display_name} 当前正在睡觉中。"[:2000]
+
+        presence = self.presence.get(
+            owner_id=notice.owner_id,
+            deployment_id=notice.deployment_id,
+        )
+        # A queued notice can become stale before the background poll delivers it. Never tell
+        # the room that a Character is asleep after the authoritative Presence has already moved on.
+        if presence is None or presence.state != "sleeping":
+            return
+
+        content = f"🌙 {notice.character_display_name} 当前正在睡觉。"
+        if presence.expected_end_at is not None:
+            timezone = self.server_runtime.resolve_timezone(
+                owner_id=deployment.owner_id,
+                connection_id=deployment.connection_id,
+                guild_id=deployment.workspace_id,
+            )
+            try:
+                wake_at = presence.expected_end_at.astimezone(ZoneInfo(timezone))
+                content = (
+                    f"🌙 {notice.character_display_name} 当前正在睡觉，"
+                    f"预计约 {wake_at:%H:%M} 醒来。"
+                )
+            except (ValueError, KeyError):
+                pass
         await self._send_bot_message(
             channel_id=notice.thread_id or notice.channel_id,
-            content=content,
+            content=content[:2000],
             allowed_users=[],
             reply_to_message_id=notice.source_message_id,
         )
