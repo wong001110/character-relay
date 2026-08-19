@@ -24,6 +24,7 @@ from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_presence_repository import DeploymentPresenceRepository
 from echo_masque.persistence.discovery_repository import DiscoveryRepository
 from echo_masque.youtube_discovery import YouTubeDiscoveryAdapter, YouTubeDiscoveryUnavailable
+from echo_masque.youtube_no_key_discovery import YouTubeNoKeyDiscoveryAdapter
 
 
 class DeploymentDiscoveryUnavailable(RuntimeError):
@@ -98,10 +99,10 @@ class DeploymentDiscoveryPreviewService:
 
         if "youtube" in requested:
             key = self.settings.youtube_data_api_key
-            if key is None or not key.get_secret_value().strip():
-                errors.append("youtube:api_key_missing")
-            else:
-                try:
+            has_key = key is not None and bool(key.get_secret_value().strip())
+            try:
+                if has_key:
+                    assert key is not None
                     values = await YouTubeDiscoveryAdapter(
                         database=self.database,
                         api_key=key,
@@ -119,11 +120,27 @@ class DeploymentDiscoveryPreviewService:
                             include_popular=True,
                         )
                     )
-                except YouTubeDiscoveryUnavailable as exc:
-                    errors.append(f"youtube:{exc}")
                 else:
-                    candidates.extend(values)
-                    used_sources.append("youtube")
+                    values = await YouTubeNoKeyDiscoveryAdapter(
+                        database=self.database,
+                        search_cache_seconds=self.settings.youtube_discovery_search_cache_seconds,
+                        max_search_queries_per_session=(
+                            self.settings.youtube_discovery_max_search_queries_per_session
+                        ),
+                    ).fetch_candidates(
+                        DiscoveryFetchRequest(
+                            queries=seeds.queries,
+                            region=region,
+                            language=language,
+                            limit=fetch_limit,
+                            include_popular=False,
+                        )
+                    )
+            except YouTubeDiscoveryUnavailable as exc:
+                errors.append(f"youtube:{exc}")
+            else:
+                candidates.extend(values)
+                used_sources.append("youtube")
 
         if "bilibili" in requested:
             if not self.settings.bilibili_discovery_experimental_enabled:

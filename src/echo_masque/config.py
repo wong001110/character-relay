@@ -59,13 +59,14 @@ class Settings(BaseSettings):
     expression_semantic_retrieval_enabled: bool = True
     semantic_participation_enabled: bool = False
 
-    # Public Character Discovery source configuration. Public API/search credentials never live
-    # on Character Card. Per-Deployment profiles remain the authority for source enablement.
+    # Public Character Discovery source configuration. YouTube works without a credential via
+    # metadata-only yt-dlp search; an optional Data API key upgrades acquisition to the official
+    # API. Bilibili remains experimental but is available by default without environment setup.
     youtube_data_api_key: SecretStr | None = None
     youtube_discovery_search_cache_seconds: int = Field(default=4 * 60 * 60, ge=300, le=86400)
     youtube_discovery_popular_cache_seconds: int = Field(default=60 * 60, ge=300, le=86400)
     youtube_discovery_max_search_queries_per_session: int = Field(default=2, ge=0, le=5)
-    bilibili_discovery_experimental_enabled: bool = False
+    bilibili_discovery_experimental_enabled: bool = True
     bilibili_discovery_search_cache_seconds: int = Field(default=4 * 60 * 60, ge=300, le=86400)
     bilibili_discovery_max_search_queries_per_session: int = Field(default=1, ge=0, le=3)
     bilibili_discovery_max_results_per_query: int = Field(default=6, ge=1, le=12)

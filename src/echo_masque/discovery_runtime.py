@@ -57,8 +57,7 @@ class CompleteDeploymentDiscoveryActivityService(DeploymentBrowsingActivityServi
         profile: DeploymentDiscoveryProfileRecord,
     ) -> tuple[str, ...]:
         values: list[str] = []
-        key = self.settings.youtube_data_api_key
-        if profile.youtube_enabled and key is not None and key.get_secret_value().strip():
+        if profile.youtube_enabled:
             values.append("youtube")
         if (
             profile.bilibili_enabled
