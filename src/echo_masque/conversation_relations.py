@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Literal
 from uuid import uuid4
@@ -64,6 +65,11 @@ SEMANTIC_RELATIONS: frozenset[str] = frozenset(
         "DEPICTS",
     }
 )
+
+
+def _evidence_json(values: tuple[str, ...], *, limit: int = 16) -> str:
+    clean = list(dict.fromkeys(item for item in values if item))[-limit:]
+    return json.dumps(clean, ensure_ascii=False)
 
 
 class ConversationRelationService:
@@ -158,7 +164,7 @@ class ConversationRelationService:
                 target_ref=target_ref[:240],
                 confidence=max(0.0, min(float(confidence), 1.0)),
                 source=source[:32],
-                evidence_refs_json=self.repository._json_for_strings(evidence_refs, limit=16),
+                evidence_refs_json=_evidence_json(evidence_refs),
                 status=status,
                 supersedes_relation_id=previous.id,
                 created_at=current,
