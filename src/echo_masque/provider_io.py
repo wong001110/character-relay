@@ -14,7 +14,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from echo_masque.provider_capabilities import ProviderModelCapabilityRegistry
-from echo_masque.providers.base import ChatMessage, ProviderCompletion
+from echo_masque.providers.base import ChatMessage, ChatProvider, ProviderCompletion
 from echo_masque.providers.errors import (
     ProviderCapabilityUnsupportedError,
     ProviderProtocolError,
@@ -86,7 +86,7 @@ def _mode_capability(mode: StructuredOutputMode) -> Literal["json_schema", "json
 
 
 async def complete_structured(
-    provider: object,
+    provider: ChatProvider,
     *,
     provider_id: str,
     base_url: str,
@@ -122,10 +122,7 @@ async def complete_structured(
     )
 
     if not isinstance(provider, OpenAICompatibleProvider):
-        complete = getattr(provider, "complete", None)
-        if not callable(complete):
-            raise ProviderProtocolError("Configured provider does not implement chat completion.")
-        return await complete(
+        return await provider.complete(
             messages=messages,
             model=model,
             temperature=temperature,
