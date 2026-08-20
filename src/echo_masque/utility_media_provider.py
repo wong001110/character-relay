@@ -6,6 +6,7 @@ import base64
 from urllib.parse import urljoin, urlparse
 
 import httpx
+from pydantic import SecretStr
 
 from echo_masque.admin_runtime import UtilityProviderMember
 from echo_masque.media_runtime import MediaAnalysis, MediaAsset, MediaUnderstandingProvider
@@ -26,12 +27,24 @@ class _DataUriMultimodalProvider(OpenAICompatibleMultimodalProvider):
 
     def __init__(
         self,
-        *args: object,
+        *,
+        provider_id: str,
+        api_key: SecretStr,
+        model: str,
+        base_url: str,
+        timeout_seconds: float = 180.0,
+        transport: httpx.AsyncBaseTransport | None = None,
         media_transport: httpx.AsyncBaseTransport | None = None,
         url_guard: PublicUrlGuard | None = None,
-        **kwargs: object,
     ) -> None:
-        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        super().__init__(
+            provider_id=provider_id,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            transport=transport,
+        )
         self._media_transport = media_transport
         self._url_guard = url_guard or PublicUrlGuard()
 
@@ -125,9 +138,8 @@ class _DataUriMultimodalProvider(OpenAICompatibleMultimodalProvider):
                 declared_mime=asset.mime_type,
             )
         elif asset.keyframe_uris:
-            updates["keyframe_uris"] = tuple(
-                [await self._data_uri(uri) for uri in asset.keyframe_uris]
-            )
+            converted = [await self._data_uri(uri) for uri in asset.keyframe_uris]
+            updates["keyframe_uris"] = tuple(converted)
         adapted = asset.model_copy(update=updates) if updates else asset
         return await super().analyze(adapted)
 
