@@ -23,6 +23,8 @@ from echo_masque.config import Settings
 from echo_masque.credentials import CredentialVault
 from echo_masque.persistence import AuthRepository, Repository
 from echo_masque.persistence.models import UserRecord
+from echo_masque.provider_capabilities import ProviderModelCapabilityRegistry
+from echo_masque.provider_capability_persistence import ProviderCapabilityPersistence
 from echo_masque.testers import AdaptiveTesterConfig
 
 RuntimeKind = Literal[
@@ -49,6 +51,9 @@ class RuntimeService:
     ) -> None:
         self.repository = repository
         self.settings = settings
+        ProviderModelCapabilityRegistry.configure_persistence(
+            ProviderCapabilityPersistence(repository.database)
+        )
         self.credential_vault = credential_vault or CredentialVault(
             AuthRepository(repository.database),
             settings,
