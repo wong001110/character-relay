@@ -87,11 +87,13 @@ class CharacterAssistantService:
                 "AI assistance is unavailable because the Authoring Runtime is disabled "
                 "or its encrypted credential is missing."
             )
+        provider_id = str(getattr(runtime_config, "provider", "custom"))
+        base_url = str(getattr(runtime_config, "base_url", ""))
 
         completion = await complete_structured(
             provider,
-            provider_id=runtime_config.provider,
-            base_url=runtime_config.base_url,
+            provider_id=provider_id,
+            base_url=base_url,
             model=runtime_config.model,
             schema=CharacterSuggestionDraft,
             schema_name="character_suggestion",
@@ -112,8 +114,8 @@ class CharacterAssistantService:
             correction_used = True
             correction = await complete_structured(
                 provider,
-                provider_id=runtime_config.provider,
-                base_url=runtime_config.base_url,
+                provider_id=provider_id,
+                base_url=base_url,
                 model=runtime_config.model,
                 schema=CharacterSuggestionDraft,
                 schema_name="character_suggestion",
