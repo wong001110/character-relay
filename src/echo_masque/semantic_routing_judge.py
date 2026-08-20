@@ -14,8 +14,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from echo_masque.admin_runtime import SemanticJudgeEndpoint, SemanticRoutingJudgeProfile
 from echo_masque.config import Settings
 from echo_masque.persistence import Repository
-from echo_masque.provider_capabilities import ProviderModelCapabilityRegistry
-from echo_masque.provider_io import provider_dialect, structured_response_format
+from echo_masque.provider_capabilities import ModelCapability, ProviderModelCapabilityRegistry
+from echo_masque.provider_io import (
+    StructuredOutputMode,
+    provider_dialect,
+    structured_response_format,
+)
 from echo_masque.services.runtime import RuntimeService, SemanticCredentialKind
 from echo_masque.utility_structured_output import exact_json_contract
 
@@ -70,8 +74,12 @@ class SemanticRoutingJudgeService:
             return None
 
     @staticmethod
-    def _capability(mode: str) -> str | None:
-        return mode if mode in {"json_schema", "json_object"} else None
+    def _capability(mode: StructuredOutputMode) -> ModelCapability | None:
+        if mode == "json_schema":
+            return "json_schema"
+        if mode == "json_object":
+            return "json_object"
+        return None
 
     @staticmethod
     def _looks_like_structured_rejection(body: str) -> bool:
@@ -128,7 +136,7 @@ class SemanticRoutingJudgeService:
                 provider=endpoint.provider,
                 model=endpoint.model,
                 base_url=endpoint.base_url,
-                capability=capability,  # type: ignore[arg-type]
+                capability=capability,
             ):
                 continue
             payload = dict(base_payload)
@@ -158,7 +166,7 @@ class SemanticRoutingJudgeService:
                             provider=endpoint.provider,
                             model=endpoint.model,
                             base_url=endpoint.base_url,
-                            capability=capability,  # type: ignore[arg-type]
+                            capability=capability,
                             supported=False,
                             detail=response.text[:500],
                         )
@@ -182,7 +190,7 @@ class SemanticRoutingJudgeService:
                         provider=endpoint.provider,
                         model=endpoint.model,
                         base_url=endpoint.base_url,
-                        capability=capability,  # type: ignore[arg-type]
+                        capability=capability,
                         supported=True,
                     )
                 return parsed, "ok"
