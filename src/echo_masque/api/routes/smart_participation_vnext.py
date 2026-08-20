@@ -1,7 +1,7 @@
-"""Burst segmentation + Segment Reply Planner wrapper around Smart Participation V4.
+"""Conversation Structure + Segment Reply Planner wrapper around Smart Participation V4.
 
-The wrapper composes the validated V4 admission authority. It adds non-exclusive Semantic Thread
-evidence and chooses one primary Segment for each admitted Character without rewriting V4.
+The wrapper composes the validated V4 admission authority. It adds non-exclusive Conversation
+Thread evidence and chooses one primary Segment for each admitted Character without rewriting V4.
 """
 
 from __future__ import annotations
@@ -25,9 +25,11 @@ from echo_masque.api.smart_participation_vnext_schemas import (
 )
 from echo_masque.config import Settings
 from echo_masque.conversation_reply_planner import CharacterSegmentReplyPlanner
-from echo_masque.conversation_segmentation import ConversationSegmentationService
+from echo_masque.conversation_structure_resolver import ConversationStructureResolver
 from echo_masque.persistence import DeploymentRepository, Repository
-from echo_masque.persistence.conversation_segment_repository import ConversationSegmentRepository
+from echo_masque.persistence.conversation_structure_repository import (
+    ConversationStructureRepository,
+)
 from echo_masque.persistence.smart_participation_state_models import (
     SmartParticipationReplyDecisionRecord,
 )
@@ -39,9 +41,9 @@ from echo_masque.utility_gateway_router import UtilityGatewayRouter
 router = APIRouter()
 
 
-def _service(request: Request) -> ConversationSegmentationService:
-    current = getattr(request.app.state, "conversation_segmentation_vnext", None)
-    if isinstance(current, ConversationSegmentationService):
+def _service(request: Request) -> ConversationStructureResolver:
+    current = getattr(request.app.state, "conversation_structure_resolver_v3", None)
+    if isinstance(current, ConversationStructureResolver):
         return current
     database = cast(DeploymentRepository, request.app.state.deployment_repository).database
     runtime = getattr(request.app.state, "runtime_service", None)
@@ -50,12 +52,12 @@ def _service(request: Request) -> ConversationSegmentationService:
             cast(Repository, request.app.state.repository),
             cast(Settings, request.app.state.settings),
         )
-    service = ConversationSegmentationService(
-        ConversationSegmentRepository(database),
+    service = ConversationStructureResolver(
+        ConversationStructureRepository(database),
         cast(Settings, request.app.state.settings),
         UtilityGatewayRouter(runtime, caller=ExistingProviderUtilityCaller()),
     )
-    request.app.state.conversation_segmentation_vnext = service
+    request.app.state.conversation_structure_resolver_v3 = service
     return service
 
 
@@ -161,7 +163,7 @@ def resolve_smart_participation_vnext(
     request: Request,
     authorization: Annotated[str | None, Header()] = None,
 ) -> SmartParticipationResolveVNextView:
-    """Keep V4 admission authority and layer Burst segmentation / primary Segment targeting."""
+    """Keep V4 admission authority and layer Conversation Structure / Segment targeting."""
 
     base = resolve_smart_participation_v4(payload, request, authorization)
     records = _records_for_payload(payload, request)
@@ -171,8 +173,9 @@ def resolve_smart_participation_vnext(
     try:
         result = _service(request).resolve(payload=payload, owner_id=owner_id)
     except Exception:
-        # Migration layer: never turn a segmentation defect into a duplicate/failed Discord turn.
-        return _base_result(base, source="segmentation_failed")
+        # Structural projection must not convert an already-resolved Discord ingress into a
+        # duplicate side effect. This is failure isolation, not a fallback to Topic authority.
+        return _base_result(base, source="conversation_structure_failed")
 
     segment_views = [
         ConversationSegmentRouteView(
