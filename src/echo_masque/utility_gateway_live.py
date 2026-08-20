@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from typing import NoReturn
 
 from pydantic import BaseModel
 
@@ -202,7 +203,7 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
         )
 
     @classmethod
-    def _raise_utility_failure(cls, exc: ProviderError) -> None:
+    def _raise_utility_failure(cls, exc: ProviderError) -> NoReturn:
         if isinstance(exc, (ProviderRateLimitError, ProviderQuotaExhaustedError)):
             reset_at, zero = cls._reset_from_quota(exc)
             raise UtilityCallFailed(
@@ -267,7 +268,6 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
             )
         except ProviderError as exc:
             self._raise_utility_failure(exc)
-            raise AssertionError("unreachable")
         return self._reply(completion)
 
     def call(
@@ -339,7 +339,6 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
                 )
         except ProviderError as exc:
             self._raise_utility_failure(exc)
-            raise AssertionError("unreachable")
         return self._reply(completion)
 
 
