@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from echo_masque.persistence.conversation_segment_repository import ConversationSegmentView
+from echo_masque.persistence.conversation_structure_repository import ConversationSegmentView
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.semantic_participation import (
     CharacterParticipationSemanticService,
@@ -105,7 +105,7 @@ class CharacterSegmentReplyPlanner:
         return CharacterSegmentTarget(
             deployment_id=deployment.id,
             segment_id=selected.id,
-            semantic_thread_id=selected.semantic_thread_id,
+            semantic_thread_id=selected.thread_id,
             score=round(value, 6),
             reason=reason,
             guidance=guidance,
