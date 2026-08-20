@@ -1,4 +1,4 @@
-"""Burst-level conversation segmentation and concurrent Semantic Thread assignment."""
+"""Burst-level segmentation and revisable Conversation Thread resolution."""
 
 from __future__ import annotations
 
@@ -18,9 +18,12 @@ from echo_masque.api.smart_participation_v4_schemas import (
 from echo_masque.config import Settings
 from echo_masque.expression_retrieval import semantic_tokens
 from echo_masque.persistence.conversation_segment_repository import (
-    ConversationSegmentRepository,
+    ConversationSegmentRepository as LegacyConversationSegmentRepository,
+)
+from echo_masque.persistence.conversation_structure_repository import (
     ConversationSegmentView,
-    SemanticThreadView,
+    ConversationStructureRepository,
+    ConversationThreadView,
 )
 from echo_masque.semantic_participation import (
     FastEmbedSemanticEncoder,
@@ -31,9 +34,10 @@ from echo_masque.utility_gateway_contracts import UtilityGatewayUnavailable
 from echo_masque.utility_gateway_router import UtilityGatewayRouter
 
 SegmentKind = Literal["discussion", "reaction", "side_comment", "media_context"]
-ThreadAction = Literal["attach", "create", "context_only"]
+ThreadAction = Literal["attach", "create", "context_only", "unresolved"]
 _REACTION = re.compile(
-    r"^(?:哈+|哈哈哈*|笑死|确实|確實|真的|真的假的|对|對|嗯+|哦+|lol+|lmao+|true|same|yes|yep|nah|wow|草+|艹+|6+|？？+|\?+|！+|!+)$",
+    r"^(?:哈+|哈哈哈*|笑死|确实|確實|真的|真的假的|对|對|嗯+|哦+|lol+|lmao+|"
+    r"true|same|yes|yep|nah|wow|草+|艹+|6+|？？+|\?+|！+|!+)$",
     re.IGNORECASE,
 )
 
@@ -48,6 +52,7 @@ class ConversationJudgeSegment(BaseModel):
     thread_id: str = Field(default="", max_length=64)
     thread_evidence: bool = True
     confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    reason: str = Field(default="", max_length=240)
 
 
 class ConversationJudgeResult(BaseModel):
@@ -100,13 +105,19 @@ class ConversationSegmentationService:
 
     def __init__(
         self,
-        repository: ConversationSegmentRepository,
+        repository: ConversationStructureRepository | LegacyConversationSegmentRepository,
         settings: Settings,
         gateway: UtilityGatewayRouter | None = None,
         *,
         encoder: SemanticEncoder | None = None,
     ) -> None:
-        self.repository = repository
+        # Bootstrap adapter only: the legacy repository contributes only its Database handle.
+        # All Conversation Structure reads/writes below use the v3 repository and tables.
+        self.repository = (
+            repository
+            if isinstance(repository, ConversationStructureRepository)
+            else ConversationStructureRepository(repository.database)
+        )
         self.settings = settings
         self.gateway = gateway
         self.encoder = encoder
@@ -119,7 +130,9 @@ class ConversationSegmentationService:
             )
 
     @staticmethod
-    def _messages(payload: SmartParticipationResolveRequest) -> tuple[SmartParticipationBurstMessage, ...]:
+    def _messages(
+        payload: SmartParticipationResolveRequest,
+    ) -> tuple[SmartParticipationBurstMessage, ...]:
         if payload.burst_messages:
             return tuple(payload.burst_messages)
         if not payload.message_id and not payload.message:
@@ -159,15 +172,6 @@ class ConversationSegmentationService:
         return " | ".join(lines)[:800]
 
     @staticmethod
-    def _keywords(text: str) -> tuple[str, ...]:
-        values: list[str] = []
-        for token in semantic_tokens(text):
-            clean = token.strip()[:120]
-            if len(clean) >= 2 and clean not in values:
-                values.append(clean)
-        return tuple(values[:16])
-
-    @staticmethod
     def _sparse(left: str, right: str) -> float:
         a = set(semantic_tokens(left))
         b = set(semantic_tokens(right))
@@ -186,24 +190,38 @@ class ConversationSegmentationService:
             return 0.0
         return dot / (left_norm * right_norm)
 
-    def _thread_score(self, text: str, thread: SemanticThreadView) -> float:
-        target = "\n".join(item for item in (thread.label, thread.summary, " ".join(thread.keywords)) if item)
+    def _thread_score(self, text: str, thread: ConversationThreadView) -> float:
+        target = "\n".join(
+            item
+            for item in (
+                thread.canonical_label,
+                thread.anchor_summary,
+                thread.working_summary,
+            )
+            if item
+        )
         score = self._sparse(text, target)
         if self.encoder is None:
             return score
         try:
-            return max(0.0, self._cosine(self.encoder.embed_query(text), self.encoder.embed_passage(target)))
+            return max(
+                0.0,
+                self._cosine(
+                    self.encoder.embed_query(text),
+                    self.encoder.embed_passage(target),
+                ),
+            )
         except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
             return score
 
-    def _best_thread(
+    def _rank_threads(
         self,
         text: str,
-        threads: tuple[SemanticThreadView, ...],
-    ) -> tuple[SemanticThreadView | None, float]:
-        scored = [(self._thread_score(text, thread), thread) for thread in threads]
-        scored.sort(key=lambda item: item[0], reverse=True)
-        return (scored[0][1], scored[0][0]) if scored else (None, 0.0)
+        threads: tuple[ConversationThreadView, ...],
+    ) -> tuple[tuple[ConversationThreadView, float], ...]:
+        scored = [(thread, self._thread_score(text, thread)) for thread in threads]
+        scored.sort(key=lambda item: item[1], reverse=True)
+        return tuple(scored)
 
     @staticmethod
     def _hard_clusters(
@@ -217,34 +235,109 @@ class ConversationSegmentationService:
         grouped: dict[str, list[SmartParticipationBurstMessage]] = {}
         for item in messages:
             grouped.setdefault(graph.find(item.message_id), []).append(item)
-        # Preserve original temporal order across clusters.
         order = {item.message_id: index for index, item in enumerate(messages)}
         values = list(grouped.values())
         values.sort(key=lambda items: min(order[item.message_id] for item in items))
         return tuple(tuple(items) for items in values)
 
+    def _reply_thread_hint(
+        self,
+        *,
+        cluster: tuple[SmartParticipationBurstMessage, ...],
+        owner_id: str,
+        payload: SmartParticipationResolveRequest,
+    ) -> ConversationThreadView | None:
+        current_ids = {item.message_id for item in cluster}
+        found: list[ConversationThreadView] = []
+        for item in cluster:
+            target = item.reply_to_message_id
+            if not target or target in current_ids:
+                continue
+            thread = self.repository.thread_for_message(
+                owner_id=owner_id,
+                connection_id=payload.connection_id,
+                guild_id=payload.guild_id,
+                channel_id=payload.channel_id,
+                discord_thread_id=payload.thread_id,
+                message_id=target,
+            )
+            if thread is not None and all(existing.id != thread.id for existing in found):
+                found.append(thread)
+        return found[0] if len(found) == 1 else None
+
     def _fallback(
         self,
+        *,
         messages: tuple[SmartParticipationBurstMessage, ...],
-        threads: tuple[SemanticThreadView, ...],
+        threads: tuple[ConversationThreadView, ...],
+        owner_id: str,
+        payload: SmartParticipationResolveRequest,
     ) -> ConversationJudgeResult:
         results: list[ConversationJudgeSegment] = []
         for cluster in self._hard_clusters(messages):
             summary = self._summary(cluster)
             context_only = self._context_only(cluster)
-            best, similarity = self._best_thread(summary, threads) if summary else (None, 0.0)
-            if context_only:
-                action: ThreadAction = "context_only"
-                thread_id = best.id if best is not None and similarity >= 0.48 else ""
+            reply_thread = self._reply_thread_hint(
+                cluster=cluster,
+                owner_id=owner_id,
+                payload=payload,
+            )
+            if reply_thread is not None:
+                results.append(
+                    ConversationJudgeSegment(
+                        message_ids=tuple(item.message_id for item in cluster),
+                        kind="reaction" if context_only else "discussion",
+                        summary=summary,
+                        thread_action="context_only" if context_only else "attach",
+                        thread_id=reply_thread.id,
+                        thread_evidence=not context_only,
+                        confidence=0.99,
+                        reason="explicit_reply_to_prior_thread",
+                    )
+                )
+                continue
+
+            ranked = self._rank_threads(summary, threads) if summary else ()
+            best = ranked[0] if ranked else None
+            second_score = ranked[1][1] if len(ranked) > 1 else 0.0
+            best_score = best[1] if best is not None else 0.0
+            margin = best_score - second_score
+            if not threads:
+                action: ThreadAction = "context_only" if context_only else "create"
+                thread_id = ""
+                evidence = not context_only
+                confidence = 0.82 if not context_only else 0.72
+                reason = "no_prior_thread"
+            elif context_only and best is not None and best_score >= 0.58 and margin >= 0.08:
+                action = "context_only"
+                thread_id = best[0].id
                 evidence = False
-            elif best is not None and similarity >= 0.62:
+                confidence = min(0.92, max(0.60, best_score))
+                reason = "context_semantic_margin"
+            elif context_only and best_score <= 0.25:
+                action = "context_only"
+                thread_id = ""
+                evidence = False
+                confidence = 0.65
+                reason = "context_unassigned"
+            elif not context_only and best is not None and best_score >= 0.70 and margin >= 0.10:
                 action = "attach"
-                thread_id = best.id
+                thread_id = best[0].id
                 evidence = True
-            else:
+                confidence = min(0.94, max(0.72, best_score))
+                reason = "semantic_candidate_clear_margin"
+            elif not context_only and best_score <= 0.30:
                 action = "create"
                 thread_id = ""
                 evidence = True
+                confidence = 0.72
+                reason = "semantic_candidate_far"
+            else:
+                action = "unresolved"
+                thread_id = ""
+                evidence = False
+                confidence = max(0.35, min(0.69, best_score))
+                reason = "ambiguous_thread_candidate"
             results.append(
                 ConversationJudgeSegment(
                     message_ids=tuple(item.message_id for item in cluster),
@@ -253,57 +346,91 @@ class ConversationSegmentationService:
                     thread_action=action,
                     thread_id=thread_id,
                     thread_evidence=evidence,
-                    confidence=round(max(0.55, min(max(similarity, 0.55), 0.92)), 6),
+                    confidence=round(confidence, 6),
+                    reason=reason,
                 )
             )
         return ConversationJudgeResult(segments=tuple(results))
+
+    @classmethod
+    def _needs_utility(
+        cls,
+        messages: tuple[SmartParticipationBurstMessage, ...],
+        fallback: ConversationJudgeResult,
+    ) -> bool:
+        if any(item.thread_action == "unresolved" for item in fallback.segments):
+            return True
+        clusters = cls._hard_clusters(messages)
+        return len(messages) > 1 and len(clusters) == len(messages)
+
+    def _utility_available(self) -> bool:
+        if self.gateway is None:
+            return False
+        config = self.gateway.runtime.config().utility_gateway
+        return bool(
+            config.enabled
+            and any(
+                member.enabled and "semantic_judge" in member.capabilities
+                for member in config.members
+            )
+        )
 
     def _utility_decision(
         self,
         *,
         messages: tuple[SmartParticipationBurstMessage, ...],
-        threads: tuple[SemanticThreadView, ...],
+        threads: tuple[ConversationThreadView, ...],
+        owner_id: str,
+        payload: SmartParticipationResolveRequest,
     ) -> ConversationJudgeResult | None:
-        if self.gateway is None or len(messages) <= 1:
+        if not self._utility_available() or self.gateway is None:
             return None
-        config = self.gateway.runtime.config().utility_gateway
-        if not config.enabled or not any(
-            member.enabled and "topic_intelligence" in member.capabilities
-            for member in config.members
-        ):
-            return None
-        message_payload = [
-            {
-                "message_id": item.message_id,
-                "author": item.author_display_name or item.author_id,
-                "text": self._content(item),
-                "reply_to_message_id": item.reply_to_message_id,
-            }
-            for item in messages
-        ]
+        message_payload: list[dict[str, object]] = []
+        for item in messages:
+            reply_hint = ""
+            if item.reply_to_message_id:
+                prior = self.repository.thread_for_message(
+                    owner_id=owner_id,
+                    connection_id=payload.connection_id,
+                    guild_id=payload.guild_id,
+                    channel_id=payload.channel_id,
+                    discord_thread_id=payload.thread_id,
+                    message_id=item.reply_to_message_id,
+                )
+                reply_hint = prior.id if prior is not None else ""
+            message_payload.append(
+                {
+                    "message_id": item.message_id,
+                    "author": item.author_display_name or item.author_id,
+                    "text": self._content(item),
+                    "reply_to_message_id": item.reply_to_message_id,
+                    "reply_thread_hint": reply_hint,
+                }
+            )
         thread_payload = [
             {
                 "thread_id": item.id,
-                "label": item.label,
-                "summary": item.summary[-1200:],
+                "canonical_label": item.canonical_label,
+                "anchor_summary": item.anchor_summary[:1200],
+                "working_summary": item.working_summary[:1200],
                 "status": item.status,
             }
-            for item in threads[:6]
+            for item in threads[:8]
         ]
         system = (
-            "You are Character Relay's Burst conversation-structure judge. A Burst is only a "
-            "time window and may contain several interleaved discussions. Group messages into "
-            "conversation segments using explicit reply links as strong evidence. A short reaction "
-            "may belong to a thread while thread_evidence=false. Use thread_action=attach only with "
-            "one supplied thread_id; create for a genuinely new discussion; context_only for banter "
-            "or reactions that should not broaden semantic identity. Every message_id must appear "
-            "exactly once. Return one strict JSON object matching the requested schema and no prose."
+            "You are Character Relay's Conversation Structure judge. A Burst is only a time "
+            "window and may contain several interleaved discussions. Preserve explicit reply "
+            "chains. A supplied reply_thread_hint is structural authority unless the message is "
+            "explicitly clarifying that the reply was about another target. Use attach only with "
+            "one supplied thread_id; create for a genuinely new discussion; context_only for a "
+            "reaction that should not broaden thread identity; unresolved when evidence is too "
+            "weak. Do not force a thread assignment. Every message_id must appear exactly once."
         )
         user = "\n".join(
             (
                 "Current Burst:",
                 json.dumps(message_payload, ensure_ascii=False),
-                "Candidate Semantic Threads:",
+                "Candidate Conversation Threads:",
                 json.dumps(thread_payload, ensure_ascii=False),
                 "Required schema:",
                 json.dumps(ConversationJudgeResult.model_json_schema(), ensure_ascii=False),
@@ -311,26 +438,103 @@ class ConversationSegmentationService:
         )
         try:
             value, _ = self.gateway.invoke(
-                "topic_intelligence",
+                "semantic_judge",
                 ConversationJudgeResult,
                 system_prompt=system,
                 user_prompt=user,
-                max_output_tokens=700,
+                max_output_tokens=900,
                 temperature=0.0,
             )
         except UtilityGatewayUnavailable:
             return None
+        if not self._valid_utility_result(
+            value,
+            messages=messages,
+            threads=threads,
+            owner_id=owner_id,
+            payload=payload,
+        ):
+            return None
+        return value
+
+    def _valid_utility_result(
+        self,
+        value: ConversationJudgeResult,
+        *,
+        messages: tuple[SmartParticipationBurstMessage, ...],
+        threads: tuple[ConversationThreadView, ...],
+        owner_id: str,
+        payload: SmartParticipationResolveRequest,
+    ) -> bool:
         expected = {item.message_id for item in messages}
         observed = {message_id for segment in value.segments for message_id in segment.message_ids}
         if expected != observed:
-            return None
+            return False
         allowed_threads = {item.id for item in threads}
-        for segment in value.segments:
+        segment_index: dict[str, int] = {}
+        for index, segment in enumerate(value.segments):
+            for message_id in segment.message_ids:
+                segment_index[message_id] = index
             if segment.thread_action == "attach" and segment.thread_id not in allowed_threads:
-                return None
-            if segment.thread_action != "attach" and segment.thread_id and segment.thread_id not in allowed_threads:
-                return None
-        return value
+                return False
+            if segment.thread_action in {"create", "unresolved"} and segment.thread_id:
+                return False
+        for item in messages:
+            target = item.reply_to_message_id
+            if not target:
+                continue
+            if (
+                target in expected
+                and segment_index.get(target) != segment_index.get(item.message_id)
+            ):
+                return False
+            if target in expected:
+                continue
+            prior = self.repository.thread_for_message(
+                owner_id=owner_id,
+                connection_id=payload.connection_id,
+                guild_id=payload.guild_id,
+                channel_id=payload.channel_id,
+                discord_thread_id=payload.thread_id,
+                message_id=target,
+            )
+            if prior is None:
+                continue
+            segment = value.segments[segment_index[item.message_id]]
+            if segment.thread_action not in {"attach", "context_only"}:
+                return False
+            if segment.thread_id != prior.id:
+                return False
+        return True
+
+    def _record_explicit_relations(
+        self,
+        *,
+        messages: tuple[SmartParticipationBurstMessage, ...],
+        owner_id: str,
+        payload: SmartParticipationResolveRequest,
+        now: datetime,
+    ) -> None:
+        for item in messages:
+            if not item.reply_to_message_id:
+                continue
+            self.repository.record_relation(
+                owner_id=owner_id,
+                connection_id=payload.connection_id,
+                guild_id=payload.guild_id,
+                channel_id=payload.channel_id,
+                discord_thread_id=payload.thread_id,
+                source_message_id=item.message_id,
+                relation_class="interaction",
+                relation_type="REPLY_TO",
+                target_ref_type="message",
+                target_ref=item.reply_to_message_id,
+                confidence=1.0,
+                source="discord_explicit",
+                evidence_refs=(item.message_id, item.reply_to_message_id),
+                status="resolved",
+                now=now,
+            )
 
     def resolve(
         self,
@@ -353,20 +557,44 @@ class ConversationSegmentationService:
             limit=12,
             now=current,
         )
-        judged = self._utility_decision(messages=messages, threads=threads)
+        fallback = self._fallback(
+            messages=messages,
+            threads=threads,
+            owner_id=owner_id,
+            payload=payload,
+        )
+        judged: ConversationJudgeResult | None = None
+        if self._needs_utility(messages, fallback):
+            judged = self._utility_decision(
+                messages=messages,
+                threads=threads,
+                owner_id=owner_id,
+                payload=payload,
+            )
+        decision = judged or fallback
         source = "utility" if judged is not None else "deterministic"
-        decision = judged or self._fallback(messages, threads)
+        self._record_explicit_relations(
+            messages=messages,
+            owner_id=owner_id,
+            payload=payload,
+            now=current,
+        )
         message_by_id = {item.message_id: item for item in messages}
-        persisted: list[dict[str, object]] = []
+        rows: list[dict[str, object]] = []
+        decisions: list[ConversationJudgeSegment] = []
         known_threads = {item.id: item for item in threads}
         for index, segment in enumerate(decision.segments, start=1):
-            cluster = tuple(message_by_id[item] for item in segment.message_ids if item in message_by_id)
-            participants = tuple(dict.fromkeys(item.author_id for item in cluster if item.author_id))
+            cluster = tuple(
+                message_by_id[item] for item in segment.message_ids if item in message_by_id
+            )
+            participants = tuple(
+                dict.fromkeys(item.author_id for item in cluster if item.author_id)
+            )
             summary = " ".join(segment.summary.split())[:800] or self._summary(cluster)
             thread_id = segment.thread_id
             action: ThreadAction = segment.thread_action
             if action == "attach" and thread_id not in known_threads:
-                action = "create" if segment.thread_evidence else "context_only"
+                action = "unresolved"
                 thread_id = ""
             if action == "create" and segment.thread_evidence:
                 created = self.repository.create_thread(
@@ -375,53 +603,102 @@ class ConversationSegmentationService:
                     guild_id=payload.guild_id,
                     channel_id=payload.channel_id,
                     discord_thread_id=payload.thread_id,
-                    label=summary[:240] or "Conversation thread",
-                    summary=summary,
-                    keywords=self._keywords(summary),
+                    canonical_label=summary[:240] or "Conversation thread",
+                    anchor_summary=summary,
+                    working_summary=summary,
                     now=current,
                 )
                 thread_id = created.id
                 known_threads[created.id] = created
-            elif thread_id:
-                if segment.thread_evidence:
-                    updated = self.repository.update_thread_evidence(
-                        owner_id=owner_id,
-                        thread_id=thread_id,
-                        summary=summary,
-                        keywords=self._keywords(summary),
-                        now=current,
-                    )
-                    if updated is not None:
-                        known_threads[thread_id] = updated
-                else:
-                    self.repository.touch_thread(owner_id=owner_id, thread_id=thread_id, now=current)
-            persisted.append(
+            decisions.append(
+                segment.model_copy(
+                    update={
+                        "summary": summary,
+                        "thread_action": action,
+                        "thread_id": thread_id,
+                    }
+                )
+            )
+            rows.append(
                 {
                     "segment_key": f"{index}:{'-'.join(segment.message_ids)}"[:120],
                     "message_ids": segment.message_ids,
                     "participant_ids": participants,
                     "kind": segment.kind,
                     "summary": summary,
-                    "semantic_thread_id": thread_id,
-                    "thread_action": action,
-                    "thread_evidence": segment.thread_evidence,
                     "confidence": segment.confidence,
                     "source": source,
                 }
             )
-        records = self.repository.record_segments(
+        recorded = self.repository.record_segments(
             owner_id=owner_id,
             burst_id=burst_id,
             connection_id=payload.connection_id,
             guild_id=payload.guild_id,
             channel_id=payload.channel_id,
             discord_thread_id=payload.thread_id,
-            segments=tuple(persisted),
+            segments=tuple(rows),
             now=current,
         )
+        final: list[ConversationSegmentView] = []
+        for item, segment in zip(recorded, decisions, strict=True):
+            relation = "unresolved"
+            if segment.thread_action == "attach" or segment.thread_action == "create":
+                relation = "belongs_to"
+            elif segment.thread_action == "context_only" and segment.thread_id:
+                relation = "reaction_to" if segment.kind == "reaction" else "context_of"
+            membership = self.repository.assign_membership(
+                owner_id=owner_id,
+                segment_id=item.id,
+                thread_id=segment.thread_id,
+                relation=relation,
+                confidence=segment.confidence,
+                source=source,
+                reason=segment.reason or segment.thread_action,
+                now=current,
+            )
+            if membership.thread_id and membership.relation == "belongs_to":
+                updated = self.repository.update_thread_working_state(
+                    owner_id=owner_id,
+                    thread_id=membership.thread_id,
+                    working_summary=item.summary,
+                    participant_ids=item.participant_ids,
+                    now=current,
+                )
+                if updated is not None:
+                    known_threads[updated.id] = updated
+            elif membership.thread_id:
+                self.repository.touch_thread(
+                    owner_id=owner_id,
+                    thread_id=membership.thread_id,
+                    now=current,
+                )
+            final_membership = self.repository.current_membership(
+                owner_id=owner_id,
+                segment_id=item.id,
+            )
+            if final_membership is None:
+                final.append(item)
+            else:
+                final.append(
+                    ConversationSegmentView(
+                        id=item.id,
+                        burst_id=item.burst_id,
+                        message_ids=item.message_ids,
+                        participant_ids=item.participant_ids,
+                        kind=item.kind,
+                        summary=item.summary,
+                        thread_id=final_membership.thread_id,
+                        membership_relation=final_membership.relation,
+                        membership_confidence=final_membership.confidence,
+                        confidence=item.confidence,
+                        source=item.source,
+                        created_at=item.created_at,
+                    )
+                )
         return ConversationSegmentationResult(
             burst_id=burst_id,
-            segments=records,
+            segments=tuple(final),
             source=source,
             utility_used=judged is not None,
         )
