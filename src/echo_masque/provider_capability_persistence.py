@@ -4,12 +4,7 @@ from __future__ import annotations
 
 from echo_masque.persistence import Database
 from echo_masque.persistence.utility_gateway_models import UtilityProviderCapabilityRecord
-from echo_masque.provider_capabilities import (
-    CapabilityEvidenceSource,
-    CapabilityObservation,
-    CapabilityStatus,
-    ModelCapability,
-)
+from echo_masque.provider_capabilities import CapabilityObservation, ModelCapability
 
 _CAPABILITIES: set[str] = {
     "text_input",
