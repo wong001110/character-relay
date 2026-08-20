@@ -1,47 +1,77 @@
-"""Owner-facing observability for Burst Segments and concurrent Semantic Threads."""
+"""Owner-facing observability for Intelligence Core v3 Conversation Structure."""
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
 
 from echo_masque.api.dependencies import CurrentUserDependency
-from echo_masque.persistence.conversation_segment_models import SemanticThreadRecord
-from echo_masque.persistence.conversation_segment_repository import ConversationSegmentRepository
+from echo_masque.persistence.conversation_structure_repository import (
+    ConversationStructureRepository,
+)
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 
 router = APIRouter(tags=["deployments"])
 
 
-class SemanticThreadObservation(BaseModel):
+class ConversationThreadObservation(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
     id: str
+    canonical_label: str
+    anchor_summary: str
+    working_summary: str
+    representative_segment_ids: list[str] = Field(default_factory=list)
+    participant_ids: list[str] = Field(default_factory=list)
+    active_entity_ids: list[str] = Field(default_factory=list)
+    status: str
+    last_active_at: str
+    # Temporary read aliases keep the existing Portal readable while Phase 9 replaces its UI.
     label: str
     summary: str
     keywords: list[str] = Field(default_factory=list)
-    status: str
-    last_active_at: str
 
 
 class ConversationSegmentObservation(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
     id: str
     burst_id: str
     message_ids: list[str] = Field(default_factory=list)
     participant_ids: list[str] = Field(default_factory=list)
     kind: str
     summary: str
+    thread_id: str
+    membership_relation: str
+    membership_confidence: float
+    confidence: float
+    source: str
+    created_at: str
+    # Computed compatibility aliases. Segment storage no longer owns Thread assignment.
     semantic_thread_id: str
     thread_action: str
     thread_evidence: bool
+
+
+class MessageRelationObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    source_message_id: str
+    relation_class: str
+    relation_type: str
+    target_ref_type: str
+    target_ref: str
     confidence: float
     source: str
+    evidence_refs: list[str] = Field(default_factory=list)
+    status: str
     created_at: str
 
 
 class DeploymentConversationStructureView(BaseModel):
     deployment_id: str
-    threads: list[SemanticThreadObservation] = Field(default_factory=list)
+    threads: list[ConversationThreadObservation] = Field(default_factory=list)
     segments: list[ConversationSegmentObservation] = Field(default_factory=list)
+    relations: list[MessageRelationObservation] = Field(default_factory=list)
 
 
 @router.get(
@@ -59,37 +89,41 @@ def deployment_conversation_structure(
         deployment = session.get(CharacterDeploymentRecord, deployment_id)
         if deployment is None or deployment.owner_id != user.id:
             raise HTTPException(status_code=404, detail="Deployment not found.")
-        thread_records = list(
-            session.scalars(
-                select(SemanticThreadRecord)
-                .where(
-                    SemanticThreadRecord.owner_id == user.id,
-                    SemanticThreadRecord.connection_id == deployment.connection_id,
-                    SemanticThreadRecord.guild_id == deployment.workspace_id,
-                    SemanticThreadRecord.status != "archived",
-                )
-                .order_by(SemanticThreadRecord.last_active_at.desc())
-                .limit(20)
-            )
-        )
-    repository = ConversationSegmentRepository(database)
-    threads = tuple(repository.thread_view(item) for item in thread_records)
+    repository = ConversationStructureRepository(database)
+    threads = repository.recent_threads_for_server(
+        owner_id=user.id,
+        connection_id=deployment.connection_id,
+        guild_id=deployment.workspace_id,
+        limit=20,
+    )
     segments = repository.recent_segments(
         owner_id=user.id,
         connection_id=deployment.connection_id,
         guild_id=deployment.workspace_id,
         limit=limit,
     )
+    relations = repository.recent_relations(
+        owner_id=user.id,
+        connection_id=deployment.connection_id,
+        guild_id=deployment.workspace_id,
+        limit=min(limit * 2, 300),
+    )
     return DeploymentConversationStructureView(
         deployment_id=deployment_id,
         threads=[
-            SemanticThreadObservation(
+            ConversationThreadObservation(
                 id=item.id,
-                label=item.label,
-                summary=item.summary,
-                keywords=list(item.keywords),
+                canonical_label=item.canonical_label,
+                anchor_summary=item.anchor_summary,
+                working_summary=item.working_summary,
+                representative_segment_ids=list(item.representative_segment_ids),
+                participant_ids=list(item.participant_ids),
+                active_entity_ids=list(item.active_entity_ids),
                 status=item.status,
                 last_active_at=item.last_active_at.isoformat(),
+                label=item.canonical_label,
+                summary=item.working_summary or item.anchor_summary,
+                keywords=[],
             )
             for item in threads
         ],
@@ -101,14 +135,33 @@ def deployment_conversation_structure(
                 participant_ids=list(item.participant_ids),
                 kind=item.kind,
                 summary=item.summary,
-                semantic_thread_id=item.semantic_thread_id,
-                thread_action=item.thread_action,
-                thread_evidence=item.thread_evidence,
+                thread_id=item.thread_id,
+                membership_relation=item.membership_relation,
+                membership_confidence=item.membership_confidence,
                 confidence=item.confidence,
                 source=item.source,
                 created_at=item.created_at.isoformat(),
+                semantic_thread_id=item.semantic_thread_id,
+                thread_action=item.thread_action,
+                thread_evidence=item.thread_evidence,
             )
             for item in segments
+        ],
+        relations=[
+            MessageRelationObservation(
+                id=item.id,
+                source_message_id=item.source_message_id,
+                relation_class=item.relation_class,
+                relation_type=item.relation_type,
+                target_ref_type=item.target_ref_type,
+                target_ref=item.target_ref,
+                confidence=item.confidence,
+                source=item.source,
+                evidence_refs=list(item.evidence_refs),
+                status=item.status,
+                created_at=item.created_at.isoformat(),
+            )
+            for item in relations
         ],
     )
 
