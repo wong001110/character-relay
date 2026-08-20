@@ -10,7 +10,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from echo_masque.authoring_runtime import AuthoringRuntimeService
-from echo_masque.providers import ChatMessage, ChatProvider, ProviderProtocolError
+from echo_masque.provider_io import complete_structured
+from echo_masque.providers import ChatProvider, ProviderProtocolError
 
 ExpressionResourceType = Literal["emoji", "sticker"]
 ExpressionLanguage = Literal["en", "zh-CN"]
@@ -83,47 +84,49 @@ class ExpressionAssistantService:
                 "AI assistance is unavailable because the Authoring Runtime is disabled "
                 "or its encrypted credential is missing."
             )
+        provider_id = str(getattr(runtime_config, "provider", "custom"))
+        base_url = str(getattr(runtime_config, "base_url", ""))
 
-        completion = await provider.complete(
-            messages=(
-                ChatMessage(
-                    role="system",
-                    content=(
-                        "You define custom Discord Emoji and Sticker semantics for an AI "
-                        "character runtime. Return one strict JSON object only. Treat the "
-                        "user's usage context as a proposal, not verified truth. Produce "
-                        "concise, reusable definitions and avoid invented lore."
-                    ),
-                ),
-                ChatMessage(role="user", content=self._prompt(request)),
-            ),
+        completion = await complete_structured(
+            provider,
+            provider_id=provider_id,
+            base_url=base_url,
             model=runtime_config.model,
+            schema=ExpressionSuggestionDraft,
+            schema_name="expression_suggestion",
+            schema_version="expression-suggestion-v1",
+            system_prompt=(
+                "You define custom Discord Emoji and Sticker semantics for an AI character "
+                "runtime. Treat the user's usage context as a proposal, not verified truth. "
+                "Produce concise, reusable definitions and avoid invented lore."
+            ),
+            user_prompt=self._prompt(request),
             temperature=min(runtime_config.temperature, 0.45),
+            max_output_tokens=1600,
         )
         correction_used = False
         try:
             draft = self._parse(completion.text)
         except (json.JSONDecodeError, ProviderProtocolError, ValueError) as first_error:
             correction_used = True
-            correction = await provider.complete(
-                messages=(
-                    ChatMessage(
-                        role="system",
-                        content=(
-                            "Repair the supplied output into one strict JSON object matching "
-                            "the requested schema. Return JSON only."
-                        ),
-                    ),
-                    ChatMessage(
-                        role="user",
-                        content=(
-                            f"Validation error: {first_error}\n\n"
-                            f"Invalid output:\n{completion.text}"
-                        ),
-                    ),
-                ),
+            correction = await complete_structured(
+                provider,
+                provider_id=provider_id,
+                base_url=base_url,
                 model=runtime_config.model,
+                schema=ExpressionSuggestionDraft,
+                schema_name="expression_suggestion",
+                schema_version="expression-suggestion-v1",
+                system_prompt=(
+                    "Repair the supplied output into the requested expression schema. "
+                    "Do not invent visual details or new lore."
+                ),
+                user_prompt=(
+                    f"Validation error: {first_error}\n\n"
+                    f"Invalid output:\n{completion.text}"
+                ),
                 temperature=0.0,
+                max_output_tokens=1600,
             )
             draft = self._parse(correction.text)
             completion = correction

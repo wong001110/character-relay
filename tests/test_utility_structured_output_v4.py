@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from echo_masque.providers import ChatMessage
 from echo_masque.providers.openai_compatible import OpenAICompatibleProvider
-from echo_masque.utility_structured_output import exact_json_contract
+from echo_masque.utility_structured_output import compact_json_schema, exact_json_contract
 
 
 class ExampleDecision(BaseModel):
@@ -16,6 +16,13 @@ class ExampleDecision(BaseModel):
 
     choice: str
     confidence: float = Field(ge=0.0, le=1.0)
+
+
+class LargeDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    long_field: str = Field(description="x" * 8000)
+    required_value: int
 
 
 def test_exact_json_contract_contains_version_schema_and_no_extra_key_rule() -> None:
@@ -31,6 +38,16 @@ def test_exact_json_contract_contains_version_schema_and_no_extra_key_rule() -> 
     assert '"choice"' in contract
     assert "Do not invent aliases or extra keys" in contract
     assert "no markdown" in contract
+
+
+def test_compact_schema_never_truncates_json_mid_object() -> None:
+    encoded = compact_json_schema(LargeDecision, maximum_chars=500)
+    parsed = json.loads(encoded)
+
+    properties = parsed["properties"]
+    assert "long_field" in properties
+    assert "required_value" in properties
+    assert "description" not in properties["long_field"]
 
 
 def test_openai_compatible_provider_forwards_output_bound_and_json_mode() -> None:

@@ -12,7 +12,8 @@ from echo_masque.authoring_generation import AuthoringRuntimeUnavailable
 from echo_masque.authoring_runtime import AuthoringRuntimeService
 from echo_masque.persistence import Repository
 from echo_masque.persistence.models import CharacterCardRecord
-from echo_masque.providers import ChatMessage, ChatProvider, ProviderProtocolError
+from echo_masque.provider_io import complete_structured
+from echo_masque.providers import ChatProvider, ProviderProtocolError
 
 
 class GeneratedSmartParticipationSpec(BaseModel):
@@ -88,46 +89,47 @@ class SmartParticipationGenerationService:
             if item.id != card.id
         ]
         prompt = self._prompt(card, peers)
-        completion = await provider.complete(
-            messages=(
-                ChatMessage(
-                    role="system",
-                    content=(
-                        "You configure deterministic group-chat participation rules for AI "
-                        "characters. Infer only from the supplied Character Card. Return one "
-                        "strict JSON object and no markdown."
-                    ),
-                ),
-                ChatMessage(role="user", content=prompt),
-            ),
+        completion = await complete_structured(
+            provider,
+            provider_id=runtime_config.provider,
+            base_url=runtime_config.base_url,
             model=runtime_config.model,
+            schema=GeneratedSmartParticipationSpec,
+            schema_name="smart_participation_profile",
+            schema_version="smart-participation-profile-v1",
+            system_prompt=(
+                "You configure deterministic group-chat participation rules for AI characters. "
+                "Infer only from the supplied Character Card and never invent hidden social "
+                "relationships."
+            ),
+            user_prompt=prompt,
             temperature=min(runtime_config.temperature, 0.3),
+            max_output_tokens=1800,
         )
         correction_used = False
         try:
             spec = self._parse(completion.text)
         except (json.JSONDecodeError, ProviderProtocolError, ValueError) as first_error:
             correction_used = True
-            repaired = await provider.complete(
-                messages=(
-                    ChatMessage(
-                        role="system",
-                        content=(
-                            "Repair the supplied response into exactly one strict JSON object "
-                            "matching the requested Smart Participation schema. Return JSON only."
-                        ),
-                    ),
-                    ChatMessage(
-                        role="user",
-                        content=(
-                            f"Validation error: {first_error}\n\n"
-                            f"Invalid output:\n{completion.text}\n\n"
-                            f"Required schema:\n{json.dumps(self._schema(), ensure_ascii=False)}"
-                        ),
-                    ),
-                ),
+            repaired = await complete_structured(
+                provider,
+                provider_id=runtime_config.provider,
+                base_url=runtime_config.base_url,
                 model=runtime_config.model,
+                schema=GeneratedSmartParticipationSpec,
+                schema_name="smart_participation_profile",
+                schema_version="smart-participation-profile-v1",
+                system_prompt=(
+                    "Repair the supplied response into the requested Smart Participation "
+                    "schema without adding new Character facts."
+                ),
+                user_prompt=(
+                    f"Validation error: {first_error}\n\n"
+                    f"Invalid output:\n{completion.text}\n\n"
+                    f"Required schema:\n{json.dumps(self._schema(), ensure_ascii=False)}"
+                ),
                 temperature=0.0,
+                max_output_tokens=1800,
             )
             spec = self._parse(repaired.text)
             completion = repaired
@@ -259,17 +261,19 @@ def _json_list(raw: str) -> list[str]:
 
 
 def _clean_phrases(values: list[str], limit: int) -> list[str]:
-    cleaned: list[str] = []
-    seen: set[str] = set()
-    for raw in values:
-        item = re.sub(r"\s+", " ", raw).strip()
-        key = item.casefold()
-        if not item or len(item) > 120 or key in seen:
+    result: list[str] = []
+    for value in values:
+        item = " ".join(value.strip().split())
+        if not item or item in result:
             continue
-        if len(item) == 1:
-            continue
-        seen.add(key)
-        cleaned.append(item)
-        if len(cleaned) >= limit:
+        result.append(item)
+        if len(result) >= limit:
             break
-    return cleaned
+    return result
+
+
+__all__ = [
+    "GeneratedSmartParticipationSpec",
+    "SmartParticipationGenerationResult",
+    "SmartParticipationGenerationService",
+]

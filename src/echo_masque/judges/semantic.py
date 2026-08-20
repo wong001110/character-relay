@@ -20,12 +20,8 @@ from echo_masque.domain import (
     normalize_semantic_verdict,
     semantic_score_from_dimensions,
 )
-from echo_masque.providers import (
-    ChatMessage,
-    ChatProvider,
-    ProviderCompletion,
-    ProviderProtocolError,
-)
+from echo_masque.provider_io import complete_structured
+from echo_masque.providers import ChatProvider, ProviderCompletion, ProviderProtocolError
 
 
 class SemanticDimensions(BaseModel):
@@ -134,13 +130,22 @@ class SemanticJudge:
         return SemanticJudgeResult(verdict=verdict, metadata=metadata)
 
     async def _complete(self, system_prompt: str, user_prompt: str) -> ProviderCompletion:
-        return await self.provider.complete(
-            messages=(
-                ChatMessage(role="system", content=system_prompt),
-                ChatMessage(role="user", content=user_prompt),
-            ),
+        return await complete_structured(
+            self.provider,
+            provider_id=self.config.provider,
+            base_url=self.config.base_url,
             model=self.config.model,
+            schema=SemanticJudgeOutput,
+            schema_name="semantic_judge",
+            schema_version="semantic-judge-v1",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
             temperature=self.config.temperature,
+            max_output_tokens=3000,
+            additional_rules=(
+                "Do not return passed or score; Runtime derives them deterministically.",
+                "Every evidence excerpt must be an exact contiguous Subject substring.",
+            ),
         )
 
     @classmethod

@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from typing import NoReturn
+
+from pydantic import BaseModel
 
 from echo_masque.provider_capabilities import ProviderModelCapabilityRegistry
+from echo_masque.provider_io import complete_structured
 from echo_masque.providers.base import ChatMessage, ProviderCompletion
 from echo_masque.providers.errors import (
     ProviderAuthenticationError,
@@ -33,6 +37,7 @@ _JSON_OBJECT_PROVIDERS = {
     "openrouter",
     "groq",
     "cerebras",
+    "cloudflare",
     "mistral",
     "sambanova",
     "gemini",
@@ -90,6 +95,34 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
             response_format={"type": "json_object"} if json_object else None,
         )
 
+    @classmethod
+    async def _complete_structured(
+        cls,
+        route: UtilityRoute,
+        *,
+        schema: type[BaseModel],
+        schema_name: str,
+        schema_version: str,
+        system_prompt: str,
+        user_prompt: str,
+        max_output_tokens: int,
+        temperature: float,
+    ) -> ProviderCompletion:
+        base_url = cls._base_url(route)
+        return await complete_structured(
+            cls._provider(route),
+            provider_id=route.provider,
+            base_url=base_url,
+            model=route.model,
+            schema=schema,
+            schema_name=schema_name,
+            schema_version=schema_version,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            max_output_tokens=max_output_tokens,
+        )
+
     @staticmethod
     def _run(coroutine: object) -> ProviderCompletion:
         return asyncio.run(coroutine)  # type: ignore[arg-type]
@@ -121,12 +154,121 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
             future.cancel()
             raise ProviderTimeoutError("utility caller timeout") from exc
 
+    def _wait_for_structured_completion(
+        self,
+        route: UtilityRoute,
+        *,
+        schema: type[BaseModel],
+        schema_name: str,
+        schema_version: str,
+        system_prompt: str,
+        user_prompt: str,
+        max_output_tokens: int,
+        temperature: float,
+    ) -> ProviderCompletion:
+        future = _EXECUTOR.submit(
+            self._run,
+            self._complete_structured(
+                route,
+                schema=schema,
+                schema_name=schema_name,
+                schema_version=schema_version,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_output_tokens=max_output_tokens,
+                temperature=temperature,
+            ),
+        )
+        try:
+            return future.result(timeout=8.0)
+        except TimeoutError as exc:
+            future.cancel()
+            raise ProviderTimeoutError("utility caller timeout") from exc
+
     @staticmethod
     def _reset_from_quota(exc: ProviderRateLimitError | ProviderQuotaExhaustedError):
         resets = [item.reset_at for item in exc.quota_observations if item.reset_at is not None]
         reset_at = min(resets) if resets else None
         zero = next((item for item in exc.quota_observations if item.remaining == 0), None)
         return reset_at, zero
+
+    @classmethod
+    def _reply(cls, completion: ProviderCompletion) -> UtilityCallReply:
+        return UtilityCallReply(
+            text=completion.text,
+            latency_ms=completion.latency_ms,
+            input_tokens=completion.input_tokens or 0,
+            output_tokens=completion.output_tokens or 0,
+            quota_observations=completion.quota_observations,
+        )
+
+    @classmethod
+    def _raise_utility_failure(cls, exc: ProviderError) -> NoReturn:
+        if isinstance(exc, (ProviderRateLimitError, ProviderQuotaExhaustedError)):
+            reset_at, zero = cls._reset_from_quota(exc)
+            raise UtilityCallFailed(
+                "quota",
+                detail=(
+                    f"free_tier_exhausted:{exc}"
+                    if isinstance(exc, ProviderQuotaExhaustedError) and exc.free_tier
+                    else f"quota_exhausted:{exc}"
+                ),
+                remaining_value=(
+                    0
+                    if isinstance(exc, ProviderQuotaExhaustedError)
+                    else (zero.remaining if zero is not None else None)
+                ),
+                remaining_unit=(zero.unit if zero is not None else "requests"),
+                reset_at=reset_at,
+                quota_observations=exc.quota_observations,
+            ) from exc
+        if isinstance(exc, ProviderBillingRequiredError):
+            raise UtilityCallFailed("authentication", detail=f"billing_required:{exc}") from exc
+        if isinstance(exc, ProviderInsufficientBalanceError):
+            raise UtilityCallFailed("authentication", detail=f"insufficient_balance:{exc}") from exc
+        if isinstance(exc, ProviderModelNotFoundError):
+            raise UtilityCallFailed("authentication", detail=f"model_not_found:{exc}") from exc
+        if isinstance(exc, ProviderAuthenticationError):
+            raise UtilityCallFailed("authentication", detail=str(exc)) from exc
+        if isinstance(exc, ProviderCapabilityUnsupportedError):
+            raise UtilityCallFailed(
+                "protocol",
+                detail=f"capability_unsupported:{exc.capability}:{exc}",
+            ) from exc
+        if isinstance(exc, ProviderTimeoutError):
+            raise UtilityCallFailed("timeout", detail=str(exc)) from exc
+        if isinstance(exc, ProviderUnavailableError):
+            raise UtilityCallFailed("unavailable", detail=str(exc)) from exc
+        if isinstance(exc, ProviderProtocolError):
+            raise UtilityCallFailed("protocol", detail=str(exc)) from exc
+        raise UtilityCallFailed("unavailable", detail=str(exc)) from exc
+
+    def call_structured(
+        self,
+        route: UtilityRoute,
+        *,
+        schema: type[BaseModel],
+        schema_name: str,
+        schema_version: str,
+        system_prompt: str,
+        user_prompt: str,
+        max_output_tokens: int,
+        temperature: float,
+    ) -> UtilityCallReply:
+        try:
+            completion = self._wait_for_structured_completion(
+                route,
+                schema=schema,
+                schema_name=schema_name,
+                schema_version=schema_version,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_output_tokens=max_output_tokens,
+                temperature=temperature,
+            )
+        except ProviderError as exc:
+            self._raise_utility_failure(exc)
+        return self._reply(completion)
 
     def call(
         self,
@@ -187,9 +329,6 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
             except ProviderProtocolError:
                 if not use_json_object:
                     raise
-                # Compatibility retry remains available for providers that reject JSON mode
-                # without a machine-readable capability error. Do not permanently downgrade
-                # the model from this ambiguous signal alone.
                 completion = self._wait_for_completion(
                     route,
                     system_prompt=system_prompt,
@@ -198,52 +337,9 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
                     temperature=temperature,
                     json_object=False,
                 )
-        except (ProviderRateLimitError, ProviderQuotaExhaustedError) as exc:
-            reset_at, zero = self._reset_from_quota(exc)
-            raise UtilityCallFailed(
-                "quota",
-                detail=(
-                    f"free_tier_exhausted:{exc}" if isinstance(exc, ProviderQuotaExhaustedError) and exc.free_tier
-                    else f"quota_exhausted:{exc}"
-                ),
-                remaining_value=0 if isinstance(exc, ProviderQuotaExhaustedError) else (
-                    zero.remaining if zero is not None else None
-                ),
-                remaining_unit=(zero.unit if zero is not None else "requests"),
-                reset_at=reset_at,
-                quota_observations=exc.quota_observations,
-            ) from exc
-        except ProviderBillingRequiredError as exc:
-            # FREE ONLY member: use a non-transient blocked state rather than a two-minute
-            # quota retry loop. A model/provider config change clears this by creating a new
-            # member/model identity.
-            raise UtilityCallFailed("authentication", detail=f"billing_required:{exc}") from exc
-        except ProviderInsufficientBalanceError as exc:
-            raise UtilityCallFailed("authentication", detail=f"insufficient_balance:{exc}") from exc
-        except ProviderModelNotFoundError as exc:
-            raise UtilityCallFailed("authentication", detail=f"model_not_found:{exc}") from exc
-        except ProviderAuthenticationError as exc:
-            raise UtilityCallFailed("authentication", detail=str(exc)) from exc
-        except ProviderCapabilityUnsupportedError as exc:
-            raise UtilityCallFailed(
-                "protocol",
-                detail=f"capability_unsupported:{exc.capability}:{exc}",
-            ) from exc
-        except ProviderTimeoutError as exc:
-            raise UtilityCallFailed("timeout", detail=str(exc)) from exc
-        except ProviderUnavailableError as exc:
-            raise UtilityCallFailed("unavailable", detail=str(exc)) from exc
-        except ProviderProtocolError as exc:
-            raise UtilityCallFailed("protocol", detail=str(exc)) from exc
         except ProviderError as exc:
-            raise UtilityCallFailed("unavailable", detail=str(exc)) from exc
-        return UtilityCallReply(
-            text=completion.text,
-            latency_ms=completion.latency_ms,
-            input_tokens=completion.input_tokens or 0,
-            output_tokens=completion.output_tokens or 0,
-            quota_observations=completion.quota_observations,
-        )
+            self._raise_utility_failure(exc)
+        return self._reply(completion)
 
 
 __all__ = ["ExistingProviderUtilityCaller"]

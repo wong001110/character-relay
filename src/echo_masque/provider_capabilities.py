@@ -1,18 +1,20 @@
 """Runtime-observed model capabilities for provider-safe routing.
 
-This registry intentionally records protocol/modality facts about one provider/model endpoint,
-not Character Relay consumer capabilities. Unknown is optimistic for first use; only explicit
-unsupported observations block a route. Observations are process-local in V1 so a provider
-configuration change naturally starts clean while persisted Utility health/quota remains the
-cross-process access authority.
+This registry records protocol/modality facts about one provider/model endpoint, not Character
+Relay consumer capabilities. Unknown is optimistic for first use; only explicit unsupported
+observations block a route. When a runtime persistence store is configured, observations survive
+process restarts. Standalone/test usage remains in-memory only.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from threading import RLock
-from typing import Literal
+from typing import Literal, Protocol
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 ModelCapability = Literal[
     "text_input",
@@ -20,6 +22,11 @@ ModelCapability = Literal[
     "multi_image_input",
     "video_url",
     "data_uri_image",
+    "remote_image_url",
+    "remote_video_url",
+    "youtube_video_url",
+    "inline_image_data",
+    "file_upload",
     "json_object",
     "json_schema",
     "native_tool_calling",
@@ -39,11 +46,25 @@ class CapabilityObservation:
     detail: str = ""
 
 
+class CapabilityPersistence(Protocol):
+    def load(
+        self,
+        *,
+        provider: str,
+        model: str,
+        endpoint_key: str,
+        capability: ModelCapability,
+    ) -> CapabilityObservation | None: ...
+
+    def save(self, observation: CapabilityObservation) -> None: ...
+
+
 class ProviderModelCapabilityRegistry:
     """Process-shared capability evidence keyed by provider/model/endpoint."""
 
     _lock = RLock()
     _values: dict[tuple[str, str, str, ModelCapability], CapabilityObservation] = {}
+    _persistence: CapabilityPersistence | None = None
 
     @staticmethod
     def endpoint_key(base_url: str) -> str:
@@ -69,6 +90,18 @@ class ProviderModelCapabilityRegistry:
         )
 
     @classmethod
+    def configure_persistence(cls, persistence: CapabilityPersistence | None) -> None:
+        """Switch the durable authority used for cache misses.
+
+        Clearing process-local observations avoids leaking evidence between databases in tests and
+        ensures a newly configured runtime reloads durable evidence for its own storage identity.
+        """
+
+        with cls._lock:
+            cls._persistence = persistence
+            cls._values.clear()
+
+    @classmethod
     def observe(
         cls,
         *,
@@ -82,7 +115,7 @@ class ProviderModelCapabilityRegistry:
     ) -> CapabilityObservation:
         observation = CapabilityObservation(
             provider=provider.casefold().strip(),
-            model=model.strip(),
+            model=model.casefold().strip(),
             endpoint_key=cls.endpoint_key(base_url),
             capability=capability,
             status="supported" if supported else "unsupported",
@@ -97,6 +130,13 @@ class ProviderModelCapabilityRegistry:
         )
         with cls._lock:
             cls._values[key] = observation
+            persistence = cls._persistence
+        if persistence is not None:
+            try:
+                persistence.save(observation)
+            except Exception:
+                # Capability telemetry must never make the provider call itself fail.
+                logger.exception("Failed to persist provider capability observation")
         return observation
 
     @classmethod
@@ -116,7 +156,26 @@ class ProviderModelCapabilityRegistry:
         )
         with cls._lock:
             value = cls._values.get(key)
-        return value.status if value is not None else "unknown"
+            persistence = cls._persistence
+        if value is not None:
+            return value.status
+        if persistence is None:
+            return "unknown"
+        try:
+            loaded = persistence.load(
+                provider=key[0],
+                model=key[1],
+                endpoint_key=key[2],
+                capability=capability,
+            )
+        except Exception:
+            logger.exception("Failed to load provider capability observation")
+            return "unknown"
+        if loaded is None:
+            return "unknown"
+        with cls._lock:
+            cls._values[key] = loaded
+        return loaded.status
 
     @classmethod
     def allows(
@@ -159,11 +218,13 @@ class ProviderModelCapabilityRegistry:
     def reset_for_test(cls) -> None:
         with cls._lock:
             cls._values.clear()
+            cls._persistence = None
 
 
 __all__ = [
     "CapabilityEvidenceSource",
     "CapabilityObservation",
+    "CapabilityPersistence",
     "CapabilityStatus",
     "ModelCapability",
     "ProviderModelCapabilityRegistry",

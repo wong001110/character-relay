@@ -10,7 +10,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from echo_masque.authoring_runtime import AuthoringRuntimeService
-from echo_masque.providers import ChatMessage, ChatProvider, ProviderProtocolError
+from echo_masque.provider_io import complete_structured
+from echo_masque.providers import ChatProvider, ProviderProtocolError
 
 CharacterLanguage = Literal["en", "zh-CN"]
 CharacterSubjectType = Literal["companion", "npc", "assistant", "custom"]
@@ -86,47 +87,49 @@ class CharacterAssistantService:
                 "AI assistance is unavailable because the Authoring Runtime is disabled "
                 "or its encrypted credential is missing."
             )
+        provider_id = str(getattr(runtime_config, "provider", "custom"))
+        base_url = str(getattr(runtime_config, "base_url", ""))
 
-        completion = await provider.complete(
-            messages=(
-                ChatMessage(
-                    role="system",
-                    content=(
-                        "You draft production-ready AI Character Cards. Return one strict "
-                        "JSON object only. Keep the character internally consistent, avoid "
-                        "inventing requirements the user did not imply, and make every field "
-                        "reviewable before saving."
-                    ),
-                ),
-                ChatMessage(role="user", content=self._prompt(request)),
-            ),
+        completion = await complete_structured(
+            provider,
+            provider_id=provider_id,
+            base_url=base_url,
             model=runtime_config.model,
+            schema=CharacterSuggestionDraft,
+            schema_name="character_suggestion",
+            schema_version="character-suggestion-v1",
+            system_prompt=(
+                "You draft production-ready AI Character Cards. Keep the character internally "
+                "consistent, avoid inventing requirements the user did not imply, and make "
+                "every field reviewable before saving."
+            ),
+            user_prompt=self._prompt(request),
             temperature=min(runtime_config.temperature, 0.55),
+            max_output_tokens=3000,
         )
         correction_used = False
         try:
             draft = self._parse(completion.text)
         except (json.JSONDecodeError, ProviderProtocolError, ValueError) as first_error:
             correction_used = True
-            correction = await provider.complete(
-                messages=(
-                    ChatMessage(
-                        role="system",
-                        content=(
-                            "Repair the supplied output into one strict JSON object matching "
-                            "the requested Character Card schema. Return JSON only."
-                        ),
-                    ),
-                    ChatMessage(
-                        role="user",
-                        content=(
-                            f"Validation error: {first_error}\n\n"
-                            f"Invalid output:\n{completion.text}"
-                        ),
-                    ),
-                ),
+            correction = await complete_structured(
+                provider,
+                provider_id=provider_id,
+                base_url=base_url,
                 model=runtime_config.model,
+                schema=CharacterSuggestionDraft,
+                schema_name="character_suggestion",
+                schema_version="character-suggestion-v1",
+                system_prompt=(
+                    "Repair the supplied output into the requested Character Card schema. "
+                    "Do not add facts that were absent from the original draft or user brief."
+                ),
+                user_prompt=(
+                    f"Validation error: {first_error}\n\n"
+                    f"Invalid output:\n{completion.text}"
+                ),
                 temperature=0.0,
+                max_output_tokens=3000,
             )
             draft = self._parse(correction.text)
             completion = correction

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -39,8 +38,8 @@ from echo_masque.utility_gateway_contracts import (
     UtilityRoute,
     WikiUtilityResult,
 )
+from echo_masque.utility_structured_output import exact_json_contract
 
-_JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 CallFailureKind = Literal[
     "quota",
@@ -427,14 +426,17 @@ class UtilityGatewayRouter:
     @staticmethod
     def _extract_json(text: str) -> dict[str, object] | None:
         value = text.strip()
-        match = _JSON_OBJECT.search(value)
-        if match is not None:
-            value = match.group(0)
-        try:
-            parsed = json.loads(value)
-        except (json.JSONDecodeError, TypeError):
-            return None
-        return parsed if isinstance(parsed, dict) else None
+        decoder = json.JSONDecoder()
+        for index, character in enumerate(value):
+            if character != "{":
+                continue
+            try:
+                parsed, _ = decoder.raw_decode(value[index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return {str(key): item for key, item in parsed.items()}
+        return None
 
     def invoke(
         self,
@@ -459,6 +461,11 @@ class UtilityGatewayRouter:
         if not routes:
             raise UtilityGatewayUnavailable("no_eligible_provider")
 
+        schema_version = f"{schema.__name__.casefold()}-v1"
+        contract_prompt = (
+            f"{system_prompt.strip()}\n\n"
+            f"{exact_json_contract(schema, schema_version=schema_version)}"
+        )
         last_reason = "no_valid_result"
         for attempts, route in enumerate(routes, start=1):
             member = next(
@@ -466,13 +473,26 @@ class UtilityGatewayRouter:
                 None,
             )
             try:
-                reply = self.caller.call(
-                    route,
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    max_output_tokens=max_output_tokens,
-                    temperature=temperature,
-                )
+                structured_call = getattr(self.caller, "call_structured", None)
+                if callable(structured_call):
+                    reply = structured_call(
+                        route,
+                        schema=schema,
+                        schema_name=schema.__name__.casefold(),
+                        schema_version=schema_version,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        max_output_tokens=max_output_tokens,
+                        temperature=temperature,
+                    )
+                else:
+                    reply = self.caller.call(
+                        route,
+                        system_prompt=contract_prompt,
+                        user_prompt=user_prompt,
+                        max_output_tokens=max_output_tokens,
+                        temperature=temperature,
+                    )
             except UtilityCallFailed as exc:
                 self._apply_failure(member, route, capability, exc)
                 last_reason = exc.kind

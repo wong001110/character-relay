@@ -1,4 +1,4 @@
-"""Persistence models for AI Utility Gateway health, quota, and spend observations."""
+"""Persistence models for AI Utility Gateway health, quota, spend, and capabilities."""
 
 from datetime import datetime
 
@@ -44,6 +44,21 @@ class UtilityProviderQuotaRecord(Base):
     window_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source: Mapped[str] = mapped_column(String(48), default="response_header", nullable=False)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UtilityProviderCapabilityRecord(Base):
+    __tablename__ = "utility_provider_capabilities"
+
+    provider: Mapped[str] = mapped_column(String(80), primary_key=True)
+    model: Mapped[str] = mapped_column(String(240), primary_key=True)
+    endpoint_key: Mapped[str] = mapped_column(String(400), primary_key=True)
+    capability: Mapped[str] = mapped_column(String(48), primary_key=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    source: Mapped[str] = mapped_column(String(24), default="runtime", nullable=False)
+    detail: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
 
 
 class UtilityUsageRecord(Base):

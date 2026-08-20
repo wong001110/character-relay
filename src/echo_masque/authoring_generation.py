@@ -28,7 +28,8 @@ from echo_masque.persistence import (
     WorkspaceRepository,
 )
 from echo_masque.persistence.models import CharacterCardRecord
-from echo_masque.providers import ChatMessage, ChatProvider, ProviderProtocolError
+from echo_masque.provider_io import complete_structured
+from echo_masque.providers import ChatProvider, ProviderProtocolError
 
 TesterMode = Literal["benchmark", "adaptive"]
 
@@ -142,38 +143,43 @@ class AuthoringGenerationService:
 
         context = self._context(owner_id, card, request)
         prompt_hash = hashlib.sha256(context.encode("utf-8")).hexdigest()
-        completion = await provider.complete(
-            messages=(
-                ChatMessage(role="system", content=runtime_config.system_prompt),
-                ChatMessage(role="user", content=context),
-            ),
+        completion = await complete_structured(
+            provider,
+            provider_id=runtime_config.provider,
+            base_url=runtime_config.base_url,
             model=runtime_config.model,
+            schema=GeneratedAuthoringPayload,
+            schema_name="authoring_generation",
+            schema_version="authoring-generation-v1",
+            system_prompt=runtime_config.system_prompt,
+            user_prompt=context,
             temperature=runtime_config.temperature,
+            max_output_tokens=6000,
         )
         correction_used = False
         try:
             payload = self._parse(completion.text)
         except (json.JSONDecodeError, ProviderProtocolError, ValueError) as first_error:
             correction_used = True
-            correction = await provider.complete(
-                messages=(
-                    ChatMessage(
-                        role="system",
-                        content=(
-                            "Repair the supplied output into one strict JSON object matching "
-                            "the requested schema. Return JSON only; do not add commentary."
-                        ),
-                    ),
-                    ChatMessage(
-                        role="user",
-                        content=(
-                            f"Validation error: {first_error}\n\n"
-                            f"Invalid output:\n{completion.text}"
-                        ),
-                    ),
-                ),
+            correction = await complete_structured(
+                provider,
+                provider_id=runtime_config.provider,
+                base_url=runtime_config.base_url,
                 model=runtime_config.model,
+                schema=GeneratedAuthoringPayload,
+                schema_name="authoring_generation",
+                schema_version="authoring-generation-v1",
+                system_prompt=(
+                    "Repair the supplied output into the requested Scenario/Test Pack schema. "
+                    "Do not add requirements or Character facts that were not present in the "
+                    "original request."
+                ),
+                user_prompt=(
+                    f"Validation error: {first_error}\n\n"
+                    f"Invalid output:\n{completion.text}"
+                ),
                 temperature=0.0,
+                max_output_tokens=6000,
             )
             payload = self._parse(correction.text)
             completion = correction
