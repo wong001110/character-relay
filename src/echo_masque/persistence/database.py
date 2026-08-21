@@ -17,9 +17,11 @@ from echo_masque.persistence.character_learned_state_event_models import (
     CharacterLearnedStateEventRecord,
 )
 from echo_masque.persistence.character_learned_state_models import CharacterLearnedStateRecord
-from echo_masque.persistence.conversation_graph_models import (
-    ConversationGraphEdgeRecord,
-    ConversationGraphNodeRecord,
+from echo_masque.persistence.character_relationship_models import (
+    CharacterPersonImpressionRecord,
+    CharacterRelationshipPriorRecord,
+    DeploymentRelationshipEventRecord,
+    DeploymentRelationshipStateRecord,
 )
 from echo_masque.persistence.conversation_runtime_models import (
     ConversationEpisodeV3Record,
@@ -32,8 +34,6 @@ from echo_masque.persistence.conversation_structure_models import (
     MessageRelationRecord,
     ThreadMembershipRecord,
 )
-from echo_masque.persistence.conversation_topic_decision_models import ConversationTopicDecisionRecord
-from echo_masque.persistence.core_memory_models import CharacterCoreMemoryRecord
 from echo_masque.persistence.deployment_activity_models import (
     DeploymentActivitySessionItemRecord,
     DeploymentActivitySessionRecord,
@@ -63,16 +63,11 @@ from echo_masque.persistence.episodic_sql_rag_models import (
     ConversationEntityRecord,
     ConversationEpisodeEntityRecord,
 )
-from echo_masque.persistence.memory_layer_models import (
-    CharacterCoreMemoryRevisionRecord,
-    CharacterMemorySummaryRecord,
-    SynthesizedMemoryFreshnessRecord,
-)
-from echo_masque.persistence.memory_vnext_models import (
-    ConversationMemoryVNextRecord,
-    MemoryVNextStateRecord,
-)
 from echo_masque.persistence.models import Base, StorageMetadataRecord
+from echo_masque.persistence.server_knowledge_v3_models import (
+    KnowledgeConsolidationCheckpointV3Record,
+    ServerWikiPageV3Record,
+)
 from echo_masque.persistence.smart_participation_state_models import (
     SmartParticipationDeploymentStateRecord,
     SmartParticipationScopeStateRecord,
@@ -165,10 +160,9 @@ class Database:
         self.session_factory = sessionmaker(self.engine, expire_on_commit=False)
 
     def initialize(self) -> None:
+        # Explicitly touch authority/runtime model classes so schema creation is deterministic.
         _ = (
             WikiPageRecord,
-            ConversationGraphNodeRecord,
-            ConversationGraphEdgeRecord,
             ConversationThreadRecord,
             ConversationSegmentV3Record,
             ThreadMembershipRecord,
@@ -184,21 +178,20 @@ class Database:
             BeliefRevisionEventRecord,
             SocialEventV3Record,
             ImpressionV3Record,
+            ServerWikiPageV3Record,
+            KnowledgeConsolidationCheckpointV3Record,
+            CharacterRelationshipPriorRecord,
+            DeploymentRelationshipStateRecord,
+            DeploymentRelationshipEventRecord,
+            CharacterPersonImpressionRecord,
             CharacterLearnedStateRecord,
             CharacterLearnedStateEventRecord,
             SmartParticipationScopeStateRecord,
             SmartParticipationDeploymentStateRecord,
             UtilityProviderQuotaRecord,
-            ConversationMemoryVNextRecord,
-            MemoryVNextStateRecord,
-            ConversationTopicDecisionRecord,
             ConversationEntityRecord,
             ConversationEpisodeEntityRecord,
             CharacterEpisodeAccessRecord,
-            CharacterCoreMemoryRecord,
-            CharacterCoreMemoryRevisionRecord,
-            SynthesizedMemoryFreshnessRecord,
-            CharacterMemorySummaryRecord,
             DiscordGuildActorIdentityRecord,
             DeploymentPresenceRecord,
             DeploymentPresenceNoticeRecord,
@@ -214,6 +207,16 @@ class Database:
             DeploymentDiscoveryShareRecord,
         )
         Base.metadata.create_all(self.engine)
+
+        # Existing installations may still contain old Topic/Memory/Episode tables.  The raw
+        # hard-cutover migration preserves useful durable evidence into v3 stores, deliberately
+        # discards Topic/SemanticThread identity, then removes the old tables.  Because it uses
+        # reflection, legacy ORM models do not need to stay registered.
+        from echo_masque.persistence.intelligence_v3_migration import (
+            IntelligenceV3HardCutoverMigration,
+        )
+
+        IntelligenceV3HardCutoverMigration(self).run()
         self._ensure_sqlite_deployment_runtime_invariants()
 
     def _ensure_sqlite_deployment_runtime_invariants(self) -> None:
