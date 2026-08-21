@@ -8,6 +8,7 @@ ParticipationPlannerV3 owns the final speaker plan. Topic identity is not consul
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import suppress
 from typing import Annotated, cast
 from uuid import uuid4
 
@@ -34,10 +35,14 @@ from echo_masque.participation_planner_v3 import ParticipationPlannerV3
 from echo_masque.persistence import DeploymentRepository, Repository
 from echo_masque.persistence.belief_repository import BeliefRepository
 from echo_masque.persistence.conversation_runtime_repository import ConversationRuntimeRepository
-from echo_masque.persistence.conversation_structure_repository import ConversationStructureRepository
+from echo_masque.persistence.conversation_structure_repository import (
+    ConversationStructureRepository,
+)
 from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository
 from echo_masque.persistence.server_knowledge_v3_repository import ServerWikiV3Repository
-from echo_masque.persistence.smart_participation_state_models import SmartParticipationReplyDecisionRecord
+from echo_masque.persistence.smart_participation_state_models import (
+    SmartParticipationReplyDecisionRecord,
+)
 from echo_masque.semantic_participation import CharacterParticipationSemanticService
 from echo_masque.services.runtime import RuntimeService
 from echo_masque.social_intelligence_v3 import SocialIntelligenceV3Service
@@ -111,7 +116,10 @@ def _reply_planner(request: Request) -> CharacterSegmentReplyPlanner:
     if isinstance(current, CharacterSegmentReplyPlanner):
         return current
     planner = CharacterSegmentReplyPlanner(
-        cast(CharacterParticipationSemanticService, request.app.state.semantic_participation_service)
+        cast(
+            CharacterParticipationSemanticService,
+            request.app.state.semantic_participation_service,
+        )
     )
     request.app.state.character_segment_reply_planner_vnext = planner
     return planner
@@ -143,7 +151,8 @@ def _context_resolver(request: Request) -> ContextResolverV3:
 
 
 def _records_for_payload(payload: SmartParticipationResolveRequest, request: Request):
-    records = cast(DeploymentRepository, request.app.state.deployment_repository).list_connector_deployments(
+    repository = cast(DeploymentRepository, request.app.state.deployment_repository)
+    records = repository.list_connector_deployments(
         platform="discord",
         connection_id=payload.connection_id,
     )
@@ -233,12 +242,13 @@ def _persist_reply_targets(
             existing.burst_id = payload.burst_id
             existing.character_card_id = character_card_id
             existing.segment_id = target.segment_id
-            # Legacy persistence column name; value is a ConversationThread v3 id on this route.
             existing.semantic_thread_id = target.semantic_thread_id
             existing.score = target.score
             existing.reason = target.reason[:240]
             existing.guidance = guidance_by_id.get(target.deployment_id, "")[:240]
-            existing.plan_kind = "speaker" if target.deployment_id in authoritative_ids else "shadow"
+            existing.plan_kind = (
+                "speaker" if target.deployment_id in authoritative_ids else "shadow"
+            )
             existing.authoritative = target.deployment_id in authoritative_ids
             existing.resolver_version = "conversation-intelligence-v3"
         session.commit()
@@ -254,12 +264,23 @@ def _live_context(payload: SmartParticipationResolveRequest) -> tuple[str, ...]:
     return (payload.message,) if payload.message.strip() else ()
 
 
-def _current_segment_id(payload: SmartParticipationResolveRequest, segments: tuple[object, ...]) -> str:
+def _current_segment_id(
+    payload: SmartParticipationResolveRequest,
+    segments: tuple[object, ...],
+) -> str:
     if payload.message_id:
         for segment in segments:
             if payload.message_id in getattr(segment, "message_ids", ()):
                 return str(getattr(segment, "id", ""))
     return str(getattr(segments[-1], "id", "")) if segments else ""
+
+
+def _numeric_confidence(value: object) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    return 0.0
 
 
 def _wiki_hits(
@@ -283,7 +304,7 @@ def _wiki_hits(
             source="server_wiki_v3",
             ref=str(item.get("ref", "")),
             text=f"{item.get('title', '')}: {item.get('body', '')}",
-            score=float(item.get("confidence", 0.0)),
+            score=_numeric_confidence(item.get("confidence", 0.0)),
         )
         for item in values
     )
@@ -333,11 +354,12 @@ def resolve_smart_participation_vnext(
     except Exception:
         return _base_result(base, source="conversation_structure_failed")
 
-    try:
-        _runtime_coordinator(request).observe(owner_id=owner_id, payload=payload, result=result)
-    except Exception:
-        # Episode/working-state projection is derived and can be repaired from raw evidence.
-        pass
+    with suppress(Exception):
+        _runtime_coordinator(request).observe(
+            owner_id=owner_id,
+            payload=payload,
+            result=result,
+        )
 
     segment_views = [
         ConversationSegmentRouteView(
@@ -430,9 +452,12 @@ def resolve_smart_participation_vnext(
             "media_grounding_level": plan.grounding.level,
             "media_grounding_reason": plan.grounding.reason,
             "context_sufficiency": {
-                deployment_id: context.sufficiency for deployment_id, context in contexts.items()
+                deployment_id: context.sufficiency
+                for deployment_id, context in contexts.items()
             },
-            "utility_used": bool(base.utility_used or result.utility_used or extraction.utility_used),
+            "utility_used": bool(
+                base.utility_used or result.utility_used or extraction.utility_used
+            ),
         }
     )
 
