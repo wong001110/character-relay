@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 
-from echo_masque.internal_context import InternalContextService
 from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
 from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
+from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
+
+from echo_masque.internal_context import InternalContextService
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.episodic_sql_rag_repository import EpisodicSqlRagRepository
-from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
 from echo_masque.tool_runtime import ToolExecutionContext
 
 
@@ -198,7 +199,9 @@ def test_internal_conversation_search_uses_server_wide_perceived_sql_expansion()
         channel_id="career",
     )
 
-    result = json.loads(service.conversation_search({"query": "salary target", "limit": 5}, context))
+    result = json.loads(
+        service.conversation_search({"query": "salary target", "limit": 5}, context)
+    )
     refs = {item["ref"] for item in result["episodes"]}
 
     assert result["scope"] == "current_discord_server_perceived"

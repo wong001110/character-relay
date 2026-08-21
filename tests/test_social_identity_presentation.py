@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from echo_masque.character_learned_state import CharacterLearnedStateService, LearnedStateEvidence
 from echo_masque.conversation_intelligence_observation import (
     ConversationIntelligenceObservationService,
 )
+
+from echo_masque.character_learned_state import CharacterLearnedStateService, LearnedStateEvidence
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_repository import DeploymentRepository
 from echo_masque.persistence.discord_identity_repository import DiscordIdentityRepository

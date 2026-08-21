@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from echo_masque.api.connector_schemas import DiscordInboundMessage
-from echo_masque.config import Settings
 from echo_masque.conversation_topic import (
     ConversationActScores,
     ConversationPendingAction,
     ConversationTopicSnapshot,
     TopicContinuityDecision,
 )
+
+from echo_masque.api.connector_schemas import DiscordInboundMessage
+from echo_masque.config import Settings
 from echo_masque.tool_continuation import (
     PendingActionContinuationEvidence,
     ToolContinuationService,
@@ -164,18 +165,27 @@ def test_clear_retry_cancel_and_topic_switch_do_not_enter_gray_utility_path() ->
         assigned={"image.generate"},
     )
 
-    assert ToolContinuationService.pending_action_evidence(
-        **common,
-        decision=continuity(retry=0.50),
-    ) is None
-    assert ToolContinuationService.pending_action_evidence(
-        **common,
-        decision=continuity(retry=0.35, cancel=0.50),
-    ) is None
-    assert ToolContinuationService.pending_action_evidence(
-        **common,
-        decision=continuity(retry=0.35, same_topic=False),
-    ) is None
+    assert (
+        ToolContinuationService.pending_action_evidence(
+            **common,
+            decision=continuity(retry=0.50),
+        )
+        is None
+    )
+    assert (
+        ToolContinuationService.pending_action_evidence(
+            **common,
+            decision=continuity(retry=0.35, cancel=0.50),
+        )
+        is None
+    )
+    assert (
+        ToolContinuationService.pending_action_evidence(
+            **common,
+            decision=continuity(retry=0.35, same_topic=False),
+        )
+        is None
+    )
 
 
 def test_legacy_resolver_keeps_exact_tool_and_confidence_guard() -> None:

@@ -3,17 +3,18 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+from echo_masque.conversation_segmentation import (
+    ConversationJudgeResult,
+    ConversationJudgeSegment,
+    ConversationSegmentationService,
+)
+
 from echo_masque.api.smart_participation_v4_schemas import (
     SmartParticipationBurstMessage,
     SmartParticipationResolveCandidate,
     SmartParticipationResolveRequest,
 )
 from echo_masque.config import Settings
-from echo_masque.conversation_segmentation import (
-    ConversationJudgeResult,
-    ConversationJudgeSegment,
-    ConversationSegmentationService,
-)
 from echo_masque.persistence import Database
 from echo_masque.persistence.conversation_structure_repository import (
     ConversationStructureRepository,

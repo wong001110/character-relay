@@ -23,7 +23,12 @@ GroundingLevel = Literal["context_only", "preview_grounded", "content_grounded"]
 
 _CONTENT_STATES = {"analyzed", "complete", "content_grounded", "ready", "resolved", "understood"}
 _PREVIEW_STATES = {
-    "metadata", "partial", "preview", "preview_only", "preview_grounded", "thumbnail"
+    "metadata",
+    "partial",
+    "preview",
+    "preview_only",
+    "preview_grounded",
+    "thumbnail",
 }
 
 

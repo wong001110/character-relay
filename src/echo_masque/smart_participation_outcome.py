@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from echo_masque.api.smart_participation_outcome_schemas import SmartParticipationOutcomeObservation
 from echo_masque.character_learned_state import CharacterLearnedStateService, LearnedStateEvidence
 from echo_masque.persistence import DeploymentRepository
-from echo_masque.persistence.conversation_structure_repository import ConversationStructureRepository
+from echo_masque.persistence.conversation_structure_repository import (
+    ConversationStructureRepository,
+)
 from echo_masque.persistence.discord_identity_repository import DiscordIdentityRepository
 from echo_masque.smart_participation_durable_state import SmartParticipationDurableStateService
 

@@ -179,7 +179,9 @@ class BeliefRepository:
                 if previous is None or previous.owner_id != owner_id:
                     raise KeyError("Belief to supersede not found.")
                 if previous.authored and not authored:
-                    raise ValueError("Conversation-derived Belief cannot supersede authored Belief.")
+                    raise ValueError(
+                        "Conversation-derived Belief cannot supersede authored Belief."
+                    )
                 if previous.status not in {"rejected", "expired", "superseded"}:
                     previous.status = "superseded"
                     previous.valid_to = current

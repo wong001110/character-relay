@@ -22,7 +22,9 @@ from echo_masque.discovery_social_association import (
     DiscoveryThreadAssociation,
 )
 from echo_masque.persistence.conversation_runtime_models import ConversationEpisodeV3Record
-from echo_masque.persistence.conversation_structure_repository import ConversationStructureRepository
+from echo_masque.persistence.conversation_structure_repository import (
+    ConversationStructureRepository,
+)
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.discovery_repository import DiscoveryRepository
@@ -155,7 +157,9 @@ def test_bilibili_experimental_adapter_uses_persisted_hashed_query_cache(tmp_pat
     assert calls == ["desktop robot"]
 
 
-def test_social_association_uses_accessible_v3_episode_thread_and_social_model(tmp_path: Path) -> None:
+def test_social_association_uses_accessible_v3_episode_thread_and_social_model(
+    tmp_path: Path,
+) -> None:
     database = Database(f"sqlite:///{tmp_path / 'association.db'}")
     database.initialize()
     seed_deployment(database, deployment_id="deployment-1")
@@ -338,14 +342,17 @@ def test_review_requires_approval_and_auto_requires_both_opt_ins(tmp_path: Path)
         Settings(environment="test", discovery_auto_share_global_enabled=False),
         draft_generator=FakeDraftGenerator(),
     )
-    assert asyncio.run(
-        disabled.maybe_propose(
-            owner_id="owner-1",
-            deployment_id="auto-deployment",
-            discovery_item_id=auto_item,
-            association=association(auto_item, "auto-deployment"),
+    assert (
+        asyncio.run(
+            disabled.maybe_propose(
+                owner_id="owner-1",
+                deployment_id="auto-deployment",
+                discovery_item_id=auto_item,
+                association=association(auto_item, "auto-deployment"),
+            )
         )
-    ) is None
+        is None
+    )
     enabled = DiscoveryShareCoordinator(
         database,
         Settings(environment="test", discovery_auto_share_global_enabled=True),

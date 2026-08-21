@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from echo_masque.character_recall import CharacterRecallService
 from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
+from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
+
+from echo_masque.character_recall import CharacterRecallService
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.episodic_sql_rag_repository import EpisodicSqlRagRepository
-from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
 
 
 class _AlphaEncoder:

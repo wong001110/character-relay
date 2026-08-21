@@ -14,7 +14,9 @@ from uuid import NAMESPACE_URL, uuid5
 from sqlalchemy import MetaData, Table, inspect, select
 
 from echo_masque.persistence.belief_models import BeliefV3Record
-from echo_masque.persistence.character_learned_state_event_models import CharacterLearnedStateEventRecord
+from echo_masque.persistence.character_learned_state_event_models import (
+    CharacterLearnedStateEventRecord,
+)
 from echo_masque.persistence.conversation_runtime_models import ConversationEpisodeV3Record
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.discovery_share_models import DeploymentDiscoveryShareRecord
@@ -39,7 +41,12 @@ _LEGACY_TABLES_TO_DROP = (
 )
 
 _ALLOWED_BELIEF_STATUSES = {
-    "active", "provisional", "disputed", "superseded", "rejected", "expired"
+    "active",
+    "provisional",
+    "disputed",
+    "superseded",
+    "rejected",
+    "expired",
 }
 
 
@@ -191,7 +198,8 @@ class IntelligenceV3HardCutoverMigration:
                         supersedes_belief_id=supersedes[:64],
                         evidence_refs_json=_json(evidence),
                         authored=False,
-                        valid_from=_nullable_dt(row.get("valid_from")) or _dt(row.get("created_at"), current),
+                        valid_from=_nullable_dt(row.get("valid_from"))
+                        or _dt(row.get("created_at"), current),
                         valid_to=_nullable_dt(row.get("valid_to")),
                         last_confirmed_at=current if status == "active" else None,
                         stale_after=None,

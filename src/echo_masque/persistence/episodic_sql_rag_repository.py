@@ -205,7 +205,8 @@ class EpisodicSqlRagRepository:
                     .join(
                         CharacterEpisodeAccessRecord,
                         and_(
-                            CharacterEpisodeAccessRecord.episode_id == ConversationEpisodeV3Record.id,
+                            CharacterEpisodeAccessRecord.episode_id
+                            == ConversationEpisodeV3Record.id,
                             CharacterEpisodeAccessRecord.owner_id == owner_id,
                             CharacterEpisodeAccessRecord.character_card_id == character_card_id,
                         ),
@@ -239,7 +240,8 @@ class EpisodicSqlRagRepository:
                     .join(
                         CharacterEpisodeAccessRecord,
                         and_(
-                            CharacterEpisodeAccessRecord.episode_id == ConversationEpisodeV3Record.id,
+                            CharacterEpisodeAccessRecord.episode_id
+                            == ConversationEpisodeV3Record.id,
                             CharacterEpisodeAccessRecord.owner_id == owner_id,
                             CharacterEpisodeAccessRecord.character_card_id == character_card_id,
                         ),
@@ -402,7 +404,9 @@ class EpisodicSqlRagRepository:
                 )
             )
             entity_result = session.execute(
-                delete(ConversationEntityRecord).where(ConversationEntityRecord.owner_id == owner_id)
+                delete(ConversationEntityRecord).where(
+                    ConversationEntityRecord.owner_id == owner_id
+                )
             )
             session.commit()
         return {

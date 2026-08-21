@@ -3,9 +3,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+from echo_masque.persistence.conversation_segment_repository import ConversationSegmentRepository
+
 from echo_masque.conversation_reply_planner import CharacterSegmentReplyPlanner
 from echo_masque.persistence import Database
-from echo_masque.persistence.conversation_segment_repository import ConversationSegmentRepository
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 
 

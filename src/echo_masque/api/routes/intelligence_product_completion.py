@@ -14,7 +14,9 @@ from echo_masque.api.dependencies import CurrentUserDependency
 from echo_masque.character_relationships import CharacterRelationshipService, RelationshipStateView
 from echo_masque.persistence import DeploymentRepository
 from echo_masque.persistence.character_relationship_models import DeploymentRelationshipEventRecord
-from echo_masque.persistence.conversation_structure_repository import ConversationStructureRepository
+from echo_masque.persistence.conversation_structure_repository import (
+    ConversationStructureRepository,
+)
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
@@ -281,7 +283,12 @@ def deployment_social_intelligence(
         source_display_name = (
             source_card.display_name if source_card is not None else source.character_card_id
         )
-        source_values = (source.id, source.character_card_id, source.connection_id, source.workspace_id)
+        source_values = (
+            source.id,
+            source.character_card_id,
+            source.connection_id,
+            source.workspace_id,
+        )
         events = list(
             session.scalars(
                 select(DeploymentRelationshipEventRecord)
@@ -293,7 +300,9 @@ def deployment_social_intelligence(
                 .limit(400)
             )
         )
-        events_by_key: dict[tuple[str, str], list[DeploymentRelationshipEventRecord]] = defaultdict(list)
+        events_by_key: dict[tuple[str, str], list[DeploymentRelationshipEventRecord]] = defaultdict(
+            list
+        )
         for event in events:
             key = (event.target_type, event.target_key)
             if len(events_by_key[key]) < 12:
@@ -322,7 +331,12 @@ def deployment_social_intelligence(
                     )
                 )
                 if actor is not None:
-                    label = actor.guild_display_name or actor.global_display_name or actor.username or actor.user_id
+                    label = (
+                        actor.guild_display_name
+                        or actor.global_display_name
+                        or actor.username
+                        or actor.user_id
+                    )
                     avatar_url = actor.avatar_url
                     target_kind = "bot" if actor.is_bot else "user"
                 else:
@@ -482,7 +496,10 @@ def server_participation_intelligence(
         )
         latest_by_deployment: dict[str, SmartParticipationDeploymentStateRecord] = {}
         for state in deployment_state_rows:
-            if state.deployment_id in deployment_ids and state.deployment_id not in latest_by_deployment:
+            if (
+                state.deployment_id in deployment_ids
+                and state.deployment_id not in latest_by_deployment
+            ):
                 latest_by_deployment[state.deployment_id] = state
         scope_rows = list(
             session.scalars(

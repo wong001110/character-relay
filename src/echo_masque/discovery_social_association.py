@@ -309,12 +309,19 @@ class DiscoverySocialAssociationService:
                     DeploymentDiscoveryExposureRecord.discovery_item_id == discovery_item_id,
                 )
             )
-            if deployment is None or deployment.owner_id != owner_id or item is None or exposure is None:
+            if (
+                deployment is None
+                or deployment.owner_id != owner_id
+                or item is None
+                or exposure is None
+            ):
                 return None
             if exposure.attention_level not in {"watch", "engage"}:
                 return None
             query = "\n".join(
-                value for value in (item.title, item.creator, item.description[:5000]) if value.strip()
+                value
+                for value in (item.title, item.creator, item.description[:5000])
+                if value.strip()
             )
             interest = max(0.0, min(float(exposure.interest_score), 1.0))
 
@@ -367,7 +374,9 @@ class DiscoverySocialAssociationService:
         confidence = max(0.0, min(1.0, interest * 0.68 + context_score * 0.32))
         would_share = bool(
             interest >= 0.62
-            and (context_score >= 0.34 or (exposure.attention_level == "engage" and interest >= 0.78))
+            and (
+                context_score >= 0.34 or (exposure.attention_level == "engage" and interest >= 0.78)
+            )
         )
         result = DiscoverySocialAssociationResult(
             deployment_id=deployment_id,
@@ -387,7 +396,9 @@ class DiscoverySocialAssociationService:
                 deployment_id=deployment_id,
                 discovery_item_id=discovery_item_id,
                 mode=mode,
-                decision=DiscoveryDecision.WOULD_SHARE if would_share else DiscoveryDecision.REMEMBER,
+                decision=DiscoveryDecision.WOULD_SHARE
+                if would_share
+                else DiscoveryDecision.REMEMBER,
                 motivation=motivation,
                 confidence=result.confidence,
                 scores={
@@ -400,7 +411,9 @@ class DiscoverySocialAssociationService:
                     "attention_level": exposure.attention_level,
                     "episode_id": episode_assoc.episode_id if episode_assoc is not None else "",
                     "expanded_episode_ids": (
-                        list(episode_assoc.expanded_episode_ids) if episode_assoc is not None else []
+                        list(episode_assoc.expanded_episode_ids)
+                        if episode_assoc is not None
+                        else []
                     ),
                     "conversation_thread_id": (
                         thread.conversation_thread_id if thread is not None else ""

@@ -13,8 +13,12 @@ from echo_masque.conversation_media_graph import ConversationMediaGraphService
 from echo_masque.expression_retrieval import semantic_tokens
 from echo_masque.live_media import LiveMediaContext
 from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord
-from echo_masque.persistence.conversation_media_repository import ConversationMediaReferenceRepository
-from echo_masque.persistence.conversation_structure_repository import ConversationStructureRepository
+from echo_masque.persistence.conversation_media_repository import (
+    ConversationMediaReferenceRepository,
+)
+from echo_masque.persistence.conversation_structure_repository import (
+    ConversationStructureRepository,
+)
 from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository
 from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
 from echo_masque.semantic_participation import (
@@ -73,7 +77,8 @@ class ConversationMediaReferenceService:
         self._semantic_enabled = (
             semantic_enabled
             if semantic_enabled is not None
-            else settings.semantic_embedding_runtime_enabled and settings.media_semantic_recall_enabled
+            else settings.semantic_embedding_runtime_enabled
+            and settings.media_semantic_recall_enabled
         )
         self._semantic_vectors = SemanticVectorRepository(repository.database)
         self._media_graph = ConversationMediaGraphService(
@@ -256,7 +261,9 @@ class ConversationMediaReferenceService:
                 continue
             try:
                 context = LiveMediaContext.model_validate_json(record.context_json)
-                vector = self._ensure_vector(owner_id=record.owner_id, record=record, context=context)
+                vector = self._ensure_vector(
+                    owner_id=record.owner_id, record=record, context=context
+                )
             except (ValueError, SemanticEmbeddingUnavailable, RuntimeError):
                 continue
             semantic = _cosine(query_vector, vector)
@@ -305,7 +312,9 @@ class ConversationMediaReferenceService:
                 thread_id=payload.thread_id,
                 limit=1,
             )
-        return tuple(self._memory(item, query=payload.text) for item in records if item.context_json)
+        return tuple(
+            self._memory(item, query=payload.text) for item in records if item.context_json
+        )
 
     @staticmethod
     def _excerpt(value: str, query: str, maximum: int) -> str:
@@ -352,7 +361,11 @@ class ConversationMediaReferenceService:
             if summary:
                 block.append(f"Summary: {summary[: min(1200, per_memory - 80)]}")
             remaining = per_memory - sum(len(item) + 1 for item in block)
-            if context.visible_text and cls._needs_readable_text(memory.recall_query) and remaining > 300:
+            if (
+                context.visible_text
+                and cls._needs_readable_text(memory.recall_query)
+                and remaining > 300
+            ):
                 excerpt = cls._excerpt(
                     context.visible_text,
                     memory.recall_query,
@@ -370,7 +383,9 @@ class ConversationMediaReferenceService:
         return tuple(lines)
 
     @staticmethod
-    def _memory(record: ConversationMediaReferenceRecord, *, query: str = "") -> ConversationMediaMemory:
+    def _memory(
+        record: ConversationMediaReferenceRecord, *, query: str = ""
+    ) -> ConversationMediaMemory:
         return ConversationMediaMemory(
             message_id=record.message_id,
             context=LiveMediaContext.model_validate_json(record.context_json),

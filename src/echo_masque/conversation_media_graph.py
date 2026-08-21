@@ -6,7 +6,9 @@ from dataclasses import dataclass
 
 from echo_masque.live_media import LiveMediaContext
 from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord
-from echo_masque.persistence.conversation_structure_repository import ConversationStructureRepository
+from echo_masque.persistence.conversation_structure_repository import (
+    ConversationStructureRepository,
+)
 from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository
 
 

@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from echo_masque.api.connector_schemas import DiscordInboundMessage
-from echo_masque.config import Settings
 from echo_masque.conversation_topic import (
     ConversationActScores,
     ConversationPendingAction,
     ConversationTopicSnapshot,
     TopicContinuityDecision,
 )
+
+from echo_masque.api.connector_schemas import DiscordInboundMessage
+from echo_masque.config import Settings
 from echo_masque.tool_continuation import ToolContinuationService
 from echo_masque.utility_gateway_contracts import ToolContinuationUtilityDecision
 
