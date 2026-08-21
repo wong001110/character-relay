@@ -1,14 +1,18 @@
-from __future__ import annotations
+from types import SimpleNamespace
 
-from echo_masque.conversation_intelligence_observation import (
-    ConversationIntelligenceObservationService,
+from echo_masque.api.routes.intelligence_product_completion import (
+    deployment_social_intelligence,
 )
-
-from echo_masque.character_learned_state import CharacterLearnedStateService, LearnedStateEvidence
+from echo_masque.auth import AuthenticatedUser
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.deployment_repository import DeploymentRepository
-from echo_masque.persistence.discord_identity_repository import DiscordIdentityRepository
+from echo_masque.persistence.discord_identity_models import (
+    DeploymentMessageIdentityRecord,
+    DiscordGuildActorIdentityRecord,
+)
 from echo_masque.persistence.models import CharacterCardRecord, TargetRecord
+from echo_masque.social_intelligence_v3 import SocialIntelligenceV3Service
 
 
 def _database() -> Database:
@@ -16,6 +20,8 @@ def _database() -> Database:
     database.initialize()
     with database.session() as session:
         session.add(TargetRecord(id="target-1", name="Target", target_kind="custom"))
+        session.commit()
+    with database.session() as session:
         session.add_all(
             [
                 CharacterCardRecord(
@@ -30,137 +36,114 @@ def _database() -> Database:
                     target_id="target-1",
                     display_name="Other Card",
                 ),
+                CharacterDeploymentRecord(
+                    id="deployment-center",
+                    owner_id="owner-1",
+                    character_card_id="card-center",
+                    connection_id="connection-1",
+                    platform="discord",
+                    workspace_id="guild-1",
+                    workspace_name="Guild",
+                    channel_id="general",
+                    channel_name="general",
+                    thread_id="",
+                    thread_name="",
+                    participation_mode="smart",
+                    memory_scope="server",
+                    version_label="",
+                    sticker_count=0,
+                    status="active",
+                ),
+                CharacterDeploymentRecord(
+                    id="deployment-other",
+                    owner_id="owner-1",
+                    character_card_id="card-other",
+                    connection_id="connection-1",
+                    platform="discord",
+                    workspace_id="guild-1",
+                    workspace_name="Guild",
+                    channel_id="other",
+                    channel_name="other",
+                    thread_id="",
+                    thread_name="",
+                    participation_mode="smart",
+                    memory_scope="server",
+                    version_label="",
+                    sticker_count=0,
+                    status="active",
+                ),
+                DeploymentMessageIdentityRecord(
+                    deployment_id="deployment-other",
+                    owner_id="owner-1",
+                    mode="webhook",
+                    display_name="Deployed Zhi",
+                    avatar_url="https://example.test/deployed-zhi.png",
+                ),
+                DiscordGuildActorIdentityRecord(
+                    id="actor-1",
+                    owner_id="owner-1",
+                    connection_id="connection-1",
+                    guild_id="guild-1",
+                    user_id="855820638199349248",
+                    guild_display_name="Server Nickname",
+                    global_display_name="Global Name",
+                    username="discord-user",
+                    avatar_url="https://cdn.discordapp.com/avatars/example/avatar.png",
+                    is_bot=False,
+                ),
             ]
         )
         session.commit()
     return database
 
 
-def _relationship(
-    database: Database,
-    *,
-    subject_key: str,
-    source_message_id: str,
-    connection_id: str = "connection-1",
-) -> None:
-    CharacterLearnedStateService(database).record_evidence(
-        LearnedStateEvidence(
-            owner_id="owner-1",
-            character_card_id="card-center",
-            state_type="relationship",
-            subject_type="actor",
-            subject_key=subject_key,
-            delta=0.4,
-            confidence=0.8,
-            source_type="runtime_admission",
-            source_message_id=source_message_id,
-            connection_id=connection_id,
-            guild_id="guild-1",
-            channel_id="general",
+def _view(database: Database):  # type: ignore[no-untyped-def]
+    request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(deployment_repository=DeploymentRepository(database))
         )
     )
+    user = AuthenticatedUser(
+        id="owner-1", email="owner@example.test", display_name="Owner", role="user", is_active=True
+    )
+    return deployment_social_intelligence("deployment-center", request, user)  # type: ignore[arg-type]
 
 
-def test_social_graph_resolves_guild_member_name_and_avatar_without_changing_uid_key() -> None:
+def test_social_product_preserves_actor_identity_presentation_without_changing_key() -> None:
     database = _database()
-    identities = DiscordIdentityRepository(database)
-    identities.upsert_guild_actor_identity(
+    SocialIntelligenceV3Service(database).record_event(
         owner_id="owner-1",
-        connection_id="connection-1",
-        guild_id="guild-1",
-        user_id="855820638199349248",
-        guild_display_name="Server Nickname",
-        global_display_name="Global Name",
-        username="discord-user",
-        avatar_url="https://cdn.discordapp.com/avatars/example/avatar.png",
+        source_deployment_id="deployment-center",
+        target_type="actor",
+        target_key="855820638199349248",
+        event_type="direct_interaction",
+        confidence=0.8,
+        relation_resolved=True,
+        source_message_ids=("human-message",),
     )
-    _relationship(
-        database,
-        subject_key="actor:855820638199349248",
-        source_message_id="human-message",
-    )
-
-    items = ConversationIntelligenceObservationService(database).social_ego_graph(
-        owner_id="owner-1",
-        character_card_id="card-center",
-        connection_id="connection-1",
-        guild_id="guild-1",
-    )
-
-    assert len(items) == 1
-    item = items[0]
-    assert item.subject_key == "actor:855820638199349248"
-    assert item.discord_user_id == "855820638199349248"
+    item = _view(database).items[0]
+    assert item.target_key == "855820638199349248"
     assert item.label == "Server Nickname"
     assert item.avatar_url == "https://cdn.discordapp.com/avatars/example/avatar.png"
-    assert item.subject_type == "actor"
-    assert item.is_bot is False
+    assert item.target_type == "actor"
+    assert item.target_kind == "user"
 
 
-def test_social_graph_prefers_deployment_identity_for_character_neighbor() -> None:
+def test_social_product_uses_deployment_identity_for_character_neighbor() -> None:
     database = _database()
-    deployments = DeploymentRepository(database)
-    connection = deployments.create_connection(
+    SocialIntelligenceV3Service(database).record_event(
         owner_id="owner-1",
-        platform="discord",
-        display_name="Discord",
-        connection_mode="bot",
-        external_account_id="bot-1",
-        status="active",
-        metadata={},
+        source_deployment_id="deployment-center",
+        target_type="deployment",
+        target_key="deployment-other",
+        event_type="direct_interaction",
+        confidence=0.8,
+        relation_resolved=True,
+        source_message_ids=("character-message",),
     )
-    deployment = deployments.create_deployment(
-        owner_id="owner-1",
-        character_card_id="card-other",
-        connection_id=connection.id,
-        workspace_id="guild-1",
-        workspace_name="Guild",
-        channel_id="general",
-        channel_name="general",
-        thread_id="",
-        thread_name="",
-        participation_mode="smart",
-        memory_scope="server",
-        version_label="",
-        sticker_count=0,
-        status="active",
-    )
-    identities = DiscordIdentityRepository(database)
-    identities.upsert_identity(
-        deployment_id=deployment.id,
-        owner_id="owner-1",
-        mode="webhook",
-        display_name="Deployed Zhi",
-        avatar_url="https://example.test/deployed-zhi.png",
-    )
-    identities.register_message_routes(
-        connection_id=connection.id,
-        deployment_id=deployment.id,
-        workspace_id="guild-1",
-        channel_id="general",
-        thread_id="",
-        webhook_id="webhook-1",
-        message_ids=["character-message"],
-    )
-    _relationship(
-        database,
-        subject_key="actor:discord-bot-user",
-        source_message_id="character-message",
-        connection_id=connection.id,
-    )
-
-    items = ConversationIntelligenceObservationService(database).social_ego_graph(
-        owner_id="owner-1",
-        character_card_id="card-center",
-        connection_id=connection.id,
-        guild_id="guild-1",
-    )
-
-    assert len(items) == 1
-    item = items[0]
-    assert item.subject_key == "character:card-other"
-    assert item.character_card_id == "card-other"
-    assert item.label == "Deployed Zhi"
+    item = _view(database).items[0]
+    assert item.target_key == "deployment-other"
+    assert item.label == "Other Card"
     assert item.avatar_url == "https://example.test/deployed-zhi.png"
-    assert item.subject_type == "character"
-    assert item.is_bot is True
+    assert item.target_type == "deployment"
+    assert item.target_kind == "character"

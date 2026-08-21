@@ -12,6 +12,7 @@ from typing import Any, cast
 from uuid import NAMESPACE_URL, uuid5
 
 from sqlalchemy import MetaData, Table, inspect, select
+from sqlalchemy.engine import Connection
 
 from echo_masque.persistence.belief_models import BeliefV3Record
 from echo_masque.persistence.character_learned_state_event_models import (
@@ -35,6 +36,7 @@ _LEGACY_TABLES_TO_DROP = (
     "synthesized_memory_freshness",
     "character_memory_summaries",
     "character_core_memories",
+    "conversation_memory_v2",
     "conversation_memory_vnext",
     "memory_vnext_state",
     "conversation_episodes",
@@ -95,6 +97,12 @@ def _rowcount(result: object) -> int:
 
 def _safe_column_name(value: str) -> bool:
     return bool(value) and value.replace("_", "").isalnum()
+
+
+def _sqlite_foreign_keys_enabled(connection: Connection) -> bool:
+    """Preserve the caller's SQLite foreign-key setting across a table rebuild."""
+
+    return bool(connection.exec_driver_sql("PRAGMA foreign_keys").scalar())
 
 
 class IntelligenceV3HardCutoverMigration:
@@ -275,6 +283,7 @@ class IntelligenceV3HardCutoverMigration:
             rows = list(connection.execute(select(table)).mappings())
         expected_names = {column.name for column in expected.columns}
         with self.database.engine.begin() as connection:
+            foreign_keys_enabled = _sqlite_foreign_keys_enabled(connection)
             connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
             connection.exec_driver_sql(f'DROP TABLE IF EXISTS "{table.name}"')
             expected.create(bind=connection, checkfirst=True)
@@ -289,7 +298,9 @@ class IntelligenceV3HardCutoverMigration:
                 if "source_segment_id" in expected_names:
                     values.setdefault("source_segment_id", "")
                 connection.execute(expected.insert().values(**values))
-            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            connection.exec_driver_sql(
+                f"PRAGMA foreign_keys={'ON' if foreign_keys_enabled else 'OFF'}"
+            )
         return len(rows)
 
     def _migrate_behavior_event_schema(self) -> dict[str, int]:
@@ -318,6 +329,7 @@ class IntelligenceV3HardCutoverMigration:
             ]
             expected_names = {column.name for column in expected.columns}
             with self.database.engine.begin() as connection:
+                foreign_keys_enabled = _sqlite_foreign_keys_enabled(connection)
                 connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
                 connection.exec_driver_sql('DROP TABLE IF EXISTS "character_learned_state_events"')
                 expected.create(bind=connection, checkfirst=True)
@@ -330,7 +342,9 @@ class IntelligenceV3HardCutoverMigration:
                     values.setdefault("conversation_thread_id", "")
                     values.setdefault("source_segment_id", "")
                     connection.execute(expected.insert().values(**values))
-                connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+                connection.exec_driver_sql(
+                    f"PRAGMA foreign_keys={'ON' if foreign_keys_enabled else 'OFF'}"
+                )
             return {
                 "aggregate_removed": aggregate_removed,
                 "events_removed": len(rows) - len(preserved),
@@ -383,6 +397,7 @@ class IntelligenceV3HardCutoverMigration:
         dropped: list[str] = []
         with self.database.engine.begin() as connection:
             if self.database.engine.dialect.name == "sqlite":
+                foreign_keys_enabled = _sqlite_foreign_keys_enabled(connection)
                 connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
             for table_name in _LEGACY_TABLES_TO_DROP:
                 if table_name not in existing:
@@ -390,7 +405,9 @@ class IntelligenceV3HardCutoverMigration:
                 connection.exec_driver_sql(f'DROP TABLE IF EXISTS "{table_name}"')
                 dropped.append(table_name)
             if self.database.engine.dialect.name == "sqlite":
-                connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+                connection.exec_driver_sql(
+                    f"PRAGMA foreign_keys={'ON' if foreign_keys_enabled else 'OFF'}"
+                )
         return tuple(dropped)
 
     def run(self) -> dict[str, Any]:

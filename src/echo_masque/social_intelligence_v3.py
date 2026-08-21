@@ -173,6 +173,25 @@ class SocialIntelligenceV3Service:
         current = now or datetime.now(UTC)
         deltas = _EVENT_DELTAS[event_type]
         resolved_target = bool(target_key) and relation_resolved
+        if source_relation_id:
+            with self.database.session() as session:
+                existing = session.scalar(
+                    select(SocialEventV3Record)
+                    .where(
+                        SocialEventV3Record.owner_id == owner_id,
+                        SocialEventV3Record.source_deployment_id == source_deployment_id,
+                        SocialEventV3Record.event_type == event_type,
+                        SocialEventV3Record.source_relation_id == source_relation_id,
+                    )
+                    .order_by(SocialEventV3Record.created_at.desc())
+                    .limit(1)
+                )
+                if existing is not None:
+                    return SocialEventApplication(
+                        event=self.event_view(existing),
+                        relationship=None,
+                        applied=False,
+                    )
         record = SocialEventV3Record(
             id=str(uuid4()),
             owner_id=owner_id,

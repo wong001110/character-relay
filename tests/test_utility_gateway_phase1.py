@@ -48,7 +48,7 @@ def utility_member(member_id: str = "groq_free") -> dict[str, object]:
         "provider": "groq",
         "base_url": "https://api.groq.com/openai",
         "model": "example-free-model",
-        "capabilities": ["semantic_judge", "topic_intelligence"],
+        "capabilities": ["semantic_judge", "memory_intelligence"],
         "free_only": True,
         "priority": 20,
     }

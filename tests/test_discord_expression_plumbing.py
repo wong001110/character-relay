@@ -1,7 +1,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-INDEX = (ROOT / "connectors/discord/src/index.ts").read_text()
+INDEX = (ROOT / "connectors/discord/src/index.ts").read_text(encoding="utf-8")
 
 
 def between(start: str, end: str) -> str:

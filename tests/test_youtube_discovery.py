@@ -228,7 +228,7 @@ def interest_event(
         connection_id="connection-1",
         guild_id=guild_id,
         channel_id=f"channel-{guild_id}",
-        topic_id="",
+        conversation_thread_id="",
         delta=0.8,
         evidence_confidence=0.9,
         value_before=0.0,

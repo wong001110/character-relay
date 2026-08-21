@@ -100,7 +100,6 @@ class MediaToolRegistry(ServerAwareToolRegistry):
             "memory.search": (
                 "Search this Character's scoped durable memories relevant to a question."
             ),
-            "topic.search": "Search recent Topic history in the current Discord location.",
             "conversation.search": (
                 "Search compact past Episode projections in the current Discord location."
             ),

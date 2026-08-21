@@ -2153,7 +2153,7 @@ async function processMessage(
           details: {
             descriptor_count: plannerMedia.descriptors.length,
             resolved_descriptor_count: plannerMedia.descriptors.filter(
-              (item) => item.state === "resolved" && item.topic_evidence
+              (item) => item.state === "resolved" && Boolean(item.subject || item.summary)
             ).length,
             media_dependency: plannerMedia.dependency,
             dependency_locked: plannerMedia.dependency_locked
@@ -2985,6 +2985,7 @@ async function processMessage(
             : "",
         mentioned_bot: socialSource ? true : mentionedBot,
         replied_to_bot: socialSource ? false : isReplyToCharacter,
+        reply_to_message_id: socialSource ? "" : (guildMessage.reference?.messageId ?? ""),
         smart_candidate: socialSource
           ? false
           : deployment.participation_mode === "smart" &&

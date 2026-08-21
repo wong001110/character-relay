@@ -70,16 +70,6 @@ class RagUtilityDecision(BaseModel):
     reason_code: str = Field(default="", max_length=80)
 
 
-class TopicUtilityDecision(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    decision: Literal["continue", "switch", "clarify", "close"]
-    confidence: float = Field(ge=0.0, le=1.0)
-    reason_code: str = Field(default="", max_length=80)
-    refresh_capsule: bool = False
-    open_loops: tuple[str, ...] = ()
-
-
 class MemoryUtilityDecision(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -178,7 +168,6 @@ __all__ = [
     "RagUtilityDecision",
     "SummaryUtilityResult",
     "ToolContinuationUtilityDecision",
-    "TopicUtilityDecision",
     "UtilityGatewaySnapshot",
     "UtilityGatewayUnavailable",
     "UtilityHealth",

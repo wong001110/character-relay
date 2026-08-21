@@ -27,10 +27,10 @@ def assessment(route: str, *, fallback: bool = False, contextual: bool = False):
 
 def pending() -> PendingActionContinuationEvidence:
     return PendingActionContinuationEvidence(
+        action_id="action-1",
         tool_id="image.generate",
         current_message="maybe again",
-        active_topic_label="image generation",
-        active_topic_summary="one pending image",
+        conversation_thread_id="thread-1",
         pending_intent_summary="generate image",
         pending_source_message_id="message-1",
         continuation_strength=0.35,
@@ -166,7 +166,7 @@ def test_active_falls_back_only_the_rejected_knowledge_field() -> None:
     coordinator = FakeCoordinator(
         outcome(
             route=None,
-            knowledge_source="legacy_fallback_required",
+            knowledge_source="deterministic_fallback",
             pending_continue=False,
             pending_source="turn_intelligence",
         )
@@ -179,14 +179,14 @@ def test_active_falls_back_only_the_rejected_knowledge_field() -> None:
     )
 
     assert coordinator.calls == 1
-    assert gate.decide_calls == ["current question", "context question"]
+    assert gate.decide_calls == []
     assert tool.calls == 0
     assert result.pending_tool_id == ""
     assert result.pending_action_source == "turn_intelligence"
-    assert result.knowledge_source == "legacy_fallback"
+    assert result.knowledge_source == "deterministic_fallback"
 
 
-def test_shadow_runs_unified_comparison_but_preserves_both_legacy_paths() -> None:
+def test_shadow_mode_uses_one_unified_authority_path() -> None:
     gate = FakeGate(
         assessment("gray", fallback=False),
         assessment("gray", fallback=True, contextual=True),
@@ -208,11 +208,11 @@ def test_shadow_runs_unified_comparison_but_preserves_both_legacy_paths() -> Non
     )
 
     assert coordinator.calls == 1
-    assert gate.decide_calls == ["current question", "context question"]
-    assert tool.calls == 1
-    assert result.knowledge_source == "legacy_shadow"
-    assert result.pending_action_source == "legacy_shadow"
-    assert result.pending_tool_id == "image.generate"
+    assert gate.decide_calls == []
+    assert tool.calls == 0
+    assert result.knowledge_source == "turn_intelligence"
+    assert result.pending_action_source == "turn_intelligence"
+    assert result.pending_tool_id == ""
 
 
 def test_active_current_route_reuses_contextual_gray_fallback_without_second_utility() -> None:

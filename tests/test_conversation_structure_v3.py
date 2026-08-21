@@ -3,18 +3,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from echo_masque.conversation_segmentation import (
-    ConversationJudgeResult,
-    ConversationJudgeSegment,
-    ConversationSegmentationService,
-)
-
 from echo_masque.api.smart_participation_v4_schemas import (
     SmartParticipationBurstMessage,
     SmartParticipationResolveCandidate,
     SmartParticipationResolveRequest,
 )
 from echo_masque.config import Settings
+from echo_masque.conversation_structure_resolver import (
+    ConversationJudgeResult,
+    ConversationJudgeSegment,
+    ConversationStructureResolver,
+)
 from echo_masque.persistence import Database
 from echo_masque.persistence.conversation_structure_repository import (
     ConversationStructureRepository,
@@ -47,8 +46,8 @@ def repository() -> ConversationStructureRepository:
 def service(
     repo: ConversationStructureRepository,
     gateway: object | None = None,
-) -> ConversationSegmentationService:
-    return ConversationSegmentationService(
+) -> ConversationStructureResolver:
+    return ConversationStructureResolver(
         repo,
         Settings(semantic_embedding_enabled=False),
         gateway,  # type: ignore[arg-type]
@@ -104,7 +103,7 @@ def test_cross_burst_reply_is_structural_thread_authority() -> None:
             [
                 SmartParticipationBurstMessage(
                     message_id="m1",
-                    author_id="u1",
+                    author_id="u2",
                     text="recording upload channel",
                 )
             ],
@@ -277,7 +276,7 @@ def test_ambiguous_single_message_can_use_semantic_utility_judge() -> None:
             [
                 SmartParticipationBurstMessage(
                     message_id="m2",
-                    author_id="u1",
+                    author_id="u2",
                     text="upload permissions status",
                 )
             ],

@@ -87,7 +87,7 @@ export interface DiscoveryShare {
   status: string;
   motivation: string;
   confidence: number;
-  topic_id: string;
+  conversation_thread_id: string;
   relationship_subject_key: string;
   channel_id: string;
   thread_id: string;

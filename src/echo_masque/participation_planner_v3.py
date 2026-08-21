@@ -96,14 +96,28 @@ class MediaEpistemicContract:
             )
         content = tuple(item for item in descriptors if self._state(item) in _CONTENT_STATES)
         if content:
+            # These descriptors come from the planner-only media endpoint. They may affect
+            # candidate routing, but they are not evidence that the eventual Character has
+            # inspected the media. Character perception is established later by the Runtime
+            # media-inspection path and must never be asserted by this pre-generation plan.
+            if payload.media_dependency == "required":
+                return MediaGroundingDecision(
+                    "context_only",
+                    False,
+                    "required_media_character_perception_missing",
+                    "Planner media analysis is routing-only and cannot establish Character "
+                    "perception. Required media content has not yet been perceived by the "
+                    "Character; prefer silence or a clarification request.",
+                    (),
+                )
             return MediaGroundingDecision(
-                "content_grounded",
+                "context_only",
                 True,
-                "media_content_available",
-                "Media content has been explicitly perceived by the media-understanding "
-                "path. You may discuss only details present in the supplied grounded "
-                "media context.",
-                tuple(dict.fromkeys(item.ref for item in content if item.ref)),
+                "planner_media_not_character_perception",
+                "Planner media analysis may guide routing only. Respond from visible "
+                "conversation context and do not claim, summarize, or imply perception of "
+                "the media content unless the Character Runtime later supplies it.",
+                (),
             )
         preview = tuple(item for item in descriptors if self._state(item) in _PREVIEW_STATES)
         if preview:

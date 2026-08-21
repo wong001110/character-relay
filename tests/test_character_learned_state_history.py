@@ -20,18 +20,18 @@ def test_learned_state_appends_scoped_before_after_history() -> None:
             owner_id="owner-1",
             character_card_id="card-ann",
             state_type="interest",
-            subject_type="topic",
-            subject_key="topic:topic-1",
+            subject_type="thread",
+            subject_key="thread:thread-1",
             delta=0.4,
             confidence=0.8,
             source_type="runtime_admission",
             source_message_id="m1",
             source_burst_id="burst-1",
-            reason_code="voluntary_topic_participation",
+            reason_code="voluntary_thread_participation",
             connection_id="connection-1",
             guild_id="guild-1",
             channel_id="general",
-            topic_id="topic-1",
+            conversation_thread_id="thread-1",
         ),
         now=now,
     )
@@ -40,18 +40,18 @@ def test_learned_state_appends_scoped_before_after_history() -> None:
             owner_id="owner-1",
             character_card_id="card-ann",
             state_type="interest",
-            subject_type="topic",
-            subject_key="topic:topic-1",
+            subject_type="thread",
+            subject_key="thread:thread-1",
             delta=0.2,
             confidence=0.6,
             source_type="runtime_admission",
             source_message_id="m2",
             source_burst_id="burst-2",
-            reason_code="voluntary_topic_participation",
+            reason_code="voluntary_thread_participation",
             connection_id="connection-1",
             guild_id="guild-1",
             channel_id="general",
-            topic_id="topic-1",
+            conversation_thread_id="thread-1",
         ),
         now=now,
     )
@@ -71,4 +71,4 @@ def test_learned_state_appends_scoped_before_after_history() -> None:
     assert newest.value_before == oldest.value_after
     assert newest.value_after > newest.value_before
     assert newest.guild_id == "guild-1"
-    assert newest.topic_id == "topic-1"
+    assert newest.conversation_thread_id == "thread-1"
