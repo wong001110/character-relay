@@ -3,19 +3,16 @@
 from __future__ import annotations
 
 import json
-import math
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
+from echo_masque.character_relationships import CharacterRelationshipService
 from echo_masque.config import Settings
 from echo_masque.discovery_contracts import DiscoveryDecision, DiscoveryMode
-from echo_masque.persistence.character_learned_state_event_models import (
-    CharacterLearnedStateEventRecord,
-)
-from echo_masque.persistence.conversation_episode_models import ConversationEpisodeRecord
-from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
+from echo_masque.persistence.conversation_runtime_models import ConversationEpisodeV3Record
+from echo_masque.persistence.conversation_structure_models import ConversationThreadRecord
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.discovery_models import (
@@ -33,16 +30,16 @@ from echo_masque.semantic_participation import (
     _cosine,
 )
 
-_EPISODE_VECTOR_NAMESPACE = "discovery-association-episode-v1"
+_EPISODE_VECTOR_NAMESPACE = "discovery-association-episode-v3"
 
 
 @dataclass(frozen=True, slots=True)
-class DiscoveryTopicAssociation:
-    topic_id: str
+class DiscoveryThreadAssociation:
+    conversation_thread_id: str
     label: str
     status: str
     channel_id: str
-    thread_id: str
+    discord_thread_id: str
     score: float
 
 
@@ -64,7 +61,7 @@ class DiscoveryRelationshipAssociation:
 class DiscoverySocialAssociationResult:
     deployment_id: str
     discovery_item_id: str
-    topic: DiscoveryTopicAssociation | None
+    thread: DiscoveryThreadAssociation | None
     episode: DiscoveryEpisodeAssociation | None
     relationship: DiscoveryRelationshipAssociation | None
     would_share: bool
@@ -73,7 +70,7 @@ class DiscoverySocialAssociationResult:
 
 
 class DiscoverySocialAssociationService:
-    """Link external content only to Topics/Episodes the Deployment's Character could know."""
+    """Associate content only with Episodes/Threads and social state the Character could know."""
 
     def __init__(
         self,
@@ -88,6 +85,7 @@ class DiscoverySocialAssociationService:
         self.episodes = EpisodicSqlRagRepository(database)
         self.vectors = SemanticVectorRepository(database)
         self.identities = DiscordIdentityRepository(database)
+        self.relationships = CharacterRelationshipService(database)
         self.encoder = encoder
         if self.encoder is None and settings.semantic_embedding_runtime_enabled:
             self.encoder = FastEmbedSemanticEncoder(
@@ -96,10 +94,6 @@ class DiscoverySocialAssociationService:
                 cache_dir=settings.semantic_embedding_cache_dir,
                 dimension=settings.semantic_embedding_dimension,
             )
-
-    @staticmethod
-    def _aware(value: datetime) -> datetime:
-        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
     @staticmethod
     def _tokens(value: str) -> set[str]:
@@ -128,14 +122,14 @@ class DiscoverySocialAssociationService:
         return tuple(dict.fromkeys(str(item).strip() for item in value if str(item).strip()))
 
     @staticmethod
-    def _episode_text(record: ConversationEpisodeRecord) -> str:
-        return f"{record.summary}\n{record.key_points_json}"[:8000]
+    def _episode_text(record: ConversationEpisodeV3Record) -> str:
+        return f"{record.summary}\n{record.key_events_json}"[:8000]
 
     def _vector(
         self,
         *,
         owner_id: str,
-        record: ConversationEpisodeRecord,
+        record: ConversationEpisodeV3Record,
         encoder: SemanticEncoder,
     ) -> list[float] | None:
         text = self._episode_text(record)
@@ -187,7 +181,7 @@ class DiscoverySocialAssociationService:
                 query_vector = self.encoder.embed_query(query)
             except SemanticEmbeddingUnavailable:
                 query_vector = None
-        scored: list[tuple[float, ConversationEpisodeRecord]] = []
+        scored: list[tuple[float, ConversationEpisodeV3Record]] = []
         for record in accessible:
             score = self._sparse(query, self._episode_text(record))
             if query_vector is not None and self.encoder is not None:
@@ -215,78 +209,66 @@ class DiscoverySocialAssociationService:
             expanded_episode_ids=expanded[:12],
         )
 
-    def _topic_for_episode(
+    def _thread_for_episode(
         self,
         *,
         owner_id: str,
-        episode: ConversationEpisodeRecord,
+        episode: ConversationEpisodeV3Record,
         episode_score: float,
-    ) -> DiscoveryTopicAssociation | None:
-        if not episode.topic_id:
+    ) -> DiscoveryThreadAssociation | None:
+        if not episode.conversation_thread_id:
             return None
         with self.database.session() as session:
-            topic = session.get(ConversationTopicRecord, episode.topic_id)
-            if topic is None or topic.owner_id != owner_id:
+            thread = session.get(ConversationThreadRecord, episode.conversation_thread_id)
+            if thread is None or thread.owner_id != owner_id or thread.status == "archived":
                 return None
-        return DiscoveryTopicAssociation(
-            topic_id=topic.id,
-            label=topic.topic_label,
-            status=topic.status,
+        return DiscoveryThreadAssociation(
+            conversation_thread_id=thread.id,
+            label=thread.canonical_label,
+            status=thread.status,
             channel_id=episode.channel_id,
-            thread_id=episode.thread_id,
+            discord_thread_id=episode.discord_thread_id,
             score=episode_score,
         )
+
+    @staticmethod
+    def _social_score(state: object) -> float:
+        familiarity = max(0.0, float(getattr(state, "familiarity", 0.0)))
+        affinity = max(0.0, float(getattr(state, "affinity", 0.0)))
+        trust = max(0.0, float(getattr(state, "trust", 0.0)))
+        comfort = max(0.0, float(getattr(state, "comfort", 0.0)))
+        return min(1.0, familiarity * 0.35 + affinity * 0.25 + trust * 0.25 + comfort * 0.15)
 
     def _relationship_for_episode(
         self,
         *,
         owner_id: str,
         deployment: CharacterDeploymentRecord,
-        episode: ConversationEpisodeRecord,
+        episode: ConversationEpisodeV3Record,
         now: datetime,
     ) -> DiscoveryRelationshipAssociation | None:
-        participant_ids = self._decode_strings(episode.participant_refs_json)
-        actor_keys = {f"actor:{value}" for value in participant_ids if value}
-        if not actor_keys:
-            return None
-        with self.database.session() as session:
-            events = list(
-                session.scalars(
-                    select(CharacterLearnedStateEventRecord)
-                    .where(
-                        CharacterLearnedStateEventRecord.owner_id == owner_id,
-                        CharacterLearnedStateEventRecord.character_card_id
-                        == deployment.character_card_id,
-                        CharacterLearnedStateEventRecord.state_type == "relationship",
-                        CharacterLearnedStateEventRecord.connection_id == deployment.connection_id,
-                        CharacterLearnedStateEventRecord.guild_id == deployment.workspace_id,
-                        CharacterLearnedStateEventRecord.subject_key.in_(actor_keys),
-                        CharacterLearnedStateEventRecord.recorded_at
-                        >= now - timedelta(days=180),
-                    )
-                    .order_by(CharacterLearnedStateEventRecord.recorded_at.desc())
-                    .limit(240)
-                )
+        participant_ids = self._decode_strings(episode.participant_ids_json)
+        ranked: list[tuple[float, str]] = []
+        for participant in participant_ids:
+            user_id = participant.removeprefix("actor:")
+            if not user_id:
+                continue
+            state = self.relationships.get_state(
+                owner_id=owner_id,
+                source_deployment_id=deployment.id,
+                target_type="actor",
+                target_key=user_id,
+                now=now,
             )
-        totals: dict[str, float] = {}
-        for event in events:
-            age_days = max(
-                0.0,
-                (now - self._aware(event.recorded_at)).total_seconds() / 86400.0,
-            )
-            contribution = (
-                float(event.delta)
-                * float(event.evidence_confidence)
-                * math.pow(0.5, age_days / 60.0)
-            )
-            totals[event.subject_key] = totals.get(event.subject_key, 0.0) + contribution
-        if not totals:
+            if state is None:
+                continue
+            score = self._social_score(state)
+            if score >= 0.12:
+                ranked.append((score, user_id))
+        if not ranked:
             return None
-        subject_key, raw_score = max(totals.items(), key=lambda item: item[1])
-        score = max(0.0, min(raw_score, 1.0))
-        if score < 0.12:
-            return None
-        user_id = subject_key.removeprefix("actor:")
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        score, user_id = ranked[0]
         identity = self.identities.get_guild_actor_identity(
             owner_id=owner_id,
             connection_id=deployment.connection_id,
@@ -302,7 +284,7 @@ class DiscoverySocialAssociationService:
                 or user_id
             )
         return DiscoveryRelationshipAssociation(
-            subject_key=subject_key,
+            subject_key=f"actor:{user_id}",
             label=label,
             score=round(score, 6),
         )
@@ -327,19 +309,12 @@ class DiscoverySocialAssociationService:
                     DeploymentDiscoveryExposureRecord.discovery_item_id == discovery_item_id,
                 )
             )
-            if (
-                deployment is None
-                or deployment.owner_id != owner_id
-                or item is None
-                or exposure is None
-            ):
+            if deployment is None or deployment.owner_id != owner_id or item is None or exposure is None:
                 return None
             if exposure.attention_level not in {"watch", "engage"}:
                 return None
             query = "\n".join(
-                value
-                for value in (item.title, item.creator, item.description[:5000])
-                if value.strip()
+                value for value in (item.title, item.creator, item.description[:5000]) if value.strip()
             )
             interest = max(0.0, min(float(exposure.interest_score), 1.0))
 
@@ -348,7 +323,7 @@ class DiscoverySocialAssociationService:
             deployment=deployment,
             query=query,
         )
-        episode_record: ConversationEpisodeRecord | None = None
+        episode_record: ConversationEpisodeV3Record | None = None
         if episode_assoc is not None:
             records = self.episodes.episodes_by_ids(
                 owner_id=owner_id,
@@ -358,8 +333,8 @@ class DiscoverySocialAssociationService:
                 episode_ids=(episode_assoc.episode_id,),
             )
             episode_record = records[0] if records else None
-        topic = (
-            self._topic_for_episode(
+        thread = (
+            self._thread_for_episode(
                 owner_id=owner_id,
                 episode=episode_record,
                 episode_score=episode_assoc.score,
@@ -381,10 +356,10 @@ class DiscoverySocialAssociationService:
         if relationship is not None:
             context_score = max(context_score, relationship.score)
             motivation = "REMIND_ME_OF_SOMEONE"
-        elif topic is not None:
+        elif thread is not None:
             motivation = (
-                "RELATED_TO_CURRENT_TOPIC"
-                if topic.status in {"active", "cooling"}
+                "RELATED_TO_CURRENT_THREAD"
+                if thread.status in {"hot", "warm"}
                 else "RELATED_TO_PAST_CONVERSATION"
             )
         else:
@@ -392,15 +367,12 @@ class DiscoverySocialAssociationService:
         confidence = max(0.0, min(1.0, interest * 0.68 + context_score * 0.32))
         would_share = bool(
             interest >= 0.62
-            and (
-                context_score >= 0.34
-                or (exposure.attention_level == "engage" and interest >= 0.78)
-            )
+            and (context_score >= 0.34 or (exposure.attention_level == "engage" and interest >= 0.78))
         )
         result = DiscoverySocialAssociationResult(
             deployment_id=deployment_id,
             discovery_item_id=discovery_item_id,
-            topic=topic,
+            thread=thread,
             episode=episode_assoc,
             relationship=relationship,
             would_share=would_share,
@@ -415,11 +387,7 @@ class DiscoverySocialAssociationService:
                 deployment_id=deployment_id,
                 discovery_item_id=discovery_item_id,
                 mode=mode,
-                decision=(
-                    DiscoveryDecision.WOULD_SHARE
-                    if would_share
-                    else DiscoveryDecision.REMEMBER
-                ),
+                decision=DiscoveryDecision.WOULD_SHARE if would_share else DiscoveryDecision.REMEMBER,
                 motivation=motivation,
                 confidence=result.confidence,
                 scores={
@@ -432,11 +400,11 @@ class DiscoverySocialAssociationService:
                     "attention_level": exposure.attention_level,
                     "episode_id": episode_assoc.episode_id if episode_assoc is not None else "",
                     "expanded_episode_ids": (
-                        list(episode_assoc.expanded_episode_ids)
-                        if episode_assoc is not None
-                        else []
+                        list(episode_assoc.expanded_episode_ids) if episode_assoc is not None else []
                     ),
-                    "topic_id": topic.topic_id if topic is not None else "",
+                    "conversation_thread_id": (
+                        thread.conversation_thread_id if thread is not None else ""
+                    ),
                     "relationship_subject_key": (
                         relationship.subject_key if relationship is not None else ""
                     ),
@@ -451,5 +419,5 @@ __all__ = [
     "DiscoveryRelationshipAssociation",
     "DiscoverySocialAssociationResult",
     "DiscoverySocialAssociationService",
-    "DiscoveryTopicAssociation",
+    "DiscoveryThreadAssociation",
 ]

@@ -89,7 +89,7 @@ class DiscoveryShareRepository:
         status: str,
         motivation: str,
         confidence: float,
-        topic_id: str,
+        conversation_thread_id: str,
         relationship_subject_key: str,
         channel_id: str,
         thread_id: str,
@@ -119,7 +119,7 @@ class DiscoveryShareRepository:
                 status=status[:32],
                 motivation=motivation[:64],
                 confidence=max(0.0, min(float(confidence), 1.0)),
-                topic_id=topic_id[:64],
+                conversation_thread_id=conversation_thread_id[:64],
                 relationship_subject_key=relationship_subject_key[:320],
                 channel_id=channel_id[:200],
                 thread_id=thread_id[:200],
@@ -143,9 +143,7 @@ class DiscoveryShareRepository:
             session.refresh(record)
             return record
 
-    def get(
-        self, *, owner_id: str, share_id: str
-    ) -> DeploymentDiscoveryShareRecord | None:
+    def get(self, *, owner_id: str, share_id: str) -> DeploymentDiscoveryShareRecord | None:
         with self.database.session() as session:
             record = session.get(DeploymentDiscoveryShareRecord, share_id)
             return record if record is not None and record.owner_id == owner_id else None
@@ -246,9 +244,7 @@ class DiscoveryShareRepository:
                 session.refresh(row)
             return tuple(rows)
 
-    def defer(
-        self, *, share_id: str, minutes: int = 5, reason: str = ""
-    ) -> None:
+    def defer(self, *, share_id: str, minutes: int = 5, reason: str = "") -> None:
         now = datetime.now(UTC)
         with self.database.session() as session:
             record = session.get(DeploymentDiscoveryShareRecord, share_id)
@@ -286,7 +282,7 @@ class DiscoveryShareRepository:
                 record.next_attempt_at = None
             else:
                 record.status = "queued"
-                record.next_attempt_at = now + timedelta(minutes=2 ** record.attempt_count)
+                record.next_attempt_at = now + timedelta(minutes=2**record.attempt_count)
             record.updated_at = now
             session.commit()
 
@@ -334,7 +330,4 @@ class DiscoveryShareRepository:
             )
 
 
-__all__ = [
-    "DiscoverySharePolicyView",
-    "DiscoveryShareRepository",
-]
+__all__ = ["DiscoverySharePolicyView", "DiscoveryShareRepository"]

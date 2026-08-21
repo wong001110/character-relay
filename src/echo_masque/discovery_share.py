@@ -18,18 +18,12 @@ from echo_masque.discovery_contracts import DiscoveryDecision, DiscoveryMode
 from echo_masque.discovery_social_association import DiscoverySocialAssociationResult
 from echo_masque.persistence import AuthRepository, DeploymentRepository, DiscordIdentityRepository, Repository
 from echo_masque.persistence.database import Database
-from echo_masque.persistence.deployment_models import (
-    CharacterDeploymentRecord,
-    DiscordServerCatalogRecord,
-)
+from echo_masque.persistence.deployment_models import CharacterDeploymentRecord, DiscordServerCatalogRecord
 from echo_masque.persistence.deployment_presence_repository import DeploymentPresenceRepository
 from echo_masque.persistence.discovery_models import DiscoveryItemRecord
 from echo_masque.persistence.discovery_repository import DiscoveryRepository
 from echo_masque.persistence.discovery_share_models import DeploymentDiscoveryShareRecord
-from echo_masque.persistence.discovery_share_repository import (
-    DiscoverySharePolicyView,
-    DiscoveryShareRepository,
-)
+from echo_masque.persistence.discovery_share_repository import DiscoverySharePolicyView, DiscoveryShareRepository
 
 _DISCORD_API = "https://discord.com/api/v10"
 _WEBHOOK_SCOPE = "discord_webhook"
@@ -54,11 +48,7 @@ class DiscoveryShareDraftService:
         self.repository = Repository(database)
         self.deployments = DeploymentRepository(database)
         self.credentials = CredentialVault(AuthRepository(database), settings)
-        self.runtime = DiscordConnectorRuntime(
-            self.repository,
-            self.deployments,
-            self.credentials,
-        )
+        self.runtime = DiscordConnectorRuntime(self.repository, self.deployments, self.credentials)
 
     async def draft(
         self,
@@ -100,8 +90,8 @@ class DiscoveryShareDraftService:
             f"Description: {item.description[:1800]}",
             f"URL: {item.url}",
         ]
-        if association.topic is not None:
-            lines.append(f"Related conversation topic: {association.topic.label}")
+        if association.thread is not None:
+            lines.append(f"Related conversation thread: {association.thread.label}")
         if association.relationship is not None:
             lines.append(f"This reminded the Character of: {association.relationship.label}")
         response = await target.send("\n".join(lines))
@@ -143,10 +133,7 @@ class DiscoverySharePolicy:
         )
         if count >= policy.daily_share_budget:
             return False, "daily_share_budget_exhausted"
-        latest = self.repository.latest_delivery_time(
-            owner_id=owner_id,
-            deployment_id=deployment_id,
-        )
+        latest = self.repository.latest_delivery_time(owner_id=owner_id, deployment_id=deployment_id)
         if latest is not None:
             if latest.tzinfo is None:
                 latest = latest.replace(tzinfo=UTC)
@@ -180,7 +167,7 @@ class DiscoveryShareCoordinator:
         association: DiscoverySocialAssociationResult,
         now: datetime | None = None,
     ) -> DeploymentDiscoveryShareRecord | None:
-        if not association.would_share or association.topic is None:
+        if not association.would_share or association.thread is None:
             return None
         profile = self.discovery.get_profile(owner_id=owner_id, deployment_id=deployment_id)
         if profile is None or profile.mode in {DiscoveryMode.OFF, DiscoveryMode.SHADOW}:
@@ -229,12 +216,12 @@ class DiscoveryShareCoordinator:
             status=status,
             motivation=association.motivation,
             confidence=association.confidence,
-            topic_id=association.topic.topic_id,
+            conversation_thread_id=association.thread.conversation_thread_id,
             relationship_subject_key=(
                 association.relationship.subject_key if association.relationship is not None else ""
             ),
-            channel_id=association.topic.channel_id,
-            thread_id=association.topic.thread_id,
+            channel_id=association.thread.channel_id,
+            thread_id=association.thread.discord_thread_id,
             draft_text=draft,
             now=now,
         )
@@ -250,6 +237,7 @@ class DiscoveryShareCoordinator:
                 scores={"association": association.confidence},
                 evidence={
                     "share_id": record.id,
+                    "conversation_thread_id": record.conversation_thread_id,
                     "review_required": profile.mode is DiscoveryMode.REVIEW,
                     "side_effects": False,
                 },
@@ -263,14 +251,8 @@ class DiscoveryShareCoordinator:
         record = self.shares.get(owner_id=owner_id, share_id=share_id)
         if record is None:
             return None
-        profile = self.discovery.get_profile(
-            owner_id=owner_id,
-            deployment_id=record.deployment_id,
-        )
-        policy = self.shares.get_policy(
-            owner_id=owner_id,
-            deployment_id=record.deployment_id,
-        )
+        profile = self.discovery.get_profile(owner_id=owner_id, deployment_id=record.deployment_id)
+        policy = self.shares.get_policy(owner_id=owner_id, deployment_id=record.deployment_id)
         if profile is None or profile.mode not in {DiscoveryMode.REVIEW, DiscoveryMode.AUTO}:
             raise ValueError("Discovery sharing is no longer enabled for this Deployment.")
         if policy is None:
@@ -357,10 +339,7 @@ class DiscoveryShareDeliveryService:
                     decision=DiscoveryDecision.SHARE,
                     motivation=share.motivation,
                     confidence=share.confidence,
-                    evidence={
-                        "share_id": share.id,
-                        "discord_message_id": message_id,
-                    },
+                    evidence={"share_id": share.id, "discord_message_id": message_id},
                 )
                 delivered += 1
         return delivered
@@ -369,23 +348,15 @@ class DiscoveryShareDeliveryService:
         deployment = self.deployments.get_deployment(share.deployment_id, share.owner_id)
         if deployment is None or deployment.status != "active":
             raise _DiscoveryShareCancelled("Deployment is no longer active.")
-        profile = self.discovery.get_profile(
-            owner_id=share.owner_id,
-            deployment_id=share.deployment_id,
-        )
+        profile = self.discovery.get_profile(owner_id=share.owner_id, deployment_id=share.deployment_id)
         if profile is None or profile.mode is DiscoveryMode.OFF:
             raise _DiscoveryShareCancelled("Discovery sharing was disabled.")
-        policy = self.shares.get_policy(
-            owner_id=share.owner_id,
-            deployment_id=share.deployment_id,
-        )
+        policy = self.shares.get_policy(owner_id=share.owner_id, deployment_id=share.deployment_id)
         if policy is None:
             raise _DiscoveryShareCancelled("Discovery sharing policy is unavailable.")
         if share.mode == DiscoveryMode.AUTO.value:
             if profile.mode is not DiscoveryMode.AUTO or not self.policy.can_auto(policy):
-                raise _DiscoveryShareCancelled(
-                    "AUTO Discovery sharing is not currently authorized."
-                )
+                raise _DiscoveryShareCancelled("AUTO Discovery sharing is not currently authorized.")
         current_presence = self.presence.get(
             owner_id=share.owner_id,
             deployment_id=share.deployment_id,
@@ -407,22 +378,13 @@ class DiscoveryShareDeliveryService:
             category_id=category_id,
         )
         if eligible is None:
-            raise _DiscoveryShareCancelled(
-                "Discovery destination is outside Deployment scope."
-            )
+            raise _DiscoveryShareCancelled("Discovery destination is outside Deployment scope.")
         identity = self.identities.get_identity(deployment.id, deployment.owner_id)
         if identity is not None and identity.mode == "bot":
-            message_id = await self._send_bot(
-                share.thread_id or share.channel_id,
-                share.draft_text,
-            )
+            message_id = await self._send_bot(share.thread_id or share.channel_id, share.draft_text)
             webhook_id = ""
         else:
-            message_id, webhook_id = await self._send_webhook(
-                deployment,
-                share,
-                identity,
-            )
+            message_id, webhook_id = await self._send_webhook(deployment, share, identity)
         try:
             self.identities.register_message_routes(
                 connection_id=deployment.connection_id,
@@ -446,10 +408,7 @@ class DiscoveryShareDeliveryService:
             response = await client.post(
                 f"{_DISCORD_API}/channels/{channel_id}/messages",
                 headers={"Authorization": f"Bot {token.get_secret_value()}"},
-                json={
-                    "content": content[:2000],
-                    "allowed_mentions": {"parse": []},
-                },
+                json={"content": content[:2000], "allowed_mentions": {"parse": []}},
             )
         return self._message_id(response)
 
@@ -476,10 +435,7 @@ class DiscoveryShareDeliveryService:
         query = {"wait": "true"}
         if share.thread_id:
             query["thread_id"] = share.thread_id
-        url = (
-            f"{_DISCORD_API}/webhooks/{binding.webhook_id}/"
-            f"{token.get_secret_value()}?{urlencode(query)}"
-        )
+        url = f"{_DISCORD_API}/webhooks/{binding.webhook_id}/{token.get_secret_value()}?{urlencode(query)}"
         payload: dict[str, object] = {
             "content": share.draft_text[:2000],
             "allowed_mentions": {"parse": []},
@@ -497,9 +453,7 @@ class DiscoveryShareDeliveryService:
     @staticmethod
     def _message_id(response: httpx.Response) -> str:
         if response.is_error:
-            raise RuntimeError(
-                f"Discord Discovery delivery returned HTTP {response.status_code}."
-            )
+            raise RuntimeError(f"Discord Discovery delivery returned HTTP {response.status_code}.")
         try:
             payload = response.json()
         except ValueError as exc:

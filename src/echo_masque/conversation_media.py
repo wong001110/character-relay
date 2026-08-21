@@ -12,12 +12,10 @@ from echo_masque.config import get_settings
 from echo_masque.conversation_media_graph import ConversationMediaGraphService
 from echo_masque.expression_retrieval import semantic_tokens
 from echo_masque.live_media import LiveMediaContext
-from echo_masque.persistence.conversation_graph_repository import ConversationGraphRepository
 from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord
-from echo_masque.persistence.conversation_media_repository import (
-    ConversationMediaReferenceRepository,
-)
-from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
+from echo_masque.persistence.conversation_media_repository import ConversationMediaReferenceRepository
+from echo_masque.persistence.conversation_structure_repository import ConversationStructureRepository
+from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository
 from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
 from echo_masque.semantic_participation import (
     FastEmbedSemanticEncoder,
@@ -27,25 +25,18 @@ from echo_masque.semantic_participation import (
 )
 
 _DEICTIC_MEDIA = re.compile(
-    r"(?:"
-    r"刚才|剛才|上面|前面|那个|那個|那张|那張|那幅|那段|那个视频|那個影片|那篇|刚刚|剛剛|"
+    r"(?:刚才|剛才|上面|前面|那个|那個|那张|那張|那幅|那段|那个视频|那個影片|那篇|刚刚|剛剛|"
     r"previous|earlier|above|that\s+(?:image|picture|photo|video|clip|article|link)|"
-    r"the\s+(?:image|picture|photo|video|clip|article|link)\s+(?:above|before)"
-    r")",
+    r"the\s+(?:image|picture|photo|video|clip|article|link)\s+(?:above|before))",
     re.IGNORECASE,
 )
 _READABLE_TEXT_QUERY = re.compile(
-    r"(?:"
-    r"文字|文本|字幕|写着|寫著|写了|寫了|什么字|什麼字|显示|顯示|"
+    r"(?:文字|文本|字幕|写着|寫著|写了|寫了|什么字|什麼字|显示|顯示|"
     r"价格|價格|价钱|價錢|容量|数字|數字|编号|編號|uid|"
-    r"\b(?:text|read|written|says?|ocr|number|price|capacity|teks|tertulis|nombor|harga|berapa)\b"
-    r")",
+    r"\b(?:text|read|written|says?|ocr|number|price|capacity|teks|tertulis|nombor|harga|berapa)\b)",
     re.IGNORECASE,
 )
-_DISCORD_INLINE = re.compile(
-    r"<@!?\d+>|<a?:[A-Za-z0-9_]+:\d+>|https?://\S+",
-    re.IGNORECASE,
-)
+_DISCORD_INLINE = re.compile(r"<@!?\d+>|<a?:[A-Za-z0-9_]+:\d+>|https?://\S+", re.IGNORECASE)
 _MEANINGFUL_CHAR = re.compile(r"[A-Za-z0-9\u3400-\u9fff]")
 _MEDIA_VECTOR_NAMESPACE = "conversation-media"
 _AUTO_SEMANTIC_MINIMUM = 0.46
@@ -59,8 +50,6 @@ _AUTO_RECALL_MIN_MEANINGFUL_CHARS = 3
 
 @dataclass(frozen=True)
 class ConversationMediaMemory:
-    """One historical objective context plus a retrievable source when available."""
-
     message_id: str
     context: LiveMediaContext
     source_uri: str = ""
@@ -68,7 +57,7 @@ class ConversationMediaMemory:
 
 
 class ConversationMediaReferenceService:
-    """Persist perceived content and resolve exact, semantic, and recent references."""
+    """Persist perceived media and resolve exact, semantic, and recent references."""
 
     def __init__(
         self,
@@ -84,15 +73,12 @@ class ConversationMediaReferenceService:
         self._semantic_enabled = (
             semantic_enabled
             if semantic_enabled is not None
-            else (
-                settings.semantic_embedding_runtime_enabled
-                and settings.media_semantic_recall_enabled
-            )
+            else settings.semantic_embedding_runtime_enabled and settings.media_semantic_recall_enabled
         )
         self._semantic_vectors = SemanticVectorRepository(repository.database)
         self._media_graph = ConversationMediaGraphService(
-            ConversationGraphRepository(repository.database),
-            ConversationTopicRepository(repository.database),
+            EntityEvidenceRepository(repository.database),
+            ConversationStructureRepository(repository.database),
         )
 
     def _encoder(self) -> SemanticEncoder:
@@ -114,7 +100,7 @@ class ConversationMediaReferenceService:
             f"Label: {context.label}" if context.label else "",
             f"Summary: {context.summary}",
             f"Readable text: {context.visible_text}" if context.visible_text else "",
-            ("Details: " + "; ".join(context.notable_details) if context.notable_details else ""),
+            "Details: " + "; ".join(context.notable_details) if context.notable_details else "",
         ]
         return "\n".join(item for item in sections if item)[:20_000]
 
@@ -128,9 +114,7 @@ class ConversationMediaReferenceService:
         encoder = self._encoder()
         semantic_text = self._semantic_text(context)
         source_hash = self._semantic_vectors.source_hash(
-            semantic_text,
-            encoder.model_name,
-            encoder.dimension,
+            semantic_text, encoder.model_name, encoder.dimension
         )
         cached = self._semantic_vectors.get(
             owner_id=owner_id,
@@ -201,20 +185,15 @@ class ConversationMediaReferenceService:
 
     @staticmethod
     def _automatic_recall_allowed(text: str) -> bool:
-        """Require useful information in the current turn before searching older media."""
-
         cleaned = _DISCORD_INLINE.sub(" ", text)
         meaningful = _MEANINGFUL_CHAR.findall(cleaned)
         if len(meaningful) < _AUTO_RECALL_MIN_MEANINGFUL_CHARS:
             return False
-        # Repeated laughter/acknowledgement glyphs are still low-information even when long.
         return len(set(value.casefold() for value in meaningful)) != 1
 
     @staticmethod
     def _aware_utc(value: datetime) -> datetime:
-        if value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
-        return value.astimezone(UTC)
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
     @staticmethod
     def _needs_readable_text(query: str) -> bool:
@@ -245,11 +224,11 @@ class ConversationMediaReferenceService:
         )
         if not explicit:
             cutoff = datetime.now(UTC) - _AUTO_RECALL_MAX_AGE
-            recent = [record for record in recent if self._aware_utc(record.created_at) >= cutoff]
+            recent = [item for item in recent if self._aware_utc(item.created_at) >= cutoff]
         if not recent:
             return []
         with suppress(Exception):
-            linked_keys = self._media_graph.active_topic_media_keys(
+            linked_keys = self._media_graph.active_thread_media_keys(
                 owner_id=recent[0].owner_id,
                 connection_id=payload.connection_id,
                 guild_id=payload.guild_id,
@@ -258,9 +237,9 @@ class ConversationMediaReferenceService:
             )
             if linked_keys:
                 narrowed = [
-                    record
-                    for record in recent
-                    if self._media_graph.media_key(record.source_key) in linked_keys
+                    item
+                    for item in recent
+                    if self._media_graph.media_key(item.source_key) in linked_keys
                 ]
                 if narrowed:
                     recent = narrowed
@@ -269,7 +248,6 @@ class ConversationMediaReferenceService:
             query_vector = encoder.embed_query(query)
         except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
             return []
-
         semantic_minimum = _EXPLICIT_SEMANTIC_MINIMUM if explicit else _AUTO_SEMANTIC_MINIMUM
         ranked: list[tuple[float, float, ConversationMediaReferenceRecord]] = []
         denominator = max(1, len(recent) - 1)
@@ -278,30 +256,21 @@ class ConversationMediaReferenceService:
                 continue
             try:
                 context = LiveMediaContext.model_validate_json(record.context_json)
-                vector = self._ensure_vector(
-                    owner_id=record.owner_id,
-                    record=record,
-                    context=context,
-                )
+                vector = self._ensure_vector(owner_id=record.owner_id, record=record, context=context)
             except (ValueError, SemanticEmbeddingUnavailable, RuntimeError):
                 continue
             semantic = _cosine(query_vector, vector)
             if semantic < semantic_minimum:
                 continue
             recency = 1.0 - (index / denominator)
-            # Recency is deliberately a tie-breaker instead of a weak-query rescue signal.
             hybrid = semantic * 0.92 + recency * 0.05 + (0.03 if explicit else 0.0)
-            if hybrid < _HYBRID_MINIMUM:
-                continue
-            ranked.append((hybrid, semantic, record))
-
+            if hybrid >= _HYBRID_MINIMUM:
+                ranked.append((hybrid, semantic, record))
         ranked.sort(key=lambda item: (-item[0], -item[1], item[2].created_at))
         if not ranked:
             return []
         if not explicit and len(ranked) > 1 and ranked[0][1] - ranked[1][1] < _TOP_MARGIN:
             return []
-        # Automatic semantic hydration is intentionally Top-1. Reply-to exact lookup below
-        # may still return multiple media items from the replied Discord message.
         return [ranked[0][2]]
 
     def resolve_for_turn(
@@ -336,9 +305,7 @@ class ConversationMediaReferenceService:
                 thread_id=payload.thread_id,
                 limit=1,
             )
-        return tuple(
-            self._memory(item, query=payload.text) for item in records if item.context_json
-        )
+        return tuple(self._memory(item, query=payload.text) for item in records if item.context_json)
 
     @staticmethod
     def _excerpt(value: str, query: str, maximum: int) -> str:
@@ -368,34 +335,24 @@ class ConversationMediaReferenceService:
         return f"{prefix}{best}{suffix}"[:maximum]
 
     @classmethod
-    def guidance(
-        cls,
-        memories: tuple[ConversationMediaMemory, ...],
-    ) -> tuple[str, ...]:
+    def guidance(cls, memories: tuple[ConversationMediaMemory, ...]) -> tuple[str, ...]:
         if not memories:
             return ()
         maximum_chars = _RECALL_TOKEN_BUDGET * 4
         lines = [
             "Remembered media perception from this conversation:",
-            (
-                "Runtime truth: this content was actually perceived earlier. Use it only as "
-                "remembered evidence for the current follow-up; do not invent new media facts."
-            ),
+            "Runtime truth: this content was actually perceived earlier. Use it only as remembered evidence for the current follow-up; do not invent new media facts.",
         ]
         used = sum(len(item) + 1 for item in lines)
         per_memory = max(600, (maximum_chars - used) // max(1, len(memories)))
         for memory in memories:
             context = memory.context
-            block: list[str] = [f"[remembered from Discord message {memory.message_id}]"]
+            block = [f"[remembered from Discord message {memory.message_id}]"]
             summary = " ".join(context.summary.split()).strip()
             if summary:
                 block.append(f"Summary: {summary[: min(1200, per_memory - 80)]}")
             remaining = per_memory - sum(len(item) + 1 for item in block)
-            if (
-                context.visible_text
-                and cls._needs_readable_text(memory.recall_query)
-                and remaining > 300
-            ):
+            if context.visible_text and cls._needs_readable_text(memory.recall_query) and remaining > 300:
                 excerpt = cls._excerpt(
                     context.visible_text,
                     memory.recall_query,
@@ -413,11 +370,7 @@ class ConversationMediaReferenceService:
         return tuple(lines)
 
     @staticmethod
-    def _memory(
-        record: ConversationMediaReferenceRecord,
-        *,
-        query: str = "",
-    ) -> ConversationMediaMemory:
+    def _memory(record: ConversationMediaReferenceRecord, *, query: str = "") -> ConversationMediaMemory:
         return ConversationMediaMemory(
             message_id=record.message_id,
             context=LiveMediaContext.model_validate_json(record.context_json),
@@ -449,3 +402,6 @@ class ConversationMediaReferenceService:
                 uri = context.source_key[4:]
             values.append(uri)
         return values
+
+
+__all__ = ["ConversationMediaMemory", "ConversationMediaReferenceService"]

@@ -1,18 +1,13 @@
-"""Conversation Media ↔ Graph projection without duplicating media epistemic authority."""
+"""Project Character media perception into the unified v3 Evidence Graph."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from echo_masque.live_media import LiveMediaContext
-from echo_masque.persistence.conversation_graph_repository import (
-    ConversationGraphRepository,
-    ConversationGraphScope,
-)
 from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord
-from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
-
-_MEDIA_GRAPH_TTL = 30 * 24 * 60 * 60
+from echo_masque.persistence.conversation_structure_repository import ConversationStructureRepository
+from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,37 +18,19 @@ class MediaGraphProjection:
 
 
 class ConversationMediaGraphService:
-    """Project only Runtime-proven media perception into an owner-private graph overlay."""
+    """Write perception provenance without creating a second media truth store."""
 
     def __init__(
         self,
-        graph: ConversationGraphRepository,
-        topics: ConversationTopicRepository,
+        evidence: EntityEvidenceRepository,
+        structure: ConversationStructureRepository,
     ) -> None:
-        self.graph = graph
-        self.topics = topics
+        self.evidence = evidence
+        self.structure = structure
 
     @staticmethod
     def media_key(source_key: str) -> str:
         return f"media:{' '.join(source_key.casefold().split())[:220]}"
-
-    @staticmethod
-    def _scope(
-        *,
-        owner_id: str,
-        connection_id: str,
-        guild_id: str,
-        channel_id: str,
-        thread_id: str,
-    ) -> ConversationGraphScope:
-        return ConversationGraphScope(
-            scope_owner_id=owner_id,
-            platform="discord",
-            connection_id=connection_id,
-            guild_id=guild_id,
-            channel_id=channel_id,
-            thread_id=thread_id,
-        )
 
     def project_perceived(
         self,
@@ -62,84 +39,60 @@ class ConversationMediaGraphService:
         context: LiveMediaContext,
         connection_id: str,
     ) -> MediaGraphProjection:
-        """Record PERCEIVED; never infer INSPECTED or SKIPPED from missing metadata."""
-
         if not record.owner_id or not record.character_card_id or not record.source_key:
             return MediaGraphProjection(False)
-        scope = self._scope(
+        media_ref = self.media_key(record.source_key)
+        evidence_refs = tuple(
+            item
+            for item in (f"message:{record.message_id}", f"media_reference:{record.id}")
+            if item
+        )
+        self.evidence.add_edge(
             owner_id=record.owner_id,
             connection_id=connection_id,
             guild_id=record.guild_id,
-            channel_id=record.channel_id,
-            thread_id=record.thread_id,
-        )
-        character = self.graph.upsert_node(
-            scope=scope,
-            node_type="Character",
-            canonical_key=f"character:{record.character_card_id}",
-            label=record.character_card_id,
-            payload={"character_card_id": record.character_card_id},
-            ttl_seconds=_MEDIA_GRAPH_TTL,
-        )
-        media = self.graph.upsert_node(
-            scope=scope,
-            node_type="Media",
-            canonical_key=self.media_key(record.source_key),
-            label=context.label or context.kind,
-            summary=context.summary[:1200],
-            payload={
-                "source_key": record.source_key[:500],
-                "kind": record.kind,
-                "message_id": record.message_id,
-                "reference_id": record.id,
-            },
-            ttl_seconds=_MEDIA_GRAPH_TTL,
-        )
-        self.graph.upsert_edge(
-            scope=scope,
-            source_node_id=character.id,
-            relation="PERCEIVED",
-            target_node_id=media.id,
+            source_ref_type="character",
+            source_ref=record.character_card_id,
+            relation_type="PERCEIVED",
+            target_ref_type="media",
+            target_ref=media_ref,
             confidence=1.0,
-            source_type="media_reference",
-            source_message_id=record.message_id,
-            provenance={"reference_id": record.id},
-            ttl_seconds=_MEDIA_GRAPH_TTL,
+            authority_class="direct_perception",
+            source_kind="media_reference",
+            evidence_refs=evidence_refs,
+            status="active",
+            producer="conversation_media_v3",
         )
         edge_count = 1
-
-        topic = self.topics.active_for_scope(
+        thread = self.structure.thread_for_message(
             owner_id=record.owner_id,
-            platform="discord",
             connection_id=connection_id,
             guild_id=record.guild_id,
             channel_id=record.channel_id,
-            thread_id=record.thread_id,
+            discord_thread_id=record.thread_id,
+            message_id=record.message_id,
         )
-        if topic is not None:
-            topic_node = self.graph.upsert_node(
-                scope=scope,
-                node_type="Topic",
-                canonical_key=f"topic:{topic.id}",
-                label=topic.topic_label,
-                payload={"topic_id": topic.id, "capsule_version": topic.capsule_version},
-                ttl_seconds=_MEDIA_GRAPH_TTL,
-            )
-            self.graph.upsert_edge(
-                scope=scope,
-                source_node_id=topic_node.id,
-                relation="REFERENCES",
-                target_node_id=media.id,
-                confidence=0.85,
-                source_type="media_reference",
-                source_message_id=record.message_id,
-                provenance={"reference_id": record.id, "topic_id": topic.id},
-                ttl_seconds=_MEDIA_GRAPH_TTL,
+        if thread is not None:
+            self.evidence.add_edge(
+                owner_id=record.owner_id,
+                connection_id=connection_id,
+                guild_id=record.guild_id,
+                source_ref_type="thread",
+                source_ref=thread.id,
+                relation_type="REFERENCES",
+                target_ref_type="media",
+                target_ref=media_ref,
+                confidence=0.9,
+                authority_class="conversation_structure",
+                source_kind="media_reference",
+                evidence_refs=evidence_refs,
+                status="active",
+                producer="conversation_media_v3",
             )
             edge_count += 1
-        return MediaGraphProjection(True, media.id, edge_count)
+        return MediaGraphProjection(True, media_ref, edge_count)
 
-    def active_topic_media_keys(
+    def active_thread_media_keys(
         self,
         *,
         owner_id: str,
@@ -148,41 +101,33 @@ class ConversationMediaGraphService:
         channel_id: str,
         thread_id: str,
     ) -> frozenset[str]:
-        """Return graph-linked Media identities for candidate narrowing only."""
+        """Return media evidence linked to the most recent live Conversation Thread."""
 
-        topic = self.topics.active_for_scope(
-            owner_id=owner_id,
-            platform="discord",
-            connection_id=connection_id,
-            guild_id=guild_id,
-            channel_id=channel_id,
-            thread_id=thread_id,
-        )
-        if topic is None:
-            return frozenset()
-        scope = self._scope(
+        threads = self.structure.recent_threads(
             owner_id=owner_id,
             connection_id=connection_id,
             guild_id=guild_id,
             channel_id=channel_id,
-            thread_id=thread_id,
+            discord_thread_id=thread_id,
+            limit=1,
         )
-        topic_node = self.graph.find_node(
-            scope=scope,
-            node_type="Topic",
-            canonical_key=f"topic:{topic.id}",
-        )
-        if topic_node is None:
+        if not threads or threads[0].status not in {"hot", "warm"}:
             return frozenset()
+        active = threads[0]
+        edges = self.evidence.edges_for_ref(
+            owner_id=owner_id,
+            ref_type="thread",
+            ref=active.id,
+            active_only=True,
+            limit=48,
+        )
         return frozenset(
-            neighbor.node.canonical_key
-            for neighbor in self.graph.neighbors(
-                scope=scope,
-                node_id=topic_node.id,
-                relations=("REFERENCES",),
-                limit=24,
-            )
-            if neighbor.node.node_type == "Media"
+            edge.target_ref
+            for edge in edges
+            if edge.source_ref_type == "thread"
+            and edge.source_ref == active.id
+            and edge.relation_type == "REFERENCES"
+            and edge.target_ref_type == "media"
         )
 
 

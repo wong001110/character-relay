@@ -45,8 +45,6 @@ from echo_masque.persistence.social_intelligence_models import (
     SocialEventV3Record,
 )
 
-# All Intelligence/Social authority rows that are owned directly by an account. Keep this list
-# centralized so hard-cutover cleanup cannot silently leave orphaned v3 state behind.
 _OWNER_MODELS: Sequence[type[DeclarativeBase]] = (
     BeliefEvidenceDependencyRecord,
     BeliefRevisionEventRecord,
@@ -111,7 +109,8 @@ class IntelligenceV3LifecycleRepository:
         counts: dict[str, int] = {}
         with self.database.session() as session:
             for model in _OWNER_MODELS:
-                result = session.execute(delete(model).where(model.owner_id == owner_id))
+                owner_column = getattr(model, "owner_id")
+                result = session.execute(delete(model).where(owner_column == owner_id))
                 counts[_TABLE_KEYS[model]] = self._rowcount(result)
             session.commit()
         return counts
@@ -122,10 +121,9 @@ class IntelligenceV3LifecycleRepository:
         counts: dict[str, int] = {}
         with self.database.session() as session:
             for model in _OWNER_MODELS:
+                owner_column = getattr(model, "owner_id")
                 result = session.execute(
-                    update(model)
-                    .where(model.owner_id == from_owner_id)
-                    .values(owner_id=to_owner_id)
+                    update(model).where(owner_column == from_owner_id).values(owner_id=to_owner_id)
                 )
                 counts[_TABLE_KEYS[model]] = self._rowcount(result)
             session.commit()

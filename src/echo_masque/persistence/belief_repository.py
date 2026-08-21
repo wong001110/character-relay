@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.sql.elements import ColumnElement
 
 from echo_masque.persistence.belief_models import (
     BeliefEvidenceDependencyRecord,
@@ -103,6 +104,18 @@ class BeliefRepository:
             updated_at=cls._aware(record.updated_at) or record.updated_at,
         )
 
+    @staticmethod
+    def _scope_filters(
+        connection_id: str,
+        guild_id: str,
+    ) -> tuple[ColumnElement[bool], ColumnElement[bool]]:
+        """Include authored/global Beliefs alongside server-scoped learned Beliefs."""
+
+        return (
+            or_(BeliefV3Record.connection_id == "", BeliefV3Record.connection_id == connection_id),
+            or_(BeliefV3Record.guild_id == "", BeliefV3Record.guild_id == guild_id),
+        )
+
     def create(
         self,
         *,
@@ -131,14 +144,7 @@ class BeliefRepository:
         now: datetime | None = None,
     ) -> BeliefV3View:
         current = now or datetime.now(UTC)
-        allowed = {
-            "provisional",
-            "active",
-            "disputed",
-            "superseded",
-            "rejected",
-            "expired",
-        }
+        allowed = {"provisional", "active", "disputed", "superseded", "rejected", "expired"}
         normalized_status = status if status in allowed else "provisional"
         record = BeliefV3Record(
             id=str(uuid4()),
@@ -226,15 +232,6 @@ class BeliefRepository:
                 )
             )
             session.commit()
-
-    @staticmethod
-    def _scope_filters(connection_id: str, guild_id: str) -> tuple[object, object]:
-        """Allow authored/global Beliefs to coexist with server-scoped learned Beliefs."""
-
-        return (
-            or_(BeliefV3Record.connection_id == "", BeliefV3Record.connection_id == connection_id),
-            or_(BeliefV3Record.guild_id == "", BeliefV3Record.guild_id == guild_id),
-        )
 
     def active_for_claim(
         self,

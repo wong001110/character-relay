@@ -1,4 +1,4 @@
-"""Persistence for SAG-inspired episodic SQL retrieval structures."""
+"""Read-optimized SQL retrieval index derived from Intelligence Core v3 Episodes and Entities."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from sqlalchemy import and_, delete, func, select, update
 
-from echo_masque.persistence.conversation_episode_models import ConversationEpisodeRecord
+from echo_masque.persistence.conversation_runtime_models import ConversationEpisodeV3Record
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.episodic_sql_rag_models import (
     CharacterEpisodeAccessRecord,
@@ -16,7 +16,6 @@ from echo_masque.persistence.episodic_sql_rag_models import (
 )
 
 _EXPANSION_ENTITY_TYPES = (
-    "topic",
     "actor",
     "character",
     "media",
@@ -28,10 +27,17 @@ _EXPANSION_ENTITY_TYPES = (
     "organization",
     "location",
     "named_entity",
+    "game",
+    "game_character",
+    "person",
+    "place",
+    "media_work",
 )
 
 
 class EpisodicSqlRagRepository:
+    """Maintain derived event→entity→event indexes without becoming factual authority."""
+
     def __init__(self, database: Database) -> None:
         self.database = database
 
@@ -189,28 +195,27 @@ class EpisodicSqlRagRepository:
         connection_id: str,
         guild_id: str,
         limit: int = 240,
-    ) -> tuple[ConversationEpisodeRecord, ...]:
-        """Return only server Episodes this Character is proven to have perceived."""
+    ) -> tuple[ConversationEpisodeV3Record, ...]:
+        """Return only v3 Episodes this Character is proven to have perceived."""
 
         with self.database.session() as session:
             records = list(
                 session.scalars(
-                    select(ConversationEpisodeRecord)
+                    select(ConversationEpisodeV3Record)
                     .join(
                         CharacterEpisodeAccessRecord,
                         and_(
-                            CharacterEpisodeAccessRecord.episode_id
-                            == ConversationEpisodeRecord.id,
+                            CharacterEpisodeAccessRecord.episode_id == ConversationEpisodeV3Record.id,
                             CharacterEpisodeAccessRecord.owner_id == owner_id,
                             CharacterEpisodeAccessRecord.character_card_id == character_card_id,
                         ),
                     )
                     .where(
-                        ConversationEpisodeRecord.owner_id == owner_id,
-                        ConversationEpisodeRecord.connection_id == connection_id,
-                        ConversationEpisodeRecord.guild_id == guild_id,
+                        ConversationEpisodeV3Record.owner_id == owner_id,
+                        ConversationEpisodeV3Record.connection_id == connection_id,
+                        ConversationEpisodeV3Record.guild_id == guild_id,
                     )
-                    .order_by(ConversationEpisodeRecord.ended_at.desc())
+                    .order_by(ConversationEpisodeV3Record.ended_at.desc())
                     .limit(max(1, min(limit, 1000)))
                 )
             )
@@ -224,29 +229,28 @@ class EpisodicSqlRagRepository:
         connection_id: str,
         guild_id: str,
         episode_ids: tuple[str, ...],
-    ) -> tuple[ConversationEpisodeRecord, ...]:
+    ) -> tuple[ConversationEpisodeV3Record, ...]:
         if not episode_ids:
             return ()
         with self.database.session() as session:
             records = list(
                 session.scalars(
-                    select(ConversationEpisodeRecord)
+                    select(ConversationEpisodeV3Record)
                     .join(
                         CharacterEpisodeAccessRecord,
                         and_(
-                            CharacterEpisodeAccessRecord.episode_id
-                            == ConversationEpisodeRecord.id,
+                            CharacterEpisodeAccessRecord.episode_id == ConversationEpisodeV3Record.id,
                             CharacterEpisodeAccessRecord.owner_id == owner_id,
                             CharacterEpisodeAccessRecord.character_card_id == character_card_id,
                         ),
                     )
                     .where(
-                        ConversationEpisodeRecord.owner_id == owner_id,
-                        ConversationEpisodeRecord.connection_id == connection_id,
-                        ConversationEpisodeRecord.guild_id == guild_id,
-                        ConversationEpisodeRecord.id.in_(episode_ids),
+                        ConversationEpisodeV3Record.owner_id == owner_id,
+                        ConversationEpisodeV3Record.connection_id == connection_id,
+                        ConversationEpisodeV3Record.guild_id == guild_id,
+                        ConversationEpisodeV3Record.id.in_(episode_ids),
                     )
-                    .order_by(ConversationEpisodeRecord.ended_at.desc())
+                    .order_by(ConversationEpisodeV3Record.ended_at.desc())
                 )
             )
         return tuple(records)
@@ -313,33 +317,33 @@ class EpisodicSqlRagRepository:
             return seed_episode_ids
         with self.database.session() as session:
             query = (
-                select(ConversationEpisodeRecord.id)
+                select(ConversationEpisodeV3Record.id)
                 .join(
                     ConversationEpisodeEntityRecord,
-                    ConversationEpisodeEntityRecord.episode_id == ConversationEpisodeRecord.id,
+                    ConversationEpisodeEntityRecord.episode_id == ConversationEpisodeV3Record.id,
                 )
                 .join(
                     CharacterEpisodeAccessRecord,
                     and_(
-                        CharacterEpisodeAccessRecord.episode_id == ConversationEpisodeRecord.id,
+                        CharacterEpisodeAccessRecord.episode_id == ConversationEpisodeV3Record.id,
                         CharacterEpisodeAccessRecord.owner_id == owner_id,
                         CharacterEpisodeAccessRecord.character_card_id == character_card_id,
                     ),
                 )
                 .where(
-                    ConversationEpisodeRecord.owner_id == owner_id,
-                    ConversationEpisodeRecord.connection_id == connection_id,
-                    ConversationEpisodeRecord.guild_id == guild_id,
+                    ConversationEpisodeV3Record.owner_id == owner_id,
+                    ConversationEpisodeV3Record.connection_id == connection_id,
+                    ConversationEpisodeV3Record.guild_id == guild_id,
                     ConversationEpisodeEntityRecord.entity_id.in_(entity_ids),
                 )
             )
             if channel_id:
-                query = query.where(ConversationEpisodeRecord.channel_id == channel_id)
+                query = query.where(ConversationEpisodeV3Record.channel_id == channel_id)
             if thread_id:
-                query = query.where(ConversationEpisodeRecord.thread_id == thread_id)
+                query = query.where(ConversationEpisodeV3Record.discord_thread_id == thread_id)
             values = list(
                 session.scalars(
-                    query.order_by(ConversationEpisodeRecord.ended_at.desc()).limit(
+                    query.order_by(ConversationEpisodeV3Record.ended_at.desc()).limit(
                         max(1, min(limit, 300))
                     )
                 )
@@ -398,18 +402,14 @@ class EpisodicSqlRagRepository:
                 )
             )
             entity_result = session.execute(
-                delete(ConversationEntityRecord).where(
-                    ConversationEntityRecord.owner_id == owner_id
-                )
+                delete(ConversationEntityRecord).where(ConversationEntityRecord.owner_id == owner_id)
             )
             session.commit()
-            return {
-                "character_episode_access": int(getattr(access_result, "rowcount", 0) or 0),
-                "conversation_episode_entities": int(
-                    getattr(incidence_result, "rowcount", 0) or 0
-                ),
-                "conversation_entities": int(getattr(entity_result, "rowcount", 0) or 0),
-            }
+        return {
+            "character_episode_access": int(getattr(access_result, "rowcount", 0) or 0),
+            "conversation_episode_entities": int(getattr(incidence_result, "rowcount", 0) or 0),
+            "conversation_entities": int(getattr(entity_result, "rowcount", 0) or 0),
+        }
 
     def claim_owner(self, source_owner_id: str, target_owner_id: str) -> dict[str, int]:
         with self.database.session() as session:
@@ -429,13 +429,11 @@ class EpisodicSqlRagRepository:
                 .values(owner_id=target_owner_id)
             )
             session.commit()
-            return {
-                "character_episode_access": int(getattr(access_result, "rowcount", 0) or 0),
-                "conversation_episode_entities": int(
-                    getattr(incidence_result, "rowcount", 0) or 0
-                ),
-                "conversation_entities": int(getattr(entity_result, "rowcount", 0) or 0),
-            }
+        return {
+            "character_episode_access": int(getattr(access_result, "rowcount", 0) or 0),
+            "conversation_episode_entities": int(getattr(incidence_result, "rowcount", 0) or 0),
+            "conversation_entities": int(getattr(entity_result, "rowcount", 0) or 0),
+        }
 
 
 __all__ = ["EpisodicSqlRagRepository"]

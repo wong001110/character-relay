@@ -6,6 +6,7 @@ import httpx
 from pydantic import SecretStr
 
 from echo_masque.bilibili_discovery import BilibiliDiscoveryAdapter
+from echo_masque.character_relationships import CharacterRelationshipService
 from echo_masque.config import Settings
 from echo_masque.discovery_contracts import (
     DiscoveryAttentionLevel,
@@ -13,21 +14,15 @@ from echo_masque.discovery_contracts import (
     DiscoveryFetchRequest,
     DiscoveryMode,
 )
-from echo_masque.discovery_share import (
-    DiscoveryShareCoordinator,
-    DiscoveryShareDeliveryService,
-)
+from echo_masque.discovery_share import DiscoveryShareCoordinator, DiscoveryShareDeliveryService
 from echo_masque.discovery_social_association import (
     DiscoveryRelationshipAssociation,
     DiscoverySocialAssociationResult,
     DiscoverySocialAssociationService,
-    DiscoveryTopicAssociation,
+    DiscoveryThreadAssociation,
 )
-from echo_masque.persistence.character_learned_state_event_models import (
-    CharacterLearnedStateEventRecord,
-)
-from echo_masque.persistence.conversation_episode_models import ConversationEpisodeRecord
-from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
+from echo_masque.persistence.conversation_runtime_models import ConversationEpisodeV3Record
+from echo_masque.persistence.conversation_structure_repository import ConversationStructureRepository
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.discovery_repository import DiscoveryRepository
@@ -125,9 +120,7 @@ def seed_item_and_exposure(
     return item.id
 
 
-def test_bilibili_experimental_adapter_uses_persisted_hashed_query_cache(
-    tmp_path: Path,
-) -> None:
+def test_bilibili_experimental_adapter_uses_persisted_hashed_query_cache(tmp_path: Path) -> None:
     database = Database(f"sqlite:///{tmp_path / 'bilibili.db'}")
     database.initialize()
     calls: list[str] = []
@@ -162,80 +155,62 @@ def test_bilibili_experimental_adapter_uses_persisted_hashed_query_cache(
     assert calls == ["desktop robot"]
 
 
-def test_social_association_uses_only_character_accessible_server_episode(
-    tmp_path: Path,
-) -> None:
+def test_social_association_uses_accessible_v3_episode_thread_and_social_model(tmp_path: Path) -> None:
     database = Database(f"sqlite:///{tmp_path / 'association.db'}")
     database.initialize()
     seed_deployment(database, deployment_id="deployment-1")
     now = datetime(2026, 8, 18, 8, 0, tzinfo=UTC)
+    thread = ConversationStructureRepository(database).create_thread(
+        owner_id="owner-1",
+        connection_id="connection-1",
+        guild_id="guild-1",
+        channel_id="channel-1",
+        discord_thread_id="",
+        canonical_label="Desktop robots",
+        anchor_summary="AI desktop robots",
+        working_summary="AI desktop robots and robotics",
+        now=now,
+    )
     with database.session() as session:
         session.add(
-            ConversationTopicRecord(
-                id="topic-1",
-                owner_id="owner-1",
-                platform="discord",
-                connection_id="connection-1",
-                guild_id="guild-1",
-                channel_id="channel-1",
-                thread_id="",
-                topic_label="Desktop robots",
-                summary="AI desktop robots",
-                keywords_json='["robotics"]',
-                status="active",
-                started_at=now,
-                last_active_at=now,
-                updated_at=now,
-            )
-        )
-        session.add(
-            ConversationEpisodeRecord(
+            ConversationEpisodeV3Record(
                 id="episode-1",
                 owner_id="owner-1",
                 platform="discord",
                 connection_id="connection-1",
                 guild_id="guild-1",
                 channel_id="channel-1",
-                thread_id="",
+                discord_thread_id="",
+                conversation_thread_id=thread.id,
                 episode_key="episode-1",
-                topic_id="topic-1",
-                participant_refs_json='["user-123"]',
+                segment_ids_json='["segment-1"]',
+                source_message_ids_json='["message-1"]',
+                participant_ids_json='["user-123"]',
+                entity_ids_json="[]",
+                media_refs_json="[]",
                 summary="We discussed building a desktop AI robot.",
-                key_points_json='["robotics"]',
-                source_count=1,
+                key_events_json='["robotics"]',
+                segment_count=1,
+                status="closed",
+                checkpoint_reason="test",
                 started_at=now,
                 ended_at=now,
                 updated_at=now,
             )
         )
-        session.add(
-            CharacterLearnedStateEventRecord(
-                id="relationship-1",
-                state_id="relationship-state-1",
-                owner_id="owner-1",
-                character_card_id="character-1",
-                state_type="relationship",
-                subject_type="actor",
-                subject_key="actor:user-123",
-                connection_id="connection-1",
-                guild_id="guild-1",
-                channel_id="channel-1",
-                topic_id="",
-                delta=0.8,
-                evidence_confidence=0.9,
-                value_before=0.0,
-                value_after=0.2,
-                confidence_before=0.0,
-                confidence_after=0.2,
-                contradiction=False,
-                source_type="test",
-                source_message_id="message-1",
-                source_burst_id="burst-1",
-                reason_code="direct_group_interaction",
-                recorded_at=now,
-            )
-        )
         session.commit()
+    CharacterRelationshipService(database).record_evidence(
+        owner_id="owner-1",
+        source_deployment_id="deployment-1",
+        target_type="actor",
+        target_key="user-123",
+        dimension="familiarity",
+        delta=0.8,
+        confidence=0.9,
+        reason_code="direct_interaction",
+        source_message_id="message-1",
+        now=now,
+    )
     EpisodicSqlRagRepository(database).grant_character_access(
         owner_id="owner-1",
         character_card_id="character-1",
@@ -260,7 +235,7 @@ def test_social_association_uses_only_character_accessible_server_episode(
     )
     assert result is not None and result.would_share
     assert result.episode is not None and result.episode.episode_id == "episode-1"
-    assert result.topic is not None and result.topic.topic_id == "topic-1"
+    assert result.thread is not None and result.thread.conversation_thread_id == thread.id
     assert result.relationship is not None
     assert result.relationship.subject_key == "actor:user-123"
 
@@ -269,12 +244,12 @@ def association(item_id: str, deployment_id: str) -> DiscoverySocialAssociationR
     return DiscoverySocialAssociationResult(
         deployment_id=deployment_id,
         discovery_item_id=item_id,
-        topic=DiscoveryTopicAssociation(
-            topic_id="topic-1",
+        thread=DiscoveryThreadAssociation(
+            conversation_thread_id="thread-1",
             label="Desktop robots",
-            status="active",
+            status="hot",
             channel_id="channel-1",
-            thread_id="",
+            discord_thread_id="",
             score=0.9,
         ),
         episode=None,
@@ -335,6 +310,7 @@ def test_review_requires_approval_and_auto_requires_both_opt_ins(tmp_path: Path)
         )
     )
     assert proposal is not None and proposal.status == "pending_review"
+    assert proposal.conversation_thread_id == "thread-1"
     approved = review.approve(owner_id="owner-1", share_id=proposal.id)
     assert approved is not None and approved.status == "queued"
 
@@ -418,9 +394,9 @@ def test_approved_review_share_delivers_through_real_bot_identity(tmp_path: Path
         source_decision_id="",
         mode="review",
         status="queued",
-        motivation="RELATED_TO_CURRENT_TOPIC",
+        motivation="RELATED_TO_CURRENT_THREAD",
         confidence=0.9,
-        topic_id="topic-1",
+        conversation_thread_id="thread-1",
         relationship_subject_key="",
         channel_id="channel-1",
         thread_id="",
@@ -442,10 +418,7 @@ def test_approved_review_share_delivers_through_real_bot_identity(tmp_path: Path
 
     service = DiscoveryShareDeliveryService(
         database,
-        Settings(
-            environment="test",
-            discord_tool_bot_token=SecretStr("bot-token"),
-        ),
+        Settings(environment="test", discord_tool_bot_token=SecretStr("bot-token")),
         http_transport=httpx.MockTransport(handler),
     )
     assert asyncio.run(service.deliver_due_once()) == 1
