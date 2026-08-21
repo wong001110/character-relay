@@ -21,10 +21,7 @@ from echo_masque.semantic_participation import (
     _cosine,
 )
 from echo_masque.services.runtime import RuntimeService
-from echo_masque.utility_gateway_contracts import (
-    ToolContinuationUtilityDecision,
-    UtilityGatewayUnavailable,
-)
+from echo_masque.utility_gateway_contracts import UtilityGatewayUnavailable
 from echo_masque.utility_gateway_live import ExistingProviderUtilityCaller
 from echo_masque.utility_gateway_router import UtilityGatewayRouter
 
@@ -173,7 +170,13 @@ class ToolContinuationService:
             return 0.0
         try:
             encoder = self._encoder()
-            return max(0.0, _cosine(encoder.embed_query(normalized), encoder.embed_passage(pending)))
+            return max(
+                0.0,
+                _cosine(
+                    encoder.embed_query(normalized),
+                    encoder.embed_passage(pending),
+                ),
+            )
         except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
             return 0.0
 
