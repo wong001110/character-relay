@@ -1,8 +1,8 @@
-"""Smart Participation vNext read model for Conversation Structure v3."""
+"""Smart Participation v3 read model with Conversation Structure observability."""
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from echo_masque.api.smart_participation_v4_schemas import SmartParticipationResolveView
+from echo_masque.api.smart_participation_v3_schemas import SmartParticipationResolveView
 
 
 class ConversationSegmentRouteView(BaseModel):
@@ -13,9 +13,9 @@ class ConversationSegmentRouteView(BaseModel):
     participant_ids: list[str] = Field(default_factory=list)
     kind: str
     summary: str
-    semantic_thread_id: str
-    thread_action: str
-    thread_evidence: bool
+    conversation_thread_id: str
+    membership_relation: str
+    membership_confidence: float
     confidence: float
     source: str
 
@@ -25,7 +25,7 @@ class ReplyTargetRouteView(BaseModel):
 
     deployment_id: str
     segment_id: str
-    semantic_thread_id: str
+    conversation_thread_id: str
     score: float
     reason: str
     grounding_level: str = "context_only"
