@@ -131,7 +131,14 @@ class BeliefRepository:
         now: datetime | None = None,
     ) -> BeliefV3View:
         current = now or datetime.now(UTC)
-        allowed = {"provisional", "active", "disputed", "superseded", "rejected", "expired"}
+        allowed = {
+            "provisional",
+            "active",
+            "disputed",
+            "superseded",
+            "rejected",
+            "expired",
+        }
         normalized_status = status if status in allowed else "provisional"
         record = BeliefV3Record(
             id=str(uuid4()),
@@ -166,7 +173,9 @@ class BeliefRepository:
                 if previous is None or previous.owner_id != owner_id:
                     raise KeyError("Belief to supersede not found.")
                 if previous.authored and not authored:
-                    raise ValueError("Conversation-derived Belief cannot supersede authored Belief.")
+                    raise ValueError(
+                        "Conversation-derived Belief cannot supersede authored Belief."
+                    )
                 if previous.status not in {"rejected", "expired", "superseded"}:
                     previous.status = "superseded"
                     previous.valid_to = current
@@ -240,7 +249,9 @@ class BeliefRepository:
                 BeliefV3Record.status.in_(("active", "provisional", "disputed")),
             )
             if subject_entity_id:
-                statement = statement.where(BeliefV3Record.subject_entity_id == subject_entity_id)
+                statement = statement.where(
+                    BeliefV3Record.subject_entity_id == subject_entity_id
+                )
             elif subject_ref:
                 statement = statement.where(BeliefV3Record.subject_ref == subject_ref)
             if character_card_id:
@@ -249,7 +260,9 @@ class BeliefRepository:
                     | (BeliefV3Record.character_card_id == character_card_id)
                 )
             records = list(
-                session.scalars(statement.order_by(BeliefV3Record.updated_at.desc()).limit(50))
+                session.scalars(
+                    statement.order_by(BeliefV3Record.updated_at.desc()).limit(50)
+                )
             )
         return tuple(self.view(record) for record in records)
 
@@ -322,9 +335,13 @@ class BeliefRepository:
                 raise KeyError("Belief not found.")
             if record.status in {"rejected", "expired", "superseded"}:
                 raise ValueError("Inactive Belief cannot be reinforced.")
-            record.confidence = max(record.confidence, max(0.0, min(float(confidence), 1.0)))
+            record.confidence = max(
+                record.confidence,
+                max(0.0, min(float(confidence), 1.0)),
+            )
             record.evidence_refs_json = _encode(
-                list(_decode(record.evidence_refs_json)) + list(evidence_refs), limit=96
+                list(_decode(record.evidence_refs_json)) + list(evidence_refs),
+                limit=96,
             )
             if record.confidence >= 0.75 and record.status == "provisional":
                 record.status = "active"
@@ -392,7 +409,8 @@ class BeliefRepository:
                 session.scalars(
                     select(BeliefEvidenceDependencyRecord).where(
                         BeliefEvidenceDependencyRecord.owner_id == owner_id,
-                        BeliefEvidenceDependencyRecord.evidence_edge_id == evidence_edge_id,
+                        BeliefEvidenceDependencyRecord.evidence_edge_id
+                        == evidence_edge_id,
                         BeliefEvidenceDependencyRecord.status == "active",
                     )
                 )
@@ -412,7 +430,11 @@ class BeliefRepository:
                 )
                 if int(active_count or 0) > 0 or belief.authored:
                     continue
-                if belief.origin in {"llm_inference", "media_inference", "visual_grounding"}:
+                if belief.origin in {
+                    "llm_inference",
+                    "media_inference",
+                    "visual_grounding",
+                }:
                     belief.status = "rejected"
                     belief.valid_to = current
                     rejected.append(belief.id)
