@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-from echo_masque.api.smart_participation_v4_schemas import (
+from echo_masque.api.smart_participation_v3_schemas import (
     SmartParticipationMediaDescriptor,
     SmartParticipationResolveCandidate,
     SmartParticipationResolveCandidateView,
@@ -43,7 +43,7 @@ class CandidateViewLike(Protocol):
     deterministic_score: float
     minimum_score: float
     semantic_points: float
-    shadow_final_score: float
+    final_evidence_score: float
     raw_e5_relevance: float
 
 
@@ -176,8 +176,6 @@ class ParticipationPlannerV3:
         candidate: CandidateViewLike,
         requested: SmartParticipationResolveCandidate,
     ) -> float:
-        # V4 semantic/deterministic computations are evidence inputs only. The v3 planner owns the
-        # final admission decision and does not inherit V4's speaker-plan authority.
         deterministic = float(candidate.deterministic_score)
         semantic = max(0.0, float(candidate.semantic_points))
         raw = max(0.0, float(candidate.raw_e5_relevance))
@@ -233,7 +231,7 @@ class ParticipationPlannerV3:
         if not ranked:
             return ParticipationPlanV3(
                 speakers=(),
-                candidates=tuple(item[1] for item in ranked),
+                candidates=(),
                 grounding=grounding,
                 reason="no_candidate_cleared_admission",
             )
