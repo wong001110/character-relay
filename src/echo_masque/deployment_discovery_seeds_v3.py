@@ -7,13 +7,25 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
-from echo_masque.deployment_discovery_intelligence import DeploymentDiscoverySeeds, DiscoverySeed
-from echo_masque.persistence.character_learned_state_event_models import CharacterLearnedStateEventRecord
-from echo_masque.persistence.conversation_runtime_repository import ConversationRuntimeRepository
-from echo_masque.persistence.conversation_structure_repository import ConversationStructureRepository
+from echo_masque.deployment_discovery_intelligence import (
+    DeploymentDiscoverySeeds,
+    DiscoverySeed,
+)
+from echo_masque.persistence.character_learned_state_event_models import (
+    CharacterLearnedStateEventRecord,
+)
+from echo_masque.persistence.conversation_runtime_repository import (
+    ConversationRuntimeRepository,
+)
+from echo_masque.persistence.conversation_structure_repository import (
+    ConversationStructureRepository,
+)
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
-from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository, KnowledgeGapView
+from echo_masque.persistence.entity_evidence_repository import (
+    EntityEvidenceRepository,
+    KnowledgeGapView,
+)
 from echo_masque.persistence.repository import Repository
 from echo_masque.persistence.smart_participation_repository import decode_strings
 
@@ -50,7 +62,9 @@ class DeploymentDiscoverySeedBuilderV3:
             previous = values.get(key)
             if previous is None or seed.weight > previous.weight:
                 values[key] = seed
-        return tuple(sorted(values.values(), key=lambda item: item.weight, reverse=True)[:limit])
+        return tuple(
+            sorted(values.values(), key=lambda item: item.weight, reverse=True)[:limit]
+        )
 
     def _deployment(
         self,
@@ -105,7 +119,8 @@ class DeploymentDiscoverySeedBuilderV3:
                         CharacterLearnedStateEventRecord.character_card_id
                         == deployment.character_card_id,
                         CharacterLearnedStateEventRecord.state_type == "interest",
-                        CharacterLearnedStateEventRecord.connection_id == deployment.connection_id,
+                        CharacterLearnedStateEventRecord.connection_id
+                        == deployment.connection_id,
                         CharacterLearnedStateEventRecord.guild_id == deployment.workspace_id,
                         CharacterLearnedStateEventRecord.recorded_at
                         >= current - timedelta(days=120),
@@ -158,10 +173,7 @@ class DeploymentDiscoverySeedBuilderV3:
                     )
                 )
         for entity in entities[:10]:
-            if entity.status == "canonical":
-                weight = 0.58
-            else:
-                weight = 0.5
+            weight = 0.58 if entity.status == "canonical" else 0.5
             seeds.append(
                 DiscoverySeed(
                     text=entity.canonical_name,
@@ -200,7 +212,10 @@ class DeploymentDiscoverySeedBuilderV3:
                 )
         card = self.cards.get_character_card(deployment.character_card_id, owner_id)
         if card is not None:
-            for value in (*decode_strings(card.tags_json), *decode_strings(card.traits_json))[:8]:
+            for value in (
+                *decode_strings(card.tags_json),
+                *decode_strings(card.traits_json),
+            )[:8]:
                 text = " ".join(value.split())
                 if text:
                     seeds.append(
@@ -214,7 +229,8 @@ class DeploymentDiscoverySeedBuilderV3:
         ranked = self._dedupe(seeds, bounded)
         queries = tuple(seed.text for seed in ranked[:6])
         semantic_text = "\n".join(
-            f"Interest ({seed.source}, weight={seed.weight:.2f}): {seed.text}" for seed in ranked
+            f"Interest ({seed.source}, weight={seed.weight:.2f}): {seed.text}"
+            for seed in ranked
         )[:4000]
         return DeploymentDiscoverySeeds(
             deployment_id=deployment.id,
@@ -273,7 +289,8 @@ class DeploymentDiscoverySeedBuilderV3:
             for index, query in enumerate(queries)
         )
         semantic_text = "\n".join(
-            f"Knowledge gap ({field}): {entity.canonical_name}" for field in gap.missing_fields
+            f"Knowledge gap ({field}): {entity.canonical_name}"
+            for field in gap.missing_fields
         )[:4000]
         return DeploymentDiscoverySeeds(
             deployment_id=deployment.id,
