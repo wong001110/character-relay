@@ -1,4 +1,4 @@
-"""Non-legacy Character context routing built from one Turn Intelligence gray-zone decision."""
+"""Character context routing from deterministic evidence plus bounded Turn Intelligence."""
 
 from __future__ import annotations
 
@@ -25,10 +25,8 @@ ContextKnowledgeMode = Literal["current", "contextual"]
 CharacterContextDecisionSource = Literal[
     "deterministic",
     "turn_intelligence",
-    "legacy_fallback_required",
+    "deterministic_fallback",
     "not_requested",
-    "legacy_fallback",
-    "legacy_shadow",
 ]
 
 
@@ -48,16 +46,8 @@ class CharacterContextRoutingPlan:
     contextual_no_hit_gate: KnowledgeRouteDecision | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class _LegacyKnowledgeRoute:
-    gate: KnowledgeRouteDecision
-    fallback_gate: KnowledgeRouteDecision | None
-    final_query: str
-    retrieval_mode: ContextKnowledgeMode
-
-
 class CharacterContextRoutingService:
-    """Apply shadow/active Turn Intelligence without weakening legacy fallback authority."""
+    """Apply one authority path; configured shadow mode no longer runs a second runtime."""
 
     def __init__(
         self,
@@ -90,82 +80,16 @@ class CharacterContextRoutingService:
             query=query,
         )
 
-    def _legacy_knowledge_route(
-        self,
-        *,
-        owner_id: str,
-        connection_id: str,
-        guild_id: str,
-        channel_id: str,
-        thread_id: str,
-        character_card_id: str,
-        current_query: str,
-        contextual_query: str,
-    ) -> _LegacyKnowledgeRoute:
-        gate = self.knowledge_gate.decide(
-            owner_id=owner_id,
-            connection_id=connection_id,
-            guild_id=guild_id,
-            channel_id=channel_id,
-            thread_id=thread_id,
-            character_card_id=character_card_id,
-            query=current_query,
-        )
-        fallback_gate: KnowledgeRouteDecision | None = None
-        final_query = current_query
-        retrieval_mode: ContextKnowledgeMode = "current"
-        if not gate.should_retrieve and contextual_query:
-            fallback_gate = self.knowledge_gate.decide(
-                owner_id=owner_id,
-                connection_id=connection_id,
-                guild_id=guild_id,
-                channel_id=channel_id,
-                thread_id=thread_id,
-                character_card_id=character_card_id,
-                query=contextual_query,
-            )
-            if fallback_gate.should_retrieve:
-                gate = fallback_gate
-                final_query = contextual_query
-                retrieval_mode = "contextual"
-        return _LegacyKnowledgeRoute(
-            gate=gate,
-            fallback_gate=fallback_gate,
-            final_query=final_query,
-            retrieval_mode=retrieval_mode,
-        )
-
     @staticmethod
-    def _accepted_route(
-        outcome: CharacterTurnIntelligenceOutcome,
+    def _decision(
+        assessment: KnowledgeRouteAssessment,
         *,
-        current: KnowledgeRouteAssessment,
-        contextual: KnowledgeRouteAssessment | None,
-        current_query: str,
-        contextual_query: str,
-    ) -> _LegacyKnowledgeRoute | None:
-        route = outcome.knowledge_route
-        if route is None:
-            return None
-        if route == "current":
-            gate = KnowledgeRouteGate.decision_from_assessment(
-                current,
-                should_retrieve=True,
-            )
-            return _LegacyKnowledgeRoute(gate, None, current_query, "current")
-        if route == "contextual" and contextual is not None and contextual_query:
-            gate = KnowledgeRouteGate.decision_from_assessment(
-                contextual,
-                should_retrieve=True,
-            )
-            return _LegacyKnowledgeRoute(gate, gate, contextual_query, "contextual")
-        if route == "off":
-            gate = KnowledgeRouteGate.decision_from_assessment(
-                current,
-                should_retrieve=False,
-            )
-            return _LegacyKnowledgeRoute(gate, None, current_query, "current")
-        return None
+        should_retrieve: bool,
+    ) -> KnowledgeRouteDecision:
+        return KnowledgeRouteGate.decision_from_assessment(
+            assessment,
+            should_retrieve=should_retrieve,
+        )
 
     @staticmethod
     def _contextual_no_hit_gate(
@@ -183,6 +107,38 @@ class CharacterContextRoutingService:
             should_retrieve=True,
         )
 
+    @classmethod
+    def _route_from_outcome(
+        cls,
+        outcome: CharacterTurnIntelligenceOutcome,
+        *,
+        current: KnowledgeRouteAssessment,
+        contextual: KnowledgeRouteAssessment | None,
+        current_query: str,
+        contextual_query: str,
+    ) -> tuple[KnowledgeRouteDecision, KnowledgeRouteDecision | None, str, ContextKnowledgeMode]:
+        route = outcome.knowledge_route
+        if route == "current":
+            return cls._decision(current, should_retrieve=True), None, current_query, "current"
+        if route == "contextual" and contextual is not None and contextual_query:
+            gate = cls._decision(contextual, should_retrieve=True)
+            return gate, gate, contextual_query, "contextual"
+        if route == "off":
+            return cls._decision(current, should_retrieve=False), None, current_query, "current"
+        should_current = current.route == "on" or (
+            current.route == "gray" and current.fallback_should_retrieve
+        )
+        if should_current:
+            return cls._decision(current, should_retrieve=True), None, current_query, "current"
+        should_contextual = contextual is not None and (
+            contextual.route == "on"
+            or (contextual.route == "gray" and contextual.fallback_should_retrieve)
+        )
+        if should_contextual and contextual is not None and contextual_query:
+            gate = cls._decision(contextual, should_retrieve=True)
+            return gate, gate, contextual_query, "contextual"
+        return cls._decision(current, should_retrieve=False), None, current_query, "current"
+
     def resolve(
         self,
         *,
@@ -198,7 +154,7 @@ class CharacterContextRoutingService:
         pending_action: PendingActionContinuationEvidence | None,
     ) -> CharacterContextRoutingPlan:
         if mode == "off":
-            raise ValueError("CharacterContextRoutingService requires shadow or active mode.")
+            raise ValueError("CharacterContextRoutingService requires an enabled mode.")
 
         current = self._assessment(
             owner_id=owner_id,
@@ -228,86 +184,31 @@ class CharacterContextRoutingService:
             contextual_knowledge=contextual,
             pending_action=pending_action,
         )
-
-        if mode == "shadow":
-            shadow_actual = self._legacy_knowledge_route(
-                owner_id=owner_id,
-                connection_id=connection_id,
-                guild_id=guild_id,
-                channel_id=channel_id,
-                thread_id=thread_id,
-                character_card_id=character_card_id,
-                current_query=current_query,
-                contextual_query=contextual_query,
-            )
-            pending_tool_id = (
-                self.tool_continuation.resolve_pending_action_evidence(pending_action)
-                if pending_action is not None
-                else ""
-            )
-            return CharacterContextRoutingPlan(
-                gate=shadow_actual.gate,
-                fallback_gate=shadow_actual.fallback_gate,
-                final_query=shadow_actual.final_query,
-                retrieval_mode=shadow_actual.retrieval_mode,
-                pending_tool_id=pending_tool_id,
-                knowledge_source="legacy_shadow",
-                pending_action_source=(
-                    "legacy_shadow" if pending_action is not None else "not_requested"
-                ),
-                requested_tasks=outcome.requested_tasks,
-                current_assessment=current,
-                contextual_assessment=contextual,
-                unified_outcome=outcome,
-            )
-
-        accepted = self._accepted_route(
+        gate, fallback_gate, final_query, retrieval_mode = self._route_from_outcome(
             outcome,
             current=current,
             contextual=contextual,
             current_query=current_query,
             contextual_query=contextual_query,
         )
-        knowledge_source: CharacterContextDecisionSource = outcome.knowledge_source
-        if accepted is None or outcome.knowledge_fallback_required:
-            actual = self._legacy_knowledge_route(
-                owner_id=owner_id,
-                connection_id=connection_id,
-                guild_id=guild_id,
-                channel_id=channel_id,
-                thread_id=thread_id,
-                character_card_id=character_card_id,
-                current_query=current_query,
-                contextual_query=contextual_query,
-            )
-            knowledge_source = "legacy_fallback"
-        else:
-            actual = accepted
-
-        pending_tool_id = ""
-        pending_source: CharacterContextDecisionSource = outcome.pending_action_source
-        if pending_action is not None:
-            if outcome.pending_action_fallback_required:
-                pending_tool_id = self.tool_continuation.resolve_pending_action_evidence(
-                    pending_action
-                )
-                pending_source = "legacy_fallback"
-            elif outcome.pending_action_continue:
-                pending_tool_id = pending_action.tool_id
-
+        pending_tool_id = (
+            pending_action.tool_id
+            if pending_action is not None and outcome.pending_action_continue
+            else ""
+        )
         no_hit_gate = (
             self._contextual_no_hit_gate(contextual)
-            if actual.retrieval_mode == "current"
+            if retrieval_mode == "current"
             else None
         )
         return CharacterContextRoutingPlan(
-            gate=actual.gate,
-            fallback_gate=actual.fallback_gate,
-            final_query=actual.final_query,
-            retrieval_mode=actual.retrieval_mode,
+            gate=gate,
+            fallback_gate=fallback_gate,
+            final_query=final_query,
+            retrieval_mode=retrieval_mode,
             pending_tool_id=pending_tool_id,
-            knowledge_source=knowledge_source,
-            pending_action_source=pending_source,
+            knowledge_source=outcome.knowledge_source,
+            pending_action_source=outcome.pending_action_source,
             requested_tasks=outcome.requested_tasks,
             current_assessment=current,
             contextual_assessment=contextual,
