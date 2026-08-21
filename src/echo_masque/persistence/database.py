@@ -8,6 +8,11 @@ from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from echo_masque.persistence.belief_models import (
+    BeliefEvidenceDependencyRecord,
+    BeliefRevisionEventRecord,
+    BeliefV3Record,
+)
 from echo_masque.persistence.character_learned_state_event_models import (
     CharacterLearnedStateEventRecord,
 )
@@ -48,6 +53,11 @@ from echo_masque.persistence.discovery_share_models import (
     DeploymentDiscoveryShareRecord,
 )
 from echo_masque.persistence.discord_identity_models import DiscordGuildActorIdentityRecord
+from echo_masque.persistence.entity_evidence_models import (
+    EntityV3Record,
+    EvidenceEdgeV3Record,
+    KnowledgeGapRecord,
+)
 from echo_masque.persistence.episodic_sql_rag_models import (
     CharacterEpisodeAccessRecord,
     ConversationEntityRecord,
@@ -66,6 +76,10 @@ from echo_masque.persistence.models import Base, StorageMetadataRecord
 from echo_masque.persistence.smart_participation_state_models import (
     SmartParticipationDeploymentStateRecord,
     SmartParticipationScopeStateRecord,
+)
+from echo_masque.persistence.social_intelligence_models import (
+    ImpressionV3Record,
+    SocialEventV3Record,
 )
 from echo_masque.persistence.utility_gateway_models import UtilityProviderQuotaRecord
 from echo_masque.persistence.wiki_page_models import WikiPageRecord
@@ -162,6 +176,14 @@ class Database:
             ConversationEpisodeV3Record,
             ThreadWorkingStateRecord,
             PendingActionV3Record,
+            EntityV3Record,
+            EvidenceEdgeV3Record,
+            KnowledgeGapRecord,
+            BeliefV3Record,
+            BeliefEvidenceDependencyRecord,
+            BeliefRevisionEventRecord,
+            SocialEventV3Record,
+            ImpressionV3Record,
             CharacterLearnedStateRecord,
             CharacterLearnedStateEventRecord,
             SmartParticipationScopeStateRecord,
