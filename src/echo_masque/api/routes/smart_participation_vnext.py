@@ -1,23 +1,25 @@
-"""Conversation Intelligence v3 resolver around legacy V4 candidate evidence.
+"""Conversation Intelligence v3 resolver for Discord Smart Participation.
 
-V4 is demoted to an input provider for deterministic/semantic candidate evidence. Conversation
-Structure v3 owns Segment/Thread identity, ContextResolverV3 owns context selection, and
-ParticipationPlannerV3 owns the final speaker plan. Topic identity is not consulted by this route.
+Conversation Structure v3 owns Segment/Thread identity, ContextResolverV3 owns context selection,
+and ParticipationPlannerV3 owns the final speaker plan. Deterministic Connector evidence and the
+semantic profile scorer are candidate evidence only. No legacy Topic or V4 runtime is consulted.
 """
 
 from __future__ import annotations
 
+import hmac
 from collections.abc import Mapping
 from contextlib import suppress
 from typing import Annotated, cast
 from uuid import uuid4
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Header, HTTPException, Request, status
 from sqlalchemy import select
 
-from echo_masque.api.routes.smart_participation_v4 import resolve_smart_participation_v4
-from echo_masque.api.smart_participation_v4_schemas import (
+from echo_masque.api.smart_participation_v3_schemas import (
+    SmartParticipationResolveCandidateView,
     SmartParticipationResolveRequest,
+    SmartParticipationResolveView,
     SmartParticipationSpeakerPlanItem,
 )
 from echo_masque.api.smart_participation_vnext_schemas import (
@@ -43,13 +45,39 @@ from echo_masque.persistence.server_knowledge_v3_repository import ServerWikiV3R
 from echo_masque.persistence.smart_participation_state_models import (
     SmartParticipationReplyDecisionRecord,
 )
-from echo_masque.semantic_participation import CharacterParticipationSemanticService
+from echo_masque.semantic_participation import (
+    CharacterParticipationSemanticService,
+    SemanticEmbeddingUnavailable,
+)
 from echo_masque.services.runtime import RuntimeService
 from echo_masque.social_intelligence_v3 import SocialIntelligenceV3Service
 from echo_masque.utility_gateway_live import ExistingProviderUtilityCaller
 from echo_masque.utility_gateway_router import UtilityGatewayRouter
 
 router = APIRouter()
+
+
+def _authorize_connector(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    settings = cast(Settings, request.app.state.settings)
+    configured = settings.connector_shared_secret
+    if configured is None or not configured.get_secret_value():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Connector API is disabled until a shared secret is configured.",
+        )
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.casefold() != "bearer" or not hmac.compare_digest(
+        token,
+        configured.get_secret_value(),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid connector credential.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def _database(request: Request):
@@ -168,6 +196,17 @@ def _current_text(payload: SmartParticipationResolveRequest) -> str:
     return ""
 
 
+def _analysis_text(payload: SmartParticipationResolveRequest) -> str:
+    if payload.burst_messages:
+        lines = [
+            f"{item.author_display_name or item.author_id}: {' '.join(item.text.split())}"
+            for item in payload.burst_messages
+            if item.text.strip()
+        ]
+        return "\n".join(lines)[-4_000:]
+    return " ".join(payload.message.split())[:4_000]
+
+
 def _source_message_id(payload: SmartParticipationResolveRequest) -> str:
     if payload.message_id:
         return payload.message_id
@@ -176,12 +215,96 @@ def _source_message_id(payload: SmartParticipationResolveRequest) -> str:
     return payload.burst_id or "current-turn"
 
 
-def _base_result(base: object, *, source: str) -> SmartParticipationResolveVNextView:
-    dumped = base.model_dump()  # type: ignore[attr-defined]
+def _semantic_points(relevance: float, *, profile_ready: bool) -> float:
+    if not profile_ready:
+        return 0.0
+    bounded = min(1.0, max(0.0, (float(relevance) - 0.75) / 0.15))
+    return round(bounded * 6.0, 3)
+
+
+def _candidate_evidence(
+    *,
+    payload: SmartParticipationResolveRequest,
+    records: list[object],
+    request: Request,
+) -> SmartParticipationResolveView:
+    analysis = _analysis_text(payload)
+    semantic_by_id: dict[str, object] = {}
+    model = ""
+    dimension = 0
+    reason = "deterministic_candidate_evidence"
+    if analysis:
+        semantic = cast(
+            CharacterParticipationSemanticService,
+            request.app.state.semantic_participation_service,
+        )
+        try:
+            model, dimension, scores = semantic.score(
+                message=analysis,
+                deployments=[
+                    (
+                        str(getattr(item, "id", "")),
+                        str(getattr(item, "owner_id", "")),
+                        str(getattr(item, "character_card_id", "")),
+                    )
+                    for item in records
+                ],
+            )
+            semantic_by_id = {item.deployment_id: item for item in scores}
+            reason = "deterministic_and_semantic_candidate_evidence"
+        except SemanticEmbeddingUnavailable:
+            reason = "deterministic_candidate_evidence_semantic_unavailable"
+
+    requested_by_id = {item.deployment_id: item for item in payload.candidates}
+    views: list[SmartParticipationResolveCandidateView] = []
+    for record in records:
+        deployment_id = str(getattr(record, "id", ""))
+        requested = requested_by_id.get(deployment_id)
+        if requested is None:
+            continue
+        semantic_score = semantic_by_id.get(deployment_id)
+        relevance = float(getattr(semantic_score, "relevance", 0.0))
+        profile_ready = bool(getattr(semantic_score, "profile_ready", False))
+        points = _semantic_points(relevance, profile_ready=profile_ready)
+        views.append(
+            SmartParticipationResolveCandidateView(
+                deployment_id=deployment_id,
+                character_card_id=str(getattr(record, "character_card_id", "")),
+                eligible=requested.eligible,
+                deterministic_score=requested.deterministic_score,
+                minimum_score=requested.minimum_score,
+                deterministic_signals=dict(requested.signals),
+                raw_e5_relevance=relevance,
+                profile_ready=profile_ready,
+                semantic_points=points,
+                final_evidence_score=round(requested.deterministic_score + points, 6),
+            )
+        )
+    return SmartParticipationResolveView(
+        available=bool(views),
+        reason=reason if views else "no_candidate_evidence",
+        model=model,
+        dimension=dimension,
+        burst_id=payload.burst_id,
+        burst_message_count=len(payload.burst_messages),
+        analysis_chars=len(analysis),
+        candidates=views,
+        speaker_plan=[],
+        speaker_plan_authoritative=True,
+        utility_used=False,
+    )
+
+
+def _base_result(
+    base: SmartParticipationResolveView,
+    *,
+    source: str,
+) -> SmartParticipationResolveVNextView:
     return SmartParticipationResolveVNextView.model_validate(
         {
-            **dumped,
+            **base.model_dump(),
             "resolver_version": "conversation-intelligence-v3",
+            "reason": source,
             "segmentation_used": False,
             "segmentation_source": source,
             "conversation_segments": [],
@@ -242,7 +365,7 @@ def _persist_reply_targets(
             existing.burst_id = payload.burst_id
             existing.character_card_id = character_card_id
             existing.segment_id = target.segment_id
-            existing.semantic_thread_id = target.semantic_thread_id
+            existing.semantic_thread_id = target.conversation_thread_id
             existing.score = target.score
             existing.reason = target.reason[:240]
             existing.guidance = guidance_by_id.get(target.deployment_id, "")[:240]
@@ -318,13 +441,12 @@ def resolve_smart_participation_vnext(
 ) -> SmartParticipationResolveVNextView:
     """Resolve one turn using v3 conversation/context/participation authority."""
 
-    # V4 is intentionally demoted to candidate evidence during cutover. Its speaker plan below is
-    # never copied into v3 authority.
-    base = resolve_smart_participation_v4(payload, request, authorization)
+    _authorize_connector(request, authorization)
     records = _records_for_payload(payload, request)
+    base = _candidate_evidence(payload=payload, records=records, request=request)
     if not records:
         return _base_result(base, source="no_owner")
-    owner_id = records[0].owner_id
+    owner_id = str(getattr(records[0], "owner_id", ""))
 
     belief_repository = BeliefRepository(_database(request))
     correction_service = CurrentTurnBeliefRevisionService(
@@ -368,9 +490,9 @@ def resolve_smart_participation_vnext(
             participant_ids=list(item.participant_ids),
             kind=item.kind,
             summary=item.summary,
-            semantic_thread_id=item.semantic_thread_id,
-            thread_action=item.thread_action,
-            thread_evidence=item.thread_evidence,
+            conversation_thread_id=item.thread_id,
+            membership_relation=item.membership_relation,
+            membership_confidence=item.membership_confidence,
             confidence=item.confidence,
             source=item.source,
         )
@@ -378,7 +500,7 @@ def resolve_smart_participation_vnext(
     ]
     current_segment_id = _current_segment_id(payload, tuple(result.segments))
     wiki_hits = _wiki_hits(request=request, owner_id=owner_id, payload=payload)
-    contexts = {}
+    contexts: dict[str, object] = {}
     resolver = _context_resolver(request)
     for deployment in records:
         contexts[deployment.id] = resolver.resolve(
@@ -397,12 +519,13 @@ def resolve_smart_participation_vnext(
             correction_shield=correction_shields.get(deployment.id),
         )
 
+    typed_contexts = cast(dict[str, ContextResolverV3.__annotations__.get("return", object)], contexts)
     plan = _participation_planner(request).plan(
         payload=payload,
         deployments=tuple(records),
         candidate_views=tuple(base.candidates),
         segments=tuple(result.segments),
-        context_by_deployment=contexts,
+        context_by_deployment=cast(dict, contexts),
     )
     speaker_plan = [
         SmartParticipationSpeakerPlanItem(
@@ -417,11 +540,11 @@ def resolve_smart_participation_vnext(
         ReplyTargetRouteView(
             deployment_id=item.deployment_id,
             segment_id=item.segment_id,
-            semantic_thread_id=item.conversation_thread_id,
+            conversation_thread_id=item.conversation_thread_id,
             score=item.score,
             reason=item.reason,
             grounding_level=item.grounding,
-            context_sufficiency=contexts[item.deployment_id].sufficiency,
+            context_sufficiency=getattr(contexts[item.deployment_id], "sufficiency", ""),
         )
         for item in plan.speakers
     ]
@@ -452,12 +575,10 @@ def resolve_smart_participation_vnext(
             "media_grounding_level": plan.grounding.level,
             "media_grounding_reason": plan.grounding.reason,
             "context_sufficiency": {
-                deployment_id: context.sufficiency
+                deployment_id: getattr(context, "sufficiency", "")
                 for deployment_id, context in contexts.items()
             },
-            "utility_used": bool(
-                base.utility_used or result.utility_used or extraction.utility_used
-            ),
+            "utility_used": bool(result.utility_used or extraction.utility_used),
         }
     )
 
