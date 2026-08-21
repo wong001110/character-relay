@@ -169,9 +169,10 @@ class CharacterRecallService:
 
     def _belief_score(
         self,
+        *,
+        owner_id: str,
         query: str,
         record: BeliefV3View,
-        *,
         encoder: SemanticEncoder | None,
         query_vector: list[float] | None,
     ) -> tuple[float, float]:
@@ -181,7 +182,7 @@ class CharacterRecallService:
             semantic = _cosine(
                 query_vector,
                 self._vector(
-                    owner_id="",
+                    owner_id=owner_id,
                     namespace=_BELIEF_NAMESPACE,
                     resource_id=record.id,
                     text=text,
@@ -281,8 +282,9 @@ class CharacterRecallService:
         candidates: list[CharacterRecallItem] = []
         for record in beliefs:
             score, semantic = self._belief_score(
-                normalized,
-                record,
+                owner_id=owner_id,
+                query=normalized,
+                record=record,
                 encoder=encoder,
                 query_vector=query_vector,
             )
