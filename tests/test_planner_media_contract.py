@@ -1,33 +1,45 @@
-from echo_masque.api.routes.smart_participation_v4 import _analysis_text
-from echo_masque.api.smart_participation_v4_schemas import SmartParticipationResolveRequest
+from echo_masque.api.smart_participation_v3_schemas import SmartParticipationResolveRequest
+from echo_masque.participation_planner_v3 import MediaEpistemicContract
 from echo_masque.planner_media import PlannerMediaDescriptor, PlannerMediaResult
 
 
-def test_resolved_planner_media_is_structured_topic_and_admission_evidence() -> None:
+def _request(
+    descriptor: PlannerMediaDescriptor,
+    *,
+    dependency: str = "optional",
+) -> SmartParticipationResolveRequest:
+    value = descriptor.model_dump(exclude={"topic_evidence"})
+    return SmartParticipationResolveRequest.model_validate(
+        {
+            "connection_id": "connection-1",
+            "message": "https://example.test/video",
+            "media_descriptors": [value],
+            "media_dependency": dependency,
+            "candidates": [{"deployment_id": "ann"}],
+        }
+    )
+
+
+def test_resolved_planner_media_requires_content_grounded_character_reply() -> None:
     descriptor = PlannerMediaDescriptor(
         ref="url:1",
         kind="video",
         state="resolved",
         label="Bilibili",
-        subject="绝区零剧情分析",
-        summary="讨论某章节的反派身份与伏笔。",
+        subject="剧情分析",
+        summary="讨论某章节的角色身份与伏笔。",
         source_key="bilibili:demo",
         topic_evidence=True,
     )
-    request = SmartParticipationResolveRequest.model_validate(
-        {
-            "connection_id": "connection-1",
-            "message": "https://b23.tv/demo",
-            "media_descriptors": [descriptor.model_dump()],
-            "candidates": [{"deployment_id": "ann"}],
-        }
-    )
-    analysis = _analysis_text(request)
-    assert "绝区零剧情分析" in analysis
-    assert "反派身份" in analysis
+
+    grounding = MediaEpistemicContract().resolve(_request(descriptor))
+
+    assert grounding.level == "content_grounded"
+    assert grounding.can_reply is True
+    assert grounding.grounded_refs == ("url:1",)
 
 
-def test_preview_only_media_is_not_promoted_to_topic_evidence() -> None:
+def test_preview_only_media_cannot_be_promoted_to_content_grounding() -> None:
     descriptor = PlannerMediaDescriptor(
         ref="url:1",
         kind="video",
@@ -35,15 +47,30 @@ def test_preview_only_media_is_not_promoted_to_topic_evidence() -> None:
         subject="Unverified preview title",
         topic_evidence=False,
     )
-    request = SmartParticipationResolveRequest.model_validate(
-        {
-            "connection_id": "connection-1",
-            "message": "https://example.test/video",
-            "media_descriptors": [descriptor.model_dump()],
-            "candidates": [{"deployment_id": "ann"}],
-        }
+
+    grounding = MediaEpistemicContract().resolve(_request(descriptor))
+
+    assert grounding.level == "preview_grounded"
+    assert grounding.can_reply is True
+    assert "do not claim visual/audio content perception" in grounding.guidance
+
+
+def test_required_media_preview_is_not_enough_to_reply() -> None:
+    descriptor = PlannerMediaDescriptor(
+        ref="url:1",
+        kind="video",
+        state="preview_only",
+        subject="Visible title only",
+        topic_evidence=False,
     )
-    assert "Unverified preview title" not in _analysis_text(request)
+
+    grounding = MediaEpistemicContract().resolve(
+        _request(descriptor, dependency="required")
+    )
+
+    assert grounding.level == "preview_grounded"
+    assert grounding.can_reply is False
+    assert grounding.reason == "required_media_preview_insufficient"
 
 
 def test_planner_media_result_does_not_imply_character_perception() -> None:
