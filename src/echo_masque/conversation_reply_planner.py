@@ -102,10 +102,14 @@ class CharacterSegmentReplyPlanner:
             f"Focus this turn on the selected conversation segment: {summary}. "
             "Do not summarize or answer unrelated simultaneous discussions in the Burst."
         )[:240]
+        thread_id = str(
+            getattr(selected, "thread_id", "")
+            or getattr(selected, "semantic_thread_id", "")
+        )
         return CharacterSegmentTarget(
             deployment_id=deployment.id,
             segment_id=selected.id,
-            semantic_thread_id=selected.thread_id,
+            semantic_thread_id=thread_id,
             score=round(value, 6),
             reason=reason,
             guidance=guidance,
