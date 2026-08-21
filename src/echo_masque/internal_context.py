@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from echo_masque.config import Settings, get_settings
 from echo_masque.expression_retrieval import semantic_tokens
-from echo_masque.persistence.belief_repository import BeliefRepository, BeliefV3View
+from echo_masque.persistence.belief_repository import BeliefRepository
 from echo_masque.persistence.conversation_runtime_repository import (
     ConversationEpisodeV3View,
     ConversationRuntimeRepository,
@@ -20,7 +20,6 @@ from echo_masque.persistence.conversation_structure_repository import (
     ConversationStructureRepository,
     ConversationThreadView,
 )
-from echo_masque.persistence.core_memory_models import CharacterCoreMemoryRecord
 from echo_masque.persistence.core_memory_repository import CoreMemoryRepository
 from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
 from echo_masque.semantic_participation import (
@@ -240,7 +239,8 @@ class InternalContextService:
                     }
                 )
             elif belief is not None:
-                content = f"{belief.subject_ref or belief.subject_entity_id} {belief.predicate}: {belief.value_text}"
+                subject = belief.subject_ref or belief.subject_entity_id
+                content = f"{subject} {belief.predicate}: {belief.value_text}"
                 key = _normalized_content(content)
                 if not key or key in seen_content:
                     continue
