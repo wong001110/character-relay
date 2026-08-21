@@ -25,6 +25,7 @@ from echo_masque.api.smart_participation_vnext_schemas import (
 )
 from echo_masque.config import Settings
 from echo_masque.conversation_reply_planner import CharacterSegmentReplyPlanner
+from echo_masque.conversation_runtime import ConversationRuntimeCoordinator
 from echo_masque.conversation_structure_resolver import ConversationStructureResolver
 from echo_masque.persistence import DeploymentRepository, Repository
 from echo_masque.persistence.conversation_structure_repository import (
@@ -41,11 +42,20 @@ from echo_masque.utility_gateway_router import UtilityGatewayRouter
 router = APIRouter()
 
 
+def _structure_repository(request: Request) -> ConversationStructureRepository:
+    current = getattr(request.app.state, "conversation_structure_repository_v3", None)
+    if isinstance(current, ConversationStructureRepository):
+        return current
+    database = cast(DeploymentRepository, request.app.state.deployment_repository).database
+    repository = ConversationStructureRepository(database)
+    request.app.state.conversation_structure_repository_v3 = repository
+    return repository
+
+
 def _service(request: Request) -> ConversationStructureResolver:
     current = getattr(request.app.state, "conversation_structure_resolver_v3", None)
     if isinstance(current, ConversationStructureResolver):
         return current
-    database = cast(DeploymentRepository, request.app.state.deployment_repository).database
     runtime = getattr(request.app.state, "runtime_service", None)
     if not isinstance(runtime, RuntimeService):
         runtime = RuntimeService(
@@ -53,12 +63,21 @@ def _service(request: Request) -> ConversationStructureResolver:
             cast(Settings, request.app.state.settings),
         )
     service = ConversationStructureResolver(
-        ConversationStructureRepository(database),
+        _structure_repository(request),
         cast(Settings, request.app.state.settings),
         UtilityGatewayRouter(runtime, caller=ExistingProviderUtilityCaller()),
     )
     request.app.state.conversation_structure_resolver_v3 = service
     return service
+
+
+def _runtime_coordinator(request: Request) -> ConversationRuntimeCoordinator:
+    current = getattr(request.app.state, "conversation_runtime_coordinator_v3", None)
+    if isinstance(current, ConversationRuntimeCoordinator):
+        return current
+    coordinator = ConversationRuntimeCoordinator(_structure_repository(request))
+    request.app.state.conversation_runtime_coordinator_v3 = coordinator
+    return coordinator
 
 
 def _reply_planner(request: Request) -> CharacterSegmentReplyPlanner:
@@ -176,6 +195,17 @@ def resolve_smart_participation_vnext(
         # Structural projection must not convert an already-resolved Discord ingress into a
         # duplicate side effect. This is failure isolation, not a fallback to Topic authority.
         return _base_result(base, source="conversation_structure_failed")
+
+    try:
+        _runtime_coordinator(request).observe(
+            owner_id=owner_id,
+            payload=payload,
+            result=result,
+        )
+    except Exception:
+        # Episode/working-state projection is derived from raw messages + structure. Failure is
+        # isolated from speaker admission and never redirects the turn through Topic authority.
+        pass
 
     segment_views = [
         ConversationSegmentRouteView(
