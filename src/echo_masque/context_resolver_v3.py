@@ -147,7 +147,7 @@ class ContextBundleV3:
 
 
 class ContextResolverV3:
-    """One authority for selecting runtime context across conversation, knowledge, and social state."""
+    """Select runtime context across conversation, knowledge, and social state."""
 
     def __init__(
         self,
@@ -180,7 +180,9 @@ class ContextResolverV3:
         return tuple(result)
 
     @staticmethod
-    def _bounded_hits(values: tuple[ContextTextHit, ...], limit: int) -> tuple[ContextTextHit, ...]:
+    def _bounded_hits(
+        values: tuple[ContextTextHit, ...], limit: int
+    ) -> tuple[ContextTextHit, ...]:
         result: list[ContextTextHit] = []
         remaining = max(0, limit)
         for item in sorted(values, key=lambda value: value.score, reverse=True):
@@ -217,14 +219,15 @@ class ContextResolverV3:
                 owner_id=owner_id,
                 connection_id=connection_id,
                 guild_id=guild_id,
-                channel_id=channel_id,
-                discord_thread_id=discord_thread_id,
                 limit=100,
             )
             segment = next((item for item in recent_segments if item.id == segment_id), None)
         thread_id = conversation_thread_id
         if not thread_id and segment is not None:
-            membership = self.structure.current_membership(owner_id=owner_id, segment_id=segment.id)
+            membership = self.structure.current_membership(
+                owner_id=owner_id,
+                segment_id=segment.id,
+            )
             if membership is not None:
                 thread_id = membership.thread_id
         thread = None
@@ -242,7 +245,11 @@ class ContextResolverV3:
                 ),
                 None,
             )
-        working = self.runtime.working_state(owner_id=owner_id, thread_id=thread_id) if thread_id else None
+        working = (
+            self.runtime.working_state(owner_id=owner_id, thread_id=thread_id)
+            if thread_id
+            else None
+        )
         subject_refs = (actor_id,) if actor_id else ()
         recalled = self.beliefs.recall(
             owner_id=owner_id,
@@ -335,7 +342,7 @@ class ContextResolverV3:
         blocking_gap = bool(
             gaps
             and any(item.importance >= 0.75 for item in gaps)
-            and ("?" in query_compact or "？" in query_compact)
+            and ("?" in query_compact or "\uff1f" in query_compact)
         )
         if unresolved_segment:
             sufficiency: SufficiencyState = "unresolved"
