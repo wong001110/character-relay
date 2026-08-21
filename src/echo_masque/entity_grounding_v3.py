@@ -39,6 +39,12 @@ class EntityGroundingService:
     def __init__(self, repository: EntityEvidenceRepository) -> None:
         self.repository = repository
 
+    @staticmethod
+    def _trigger_ref(triggered_by_ref: str, evidence_refs: tuple[str, ...]) -> str:
+        if triggered_by_ref:
+            return triggered_by_ref
+        return evidence_refs[0] if evidence_refs else ""
+
     def resolve_or_provision(
         self,
         *,
@@ -73,7 +79,7 @@ class EntityGroundingService:
                     guild_id=guild_id,
                     entity_id=existing.id,
                     missing_fields=missing_fields,
-                    triggered_by_ref=triggered_by_ref or (evidence_refs[0] if evidence_refs else ""),
+                    triggered_by_ref=self._trigger_ref(triggered_by_ref, evidence_refs),
                     importance=importance,
                     possible_sources=("conversation", "wiki", "knowledge", "discovery"),
                     now=current,
@@ -98,7 +104,7 @@ class EntityGroundingService:
                 guild_id=guild_id,
                 entity_id=entity.id,
                 missing_fields=missing_fields,
-                triggered_by_ref=triggered_by_ref or (evidence_refs[0] if evidence_refs else ""),
+                triggered_by_ref=self._trigger_ref(triggered_by_ref, evidence_refs),
                 importance=importance,
                 possible_sources=("conversation", "wiki", "knowledge", "discovery"),
                 now=current,
