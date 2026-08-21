@@ -65,7 +65,12 @@ class KnowledgeConsolidationV3Service:
         *,
         owner_id: str,
         entity_id: str,
-    ) -> tuple[EntityV3Record, list[BeliefV3Record], list[ConversationEpisodeV3Record], list[EvidenceEdgeV3Record]]:
+    ) -> tuple[
+        EntityV3Record,
+        list[BeliefV3Record],
+        list[ConversationEpisodeV3Record],
+        list[EvidenceEdgeV3Record],
+    ]:
         with self.database.session() as session:
             entity = session.get(EntityV3Record, entity_id)
             if entity is None or entity.owner_id != owner_id:
@@ -78,7 +83,10 @@ class KnowledgeConsolidationV3Service:
                         BeliefV3Record.subject_entity_id == entity_id,
                         BeliefV3Record.status.in_(("active", "provisional", "disputed")),
                     )
-                    .order_by(BeliefV3Record.authority_score.desc(), BeliefV3Record.updated_at.desc())
+                    .order_by(
+                        BeliefV3Record.authority_score.desc(),
+                        BeliefV3Record.updated_at.desc(),
+                    )
                     .limit(120)
                 )
             )
@@ -108,9 +116,7 @@ class KnowledgeConsolidationV3Service:
                 )
             )
         episodes = [
-            item
-            for item in episodes_all
-            if entity_id in self._decode(item.entity_ids_json)
+            item for item in episodes_all if entity_id in self._decode(item.entity_ids_json)
         ][:60]
         return entity, beliefs, episodes, edges
 
@@ -122,7 +128,9 @@ class KnowledgeConsolidationV3Service:
     ) -> str:
         lines = [f"{entity.canonical_name} ({entity.entity_type})"]
         if entity.status != "canonical":
-            lines.append("Identity is provisional; unresolved canonical details must not be invented.")
+            lines.append(
+                "Identity is provisional; unresolved canonical details must not be invented."
+            )
         for belief in beliefs:
             marker = {
                 "active": "Known",
@@ -149,39 +157,47 @@ class KnowledgeConsolidationV3Service:
             owner_id=owner_id,
             entity_id=entity_id,
         )
-        source = {
-            "entity": {
-                "id": entity.id,
-                "name": entity.canonical_name,
-                "type": entity.entity_type,
-                "status": entity.status,
-                "metadata": entity.metadata_json,
-            },
-            "beliefs": [
-                {
-                    "id": item.id,
-                    "predicate": item.predicate,
-                    "value": item.value_text,
-                    "status": item.status,
-                    "authority": item.authority_class,
-                    "confidence": item.confidence,
-                }
-                for item in beliefs
-            ],
-            "episodes": [
-                {"id": item.id, "summary": item.summary, "ended_at": item.ended_at.isoformat()}
-                for item in episodes
-            ],
-            "evidence_edges": [
-                {
-                    "id": item.id,
-                    "relation": item.relation_type,
-                    "source": item.source_ref,
-                    "status": item.status,
-                    "authority": item.authority_class,
-                }
-                for item in edges
-            ],
+        entity_source: dict[str, object] = {
+            "id": entity.id,
+            "name": entity.canonical_name,
+            "type": entity.entity_type,
+            "status": entity.status,
+            "metadata": entity.metadata_json,
+        }
+        belief_source: list[dict[str, object]] = [
+            {
+                "id": item.id,
+                "predicate": item.predicate,
+                "value": item.value_text,
+                "status": item.status,
+                "authority": item.authority_class,
+                "confidence": item.confidence,
+            }
+            for item in beliefs
+        ]
+        episode_source: list[dict[str, object]] = [
+            {
+                "id": item.id,
+                "summary": item.summary,
+                "ended_at": item.ended_at.isoformat(),
+            }
+            for item in episodes
+        ]
+        edge_source: list[dict[str, object]] = [
+            {
+                "id": item.id,
+                "relation": item.relation_type,
+                "source": item.source_ref,
+                "status": item.status,
+                "authority": item.authority_class,
+            }
+            for item in edges
+        ]
+        source: dict[str, object] = {
+            "entity": entity_source,
+            "beliefs": belief_source,
+            "episodes": episode_source,
+            "evidence_edges": edge_source,
         }
         source_hash = self._hash(source)
         title = entity.canonical_name
@@ -202,9 +218,9 @@ class KnowledgeConsolidationV3Service:
                 {
                     "schema_version": "server-wiki-entity.v3",
                     "scope": "current_discord_server_only",
-                    "entity": source["entity"],
-                    "beliefs": source["beliefs"][:60],
-                    "episodes": source["episodes"][:30],
+                    "entity": entity_source,
+                    "beliefs": belief_source[:60],
+                    "episodes": episode_source[:30],
                     "rules": [
                         "Use only supplied evidence.",
                         "Separate active, tentative, and disputed information.",
@@ -231,7 +247,11 @@ class KnowledgeConsolidationV3Service:
                 title = value.title
                 body = value.body
                 keywords = tuple(value.keywords[:32]) or keywords
-                confidence = min(confidence, value.confidence) if entity.status != "canonical" else value.confidence
+                confidence = (
+                    min(confidence, value.confidence)
+                    if entity.status != "canonical"
+                    else value.confidence
+                )
                 utility_status = "utility_completed"
             except UtilityGatewayUnavailable:
                 utility_status = "utility_unavailable"
