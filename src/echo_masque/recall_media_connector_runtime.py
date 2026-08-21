@@ -11,7 +11,6 @@ from pydantic import SecretStr
 
 from echo_masque.api.connector_schemas import DiscordConnectorReplyView, DiscordInboundMessage
 from echo_masque.character_recall import CharacterRecallBundle, CharacterRecallService
-from echo_masque.character_relationships import CharacterRelationshipService
 from echo_masque.connector_runtime import PreparedCharacterTurn, ResolvedCharacterTurn
 from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
 from echo_masque.persistence.belief_repository import BeliefRepository
@@ -21,6 +20,7 @@ from echo_masque.persistence.deployment_presence_notice_repository import (
 )
 from echo_masque.persistence.deployment_presence_repository import DeploymentPresenceRepository
 from echo_masque.persistence.discord_identity_repository import DiscordIdentityRepository
+from echo_masque.social_intelligence_v3 import SocialIntelligenceV3Service, SocialTargetType
 
 _DISCORD_API = "https://discord.com/api/v10"
 _NAME_SPLIT = re.compile(r"\s*(?:·|•|・|/|\|)\s*|\s+(?:-|\u2014|\u2013)\s+")
@@ -43,7 +43,7 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
         )
         self.deployment_presence = DeploymentPresenceRepository(database)
         self.deployment_presence_notices = DeploymentPresenceNoticeRepository(database)
-        self.relationships = CharacterRelationshipService(database)
+        self.social_intelligence = SocialIntelligenceV3Service(database)
         self.discord_identities = DiscordIdentityRepository(database)
         delivery = getattr(self.tool_registry, "generated_media_delivery", None)
         token = getattr(delivery, "discord_bot_token", None)
@@ -187,7 +187,7 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
         self,
         *,
         resolved: ResolvedCharacterTurn,
-    ) -> tuple[str, str]:
+    ) -> tuple[SocialTargetType, str]:
         payload = resolved.payload
         if payload.author_is_bot and payload.message_id:
             route = self.discord_identities.resolve_message_route(
@@ -224,10 +224,10 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
 
         target_type, target_key = self._social_target(resolved=resolved)
         if target_key:
-            social_guidance = self.relationships.social_prompt_guidance(
+            social_guidance = self.social_intelligence.prompt_context(
                 owner_id=deployment.owner_id,
                 source_deployment_id=deployment.id,
-                target_type=target_type,  # type: ignore[arg-type]
+                target_type=target_type,
                 target_key=target_key,
                 max_chars=480,
             )
