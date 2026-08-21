@@ -20,14 +20,6 @@ from echo_masque.api.routes.connectors import router as connectors_router
 from echo_masque.api.routes.conversation_burst_observability import (
     router as conversation_burst_observability_router,
 )
-from echo_masque.api.routes.conversation_intelligence import router as conversation_intelligence_router
-from echo_masque.api.routes.conversation_intelligence_observation import (
-    router as conversation_intelligence_observation_router,
-)
-from echo_masque.api.routes.conversation_memory_control import router as conversation_memory_control_router
-from echo_masque.api.routes.conversation_retrieval_observation import (
-    router as conversation_retrieval_observation_router,
-)
 from echo_masque.api.routes.coverage import router as coverage_router
 from echo_masque.api.routes.deployment_conversation_structure import (
     router as deployment_conversation_structure_router,
@@ -54,7 +46,6 @@ from echo_masque.api.routes.runtime_traces import router as runtime_traces_route
 from echo_masque.api.routes.scheduled_reminders import router as scheduled_reminders_router
 from echo_masque.api.routes.server_access import router as server_access_router
 from echo_masque.api.routes.smart_participation import router as smart_participation_router
-from echo_masque.api.routes.smart_participation_v4 import router as smart_participation_v4_router
 from echo_masque.api.routes.smart_participation_vnext import router as smart_participation_vnext_router
 from echo_masque.api.routes.social_turn_interrupt import router as social_turn_interrupt_router
 from echo_masque.api.routes.targets import router as targets_router
@@ -76,11 +67,7 @@ deployments_router.include_router(deployment_discovery_router)
 deployments_router.include_router(deployment_relationships_router)
 deployments_router.include_router(deployment_conversation_structure_router)
 deployments_router.include_router(intelligence_product_completion_router)
-conversation_intelligence_router.include_router(conversation_intelligence_observation_router)
-conversation_intelligence_router.include_router(conversation_memory_control_router)
-conversation_intelligence_router.include_router(conversation_retrieval_observation_router)
 smart_participation_router.include_router(smart_participation_vnext_router)
-smart_participation_router.include_router(smart_participation_v4_router)
 
 __all__ = [
     "accounts_router",
@@ -94,7 +81,6 @@ __all__ = [
     "comparisons_router",
     "connectors_router",
     "conversation_burst_observability_router",
-    "conversation_intelligence_router",
     "coverage_router",
     "deployments_router",
     "discord_identities_router",
