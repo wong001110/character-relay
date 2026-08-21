@@ -14,11 +14,11 @@ from echo_masque.character_context_routing import (
 )
 from echo_masque.character_turn_intelligence import CharacterTurnIntelligenceCoordinator
 from echo_masque.config import CharacterTurnIntelligenceMode, Settings, get_settings
-from echo_masque.conversation_topic import ConversationTopicMemoryService
 from echo_masque.knowledge_retrieval import KnowledgeCandidate
 from echo_masque.knowledge_route_gate import KnowledgeRouteDecision, KnowledgeRouteGate
 from echo_masque.persistence import Repository
-from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
+from echo_masque.persistence.conversation_runtime_repository import ConversationRuntimeRepository
+from echo_masque.persistence.conversation_structure_repository import ConversationStructureRepository
 from echo_masque.persistence.deployment_tool_repository import DeploymentToolRepository
 from echo_masque.persistence.knowledge_repository import KnowledgeRepository
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
@@ -88,15 +88,13 @@ class CharacterContextTraceView(BaseModel):
     conversation_message_count: int = Field(default=0, ge=0, le=30)
     conversation_chars: int = Field(default=0, ge=0)
     conversation_token_budget: int = Field(default=0, ge=0)
-    topic_id: str = ""
-    topic_status: str = ""
-    topic_message_count: int = Field(default=0, ge=0)
+    conversation_thread_id: str = ""
     continuation_tool_ids: list[str] = Field(default_factory=list, max_length=8)
     blocked_side_effect_intents: list[str] = Field(default_factory=list, max_length=8)
     turn_intelligence_mode: Literal["off", "shadow", "active"] = "off"
     turn_intelligence_requested_tasks: list[
-        Literal["topic", "speaker", "knowledge", "pending_action"]
-    ] = Field(default_factory=list, max_length=4)
+        Literal["speaker", "knowledge", "pending_action"]
+    ] = Field(default_factory=list, max_length=3)
     turn_intelligence_knowledge_source: str = "not_requested"
     turn_intelligence_pending_action_source: str = "not_requested"
     turn_intelligence_knowledge_route: str = ""
@@ -167,7 +165,6 @@ class ContextOrchestrator:
         conversation_token_budget: int = 1800,
         knowledge_route_gate: KnowledgeRouteGate | None = None,
         settings: Settings | None = None,
-        topic_memory: ConversationTopicMemoryService | None = None,
         tool_continuation_service: ToolContinuationService | None = None,
         character_context_routing_service: CharacterContextRoutingService | None = None,
     ) -> None:
@@ -179,12 +176,11 @@ class ContextOrchestrator:
             settings=self.settings,
         )
         self.deployment_tool_repository = DeploymentToolRepository(knowledge_repository.database)
-        self.topic_memory = topic_memory or ConversationTopicMemoryService(
-            ConversationTopicRepository(knowledge_repository.database),
-            settings=self.settings,
-        )
+        runtime_repository = ConversationRuntimeRepository(knowledge_repository.database)
+        structure_repository = ConversationStructureRepository(knowledge_repository.database)
         self.tool_continuation_service = tool_continuation_service or ToolContinuationService(
-            self.topic_memory,
+            runtime_repository,
+            structure_repository,
             settings=self.settings,
         )
         self._character_context_routing_override = character_context_routing_service
@@ -230,7 +226,7 @@ class ContextOrchestrator:
         return current[:4000]
 
     @staticmethod
-    def _recent_human_topic_messages(payload: DiscordInboundMessage) -> list[str]:
+    def _recent_human_messages(payload: DiscordInboundMessage) -> list[str]:
         previous = [
             item.text.strip()
             for item in payload.recent_messages
@@ -247,7 +243,7 @@ class ContextOrchestrator:
         payload: DiscordInboundMessage,
         current_query: str,
     ) -> tuple[str, int]:
-        previous = cls._recent_human_topic_messages(payload)
+        previous = cls._recent_human_messages(payload)
         if not previous:
             return current_query, 0
         query = "\n".join([*previous, current_query])[-4000:]
@@ -353,7 +349,7 @@ class ContextOrchestrator:
         return SemanticTurnSignals(
             deployment_id=deployment.id,
             message_id=payload.message_id,
-            topic_id=plan.topic.id if plan.topic is not None else "",
+            conversation_thread_id=plan.conversation_thread_id,
             continuation_tool_ids=continuation_ids,
             detected_side_effect_intents=plan.detected_side_effect_intents,
             blocked_side_effect_intents=plan.blocked_side_effect_intents,
@@ -402,7 +398,7 @@ class ContextOrchestrator:
         if signals is None:
             return {}
         return {
-            "topic_id": signals.topic_id,
+            "conversation_thread_id": signals.conversation_thread_id,
             "continuation_tool_ids": list(signals.continuation_tool_ids[:8]),
             "blocked_side_effect_intents": list(signals.blocked_side_effect_intents[:8]),
         }
@@ -426,9 +422,10 @@ class ContextOrchestrator:
         if plan is None:
             return values
         outcome = plan.unified_outcome
+        requested = [task for task in plan.requested_tasks if task != "topic"]
         values.update(
             {
-                "turn_intelligence_requested_tasks": list(plan.requested_tasks),
+                "turn_intelligence_requested_tasks": requested,
                 "turn_intelligence_knowledge_source": plan.knowledge_source,
                 "turn_intelligence_pending_action_source": plan.pending_action_source,
                 "turn_intelligence_knowledge_route": outcome.knowledge_route or "",
@@ -504,7 +501,7 @@ class ContextOrchestrator:
         final = SemanticTurnSignals(
             deployment_id=deployment.id,
             message_id=payload.message_id,
-            topic_id=signals.topic_id,
+            conversation_thread_id=signals.conversation_thread_id,
             continuation_tool_ids=continuation_ids,
             detected_side_effect_intents=signals.detected_side_effect_intents,
             blocked_side_effect_intents=signals.blocked_side_effect_intents,
@@ -694,13 +691,13 @@ class ContextOrchestrator:
                         deployment=deployment,
                         payload=payload,
                         pending_tool_id=pending_tool_id,
-                        pending_source="legacy_fallback",
+                        pending_source="deterministic_fallback",
                     )
                     turn_trace = {
                         "turn_intelligence_mode": mode,
-                        "turn_intelligence_knowledge_source": "legacy_fallback",
+                        "turn_intelligence_knowledge_source": "deterministic_fallback",
                         "turn_intelligence_pending_action_source": (
-                            "legacy_fallback"
+                            "deterministic_fallback"
                             if preparation.pending_action is not None
                             else "not_requested"
                         ),
