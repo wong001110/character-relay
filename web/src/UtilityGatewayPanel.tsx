@@ -14,7 +14,6 @@ export type UtilityProviderId =
 
 export type UtilityCapability =
   | "semantic_judge"
-  | "topic_intelligence"
   | "memory_intelligence"
   | "knowledge_wiki"
   | "participation_tiebreak"
@@ -113,7 +112,6 @@ const providers: Array<{
 
 const capabilityLabels: Record<UtilityCapability, string> = {
   semantic_judge: "Semantic Judge",
-  topic_intelligence: "Topic",
   memory_intelligence: "Memory",
   knowledge_wiki: "LLM Wiki",
   participation_tiebreak: "Participation Tie-break",
@@ -125,7 +123,6 @@ const capabilityLabels: Record<UtilityCapability, string> = {
 
 const capabilityIcons: Record<UtilityCapability, string> = {
   semantic_judge: "⚖",
-  topic_intelligence: "◇",
   memory_intelligence: "✦",
   knowledge_wiki: "▤",
   participation_tiebreak: "◎",

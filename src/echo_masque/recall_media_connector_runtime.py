@@ -1,4 +1,4 @@
-"""Media-aware Discord runtime with conservative Character recall and bounded Social Context."""
+"""Media-aware Discord runtime with v3 Character recall and bounded Social Context."""
 
 from __future__ import annotations
 
@@ -11,17 +11,16 @@ from pydantic import SecretStr
 
 from echo_masque.api.connector_schemas import DiscordConnectorReplyView, DiscordInboundMessage
 from echo_masque.character_recall import CharacterRecallBundle, CharacterRecallService
-from echo_masque.character_relationships import CharacterRelationshipService
 from echo_masque.connector_runtime import PreparedCharacterTurn, ResolvedCharacterTurn
 from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
-from echo_masque.memory_layers import SynthesizedMemoryFreshnessRepository
+from echo_masque.persistence.belief_repository import BeliefRepository
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.deployment_presence_notice_repository import (
     DeploymentPresenceNoticeRepository,
 )
 from echo_masque.persistence.deployment_presence_repository import DeploymentPresenceRepository
 from echo_masque.persistence.discord_identity_repository import DiscordIdentityRepository
-from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
+from echo_masque.social_intelligence_v3 import SocialIntelligenceV3Service, SocialTargetType
 
 _DISCORD_API = "https://discord.com/api/v10"
 _NAME_SPLIT = re.compile(r"\s*(?:·|•|・|/|\|)\s*|\s+(?:-|\u2014|\u2013)\s+")
@@ -29,7 +28,7 @@ _ADDRESS_BOUNDARY = r"[\s:,、.。?!\-\u2014\u2013&/+和与與跟及]"
 
 
 class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime):
-    """Inject high-confidence recall/social context and enforce Deployment Presence."""
+    """Inject high-confidence v3 recall/social context and enforce Deployment Presence."""
 
     def __init__(
         self,
@@ -40,12 +39,11 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
         super().__init__(*args, **kwargs)
         database = self.deployment_repository.database
         self.character_recall = character_recall_service or CharacterRecallService(
-            MemoryVNextRepository(database)
+            BeliefRepository(database)
         )
-        self.memory_freshness = SynthesizedMemoryFreshnessRepository(database)
         self.deployment_presence = DeploymentPresenceRepository(database)
         self.deployment_presence_notices = DeploymentPresenceNoticeRepository(database)
-        self.relationships = CharacterRelationshipService(database)
+        self.social_intelligence = SocialIntelligenceV3Service(database)
         self.discord_identities = DiscordIdentityRepository(database)
         delivery = getattr(self.tool_registry, "generated_media_delivery", None)
         token = getattr(delivery, "discord_bot_token", None)
@@ -178,33 +176,18 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
 
     @staticmethod
     def _inject_recall_guidance(prompt: str, guidance: tuple[str, ...]) -> str:
-        """Backward-compatible recall helper retained for existing tests/callers."""
+        """Backward-compatible prompt helper retained for existing non-memory callers."""
 
         return RecallAwareMediaDiscordConnectorRuntime._inject_prompt_guidance(
             prompt,
             guidance,
         )
 
-    def _fresh_for_auto_recall(self, bundle: CharacterRecallBundle) -> CharacterRecallBundle:
-        items = tuple(
-            item
-            for item in bundle.items
-            if item.origin != "synthesized"
-            or (
-                (freshness := self.memory_freshness.get(item.ref)) is None
-                or freshness.freshness_status != "stale"
-            )
-        )
-        return CharacterRecallBundle(
-            items=items,
-            explicit_history_cue=bundle.explicit_history_cue,
-        )
-
     def _social_target(
         self,
         *,
         resolved: ResolvedCharacterTurn,
-    ) -> tuple[str, str]:
+    ) -> tuple[SocialTargetType, str]:
         payload = resolved.payload
         if payload.author_is_bot and payload.message_id:
             route = self.discord_identities.resolve_message_route(
@@ -224,28 +207,27 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
         prepared = super().prepare_character_turn(resolved)
         payload = resolved.payload
         deployment = resolved.deployment
-        bundle = self.character_recall.high_confidence_recall(
+        bundle: CharacterRecallBundle = self.character_recall.high_confidence_recall(
             owner_id=deployment.owner_id,
             character_card_id=resolved.card.id,
             connection_id=deployment.connection_id,
             guild_id=payload.guild_id,
             subject_user_id=payload.author_id,
-            topic_id=prepared.tool_context.topic_id,
             query=payload.text,
+            deployment_id=deployment.id,
             exclude_source_message_id=payload.message_id,
             limit=4,
         )
-        bundle = self._fresh_for_auto_recall(bundle)
         recall_guidance = bundle.prompt_guidance(max_chars=900)
         if recall_guidance:
             prepared.prompt = self._inject_prompt_guidance(prepared.prompt, recall_guidance)
 
         target_type, target_key = self._social_target(resolved=resolved)
         if target_key:
-            social_guidance = self.relationships.social_prompt_guidance(
+            social_guidance = self.social_intelligence.prompt_context(
                 owner_id=deployment.owner_id,
                 source_deployment_id=deployment.id,
-                target_type=target_type,  # type: ignore[arg-type]
+                target_type=target_type,
                 target_key=target_key,
                 max_chars=480,
             )

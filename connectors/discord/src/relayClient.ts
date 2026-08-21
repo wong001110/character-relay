@@ -113,7 +113,6 @@ export interface DiscordPlannerMediaDescriptor {
   summary: string;
   source_key: string;
   source_url: string;
-  topic_evidence: boolean;
 }
 
 export interface DiscordPlannerMediaResult {

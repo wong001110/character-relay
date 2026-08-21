@@ -8,8 +8,10 @@ from echo_masque.character_learned_state import (
     CharacterLearnedStateService,
     LearnedStateEvidence,
 )
+from echo_masque.character_relationships import CharacterRelationshipService
 from echo_masque.persistence import Database
 from echo_masque.persistence.character_learned_state_models import CharacterLearnedStateRecord
+from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 
 
 def service(tmp_path: Path) -> tuple[Database, CharacterLearnedStateService]:
@@ -31,7 +33,7 @@ def evidence(
         owner_id=owner_id,
         character_card_id=character_card_id,
         state_type=state_type,  # type: ignore[arg-type]
-        subject_type="topic",
+        subject_type="concept",
         subject_key=subject_key,
         delta=delta,
         confidence=0.8,
@@ -74,7 +76,7 @@ def test_half_life_decay_is_applied_on_read_without_mutating_history(tmp_path: P
         owner_id="owner-1",
         character_card_id="card-ann",
         state_type="salience",
-        subject_type="topic",
+        subject_type="concept",
         subject_key="photography",
         now=now + timedelta(seconds=half_life),
     )
@@ -106,7 +108,7 @@ def test_state_isolated_by_owner_and_character(tmp_path: Path) -> None:
         owner_id="owner-1",
         character_card_id="card-ann",
         state_type="interest",
-        subject_type="topic",
+        subject_type="concept",
         subject_key="photography",
         now=now,
     )
@@ -114,7 +116,7 @@ def test_state_isolated_by_owner_and_character(tmp_path: Path) -> None:
         owner_id="owner-2",
         character_card_id="card-ann",
         state_type="interest",
-        subject_type="topic",
+        subject_type="concept",
         subject_key="photography",
         now=now,
     )
@@ -122,7 +124,7 @@ def test_state_isolated_by_owner_and_character(tmp_path: Path) -> None:
         owner_id="owner-1",
         character_card_id="card-ning",
         state_type="interest",
-        subject_type="topic",
+        subject_type="concept",
         subject_key="photography",
         now=now,
     )
@@ -157,25 +159,39 @@ def test_provenance_is_bounded_and_never_requires_raw_message_text(tmp_path: Pat
     assert all("text" not in item and "message" not in item for item in provenance)
 
 
-def test_short_term_fatigue_decays_faster_than_relationship_state(tmp_path: Path) -> None:
-    _database, learned = service(tmp_path)
+def test_short_term_fatigue_decays_faster_than_lived_relationship_state(tmp_path: Path) -> None:
+    database, learned = service(tmp_path)
+    with database.session() as session:
+        session.add(
+            CharacterDeploymentRecord(
+                id="deployment-ann",
+                owner_id="owner-1",
+                character_card_id="card-ann",
+                connection_id="connection-1",
+                platform="discord",
+                workspace_id="guild-1",
+                workspace_name="Guild",
+                channel_id="channel-1",
+                channel_name="general",
+            )
+        )
+        session.commit()
+    relationships = CharacterRelationshipService(database)
     now = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
     fatigue = learned.record_evidence(
         evidence(delta=1.0, state_type="participation_fatigue"),
         now=now,
     )
-    relationship = learned.record_evidence(
-        LearnedStateEvidence(
-            owner_id="owner-1",
-            character_card_id="card-ann",
-            state_type="relationship",
-            subject_type="actor",
-            subject_key="user-1",
-            delta=1.0,
-            confidence=0.8,
-            source_type="explicit_feedback",
-            source_message_id="message-2",
-        ),
+    relationship = relationships.record_evidence(
+        owner_id="owner-1",
+        source_deployment_id="deployment-ann",
+        target_type="actor",
+        target_key="user-1",
+        dimension="familiarity",
+        delta=1.0,
+        confidence=0.8,
+        reason_code="meaningful_direct_interaction",
+        source_message_id="message-2",
         now=now,
     )
     later = now + timedelta(hours=8)
@@ -184,23 +200,22 @@ def test_short_term_fatigue_decays_faster_than_relationship_state(tmp_path: Path
         owner_id="owner-1",
         character_card_id="card-ann",
         state_type="participation_fatigue",
-        subject_type="topic",
+        subject_type="concept",
         subject_key="photography",
         now=later,
     )
-    relationship_later = learned.get(
+    relationship_later = relationships.get_state(
         owner_id="owner-1",
-        character_card_id="card-ann",
-        state_type="relationship",
-        subject_type="actor",
-        subject_key="user-1",
+        source_deployment_id="deployment-ann",
+        target_type="actor",
+        target_key="user-1",
         now=later,
     )
 
     assert fatigue_later is not None
     assert relationship_later is not None
     assert fatigue_later.value < fatigue.value * 0.1
-    assert relationship_later.value > relationship.value * 0.9
+    assert relationship_later.familiarity > relationship.familiarity * 0.9
 
 
 def test_zero_signal_is_rejected(tmp_path: Path) -> None:

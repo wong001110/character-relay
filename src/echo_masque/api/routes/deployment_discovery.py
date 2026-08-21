@@ -90,9 +90,7 @@ def _profile_view(
         mode=profile.mode.value,
         youtube_enabled=profile.youtube_enabled,
         bilibili_enabled=profile.bilibili_enabled,
-        bilibili_experimental_available=(
-            settings.bilibili_discovery_experimental_enabled
-        ),
+        bilibili_experimental_available=(settings.bilibili_discovery_experimental_enabled),
         auto_share_enabled=policy.auto_share_enabled,
         auto_global_enabled=settings.discovery_auto_share_global_enabled,
         daily_share_budget=policy.daily_share_budget,
@@ -172,7 +170,7 @@ def _share_view(
         status=record.status,
         motivation=record.motivation,
         confidence=record.confidence,
-        topic_id=record.topic_id,
+        conversation_thread_id=record.conversation_thread_id,
         relationship_subject_key=record.relationship_subject_key,
         channel_id=record.channel_id,
         thread_id=record.thread_id,

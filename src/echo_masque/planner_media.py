@@ -34,10 +34,8 @@ class PlannerMediaDescriptor(BaseModel):
     summary: str = Field(default="", max_length=1200)
     source_key: str = Field(default="", max_length=500)
     source_url: str = Field(default="", max_length=3000)
-    topic_evidence: bool = False
-
     def planning_line(self) -> str:
-        if not self.topic_evidence or self.state != "resolved":
+        if self.state != "resolved":
             return ""
         body = self.subject or self.summary or self.label
         if not body:
@@ -96,7 +94,6 @@ class PlannerMediaDescriptorService:
             summary=summary,
             source_key=context.source_key,
             source_url=source_url,
-            topic_evidence=bool(subject or summary),
         )
 
     @staticmethod
@@ -124,7 +121,6 @@ class PlannerMediaDescriptorService:
             subject=title[:500],
             summary=" ".join(description.split())[:1200],
             source_url=url,
-            topic_evidence=False,
         )
 
     async def _utility_attachment_context(
@@ -202,7 +198,6 @@ class PlannerMediaDescriptorService:
                     subject=label,
                     source_key=attachment.source_key,
                     source_url=attachment.url,
-                    topic_evidence=False,
                 )
             )
 

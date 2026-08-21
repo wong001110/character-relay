@@ -1,4 +1,4 @@
-"""Bounded connector-to-server V4 derived/durable state contracts."""
+"""Bounded connector-to-server Intelligence Core v3 participation outcome contracts."""
 
 from __future__ import annotations
 
@@ -48,21 +48,15 @@ class SmartParticipationRecentSpeakerRequest(BaseModel):
     allowed_deployment_ids: list[str] = Field(min_length=1, max_length=24)
 
 
-class SmartParticipationRecentSpeakerView(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    deployment_id: str = ""
-
-
 class SmartParticipationLearnedEvidenceRequest(BaseModel):
-    """Explicit evidence only; Character prose is never implicit proof."""
+    """Explicit Behavior State evidence only; Character prose is never implicit proof."""
 
     model_config = ConfigDict(extra="forbid")
 
     connection_id: str = Field(min_length=1, max_length=64)
     deployment_id: str = Field(min_length=1, max_length=64)
     state_type: Literal["expertise", "stance"]
-    subject_type: Literal["topic", "concept", "event", "media"]
+    subject_type: Literal["thread", "concept", "event", "media"]
     subject_key: str = Field(min_length=1, max_length=240)
     delta: float = Field(ge=-1.0, le=1.0)
     confidence: float = Field(ge=0.0, le=1.0)
@@ -93,5 +87,4 @@ __all__ = [
     "SmartParticipationOutcomeObservation",
     "SmartParticipationOutcomeView",
     "SmartParticipationRecentSpeakerRequest",
-    "SmartParticipationRecentSpeakerView",
 ]

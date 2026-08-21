@@ -881,6 +881,15 @@ async def process_discord_message(
     authorization: Annotated[str | None, Header()] = None,
 ) -> DiscordConnectorReplyView:
     _authorize_connector(request, authorization)
+    # This projection is independent of whether the current Character is admitted to reply.
+    # A known explicit reply is interaction evidence; admission and semantic interpretation are not.
+    try:
+        from echo_masque.social_event_runtime import ExplicitReplySocialEventProjector
+
+        ExplicitReplySocialEventProjector(request.app.state.database).observe(payload)
+    except Exception:
+        # Social observation must not turn a valid Character turn into an unavailable reply.
+        pass
     try:
         runner = character_turn_graph_runner(request)
         if runner is not None:

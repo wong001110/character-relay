@@ -1,4 +1,4 @@
-"""Append-only evidence history behind the aggregate Character Learned State read model."""
+"""Append-only evidence history behind Character Behavior State."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from echo_masque.persistence.models import Base, utcnow
 
 
 class CharacterLearnedStateEventRecord(Base):
-    """One bounded evidence update with optional Discord scope for observation/replay."""
+    """One bounded Behavior State evidence update with optional Discord/Thread scope."""
 
     __tablename__ = "character_learned_state_events"
     __table_args__ = (
@@ -43,7 +43,8 @@ class CharacterLearnedStateEventRecord(Base):
     connection_id: Mapped[str] = mapped_column(String(64), default="", index=True, nullable=False)
     guild_id: Mapped[str] = mapped_column(String(200), default="", index=True, nullable=False)
     channel_id: Mapped[str] = mapped_column(String(200), default="", nullable=False)
-    topic_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    conversation_thread_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    source_segment_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
 
     delta: Mapped[float] = mapped_column(Float, nullable=False)
     evidence_confidence: Mapped[float] = mapped_column(Float, nullable=False)

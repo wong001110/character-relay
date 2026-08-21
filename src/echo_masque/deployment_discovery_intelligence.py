@@ -1,29 +1,21 @@
-"""Server-scoped Discovery seed construction and cheap-first candidate ranking."""
+"""Shared Discovery seed contracts and cheap-first candidate ranking."""
 
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
 from echo_masque.config import Settings
 from echo_masque.discovery_contracts import DiscoveryCandidate
-from echo_masque.persistence.character_learned_state_event_models import (
-    CharacterLearnedStateEventRecord,
-)
-from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
 from echo_masque.persistence.database import Database
-from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.discovery_models import DeploymentDiscoveryExposureRecord
 from echo_masque.persistence.discovery_repository import DiscoveryRepository
-from echo_masque.persistence.repository import Repository
 from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
-from echo_masque.persistence.smart_participation_repository import decode_strings
 from echo_masque.semantic_participation import (
     FastEmbedSemanticEncoder,
     SemanticEmbeddingUnavailable,
@@ -65,204 +57,6 @@ class RankedDiscoveryCandidate:
     exploration: float
     final_score: float
     reason: str
-
-
-class DeploymentDiscoverySeedBuilder:
-    """Build seeds from one Deployment's server evidence without using global Learned aggregates."""
-
-    def __init__(self, database: Database) -> None:
-        self.database = database
-        self.cards = Repository(database)
-
-    @staticmethod
-    def _aware(value: datetime) -> datetime:
-        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-
-    @staticmethod
-    def _decode_keywords(raw: str) -> tuple[str, ...]:
-        try:
-            decoded = json.loads(raw or "[]")
-        except (json.JSONDecodeError, TypeError):
-            return ()
-        if not isinstance(decoded, list):
-            return ()
-        return tuple(
-            dict.fromkeys(
-                " ".join(str(item).split())
-                for item in decoded
-                if " ".join(str(item).split())
-            )
-        )[:12]
-
-    @staticmethod
-    def _clean_subject(value: str) -> str:
-        normalized = " ".join(value.split())
-        for prefix in ("concept:", "media:", "event:"):
-            if normalized.startswith(prefix):
-                return normalized.removeprefix(prefix).replace("_", " ")
-        return normalized.replace("_", " ")
-
-    def build(
-        self,
-        *,
-        owner_id: str,
-        deployment_id: str,
-        now: datetime | None = None,
-        limit: int = 8,
-    ) -> DeploymentDiscoverySeeds | None:
-        current = (now or datetime.now(UTC)).astimezone(UTC)
-        bounded = max(1, min(limit, 12))
-        with self.database.session() as session:
-            deployment = session.get(CharacterDeploymentRecord, deployment_id)
-            if deployment is None or deployment.owner_id != owner_id:
-                return None
-            topics = list(
-                session.scalars(
-                    select(ConversationTopicRecord)
-                    .where(
-                        ConversationTopicRecord.owner_id == owner_id,
-                        ConversationTopicRecord.platform == "discord",
-                        ConversationTopicRecord.connection_id == deployment.connection_id,
-                        ConversationTopicRecord.guild_id == deployment.workspace_id,
-                        ConversationTopicRecord.status.in_(("active", "cooling")),
-                    )
-                    .order_by(ConversationTopicRecord.last_active_at.desc())
-                    .limit(12)
-                )
-            )
-            events = list(
-                session.scalars(
-                    select(CharacterLearnedStateEventRecord)
-                    .where(
-                        CharacterLearnedStateEventRecord.owner_id == owner_id,
-                        CharacterLearnedStateEventRecord.character_card_id
-                        == deployment.character_card_id,
-                        CharacterLearnedStateEventRecord.state_type == "interest",
-                        CharacterLearnedStateEventRecord.connection_id == deployment.connection_id,
-                        CharacterLearnedStateEventRecord.guild_id == deployment.workspace_id,
-                        CharacterLearnedStateEventRecord.recorded_at
-                        >= current - timedelta(days=120),
-                    )
-                    .order_by(CharacterLearnedStateEventRecord.recorded_at.desc())
-                    .limit(160)
-                )
-            )
-
-        topic_by_id = {topic.id: topic for topic in topics}
-        seeds: list[DiscoverySeed] = []
-
-        # Recent active/cooling server Topics are the strongest immediate curiosity source.
-        for index, topic in enumerate(topics[:8]):
-            age_days = max(
-                0.0,
-                (current - self._aware(topic.last_active_at)).total_seconds() / 86400.0,
-            )
-            recency = math.pow(0.5, age_days / 7.0)
-            label = " ".join(topic.topic_label.split())
-            if label:
-                seeds.append(
-                    DiscoverySeed(
-                        text=label,
-                        weight=min(1.0, 0.75 + 0.2 * recency - index * 0.02),
-                        source="topic",
-                        evidence_ref=f"topic:{topic.id}",
-                    )
-                )
-            for keyword in self._decode_keywords(topic.keywords_json)[:4]:
-                seeds.append(
-                    DiscoverySeed(
-                        text=keyword,
-                        weight=min(0.9, 0.55 + 0.2 * recency),
-                        source="topic_keyword",
-                        evidence_ref=f"topic:{topic.id}",
-                    )
-                )
-
-        # Aggregate only this server's append-only interest evidence. Do not read the global
-        # CharacterLearnedStateRecord aggregate because one Character Card may live independently
-        # in multiple Discord servers.
-        interest_scores: dict[tuple[str, str], float] = {}
-        for event in events:
-            age_days = max(
-                0.0,
-                (current - self._aware(event.recorded_at)).total_seconds() / 86400.0,
-            )
-            decay = math.pow(0.5, age_days / 30.0)
-            score = float(event.delta) * float(event.evidence_confidence) * decay
-            interest_key = (event.subject_type, event.subject_key)
-            interest_scores[interest_key] = interest_scores.get(interest_key, 0.0) + score
-
-        for (subject_type, subject_key), score in sorted(
-            interest_scores.items(),
-            key=lambda item: item[1],
-            reverse=True,
-        ):
-            if score <= 0.05:
-                continue
-            if subject_type == "topic" and subject_key.startswith("topic:"):
-                matched_topic = topic_by_id.get(subject_key.removeprefix("topic:"))
-                text = (
-                    " ".join(matched_topic.topic_label.split())
-                    if matched_topic is not None
-                    else ""
-                )
-            elif subject_type in {"concept", "media", "event"}:
-                text = self._clean_subject(subject_key)
-            else:
-                text = ""
-            if not text:
-                continue
-            seeds.append(
-                DiscoverySeed(
-                    text=text,
-                    weight=min(0.85, 0.45 + max(0.0, score)),
-                    source="server_learned_interest",
-                    evidence_ref=f"{subject_type}:{subject_key}",
-                )
-            )
-            if len(seeds) >= bounded * 3:
-                break
-
-        # Character Card remains a reusable definition, but its existing tags/traits can provide
-        # a weak cold-start prior without adding new cross-server lived state to the Card.
-        card = self.cards.get_character_card(deployment.character_card_id, owner_id)
-        if card is not None:
-            for value in (*decode_strings(card.tags_json), *decode_strings(card.traits_json))[:8]:
-                text = " ".join(value.split())
-                if text:
-                    seeds.append(
-                        DiscoverySeed(
-                            text=text,
-                            weight=0.25,
-                            source="character_definition_prior",
-                            evidence_ref=f"character:{card.id}",
-                        )
-                    )
-
-        deduped: dict[str, DiscoverySeed] = {}
-        for seed in seeds:
-            seed_key = seed.text.casefold()
-            previous = deduped.get(seed_key)
-            if previous is None or seed.weight > previous.weight:
-                deduped[seed_key] = seed
-        ranked = tuple(
-            sorted(deduped.values(), key=lambda item: item.weight, reverse=True)[:bounded]
-        )
-        queries = tuple(seed.text for seed in ranked[:6])
-        semantic_text = "\n".join(
-            f"Interest ({seed.source}, weight={seed.weight:.2f}): {seed.text}"
-            for seed in ranked
-        )[:4000]
-        return DeploymentDiscoverySeeds(
-            deployment_id=deployment.id,
-            owner_id=deployment.owner_id,
-            character_card_id=deployment.character_card_id,
-            connection_id=deployment.connection_id,
-            guild_id=deployment.workspace_id,
-            queries=queries,
-            semantic_text=semantic_text,
-            seeds=ranked,
-        )
 
 
 class DiscoveryCandidateRanker:
@@ -443,8 +237,6 @@ class DiscoveryCandidateRanker:
             freshness = self._freshness(candidate, current)
             novelty = 0.15 if item_id in exposed_ids else 1.0
             exploration = self._exploration(deployment_id, candidate.canonical_key, current)
-            # Semantic relevance is authoritative for normal ranking; secondary signals can move
-            # near-ties but cannot turn a semantically unrelated item into the main feed.
             score = (
                 semantic * 0.68
                 + sparse * 0.12
@@ -506,15 +298,12 @@ class DiscoveryCandidateRanker:
         if len(selected) < bounded_limit:
             selected_ids = {item.discovery_item_id for item in selected}
             selected.extend(
-                item
-                for item in normal
-                if item.discovery_item_id not in selected_ids
+                item for item in normal if item.discovery_item_id not in selected_ids
             )
         return tuple(selected[:bounded_limit])
 
 
 __all__ = [
-    "DeploymentDiscoverySeedBuilder",
     "DeploymentDiscoverySeeds",
     "DiscoveryCandidateRanker",
     "DiscoverySeed",

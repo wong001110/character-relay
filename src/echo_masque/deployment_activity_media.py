@@ -11,10 +11,8 @@ from echo_masque.deployment_activity import (
     DeploymentBrowsingActivityService,
     DiscoveryPreviewRunner,
 )
-from echo_masque.deployment_discovery_intelligence import (
-    DeploymentDiscoverySeedBuilder,
-    DeploymentDiscoverySeeds,
-)
+from echo_masque.deployment_discovery_intelligence import DeploymentDiscoverySeeds
+from echo_masque.deployment_discovery_seeds_v3 import DeploymentDiscoverySeedBuilderV3
 from echo_masque.discovery_contracts import DiscoveryAttentionLevel
 from echo_masque.discovery_media_inspection import DiscoveryMediaInspection
 from echo_masque.persistence.database import Database
@@ -50,7 +48,7 @@ class MediaAwareDeploymentBrowsingActivityService(DeploymentBrowsingActivityServ
     ) -> None:
         super().__init__(database, settings, preview=preview)
         self.media_inspector = media_inspector
-        self.seed_builder = DeploymentDiscoverySeedBuilder(database)
+        self.seed_builder = DeploymentDiscoverySeedBuilderV3(database)
 
     async def _observe_candidates(
         self,

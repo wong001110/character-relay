@@ -1,12 +1,11 @@
-from __future__ import annotations
-
 from datetime import UTC, datetime, timedelta
 
 from echo_masque.character_recall import CharacterRecallService
-from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
+from echo_masque.persistence.belief_repository import BeliefRepository
+from echo_masque.persistence.conversation_runtime_repository import ConversationRuntimeRepository
 from echo_masque.persistence.database import Database
-from echo_masque.persistence.episodic_sql_rag_repository import EpisodicSqlRagRepository
-from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
+from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
+from echo_masque.persistence.discord_identity_models import DiscordMessageRouteRecord
 
 
 class _AlphaEncoder:
@@ -20,85 +19,101 @@ class _AlphaEncoder:
         return [1.0, 0.0, 0.0]
 
 
+def _episode(
+    runtime: ConversationRuntimeRepository,
+    *,
+    key: str,
+    message_id: str,
+    summary: str,
+    now: datetime,
+):
+    runtime.append_episode_segment(
+        owner_id="owner-1",
+        connection_id="connection-1",
+        guild_id="guild-1",
+        channel_id="general",
+        discord_thread_id="",
+        conversation_thread_id=key,
+        segment_id=f"segment-{key}",
+        source_message_ids=(message_id,),
+        participant_ids=("user-1",),
+        summary=summary,
+        key_events=(summary,),
+        now=now,
+    )
+    return runtime.close_episode(
+        owner_id="owner-1", conversation_thread_id=key, reason="test", now=now
+    )
+
+
 def test_explicit_history_recall_excludes_current_trigger_episode() -> None:
     database = Database("sqlite://")
     database.initialize()
-    episodes = ConversationEpisodeRepository(database)
-    sql_rag = EpisodicSqlRagRepository(database)
+    runtime = ConversationRuntimeRepository(database)
     now = datetime(2026, 8, 18, 3, 0, tzinfo=UTC)
-
-    historical = episodes.upsert_projection(
-        owner_id="owner-1",
-        platform="discord",
-        connection_id="connection-1",
-        guild_id="guild-1",
-        channel_id="general",
-        thread_id="",
-        episode_key="historical",
-        topic_id="topic-alpha",
-        burst_ids=[],
-        source_message_ids=["old-message"],
-        participant_refs=["user-1"],
-        media_refs=[],
+    historical = _episode(
+        runtime,
+        key="historical",
+        message_id="old-message",
         summary="Earlier Project Alpha architecture discussion.",
-        key_points=["Project Alpha architecture"],
-        status="closed",
         now=now,
     )
-    current = episodes.upsert_projection(
-        owner_id="owner-1",
-        platform="discord",
-        connection_id="connection-1",
-        guild_id="guild-1",
-        channel_id="general",
-        thread_id="",
-        episode_key="current",
-        topic_id="topic-alpha",
-        burst_ids=[],
-        source_message_ids=["current-message"],
-        participant_refs=["user-1"],
-        media_refs=[],
+    current = _episode(
+        runtime,
+        key="current",
+        message_id="current-message",
         summary="还记得之前的 Project Alpha architecture 吗？",
-        key_points=["Project Alpha architecture"],
-        status="closed",
         now=now + timedelta(minutes=5),
     )
-    topic = sql_rag.upsert_entity(
-        owner_id="owner-1",
-        connection_id="connection-1",
-        guild_id="guild-1",
-        entity_type="topic",
-        canonical_key="topic:topic-alpha",
-        label="Project Alpha",
-    )
-    for episode in (historical, current):
-        sql_rag.link_episode_entity(
-            owner_id="owner-1",
-            episode_id=episode.id,
-            entity_id=topic.id,
+    assert historical is not None and current is not None
+    with database.session() as session:
+        session.add(
+            CharacterDeploymentRecord(
+                id="deployment-ann",
+                owner_id="owner-1",
+                character_card_id="character-ann",
+                connection_id="connection-1",
+                platform="discord",
+                workspace_id="guild-1",
+                workspace_name="Guild",
+                channel_id="general",
+                channel_name="general",
+                thread_id="",
+                thread_name="",
+                participation_mode="smart",
+                memory_scope="server",
+                version_label="",
+                sticker_count=0,
+                status="active",
+            )
         )
-        sql_rag.grant_character_access(
-            owner_id="owner-1",
-            character_card_id="character-ann",
-            deployment_id="deployment-ann",
-            episode_id=episode.id,
-            now=now,
-        )
-
+        for message_id in ("old-message", "current-message"):
+            session.add(
+                DiscordMessageRouteRecord(
+                    message_id=message_id,
+                    owner_id="owner-1",
+                    connection_id="connection-1",
+                    deployment_id="deployment-ann",
+                    character_card_id="character-ann",
+                    workspace_id="guild-1",
+                    channel_id="general",
+                    thread_id="",
+                    webhook_id="webhook-1",
+                )
+            )
+        session.commit()
     result = CharacterRecallService(
-        MemoryVNextRepository(database),
-        encoder=_AlphaEncoder(),
+        BeliefRepository(database), encoder=_AlphaEncoder()
     ).high_confidence_recall(
         owner_id="owner-1",
         character_card_id="character-ann",
         connection_id="connection-1",
         guild_id="guild-1",
         subject_user_id="user-1",
-        topic_id="topic-alpha",
+        deployment_id="deployment-ann",
         query="还记得之前的 Project Alpha architecture 吗？",
         exclude_source_message_id="current-message",
     )
-
-    episode_refs = {item.ref for item in result.items if item.origin == "episode"}
-    assert historical.id in episode_refs
-    assert current.id not in episode_refs
+    refs = {item.ref for item in result.items if item.origin == "episode"}
+    assert historical.id in refs
+    assert current.id not in refs

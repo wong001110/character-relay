@@ -1,8 +1,7 @@
-"""Bounded Character recall across Core, synthesized, and perceived episodic memory."""
+"""Bounded Character recall from Intelligence Core v3 Beliefs and perceived Episodes."""
 
 from __future__ import annotations
 
-import json
 import math
 import re
 from dataclasses import dataclass
@@ -10,11 +9,12 @@ from typing import Literal
 
 from echo_masque.config import Settings, get_settings
 from echo_masque.expression_retrieval import semantic_tokens
-from echo_masque.persistence.core_memory_models import CharacterCoreMemoryRecord
-from echo_masque.persistence.core_memory_repository import CoreMemoryRepository
-from echo_masque.persistence.episodic_sql_rag_repository import EpisodicSqlRagRepository
-from echo_masque.persistence.memory_vnext_models import ConversationMemoryVNextRecord
-from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
+from echo_masque.persistence.belief_repository import BeliefRepository, BeliefV3View
+from echo_masque.persistence.conversation_runtime_repository import (
+    ConversationEpisodeV3View,
+    ConversationRuntimeRepository,
+)
+from echo_masque.persistence.discord_identity_repository import DiscordIdentityRepository
 from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
 from echo_masque.semantic_participation import (
     FastEmbedSemanticEncoder,
@@ -22,11 +22,10 @@ from echo_masque.semantic_participation import (
     SemanticEncoder,
 )
 
-RecallOrigin = Literal["core", "synthesized", "episode"]
+RecallOrigin = Literal["authored_belief", "learned_belief", "episode"]
 
-_CORE_NAMESPACE = "character-recall-core"
-_SYNTH_NAMESPACE = "character-recall-synthesized"
-_EPISODE_NAMESPACE = "character-recall-episode"
+_BELIEF_NAMESPACE = "character-recall-belief-v3"
+_EPISODE_NAMESPACE = "character-recall-episode-v3"
 _HISTORY_CUE = re.compile(
     r"(?:還記得|还记得|之前|以前|上次|先前|前面(?:說|说|提)|我(?:有)?說過|我(?:有)?说过|"
     r"你(?:有)?說過|你(?:有)?说过|記得.*嗎|记得.*吗|remember|earlier|previously|last\s+time|"
@@ -52,16 +51,6 @@ def _sparse(query: str, content: str) -> float:
     if not left or not right:
         return 0.0
     return len(left & right) / max(1, len(left | right))
-
-
-def _source_message_ids(value: str) -> set[str]:
-    try:
-        decoded = json.loads(value or "[]")
-    except (json.JSONDecodeError, TypeError):
-        return set()
-    if not isinstance(decoded, list):
-        return set()
-    return {str(item) for item in decoded if isinstance(item, str) and item}
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,19 +93,19 @@ class CharacterRecallBundle:
 
 
 class CharacterRecallService:
-    """Cheap recall router; no LLM calls and no unproven server-history access."""
+    """Cheap recall router over current Beliefs and proven Character conversation history."""
 
     def __init__(
         self,
-        memory_repository: MemoryVNextRepository,
+        belief_repository: BeliefRepository,
         *,
         settings: Settings | None = None,
         encoder: SemanticEncoder | None = None,
     ) -> None:
-        self.memory_repository = memory_repository
-        self.database = memory_repository.database
-        self.core_memory = CoreMemoryRepository(self.database)
-        self.episodes = EpisodicSqlRagRepository(self.database)
+        self.beliefs = belief_repository
+        self.database = belief_repository.database
+        self.episodes = ConversationRuntimeRepository(self.database)
+        self.discord_identities = DiscordIdentityRepository(self.database)
         self.vectors = SemanticVectorRepository(self.database)
         self.settings = settings or get_settings()
         self.encoder = encoder
@@ -167,50 +156,95 @@ class CharacterRecallService:
     def explicit_history_cue(query: str) -> bool:
         return bool(_HISTORY_CUE.search(query))
 
-    def _core_score(
-        self,
-        query: str,
-        record: CharacterCoreMemoryRecord,
-        *,
-        encoder: SemanticEncoder | None,
-        query_vector: list[float] | None,
-    ) -> tuple[float, float]:
-        semantic = _sparse(query, record.content)
-        if encoder is not None and query_vector is not None:
-            semantic = _cosine(
-                query_vector,
-                self._vector(
-                    owner_id=record.owner_id,
-                    namespace=_CORE_NAMESPACE,
-                    resource_id=record.id,
-                    text=record.content,
-                    encoder=encoder,
-                ),
-            )
-        return record.priority * 0.62 + max(0.0, semantic) * 0.38, semantic
+    @staticmethod
+    def _belief_text(record: BeliefV3View) -> str:
+        subject = record.subject_ref.strip()
+        predicate = record.predicate.strip()
+        value = record.value_text.strip()
+        if subject and predicate:
+            return f"{subject} {predicate}: {value}".strip()
+        if predicate:
+            return f"{predicate}: {value}".strip()
+        return value
 
-    def _synth_score(
+    def _belief_score(
         self,
-        query: str,
-        record: ConversationMemoryVNextRecord,
         *,
+        owner_id: str,
+        query: str,
+        record: BeliefV3View,
         encoder: SemanticEncoder | None,
         query_vector: list[float] | None,
     ) -> tuple[float, float]:
-        semantic = _sparse(query, record.content)
+        text = self._belief_text(record)
+        semantic = _sparse(query, text)
         if encoder is not None and query_vector is not None:
             semantic = _cosine(
                 query_vector,
                 self._vector(
-                    owner_id=record.owner_id,
-                    namespace=_SYNTH_NAMESPACE,
+                    owner_id=owner_id,
+                    namespace=_BELIEF_NAMESPACE,
                     resource_id=record.id,
-                    text=record.content,
+                    text=text,
                     encoder=encoder,
                 ),
             )
-        score = semantic * 0.72 + record.importance * 0.18 + record.confidence * 0.10
+        if record.authored:
+            score = (
+                record.importance * 0.45
+                + record.authority_score * 0.35
+                + max(0.0, semantic) * 0.20
+            )
+        else:
+            score = (
+                max(0.0, semantic) * 0.62
+                + record.importance * 0.16
+                + record.confidence * 0.14
+                + record.authority_score * 0.08
+            )
         return score, semantic
+
+    def _episode_score(
+        self,
+        *,
+        owner_id: str,
+        query: str,
+        episode: ConversationEpisodeV3View,
+        encoder: SemanticEncoder | None,
+        query_vector: list[float] | None,
+    ) -> float:
+        text = " ".join((episode.summary, *episode.key_events)).strip()
+        semantic = _sparse(query, text)
+        if encoder is not None and query_vector is not None:
+            semantic = _cosine(
+                query_vector,
+                self._vector(
+                    owner_id=owner_id,
+                    namespace=_EPISODE_NAMESPACE,
+                    resource_id=episode.id,
+                    text=text,
+                    encoder=encoder,
+                ),
+            )
+        return max(0.0, semantic)
+
+    def _episode_was_perceived(
+        self,
+        *,
+        connection_id: str,
+        deployment_id: str,
+        episode: ConversationEpisodeV3View,
+    ) -> bool:
+        if not deployment_id:
+            return False
+        for message_id in episode.source_message_ids:
+            route = self.discord_identities.resolve_message_route(
+                connection_id=connection_id,
+                message_id=message_id,
+            )
+            if route is not None and route.deployment_id == deployment_id:
+                return True
+        return False
 
     def high_confidence_recall(
         self,
@@ -220,8 +254,8 @@ class CharacterRecallService:
         connection_id: str,
         guild_id: str,
         subject_user_id: str,
-        topic_id: str,
         query: str,
+        deployment_id: str = "",
         exclude_source_message_id: str = "",
         limit: int = 4,
     ) -> CharacterRecallBundle:
@@ -229,22 +263,11 @@ class CharacterRecallService:
         if not normalized:
             return CharacterRecallBundle()
         history_cue = self.explicit_history_cue(normalized)
-        core = self.core_memory.list_for_character(
+        beliefs = self.beliefs.recall(
             owner_id=owner_id,
-            character_card_id=character_card_id,
             connection_id=connection_id,
             guild_id=guild_id,
-            subject_user_id=subject_user_id,
-            status="active",
-            limit=80,
-        )
-        synthesized = self.memory_repository.active_candidates(
-            owner_id=owner_id,
             character_card_id=character_card_id,
-            connection_id=connection_id,
-            guild_id=guild_id,
-            subject_user_id=subject_user_id,
-            topic_id=topic_id,
             limit=120,
         )
         encoder: SemanticEncoder | None = None
@@ -257,119 +280,87 @@ class CharacterRecallService:
             query_vector = None
 
         candidates: list[CharacterRecallItem] = []
-        for record in core:
-            score, semantic = self._core_score(
-                normalized,
-                record,
-                encoder=encoder,
-                query_vector=query_vector,
-            )
-            if record.priority < 0.90 and semantic < 0.58:
-                continue
-            candidates.append(
-                CharacterRecallItem(
-                    origin="core",
-                    ref=record.id,
-                    content=record.content,
-                    score=round(score, 6),
-                    reason=(
-                        "core_priority" if record.priority >= 0.90 else "core_semantic_match"
-                    ),
-                )
-            )
-
-        for record in synthesized:
-            score, semantic = self._synth_score(
-                normalized,
-                record,
-                encoder=encoder,
-                query_vector=query_vector,
-            )
-            if semantic < 0.68 or record.confidence < 0.75 or record.importance < 0.55:
-                continue
-            candidates.append(
-                CharacterRecallItem(
-                    origin="synthesized",
-                    ref=record.id,
-                    content=record.content,
-                    score=round(score, 6),
-                    reason="high_confidence_semantic_memory",
-                )
-            )
-
-        if history_cue:
-            perceived = self.episodes.accessible_episodes(
+        for record in beliefs:
+            score, semantic = self._belief_score(
                 owner_id=owner_id,
-                character_card_id=character_card_id,
+                query=normalized,
+                record=record,
+                encoder=encoder,
+                query_vector=query_vector,
+            )
+            same_subject = bool(
+                subject_user_id
+                and record.subject_ref
+                and record.subject_ref == subject_user_id
+            )
+            if record.authored:
+                if record.importance < 0.90 and semantic < 0.58 and not same_subject:
+                    continue
+                origin: RecallOrigin = "authored_belief"
+                reason = (
+                    "authored_priority"
+                    if record.importance >= 0.90
+                    else "authored_semantic_match"
+                )
+            else:
+                if semantic < 0.68 or record.confidence < 0.75 or record.importance < 0.55:
+                    continue
+                origin = "learned_belief"
+                reason = "high_confidence_semantic_belief"
+            candidates.append(
+                CharacterRecallItem(
+                    origin=origin,
+                    ref=record.id,
+                    content=self._belief_text(record),
+                    score=round(score, 6),
+                    reason=reason,
+                )
+            )
+
+        if history_cue and deployment_id:
+            episode_scores: list[tuple[float, ConversationEpisodeV3View]] = []
+            for episode in self.episodes.recent_episodes(
+                owner_id=owner_id,
                 connection_id=connection_id,
                 guild_id=guild_id,
                 limit=160,
-            )
-            episode_scores: list[tuple[float, str, str]] = []
-            for record in perceived:
-                if exclude_source_message_id and exclude_source_message_id in _source_message_ids(
-                    record.source_message_ids_json
+            ):
+                if (
+                    exclude_source_message_id
+                    and exclude_source_message_id in episode.source_message_ids
                 ):
                     continue
-                text = f"{record.summary} {record.key_points_json}".strip()
-                semantic = _sparse(normalized, text)
-                if encoder is not None and query_vector is not None:
-                    semantic = _cosine(
-                        query_vector,
-                        self._vector(
-                            owner_id=record.owner_id,
-                            namespace=_EPISODE_NAMESPACE,
-                            resource_id=record.id,
-                            text=text,
-                            encoder=encoder,
-                        ),
-                    )
-                if semantic >= 0.55:
-                    episode_scores.append((semantic, record.id, record.summary))
-            episode_scores.sort(reverse=True)
-            seed_ids = tuple(item[1] for item in episode_scores[:2])
-            expanded_ids = self.episodes.expand_episode_ids(
-                owner_id=owner_id,
-                character_card_id=character_card_id,
-                seed_episode_ids=seed_ids,
-                connection_id=connection_id,
-                guild_id=guild_id,
-                max_entity_degree=48,
-                limit=12,
-            )
-            expanded_records = self.episodes.episodes_by_ids(
-                owner_id=owner_id,
-                character_card_id=character_card_id,
-                connection_id=connection_id,
-                guild_id=guild_id,
-                episode_ids=expanded_ids,
-            )
-            score_by_id = {item[1]: item[0] for item in episode_scores}
-            for record in expanded_records[:4]:
-                if exclude_source_message_id and exclude_source_message_id in _source_message_ids(
-                    record.source_message_ids_json
+                score = self._episode_score(
+                    owner_id=owner_id,
+                    query=normalized,
+                    episode=episode,
+                    encoder=encoder,
+                    query_vector=query_vector,
+                )
+                if score < 0.55:
+                    continue
+                episode_scores.append((score, episode))
+            episode_scores.sort(key=lambda item: item[0], reverse=True)
+            for score, episode in episode_scores[:12]:
+                if not self._episode_was_perceived(
+                    connection_id=connection_id,
+                    deployment_id=deployment_id,
+                    episode=episode,
                 ):
                     continue
-                base = score_by_id.get(record.id, 0.0)
-                if base == 0.0 and record.id not in seed_ids:
-                    base = 0.56
                 candidates.append(
                     CharacterRecallItem(
                         origin="episode",
-                        ref=record.id,
-                        content=record.summary,
-                        score=round(base, 6),
-                        reason=(
-                            "explicit_history_semantic_seed"
-                            if record.id in seed_ids
-                            else "explicit_history_sql_expansion"
-                        ),
+                        ref=episode.id,
+                        content=episode.summary,
+                        score=round(score, 6),
+                        reason="explicit_history_perceived_episode",
                     )
                 )
+                if sum(item.origin == "episode" for item in candidates) >= 4:
+                    break
 
-        # Explicit Core Memory wins duplicate content. Then keep only a tiny bounded set suitable
-        # for automatic prompt injection; deeper recall remains available through Internal Tools.
-        origin_rank = {"core": 0, "synthesized": 1, "episode": 2}
+        origin_rank = {"authored_belief": 0, "learned_belief": 1, "episode": 2}
         candidates.sort(key=lambda item: (origin_rank[item.origin], -item.score))
         seen: set[str] = set()
         unique: list[CharacterRecallItem] = []

@@ -92,13 +92,16 @@ def test_shadow_mode_can_record_would_share_but_never_executed_share(tmp_path: P
     seed_deployment(database, deployment_id="deployment-a", guild_id="guild-a")
     repository = DiscoveryRepository(database)
     item = repository.upsert_item(candidate())
-    assert repository.record_exposure(
-        owner_id="owner-1",
-        deployment_id="deployment-a",
-        discovery_item_id=item.id,
-        attention_level=DiscoveryAttentionLevel.ENGAGE,
-        interest_score=0.95,
-    ) is not None
+    assert (
+        repository.record_exposure(
+            owner_id="owner-1",
+            deployment_id="deployment-a",
+            discovery_item_id=item.id,
+            attention_level=DiscoveryAttentionLevel.ENGAGE,
+            interest_score=0.95,
+        )
+        is not None
+    )
 
     shadow = repository.record_decision(
         owner_id="owner-1",
@@ -109,7 +112,7 @@ def test_shadow_mode_can_record_would_share_but_never_executed_share(tmp_path: P
         motivation="RELATED_TO_PAST_CONVERSATION",
         confidence=0.88,
         scores={"interest": 0.95},
-        evidence={"topic_id": "topic-1"},
+        evidence={"conversation_thread_id": "thread-1"},
     )
     assert shadow is not None
     assert shadow.decision == "would_share"
@@ -151,30 +154,37 @@ def test_decision_requires_lived_exposure_and_cleanup_preserves_exposed_items(
         ttl=timedelta(hours=1),
         now=past,
     )
-    assert repository.record_decision(
-        owner_id="owner-1",
-        deployment_id="deployment-a",
-        discovery_item_id=unexposed.id,
-        mode=DiscoveryMode.SHADOW,
-        decision=DiscoveryDecision.REMEMBER,
-    ) is None
+    assert (
+        repository.record_decision(
+            owner_id="owner-1",
+            deployment_id="deployment-a",
+            discovery_item_id=unexposed.id,
+            mode=DiscoveryMode.SHADOW,
+            decision=DiscoveryDecision.REMEMBER,
+        )
+        is None
+    )
 
-    assert repository.record_exposure(
-        owner_id="owner-1",
-        deployment_id="deployment-a",
-        discovery_item_id=exposed.id,
-        attention_level=DiscoveryAttentionLevel.NOTICE,
-        now=past,
-    ) is not None
-    assert repository.cleanup_expired_unexposed(
-        now=past + timedelta(days=1)
-    ) == 1
+    assert (
+        repository.record_exposure(
+            owner_id="owner-1",
+            deployment_id="deployment-a",
+            discovery_item_id=exposed.id,
+            attention_level=DiscoveryAttentionLevel.NOTICE,
+            now=past,
+        )
+        is not None
+    )
+    assert repository.cleanup_expired_unexposed(now=past + timedelta(days=1)) == 1
 
     # The unexposed shared candidate is gone; the lived/exposed item's objective shell is retained.
-    assert repository.record_exposure(
-        owner_id="owner-1",
-        deployment_id="deployment-a",
-        discovery_item_id=unexposed.id,
-        attention_level=DiscoveryAttentionLevel.NOTICE,
-    ) is None
+    assert (
+        repository.record_exposure(
+            owner_id="owner-1",
+            deployment_id="deployment-a",
+            discovery_item_id=unexposed.id,
+            attention_level=DiscoveryAttentionLevel.NOTICE,
+        )
+        is None
+    )
     assert len(repository.list_exposures(owner_id="owner-1", deployment_id="deployment-a")) == 1

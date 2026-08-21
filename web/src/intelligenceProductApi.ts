@@ -48,38 +48,6 @@ export interface DeploymentSocialIntelligence {
   items: SocialTargetObservation[];
 }
 
-export interface SemanticThreadObservation {
-  id: string;
-  label: string;
-  summary: string;
-  keywords: string[];
-  status: string;
-  last_active_at: string;
-}
-
-export interface ConversationSegmentObservation {
-  id: string;
-  burst_id: string;
-  message_ids: string[];
-  participant_ids: string[];
-  kind: string;
-  summary: string;
-  semantic_thread_id: string;
-  thread_action: string;
-  thread_evidence: boolean;
-  confidence: number;
-  source: string;
-  created_at: string;
-}
-
-export interface ServerConversationStructure {
-  server_profile_id: string;
-  connection_id: string;
-  guild_id: string;
-  threads: SemanticThreadObservation[];
-  segments: ConversationSegmentObservation[];
-}
-
 export interface ParticipationDeploymentObservation {
   deployment_id: string;
   character_card_id: string;
@@ -145,12 +113,6 @@ export const intelligenceProductApi = {
   social(deploymentId: string) {
     return request<DeploymentSocialIntelligence>(
       `/api/deployments/${encodeURIComponent(deploymentId)}/social-intelligence`
-    );
-  },
-
-  conversationStructure(serverProfileId: string) {
-    return request<ServerConversationStructure>(
-      `/api/server-profiles/${encodeURIComponent(serverProfileId)}/conversation-structure`
     );
   },
 

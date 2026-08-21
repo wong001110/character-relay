@@ -6,6 +6,7 @@ from echo_masque.tool_continuation import PendingActionContinuationEvidence
 from echo_masque.turn_intelligence import (
     TurnIntelligenceFieldStatus,
     TurnIntelligenceResult,
+    TurnIntelligenceTask,
     TurnKnowledgeDecision,
     TurnPendingActionDecision,
 )
@@ -33,10 +34,10 @@ def knowledge(
 
 def pending() -> PendingActionContinuationEvidence:
     return PendingActionContinuationEvidence(
+        action_id="action-1",
         tool_id="image.generate",
         current_message="maybe try that again",
-        active_topic_label="image generation",
-        active_topic_summary="The user was trying to generate one image.",
+        conversation_thread_id="thread-1",
         pending_intent_summary="generate the image",
         pending_source_message_id="message-1",
         continuation_strength=0.35,
@@ -47,9 +48,8 @@ def statuses(
     *,
     knowledge_accepted: bool,
     pending_accepted: bool,
-) -> dict[str, TurnIntelligenceFieldStatus]:
+) -> dict[TurnIntelligenceTask, TurnIntelligenceFieldStatus]:
     return {
-        "topic": TurnIntelligenceFieldStatus(False, False, "not_requested"),
         "speaker": TurnIntelligenceFieldStatus(False, False, "not_requested"),
         "knowledge": TurnIntelligenceFieldStatus(
             True,
@@ -61,7 +61,7 @@ def statuses(
             pending_accepted,
             "accepted" if pending_accepted else "wrong_tool_id",
         ),
-    }  # type: ignore[return-value]
+    }
 
 
 class FakeTurnIntelligence:
@@ -85,7 +85,6 @@ def result(
     pending_accepted: bool = True,
 ) -> TurnIntelligenceResult:
     return TurnIntelligenceResult(
-        topic=None,
         speaker=None,
         knowledge=(
             TurnKnowledgeDecision(
@@ -118,9 +117,7 @@ def coordinator(fake: FakeTurnIntelligence) -> CharacterTurnIntelligenceCoordina
 
 
 def test_unambiguous_knowledge_never_calls_turn_intelligence() -> None:
-    fake = FakeTurnIntelligence(
-        result(knowledge_route="off", pending_continue=None)
-    )
+    fake = FakeTurnIntelligence(result(knowledge_route="off", pending_continue=None))
     outcome = coordinator(fake).decide(
         current_burst="clear question",
         current_knowledge=knowledge("on", fallback=True),
@@ -136,9 +133,7 @@ def test_unambiguous_knowledge_never_calls_turn_intelligence() -> None:
 
 
 def test_two_gray_zones_share_exactly_one_turn_intelligence_call() -> None:
-    fake = FakeTurnIntelligence(
-        result(knowledge_route="contextual", pending_continue=True)
-    )
+    fake = FakeTurnIntelligence(result(knowledge_route="contextual", pending_continue=True))
     outcome = coordinator(fake).decide(
         current_burst="maybe try that again",
         current_knowledge=knowledge("gray", fallback=False),
@@ -176,16 +171,12 @@ def test_invalid_pending_field_does_not_discard_valid_knowledge() -> None:
     assert fake.calls == 1
     assert outcome.knowledge_route == "current"
     assert outcome.knowledge_source == "turn_intelligence"
-    assert outcome.pending_action_continue is None
-    assert outcome.pending_action_source == "legacy_fallback_required"
+    assert outcome.pending_action_continue is False
+    assert outcome.pending_action_source == "deterministic_fallback"
 
 
 def test_disallowed_knowledge_route_falls_back_without_poisoning_pending_action() -> None:
-    # Current is deterministically OFF, so a gray contextual decision may only choose OFF or
-    # CONTEXTUAL. A model-returned CURRENT route is rejected locally.
-    fake = FakeTurnIntelligence(
-        result(knowledge_route="current", pending_continue=False)
-    )
+    fake = FakeTurnIntelligence(result(knowledge_route="current", pending_continue=False))
     outcome = coordinator(fake).decide(
         current_burst="maybe continue",
         current_knowledge=knowledge("off", fallback=False),
@@ -194,8 +185,7 @@ def test_disallowed_knowledge_route_falls_back_without_poisoning_pending_action(
     )
 
     assert fake.calls == 1
-    assert outcome.knowledge_route is None
-    assert outcome.knowledge_fallback_required is True
+    assert outcome.knowledge_route == "contextual"
+    assert outcome.knowledge_source == "deterministic_fallback"
     assert outcome.pending_action_continue is False
     assert outcome.pending_action_source == "turn_intelligence"
-    assert outcome.pending_action_fallback_required is False

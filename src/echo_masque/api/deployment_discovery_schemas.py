@@ -164,7 +164,7 @@ class DeploymentDiscoveryShareView(BaseModel):
     status: str
     motivation: str
     confidence: float
-    topic_id: str
+    conversation_thread_id: str
     relationship_subject_key: str
     channel_id: str
     thread_id: str

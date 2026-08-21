@@ -1,4 +1,4 @@
-"""Account deletion and legacy ownership integration for Judge evaluations."""
+"""Account deletion and legacy-local ownership integration for Judge evaluations."""
 
 from typing import cast
 
@@ -19,21 +19,19 @@ from echo_masque.persistence import (
     GeneratedMediaArtifactRepository,
     InteractionRepository,
     KnowledgeRepository,
-    MemoryVNextRepository,
     ScheduledReminderRepository,
     SmartParticipationRepository,
 )
-from echo_masque.persistence.core_memory_repository import CoreMemoryRepository
 from echo_masque.persistence.episodic_sql_rag_repository import EpisodicSqlRagRepository
-from echo_masque.persistence.server_knowledge_repository import (
-    ConsolidationCheckpointRepository,
-    ConversationAuthorityGraphRepository,
-    ServerWikiRepository,
+from echo_masque.persistence.intelligence_v3_lifecycle_repository import (
+    IntelligenceV3LifecycleRepository,
 )
 from echo_masque.persistence.wiki_page_repository import WikiPageRepository
 
 
 class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleService):
+    """Own non-core account cleanup, including the unified Intelligence Core v3 boundary."""
+
     def __init__(
         self,
         database: Database,
@@ -53,14 +51,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         conversation_media_repository: ConversationMediaReferenceRepository | None = None,
         generated_media_repository: GeneratedMediaArtifactRepository | None = None,
         wiki_page_repository: WikiPageRepository | None = None,
-        memory_vnext_repository: MemoryVNextRepository | None = None,
-        server_wiki_repository: ServerWikiRepository | None = None,
-        conversation_authority_graph_repository: (
-            ConversationAuthorityGraphRepository | None
-        ) = None,
-        consolidation_checkpoint_repository: (
-            ConsolidationCheckpointRepository | None
-        ) = None,
+        intelligence_v3_repository: IntelligenceV3LifecycleRepository | None = None,
     ) -> None:
         super().__init__(
             database,
@@ -95,17 +86,11 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         self.generated_media_repository = (
             generated_media_repository or GeneratedMediaArtifactRepository(database)
         )
-        self.memory_vnext_repository = memory_vnext_repository or MemoryVNextRepository(database)
-        self.core_memory_repository = CoreMemoryRepository(database)
+        # Episodic SQL remains a derived retrieval index. It is not an authority store, but its
+        # rows still need account ownership cleanup while the index exists.
         self.episodic_sql_rag_repository = EpisodicSqlRagRepository(database)
-        self.server_wiki_repository = server_wiki_repository or ServerWikiRepository(database)
-        self.conversation_authority_graph_repository = (
-            conversation_authority_graph_repository
-            or ConversationAuthorityGraphRepository(database)
-        )
-        self.consolidation_checkpoint_repository = (
-            consolidation_checkpoint_repository
-            or ConsolidationCheckpointRepository(database)
+        self.intelligence_v3_repository = intelligence_v3_repository or (
+            IntelligenceV3LifecycleRepository(database)
         )
 
     def delete_account(self, user_id: str, *, email: str) -> dict[str, int]:
@@ -121,16 +106,8 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         deployment_tool_count = self.deployment_tool_repository.delete_owner(user_id)
         conversation_media_count = self.conversation_media_repository.delete_owner(user_id)
         generated_media_count = self.generated_media_repository.delete_owner(user_id)
-        core_memory_count = self.core_memory_repository.delete_owner(user_id)
         episodic_sql_counts = self.episodic_sql_rag_repository.delete_owner(user_id)
-        memory_vnext_count = self.memory_vnext_repository.delete_owner(user_id)
-        server_wiki_count = self.server_wiki_repository.delete_owner(user_id)
-        authority_graph_count = self.conversation_authority_graph_repository.delete_owner(
-            user_id
-        )
-        consolidation_checkpoint_count = (
-            self.consolidation_checkpoint_repository.delete_owner(user_id)
-        )
+        intelligence_v3_counts = self.intelligence_v3_repository.delete_owner(user_id)
         deployment_counts = self.deployment_repository.delete_owner(user_id)
         deleted = super().delete_account(user_id, email=email)
         return {
@@ -142,16 +119,12 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             **knowledge_counts,
             **identity_counts,
             **episodic_sql_counts,
+            **intelligence_v3_counts,
             "scheduled_reminders": reminder_count,
             "condition_watches": watch_count,
             "deployment_tool_profiles": deployment_tool_count,
             "conversation_media_references": conversation_media_count,
             "generated_media_artifacts": generated_media_count,
-            "character_core_memories": core_memory_count,
-            "conversation_memory_vnext": memory_vnext_count,
-            "server_wiki_pages": server_wiki_count,
-            "conversation_authority_edges": authority_graph_count,
-            "conversation_consolidation_checkpoints": consolidation_checkpoint_count,
             **deployment_counts,
         }
 
@@ -215,31 +188,13 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "local-user",
             actor_user_id,
         )
-        core_memory_count = self.core_memory_repository.claim_owner(
-            "local-user",
-            actor_user_id,
-        )
         episodic_sql_counts = self.episodic_sql_rag_repository.claim_owner(
             "local-user",
             actor_user_id,
         )
-        memory_vnext_count = self.memory_vnext_repository.claim_owner(
+        intelligence_v3_counts = self.intelligence_v3_repository.claim_owner(
             "local-user",
             actor_user_id,
-        )
-        server_wiki_count = self.server_wiki_repository.claim_owner(
-            "local-user",
-            actor_user_id,
-        )
-        authority_graph_count = self.conversation_authority_graph_repository.claim_owner(
-            "local-user",
-            actor_user_id,
-        )
-        consolidation_checkpoint_count = (
-            self.consolidation_checkpoint_repository.claim_owner(
-                "local-user",
-                actor_user_id,
-            )
         )
         combined = {
             **base_counts,
@@ -250,17 +205,13 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "condition_watches": watch_count,
             "conversation_media_references": conversation_media_count,
             "generated_media_artifacts": generated_media_count,
-            "character_core_memories": core_memory_count,
-            "conversation_memory_vnext": memory_vnext_count,
-            "server_wiki_pages": server_wiki_count,
-            "conversation_authority_edges": authority_graph_count,
-            "conversation_consolidation_checkpoints": consolidation_checkpoint_count,
             **episodic_sql_counts,
             **identity_counts,
             **interaction_counts,
             **expression_counts,
             **smart_counts,
             **knowledge_counts,
+            **intelligence_v3_counts,
         }
         if sum(combined.values()) == 0:
             if base_error is not None:
@@ -298,5 +249,13 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
                 resource_type="workspace",
                 resource_id=actor_user_id,
                 metadata=cast(dict[str, object], knowledge_counts),
+            )
+        if sum(intelligence_v3_counts.values()) > 0:
+            self.auth_repository.audit(
+                actor_user_id=actor_user_id,
+                action="workspace.intelligence_v3_local_claimed",
+                resource_type="workspace",
+                resource_id=actor_user_id,
+                metadata=cast(dict[str, object], intelligence_v3_counts),
             )
         return combined

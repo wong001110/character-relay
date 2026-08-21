@@ -1,8 +1,9 @@
-"""Deterministic, provenance-first Character Learned State.
+"""Deterministic, provenance-first Character Behavior State.
 
-This module does not infer interests, expertise, stance, relationships, ownership, salience, or
-fatigue by itself. Callers must supply bounded evidence from an authoritative/observed source.
-Learned state is derived and may never overwrite Character Card truth.
+This module does not infer interests, expertise, stance, ownership, salience, or fatigue by itself.
+Callers must supply bounded evidence from an authoritative/observed source. Behavior state is
+derived and may never overwrite Character Card truth. Relationship is intentionally not modeled
+here; canonical/lived relationship and Impression belong to Social Intelligence.
 """
 
 from __future__ import annotations
@@ -27,12 +28,11 @@ LearnedStateType = Literal[
     "interest",
     "expertise",
     "stance",
-    "relationship",
     "conversation_ownership",
     "salience",
     "participation_fatigue",
 ]
-LearnedSubjectType = Literal["topic", "concept", "actor", "character", "event", "media"]
+LearnedSubjectType = Literal["thread", "concept", "actor", "character", "event", "media"]
 
 _MAX_PROVENANCE = 8
 _LEARNING_RATE = 0.25
@@ -45,7 +45,6 @@ _HALF_LIFE_SECONDS: dict[LearnedStateType, int] = {
     "interest": 30 * 24 * 60 * 60,
     "expertise": 60 * 24 * 60 * 60,
     "stance": 30 * 24 * 60 * 60,
-    "relationship": 90 * 24 * 60 * 60,
     "conversation_ownership": 30 * 60,
     "salience": 6 * 60 * 60,
     "participation_fatigue": 2 * 60 * 60,
@@ -68,7 +67,8 @@ class LearnedStateEvidence:
     connection_id: str = ""
     guild_id: str = ""
     channel_id: str = ""
-    topic_id: str = ""
+    conversation_thread_id: str = ""
+    source_segment_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,7 +132,7 @@ def _provenance(value: str) -> list[dict[str, Any]]:
 
 
 class CharacterLearnedStateService:
-    """Update/read decaying derived Character state without inventing evidence."""
+    """Update/read decaying Character Behavior State without inventing evidence."""
 
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -166,12 +166,12 @@ class CharacterLearnedStateService:
         source_type = _compact(evidence.source_type, 40)
         if not owner_id or not character_card_id or not subject_key or not source_type:
             raise ValueError(
-                "Learned State evidence requires owner, character, subject, and source."
+                "Behavior State evidence requires owner, character, subject, and source."
             )
         delta = _clamp(evidence.delta, -1.0, 1.0)
         evidence_confidence = _clamp(evidence.confidence, 0.0, 1.0)
         if delta == 0.0 or evidence_confidence == 0.0:
-            raise ValueError("Learned State evidence must carry non-zero bounded signal.")
+            raise ValueError("Behavior State evidence must carry non-zero bounded signal.")
         half_life = self.half_life_seconds(evidence.state_type)
         retention_seconds = _retention_seconds(half_life)
 
@@ -240,6 +240,8 @@ class CharacterLearnedStateService:
                     "source_type": source_type,
                     "source_message_id": _compact(evidence.source_message_id, 200),
                     "source_burst_id": _compact(evidence.source_burst_id, 80),
+                    "conversation_thread_id": _compact(evidence.conversation_thread_id, 64),
+                    "source_segment_id": _compact(evidence.source_segment_id, 64),
                     "reason_code": _compact(evidence.reason_code, 120),
                     "delta": round(delta, 6),
                     "confidence": round(evidence_confidence, 6),
@@ -268,7 +270,8 @@ class CharacterLearnedStateService:
                     connection_id=_compact(evidence.connection_id, 64),
                     guild_id=_compact(evidence.guild_id, 200),
                     channel_id=_compact(evidence.channel_id, 200),
-                    topic_id=_compact(evidence.topic_id, 64),
+                    conversation_thread_id=_compact(evidence.conversation_thread_id, 64),
+                    source_segment_id=_compact(evidence.source_segment_id, 64),
                     delta=round(delta, 6),
                     evidence_confidence=round(evidence_confidence, 6),
                     value_before=round(prior_value, 6),

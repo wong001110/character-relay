@@ -1,4 +1,4 @@
-"""Project authoritative Smart Participation outcomes into derived/durable state."""
+"""Project authoritative v3 Smart Participation outcomes into durable Behavior State."""
 
 from __future__ import annotations
 
@@ -6,18 +6,12 @@ from dataclasses import dataclass
 
 from echo_masque.api.smart_participation_outcome_schemas import SmartParticipationOutcomeObservation
 from echo_masque.character_learned_state import CharacterLearnedStateService, LearnedStateEvidence
-from echo_masque.character_relationships import CharacterRelationshipService
-from echo_masque.persistence import DeploymentRepository, Repository
-from echo_masque.persistence.conversation_graph_repository import (
-    ConversationGraphRepository,
-    ConversationGraphScope,
+from echo_masque.persistence import DeploymentRepository
+from echo_masque.persistence.conversation_structure_repository import (
+    ConversationStructureRepository,
 )
-from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
 from echo_masque.persistence.discord_identity_repository import DiscordIdentityRepository
 from echo_masque.smart_participation_durable_state import SmartParticipationDurableStateService
-
-_PUBLIC_BURST_TTL = 24 * 60 * 60
-_PRIVATE_TOPIC_TTL = 7 * 24 * 60 * 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,17 +24,14 @@ class SmartParticipationOutcomeProjection:
 
 
 class SmartParticipationOutcomeService:
-    """Use admission facts as evidence without treating model prose as truth."""
+    """Record admission as behavior evidence without inventing relationship or Topic truth."""
 
     def __init__(self, deployments: DeploymentRepository) -> None:
         self.deployments = deployments
         self.database = deployments.database
-        self.repository = Repository(self.database)
-        self.graph = ConversationGraphRepository(self.database)
-        self.topics = ConversationTopicRepository(self.database)
         self.identities = DiscordIdentityRepository(self.database)
-        self.learned = CharacterLearnedStateService(self.database)
-        self.relationships = CharacterRelationshipService(self.database)
+        self.structure = ConversationStructureRepository(self.database)
+        self.behavior = CharacterLearnedStateService(self.database)
         self.durable = SmartParticipationDurableStateService(self.database)
 
     @staticmethod
@@ -50,26 +41,23 @@ class SmartParticipationOutcomeService:
             return burst[:80]
         return f"message:{payload.message_id}"[:80] if payload.message_id else ""
 
-    def _character_label(self, *, owner_id: str, character_card_id: str) -> str:
-        card = self.repository.get_character_card(character_card_id, owner_id)
-        return card.display_name if card is not None else character_card_id
-
-    def _social_target(
+    def _thread_for_message(
         self,
         *,
+        owner_id: str,
         payload: SmartParticipationOutcomeObservation,
-        source_deployment_id: str,
-    ) -> tuple[str, str]:
-        if payload.author_is_bot and payload.message_id:
-            route = self.identities.resolve_message_route(
-                connection_id=payload.connection_id,
-                message_id=payload.message_id,
-            )
-            if route is not None and route.deployment_id != source_deployment_id:
-                return "deployment", route.deployment_id
-        if payload.author_id:
-            return "actor", payload.author_id
-        return "actor", ""
+    ) -> str:
+        if not payload.message_id:
+            return ""
+        thread = self.structure.thread_for_message(
+            owner_id=owner_id,
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            discord_thread_id=payload.thread_id,
+            message_id=payload.message_id,
+        )
+        return thread.id if thread is not None else ""
 
     def record(
         self,
@@ -112,59 +100,13 @@ class SmartParticipationOutcomeService:
             window_seconds=600,
         )
         burst_key = self._burst_key(payload)
-        graph_edges = 0
         learned_count = 0
-
-        if burst_key and payload.channel_id:
-            public_scope = ConversationGraphScope(
-                platform="discord",
-                connection_id=payload.connection_id,
-                guild_id=payload.guild_id,
-                channel_id=payload.channel_id,
-                thread_id=payload.thread_id,
-            )
-            burst = self.graph.upsert_node(
-                scope=public_scope,
-                node_type="ConversationBurst",
-                canonical_key=f"burst:{burst_key}",
-                label="Conversation Burst",
-                payload={"burst_id": burst_key, "message_id": payload.message_id},
-                ttl_seconds=_PUBLIC_BURST_TTL,
-            )
-            for record in selected:
-                label = self._character_label(
-                    owner_id=record.owner_id,
-                    character_card_id=record.character_card_id,
-                )
-                character = self.graph.upsert_node(
-                    scope=public_scope,
-                    node_type="Character",
-                    canonical_key=f"deployment:{record.id}",
-                    label=label,
-                    payload={
-                        "deployment_id": record.id,
-                        "character_card_id": record.character_card_id,
-                    },
-                    ttl_seconds=_PUBLIC_BURST_TTL,
-                )
-                self.graph.upsert_edge(
-                    scope=public_scope,
-                    source_node_id=character.id,
-                    relation="RESPONDED_TO",
-                    target_node_id=burst.id,
-                    confidence=1.0,
-                    source_type="runtime_admission",
-                    source_message_id=payload.message_id,
-                    source_burst_id=burst_key,
-                    provenance={"deployment_id": record.id},
-                    ttl_seconds=_PUBLIC_BURST_TTL,
-                )
-                graph_edges += 1
-
         scope_key = ":".join(
             (payload.connection_id, payload.guild_id, payload.channel_id, payload.thread_id)
         )
+
         for record in selected:
+            thread_id = self._thread_for_message(owner_id=record.owner_id, payload=payload)
             evidence_base = dict(
                 owner_id=record.owner_id,
                 character_card_id=record.character_card_id,
@@ -174,8 +116,9 @@ class SmartParticipationOutcomeService:
                 connection_id=payload.connection_id,
                 guild_id=payload.guild_id,
                 channel_id=payload.channel_id,
+                conversation_thread_id=thread_id,
             )
-            self.learned.record_evidence(
+            self.behavior.record_evidence(
                 LearnedStateEvidence(
                     state_type="participation_fatigue",
                     subject_type="concept",
@@ -187,116 +130,42 @@ class SmartParticipationOutcomeService:
                 )
             )
             learned_count += 1
-            if payload.author_id:
-                # Legacy scalar remains temporarily for Discovery/Social Graph compatibility, but
-                # its meaning is now explicitly familiarity rather than liking/trust/comfort.
-                self.learned.record_evidence(
-                    LearnedStateEvidence(
-                        state_type="relationship",
-                        subject_type="actor",
-                        subject_key=f"actor:{payload.author_id}",
-                        delta=0.20,
-                        confidence=0.55,
-                        reason_code="legacy_familiarity_compatibility",
-                        **evidence_base,
-                    )
-                )
-                learned_count += 1
-                target_type, target_key = self._social_target(
-                    payload=payload,
-                    source_deployment_id=record.id,
-                )
-                if target_key:
-                    try:
-                        self.relationships.record_interaction_familiarity(
-                            owner_id=record.owner_id,
-                            source_deployment_id=record.id,
-                            target_type=target_type,  # type: ignore[arg-type]
-                            target_key=target_key,
-                            source_message_id=payload.message_id,
-                            source_burst_id=burst_key,
+
+            # Admission proves only that the Character took ownership of this resolved line for
+            # the current turn. It does not prove liking, trust, comfort, familiarity, expertise,
+            # or durable interest. Those require their own evidence paths.
+            if thread_id:
+                for state_type, delta, confidence, reason in (
+                    (
+                        "conversation_ownership",
+                        0.55,
+                        0.75,
+                        "selected_to_answer_conversation_thread",
+                    ),
+                    ("salience", 0.35, 0.65, "recent_selected_conversation_thread"),
+                ):
+                    self.behavior.record_evidence(
+                        LearnedStateEvidence(
+                            state_type=state_type,  # type: ignore[arg-type]
+                            subject_type="thread",
+                            subject_key=f"thread:{thread_id}",
+                            delta=delta,
+                            confidence=confidence,
+                            reason_code=reason,
+                            **evidence_base,
                         )
-                    except (KeyError, ValueError):
-                        pass
-
-            topic = self.topics.active_for_scope(
-                owner_id=record.owner_id,
-                platform="discord",
-                connection_id=payload.connection_id,
-                guild_id=payload.guild_id,
-                channel_id=payload.channel_id,
-                thread_id=payload.thread_id,
-            )
-            if topic is None:
-                continue
-            topic_key = f"topic:{topic.id}"
-            for state_type, delta, confidence, reason in (
-                ("interest", 0.22, 0.55, "voluntary_topic_participation"),
-                ("salience", 0.45, 0.75, "recent_active_topic"),
-                ("conversation_ownership", 0.55, 0.75, "selected_to_answer_topic"),
-            ):
-                self.learned.record_evidence(
-                    LearnedStateEvidence(
-                        state_type=state_type,  # type: ignore[arg-type]
-                        subject_type="topic",
-                        subject_key=topic_key,
-                        delta=delta,
-                        confidence=confidence,
-                        reason_code=reason,
-                        topic_id=topic.id,
-                        **evidence_base,
                     )
-                )
-                learned_count += 1
+                    learned_count += 1
 
-            private_scope = ConversationGraphScope(
-                scope_owner_id=record.owner_id,
-                platform="discord",
-                connection_id=payload.connection_id,
-                guild_id=payload.guild_id,
-                channel_id=payload.channel_id,
-                thread_id=payload.thread_id,
-            )
-            label = self._character_label(
-                owner_id=record.owner_id,
-                character_card_id=record.character_card_id,
-            )
-            character = self.graph.upsert_node(
-                scope=private_scope,
-                node_type="Character",
-                canonical_key=f"character:{record.character_card_id}",
-                label=label,
-                payload={"character_card_id": record.character_card_id},
-                ttl_seconds=_PRIVATE_TOPIC_TTL,
-            )
-            topic_node = self.graph.upsert_node(
-                scope=private_scope,
-                node_type="Topic",
-                canonical_key=topic_key,
-                label=topic.topic_label,
-                payload={"topic_id": topic.id, "capsule_version": topic.capsule_version},
-                ttl_seconds=_PRIVATE_TOPIC_TTL,
-            )
-            self.graph.upsert_edge(
-                scope=private_scope,
-                source_node_id=character.id,
-                relation="PARTICIPATED_IN",
-                target_node_id=topic_node.id,
-                confidence=0.8,
-                source_type="runtime_admission",
-                source_message_id=payload.message_id,
-                source_burst_id=burst_key,
-                provenance={"deployment_id": record.id, "topic_id": topic.id},
-                ttl_seconds=_PRIVATE_TOPIC_TTL,
-            )
-            graph_edges += 1
-
+        # Legacy graph_edge_count is kept only as a response-shape compatibility metric. v3
+        # Evidence Graph relations are written by actual structure/social/media evidence producers,
+        # not by mere admission.
         return SmartParticipationOutcomeProjection(
-            True,
-            len(selected),
-            graph_edges,
-            learned_count,
-            True,
+            recorded=True,
+            selected_count=len(selected),
+            graph_edge_count=0,
+            learned_evidence_count=learned_count,
+            durable_recorded=True,
         )
 
 
