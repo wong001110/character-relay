@@ -13,7 +13,9 @@ from echo_masque.api.smart_participation_v4_schemas import (
 )
 from echo_masque.context_resolver_v3 import ContextBundleV3
 from echo_masque.conversation_reply_planner import CharacterSegmentReplyPlanner
-from echo_masque.persistence.conversation_structure_repository import ConversationSegmentView
+from echo_masque.persistence.conversation_structure_repository import (
+    ConversationSegmentView,
+)
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 
 GroundingLevel = Literal["context_only", "preview_grounded", "content_grounded"]
@@ -74,7 +76,7 @@ class ParticipationPlanV3:
 
 
 class MediaEpistemicContract:
-    """Prevent planner-only media knowledge from silently becoming Character perception."""
+    """Prevent planner-only media knowledge from becoming Character perception."""
 
     @staticmethod
     def _state(descriptor: SmartParticipationMediaDescriptor) -> str:
@@ -101,7 +103,9 @@ class MediaEpistemicContract:
                 "Use only conversation context; do not imply unseen media perception.",
                 (),
             )
-        content = tuple(item for item in descriptors if self._state(item) in _CONTENT_STATES)
+        content = tuple(
+            item for item in descriptors if self._state(item) in _CONTENT_STATES
+        )
         if content:
             refs = tuple(dict.fromkeys(item.ref for item in content if item.ref))
             return MediaGroundingDecision(
@@ -114,14 +118,21 @@ class MediaEpistemicContract:
                 ),
                 refs,
             )
-        preview = tuple(item for item in descriptors if self._state(item) in _PREVIEW_STATES)
+        preview = tuple(
+            item for item in descriptors if self._state(item) in _PREVIEW_STATES
+        )
         if preview:
             refs = tuple(dict.fromkeys(item.ref for item in preview if item.ref))
             required = payload.media_dependency == "required"
+            reason = (
+                "required_media_preview_insufficient"
+                if required
+                else "media_preview_only"
+            )
             return MediaGroundingDecision(
                 "preview_grounded",
                 not required,
-                "media_preview_only" if not required else "required_media_preview_insufficient",
+                reason,
                 (
                     "Only preview/metadata grounding is available. You may mention metadata that "
                     "was supplied, but do not claim visual/audio content perception."
@@ -133,7 +144,10 @@ class MediaEpistemicContract:
                 "context_only",
                 False,
                 "required_media_not_grounded",
-                "Required media content is not grounded. Prefer silence or a clarification request.",
+                (
+                    "Required media content is not grounded. Prefer silence or a clarification "
+                    "request."
+                ),
                 (),
             )
         return MediaGroundingDecision(
@@ -146,7 +160,7 @@ class MediaEpistemicContract:
 
 
 class ParticipationPlannerV3:
-    """Choose speakers and their primary Segment using evidence already available to runtime."""
+    """Choose speakers and primary Segments using runtime evidence."""
 
     def __init__(
         self,
@@ -158,7 +172,10 @@ class ParticipationPlannerV3:
         self.media_contract = media_contract or MediaEpistemicContract()
 
     @staticmethod
-    def _score(candidate: CandidateViewLike, requested: SmartParticipationResolveCandidate) -> float:
+    def _score(
+        candidate: CandidateViewLike,
+        requested: SmartParticipationResolveCandidate,
+    ) -> float:
         # V4 semantic/deterministic computations are evidence inputs only. The v3 planner owns the
         # final admission decision and does not inherit V4's speaker-plan authority.
         deterministic = float(candidate.deterministic_score)
@@ -185,7 +202,9 @@ class ParticipationPlannerV3:
         if not grounding.can_reply:
             return ParticipationPlanV3(
                 speakers=(),
-                candidates=tuple(item.deployment_id for item in candidate_views if item.eligible),
+                candidates=tuple(
+                    item.deployment_id for item in candidate_views if item.eligible
+                ),
                 grounding=grounding,
                 reason=grounding.reason,
             )
@@ -196,7 +215,12 @@ class ParticipationPlannerV3:
         for deployment_id, view in view_by_id.items():
             requested = requested_by_id.get(deployment_id)
             deployment = deployment_by_id.get(deployment_id)
-            if requested is None or deployment is None or not view.eligible or not requested.eligible:
+            if (
+                requested is None
+                or deployment is None
+                or not view.eligible
+                or not requested.eligible
+            ):
                 continue
             context = (context_by_deployment or {}).get(deployment_id)
             if context is not None and context.sufficiency == "unresolved":
@@ -240,7 +264,9 @@ class ParticipationPlannerV3:
                         "conversation only or acknowledge uncertainty."
                     )
                 elif context.sufficiency == "insufficient_nonblocking":
-                    context_guidance = "Keep the reply lightweight; little durable context is needed."
+                    context_guidance = (
+                        "Keep the reply lightweight; little durable context is needed."
+                    )
             guidance = " ".join(
                 item
                 for item in (target.guidance, grounding.guidance, context_guidance)
