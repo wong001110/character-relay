@@ -7,10 +7,8 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
-from echo_masque.api.smart_participation_v4_schemas import (
-    SmartParticipationResolveRequest,
-)
-from echo_masque.conversation_segmentation import ConversationSegmentationResult
+from echo_masque.api.smart_participation_v3_schemas import SmartParticipationResolveRequest
+from echo_masque.conversation_structure_resolver import ConversationSegmentationResult
 from echo_masque.persistence.conversation_runtime_models import ConversationEpisodeV3Record
 from echo_masque.persistence.conversation_runtime_repository import (
     ConversationEpisodeV3View,
@@ -48,7 +46,7 @@ class ConversationRuntimeCoordinator:
         if not text:
             return ()
         lowered = text.lower()
-        if "?" in text or "\uff1f" in text or any(
+        if "?" in text or "？" in text or any(
             token in lowered
             for token in (
                 "嗎",
