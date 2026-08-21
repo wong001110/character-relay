@@ -20,7 +20,6 @@ from echo_masque.persistence.conversation_structure_repository import (
     ConversationStructureRepository,
     ConversationThreadView,
 )
-from echo_masque.persistence.core_memory_repository import CoreMemoryRepository
 from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
 from echo_masque.semantic_participation import (
     FastEmbedSemanticEncoder,
@@ -90,9 +89,7 @@ class InternalContextService:
 
     def __post_init__(self) -> None:
         self.settings = self.settings or get_settings()
-        database = self.belief_repository.database
-        self.vectors = SemanticVectorRepository(database)
-        self.core_memory = CoreMemoryRepository(database)
+        self.vectors = SemanticVectorRepository(self.belief_repository.database)
 
     def _encoder(self) -> SemanticEncoder:
         if self.encoder is None:
@@ -184,26 +181,16 @@ class InternalContextService:
             character_card_id=context.character_card_id,
             connection_id=context.connection_id,
             guild_id=context.guild_id,
-            limit=120,
-        )
-        core = self.core_memory.list_for_character(
-            owner_id=context.owner_id,
-            character_card_id=context.character_card_id,
-            connection_id=context.connection_id,
-            guild_id=context.guild_id,
-            subject_user_id="",
-            status="active",
-            limit=100,
+            limit=160,
         )
         belief_by_id = {item.id: item for item in beliefs}
-        core_by_id = {item.id: item for item in core}
         candidates = [
             (
                 item.id,
                 f"{item.subject_ref} {item.predicate} {item.value_text} {item.status}",
             )
             for item in beliefs
-        ] + [(item.id, item.content) for item in core]
+        ]
         ranked = self._rank(
             owner_id=context.owner_id,
             namespace=_INTERNAL_BELIEF_NAMESPACE,
@@ -214,57 +201,38 @@ class InternalContextService:
         )
         selected: list[dict[str, object]] = []
         seen_content: set[str] = set()
-        used_core_ids: list[str] = []
         for score, resource_id in ranked:
-            core_record = core_by_id.get(resource_id)
             belief = belief_by_id.get(resource_id)
-            if core_record is not None:
-                content = core_record.content
-                key = _normalized_content(content)
-                if not key or key in seen_content:
-                    continue
-                seen_content.add(key)
-                used_core_ids.append(core_record.id)
-                selected.append(
-                    {
-                        "ref": core_record.id,
-                        "origin": "canonical",
-                        "status": "active",
-                        "memory_type": core_record.memory_type,
-                        "content": content,
-                        "priority": round(core_record.priority, 3),
-                        "score": round(score, 4),
-                    }
-                )
-            elif belief is not None:
-                subject = belief.subject_ref or belief.subject_entity_id
-                content = f"{subject} {belief.predicate}: {belief.value_text}"
-                key = _normalized_content(content)
-                if not key or key in seen_content:
-                    continue
-                seen_content.add(key)
-                selected.append(
-                    {
-                        "ref": belief.id,
-                        "origin": "learned_claim",
-                        "status": belief.status,
-                        "subject_ref": belief.subject_ref,
-                        "subject_entity_id": belief.subject_entity_id,
-                        "predicate": belief.predicate,
-                        "value": belief.value_text,
-                        "authority": belief.authority_class,
-                        "authority_score": round(belief.authority_score, 3),
-                        "confidence": round(belief.confidence, 3),
-                        "score": round(score, 4),
-                    }
-                )
+            if belief is None:
+                continue
+            subject = belief.subject_ref or belief.subject_entity_id
+            content = f"{subject} {belief.predicate}: {belief.value_text}".strip()
+            key = _normalized_content(content)
+            if not key or key in seen_content:
+                continue
+            seen_content.add(key)
+            selected.append(
+                {
+                    "ref": belief.id,
+                    "origin": "authored" if belief.authored else "learned",
+                    "status": belief.status,
+                    "subject_ref": belief.subject_ref,
+                    "subject_entity_id": belief.subject_entity_id,
+                    "predicate": belief.predicate,
+                    "value": belief.value_text,
+                    "authority": belief.authority_class,
+                    "authority_score": round(belief.authority_score, 3),
+                    "confidence": round(belief.confidence, 3),
+                    "importance": round(belief.importance, 3),
+                    "score": round(score, 4),
+                }
+            )
             if len(selected) >= payload.limit:
                 break
-        self.core_memory.mark_used(tuple(used_core_ids))
         return json.dumps(
             {
                 "ok": True,
-                "scope": "character_belief_layers",
+                "scope": "character_beliefs",
                 "count": len(selected),
                 "memories": selected,
                 "rule": "active=known; provisional=tentative; disputed=conflicting evidence",
@@ -344,8 +312,6 @@ class InternalContextService:
                 "ref": item.id,
                 "kind": "episode",
                 "conversation_thread_ref": item.conversation_thread_id,
-                "channel_ref": item.channel_id,
-                "discord_thread_ref": item.discord_thread_id,
                 "summary": item.summary,
                 "key_events": list(item.key_events[:8]),
                 "source_message_refs": list(item.source_message_ids[:12]),
