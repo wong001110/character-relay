@@ -1,8 +1,8 @@
 """Conversation Intelligence v3 resolver around legacy V4 candidate evidence.
 
-V4 remains an input provider for deterministic/semantic candidate evidence during the hard cutover.
-Conversation Structure v3 owns Segment/Thread identity and ParticipationPlannerV3 owns the final
-speaker plan. Topic identity is not consulted by this route.
+V4 is demoted to an input provider for deterministic/semantic candidate evidence. Conversation
+Structure v3 owns Segment/Thread identity, ContextResolverV3 owns context selection, and
+ParticipationPlannerV3 owns the final speaker plan. Topic identity is not consulted by this route.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from echo_masque.context_resolver_v3 import ContextResolverV3, ContextTextHit
 from echo_masque.conversation_reply_planner import CharacterSegmentReplyPlanner
 from echo_masque.conversation_runtime import ConversationRuntimeCoordinator
 from echo_masque.conversation_structure_resolver import ConversationStructureResolver
+from echo_masque.current_turn_belief_v3 import CurrentTurnBeliefRevisionService
 from echo_masque.participation_planner_v3 import ParticipationPlannerV3
 from echo_masque.persistence import DeploymentRepository, Repository
 from echo_masque.persistence.belief_repository import BeliefRepository
@@ -150,6 +151,22 @@ def _records_for_payload(payload: SmartParticipationResolveRequest, request: Req
     return [item for item in records if item.id in requested]
 
 
+def _current_text(payload: SmartParticipationResolveRequest) -> str:
+    if payload.message.strip():
+        return payload.message
+    if payload.burst_messages:
+        return payload.burst_messages[-1].text
+    return ""
+
+
+def _source_message_id(payload: SmartParticipationResolveRequest) -> str:
+    if payload.message_id:
+        return payload.message_id
+    if payload.burst_messages:
+        return payload.burst_messages[-1].message_id
+    return payload.burst_id or "current-turn"
+
+
 def _base_result(base: object, *, source: str) -> SmartParticipationResolveVNextView:
     dumped = base.model_dump()  # type: ignore[attr-defined]
     return SmartParticipationResolveVNextView.model_validate(
@@ -251,7 +268,7 @@ def _wiki_hits(
     owner_id: str,
     payload: SmartParticipationResolveRequest,
 ) -> tuple[ContextTextHit, ...]:
-    query = payload.message or " ".join(item.text for item in payload.burst_messages)
+    query = _current_text(payload)
     if not query.strip():
         return ()
     values = ServerWikiV3Repository(_database(request)).lookup(
@@ -281,16 +298,39 @@ def resolve_smart_participation_vnext(
     """Resolve one turn using v3 conversation/context/participation authority."""
 
     # V4 is intentionally demoted to candidate evidence during cutover. Its speaker plan below is
-    # not used as authority.
+    # never copied into v3 authority.
     base = resolve_smart_participation_v4(payload, request, authorization)
     records = _records_for_payload(payload, request)
     if not records:
         return _base_result(base, source="no_owner")
     owner_id = records[0].owner_id
+
+    belief_repository = BeliefRepository(_database(request))
+    correction_service = CurrentTurnBeliefRevisionService(
+        repository=belief_repository,
+        gateway=_utility_gateway(request),
+    )
+    extraction = correction_service.extract_self_claim(
+        speaker_ref=payload.author_id,
+        text=_current_text(payload),
+    )
+    correction_shields = {}
+    for deployment in records:
+        revision = correction_service.apply_to_character(
+            extraction=extraction,
+            owner_id=owner_id,
+            character_card_id=deployment.character_card_id,
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            speaker_ref=payload.author_id,
+            source_message_id=_source_message_id(payload),
+        )
+        if revision is not None and revision.shield.active:
+            correction_shields[deployment.id] = revision.shield
+
     try:
         result = _service(request).resolve(payload=payload, owner_id=owner_id)
     except Exception:
-        # Structure failure isolates the turn; it never invokes Topic fallback.
         return _base_result(base, source="conversation_structure_failed")
 
     try:
@@ -325,13 +365,14 @@ def resolve_smart_participation_vnext(
             guild_id=payload.guild_id,
             channel_id=payload.channel_id,
             discord_thread_id=payload.thread_id,
-            query=payload.message or " ".join(item.text for item in payload.burst_messages),
+            query=_current_text(payload),
             character_card_id=deployment.character_card_id,
             deployment_id=deployment.id,
             actor_id=payload.author_id,
             segment_id=current_segment_id,
             live_context=_live_context(payload),
             wiki_hits=wiki_hits,
+            correction_shield=correction_shields.get(deployment.id),
         )
 
     plan = _participation_planner(request).plan(
@@ -391,9 +432,7 @@ def resolve_smart_participation_vnext(
             "context_sufficiency": {
                 deployment_id: context.sufficiency for deployment_id, context in contexts.items()
             },
-            # Legacy V4 plans stay visible only as diagnostics during this branch. They are not
-            # mirrored into the authoritative speaker plan.
-            "utility_used": bool(base.utility_used or result.utility_used),
+            "utility_used": bool(base.utility_used or result.utility_used or extraction.utility_used),
         }
     )
 
