@@ -350,7 +350,9 @@ class ConversationMediaReferenceService:
         maximum_chars = _RECALL_TOKEN_BUDGET * 4
         lines = [
             "Remembered media perception from this conversation:",
-            "Runtime truth: this content was actually perceived earlier. Use it only as remembered evidence for the current follow-up; do not invent new media facts.",
+            "Runtime truth: this content was actually perceived earlier. "
+            "Use it only as remembered evidence for the current follow-up; "
+            "do not invent new media facts.",
         ]
         used = sum(len(item) + 1 for item in lines)
         per_memory = max(600, (maximum_chars - used) // max(1, len(memories)))

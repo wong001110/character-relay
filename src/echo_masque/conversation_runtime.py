@@ -46,17 +46,21 @@ class ConversationRuntimeCoordinator:
         if not text:
             return ()
         lowered = text.lower()
-        if "?" in text or "？" in text or any(
-            token in lowered
-            for token in (
-                "嗎",
-                "吗",
-                "是不是",
-                "有沒有",
-                "有没有",
-                "why ",
-                "how ",
-                "what ",
+        if (
+            "?" in text
+            or "\uff1f" in text
+            or any(
+                token in lowered
+                for token in (
+                    "嗎",
+                    "吗",
+                    "是不是",
+                    "有沒有",
+                    "有没有",
+                    "why ",
+                    "how ",
+                    "what ",
+                )
             )
         ):
             return (text,)

@@ -40,7 +40,7 @@ ThreadAction = Literal["attach", "create", "context_only", "unresolved"]
 
 _REACTION = re.compile(
     r"^(?:哈+|哈哈哈*|笑死|确实|確實|真的|真的假的|对|對|嗯+|哦+|lol+|lmao+|"
-    r"true|same|yes|yep|nah|wow|草+|艹+|6+|？？+|\?+|！+|!+)$",
+    r"true|same|yes|yep|nah|wow|草+|艹+|6+|\uff1f\uff1f+|\?+|\uff01+|!+)$",
     re.IGNORECASE,
 )
 _IMMEDIATE_CONTINUITY = timedelta(minutes=2)
@@ -391,15 +391,19 @@ class ConversationStructureResolver:
                 best_thread, best_score = structural_ranked[0]
                 second_score = structural_ranked[1][1] if len(structural_ranked) > 1 else 0.0
                 margin = best_score - second_score
-                if context_only and best_score >= 0.25 and (
-                    len(structural_ranked) == 1 or margin >= 0.10
+                if (
+                    context_only
+                    and best_score >= 0.25
+                    and (len(structural_ranked) == 1 or margin >= 0.10)
                 ):
                     action = "context_only"
                     thread_id = best_thread.id
                     confidence = min(0.94, max(0.72, 0.62 + best_score * 0.25))
                     reason = "immediate_participant_context"
-                elif not context_only and best_score >= 0.35 and (
-                    len(structural_ranked) == 1 or margin >= 0.12
+                elif (
+                    not context_only
+                    and best_score >= 0.35
+                    and (len(structural_ranked) == 1 or margin >= 0.12)
                 ):
                     action = "attach"
                     thread_id = best_thread.id
@@ -575,7 +579,9 @@ class ConversationStructureResolver:
             target = item.reply_to_message_id
             if not target:
                 continue
-            if target in expected and segment_index.get(target) != segment_index.get(item.message_id):
+            if target in expected and segment_index.get(target) != segment_index.get(
+                item.message_id
+            ):
                 return False
             if target in expected:
                 continue
@@ -676,7 +682,9 @@ class ConversationStructureResolver:
             cluster = tuple(
                 message_by_id[item] for item in segment.message_ids if item in message_by_id
             )
-            participants = tuple(dict.fromkeys(item.author_id for item in cluster if item.author_id))
+            participants = tuple(
+                dict.fromkeys(item.author_id for item in cluster if item.author_id)
+            )
             summary = " ".join(segment.summary.split())[:800] or self._summary(cluster)
             thread_id = segment.thread_id
             action: ThreadAction = segment.thread_action

@@ -82,7 +82,9 @@ class MediaEpistemicContract:
                     "context_only",
                     False,
                     "required_media_missing",
-                    "The current turn requires media understanding, but no grounded media content is available. Do not pretend to have seen or inspected it.",
+                    "The current turn requires media understanding, but no grounded "
+                    "media content is available. Do not pretend to have seen or "
+                    "inspected it.",
                     (),
                 )
             return MediaGroundingDecision(
@@ -98,7 +100,9 @@ class MediaEpistemicContract:
                 "content_grounded",
                 True,
                 "media_content_available",
-                "Media content has been explicitly perceived by the media-understanding path. You may discuss only details present in the supplied grounded media context.",
+                "Media content has been explicitly perceived by the media-understanding "
+                "path. You may discuss only details present in the supplied grounded "
+                "media context.",
                 tuple(dict.fromkeys(item.ref for item in content if item.ref)),
             )
         preview = tuple(item for item in descriptors if self._state(item) in _PREVIEW_STATES)
@@ -108,7 +112,9 @@ class MediaEpistemicContract:
                 "preview_grounded",
                 not required,
                 "required_media_preview_insufficient" if required else "media_preview_only",
-                "Only preview/metadata grounding is available. Mention only supplied metadata; do not infer unseen visual/audio content or extrapolate from prior related knowledge.",
+                "Only preview/metadata grounding is available. Mention only supplied "
+                "metadata; do not infer unseen visual/audio content or extrapolate "
+                "from prior related knowledge.",
                 tuple(dict.fromkeys(item.ref for item in preview if item.ref)),
             )
         if payload.media_dependency == "required":
@@ -116,7 +122,8 @@ class MediaEpistemicContract:
                 "context_only",
                 False,
                 "required_media_not_grounded",
-                "Required media content is not grounded. Prefer silence or a clarification request.",
+                "Required media content is not grounded. Prefer silence or a "
+                "clarification request.",
                 (),
             )
         return MediaGroundingDecision(
