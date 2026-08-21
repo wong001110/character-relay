@@ -46,7 +46,10 @@ def _dict(raw: str) -> dict[str, str]:
 
 
 def _dict_json(value: dict[str, str]) -> str:
-    return json.dumps({str(key): str(item) for key, item in value.items()}, ensure_ascii=False)
+    return json.dumps(
+        {str(key): str(item) for key, item in value.items()},
+        ensure_ascii=False,
+    )
 
 
 def normalize_entity_name(value: str) -> str:
@@ -187,7 +190,9 @@ class EntityEvidenceRepository:
             records = list(session.scalars(statement))
         for record in records:
             names = {record.normalized_name}
-            names.update(normalize_entity_name(item) for item in _list(record.aliases_json))
+            names.update(
+                normalize_entity_name(item) for item in _list(record.aliases_json)
+            )
             if needle in names:
                 return self.entity_view(record)
         return None
@@ -238,9 +243,9 @@ class EntityEvidenceRepository:
                 )
                 session.add(record)
             else:
-                combined_aliases = list(_list(record.aliases_json)) + list(aliases)
+                combined_aliases = [*_list(record.aliases_json), *aliases]
                 record.aliases_json = _list_json(combined_aliases, limit=64)
-                combined_sources = list(_list(record.source_refs_json)) + list(source_refs)
+                combined_sources = [*_list(record.source_refs_json), *source_refs]
                 record.source_refs_json = _list_json(combined_sources, limit=64)
                 if metadata:
                     merged = _dict(record.metadata_json)
@@ -275,14 +280,16 @@ class EntityEvidenceRepository:
                 record.canonical_name = " ".join(canonical_name.split())[:320]
                 record.normalized_name = normalize_entity_name(record.canonical_name)
                 record.aliases_json = _list_json(
-                    list(_list(record.aliases_json)) + [previous_name], limit=64
+                    [*_list(record.aliases_json), previous_name],
+                    limit=64,
                 )
             if metadata:
                 merged = _dict(record.metadata_json)
                 merged.update(metadata)
                 record.metadata_json = _dict_json(merged)
             record.source_refs_json = _list_json(
-                list(_list(record.source_refs_json)) + list(source_refs), limit=64
+                [*_list(record.source_refs_json), *source_refs],
+                limit=64,
             )
             record.status = "canonical"
             record.updated_at = current
@@ -304,16 +311,23 @@ class EntityEvidenceRepository:
         with self.database.session() as session:
             source = session.get(EntityV3Record, source_entity_id)
             target = session.get(EntityV3Record, target_entity_id)
-            if source is None or target is None or source.owner_id != owner_id or target.owner_id != owner_id:
+            if (
+                source is None
+                or target is None
+                or source.owner_id != owner_id
+                or target.owner_id != owner_id
+            ):
                 raise KeyError("Entity not found.")
             target.aliases_json = _list_json(
-                list(_list(target.aliases_json))
-                + [source.canonical_name]
-                + list(_list(source.aliases_json)),
+                [
+                    *_list(target.aliases_json),
+                    source.canonical_name,
+                    *_list(source.aliases_json),
+                ],
                 limit=96,
             )
             target.source_refs_json = _list_json(
-                list(_list(target.source_refs_json)) + list(_list(source.source_refs_json)),
+                [*_list(target.source_refs_json), *_list(source.source_refs_json)],
                 limit=96,
             )
             target.updated_at = current
@@ -372,7 +386,8 @@ class EntityEvidenceRepository:
         now: datetime | None = None,
     ) -> EvidenceEdgeV3View:
         current = now or datetime.now(UTC)
-        if status not in {"active", "unresolved", "rejected", "superseded", "expired"}:
+        allowed = {"active", "unresolved", "rejected", "superseded", "expired"}
+        if status not in allowed:
             status = "unresolved"
         with self.database.session() as session:
             if supersedes_edge_id:
@@ -480,7 +495,9 @@ class EntityEvidenceRepository:
         now: datetime | None = None,
     ) -> KnowledgeGapView:
         current = now or datetime.now(UTC)
-        normalized_missing = tuple(dict.fromkeys(item for item in missing_fields if item))
+        normalized_missing = tuple(
+            dict.fromkeys(item for item in missing_fields if item)
+        )
         if not normalized_missing:
             raise ValueError("Knowledge Gap requires at least one missing field.")
         with self.database.session() as session:
@@ -489,14 +506,19 @@ class EntityEvidenceRepository:
                     select(KnowledgeGapRecord).where(
                         KnowledgeGapRecord.owner_id == owner_id,
                         KnowledgeGapRecord.entity_id == entity_id,
-                        KnowledgeGapRecord.resolution_state.in_(("unresolved", "searching")),
+                        KnowledgeGapRecord.resolution_state.in_(
+                            ("unresolved", "searching")
+                        ),
                     )
                 )
             )
             wanted = set(normalized_missing)
             for record in open_records:
                 if wanted == set(_list(record.missing_fields_json)):
-                    record.importance = max(record.importance, max(0.0, min(importance, 1.0)))
+                    record.importance = max(
+                        record.importance,
+                        max(0.0, min(importance, 1.0)),
+                    )
                     record.updated_at = current
                     session.commit()
                     session.refresh(record)
@@ -537,7 +559,9 @@ class EntityEvidenceRepository:
                         KnowledgeGapRecord.owner_id == owner_id,
                         KnowledgeGapRecord.connection_id == connection_id,
                         KnowledgeGapRecord.guild_id == guild_id,
-                        KnowledgeGapRecord.resolution_state.in_(("unresolved", "searching")),
+                        KnowledgeGapRecord.resolution_state.in_(
+                            ("unresolved", "searching")
+                        ),
                         KnowledgeGapRecord.importance >= minimum_importance,
                     )
                     .order_by(
@@ -578,14 +602,24 @@ class EntityEvidenceRepository:
         now: datetime | None = None,
     ) -> KnowledgeGapView:
         current = now or datetime.now(UTC)
-        if state not in {"resolved", "unresolved", "searching", "unresolvable", "dismissed"}:
+        allowed = {
+            "resolved",
+            "unresolved",
+            "searching",
+            "unresolvable",
+            "dismissed",
+        }
+        if state not in allowed:
             state = "resolved"
         with self.database.session() as session:
             record = session.get(KnowledgeGapRecord, gap_id)
             if record is None or record.owner_id != owner_id:
                 raise KeyError("Knowledge Gap not found.")
             record.resolution_state = state
-            record.resolution_evidence_refs_json = _list_json(list(evidence_refs), limit=64)
+            record.resolution_evidence_refs_json = _list_json(
+                list(evidence_refs),
+                limit=64,
+            )
             record.updated_at = current
             session.commit()
             session.refresh(record)
