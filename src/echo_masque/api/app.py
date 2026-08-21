@@ -108,12 +108,6 @@ from echo_masque.persistence.conversation_runtime_repository import Conversation
 from echo_masque.persistence.conversation_structure_repository import (
     ConversationStructureRepository,
 )
-from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
-from echo_masque.persistence.server_knowledge_repository import (
-    ConsolidationCheckpointRepository,
-    ConversationAuthorityGraphRepository,
-    ServerWikiRepository,
-)
 from echo_masque.persistence.server_knowledge_v3_repository import (
     KnowledgeConsolidationCheckpointV3Repository,
     ServerWikiV3Repository,
@@ -144,13 +138,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     storage_status = inspect_storage(resolved)
     database = Database(resolved.database_url)
     database.initialize()
-    memory_vnext_repository = MemoryVNextRepository(database)
-    reset_legacy_memory = memory_vnext_repository.reset_legacy_dirty_data_once()
-    if reset_legacy_memory:
-        logger.info(
-            "Reset %s legacy derived Memory record(s) for Memory vNext.",
-            reset_legacy_memory,
-        )
     migrated_timezones = ServerRuntimeRepository(database).migrate_legacy_utc_defaults()
     if migrated_timezones:
         logger.info(
@@ -207,12 +194,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     conversation_runtime_repository = ConversationRuntimeRepository(database)
     server_wiki_v3_repository = ServerWikiV3Repository(database)
     knowledge_checkpoint_v3_repository = KnowledgeConsolidationCheckpointV3Repository(database)
-
-    # Legacy server knowledge stores remain only for account-lifecycle cleanup during the
-    # destructive migration window. They are not used by the live Character context path.
-    server_wiki_repository = ServerWikiRepository(database)
-    conversation_authority_graph_repository = ConversationAuthorityGraphRepository(database)
-    consolidation_checkpoint_repository = ConsolidationCheckpointRepository(database)
 
     context_orchestrator = ContextOrchestrator(
         knowledge_repository,
@@ -333,7 +314,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         poll_seconds=resolved.condition_watch_poll_seconds,
     )
     character_recall_service = CharacterRecallService(
-        memory_vnext_repository,
+        belief_repository,
         settings=resolved,
     )
     discord_connector_runtime = RecallAwareMediaDiscordConnectorRuntime(
@@ -395,10 +376,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         deployment_tool_repository,
         scheduled_reminder_repository,
         condition_watch_repository,
-        memory_vnext_repository=memory_vnext_repository,
-        server_wiki_repository=server_wiki_repository,
-        conversation_authority_graph_repository=conversation_authority_graph_repository,
-        consolidation_checkpoint_repository=consolidation_checkpoint_repository,
+        conversation_media_repository,
+        generated_media_repository,
     )
     recovered_matrices = matrix_repository.recover_interrupted()
     if recovered_matrices:
@@ -525,18 +504,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.generated_media_repository = generated_media_repository
     app.state.image_creation_service = image_creation_service
     app.state.live_media_service = live_media_service
-    app.state.memory_vnext_repository = memory_vnext_repository
     app.state.belief_repository = belief_repository
     app.state.conversation_structure_repository = conversation_structure_repository
     app.state.conversation_runtime_repository = conversation_runtime_repository
     app.state.server_wiki_v3_repository = server_wiki_v3_repository
     app.state.knowledge_checkpoint_v3_repository = knowledge_checkpoint_v3_repository
     app.state.knowledge_consolidation_v3_service = knowledge_consolidation_v3_service
-    app.state.server_wiki_repository = server_wiki_repository
-    app.state.conversation_authority_graph_repository = (
-        conversation_authority_graph_repository
-    )
-    app.state.consolidation_checkpoint_repository = consolidation_checkpoint_repository
     app.state.internal_context_service = internal_context_service
     app.state.planner_media_service = planner_media_service
     app.state.discord_connector_runtime = discord_connector_runtime
