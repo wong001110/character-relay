@@ -5,21 +5,23 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from typing import Literal, Protocol, cast
+from typing import Protocol
 
 from pydantic import BaseModel, Field
 
 from echo_masque.config import Settings, get_settings
 from echo_masque.expression_retrieval import semantic_tokens
-from echo_masque.persistence.conversation_episode_models import ConversationEpisodeRecord
-from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
-from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
-from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
+from echo_masque.persistence.belief_repository import BeliefRepository, BeliefV3View
+from echo_masque.persistence.conversation_runtime_repository import (
+    ConversationEpisodeV3View,
+    ConversationRuntimeRepository,
+)
+from echo_masque.persistence.conversation_structure_repository import (
+    ConversationStructureRepository,
+    ConversationThreadView,
+)
 from echo_masque.persistence.core_memory_models import CharacterCoreMemoryRecord
 from echo_masque.persistence.core_memory_repository import CoreMemoryRepository
-from echo_masque.persistence.episodic_sql_rag_repository import EpisodicSqlRagRepository
-from echo_masque.persistence.memory_vnext_models import ConversationMemoryVNextRecord
-from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
 from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
 from echo_masque.semantic_participation import (
     FastEmbedSemanticEncoder,
@@ -28,19 +30,16 @@ from echo_masque.semantic_participation import (
 )
 from echo_masque.tool_runtime import ToolExecutionContext
 
-_INTERNAL_MEMORY_NAMESPACE = "internal-memory-vnext"
+_INTERNAL_BELIEF_NAMESPACE = "internal-belief-v3"
 _INTERNAL_CORE_MEMORY_NAMESPACE = "internal-core-memory"
-_INTERNAL_TOPIC_NAMESPACE = "internal-topic-recall"
-_INTERNAL_EPISODE_NAMESPACE = "internal-episode-recall"
+_INTERNAL_THREAD_NAMESPACE = "internal-thread-v3"
+_INTERNAL_EPISODE_NAMESPACE = "internal-episode-v3"
 INTERNAL_CONTEXT_TOOL_IDS = (
     "memory.search",
-    "topic.search",
-    "conversation.search",
+    "thread.search",
+    "episode.search",
     "wiki.lookup",
 )
-
-MemorySearchOrigin = Literal["core", "synthesized"]
-MemorySearchRecord = CharacterCoreMemoryRecord | ConversationMemoryVNextRecord
 
 
 class InternalSearchInput(BaseModel):
@@ -57,7 +56,7 @@ class WikiLookupBackend(Protocol):
         guild_id: str,
         query: str,
         limit: int,
-    ) -> list[dict[str, object]]: ...
+    ) -> tuple[dict[str, object], ...] | list[dict[str, object]]: ...
 
 
 def _cosine(left: list[float], right: list[float]) -> float:
@@ -85,18 +84,18 @@ def _normalized_content(value: str) -> str:
 
 @dataclass
 class InternalContextService:
-    memory_repository: MemoryVNextRepository
-    topic_repository: ConversationTopicRepository
-    episode_repository: ConversationEpisodeRepository
+    belief_repository: BeliefRepository
+    structure_repository: ConversationStructureRepository
+    runtime_repository: ConversationRuntimeRepository
     settings: Settings | None = None
     encoder: SemanticEncoder | None = None
     wiki_lookup_backend: WikiLookupBackend | None = None
 
     def __post_init__(self) -> None:
         self.settings = self.settings or get_settings()
-        self.vectors = SemanticVectorRepository(self.memory_repository.database)
-        self.core_memory = CoreMemoryRepository(self.memory_repository.database)
-        self.episodic_sql_rag = EpisodicSqlRagRepository(self.memory_repository.database)
+        database = self.belief_repository.database
+        self.vectors = SemanticVectorRepository(database)
+        self.core_memory = CoreMemoryRepository(database)
 
     def _encoder(self) -> SemanticEncoder:
         if self.encoder is None:
@@ -145,199 +144,174 @@ class InternalContextService:
         )
         return vector
 
-    def _memory_vector(
+    def _rank(
         self,
-        record: ConversationMemoryVNextRecord,
-        encoder: SemanticEncoder,
-    ) -> list[float]:
-        return self._semantic_vector(
-            owner_id=record.owner_id,
-            namespace=_INTERNAL_MEMORY_NAMESPACE,
-            resource_id=record.id,
-            semantic_text=record.content,
-            encoder=encoder,
-        )
-
-    def _core_memory_vector(
-        self,
-        record: CharacterCoreMemoryRecord,
-        encoder: SemanticEncoder,
-    ) -> list[float]:
-        return self._semantic_vector(
-            owner_id=record.owner_id,
-            namespace=_INTERNAL_CORE_MEMORY_NAMESPACE,
-            resource_id=record.id,
-            semantic_text=record.content,
-            encoder=encoder,
-        )
+        *,
+        owner_id: str,
+        namespace: str,
+        query: str,
+        values: list[tuple[str, str]],
+        semantic_floor: float,
+        sparse_floor: float,
+    ) -> list[tuple[float, str]]:
+        scores: list[tuple[float, str]] = []
+        try:
+            encoder = self._encoder()
+            query_vector = encoder.embed_query(query)
+            for resource_id, text in values:
+                semantic = _cosine(
+                    query_vector,
+                    self._semantic_vector(
+                        owner_id=owner_id,
+                        namespace=namespace,
+                        resource_id=resource_id,
+                        semantic_text=text,
+                        encoder=encoder,
+                    ),
+                )
+                sparse = _sparse(query, text)
+                if semantic >= semantic_floor or sparse >= sparse_floor:
+                    scores.append((semantic * 0.84 + sparse * 0.16, resource_id))
+        except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
+            for resource_id, text in values:
+                sparse = _sparse(query, text)
+                if sparse >= sparse_floor:
+                    scores.append((sparse, resource_id))
+        scores.sort(key=lambda item: item[0], reverse=True)
+        return scores
 
     def memory_search(self, arguments: dict[str, object], context: ToolExecutionContext) -> str:
         payload = InternalSearchInput.model_validate(arguments)
-        synthesized = self.memory_repository.active_candidates(
+        beliefs = self.belief_repository.recall(
             owner_id=context.owner_id,
             character_card_id=context.character_card_id,
             connection_id=context.connection_id,
             guild_id=context.guild_id,
-            subject_user_id=context.initiator_user_id,
-            topic_id=context.topic_id,
+            limit=120,
         )
         core = self.core_memory.list_for_character(
             owner_id=context.owner_id,
             character_card_id=context.character_card_id,
             connection_id=context.connection_id,
             guild_id=context.guild_id,
-            subject_user_id=context.initiator_user_id,
+            subject_user_id="",
             status="active",
             limit=100,
         )
-        ranked: list[tuple[float, MemorySearchOrigin, MemorySearchRecord]] = []
-        try:
-            encoder = self._encoder()
-            query_vector = encoder.embed_query(payload.query)
-            for record in core:
-                semantic = _cosine(query_vector, self._core_memory_vector(record, encoder))
-                score = record.priority * 0.58 + max(0.0, semantic) * 0.42
-                if record.priority >= 0.85 or semantic >= 0.28:
-                    ranked.append((score, "core", record))
-            for record in synthesized:
-                semantic = _cosine(query_vector, self._memory_vector(record, encoder))
-                score = semantic * 0.72 + record.importance * 0.18 + record.confidence * 0.10
-                if semantic >= 0.34:
-                    ranked.append((score, "synthesized", record))
-        except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
-            for record in core:
-                sparse = _sparse(payload.query, record.content)
-                score = record.priority * 0.70 + sparse * 0.30
-                if record.priority >= 0.85 or sparse >= 0.08:
-                    ranked.append((score, "core", record))
-            for record in synthesized:
-                semantic = _sparse(payload.query, record.content)
-                if semantic >= 0.10:
-                    score = (
-                        semantic * 0.72
-                        + record.importance * 0.18
-                        + record.confidence * 0.10
-                    )
-                    ranked.append((score, "synthesized", record))
-        ranked.sort(key=lambda item: item[0], reverse=True)
-
-        selected: list[tuple[float, MemorySearchOrigin, MemorySearchRecord]] = []
+        belief_by_id = {item.id: item for item in beliefs}
+        core_by_id = {item.id: item for item in core}
+        candidates = [
+            (
+                item.id,
+                f"{item.subject_ref} {item.predicate} {item.value_text} {item.status}",
+            )
+            for item in beliefs
+        ] + [(item.id, item.content) for item in core]
+        ranked = self._rank(
+            owner_id=context.owner_id,
+            namespace=_INTERNAL_BELIEF_NAMESPACE,
+            query=payload.query,
+            values=candidates,
+            semantic_floor=0.28,
+            sparse_floor=0.08,
+        )
+        selected: list[dict[str, object]] = []
         seen_content: set[str] = set()
-        # Core Memory wins exact-content dedup even if a synthesized copy has a slightly higher
-        # semantic score. It is explicit user-controlled truth and must remain the durable layer.
-        for origin in ("core", "synthesized"):
-            for item in ranked:
-                score, item_origin, record = item
-                if item_origin != origin:
-                    continue
-                key = _normalized_content(record.content)
+        used_core_ids: list[str] = []
+        for score, resource_id in ranked:
+            core_record = core_by_id.get(resource_id)
+            belief = belief_by_id.get(resource_id)
+            if core_record is not None:
+                content = core_record.content
+                key = _normalized_content(content)
                 if not key or key in seen_content:
                     continue
                 seen_content.add(key)
-                selected.append((score, item_origin, record))
-        selected.sort(key=lambda item: item[0], reverse=True)
-        selected = selected[: payload.limit]
-
-        core_ids = tuple(
-            cast(CharacterCoreMemoryRecord, record).id
-            for _score, origin, record in selected
-            if origin == "core"
-        )
-        synthesized_ids = tuple(
-            cast(ConversationMemoryVNextRecord, record).id
-            for _score, origin, record in selected
-            if origin == "synthesized"
-        )
-        self.core_memory.mark_used(core_ids)
-        self.memory_repository.mark_used(synthesized_ids)
-
-        memories: list[dict[str, object]] = []
-        for score, origin, record in selected:
-            if origin == "core":
-                core_record = cast(CharacterCoreMemoryRecord, record)
-                memories.append(
+                used_core_ids.append(core_record.id)
+                selected.append(
                     {
                         "ref": core_record.id,
-                        "origin": "core",
-                        "scope_type": core_record.scope_type,
+                        "origin": "canonical",
+                        "status": "active",
                         "memory_type": core_record.memory_type,
-                        "content": core_record.content,
+                        "content": content,
                         "priority": round(core_record.priority, 3),
                         "score": round(score, 4),
                     }
                 )
-            else:
-                synthesized_record = cast(ConversationMemoryVNextRecord, record)
-                memories.append(
+            elif belief is not None:
+                content = f"{belief.subject_ref or belief.subject_entity_id} {belief.predicate}: {belief.value_text}"
+                key = _normalized_content(content)
+                if not key or key in seen_content:
+                    continue
+                seen_content.add(key)
+                selected.append(
                     {
-                        "ref": synthesized_record.id,
-                        "origin": "synthesized",
-                        "scope_type": synthesized_record.scope_type,
-                        "memory_type": synthesized_record.memory_type,
-                        "content": synthesized_record.content,
-                        "confidence": round(synthesized_record.confidence, 3),
-                        "importance": round(synthesized_record.importance, 3),
+                        "ref": belief.id,
+                        "origin": "learned_claim",
+                        "status": belief.status,
+                        "subject_ref": belief.subject_ref,
+                        "subject_entity_id": belief.subject_entity_id,
+                        "predicate": belief.predicate,
+                        "value": belief.value_text,
+                        "authority": belief.authority_class,
+                        "authority_score": round(belief.authority_score, 3),
+                        "confidence": round(belief.confidence, 3),
                         "score": round(score, 4),
                     }
                 )
+            if len(selected) >= payload.limit:
+                break
+        self.core_memory.mark_used(tuple(used_core_ids))
         return json.dumps(
             {
                 "ok": True,
-                "scope": "character_memory_layers",
-                "count": len(memories),
-                "memories": memories,
+                "scope": "character_belief_layers",
+                "count": len(selected),
+                "memories": selected,
+                "rule": "active=known; provisional=tentative; disputed=conflicting evidence",
             },
             ensure_ascii=False,
         )
 
-    def topic_search(self, arguments: dict[str, object], context: ToolExecutionContext) -> str:
+    def thread_search(self, arguments: dict[str, object], context: ToolExecutionContext) -> str:
         payload = InternalSearchInput.model_validate(arguments)
-        records = self.topic_repository.recent_for_scope(
+        records = self.structure_repository.recent_threads_for_server(
             owner_id=context.owner_id,
-            platform=context.platform,
             connection_id=context.connection_id,
             guild_id=context.guild_id,
-            channel_id=context.channel_id,
-            thread_id=context.thread_id,
-            limit=20,
+            limit=120,
         )
-        scored: list[tuple[float, ConversationTopicRecord]] = []
-        try:
-            encoder = self._encoder()
-            query_vector = encoder.embed_query(payload.query)
-            for item in records:
-                semantic_text = f"{item.topic_label} {item.summary}".strip()
-                semantic = _cosine(
-                    query_vector,
-                    self._semantic_vector(
-                        owner_id=item.owner_id,
-                        namespace=_INTERNAL_TOPIC_NAMESPACE,
-                        resource_id=item.id,
-                        semantic_text=semantic_text,
-                        encoder=encoder,
-                    ),
+        by_id: dict[str, ConversationThreadView] = {item.id: item for item in records}
+        ranked = self._rank(
+            owner_id=context.owner_id,
+            namespace=_INTERNAL_THREAD_NAMESPACE,
+            query=payload.query,
+            values=[
+                (
+                    item.id,
+                    f"{item.canonical_label} {item.anchor_summary} {item.working_summary}",
                 )
-                sparse = _sparse(payload.query, semantic_text)
-                if semantic >= 0.30 or sparse >= 0.12:
-                    scored.append((semantic * 0.82 + sparse * 0.18, item))
-        except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
-            scored = [
-                (_sparse(payload.query, f"{item.topic_label} {item.summary}"), item)
                 for item in records
-            ]
-        scored.sort(key=lambda item: (item[0], item[1].last_active_at), reverse=True)
-        selected = [(score, item) for score, item in scored if score > 0][: payload.limit]
+            ],
+            semantic_floor=0.28,
+            sparse_floor=0.08,
+        )
+        selected = [(score, by_id[item_id]) for score, item_id in ranked[: payload.limit]]
         return json.dumps(
             {
                 "ok": True,
-                "scope": "current_discord_location",
+                "scope": "current_discord_server_conversation_threads",
                 "count": len(selected),
-                "topics": [
+                "threads": [
                     {
                         "ref": item.id,
-                        "label": item.topic_label,
-                        "summary": item.summary[:800],
+                        "label": item.canonical_label,
+                        "anchor_summary": item.anchor_summary[:900],
+                        "working_summary": item.working_summary[:900],
                         "status": item.status,
+                        "participant_refs": list(item.participant_ids[:12]),
+                        "entity_refs": list(item.active_entity_ids[:12]),
                         "score": round(score, 4),
                         "last_active_at": item.last_active_at.isoformat(),
                     }
@@ -347,116 +321,46 @@ class InternalContextService:
             ensure_ascii=False,
         )
 
-    def _episode_scores(
-        self,
-        *,
-        query: str,
-        records: tuple[ConversationEpisodeRecord, ...],
-    ) -> dict[str, float]:
-        scores: dict[str, float] = {}
-        try:
-            encoder = self._encoder()
-            query_vector = encoder.embed_query(query)
-            for item in records:
-                semantic_text = f"{item.summary} {item.key_points_json}".strip()
-                semantic = _cosine(
-                    query_vector,
-                    self._semantic_vector(
-                        owner_id=item.owner_id,
-                        namespace=_INTERNAL_EPISODE_NAMESPACE,
-                        resource_id=item.id,
-                        semantic_text=semantic_text,
-                        encoder=encoder,
-                    ),
-                )
-                sparse = _sparse(query, semantic_text)
-                if semantic >= 0.24 or sparse >= 0.10:
-                    scores[item.id] = semantic * 0.84 + sparse * 0.16
-        except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
-            for item in records:
-                sparse = _sparse(query, f"{item.summary} {item.key_points_json}")
-                if sparse >= 0.08:
-                    scores[item.id] = sparse
-        return scores
-
-    def conversation_search(
-        self,
-        arguments: dict[str, object],
-        context: ToolExecutionContext,
-    ) -> str:
+    def episode_search(self, arguments: dict[str, object], context: ToolExecutionContext) -> str:
         payload = InternalSearchInput.model_validate(arguments)
-        # Server-wide episodic recall is permitted only through explicit CharacterEpisodeAccess
-        # evidence. Old/unproven server history deliberately fails closed rather than making a
-        # Character omniscient.
-        perceived = self.episodic_sql_rag.accessible_episodes(
+        records = self.runtime_repository.recent_episodes(
             owner_id=context.owner_id,
-            character_card_id=context.character_card_id,
             connection_id=context.connection_id,
             guild_id=context.guild_id,
-            limit=240,
+            limit=200,
         )
-        base_scores = self._episode_scores(query=payload.query, records=perceived)
-        seed_limit = max(6, payload.limit * 2)
-        seed_ids = tuple(
-            episode_id
-            for episode_id, _score in sorted(
-                base_scores.items(), key=lambda item: item[1], reverse=True
-            )[:seed_limit]
-        )
-        expanded_ids = self.episodic_sql_rag.expand_episode_ids(
+        by_id: dict[str, ConversationEpisodeV3View] = {item.id: item for item in records}
+        ranked = self._rank(
             owner_id=context.owner_id,
-            character_card_id=context.character_card_id,
-            seed_episode_ids=seed_ids,
-            connection_id=context.connection_id,
-            guild_id=context.guild_id,
-            max_entity_degree=48,
-            limit=96,
+            namespace=_INTERNAL_EPISODE_NAMESPACE,
+            query=payload.query,
+            values=[
+                (
+                    item.id,
+                    " ".join((item.summary, *item.key_events)),
+                )
+                for item in records
+            ],
+            semantic_floor=0.24,
+            sparse_floor=0.08,
         )
-        expanded_records = self.episodic_sql_rag.episodes_by_ids(
-            owner_id=context.owner_id,
-            character_card_id=context.character_card_id,
-            connection_id=context.connection_id,
-            guild_id=context.guild_id,
-            episode_ids=expanded_ids,
-        )
-        expanded_scores = self._episode_scores(query=payload.query, records=expanded_records)
-        seed_set = set(seed_ids)
-        expanded_set = set(expanded_ids) - seed_set
-        ranked: list[tuple[float, ConversationEpisodeRecord]] = []
-        for item in expanded_records:
-            semantic_score = expanded_scores.get(item.id, base_scores.get(item.id, 0.0))
-            structural_boost = 0.12 if item.id in expanded_set else 0.0
-            current_location_boost = (
-                0.04
-                if item.channel_id == context.channel_id and item.thread_id == context.thread_id
-                else 0.0
-            )
-            score = semantic_score + structural_boost + current_location_boost
-            if score > 0.0:
-                ranked.append((score, item))
-        ranked.sort(key=lambda item: (item[0], item[1].ended_at), reverse=True)
-        selected = ranked[: payload.limit]
+        selected = [(score, by_id[item_id]) for score, item_id in ranked[: payload.limit]]
         return json.dumps(
             {
                 "ok": True,
-                "scope": "current_discord_server_perceived",
-                "retrieval_mode": "e5_seed_sql_event_entity_expand",
-                "seed_count": len(seed_ids),
-                "expanded_count": len(expanded_set),
+                "scope": "current_discord_server_episodes",
                 "count": len(selected),
                 "episodes": [
                     {
                         "ref": item.id,
-                        "topic_ref": item.topic_id,
+                        "conversation_thread_ref": item.conversation_thread_id,
                         "channel_ref": item.channel_id,
-                        "thread_ref": item.thread_id,
+                        "discord_thread_ref": item.discord_thread_id,
                         "summary": item.summary,
-                        "key_points": json.loads(item.key_points_json or "[]")[:8],
-                        "source_message_refs": json.loads(
-                            item.source_message_ids_json or "[]"
-                        )[:12],
+                        "key_events": list(item.key_events[:8]),
+                        "source_message_refs": list(item.source_message_ids[:12]),
+                        "entity_refs": list(item.entity_ids[:12]),
                         "score": round(score, 4),
-                        "expanded_via_entity": item.id in expanded_set,
                         "ended_at": item.ended_at.isoformat(),
                     }
                     for score, item in selected
@@ -477,12 +381,14 @@ class InternalContextService:
                 },
                 ensure_ascii=False,
             )
-        pages = self.wiki_lookup_backend(
-            owner_id=context.owner_id,
-            connection_id=context.connection_id,
-            guild_id=context.guild_id,
-            query=payload.query,
-            limit=payload.limit,
+        pages = list(
+            self.wiki_lookup_backend(
+                owner_id=context.owner_id,
+                connection_id=context.connection_id,
+                guild_id=context.guild_id,
+                query=payload.query,
+                limit=payload.limit,
+            )
         )
         return json.dumps(
             {
@@ -503,10 +409,10 @@ class InternalContextService:
     ) -> str:
         if tool_id == "memory.search":
             return self.memory_search(arguments, context)
-        if tool_id == "topic.search":
-            return self.topic_search(arguments, context)
-        if tool_id == "conversation.search":
-            return self.conversation_search(arguments, context)
+        if tool_id == "thread.search":
+            return self.thread_search(arguments, context)
+        if tool_id == "episode.search":
+            return self.episode_search(arguments, context)
         if tool_id == "wiki.lookup":
             return self.wiki_lookup(arguments, context)
         raise ValueError("Unknown Internal Context Tool.")
