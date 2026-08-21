@@ -35,27 +35,55 @@ class BeliefV3Record(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
-    character_card_id: Mapped[str] = mapped_column(String(64), index=True, default="", nullable=False)
-    connection_id: Mapped[str] = mapped_column(String(64), index=True, default="", nullable=False)
-    guild_id: Mapped[str] = mapped_column(String(200), index=True, default="", nullable=False)
-    subject_entity_id: Mapped[str] = mapped_column(String(64), index=True, default="", nullable=False)
-    subject_ref: Mapped[str] = mapped_column(String(240), index=True, default="", nullable=False)
+    character_card_id: Mapped[str] = mapped_column(
+        String(64), index=True, default="", nullable=False
+    )
+    connection_id: Mapped[str] = mapped_column(
+        String(64), index=True, default="", nullable=False
+    )
+    guild_id: Mapped[str] = mapped_column(
+        String(200), index=True, default="", nullable=False
+    )
+    subject_entity_id: Mapped[str] = mapped_column(
+        String(64), index=True, default="", nullable=False
+    )
+    subject_ref: Mapped[str] = mapped_column(
+        String(240), index=True, default="", nullable=False
+    )
     predicate: Mapped[str] = mapped_column(String(160), index=True, nullable=False)
     value_text: Mapped[str] = mapped_column(Text, nullable=False)
-    scope: Mapped[str] = mapped_column(String(40), default="server", index=True, nullable=False)
-    authority_class: Mapped[str] = mapped_column(String(64), default="conversation", nullable=False)
+    scope: Mapped[str] = mapped_column(
+        String(40), default="server", index=True, nullable=False
+    )
+    authority_class: Mapped[str] = mapped_column(
+        String(64), default="conversation", nullable=False
+    )
     authority_score: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
-    origin: Mapped[str] = mapped_column(String(64), default="conversation", nullable=False)
+    origin: Mapped[str] = mapped_column(
+        String(64), default="conversation", nullable=False
+    )
     confidence: Mapped[float] = mapped_column(Float, default=0.7, nullable=False)
     importance: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
-    status: Mapped[str] = mapped_column(String(24), default="provisional", index=True, nullable=False)
-    supersedes_belief_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24), default="provisional", index=True, nullable=False
+    )
+    supersedes_belief_id: Mapped[str] = mapped_column(
+        String(64), default="", nullable=False
+    )
     evidence_refs_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     authored: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    stale_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_from: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    valid_to: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    stale_after: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -81,8 +109,12 @@ class BeliefEvidenceDependencyRecord(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
     belief_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
-    evidence_edge_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
-    status: Mapped[str] = mapped_column(String(24), default="active", index=True, nullable=False)
+    evidence_edge_id: Mapped[str] = mapped_column(
+        String(64), index=True, nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        String(24), default="active", index=True, nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -103,13 +135,19 @@ class BeliefRevisionEventRecord(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
-    belief_id: Mapped[str] = mapped_column(String(64), index=True, default="", nullable=False)
-    previous_belief_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    belief_id: Mapped[str] = mapped_column(
+        String(64), index=True, default="", nullable=False
+    )
+    previous_belief_id: Mapped[str] = mapped_column(
+        String(64), default="", nullable=False
+    )
     subject_ref: Mapped[str] = mapped_column(String(240), default="", nullable=False)
     predicate: Mapped[str] = mapped_column(String(160), default="", nullable=False)
     action: Mapped[str] = mapped_column(String(32), nullable=False)
     reason: Mapped[str] = mapped_column(String(500), default="", nullable=False)
-    source_message_id: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    source_message_id: Mapped[str] = mapped_column(
+        String(200), default="", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
