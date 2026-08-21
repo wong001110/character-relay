@@ -318,7 +318,10 @@ class TurnIntelligenceService:
                     True,
                     "accepted_no",
                 )
-            elif isinstance(parsed, TurnPendingActionDecision) and parsed.tool_id != pending_tool_id:
+            elif (
+                isinstance(parsed, TurnPendingActionDecision)
+                and parsed.tool_id != pending_tool_id
+            ):
                 status["pending_action"] = TurnIntelligenceFieldStatus(
                     True,
                     False,
