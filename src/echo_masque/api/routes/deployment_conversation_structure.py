@@ -107,7 +107,7 @@ class EntityObservation(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     status: str
     merged_into_entity_id: str
-    metadata: dict[str, object] = Field(default_factory=dict)
+    metadata: dict[str, str] = Field(default_factory=dict)
     source_refs: list[str] = Field(default_factory=list)
 
 
