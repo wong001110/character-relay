@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from echo_masque.persistence.belief_models import (
     BeliefEvidenceDependencyRecord,
@@ -173,9 +173,7 @@ class BeliefRepository:
                 if previous is None or previous.owner_id != owner_id:
                     raise KeyError("Belief to supersede not found.")
                 if previous.authored and not authored:
-                    raise ValueError(
-                        "Conversation-derived Belief cannot supersede authored Belief."
-                    )
+                    raise ValueError("Conversation-derived Belief cannot supersede authored Belief.")
                 if previous.status not in {"rejected", "expired", "superseded"}:
                     previous.status = "superseded"
                     previous.valid_to = current
@@ -229,6 +227,15 @@ class BeliefRepository:
             )
             session.commit()
 
+    @staticmethod
+    def _scope_filters(connection_id: str, guild_id: str) -> tuple[object, object]:
+        """Allow authored/global Beliefs to coexist with server-scoped learned Beliefs."""
+
+        return (
+            or_(BeliefV3Record.connection_id == "", BeliefV3Record.connection_id == connection_id),
+            or_(BeliefV3Record.guild_id == "", BeliefV3Record.guild_id == guild_id),
+        )
+
     def active_for_claim(
         self,
         *,
@@ -240,18 +247,17 @@ class BeliefRepository:
         predicate: str,
         character_card_id: str = "",
     ) -> tuple[BeliefV3View, ...]:
+        connection_scope, guild_scope = self._scope_filters(connection_id, guild_id)
         with self.database.session() as session:
             statement = select(BeliefV3Record).where(
                 BeliefV3Record.owner_id == owner_id,
-                BeliefV3Record.connection_id == connection_id,
-                BeliefV3Record.guild_id == guild_id,
+                connection_scope,
+                guild_scope,
                 BeliefV3Record.predicate == predicate,
                 BeliefV3Record.status.in_(("active", "provisional", "disputed")),
             )
             if subject_entity_id:
-                statement = statement.where(
-                    BeliefV3Record.subject_entity_id == subject_entity_id
-                )
+                statement = statement.where(BeliefV3Record.subject_entity_id == subject_entity_id)
             elif subject_ref:
                 statement = statement.where(BeliefV3Record.subject_ref == subject_ref)
             if character_card_id:
@@ -260,9 +266,7 @@ class BeliefRepository:
                     | (BeliefV3Record.character_card_id == character_card_id)
                 )
             records = list(
-                session.scalars(
-                    statement.order_by(BeliefV3Record.updated_at.desc()).limit(50)
-                )
+                session.scalars(statement.order_by(BeliefV3Record.updated_at.desc()).limit(50))
             )
         return tuple(self.view(record) for record in records)
 
@@ -278,11 +282,12 @@ class BeliefRepository:
         now: datetime | None = None,
     ) -> tuple[BeliefV3View, ...]:
         current = now or datetime.now(UTC)
+        connection_scope, guild_scope = self._scope_filters(connection_id, guild_id)
         with self.database.session() as session:
             statement = select(BeliefV3Record).where(
                 BeliefV3Record.owner_id == owner_id,
-                BeliefV3Record.connection_id == connection_id,
-                BeliefV3Record.guild_id == guild_id,
+                connection_scope,
+                guild_scope,
                 BeliefV3Record.status.in_(("active", "provisional", "disputed")),
             )
             if character_card_id:
@@ -335,10 +340,7 @@ class BeliefRepository:
                 raise KeyError("Belief not found.")
             if record.status in {"rejected", "expired", "superseded"}:
                 raise ValueError("Inactive Belief cannot be reinforced.")
-            record.confidence = max(
-                record.confidence,
-                max(0.0, min(float(confidence), 1.0)),
-            )
+            record.confidence = max(record.confidence, max(0.0, min(float(confidence), 1.0)))
             record.evidence_refs_json = _encode(
                 list(_decode(record.evidence_refs_json)) + list(evidence_refs),
                 limit=96,
@@ -409,8 +411,7 @@ class BeliefRepository:
                 session.scalars(
                     select(BeliefEvidenceDependencyRecord).where(
                         BeliefEvidenceDependencyRecord.owner_id == owner_id,
-                        BeliefEvidenceDependencyRecord.evidence_edge_id
-                        == evidence_edge_id,
+                        BeliefEvidenceDependencyRecord.evidence_edge_id == evidence_edge_id,
                         BeliefEvidenceDependencyRecord.status == "active",
                     )
                 )
@@ -430,11 +431,7 @@ class BeliefRepository:
                 )
                 if int(active_count or 0) > 0 or belief.authored:
                     continue
-                if belief.origin in {
-                    "llm_inference",
-                    "media_inference",
-                    "visual_grounding",
-                }:
+                if belief.origin in {"llm_inference", "media_inference", "visual_grounding"}:
                     belief.status = "rejected"
                     belief.valid_to = current
                     rejected.append(belief.id)
@@ -451,8 +448,4 @@ class BeliefRepository:
         )
 
 
-__all__ = [
-    "BeliefRepository",
-    "BeliefV3View",
-    "CascadeInvalidationResult",
-]
+__all__ = ["BeliefRepository", "BeliefV3View", "CascadeInvalidationResult"]
