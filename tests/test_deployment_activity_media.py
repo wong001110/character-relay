@@ -1,5 +1,4 @@
 import asyncio
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,7 +15,7 @@ from echo_masque.deployment_discovery_intelligence import (
 from echo_masque.deployment_discovery_service import DeploymentDiscoveryPreview
 from echo_masque.discovery_contracts import DiscoveryCandidate, DiscoveryMode
 from echo_masque.discovery_media_inspection import DiscoveryMediaInspection
-from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
+from echo_masque.persistence.conversation_structure_models import ConversationThreadRecord
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_activity_repository import DeploymentActivityRepository
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
@@ -143,20 +142,23 @@ def seed_runtime(database: Database) -> None:
             )
         )
         session.add(
-            ConversationTopicRecord(
-                id="topic-1",
+            ConversationThreadRecord(
+                id="thread-1",
                 owner_id="owner-1",
                 platform="discord",
                 connection_id="connection-1",
                 guild_id="guild-1",
                 channel_id="channel-1",
-                thread_id="",
-                topic_label="Desktop robots",
-                summary="AI desktop companion robots",
-                keywords_json=json.dumps(["robotics", "AI robot"]),
-                status="active",
-                started_at=now,
+                discord_thread_id="",
+                canonical_label="Desktop robots",
+                anchor_summary="AI desktop companion robots",
+                working_summary="Looking at AI desktop companion robots",
+                representative_segment_ids_json="[]",
+                participant_ids_json="[]",
+                active_entity_ids_json="[]",
+                status="hot",
                 last_active_at=now,
+                created_at=now,
                 updated_at=now,
             )
         )
