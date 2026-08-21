@@ -15,9 +15,20 @@ from echo_masque.persistence.server_knowledge_v3_models import (
     ServerWikiPageV3Record,
 )
 
+_ALLOWED_PAGE_TYPES = {
+    "entity",
+    "concept",
+    "event",
+    "project",
+    "organization",
+    "place",
+}
+
 
 def _encode(values: tuple[str, ...] | list[str], *, limit: int) -> str:
-    clean = list(dict.fromkeys(str(item).strip() for item in values if str(item).strip()))[-limit:]
+    clean = list(
+        dict.fromkeys(str(item).strip() for item in values if str(item).strip())
+    )[-limit:]
     return json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -66,7 +77,7 @@ class ServerWikiV3Repository:
     ) -> ServerWikiPageV3Record:
         current = now or datetime.now(UTC)
         normalized_type = page_type.strip().casefold()
-        if normalized_type not in {"entity", "concept", "event", "project", "organization", "place"}:
+        if normalized_type not in _ALLOWED_PAGE_TYPES:
             raise ValueError("Unsupported Wiki v3 page type.")
         compact_ref = " ".join(subject_ref.split())[:320]
         if not compact_ref:
@@ -110,7 +121,10 @@ class ServerWikiV3Repository:
             record.source_episode_ids_json = _encode(source_episode_ids, limit=120)
             record.source_entity_ids_json = _encode(source_entity_ids, limit=80)
             record.source_belief_ids_json = _encode(source_belief_ids, limit=120)
-            record.source_evidence_edge_ids_json = _encode(source_evidence_edge_ids, limit=160)
+            record.source_evidence_edge_ids_json = _encode(
+                source_evidence_edge_ids,
+                limit=160,
+            )
             session.commit()
             session.refresh(record)
             return record
@@ -126,7 +140,8 @@ class ServerWikiV3Repository:
         now: datetime | None = None,
     ) -> int:
         current = now or datetime.now(UTC)
-        page_key = f"{page_type.strip().casefold()}:{' '.join(subject_ref.split())[:320]}"[:220]
+        compact_ref = " ".join(subject_ref.split())[:320]
+        page_key = f"{page_type.strip().casefold()}:{compact_ref}"[:220]
         with self.database.session() as session:
             record = session.scalar(
                 select(ServerWikiPageV3Record).where(
@@ -194,7 +209,9 @@ class ServerWikiV3Repository:
                 "source_episode_ids": _decode(item.source_episode_ids_json),
                 "source_entity_ids": _decode(item.source_entity_ids_json),
                 "source_belief_ids": _decode(item.source_belief_ids_json),
-                "source_evidence_edge_ids": _decode(item.source_evidence_edge_ids_json),
+                "source_evidence_edge_ids": _decode(
+                    item.source_evidence_edge_ids_json
+                ),
                 "updated_at": item.updated_at.isoformat(),
             }
             for item in selected
@@ -203,7 +220,9 @@ class ServerWikiV3Repository:
     def delete_owner(self, owner_id: str) -> int:
         with self.database.session() as session:
             result = session.execute(
-                delete(ServerWikiPageV3Record).where(ServerWikiPageV3Record.owner_id == owner_id)
+                delete(ServerWikiPageV3Record).where(
+                    ServerWikiPageV3Record.owner_id == owner_id
+                )
             )
             session.commit()
             return int(getattr(result, "rowcount", 0) or 0)
@@ -237,9 +256,11 @@ class KnowledgeConsolidationCheckpointV3Repository:
             record = session.scalar(
                 select(KnowledgeConsolidationCheckpointV3Record).where(
                     KnowledgeConsolidationCheckpointV3Record.owner_id == owner_id,
-                    KnowledgeConsolidationCheckpointV3Record.connection_id == connection_id,
+                    KnowledgeConsolidationCheckpointV3Record.connection_id
+                    == connection_id,
                     KnowledgeConsolidationCheckpointV3Record.guild_id == guild_id,
-                    KnowledgeConsolidationCheckpointV3Record.source_ref_type == source_ref_type,
+                    KnowledgeConsolidationCheckpointV3Record.source_ref_type
+                    == source_ref_type,
                     KnowledgeConsolidationCheckpointV3Record.source_ref == source_ref,
                 )
             )
@@ -268,4 +289,7 @@ class KnowledgeConsolidationCheckpointV3Repository:
             return record
 
 
-__all__ = ["KnowledgeConsolidationCheckpointV3Repository", "ServerWikiV3Repository"]
+__all__ = [
+    "KnowledgeConsolidationCheckpointV3Repository",
+    "ServerWikiV3Repository",
+]
