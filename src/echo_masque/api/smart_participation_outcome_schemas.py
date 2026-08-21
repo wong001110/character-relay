@@ -87,5 +87,4 @@ __all__ = [
     "SmartParticipationOutcomeObservation",
     "SmartParticipationOutcomeView",
     "SmartParticipationRecentSpeakerRequest",
-    "SmartParticipationRecentSpeakerView",
 ]
