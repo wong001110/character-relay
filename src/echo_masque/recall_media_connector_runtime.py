@@ -183,9 +183,8 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
             guidance,
         )
 
-    @staticmethod
     def _social_target(
-        self: RecallAwareMediaDiscordConnectorRuntime,
+        self,
         *,
         resolved: ResolvedCharacterTurn,
     ) -> tuple[str, str]:
