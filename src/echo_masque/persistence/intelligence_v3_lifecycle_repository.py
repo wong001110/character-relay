@@ -6,7 +6,6 @@ from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import delete, update
-from sqlalchemy.orm import DeclarativeBase
 
 from echo_masque.persistence.belief_models import (
     BeliefEvidenceDependencyRecord,
@@ -45,7 +44,7 @@ from echo_masque.persistence.social_intelligence_models import (
     SocialEventV3Record,
 )
 
-_OWNER_MODELS: Sequence[type[DeclarativeBase]] = (
+_OWNER_MODELS: Sequence[type[Any]] = (
     BeliefEvidenceDependencyRecord,
     BeliefRevisionEventRecord,
     BeliefV3Record,
@@ -69,7 +68,7 @@ _OWNER_MODELS: Sequence[type[DeclarativeBase]] = (
     CharacterRelationshipPriorRecord,
 )
 
-_TABLE_KEYS: dict[type[DeclarativeBase], str] = {
+_TABLE_KEYS: dict[type[Any], str] = {
     BeliefEvidenceDependencyRecord: "belief_evidence_dependencies_v3",
     BeliefRevisionEventRecord: "belief_revision_events_v3",
     BeliefV3Record: "beliefs_v3",
@@ -109,7 +108,7 @@ class IntelligenceV3LifecycleRepository:
         counts: dict[str, int] = {}
         with self.database.session() as session:
             for model in _OWNER_MODELS:
-                owner_column = getattr(model, "owner_id")
+                owner_column = model.owner_id
                 result = session.execute(delete(model).where(owner_column == owner_id))
                 counts[_TABLE_KEYS[model]] = self._rowcount(result)
             session.commit()
@@ -121,7 +120,7 @@ class IntelligenceV3LifecycleRepository:
         counts: dict[str, int] = {}
         with self.database.session() as session:
             for model in _OWNER_MODELS:
-                owner_column = getattr(model, "owner_id")
+                owner_column = model.owner_id
                 result = session.execute(
                     update(model).where(owner_column == from_owner_id).values(owner_id=to_owner_id)
                 )
