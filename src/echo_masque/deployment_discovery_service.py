@@ -10,11 +10,11 @@ from echo_masque.bilibili_discovery import (
 )
 from echo_masque.config import Settings
 from echo_masque.deployment_discovery_intelligence import (
-    DeploymentDiscoverySeedBuilder,
     DeploymentDiscoverySeeds,
     DiscoveryCandidateRanker,
     RankedDiscoveryCandidate,
 )
+from echo_masque.deployment_discovery_seeds_v3 import DeploymentDiscoverySeedBuilderV3
 from echo_masque.discovery_contracts import (
     DiscoveryCandidate,
     DiscoveryFetchRequest,
@@ -23,6 +23,7 @@ from echo_masque.discovery_contracts import (
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_presence_repository import DeploymentPresenceRepository
 from echo_masque.persistence.discovery_repository import DiscoveryRepository
+from echo_masque.persistence.entity_evidence_repository import KnowledgeGapView
 from echo_masque.youtube_discovery import YouTubeDiscoveryAdapter, YouTubeDiscoveryUnavailable
 from echo_masque.youtube_no_key_discovery import YouTubeNoKeyDiscoveryAdapter
 
@@ -48,7 +49,7 @@ class DeploymentDiscoveryPreviewService:
         self.settings = settings
         self.profiles = DiscoveryRepository(database)
         self.presence = DeploymentPresenceRepository(database)
-        self.seed_builder = DeploymentDiscoverySeedBuilder(database)
+        self.seed_builder = DeploymentDiscoverySeedBuilderV3(database)
         self.ranker = DiscoveryCandidateRanker(database, settings)
 
     async def run(
@@ -60,6 +61,7 @@ class DeploymentDiscoveryPreviewService:
         language: str = "",
         limit: int = 10,
         sources: tuple[str, ...] = (),
+        seed_override: DeploymentDiscoverySeeds | None = None,
     ) -> DeploymentDiscoveryPreview:
         profile = self.profiles.get_profile(owner_id=owner_id, deployment_id=deployment_id)
         if profile is None:
@@ -88,9 +90,14 @@ class DeploymentDiscoveryPreviewService:
             raise DeploymentDiscoveryUnavailable(
                 "Discovery source is not enabled for this Deployment: " + ", ".join(unsupported)
             )
-        seeds = self.seed_builder.build(owner_id=owner_id, deployment_id=deployment_id)
+        seeds = seed_override or self.seed_builder.build(
+            owner_id=owner_id,
+            deployment_id=deployment_id,
+        )
         if seeds is None:
             raise DeploymentDiscoveryUnavailable("Deployment not found.")
+        if seeds.deployment_id != deployment_id or seeds.owner_id != owner_id:
+            raise DeploymentDiscoveryUnavailable("Discovery seed scope mismatch.")
         bounded_limit = max(1, min(limit, 30))
         fetch_limit = min(50, max(15, bounded_limit * 3))
         candidates: list[DiscoveryCandidate] = []
@@ -184,6 +191,36 @@ class DeploymentDiscoveryPreviewService:
             ranked=ranked,
             sources=tuple(used_sources),
             source_errors=tuple(errors),
+        )
+
+    async def run_knowledge_gap(
+        self,
+        *,
+        owner_id: str,
+        deployment_id: str,
+        gap: KnowledgeGapView,
+        region: str = "",
+        language: str = "",
+        limit: int = 8,
+        sources: tuple[str, ...] = (),
+    ) -> DeploymentDiscoveryPreview:
+        """Reuse the existing Discovery engine for a high-value Conversation Knowledge Gap."""
+
+        seeds = self.seed_builder.for_knowledge_gap(
+            owner_id=owner_id,
+            deployment_id=deployment_id,
+            gap=gap,
+        )
+        if seeds is None:
+            raise DeploymentDiscoveryUnavailable("Knowledge Gap entity is unavailable.")
+        return await self.run(
+            owner_id=owner_id,
+            deployment_id=deployment_id,
+            region=region,
+            language=language,
+            limit=limit,
+            sources=sources,
+            seed_override=seeds,
         )
 
 
