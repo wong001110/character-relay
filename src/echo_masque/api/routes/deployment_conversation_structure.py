@@ -1,4 +1,4 @@
-"""Owner-facing observability for Intelligence Core v3 Conversation Structure and knowledge state."""
+"""Owner-facing observability for Intelligence Core v3 conversation and knowledge state."""
 
 import json
 
@@ -7,12 +7,22 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from echo_masque.api.dependencies import CurrentUserDependency
-from echo_masque.persistence.belief_models import BeliefEvidenceDependencyRecord, BeliefV3Record
-from echo_masque.persistence.conversation_runtime_repository import ConversationRuntimeRepository
-from echo_masque.persistence.conversation_structure_repository import ConversationStructureRepository
+from echo_masque.persistence.belief_models import (
+    BeliefEvidenceDependencyRecord,
+    BeliefV3Record,
+)
+from echo_masque.persistence.conversation_runtime_repository import (
+    ConversationRuntimeRepository,
+)
+from echo_masque.persistence.conversation_structure_repository import (
+    ConversationStructureRepository,
+)
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository
-from echo_masque.persistence.social_intelligence_models import ImpressionV3Record, SocialEventV3Record
+from echo_masque.persistence.social_intelligence_models import (
+    ImpressionV3Record,
+    SocialEventV3Record,
+)
 
 router = APIRouter(tags=["deployments"])
 
@@ -22,7 +32,9 @@ def _decode(raw: str) -> list[str]:
         value = json.loads(raw or "[]")
     except (json.JSONDecodeError, TypeError):
         return []
-    return [str(item) for item in value if isinstance(item, str)] if isinstance(value, list) else []
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if isinstance(item, str)]
 
 
 class ConversationThreadObservation(BaseModel):
@@ -95,7 +107,7 @@ class EntityObservation(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     status: str
     merged_into_entity_id: str
-    metadata: dict[str, str] = Field(default_factory=dict)
+    metadata: dict[str, object] = Field(default_factory=dict)
     source_refs: list[str] = Field(default_factory=list)
 
 
@@ -240,14 +252,17 @@ def deployment_conversation_structure(
             )
         )
         belief_ids = [item.id for item in belief_records]
-        dependencies = list(
-            session.scalars(
-                select(BeliefEvidenceDependencyRecord).where(
-                    BeliefEvidenceDependencyRecord.owner_id == user.id,
-                    BeliefEvidenceDependencyRecord.belief_id.in_(belief_ids),
+        if belief_ids:
+            dependencies = list(
+                session.scalars(
+                    select(BeliefEvidenceDependencyRecord).where(
+                        BeliefEvidenceDependencyRecord.owner_id == user.id,
+                        BeliefEvidenceDependencyRecord.belief_id.in_(belief_ids),
+                    )
                 )
             )
-        ) if belief_ids else []
+        else:
+            dependencies = []
         dependency_map: dict[str, list[str]] = {}
         for item in dependencies:
             dependency_map.setdefault(item.belief_id, []).append(item.evidence_edge_id)
