@@ -218,11 +218,11 @@ class ConversationRelationService:
 
 
 __all__ = [
-    "ConversationRelationService",
     "INTERACTION_RELATIONS",
+    "SEMANTIC_RELATIONS",
+    "ConversationRelationService",
     "InteractionRelationType",
     "RelationStatus",
     "RelationTargetType",
-    "SEMANTIC_RELATIONS",
     "SemanticRelationType",
 ]
