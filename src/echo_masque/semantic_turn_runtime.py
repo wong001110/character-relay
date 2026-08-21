@@ -13,7 +13,7 @@ from typing import ClassVar
 class SemanticTurnSignals:
     deployment_id: str
     message_id: str
-    topic_id: str = ""
+    conversation_thread_id: str = ""
     continuation_tool_ids: tuple[str, ...] = ()
     detected_side_effect_intents: tuple[str, ...] = ()
     blocked_side_effect_intents: tuple[str, ...] = ()
