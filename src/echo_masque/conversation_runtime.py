@@ -7,7 +7,9 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
-from echo_masque.api.smart_participation_v4_schemas import SmartParticipationResolveRequest
+from echo_masque.api.smart_participation_v4_schemas import (
+    SmartParticipationResolveRequest,
+)
 from echo_masque.conversation_segmentation import ConversationSegmentationResult
 from echo_masque.persistence.conversation_runtime_models import ConversationEpisodeV3Record
 from echo_masque.persistence.conversation_runtime_repository import (
@@ -15,7 +17,9 @@ from echo_masque.persistence.conversation_runtime_repository import (
     ConversationRuntimeRepository,
     ThreadWorkingStateView,
 )
-from echo_masque.persistence.conversation_structure_repository import ConversationStructureRepository
+from echo_masque.persistence.conversation_structure_repository import (
+    ConversationStructureRepository,
+)
 
 _DEFAULT_WORKING_TTL = timedelta(hours=6)
 _DEFAULT_EPISODE_INACTIVITY = timedelta(minutes=30)
@@ -28,7 +32,7 @@ class ConversationRuntimeObservation:
 
 
 class ConversationRuntimeCoordinator:
-    """Project revisable conversation structure into runtime scratch state and durable Episodes."""
+    """Project revisable structure into runtime scratch state and durable Episodes."""
 
     def __init__(
         self,
@@ -44,9 +48,18 @@ class ConversationRuntimeCoordinator:
         if not text:
             return ()
         lowered = text.lower()
-        if "?" in text or "？" in text or any(
+        if "?" in text or "\uff1f" in text or any(
             token in lowered
-            for token in ("嗎", "吗", "是不是", "有沒有", "有没有", "why ", "how ", "what ")
+            for token in (
+                "嗎",
+                "吗",
+                "是不是",
+                "有沒有",
+                "有没有",
+                "why ",
+                "how ",
+                "what ",
+            )
         ):
             return (text,)
         return ()
@@ -157,7 +170,11 @@ class ConversationRuntimeCoordinator:
             reason=reason,
             now=current,
         )
-        self.runtime.archive_working_state(owner_id=owner_id, thread_id=thread_id, now=current)
+        self.runtime.archive_working_state(
+            owner_id=owner_id,
+            thread_id=thread_id,
+            now=current,
+        )
         return episode
 
     def checkpoint_inactive(
