@@ -44,21 +44,29 @@ class ConversationEpisodeV3Record(Base):
     connection_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     guild_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
     channel_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
-    discord_thread_id: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    discord_thread_id: Mapped[str] = mapped_column(
+        String(200), default="", nullable=False
+    )
     conversation_thread_id: Mapped[str] = mapped_column(
         String(64), default="", index=True, nullable=False
     )
     episode_key: Mapped[str] = mapped_column(String(160), nullable=False)
     segment_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
-    source_message_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    source_message_ids_json: Mapped[str] = mapped_column(
+        Text, default="[]", nullable=False
+    )
     participant_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     entity_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     media_refs_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
     key_events_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     segment_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    status: Mapped[str] = mapped_column(String(24), default="active", index=True, nullable=False)
-    checkpoint_reason: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24), default="active", index=True, nullable=False
+    )
+    checkpoint_reason: Mapped[str] = mapped_column(
+        String(40), default="", nullable=False
+    )
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     ended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -86,15 +94,25 @@ class ThreadWorkingStateRecord(Base):
     connection_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     guild_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
     channel_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
-    discord_thread_id: Mapped[str] = mapped_column(String(200), default="", nullable=False)
-    current_object_ref: Mapped[str] = mapped_column(String(320), default="", nullable=False)
-    active_entity_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    discord_thread_id: Mapped[str] = mapped_column(
+        String(200), default="", nullable=False
+    )
+    current_object_ref: Mapped[str] = mapped_column(
+        String(320), default="", nullable=False
+    )
+    active_entity_ids_json: Mapped[str] = mapped_column(
+        Text, default="[]", nullable=False
+    )
     open_questions_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     waiting_states_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     referenced_media_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     state_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
-    status: Mapped[str] = mapped_column(String(24), default="active", index=True, nullable=False)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(24), default="active", index=True, nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -137,21 +155,35 @@ class PendingActionV3Record(Base):
     connection_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     guild_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
     channel_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
-    discord_thread_id: Mapped[str] = mapped_column(String(200), default="", nullable=False)
-    source_message_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
-    source_segment_id: Mapped[str] = mapped_column(String(64), default="", index=True, nullable=False)
+    discord_thread_id: Mapped[str] = mapped_column(
+        String(200), default="", nullable=False
+    )
+    source_message_id: Mapped[str] = mapped_column(
+        String(200), index=True, nullable=False
+    )
+    source_segment_id: Mapped[str] = mapped_column(
+        String(64), default="", index=True, nullable=False
+    )
     conversation_thread_id: Mapped[str] = mapped_column(
         String(64), default="", index=True, nullable=False
     )
-    requested_by_user_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
+    requested_by_user_id: Mapped[str] = mapped_column(
+        String(200), index=True, nullable=False
+    )
     target_character_card_id: Mapped[str] = mapped_column(
         String(64), default="", index=True, nullable=False
     )
-    deployment_id: Mapped[str] = mapped_column(String(64), default="", index=True, nullable=False)
+    deployment_id: Mapped[str] = mapped_column(
+        String(64), default="", index=True, nullable=False
+    )
     tool_id: Mapped[str] = mapped_column(String(160), index=True, nullable=False)
     intent_summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    state: Mapped[str] = mapped_column(String(32), default="pending", index=True, nullable=False)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    state: Mapped[str] = mapped_column(
+        String(32), default="pending", index=True, nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
