@@ -9,7 +9,7 @@ from echo_masque.persistence.models import Base, utcnow
 
 
 class EntityV3Record(Base):
-    """Server-scoped entity identity that may remain provisional without hallucinating details."""
+    """Server-scoped identity that may remain provisional without hallucinating details."""
 
     __tablename__ = "entities_v3"
     __table_args__ = (
@@ -33,14 +33,22 @@ class EntityV3Record(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
-    connection_id: Mapped[str] = mapped_column(String(64), index=True, default="", nullable=False)
-    guild_id: Mapped[str] = mapped_column(String(200), index=True, default="", nullable=False)
+    connection_id: Mapped[str] = mapped_column(
+        String(64), index=True, default="", nullable=False
+    )
+    guild_id: Mapped[str] = mapped_column(
+        String(200), index=True, default="", nullable=False
+    )
     entity_type: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
     canonical_name: Mapped[str] = mapped_column(String(320), nullable=False)
     normalized_name: Mapped[str] = mapped_column(String(320), nullable=False)
     aliases_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
-    status: Mapped[str] = mapped_column(String(24), default="provisional", index=True, nullable=False)
-    merged_into_entity_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24), default="provisional", index=True, nullable=False
+    )
+    merged_into_entity_id: Mapped[str] = mapped_column(
+        String(64), default="", nullable=False
+    )
     metadata_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     source_refs_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -50,7 +58,7 @@ class EntityV3Record(Base):
 
 
 class EvidenceEdgeV3Record(Base):
-    """Typed provenance edge; evidence graph is interpretation, never a duplicate truth store."""
+    """Typed provenance edge; interpretation never duplicates the truth store."""
 
     __tablename__ = "evidence_edges_v3"
     __table_args__ = (
@@ -74,23 +82,39 @@ class EvidenceEdgeV3Record(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
-    connection_id: Mapped[str] = mapped_column(String(64), index=True, default="", nullable=False)
-    guild_id: Mapped[str] = mapped_column(String(200), index=True, default="", nullable=False)
+    connection_id: Mapped[str] = mapped_column(
+        String(64), index=True, default="", nullable=False
+    )
+    guild_id: Mapped[str] = mapped_column(
+        String(200), index=True, default="", nullable=False
+    )
     source_ref_type: Mapped[str] = mapped_column(String(40), nullable=False)
     source_ref: Mapped[str] = mapped_column(String(320), nullable=False)
     relation_type: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
     target_ref_type: Mapped[str] = mapped_column(String(40), nullable=False)
     target_ref: Mapped[str] = mapped_column(String(320), default="", nullable=False)
     confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    authority_class: Mapped[str] = mapped_column(String(48), default="conversation", nullable=False)
-    source_kind: Mapped[str] = mapped_column(String(48), default="runtime", nullable=False)
+    authority_class: Mapped[str] = mapped_column(
+        String(48), default="conversation", nullable=False
+    )
+    source_kind: Mapped[str] = mapped_column(
+        String(48), default="runtime", nullable=False
+    )
     evidence_refs_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
-    status: Mapped[str] = mapped_column(String(24), default="active", index=True, nullable=False)
-    supersedes_edge_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24), default="active", index=True, nullable=False
+    )
+    supersedes_edge_id: Mapped[str] = mapped_column(
+        String(64), default="", nullable=False
+    )
     producer: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     source_model: Mapped[str] = mapped_column(String(240), default="", nullable=False)
-    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_from: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    valid_to: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -98,7 +122,7 @@ class EvidenceEdgeV3Record(Base):
 
 
 class KnowledgeGapRecord(Base):
-    """A missing piece of entity knowledge that can optionally trigger existing Discovery."""
+    """Missing entity knowledge that can optionally trigger existing Discovery."""
 
     __tablename__ = "knowledge_gaps_v3"
     __table_args__ = (
@@ -121,18 +145,28 @@ class KnowledgeGapRecord(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
-    connection_id: Mapped[str] = mapped_column(String(64), index=True, default="", nullable=False)
-    guild_id: Mapped[str] = mapped_column(String(200), index=True, default="", nullable=False)
+    connection_id: Mapped[str] = mapped_column(
+        String(64), index=True, default="", nullable=False
+    )
+    guild_id: Mapped[str] = mapped_column(
+        String(200), index=True, default="", nullable=False
+    )
     entity_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     missing_fields_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
-    triggered_by_ref: Mapped[str] = mapped_column(String(320), default="", nullable=False)
+    triggered_by_ref: Mapped[str] = mapped_column(
+        String(320), default="", nullable=False
+    )
     importance: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
     resolution_state: Mapped[str] = mapped_column(
         String(32), default="unresolved", index=True, nullable=False
     )
     possible_sources_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
-    discovery_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    resolution_evidence_refs_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    discovery_requested: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    resolution_evidence_refs_json: Mapped[str] = mapped_column(
+        Text, default="[]", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
