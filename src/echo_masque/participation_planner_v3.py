@@ -8,7 +8,6 @@ from typing import Literal, Protocol
 from echo_masque.api.smart_participation_v3_schemas import (
     SmartParticipationMediaDescriptor,
     SmartParticipationResolveCandidate,
-    SmartParticipationResolveCandidateView,
     SmartParticipationResolveRequest,
 )
 from echo_masque.context_resolver_v3 import ContextBundleV3
@@ -221,7 +220,11 @@ class ParticipationPlannerV3:
         scored = [
             (self._score(item, requested[item.deployment_id]), item)
             for item in candidates
-            if item.eligible and item.deployment_id in deployments and item.deployment_id in requested
+            if (
+                item.eligible
+                and item.deployment_id in deployments
+                and item.deployment_id in requested
+            )
         ]
         scored.sort(key=lambda item: (-item[0], item[1].deployment_id))
         selected: list[ParticipationPlanItemV3] = []
