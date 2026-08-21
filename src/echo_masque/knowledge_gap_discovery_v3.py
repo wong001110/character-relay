@@ -53,7 +53,12 @@ class KnowledgeGapDiscoveryService:
         if gap.resolution_state not in {"unresolved", "searching"}:
             return KnowledgeGapDiscoveryResult(gap, None, "skipped", "gap_not_open")
         if gap.importance < minimum_importance:
-            return KnowledgeGapDiscoveryResult(gap, None, "skipped", "gap_not_important_enough")
+            return KnowledgeGapDiscoveryResult(
+                gap,
+                None,
+                "skipped",
+                "gap_not_important_enough",
+            )
         searching = self.entities.mark_gap_searching(
             owner_id=owner_id,
             gap_id=gap.id,
@@ -132,19 +137,23 @@ class KnowledgeGapDiscoveryService:
                 source_refs=(evidence_ref,),
                 now=current,
             )
-        remaining = tuple(field for field in gap.missing_fields if field not in set(resolved_fields))
+        resolved = set(resolved_fields)
+        remaining = tuple(field for field in gap.missing_fields if field not in resolved)
+        evidence_refs = tuple(
+            dict.fromkeys((*gap.resolution_evidence_refs, edge.id))
+        )
         if remaining or confidence < 0.7:
             return self.entities.resolve_gap(
                 owner_id=owner_id,
                 gap_id=gap.id,
-                evidence_refs=tuple(dict.fromkeys((*gap.resolution_evidence_refs, edge.id))),
+                evidence_refs=evidence_refs,
                 state="unresolved",
                 now=current,
             )
         return self.entities.resolve_gap(
             owner_id=owner_id,
             gap_id=gap.id,
-            evidence_refs=tuple(dict.fromkeys((*gap.resolution_evidence_refs, edge.id))),
+            evidence_refs=evidence_refs,
             state="resolved",
             now=current,
         )
