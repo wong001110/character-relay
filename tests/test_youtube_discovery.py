@@ -1,5 +1,4 @@
 import asyncio
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -9,15 +8,13 @@ from pydantic import SecretStr
 from sqlalchemy import select
 
 from echo_masque.config import Settings
-from echo_masque.deployment_discovery_intelligence import (
-    DeploymentDiscoverySeedBuilder,
-    DiscoveryCandidateRanker,
-)
+from echo_masque.deployment_discovery_intelligence import DiscoveryCandidateRanker
+from echo_masque.deployment_discovery_seeds_v3 import DeploymentDiscoverySeedBuilderV3
 from echo_masque.discovery_contracts import DiscoveryCandidate, DiscoveryFetchRequest
 from echo_masque.persistence.character_learned_state_event_models import (
     CharacterLearnedStateEventRecord,
 )
-from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
+from echo_masque.persistence.conversation_structure_models import ConversationThreadRecord
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.discovery_models import DiscoverySourceQueryCacheRecord
@@ -185,28 +182,30 @@ def seed_deployment(
         session.commit()
 
 
-def topic(
+def conversation_thread(
     *,
-    topic_id: str,
+    thread_id: str,
     guild_id: str,
     label: str,
-    keywords: tuple[str, ...],
-) -> ConversationTopicRecord:
+) -> ConversationThreadRecord:
     now = datetime(2026, 8, 18, 8, 0, tzinfo=UTC)
-    return ConversationTopicRecord(
-        id=topic_id,
+    return ConversationThreadRecord(
+        id=thread_id,
         owner_id="owner-1",
         platform="discord",
         connection_id="connection-1",
         guild_id=guild_id,
         channel_id=f"channel-{guild_id}",
-        thread_id="",
-        topic_label=label,
-        summary=label,
-        keywords_json=json.dumps(keywords),
-        status="active",
-        started_at=now,
+        discord_thread_id="",
+        canonical_label=label,
+        anchor_summary=label,
+        working_summary=label,
+        representative_segment_ids_json="[]",
+        participant_ids_json="[]",
+        active_entity_ids_json="[]",
+        status="hot",
         last_active_at=now,
+        created_at=now,
         updated_at=now,
     )
 
@@ -262,19 +261,17 @@ def test_seed_builder_does_not_leak_other_server_interests(tmp_path: Path) -> No
     )
     with database.session() as session:
         session.add(
-            topic(
-                topic_id="topic-a",
+            conversation_thread(
+                thread_id="thread-a",
                 guild_id="guild-a",
                 label="Desktop robots",
-                keywords=("AI robot",),
             )
         )
         session.add(
-            topic(
-                topic_id="topic-b",
+            conversation_thread(
+                thread_id="thread-b",
                 guild_id="guild-b",
                 label="Anime music",
-                keywords=("anisong",),
             )
         )
         session.add(
@@ -293,7 +290,7 @@ def test_seed_builder_does_not_leak_other_server_interests(tmp_path: Path) -> No
         )
         session.commit()
 
-    seeds_a = DeploymentDiscoverySeedBuilder(database).build(
+    seeds_a = DeploymentDiscoverySeedBuilderV3(database).build(
         owner_id="owner-1",
         deployment_id="deployment-a",
         now=datetime(2026, 8, 18, 8, 0, tzinfo=UTC),
@@ -317,16 +314,15 @@ def test_e5_ranker_reuses_candidate_vectors_and_prefers_server_interest(tmp_path
     )
     with database.session() as session:
         session.add(
-            topic(
-                topic_id="topic-a",
+            conversation_thread(
+                thread_id="thread-a",
                 guild_id="guild-a",
                 label="Desktop robot",
-                keywords=("robot",),
             )
         )
         session.commit()
 
-    seeds = DeploymentDiscoverySeedBuilder(database).build(
+    seeds = DeploymentDiscoverySeedBuilderV3(database).build(
         owner_id="owner-1",
         deployment_id="deployment-a",
         now=datetime(2026, 8, 18, 8, 0, tzinfo=UTC),
