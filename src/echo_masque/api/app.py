@@ -22,7 +22,6 @@ from echo_masque.api.routes import (
     comparisons_router,
     connectors_router,
     conversation_burst_observability_router,
-    conversation_intelligence_router,
     coverage_router,
     deployments_router,
     discord_identities_router,
@@ -58,9 +57,7 @@ from echo_masque.condition_watch_runtime import (
 from echo_masque.condition_watch_service import ConditionWatchService
 from echo_masque.config import Settings, get_settings
 from echo_masque.context_layer import ContextOrchestrator
-from echo_masque.conversation_consolidation import ConversationConsolidationService
 from echo_masque.conversation_media import ConversationMediaReferenceService
-from echo_masque.conversation_topic_observed import ObservedConversationTopicMemoryService
 from echo_masque.coverage_analytics import CoverageAnalyticsService
 from echo_masque.credentials import CredentialVault
 from echo_masque.deployment_activity import DeploymentBrowsingActivityService
@@ -70,6 +67,7 @@ from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleServ
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService
 from echo_masque.internal_context import InternalContextService
 from echo_masque.judge_evaluation import JudgeEvaluationService
+from echo_masque.knowledge_consolidation_v3 import KnowledgeConsolidationV3Service
 from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
 from echo_masque.live_media_scoped import KeyGroupScopedLiveMediaContextService
 from echo_masque.media_tools import MediaToolRegistry
@@ -105,13 +103,20 @@ from echo_masque.persistence import (
     WorkspaceRepository,
     inspect_storage,
 )
-from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
-from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
+from echo_masque.persistence.belief_repository import BeliefRepository
+from echo_masque.persistence.conversation_runtime_repository import ConversationRuntimeRepository
+from echo_masque.persistence.conversation_structure_repository import (
+    ConversationStructureRepository,
+)
 from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
 from echo_masque.persistence.server_knowledge_repository import (
     ConsolidationCheckpointRepository,
     ConversationAuthorityGraphRepository,
     ServerWikiRepository,
+)
+from echo_masque.persistence.server_knowledge_v3_repository import (
+    KnowledgeConsolidationCheckpointV3Repository,
+    ServerWikiV3Repository,
 )
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.planner_media import PlannerMediaDescriptorService
@@ -195,20 +200,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved,
     )
     knowledge_repository = KnowledgeRepository(database)
+
+    # Intelligence Core v3 runtime authorities.
+    belief_repository = BeliefRepository(database)
+    conversation_structure_repository = ConversationStructureRepository(database)
+    conversation_runtime_repository = ConversationRuntimeRepository(database)
+    server_wiki_v3_repository = ServerWikiV3Repository(database)
+    knowledge_checkpoint_v3_repository = KnowledgeConsolidationCheckpointV3Repository(database)
+
+    # Legacy server knowledge stores remain only for account-lifecycle cleanup during the
+    # destructive migration window. They are not used by the live Character context path.
     server_wiki_repository = ServerWikiRepository(database)
-    conversation_authority_graph_repository = ConversationAuthorityGraphRepository(
-        database
-    )
+    conversation_authority_graph_repository = ConversationAuthorityGraphRepository(database)
     consolidation_checkpoint_repository = ConsolidationCheckpointRepository(database)
-    topic_repository = ConversationTopicRepository(database)
-    topic_memory_service = ObservedConversationTopicMemoryService(
-        topic_repository,
-        settings=resolved,
-    )
+
     context_orchestrator = ContextOrchestrator(
         knowledge_repository,
         settings=resolved,
-        topic_memory=topic_memory_service,
     )
     if bootstrap_admin is not None:
         centralized = DiscordInventoryService(database).centralize(bootstrap_admin.id)
@@ -259,11 +267,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         artifact_repository=generated_media_repository,
     )
     internal_context_service = InternalContextService(
-        memory_repository=memory_vnext_repository,
-        topic_repository=topic_repository,
-        episode_repository=ConversationEpisodeRepository(database),
+        belief_repository=belief_repository,
+        structure_repository=conversation_structure_repository,
+        runtime_repository=conversation_runtime_repository,
         settings=resolved,
-        wiki_lookup_backend=server_wiki_repository.lookup,
+        wiki_lookup_backend=server_wiki_v3_repository.lookup,
     )
     tool_registry = MediaToolRegistry(
         browser_runtime=browser_runtime,
@@ -405,13 +413,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         runtime_service,
         caller=ExistingProviderUtilityCaller(),
     )
-    conversation_consolidation_service = ConversationConsolidationService(
-        topic_repository=topic_repository,
-        episode_repository=ConversationEpisodeRepository(database),
-        memory_repository=memory_vnext_repository,
-        wiki_repository=server_wiki_repository,
-        graph_repository=conversation_authority_graph_repository,
-        checkpoint_repository=consolidation_checkpoint_repository,
+    knowledge_consolidation_v3_service = KnowledgeConsolidationV3Service(
+        wiki=server_wiki_v3_repository,
+        checkpoints=knowledge_checkpoint_v3_repository,
         gateway=planner_utility_gateway,
     )
     planner_media_service = PlannerMediaDescriptorService(
@@ -463,11 +467,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await browser_runtime.start()
         await scheduled_reminder_delivery.start()
         await condition_watch_service.start()
-        await conversation_consolidation_service.start()
         try:
             yield
         finally:
-            await conversation_consolidation_service.stop()
             await condition_watch_service.stop()
             await scheduled_reminder_delivery.stop()
             await browser_runtime.stop()
@@ -514,7 +516,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.semantic_participation_service = semantic_participation_service
     app.state.knowledge_repository = knowledge_repository
     app.state.context_orchestrator = context_orchestrator
-    app.state.topic_memory_service = topic_memory_service
     app.state.character_recall_service = character_recall_service
     app.state.provider_trace_repository = provider_trace_repository
     app.state.durable_runtime_repository = durable_runtime_repository
@@ -525,12 +526,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.image_creation_service = image_creation_service
     app.state.live_media_service = live_media_service
     app.state.memory_vnext_repository = memory_vnext_repository
+    app.state.belief_repository = belief_repository
+    app.state.conversation_structure_repository = conversation_structure_repository
+    app.state.conversation_runtime_repository = conversation_runtime_repository
+    app.state.server_wiki_v3_repository = server_wiki_v3_repository
+    app.state.knowledge_checkpoint_v3_repository = knowledge_checkpoint_v3_repository
+    app.state.knowledge_consolidation_v3_service = knowledge_consolidation_v3_service
     app.state.server_wiki_repository = server_wiki_repository
     app.state.conversation_authority_graph_repository = (
         conversation_authority_graph_repository
     )
     app.state.consolidation_checkpoint_repository = consolidation_checkpoint_repository
-    app.state.conversation_consolidation_service = conversation_consolidation_service
     app.state.internal_context_service = internal_context_service
     app.state.planner_media_service = planner_media_service
     app.state.discord_connector_runtime = discord_connector_runtime
@@ -577,7 +583,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(discord_identities_router)
     app.include_router(interactions_router)
     app.include_router(smart_participation_router)
-    app.include_router(conversation_intelligence_router)
     app.include_router(knowledge_router)
     app.include_router(connectors_router)
     app.include_router(prompt_inspector_router)
