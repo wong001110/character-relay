@@ -22,6 +22,31 @@ from echo_masque.conversation_segmentation import (
 from echo_masque.persistence.conversation_structure_repository import ConversationThreadView
 
 _IMMEDIATE_CONTINUITY = timedelta(minutes=2)
+_PURE_REACTIONS = {
+    "哈",
+    "哈哈",
+    "哈哈哈",
+    "笑死",
+    "确实",
+    "確實",
+    "真的",
+    "对",
+    "對",
+    "嗯",
+    "哦",
+    "lol",
+    "lmao",
+    "true",
+    "same",
+    "yes",
+    "yep",
+    "nah",
+    "wow",
+    "草",
+    "6",
+    "?",
+    "!",
+}
 
 
 class ConversationStructureResolver(ConversationSegmentationService):
@@ -44,6 +69,14 @@ class ConversationStructureResolver(ConversationSegmentationService):
         if observed.tzinfo is None:
             observed = observed.replace(tzinfo=UTC)
         return now - observed.astimezone(UTC) <= _IMMEDIATE_CONTINUITY
+
+    @classmethod
+    def _pure_reply_reaction(
+        cls,
+        cluster: tuple[SmartParticipationBurstMessage, ...],
+    ) -> bool:
+        texts = [cls._content(item).casefold() for item in cluster if cls._content(item)]
+        return bool(texts) and all(text in _PURE_REACTIONS for text in texts)
 
     def _structural_candidates(
         self,
@@ -81,14 +114,15 @@ class ConversationStructureResolver(ConversationSegmentationService):
                 payload=payload,
             )
             if reply_thread is not None:
+                pure_reaction = self._pure_reply_reaction(cluster)
                 results.append(
                     ConversationJudgeSegment(
                         message_ids=tuple(item.message_id for item in cluster),
-                        kind="reaction" if context_only else "discussion",
+                        kind="reaction" if pure_reaction else "discussion",
                         summary=summary,
-                        thread_action="context_only" if context_only else "attach",
+                        thread_action="context_only" if pure_reaction else "attach",
                         thread_id=reply_thread.id,
-                        thread_evidence=not context_only,
+                        thread_evidence=not pure_reaction,
                         confidence=0.99,
                         reason="explicit_reply_to_prior_thread",
                     )
@@ -103,10 +137,7 @@ class ConversationStructureResolver(ConversationSegmentationService):
                 now=now,
             )
             structural_ranked = sorted(
-                (
-                    (thread, score_by_id.get(thread.id, 0.0))
-                    for thread in structural
-                ),
+                ((thread, score_by_id.get(thread.id, 0.0)) for thread in structural),
                 key=lambda item: item[1],
                 reverse=True,
             )
