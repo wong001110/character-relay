@@ -29,7 +29,6 @@ from echo_masque.api.smart_participation_vnext_schemas import (
 )
 from echo_masque.config import Settings
 from echo_masque.context_resolver_v3 import ContextBundleV3, ContextResolverV3, ContextTextHit
-from echo_masque.conversation_reply_planner import CharacterSegmentReplyPlanner
 from echo_masque.conversation_runtime import ConversationRuntimeCoordinator
 from echo_masque.conversation_structure_resolver import ConversationStructureResolver
 from echo_masque.current_turn_belief_v3 import CurrentTurnBeliefRevisionService
@@ -139,25 +138,16 @@ def _runtime_coordinator(request: Request) -> ConversationRuntimeCoordinator:
     return coordinator
 
 
-def _reply_planner(request: Request) -> CharacterSegmentReplyPlanner:
-    current = getattr(request.app.state, "character_segment_reply_planner_vnext", None)
-    if isinstance(current, CharacterSegmentReplyPlanner):
+def _participation_planner(request: Request) -> ParticipationPlannerV3:
+    current = getattr(request.app.state, "participation_planner_v3", None)
+    if isinstance(current, ParticipationPlannerV3):
         return current
-    planner = CharacterSegmentReplyPlanner(
+    planner = ParticipationPlannerV3(
         cast(
             CharacterParticipationSemanticService,
             request.app.state.semantic_participation_service,
         )
     )
-    request.app.state.character_segment_reply_planner_vnext = planner
-    return planner
-
-
-def _participation_planner(request: Request) -> ParticipationPlannerV3:
-    current = getattr(request.app.state, "participation_planner_v3", None)
-    if isinstance(current, ParticipationPlannerV3):
-        return current
-    planner = ParticipationPlannerV3(_reply_planner(request))
     request.app.state.participation_planner_v3 = planner
     return planner
 
@@ -574,8 +564,7 @@ def resolve_smart_participation_vnext(
             "media_grounding_level": plan.grounding.level,
             "media_grounding_reason": plan.grounding.reason,
             "context_sufficiency": {
-                deployment_id: context.sufficiency
-                for deployment_id, context in contexts.items()
+                deployment_id: context.sufficiency for deployment_id, context in contexts.items()
             },
             "utility_used": bool(result.utility_used or extraction.utility_used),
         }

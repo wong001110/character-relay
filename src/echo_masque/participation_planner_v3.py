@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Literal
 
 from echo_masque.api.smart_participation_v3_schemas import (
     SmartParticipationMediaDescriptor,
@@ -140,14 +140,11 @@ class ParticipationPlannerV3:
 
     def __init__(
         self,
-        semantic: CharacterParticipationSemanticService | object,
+        semantic: CharacterParticipationSemanticService,
         *,
         media_contract: MediaEpistemicContract | None = None,
     ) -> None:
-        # Accept the short-lived pre-cutover wrapper during this commit sequence, but consume only
-        # its semantic scorer. The planner itself owns Segment selection.
-        candidate = getattr(semantic, "semantic", semantic)
-        self.semantic = cast(CharacterParticipationSemanticService, candidate)
+        self.semantic = semantic
         self.media_contract = media_contract or MediaEpistemicContract()
 
     @staticmethod
