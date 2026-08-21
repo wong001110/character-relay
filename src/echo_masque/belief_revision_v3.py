@@ -24,7 +24,8 @@ ClaimSource = Literal[
 
 _CORRECTION_CUE = re.compile(
     r"(?:你記錯了|你记错了|不是(?:啦|啊|的)?|我沒有|我没有|其實是|其实是|"
-    r"不是\s*.+?[，, ]?是|no[, ]|actually|you(?:'|’)re wrong|you remembered wrong)",
+    r"不是\s*.+?[\uFF0C, ]?是|no[, ]|actually|you(?:'|\u2019)re wrong|"
+    r"you remembered wrong)",
     re.IGNORECASE,
 )
 
@@ -102,7 +103,7 @@ class BeliefAuthorityPolicy:
 
 
 class BeliefRevisionService:
-    """Apply one extracted claim without letting first-pass interpretation become permanent truth."""
+    """Apply an extracted claim while keeping first-pass interpretation revisable."""
 
     def __init__(self, repository: BeliefRepository) -> None:
         self.repository = repository
