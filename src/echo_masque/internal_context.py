@@ -30,13 +30,11 @@ from echo_masque.semantic_participation import (
 from echo_masque.tool_runtime import ToolExecutionContext
 
 _INTERNAL_BELIEF_NAMESPACE = "internal-belief-v3"
-_INTERNAL_CORE_MEMORY_NAMESPACE = "internal-core-memory"
 _INTERNAL_THREAD_NAMESPACE = "internal-thread-v3"
 _INTERNAL_EPISODE_NAMESPACE = "internal-episode-v3"
 INTERNAL_CONTEXT_TOOL_IDS = (
     "memory.search",
-    "thread.search",
-    "episode.search",
+    "conversation.search",
     "wiki.lookup",
 )
 
@@ -274,8 +272,13 @@ class InternalContextService:
             ensure_ascii=False,
         )
 
-    def thread_search(self, arguments: dict[str, object], context: ToolExecutionContext) -> str:
-        payload = InternalSearchInput.model_validate(arguments)
+    def _thread_hits(
+        self,
+        *,
+        query: str,
+        context: ToolExecutionContext,
+        limit: int,
+    ) -> list[dict[str, object]]:
         records = self.structure_repository.recent_threads_for_server(
             owner_id=context.owner_id,
             connection_id=context.connection_id,
@@ -286,7 +289,7 @@ class InternalContextService:
         ranked = self._rank(
             owner_id=context.owner_id,
             namespace=_INTERNAL_THREAD_NAMESPACE,
-            query=payload.query,
+            query=query,
             values=[
                 (
                     item.id,
@@ -297,32 +300,30 @@ class InternalContextService:
             semantic_floor=0.28,
             sparse_floor=0.08,
         )
-        selected = [(score, by_id[item_id]) for score, item_id in ranked[: payload.limit]]
-        return json.dumps(
+        return [
             {
-                "ok": True,
-                "scope": "current_discord_server_conversation_threads",
-                "count": len(selected),
-                "threads": [
-                    {
-                        "ref": item.id,
-                        "label": item.canonical_label,
-                        "anchor_summary": item.anchor_summary[:900],
-                        "working_summary": item.working_summary[:900],
-                        "status": item.status,
-                        "participant_refs": list(item.participant_ids[:12]),
-                        "entity_refs": list(item.active_entity_ids[:12]),
-                        "score": round(score, 4),
-                        "last_active_at": item.last_active_at.isoformat(),
-                    }
-                    for score, item in selected
-                ],
-            },
-            ensure_ascii=False,
-        )
+                "ref": item.id,
+                "kind": "thread",
+                "label": item.canonical_label,
+                "anchor_summary": item.anchor_summary[:900],
+                "working_summary": item.working_summary[:900],
+                "status": item.status,
+                "participant_refs": list(item.participant_ids[:12]),
+                "entity_refs": list(item.active_entity_ids[:12]),
+                "score": round(score, 4),
+                "last_active_at": item.last_active_at.isoformat(),
+            }
+            for score, item_id in ranked[:limit]
+            for item in (by_id[item_id],)
+        ]
 
-    def episode_search(self, arguments: dict[str, object], context: ToolExecutionContext) -> str:
-        payload = InternalSearchInput.model_validate(arguments)
+    def _episode_hits(
+        self,
+        *,
+        query: str,
+        context: ToolExecutionContext,
+        limit: int,
+    ) -> list[dict[str, object]]:
         records = self.runtime_repository.recent_episodes(
             owner_id=context.owner_id,
             connection_id=context.connection_id,
@@ -333,38 +334,50 @@ class InternalContextService:
         ranked = self._rank(
             owner_id=context.owner_id,
             namespace=_INTERNAL_EPISODE_NAMESPACE,
-            query=payload.query,
-            values=[
-                (
-                    item.id,
-                    " ".join((item.summary, *item.key_events)),
-                )
-                for item in records
-            ],
+            query=query,
+            values=[(item.id, " ".join((item.summary, *item.key_events))) for item in records],
             semantic_floor=0.24,
             sparse_floor=0.08,
         )
-        selected = [(score, by_id[item_id]) for score, item_id in ranked[: payload.limit]]
+        return [
+            {
+                "ref": item.id,
+                "kind": "episode",
+                "conversation_thread_ref": item.conversation_thread_id,
+                "channel_ref": item.channel_id,
+                "discord_thread_ref": item.discord_thread_id,
+                "summary": item.summary,
+                "key_events": list(item.key_events[:8]),
+                "source_message_refs": list(item.source_message_ids[:12]),
+                "entity_refs": list(item.entity_ids[:12]),
+                "score": round(score, 4),
+                "ended_at": item.ended_at.isoformat(),
+            }
+            for score, item_id in ranked[:limit]
+            for item in (by_id[item_id],)
+        ]
+
+    def conversation_search(
+        self,
+        arguments: dict[str, object],
+        context: ToolExecutionContext,
+    ) -> str:
+        """Search both live conversation tracks and durable Episodes through one Tool."""
+
+        payload = InternalSearchInput.model_validate(arguments)
+        threads = self._thread_hits(query=payload.query, context=context, limit=payload.limit)
+        episodes = self._episode_hits(query=payload.query, context=context, limit=payload.limit)
+        merged = sorted(
+            [*threads, *episodes],
+            key=lambda item: float(item.get("score", 0.0)),
+            reverse=True,
+        )[: payload.limit]
         return json.dumps(
             {
                 "ok": True,
-                "scope": "current_discord_server_episodes",
-                "count": len(selected),
-                "episodes": [
-                    {
-                        "ref": item.id,
-                        "conversation_thread_ref": item.conversation_thread_id,
-                        "channel_ref": item.channel_id,
-                        "discord_thread_ref": item.discord_thread_id,
-                        "summary": item.summary,
-                        "key_events": list(item.key_events[:8]),
-                        "source_message_refs": list(item.source_message_ids[:12]),
-                        "entity_refs": list(item.entity_ids[:12]),
-                        "score": round(score, 4),
-                        "ended_at": item.ended_at.isoformat(),
-                    }
-                    for score, item in selected
-                ],
+                "scope": "current_discord_server_conversation",
+                "count": len(merged),
+                "results": merged,
             },
             ensure_ascii=False,
         )
@@ -409,10 +422,8 @@ class InternalContextService:
     ) -> str:
         if tool_id == "memory.search":
             return self.memory_search(arguments, context)
-        if tool_id == "thread.search":
-            return self.thread_search(arguments, context)
-        if tool_id == "episode.search":
-            return self.episode_search(arguments, context)
+        if tool_id == "conversation.search":
+            return self.conversation_search(arguments, context)
         if tool_id == "wiki.lookup":
             return self.wiki_lookup(arguments, context)
         raise ValueError("Unknown Internal Context Tool.")
