@@ -1,7 +1,7 @@
 """One-way Intelligence Core v3 hard-cutover migration and legacy table cleanup.
 
 The migration deliberately preserves useful durable evidence (Core Memory, synthesized Memory,
-and Episodes) while discarding Topic/SemanticThread identity.  It uses reflected legacy tables so
+and Episodes) while discarding Topic/SemanticThread identity. It uses reflected legacy tables so
 those ORM models do not need to remain registered after the cutover.
 """
 
@@ -15,6 +15,9 @@ from uuid import NAMESPACE_URL, uuid5
 from sqlalchemy import MetaData, Table, inspect, select
 
 from echo_masque.persistence.belief_models import BeliefV3Record
+from echo_masque.persistence.character_learned_state_event_models import (
+    CharacterLearnedStateEventRecord,
+)
 from echo_masque.persistence.conversation_runtime_models import ConversationEpisodeV3Record
 from echo_masque.persistence.database import Database
 
@@ -86,7 +89,7 @@ def _reflect(database: Database, table_name: str) -> Table | None:
 
 
 class IntelligenceV3HardCutoverMigration:
-    """Idempotently migrate useful legacy authority data and then physically drop legacy tables."""
+    """Idempotently migrate useful legacy authority data and physically remove old structures."""
 
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -248,6 +251,122 @@ class IntelligenceV3HardCutoverMigration:
             session.commit()
         return migrated
 
+    def _purge_invalid_behavior_rows(self) -> int:
+        """Drop the old relationship scalar and all state keyed by unreliable Topic identity."""
+
+        table = _reflect(self.database, "character_learned_states")
+        if table is None:
+            return 0
+        removed = 0
+        with self.database.engine.begin() as connection:
+            result = connection.exec_driver_sql(
+                "DELETE FROM character_learned_states "
+                "WHERE state_type = 'relationship' OR subject_type = 'topic'"
+            )
+            value = getattr(result, "rowcount", 0)
+            removed = int(value) if isinstance(value, int) and value > 0 else 0
+        return removed
+
+    def _migrate_behavior_event_schema_sqlite(self, table: Table) -> int:
+        with self.database.engine.connect() as connection:
+            rows = list(connection.execute(select(table)).mappings())
+        preserved = [
+            row
+            for row in rows
+            if str(row.get("state_type") or "") != "relationship"
+            and str(row.get("subject_type") or "") != "topic"
+        ]
+        temp = "character_learned_state_events__legacy_v3_cutover"
+        with self.database.engine.begin() as connection:
+            connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+            connection.exec_driver_sql(f'DROP TABLE IF EXISTS "{temp}"')
+            connection.exec_driver_sql(
+                f'ALTER TABLE "character_learned_state_events" RENAME TO "{temp}"'
+            )
+            CharacterLearnedStateEventRecord.__table__.create(bind=connection, checkfirst=True)
+            for row in preserved:
+                connection.execute(
+                    CharacterLearnedStateEventRecord.__table__.insert().values(
+                        id=str(row.get("id") or ""),
+                        state_id=str(row.get("state_id") or ""),
+                        owner_id=str(row.get("owner_id") or ""),
+                        character_card_id=str(row.get("character_card_id") or ""),
+                        state_type=str(row.get("state_type") or "interest"),
+                        subject_type=str(row.get("subject_type") or "concept"),
+                        subject_key=str(row.get("subject_key") or ""),
+                        connection_id=str(row.get("connection_id") or ""),
+                        guild_id=str(row.get("guild_id") or ""),
+                        channel_id=str(row.get("channel_id") or ""),
+                        conversation_thread_id="",
+                        source_segment_id="",
+                        delta=float(row.get("delta") or 0.0),
+                        evidence_confidence=float(row.get("evidence_confidence") or 0.0),
+                        value_before=float(row.get("value_before") or 0.0),
+                        value_after=float(row.get("value_after") or 0.0),
+                        confidence_before=float(row.get("confidence_before") or 0.0),
+                        confidence_after=float(row.get("confidence_after") or 0.0),
+                        contradiction=bool(row.get("contradiction") or False),
+                        source_type=str(row.get("source_type") or "legacy_migration"),
+                        source_message_id=str(row.get("source_message_id") or ""),
+                        source_burst_id=str(row.get("source_burst_id") or ""),
+                        reason_code=str(row.get("reason_code") or ""),
+                        recorded_at=row.get("recorded_at") or datetime.now(UTC),
+                    )
+                )
+            connection.exec_driver_sql(f'DROP TABLE IF EXISTS "{temp}"')
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+        return len(rows) - len(preserved)
+
+    def _migrate_behavior_event_schema(self) -> dict[str, int]:
+        aggregate_removed = self._purge_invalid_behavior_rows()
+        table = _reflect(self.database, "character_learned_state_events")
+        if table is None:
+            return {"aggregate_removed": aggregate_removed, "events_removed": 0}
+        columns = {column.name for column in table.columns}
+        needs_rebuild = (
+            "topic_id" in columns
+            or "conversation_thread_id" not in columns
+            or "source_segment_id" not in columns
+        )
+        if not needs_rebuild:
+            with self.database.engine.begin() as connection:
+                result = connection.exec_driver_sql(
+                    "DELETE FROM character_learned_state_events "
+                    "WHERE state_type = 'relationship' OR subject_type = 'topic'"
+                )
+                value = getattr(result, "rowcount", 0)
+                removed = int(value) if isinstance(value, int) and value > 0 else 0
+            return {"aggregate_removed": aggregate_removed, "events_removed": removed}
+
+        if self.database.engine.dialect.name == "sqlite":
+            removed = self._migrate_behavior_event_schema_sqlite(table)
+            return {"aggregate_removed": aggregate_removed, "events_removed": removed}
+
+        # PostgreSQL/other SQL dialects: evolve columns in place, purge invalid old state, then
+        # remove the Topic column. These statements intentionally use generic VARCHAR syntax.
+        with self.database.engine.begin() as connection:
+            if "conversation_thread_id" not in columns:
+                connection.exec_driver_sql(
+                    "ALTER TABLE character_learned_state_events "
+                    "ADD COLUMN conversation_thread_id VARCHAR(64) NOT NULL DEFAULT ''"
+                )
+            if "source_segment_id" not in columns:
+                connection.exec_driver_sql(
+                    "ALTER TABLE character_learned_state_events "
+                    "ADD COLUMN source_segment_id VARCHAR(64) NOT NULL DEFAULT ''"
+                )
+            result = connection.exec_driver_sql(
+                "DELETE FROM character_learned_state_events "
+                "WHERE state_type = 'relationship' OR subject_type = 'topic'"
+            )
+            if "topic_id" in columns:
+                connection.exec_driver_sql(
+                    "ALTER TABLE character_learned_state_events DROP COLUMN topic_id"
+                )
+            value = getattr(result, "rowcount", 0)
+            removed = int(value) if isinstance(value, int) and value > 0 else 0
+        return {"aggregate_removed": aggregate_removed, "events_removed": removed}
+
     def _drop_legacy_tables(self) -> tuple[str, ...]:
         existing = set(inspect(self.database.engine).get_table_names())
         dropped: list[str] = []
@@ -268,6 +387,7 @@ class IntelligenceV3HardCutoverMigration:
             "core_memories_migrated": self._migrate_core_memory(),
             "memory_vnext_migrated": self._migrate_memory_vnext(),
             "episodes_migrated": self._migrate_episodes(),
+            "behavior_state": self._migrate_behavior_event_schema(),
         }
         result["dropped_tables"] = self._drop_legacy_tables()
         return result
