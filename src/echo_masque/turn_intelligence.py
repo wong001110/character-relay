@@ -1,9 +1,8 @@
 """One bounded Utility decision for ambiguous conversation-turn interpretation.
 
-Turn Intelligence combines only ambiguity resolution that shares the same current-turn evidence:
-Topic continuity, Smart Participation speaker choice, Knowledge routing, and one already-authorized
-pending Tool continuation. Runtime remains authoritative for eligibility, permissions, persistence,
-and side effects.
+Turn Intelligence combines ambiguity resolution that shares the same current-turn evidence:
+optional speaker ranking, Knowledge routing, and one already-authorized PendingAction continuation.
+Runtime remains authoritative for eligibility, permissions, persistence, and side effects.
 """
 
 from __future__ import annotations
@@ -14,31 +13,18 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from echo_masque.admin_runtime import UtilityCapability
-from echo_masque.utility_gateway_contracts import (
-    ParticipationUtilityDecision,
-    UtilityGatewayUnavailable,
-    UtilityInferenceResult,
-)
+from echo_masque.utility_gateway_contracts import UtilityGatewayUnavailable, UtilityInferenceResult
 from echo_masque.utility_gateway_router import UtilityGatewayRouter
 from echo_masque.utility_structured_output import exact_json_contract
 
-TurnIntelligenceTask = Literal["topic", "speaker", "knowledge", "pending_action"]
-TurnIntelligenceSchemaVersion = Literal["turn-intelligence-v1"]
-_SCHEMA_VERSION: TurnIntelligenceSchemaVersion = "turn-intelligence-v1"
+TurnIntelligenceTask = Literal["speaker", "knowledge", "pending_action"]
+TurnIntelligenceSchemaVersion = Literal["turn-intelligence-v3"]
+_SCHEMA_VERSION: TurnIntelligenceSchemaVersion = "turn-intelligence-v3"
 _ALL_TASKS: tuple[TurnIntelligenceTask, ...] = (
-    "topic",
     "speaker",
     "knowledge",
     "pending_action",
 )
-
-
-class TurnTopicDecision(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    decision: Literal["continue", "switch", "clarify", "close"]
-    confidence: float = Field(ge=0.0, le=1.0)
-    reason_code: str = Field(default="", max_length=80)
 
 
 class TurnSpeakerDecision(BaseModel):
@@ -73,7 +59,6 @@ class TurnIntelligenceEnvelope(BaseModel):
 
     schema_version: TurnIntelligenceSchemaVersion
     requested_tasks: tuple[TurnIntelligenceTask, ...]
-    topic: dict[str, object] | None
     speaker: dict[str, object] | None
     knowledge: dict[str, object] | None
     pending_action: dict[str, object] | None
@@ -88,7 +73,6 @@ class TurnIntelligenceFieldStatus:
 
 @dataclass(frozen=True, slots=True)
 class TurnIntelligenceResult:
-    topic: TurnTopicDecision | None
     speaker: TurnSpeakerDecision | None
     knowledge: TurnKnowledgeDecision | None
     pending_action: TurnPendingActionDecision | None
@@ -136,10 +120,6 @@ class TurnIntelligenceService:
     def _nested_contract_rules() -> tuple[str, ...]:
         return (
             (
-                "When topic is requested, topic must contain exactly decision, confidence, "
-                "reason_code; decision must be continue, switch, clarify, or close."
-            ),
-            (
                 "When speaker is requested, speaker must contain exactly deployment_id, "
                 "confidence, reason_code. Use an empty deployment_id to abstain."
             ),
@@ -154,35 +134,11 @@ class TurnIntelligenceService:
             "All confidence values must be JSON numbers from 0.0 through 1.0, never strings.",
         )
 
-    @staticmethod
-    def _legacy_envelope(
-        value: object,
-        requested: tuple[TurnIntelligenceTask, ...],
-    ) -> TurnIntelligenceEnvelope | None:
-        """Adapt the pre-V4 speaker-only contract during the single-PR migration window."""
-
-        if requested != ("speaker",) or not isinstance(value, ParticipationUtilityDecision):
-            return None
-        return TurnIntelligenceEnvelope(
-            schema_version=_SCHEMA_VERSION,
-            requested_tasks=requested,
-            topic=None,
-            speaker={
-                "deployment_id": value.deployment_id,
-                "confidence": value.confidence,
-                "reason_code": value.reason_code,
-            },
-            knowledge=None,
-            pending_action=None,
-        )
-
     def decide(
         self,
         *,
         requested_tasks: tuple[TurnIntelligenceTask, ...],
         current_burst: str,
-        active_topic: str = "",
-        topic_evidence: str = "",
         speaker_candidates: tuple[tuple[str, str, str], ...] = (),
         knowledge_evidence: str = "",
         pending_tool_id: str = "",
@@ -199,7 +155,6 @@ class TurnIntelligenceService:
         }
         if not requested:
             return TurnIntelligenceResult(
-                topic=None,
                 speaker=None,
                 knowledge=None,
                 pending_action=None,
@@ -218,8 +173,6 @@ class TurnIntelligenceService:
                 f"schema_version={_SCHEMA_VERSION}",
                 f"requested_tasks={','.join(requested)}",
                 f"CURRENT_BURST: {self._bounded(current_burst, 3500)}",
-                f"ACTIVE_TOPIC: {self._bounded(active_topic, 1000) or '(none)'}",
-                f"TOPIC_EVIDENCE: {self._bounded(topic_evidence, 1200) or '(none)'}",
                 "SPEAKER_CANDIDATES:",
                 *(candidate_lines or ["(none)"]),
                 (
@@ -262,13 +215,13 @@ class TurnIntelligenceService:
             )
         )
         try:
-            raw_envelope, inference = self.gateway.invoke(
+            envelope, inference = self.gateway.invoke(
                 self.capability,
                 TurnIntelligenceEnvelope,
                 system_prompt=system_prompt,
                 user_prompt=prompt,
                 estimated_cost_usd=0.003,
-                max_output_tokens=260,
+                max_output_tokens=240,
                 temperature=0.0,
             )
         except UtilityGatewayUnavailable:
@@ -281,34 +234,10 @@ class TurnIntelligenceService:
                 for task in _ALL_TASKS
             }
             return TurnIntelligenceResult(
-                topic=None,
                 speaker=None,
                 knowledge=None,
                 pending_action=None,
                 status=unavailable,
-            )
-
-        envelope = (
-            raw_envelope
-            if isinstance(raw_envelope, TurnIntelligenceEnvelope)
-            else self._legacy_envelope(raw_envelope, requested)
-        )
-        if envelope is None:
-            invalid: dict[TurnIntelligenceTask, TurnIntelligenceFieldStatus] = {
-                task: TurnIntelligenceFieldStatus(
-                    requested=task in requested,
-                    accepted=False,
-                    reason="invalid_envelope" if task in requested else "not_requested",
-                )
-                for task in _ALL_TASKS
-            }
-            return TurnIntelligenceResult(
-                topic=None,
-                speaker=None,
-                knowledge=None,
-                pending_action=None,
-                status=invalid,
-                inference=inference,
             )
 
         echoed = self._requested(envelope.requested_tasks)
@@ -321,22 +250,9 @@ class TurnIntelligenceService:
                     "requested_tasks_mismatch",
                 )
 
-        topic: TurnTopicDecision | None = None
         speaker: TurnSpeakerDecision | None = None
         knowledge: TurnKnowledgeDecision | None = None
         pending_action: TurnPendingActionDecision | None = None
-
-        if echoed_ok and "topic" in requested:
-            parsed, reason = self._validate_field(envelope.topic, TurnTopicDecision)
-            if isinstance(parsed, TurnTopicDecision) and parsed.confidence >= 0.68:
-                topic = parsed
-                status["topic"] = TurnIntelligenceFieldStatus(True, True, "accepted")
-            else:
-                status["topic"] = TurnIntelligenceFieldStatus(
-                    True,
-                    False,
-                    "low_confidence" if isinstance(parsed, TurnTopicDecision) else reason,
-                )
 
         if echoed_ok and "speaker" in requested:
             parsed, reason = self._validate_field(envelope.speaker, TurnSpeakerDecision)
@@ -350,10 +266,7 @@ class TurnIntelligenceService:
                 status["speaker"] = TurnIntelligenceFieldStatus(True, True, "accepted")
             elif isinstance(parsed, TurnSpeakerDecision) and not parsed.deployment_id:
                 status["speaker"] = TurnIntelligenceFieldStatus(True, False, "abstained")
-            elif (
-                isinstance(parsed, TurnSpeakerDecision)
-                and parsed.deployment_id not in allowed
-            ):
+            elif isinstance(parsed, TurnSpeakerDecision) and parsed.deployment_id not in allowed:
                 status["speaker"] = TurnIntelligenceFieldStatus(
                     True,
                     False,
@@ -398,20 +311,14 @@ class TurnIntelligenceService:
                     True,
                     "accepted",
                 )
-            elif (
-                isinstance(parsed, TurnPendingActionDecision)
-                and not parsed.continue_action
-            ):
+            elif isinstance(parsed, TurnPendingActionDecision) and not parsed.continue_action:
                 pending_action = parsed
                 status["pending_action"] = TurnIntelligenceFieldStatus(
                     True,
                     True,
                     "accepted_no",
                 )
-            elif (
-                isinstance(parsed, TurnPendingActionDecision)
-                and parsed.tool_id != pending_tool_id
-            ):
+            elif isinstance(parsed, TurnPendingActionDecision) and parsed.tool_id != pending_tool_id:
                 status["pending_action"] = TurnIntelligenceFieldStatus(
                     True,
                     False,
@@ -429,7 +336,6 @@ class TurnIntelligenceService:
                 )
 
         return TurnIntelligenceResult(
-            topic=topic,
             speaker=speaker,
             knowledge=knowledge,
             pending_action=pending_action,
@@ -448,5 +354,4 @@ __all__ = [
     "TurnKnowledgeDecision",
     "TurnPendingActionDecision",
     "TurnSpeakerDecision",
-    "TurnTopicDecision",
 ]
