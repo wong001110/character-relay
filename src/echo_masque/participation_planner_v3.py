@@ -32,6 +32,7 @@ _PREVIEW_STATES = {
     "metadata",
     "partial",
     "preview",
+    "preview_only",
     "preview_grounded",
     "thumbnail",
 }
@@ -178,114 +179,88 @@ class ParticipationPlannerV3:
     ) -> float:
         deterministic = float(candidate.deterministic_score)
         semantic = max(0.0, float(candidate.semantic_points))
-        raw = max(0.0, float(candidate.raw_e5_relevance))
-        direct = max(
-            float(requested.signals.get("name_match", 0.0)),
-            float(requested.signals.get("recent_turn_match", 0.0)),
-            float(requested.signals.get("lightweight_follow_up", 0.0)),
-            float(requested.signals.get("trigger_phrase", 0.0)),
+        evidence = max(0.0, float(candidate.final_evidence_score))
+        relationship = max(0.0, requested.relationship_signal)
+        behavior = max(0.0, requested.behavior_signal)
+        directness = max(0.0, requested.directness_signal)
+        ownership = max(0.0, requested.conversation_ownership_signal)
+        fatigue = max(0.0, requested.participation_fatigue)
+        return max(
+            0.0,
+            min(
+                1.5,
+                deterministic * 0.34
+                + semantic * 0.24
+                + evidence * 0.18
+                + relationship * 0.08
+                + behavior * 0.05
+                + directness * 0.08
+                + ownership * 0.05
+                - fatigue * 0.10,
+            ),
         )
-        return deterministic + semantic + raw * 2.0 + min(4.0, direct)
 
     def plan(
         self,
         *,
         payload: SmartParticipationResolveRequest,
-        deployments: tuple[CharacterDeploymentRecord, ...],
-        candidate_views: tuple[SmartParticipationResolveCandidateView, ...],
+        candidates: tuple[CandidateViewLike, ...],
+        deployments: dict[str, CharacterDeploymentRecord],
         segments: tuple[ConversationSegmentView, ...],
-        context_by_deployment: dict[str, ContextBundleV3] | None = None,
+        context: ContextBundleV3 | None,
     ) -> ParticipationPlanV3:
         grounding = self.media_contract.resolve(payload)
         if not grounding.can_reply:
             return ParticipationPlanV3(
                 speakers=(),
-                candidates=tuple(
-                    item.deployment_id for item in candidate_views if item.eligible
-                ),
+                candidates=tuple(item.deployment_id for item in candidates),
                 grounding=grounding,
                 reason=grounding.reason,
             )
-        deployment_by_id = {item.id: item for item in deployments}
-        requested_by_id = {item.deployment_id: item for item in payload.candidates}
-        view_by_id = {item.deployment_id: item for item in candidate_views}
-        ranked: list[tuple[float, str]] = []
-        for deployment_id, view in view_by_id.items():
-            requested = requested_by_id.get(deployment_id)
-            deployment = deployment_by_id.get(deployment_id)
-            if (
-                requested is None
-                or deployment is None
-                or not view.eligible
-                or not requested.eligible
-            ):
+        requested = {item.deployment_id: item for item in payload.candidates}
+        scored = [
+            (self._score(item, requested[item.deployment_id]), item)
+            for item in candidates
+            if item.eligible and item.deployment_id in deployments and item.deployment_id in requested
+        ]
+        scored.sort(key=lambda item: (-item[0], item[1].deployment_id))
+        selected: list[ParticipationPlanItemV3] = []
+        for score, candidate in scored[:3]:
+            deployment = deployments[candidate.deployment_id]
+            threshold = max(0.0, float(candidate.minimum_score))
+            if score < threshold:
                 continue
-            context = (context_by_deployment or {}).get(deployment_id)
-            if context is not None and context.sufficiency == "unresolved":
-                continue
-            score = self._score(view, requested)
-            if score < float(view.minimum_score):
-                continue
-            ranked.append((score, deployment_id))
-        ranked.sort(key=lambda item: (-item[0], item[1]))
-        if not ranked:
-            return ParticipationPlanV3(
-                speakers=(),
-                candidates=(),
-                grounding=grounding,
-                reason="no_candidate_cleared_admission",
-            )
-        max_speakers = min(payload.max_participants, len(ranked))
-        if len(ranked) > 1 and not payload.admission_group_invitation:
-            margin = ranked[0][0] - ranked[1][0]
-            if margin < payload.minimum_margin:
-                max_speakers = 1
-        selected = ranked[:max_speakers]
-        items: list[ParticipationPlanItemV3] = []
-        for score, deployment_id in selected:
-            deployment = deployment_by_id[deployment_id]
-            requested = requested_by_id[deployment_id]
-            target = self.segment_planner.select(
+            chosen = self.segment_planner.choose_for_character(
                 deployment=deployment,
                 segments=segments,
-                latest_message_id=payload.message_id,
-                deterministic_signals=dict(requested.signals),
+                current_message=payload.message,
             )
-            if target is None:
+            if chosen is None:
                 continue
-            context = (context_by_deployment or {}).get(deployment_id)
-            context_guidance = ""
-            if context is not None:
-                if context.sufficiency == "external_lookup_needed":
-                    context_guidance = (
-                        "Relevant knowledge is missing. Do not invent it; respond from the local "
-                        "conversation only or acknowledge uncertainty."
-                    )
-                elif context.sufficiency == "insufficient_nonblocking":
-                    context_guidance = (
-                        "Keep the reply lightweight; little durable context is needed."
-                    )
-            guidance = " ".join(
-                item
-                for item in (target.guidance, grounding.guidance, context_guidance)
-                if item
-            )[:600]
-            items.append(
+            guidance_parts: list[str] = []
+            requested_item = requested[candidate.deployment_id]
+            if requested_item.participation_guidance.strip():
+                guidance_parts.append(requested_item.participation_guidance.strip())
+            if context is not None and context.social_context:
+                guidance_parts.append(context.social_context[:600])
+            if grounding.guidance:
+                guidance_parts.append(grounding.guidance)
+            selected.append(
                 ParticipationPlanItemV3(
-                    deployment_id=deployment_id,
-                    segment_id=target.segment_id,
-                    conversation_thread_id=target.semantic_thread_id,
+                    deployment_id=candidate.deployment_id,
+                    segment_id=chosen.segment_id,
+                    conversation_thread_id=chosen.thread_id,
                     score=round(score, 6),
-                    reason=target.reason,
-                    guidance=guidance,
+                    reason="v3_evidence_score",
+                    guidance=" ".join(guidance_parts)[:1400],
                     grounding=grounding.level,
                 )
             )
         return ParticipationPlanV3(
-            speakers=tuple(items),
-            candidates=tuple(item[1] for item in ranked),
+            speakers=tuple(selected),
+            candidates=tuple(item.deployment_id for _, item in scored),
             grounding=grounding,
-            reason="planned" if items else "no_segment_target",
+            reason="v3_participation_plan" if selected else "no_candidate_met_threshold",
         )
 
 
