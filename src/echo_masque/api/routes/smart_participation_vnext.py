@@ -28,7 +28,7 @@ from echo_masque.api.smart_participation_vnext_schemas import (
     SmartParticipationResolveVNextView,
 )
 from echo_masque.config import Settings
-from echo_masque.context_resolver_v3 import ContextResolverV3, ContextTextHit
+from echo_masque.context_resolver_v3 import ContextBundleV3, ContextResolverV3, ContextTextHit
 from echo_masque.conversation_reply_planner import CharacterSegmentReplyPlanner
 from echo_masque.conversation_runtime import ConversationRuntimeCoordinator
 from echo_masque.conversation_structure_resolver import ConversationStructureResolver
@@ -500,7 +500,7 @@ def resolve_smart_participation_vnext(
     ]
     current_segment_id = _current_segment_id(payload, tuple(result.segments))
     wiki_hits = _wiki_hits(request=request, owner_id=owner_id, payload=payload)
-    contexts: dict[str, object] = {}
+    contexts: dict[str, ContextBundleV3] = {}
     resolver = _context_resolver(request)
     for deployment in records:
         contexts[deployment.id] = resolver.resolve(
@@ -519,13 +519,12 @@ def resolve_smart_participation_vnext(
             correction_shield=correction_shields.get(deployment.id),
         )
 
-    typed_contexts = cast(dict[str, ContextResolverV3.__annotations__.get("return", object)], contexts)
     plan = _participation_planner(request).plan(
         payload=payload,
         deployments=tuple(records),
         candidate_views=tuple(base.candidates),
         segments=tuple(result.segments),
-        context_by_deployment=cast(dict, contexts),
+        context_by_deployment=contexts,
     )
     speaker_plan = [
         SmartParticipationSpeakerPlanItem(
@@ -544,7 +543,7 @@ def resolve_smart_participation_vnext(
             score=item.score,
             reason=item.reason,
             grounding_level=item.grounding,
-            context_sufficiency=getattr(contexts[item.deployment_id], "sufficiency", ""),
+            context_sufficiency=contexts[item.deployment_id].sufficiency,
         )
         for item in plan.speakers
     ]
@@ -575,7 +574,7 @@ def resolve_smart_participation_vnext(
             "media_grounding_level": plan.grounding.level,
             "media_grounding_reason": plan.grounding.reason,
             "context_sufficiency": {
-                deployment_id: getattr(context, "sufficiency", "")
+                deployment_id: context.sufficiency
                 for deployment_id, context in contexts.items()
             },
             "utility_used": bool(result.utility_used or extraction.utility_used),
