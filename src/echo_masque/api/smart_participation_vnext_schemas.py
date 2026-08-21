@@ -1,4 +1,4 @@
-"""Smart Participation vNext read model: Burst Segments + concurrent Semantic Threads."""
+"""Smart Participation vNext read model for Conversation Structure v3."""
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,16 +28,22 @@ class ReplyTargetRouteView(BaseModel):
     semantic_thread_id: str
     score: float
     reason: str
+    grounding_level: str = "context_only"
+    context_sufficiency: str = ""
 
 
 class SmartParticipationResolveVNextView(SmartParticipationResolveView):
     model_config = ConfigDict(extra="forbid")
 
-    resolver_version: str = "conversation-intelligence-vnext"
+    resolver_version: str = "conversation-intelligence-v3"
     segmentation_used: bool = False
     segmentation_source: str = ""
     conversation_segments: list[ConversationSegmentRouteView] = Field(default_factory=list)
     reply_targets: list[ReplyTargetRouteView] = Field(default_factory=list)
+    participation_plan_reason: str = ""
+    media_grounding_level: str = "context_only"
+    media_grounding_reason: str = ""
+    context_sufficiency: dict[str, str] = Field(default_factory=dict)
 
 
 __all__ = [
