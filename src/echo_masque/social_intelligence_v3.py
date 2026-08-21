@@ -10,9 +10,15 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
-from echo_masque.character_relationships import CharacterRelationshipService, RelationshipStateView
+from echo_masque.character_relationships import (
+    CharacterRelationshipService,
+    RelationshipStateView,
+)
 from echo_masque.persistence.database import Database
-from echo_masque.persistence.social_intelligence_models import ImpressionV3Record, SocialEventV3Record
+from echo_masque.persistence.social_intelligence_models import (
+    ImpressionV3Record,
+    SocialEventV3Record,
+)
 
 SocialEventType = Literal[
     "direct_interaction",
@@ -51,7 +57,8 @@ def _decode(raw: str) -> tuple[str, ...]:
 
 
 def _encode(values: tuple[str, ...], *, limit: int = 32) -> str:
-    return json.dumps(list(dict.fromkeys(item for item in values if item))[-limit:], ensure_ascii=False)
+    clean = list(dict.fromkeys(item for item in values if item))[-limit:]
+    return json.dumps(clean, ensure_ascii=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +215,8 @@ class SocialIntelligenceV3Service:
             ("comfort", event.comfort_delta),
         )
         latest: RelationshipStateView | None = None
+        source_message_ids = _decode(event.source_message_ids_json)
+        source_message_id = source_message_ids[0] if source_message_ids else ""
         for dimension, delta in dimensions:
             if delta == 0.0:
                 continue
@@ -221,11 +230,7 @@ class SocialIntelligenceV3Service:
                     delta=delta,
                     confidence=event.confidence,
                     reason_code=f"social_event:{event.event_type}",
-                    source_message_id=(
-                        _decode(event.source_message_ids_json)[0]
-                        if _decode(event.source_message_ids_json)
-                        else ""
-                    ),
+                    source_message_id=source_message_id,
                     source_burst_id="",
                 )
             except (KeyError, ValueError):
@@ -319,6 +324,9 @@ class SocialIntelligenceV3Service:
                 previous.status = "superseded"
                 previous.updated_at = current
                 previous_id = previous.id
+            clean_observations = tuple(
+                " ".join(item.split())[:500] for item in observations if item.strip()
+            )
             record = ImpressionV3Record(
                 id=str(uuid4()),
                 owner_id=owner_id,
@@ -326,10 +334,7 @@ class SocialIntelligenceV3Service:
                 target_type=target_type,
                 target_key=target_key[:200],
                 summary=" ".join(summary.split())[:2400],
-                observations_json=_encode(
-                    tuple(" ".join(item.split())[:500] for item in observations if item.strip()),
-                    limit=12,
-                ),
+                observations_json=_encode(clean_observations, limit=12),
                 evidence_refs_json=_encode(evidence_refs, limit=48),
                 confidence=max(0.0, min(float(confidence), 1.0)),
                 status="active",
