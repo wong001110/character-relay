@@ -31,10 +31,10 @@ class UtilityRagGuard:
             or signals.retry_score >= 0.48
             or signals.continuity_reason
             in {
-                "semantic_continuation",
-                "empty_message_keeps_active_topic",
-                "utility_topic_continue",
-                "utility_topic_clarify",
+                "explicit_reply_to_pending_action",
+                "pending_action_semantic_continuation",
+                "utility_tool_continuation",
+                "turn_intelligence_tool_continuation",
             }
             or payload.reply_to_message_id
         )
@@ -76,7 +76,7 @@ class UtilityRagGuard:
         prompt = "\n".join(
             (
                 f"Current message: {payload.text[:3000]}",
-                f"Topic id: {context.trace.topic_id}",
+                f"Conversation thread id: {context.trace.conversation_thread_id}",
                 f"RAG dense score: {context.trace.rag_gate_dense_score:.4f}",
                 f"RAG sparse score: {context.trace.rag_gate_sparse_score:.4f}",
                 "Does the current message genuinely require the carried-over Knowledge?",
