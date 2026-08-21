@@ -3,7 +3,7 @@
   padding-top: 18px;
   border-top: 1px dashed rgba(75, 69, 61, 0.22);
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .conversation-structure-heading {
@@ -13,9 +13,88 @@
   align-items: flex-start;
 }
 
-.conversation-structure-heading > div {
+.conversation-structure-heading > div:first-child {
   display: grid;
   gap: 5px;
+  max-width: 760px;
+}
+
+.conversation-structure-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.conversation-structure-controls label {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+  font-size: 0.75rem;
+}
+
+.conversation-structure-controls select {
+  min-height: 34px;
+  padding: 6px 28px 6px 9px;
+  border: 1px solid rgba(75, 69, 61, 0.22);
+  border-radius: 3px;
+  background: rgba(255, 253, 247, 0.9);
+  color: inherit;
+}
+
+.conversation-structure-context-note {
+  display: grid;
+  gap: 4px;
+  width: min(620px, 100%);
+  padding: 10px 13px;
+  transform: rotate(-0.25deg);
+}
+
+.conversation-index-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 2px 4px 0;
+  border-bottom: 1px solid rgba(75, 69, 61, 0.18);
+}
+
+.conversation-index-tabs button {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 7px 11px 6px;
+  border: 1px solid rgba(75, 69, 61, 0.18);
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+  background: rgba(236, 226, 198, 0.62);
+  color: inherit;
+  cursor: pointer;
+  transform: translateY(1px);
+}
+
+.conversation-index-tabs button:nth-child(2n) {
+  background: rgba(220, 232, 218, 0.7);
+}
+
+.conversation-index-tabs button:nth-child(3n) {
+  background: rgba(221, 229, 239, 0.72);
+}
+
+.conversation-index-tabs button.is-active {
+  background: rgba(255, 253, 247, 0.98);
+  font-weight: 700;
+  transform: translateY(1px) rotate(-0.2deg);
+}
+
+.conversation-index-tabs small {
+  min-width: 20px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(75, 69, 61, 0.08);
+  text-align: center;
+  font-size: 0.68rem;
 }
 
 .conversation-structure-layout {
@@ -31,44 +110,98 @@
 }
 
 .conversation-thread-list,
-.conversation-segment-list {
+.conversation-segment-list,
+.conversation-evidence-grid {
   display: grid;
   gap: 8px;
+}
+
+.conversation-evidence-grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  align-items: start;
 }
 
 .conversation-thread-list article,
-.conversation-segment-list article {
+.conversation-segment-list article,
+.conversation-evidence-card {
   display: grid;
   gap: 5px;
   padding: 10px 11px;
-  background: rgba(255, 255, 255, 0.48);
+  background: rgba(255, 255, 255, 0.5);
   border: 1px solid rgba(75, 69, 61, 0.16);
+  box-shadow: 0 2px 0 rgba(75, 69, 61, 0.04);
+}
+
+.conversation-thread-list article:nth-child(3n + 2),
+.conversation-evidence-card:nth-child(3n + 2) {
+  transform: rotate(0.18deg);
 }
 
 .conversation-thread-list header,
-.conversation-segment-list header {
+.conversation-segment-list header,
+.conversation-evidence-card header {
   display: flex;
   justify-content: space-between;
   gap: 8px;
+  align-items: flex-start;
 }
 
 .conversation-thread-list header span,
 .conversation-segment-list header span,
+.conversation-evidence-card header span,
 .conversation-thread-list small,
-.conversation-segment-list small {
+.conversation-segment-list small,
+.conversation-evidence-card small {
   font-size: 0.75rem;
-  opacity: 0.7;
+  opacity: 0.72;
 }
 
 .conversation-thread-list p,
-.conversation-segment-list p {
+.conversation-segment-list p,
+.conversation-evidence-card p {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
+.conversation-anchor-summary {
+  padding-left: 8px;
+  border-left: 2px solid rgba(75, 69, 61, 0.16);
+}
+
+.knowledge-gap-card {
+  background: rgba(255, 244, 190, 0.5);
+}
+
+.belief-card {
+  background: rgba(230, 239, 226, 0.5);
+}
+
+.impression-card {
+  background: rgba(233, 230, 242, 0.5);
+}
+
 @media (max-width: 900px) {
-  .conversation-structure-layout {
+  .conversation-structure-heading,
+  .conversation-structure-controls {
+    align-items: stretch;
+  }
+
+  .conversation-structure-heading {
+    flex-direction: column;
+  }
+
+  .conversation-structure-controls {
+    width: 100%;
+  }
+
+  .conversation-structure-controls label {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .conversation-structure-layout,
+  .conversation-evidence-grid {
     grid-template-columns: 1fr;
   }
 }
