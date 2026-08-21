@@ -16,6 +16,17 @@ from echo_masque.persistence.conversation_graph_models import (
     ConversationGraphEdgeRecord,
     ConversationGraphNodeRecord,
 )
+from echo_masque.persistence.conversation_runtime_models import (
+    ConversationEpisodeV3Record,
+    PendingActionV3Record,
+    ThreadWorkingStateRecord,
+)
+from echo_masque.persistence.conversation_structure_models import (
+    ConversationSegmentV3Record,
+    ConversationThreadRecord,
+    MessageRelationRecord,
+    ThreadMembershipRecord,
+)
 from echo_masque.persistence.conversation_topic_decision_models import ConversationTopicDecisionRecord
 from echo_masque.persistence.core_memory_models import CharacterCoreMemoryRecord
 from echo_masque.persistence.deployment_activity_models import (
@@ -144,6 +155,13 @@ class Database:
             WikiPageRecord,
             ConversationGraphNodeRecord,
             ConversationGraphEdgeRecord,
+            ConversationThreadRecord,
+            ConversationSegmentV3Record,
+            ThreadMembershipRecord,
+            MessageRelationRecord,
+            ConversationEpisodeV3Record,
+            ThreadWorkingStateRecord,
+            PendingActionV3Record,
             CharacterLearnedStateRecord,
             CharacterLearnedStateEventRecord,
             SmartParticipationScopeStateRecord,
