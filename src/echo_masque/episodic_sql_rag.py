@@ -1,4 +1,4 @@
-"""SAG-inspired deterministic Episode indexing for query-time SQL expansion."""
+"""SAG-inspired deterministic Episode v3 indexing for query-time SQL expansion."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from echo_masque.persistence.conversation_episode_models import ConversationEpisodeRecord
+from echo_masque.persistence.conversation_runtime_models import ConversationEpisodeV3Record
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.episodic_sql_rag_repository import EpisodicSqlRagRepository
 
@@ -28,11 +28,13 @@ def _day_key(value: datetime) -> str:
 
 @dataclass(slots=True)
 class EpisodicSqlRagIndexer:
+    """Maintain a read-optimized index derived from Episode v3; never own conversation truth."""
+
     repository: EpisodicSqlRagRepository
 
     def _link(
         self,
-        episode: ConversationEpisodeRecord,
+        episode: ConversationEpisodeV3Record,
         *,
         entity_type: str,
         canonical_key: str,
@@ -59,20 +61,13 @@ class EpisodicSqlRagIndexer:
 
     def index_episode(
         self,
-        episode: ConversationEpisodeRecord,
+        episode: ConversationEpisodeV3Record,
         *,
         deployment_id: str = "",
     ) -> None:
-        """Index only deterministic entities on the hot path; semantic extraction stays background."""
+        """Index only deterministic provenance; semantic interpretation remains Evidence Graph work."""
 
-        if episode.topic_id:
-            self._link(
-                episode,
-                entity_type="topic",
-                canonical_key=f"topic:{episode.topic_id}",
-                label=episode.topic_id,
-            )
-        for actor_id in _decode(episode.participant_refs_json)[:30]:
+        for actor_id in _decode(episode.participant_ids_json)[:30]:
             self._link(
                 episode,
                 entity_type="actor",
@@ -86,18 +81,25 @@ class EpisodicSqlRagIndexer:
                 canonical_key=media_ref,
                 label=media_ref,
             )
+        for entity_id in _decode(episode.entity_ids_json)[:30]:
+            self._link(
+                episode,
+                entity_type="entity_ref",
+                canonical_key=f"entity:{entity_id}",
+                label=entity_id,
+            )
         self._link(
             episode,
             entity_type="channel",
             canonical_key=f"discord_channel:{episode.channel_id}",
             label=episode.channel_id,
         )
-        if episode.thread_id:
+        if episode.discord_thread_id:
             self._link(
                 episode,
-                entity_type="thread",
-                canonical_key=f"discord_thread:{episode.thread_id}",
-                label=episode.thread_id,
+                entity_type="discord_thread",
+                canonical_key=f"discord_thread:{episode.discord_thread_id}",
+                label=episode.discord_thread_id,
             )
         self._link(
             episode,
