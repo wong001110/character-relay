@@ -171,8 +171,8 @@ def test_invalid_pending_field_does_not_discard_valid_knowledge() -> None:
     assert fake.calls == 1
     assert outcome.knowledge_route == "current"
     assert outcome.knowledge_source == "turn_intelligence"
-    assert outcome.pending_action_continue is None
-    assert outcome.pending_action_source == "legacy_fallback_required"
+    assert outcome.pending_action_continue is False
+    assert outcome.pending_action_source == "deterministic_fallback"
 
 
 def test_disallowed_knowledge_route_falls_back_without_poisoning_pending_action() -> None:
@@ -185,8 +185,7 @@ def test_disallowed_knowledge_route_falls_back_without_poisoning_pending_action(
     )
 
     assert fake.calls == 1
-    assert outcome.knowledge_route is None
-    assert outcome.knowledge_fallback_required is True
+    assert outcome.knowledge_route == "contextual"
+    assert outcome.knowledge_source == "deterministic_fallback"
     assert outcome.pending_action_continue is False
     assert outcome.pending_action_source == "turn_intelligence"
-    assert outcome.pending_action_fallback_required is False
