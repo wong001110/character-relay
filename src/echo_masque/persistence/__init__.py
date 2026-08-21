@@ -18,14 +18,8 @@ from echo_masque.persistence.calibration_repository import (
 )
 from echo_masque.persistence.condition_watch_models import ConditionWatchRecord
 from echo_masque.persistence.condition_watch_repository import ConditionWatchRepository
-from echo_masque.persistence.conversation_episode_models import ConversationEpisodeRecord
-from echo_masque.persistence.conversation_episode_repository import ConversationEpisodeRepository
 from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord
-from echo_masque.persistence.conversation_media_repository import (
-    ConversationMediaReferenceRepository,
-)
-from echo_masque.persistence.conversation_topic_models import ConversationTopicRecord
-from echo_masque.persistence.conversation_topic_repository import ConversationTopicRepository
+from echo_masque.persistence.conversation_media_repository import ConversationMediaReferenceRepository
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
@@ -42,10 +36,7 @@ from echo_masque.persistence.deployment_presence_repository import (
     DeploymentPresenceState,
     DeploymentPresenceView,
 )
-from echo_masque.persistence.deployment_repository import (
-    DeploymentConflict,
-    DeploymentRepository,
-)
+from echo_masque.persistence.deployment_repository import DeploymentConflict, DeploymentRepository
 from echo_masque.persistence.deployment_tool_repository import DeploymentToolRepository
 from echo_masque.persistence.discord_identity_models import (
     DeploymentMessageAliasRecord,
@@ -76,10 +67,7 @@ from echo_masque.persistence.interaction_models import (
     DiscordInteractionTemplateRecord,
     DiscordStickerSemanticRecord,
 )
-from echo_masque.persistence.interaction_repository import (
-    InteractionConflict,
-    InteractionRepository,
-)
+from echo_masque.persistence.interaction_repository import InteractionConflict, InteractionRepository
 from echo_masque.persistence.key_group_models import (
     CharacterKeyGroupAssignmentRecord,
     ProviderKeyGroupRecord,
@@ -101,11 +89,7 @@ from echo_masque.persistence.knowledge_repository import KnowledgeRetrievalResul
 from echo_masque.persistence.matrix_repository import MatrixRepository
 from echo_masque.persistence.media_models import MediaAnalysisRecord
 from echo_masque.persistence.media_repository import MediaAnalysisRepository
-from echo_masque.persistence.memory_vnext_models import ConversationMemoryVNextRecord
-from echo_masque.persistence.memory_vnext_repository import MemoryVNextRepository
-from echo_masque.persistence.portable_calibration_repository import (
-    PortableCalibrationRepository,
-)
+from echo_masque.persistence.portable_calibration_repository import PortableCalibrationRepository
 from echo_masque.persistence.provider_trace_models import ProviderTraceRecord
 from echo_masque.persistence.provider_trace_repository import ProviderTraceRepository
 from echo_masque.persistence.repository import Repository
@@ -116,9 +100,7 @@ from echo_masque.persistence.runtime_durability_models import (
     RuntimeTraceEventRecord,
     RuntimeTraceRunRecord,
 )
-from echo_masque.persistence.runtime_durability_repository import (
-    DurableRuntimeRepository,
-)
+from echo_masque.persistence.runtime_durability_repository import DurableRuntimeRepository
 from echo_masque.persistence.scheduled_reminder_models import ScheduledReminderRecord
 from echo_masque.persistence.scheduled_reminder_repository import ScheduledReminderRepository
 from echo_masque.persistence.semantic_vector_models import SemanticVectorRecord
@@ -166,13 +148,8 @@ __all__ = [
     "CharacterSemanticProfileRecord",
     "ConditionWatchRecord",
     "ConditionWatchRepository",
-    "ConversationEpisodeRecord",
-    "ConversationEpisodeRepository",
     "ConversationMediaReferenceRecord",
     "ConversationMediaReferenceRepository",
-    "ConversationMemoryVNextRecord",
-    "ConversationTopicRecord",
-    "ConversationTopicRepository",
     "Database",
     "DeploymentConflict",
     "DeploymentMessageAliasRecord",
@@ -218,7 +195,6 @@ __all__ = [
     "MatrixRepository",
     "MediaAnalysisRecord",
     "MediaAnalysisRepository",
-    "MemoryVNextRepository",
     "PlatformConnectionRecord",
     "PortableCalibrationRepository",
     "ProviderKeyGroupRecord",
