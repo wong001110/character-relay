@@ -42,6 +42,14 @@ export interface AuthSession {
   current: boolean;
 }
 
+export interface Page<T> {
+  items: T[];
+  page: number;
+  page_size: number;
+  total: number;
+  pages: number;
+}
+
 export interface InvitationView {
   id: string;
   email: string | null;
@@ -401,7 +409,15 @@ export const api = {
       })
     }),
   logout: () => request<void>("/api/auth/logout", { method: "POST" }),
-  listSessions: () => request<AuthSession[]>("/api/auth/sessions"),
+  listSessionsPage: (page = 1, pageSize = 20) =>
+    request<Page<AuthSession>>(
+      `/api/auth/sessions?${new URLSearchParams({
+        page: String(page),
+        page_size: String(pageSize)
+      }).toString()}`
+    ),
+  listSessions: () =>
+    api.listSessionsPage().then((result) => result.items),
   revokeSession: (sessionId: string) =>
     request<void>(`/api/auth/sessions/${sessionId}`, { method: "DELETE" }),
   exportAccount: () => request<Record<string, unknown>>("/api/account/export"),
@@ -422,7 +438,23 @@ export const api = {
     }),
   revokeInvitation: (invitationId: string) =>
     request<void>(`/api/admin/invitations/${invitationId}`, { method: "DELETE" }),
-  listAdminUsers: () => request<AdminAccount[]>("/api/admin/users"),
+  listAdminUsersPage: (
+    options: { page?: number; pageSize?: number; search?: string } = {}
+  ) => {
+    const query = new URLSearchParams({
+      page: String(options.page ?? 1),
+      page_size: String(options.pageSize ?? 20)
+    });
+    const search = options.search?.trim();
+    if (search) query.set("search", search);
+    return request<Page<AdminAccount>>(`/api/admin/users?${query.toString()}`);
+  },
+  listAdminUsers: () =>
+    api.listAdminUsersPage().then((result) => result.items),
+  deleteAdminUser: (userId: string) =>
+    request<LifecycleResult>(`/api/admin/users/${encodeURIComponent(userId)}`, {
+      method: "DELETE"
+    }),
   updateUserRole: (userId: string, role: AccountRole) =>
     request<AdminAccount>(`/api/admin/users/${userId}/role`, {
       method: "PUT",

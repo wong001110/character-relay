@@ -1,6 +1,8 @@
 # Conversation Intelligence Architecture
 
-Status: design proposal for discussion
+Status: **historical design proposal — superseded by Intelligence Core v3 where they conflict**
+
+> Preserve this document for decision history. Do not implement Topic-centric authority or infer current behavior from it. Use `docs/intelligence-core-v3-architecture.md` and current source/tests.
 
 This document records the current architecture decisions and open questions for the next Character Relay conversation-intelligence refactor. It is intentionally documentation-only. It does not change Runtime behavior.
 

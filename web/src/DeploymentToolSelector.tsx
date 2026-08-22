@@ -4,7 +4,6 @@ import { deploymentApi, type ToolCatalogItem } from "./deploymentApi";
 import { DeploymentDailyRhythmPanel } from "./DeploymentDailyRhythmPanel";
 import { DeploymentDiscoverySettings } from "./DeploymentDiscoverySettings";
 import "./intelligence-product-completion.css";
-import "./stabilization-hotfix.css";
 
 interface Props {
   deploymentId: string;
@@ -16,13 +15,6 @@ type ToolCatalogItemWithAvailability = ToolCatalogItem & {
   available?: boolean;
   availability_reason?: string;
 };
-
-function availabilityReason(value: string): string {
-  return value.replaceAll(
-    "ECHO_MASQUE_DISCORD_TOOL_BOT_TOKEN",
-    "DISCORD_BOT_TOKEN"
-  );
-}
 
 export function DeploymentToolSelector({
   deploymentId,
@@ -120,7 +112,7 @@ export function DeploymentToolSelector({
                     {unavailable && tool.availability_reason && (
                       <small className="deployment-inline-error">
                         {zh ? "尚未配置：" : "Unavailable: "}
-                        {availabilityReason(tool.availability_reason)}
+                        {tool.availability_reason}
                       </small>
                     )}
                   </span>

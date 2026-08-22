@@ -6,7 +6,12 @@ from pydantic import SecretStr
 
 from echo_masque.api import create_app
 from echo_masque.config import Settings
-from echo_masque.public_demo import PUBLIC_DEMO_EMAIL, PUBLIC_DEMO_PASSWORD
+from echo_masque.persistence.models import RunSnapshotRecord
+from echo_masque.public_demo import (
+    PUBLIC_DEMO_EMAIL,
+    PUBLIC_DEMO_PASSWORD,
+    PUBLIC_DEMO_USER_ID,
+)
 
 ADMIN_EMAIL = "superadmin@example.com"
 ADMIN_PASSWORD = "SuperAdminPassword2026!"
@@ -173,6 +178,105 @@ def test_public_demo_sync_is_idempotent_and_copies_encrypted_credentials(
     assert len(second_restart.get("/api/characters").json()) == 2
     assert len(second_restart.get("/api/scenarios").json()) == 2
     assert len(second_restart.get("/api/test-packs").json()) == 1
+
+
+def test_public_demo_sync_removes_stale_demo_character_resources_only(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "public-demo-stale.db"
+    key = Fernet.generate_key().decode("ascii")
+    admin_client = TestClient(
+        create_app(settings(database_path, key, demo_enabled=False))
+    )
+    source_cards, source_secrets = seed_admin_workspace(admin_client)
+    admin_user = admin_client.app.state.auth_repository.get_user_by_email(ADMIN_EMAIL)
+    assert admin_user is not None
+
+    enabled = settings(database_path, key, demo_enabled=True)
+    first_restart = TestClient(create_app(enabled))
+    demo_user = first_restart.app.state.auth_repository.get_user_by_email(PUBLIC_DEMO_EMAIL)
+    assert demo_user is not None
+    assert demo_user.id == PUBLIC_DEMO_USER_ID
+
+    stale_target = first_restart.app.state.repository.create_target(
+        name="Stale Public Demo Target",
+        target_kind="prompt_model",
+        config={
+            "name": "Stale Public Demo Target",
+            "provider": "deepseek",
+            "base_url": "https://api.deepseek.com",
+            "model": "stale-model",
+            "system_prompt": "Stale derived prompt.",
+            "temperature": 0.2,
+        },
+    )
+    first_restart.app.state.target_access_repository.assign(
+        owner_id=demo_user.id,
+        target_id=stale_target.id,
+    )
+    stale_card = first_restart.app.state.repository.create_character_card(
+        owner_id=demo_user.id,
+        target_id=stale_target.id,
+        display_name="STALE LIVE DEMO — Remove Me",
+        subtitle="Obsolete synchronized fixture",
+        subject_type="companion",
+        persona_summary="This derived card must be reconciled away.",
+        traits=["stale"],
+        tags=["live-demo", "public-demo"],
+        expected_tone="Obsolete",
+        forbidden_behaviors=[],
+        memory_summary=None,
+        preferred_suites=["identity_integrity"],
+        portrait_variant="lavender",
+    )
+    first_restart.app.state.credential_store.set(
+        demo_user.id,
+        stale_card.id,
+        SecretStr("stale-demo-provider-key"),
+    )
+    stale_run = first_restart.app.state.repository.create_run(
+        target_id=stale_target.id,
+        suite=[],
+        character_card_id=stale_card.id,
+    )
+    with first_restart.app.state.repository.database.session() as session:
+        session.add(
+            RunSnapshotRecord(
+                run_id=stale_run.id,
+                owner_id=demo_user.id,
+                character_card_id=stale_card.id,
+                test_pack_id=None,
+                character_json="{}",
+                target_json="{}",
+                pack_json="{}",
+                scenarios_json="[]",
+            )
+        )
+        session.commit()
+
+    second_restart = TestClient(create_app(enabled))
+    demo_cards = second_restart.app.state.repository.list_character_cards(demo_user.id)
+    assert {item.display_name for item in demo_cards} == {
+        "LIVE DEMO — Stable Ann",
+        "LIVE DEMO — Drift Ann (OOC Control)",
+    }
+    assert second_restart.app.state.credential_store.get(demo_user.id, stale_card.id) is None
+    assert second_restart.app.state.repository.get_target(stale_target.id) is None
+    assert second_restart.app.state.repository.get_run(stale_run.id) is None
+    assert not second_restart.app.state.target_access_repository.can_access(
+        owner_id=demo_user.id,
+        target_id=stale_target.id,
+    )
+
+    admin_cards = second_restart.app.state.repository.list_character_cards(admin_user.id)
+    assert {item.id for item in admin_cards} == {str(item["id"]) for item in source_cards}
+    for source_card, expected_secret in zip(source_cards, source_secrets, strict=True):
+        secret = second_restart.app.state.credential_store.get(
+            admin_user.id,
+            str(source_card["id"]),
+        )
+        assert secret is not None
+        assert secret.get_secret_value() == expected_secret
 
 
 def test_public_demo_can_browse_and_run_but_cannot_mutate_shared_workspace(

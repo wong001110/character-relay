@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 
 import { AdminSettings } from "./AdminSettings";
 import {
@@ -27,6 +27,7 @@ import { PortalShell, type PortalSection } from "./PortalShell";
 import { PromptInspector } from "./PromptInspector";
 import { isPublicDemoUser } from "./publicDemo";
 import { SettingsWorkspace } from "./SettingsWorkspace";
+import { serverAccessApi } from "./serverAccessApi";
 import { TemplateLab } from "./TemplateLab";
 import { TestRoom } from "./TestRoom";
 import { ToolboxWorkspace } from "./ToolboxWorkspace";
@@ -42,6 +43,14 @@ import "./portal-v2.css";
 import "./portal-reference-shell.css";
 
 const SHOW_ADVANCED_LABS = false;
+const COMPONENT_LIBRARY_PATH = "/dev/ui";
+const requestedComponentLibrary =
+  (window.location.pathname.replace(/\/+$/, "") || "/") === COMPONENT_LIBRARY_PATH;
+const ComponentLibraryPage = lazy(() =>
+  import("./ComponentLibraryPage").then((module) => ({
+    default: module.ComponentLibraryPage
+  }))
+);
 type PortalTheme = "light" | "dark";
 const THEME_STORAGE_KEY = "character-relay-theme";
 
@@ -81,6 +90,9 @@ export default function App() {
   const [coverageOpen, setCoverageOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [componentLibraryAccess, setComponentLibraryAccess] = useState<
+    "idle" | "checking" | "allowed" | "denied"
+  >(requestedComponentLibrary ? "checking" : "idle");
 
   const workspaceAllowed =
     authConfig !== null && (!authConfig.authentication_required || user !== null);
@@ -115,8 +127,28 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (workspaceAllowed) void load();
+    if (workspaceAllowed && !requestedComponentLibrary) void load();
   }, [workspaceAllowed]);
+
+  useEffect(() => {
+    if (!requestedComponentLibrary || !workspaceAllowed) return;
+    let active = true;
+    setComponentLibraryAccess("checking");
+    void serverAccessApi.overview()
+      .then((overview) => {
+        if (active) {
+          setComponentLibraryAccess(
+            overview.is_super_admin && !publicDemo ? "allowed" : "denied"
+          );
+        }
+      })
+      .catch(() => {
+        if (active) setComponentLibraryAccess("denied");
+      });
+    return () => {
+      active = false;
+    };
+  }, [publicDemo, user?.id, workspaceAllowed]);
 
   useEffect(() => {
     try {
@@ -303,6 +335,44 @@ export default function App() {
           setUser(authenticatedUser);
         }}
       />
+    );
+  }
+
+  if (requestedComponentLibrary) {
+    if (componentLibraryAccess === "allowed") {
+      return (
+        <Suspense
+          fallback={
+            <main className="auth-page">
+              <section className="auth-card paper-sheet">
+                <h1>Component Library</h1>
+                <p>Loading the Super Admin catalog…</p>
+              </section>
+            </main>
+          }
+        >
+          <ComponentLibraryPage />
+        </Suspense>
+      );
+    }
+    if (componentLibraryAccess === "denied") {
+      return (
+        <main className="auth-page">
+          <section className="auth-card paper-sheet">
+            <h1>Component Library</h1>
+            <p className="error-note">This catalog is available only to the Super Admin.</p>
+            <a className="paper-button" href="/">Return to Character Relay</a>
+          </section>
+        </main>
+      );
+    }
+    return (
+      <main className="auth-page">
+        <section className="auth-card paper-sheet">
+          <h1>Component Library</h1>
+          <p>Checking Super Admin access…</p>
+        </section>
+      </main>
     );
   }
 

@@ -1,10 +1,9 @@
 # Intelligence Core v3 Architecture Contract
 
-Status: active implementation contract
-Branch: `feat/intelligence-core-v3-hard-cutover`
-Base: `main@99e20eb247e0dbaadb061aa2152f7b3acb637feb`
+Status: **merged canonical architecture contract**
+Merged: PR #201, squash commit `34796457c5e110de5b09923d0ca25304a34d2f73`
 
-This document is the source-level implementation contract for the Intelligence Core v3 hard cutover. OpenWiki may be used as derived navigation/context, but repository source, schemas, migrations, tests, and this explicit contract remain authoritative during branch development. OpenWiki must not be regenerated to describe unmerged branch state.
+This document is the canonical architecture contract for the merged Intelligence Core v3 hard cutover. Repository source, schemas, migrations, and tests remain authoritative for implemented details; OpenWiki is derived navigation/context.
 
 ## Goal
 
@@ -339,12 +338,10 @@ Preserve useful raw evidence, Episodes where still meaningful, media, authored M
 
 New Conversation Threads begin from the cutover runtime.
 
-## Development/merge contract
+## Ongoing change contract
 
-- Main Agent owns phase gates and cross-subsystem integration.
-- Sub-agent-sized work must be bounded to the active phase and may not introduce unrelated architecture.
-- Do not commit/test every tiny edit. Commit coherent subsystem slices or major runtime/schema switches.
-- Run targeted tests after coherent batches, phase-level integration tests at exit gates, and full tests at major milestones/final stabilization.
-- Keep the PR open as the active implementation record.
-- OpenWiki is not regenerated while the branch is unmerged.
-- Final merge method is squash only, after final CI/tests/review are green and blocking findings are resolved.
+- Keep changes bounded to a coherent subsystem and name the source/test evidence used.
+- Run targeted tests after coherent batches and the relevant full validation before handoff.
+- Update this contract when authority or architecture changes; implementation detail belongs with source/tests.
+- Refresh OpenWiki from updated `main` after accepted architectural work merges.
+- Do not restore Topic compatibility or fallback as a shortcut around a v3 consumer.

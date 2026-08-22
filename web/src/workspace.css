@@ -6,8 +6,7 @@
 }
 
 .workspace-header,
-.section-heading,
-.storage-connect {
+.section-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -64,8 +63,7 @@
   grid-column: 1 / -1;
 }
 
-.workspace-form label,
-.storage-connect label {
+.workspace-form label {
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -77,7 +75,6 @@
 .workspace-form input,
 .workspace-form textarea,
 .workspace-form select,
-.storage-connect input,
 .history-filters select,
 .storage-tools select {
   width: 100%;
@@ -225,15 +222,6 @@
 
 .danger {
   color: #a24f5d !important;
-}
-
-.storage-connect {
-  padding: 16px;
-  margin-bottom: 16px;
-}
-
-.storage-connect label {
-  flex: 1;
 }
 
 .diagnostic-card {
@@ -406,8 +394,7 @@
 
 @media (max-width: 640px) {
   .workspace-header,
-  .section-heading,
-  .storage-connect {
+  .section-heading {
     align-items: stretch;
     flex-direction: column;
   }

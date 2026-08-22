@@ -20,8 +20,19 @@ class AuthoringAwareAccountLifecycleService(AccountLifecycleService):
         super().__init__(database, auth_repository)
         self.authoring_archive_service = authoring_archive_service
 
-    def delete_account(self, user_id: str, *, email: str) -> dict[str, int]:
-        deleted = super().delete_account(user_id, email=email)
+    def delete_account(
+        self,
+        user_id: str,
+        *,
+        email: str,
+        actor_user_id: str | None = None,
+    ) -> dict[str, int]:
+        self.validate_account_deletion(user_id)
+        deleted = super().delete_account(
+            user_id,
+            email=email,
+            actor_user_id=actor_user_id,
+        )
         deleted.update(self.authoring_archive_service.delete_owner(user_id))
         return deleted
 

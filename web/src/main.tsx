@@ -29,10 +29,11 @@ import "./lab-scrapbook-v3.css";
 import "./ui-showcase-icons.css";
 import "./overlay-layers.css";
 import "./paper-texture-system.css";
-import { DomainShowcase } from "./DomainShowcase";
+// Keep the stabilization layer last so its cross-page responsive contracts
+// do not depend on which feature component happens to load first.
+import "./stabilization-hotfix.css";
 import { I18nProvider } from "./i18n";
 import { SemanticRoutingJudgeDock } from "./SemanticRoutingJudgeDock";
-import { UIShowcase } from "./UIShowcase";
 
 const normalizedPath = window.location.pathname.replace(/\/+$/, "") || "/";
 const showUiShowcase = normalizedPath === "/dev/ui";
@@ -40,14 +41,7 @@ const showUiShowcase = normalizedPath === "/dev/ui";
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <I18nProvider>
-      {showUiShowcase ? (
-        <>
-          <UIShowcase />
-          <DomainShowcase />
-        </>
-      ) : (
-        <App />
-      )}
+      <App />
       {!showUiShowcase && <SemanticRoutingJudgeDock />}
     </I18nProvider>
   </StrictMode>

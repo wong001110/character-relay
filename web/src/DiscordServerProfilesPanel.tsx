@@ -303,30 +303,26 @@ export function DiscordServerProfilesPanel({
 
         {profiles.length ? (
           <div className="server-workspace-selector-row">
-            <label>
-              {zh ? "当前 Server" : "Current Server"}
-              <select
-                value={selectedProfile?.id ?? ""}
-                onChange={(event) => onSelectProfile(event.currentTarget.value)}
-              >
-                <option value="" disabled>
-                  {zh ? "选择 Server…" : "Choose a Server…"}
-                </option>
-                {profiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.guild_name} · {profile.name}
+            <div className="server-workspace-current-card">
+              <div className="server-workspace-icon" aria-hidden="true">#</div>
+              <label className="server-workspace-current-select">
+                <span>{zh ? "当前 Server" : "Current Server"}</span>
+                <select
+                  value={selectedProfile?.id ?? ""}
+                  onChange={(event) => onSelectProfile(event.currentTarget.value)}
+                >
+                  <option value="" disabled>
+                    {zh ? "选择 Server…" : "Choose a Server…"}
                   </option>
-                ))}
-              </select>
-            </label>
-            {selectedProfile ? (
-              <div className="server-workspace-current-card">
-                <div className="server-workspace-icon" aria-hidden="true">#</div>
-                <div>
-                  <strong>{selectedProfile.guild_name}</strong>
-                  <span>{selectedProfile.name}</span>
-                  <small>ID {selectedProfile.guild_id}</small>
-                </div>
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.guild_name} · {profile.name}
+                    </option>
+                  ))}
+                </select>
+                {selectedProfile ? <small>ID {selectedProfile.guild_id}</small> : null}
+              </label>
+              {selectedProfile ? (
                 <div className="server-workspace-stats">
                   <div className="server-workspace-stat">
                     <strong>{selectedServerCatalog?.channels.length ?? 0}</strong>
@@ -340,12 +336,8 @@ export function DiscordServerProfilesPanel({
                     <span>{zh ? "排除位置" : "exclusions"}</span>
                   </div>
                 </div>
-              </div>
-            ) : (
-              <div className="server-workspace-placeholder">
-                {zh ? "选择 Server 后才会显示运行配置。" : "Select a Server to open its runtime workspace."}
-              </div>
-            )}
+              ) : null}
+            </div>
 
             <div className="server-workspace-connection-note">
               <div className="server-workspace-connection-icon" aria-hidden="true">D</div>

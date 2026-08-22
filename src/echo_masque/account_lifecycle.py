@@ -38,6 +38,7 @@ from echo_masque.persistence.models import (
     UserRecord,
 )
 from echo_masque.persistence.security_models import RateLimitBucketRecord
+from echo_masque.persistence.server_access_models import DiscordServerAccessRecord
 
 InvitationRole = Literal["user", "admin"]
 LOCAL_WORKSPACE_OWNER = "local-user"
@@ -109,15 +110,53 @@ class AccountLifecycleService:
         )
         return True
 
-    def list_users(self) -> list[UserRecord]:
-        with self.database.session() as session:
-            return list(
-                session.scalars(
-                    select(UserRecord)
-                    .where(UserRecord.id != SYSTEM_RUNTIME_USER_ID)
-                    .order_by(UserRecord.created_at)
+    def list_users_page(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        search: str | None = None,
+    ) -> tuple[list[UserRecord], int, int, int]:
+        bounded_page_size = max(1, min(page_size, 100))
+        conditions = [
+            UserRecord.id != SYSTEM_RUNTIME_USER_ID,
+            UserRecord.is_active.is_(True),
+        ]
+        normalized_search = search.casefold().strip() if search else ""
+        if normalized_search:
+            conditions.append(
+                or_(
+                    func.lower(UserRecord.email).contains(
+                        normalized_search,
+                        autoescape=True,
+                    ),
+                    func.lower(UserRecord.display_name).contains(
+                        normalized_search,
+                        autoescape=True,
+                    ),
                 )
             )
+        with self.database.session() as session:
+            total = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(UserRecord)
+                    .where(*conditions)
+                )
+                or 0
+            )
+            pages = max(1, (total + bounded_page_size - 1) // bounded_page_size)
+            safe_page = min(max(1, page), pages)
+            records = list(
+                session.scalars(
+                    select(UserRecord)
+                    .where(*conditions)
+                    .order_by(UserRecord.created_at.desc(), UserRecord.id.desc())
+                    .offset((safe_page - 1) * bounded_page_size)
+                    .limit(bounded_page_size)
+                )
+            )
+            return records, total, safe_page, pages
 
     def set_role(
         self,
@@ -327,36 +366,30 @@ class AccountLifecycleService:
         )
         return counts
 
-    def delete_account(self, user_id: str, *, email: str) -> dict[str, int]:
-        if user_id == SYSTEM_RUNTIME_USER_ID:
-            raise LifecycleConflict("The system Runtime account cannot be deleted.")
-        with self.database.session() as session:
-            user = session.get(UserRecord, user_id)
-            if user is None or not user.is_active:
-                raise LifecycleConflict("Account is already unavailable.")
-            if user.role == "admin":
-                active_admins = session.scalar(
-                    select(func.count())
-                    .select_from(UserRecord)
-                    .where(
-                        UserRecord.role == "admin",
-                        UserRecord.is_active.is_(True),
-                        UserRecord.id != SYSTEM_RUNTIME_USER_ID,
-                    )
-                )
-                if int(active_admins or 0) <= 1:
-                    raise LifecycleConflict(
-                        "Create another Admin before deleting the final Admin account."
-                    )
+    def delete_account(
+        self,
+        user_id: str,
+        *,
+        email: str,
+        actor_user_id: str | None = None,
+    ) -> dict[str, int]:
+        self.validate_account_deletion(user_id)
 
+        actor_id = actor_user_id or user_id
         self.auth_repository.audit(
-            actor_user_id=user_id,
+            actor_user_id=actor_id,
             action="account.deletion_started",
             resource_type="user",
             resource_id=user_id,
         )
         deleted = self._delete_workspace(user_id)
         with self.database.session() as session:
+            access_result = session.execute(
+                delete(DiscordServerAccessRecord).where(
+                    DiscordServerAccessRecord.user_id == user_id
+                )
+            )
+            deleted["discord_server_access"] = self._rowcount(access_result)
             session.execute(
                 delete(AuthSessionRecord).where(AuthSessionRecord.user_id == user_id)
             )
@@ -381,13 +414,35 @@ class AccountLifecycleService:
             user.is_active = False
             session.commit()
         self.auth_repository.audit(
-            actor_user_id=user_id,
+            actor_user_id=actor_id,
             action="account.deleted",
             resource_type="user",
             resource_id=user_id,
             metadata=cast(dict[str, object], deleted),
         )
         return deleted
+
+    def validate_account_deletion(self, user_id: str) -> None:
+        if user_id == SYSTEM_RUNTIME_USER_ID:
+            raise LifecycleConflict("The system Runtime account cannot be deleted.")
+        with self.database.session() as session:
+            user = session.get(UserRecord, user_id)
+            if user is None or not user.is_active:
+                raise LifecycleConflict("Account is already unavailable.")
+            if user.role == "admin":
+                active_admins = session.scalar(
+                    select(func.count())
+                    .select_from(UserRecord)
+                    .where(
+                        UserRecord.role == "admin",
+                        UserRecord.is_active.is_(True),
+                        UserRecord.id != SYSTEM_RUNTIME_USER_ID,
+                    )
+                )
+                if int(active_admins or 0) <= 1:
+                    raise LifecycleConflict(
+                        "Create another Admin before deleting the final Admin account."
+                    )
 
     def _delete_workspace(self, owner_id: str) -> dict[str, int]:
         deleted: dict[str, int] = {}

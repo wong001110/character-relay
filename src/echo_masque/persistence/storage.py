@@ -5,14 +5,15 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from sqlalchemy.engine import make_url
 
 from echo_masque.config import Settings
 
 MountChecker = Callable[[Path], bool]
-DATA_MOUNT = Path("/data")
+DATA_MOUNT = PurePosixPath("/data")
+DATA_MOUNT_PATH = Path("/data")
 
 
 class UnsafeProductionStorageError(RuntimeError):
@@ -55,18 +56,20 @@ def inspect_storage(
             mount_ready=True,
         )
 
-    if database_path is None:
+    production_database_path = _production_database_path(parsed.database)
+    if production_database_path is None or not production_database_path.is_absolute():
         raise UnsafeProductionStorageError(
-            "Unsafe production storage: SQLite must use an absolute file under /data."
+            "Unsafe production storage: SQLite must use an absolute file and its "
+            "database path must be under /data."
         )
-    if not database_path.is_relative_to(DATA_MOUNT):
+    if not production_database_path.is_relative_to(DATA_MOUNT):
         raise UnsafeProductionStorageError(
             "Unsafe production storage: SQLite database path must be under /data; "
-            f"resolved path is {database_path}."
+            f"resolved path is {production_database_path}."
         )
 
     checker = mount_checker or _default_mount_checker
-    mount_ready = checker(DATA_MOUNT)
+    mount_ready = checker(DATA_MOUNT_PATH)
     if not mount_ready:
         raise UnsafeProductionStorageError(
             "Unsafe production storage: /data exists but is not a mounted persistent volume. "
@@ -75,7 +78,7 @@ def inspect_storage(
 
     return StorageStatus(
         database_kind=database_kind,
-        database_path=str(database_path),
+        database_path=str(production_database_path),
         persistent_required=True,
         mount_path=str(DATA_MOUNT),
         mount_ready=True,
@@ -86,6 +89,14 @@ def _database_path(value: str | None) -> Path | None:
     if value is None or value in {"", ":memory:"}:
         return None
     return Path(value).expanduser().resolve()
+
+
+def _production_database_path(value: str | None) -> PurePosixPath | None:
+    """Interpret the production SQLite URL using its Linux container path semantics."""
+
+    if value is None or value in {"", ":memory:"}:
+        return None
+    return PurePosixPath(value)
 
 
 def _default_mount_checker(path: Path) -> bool:

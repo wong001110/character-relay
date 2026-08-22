@@ -158,9 +158,9 @@
 .portal-v2-page-frame .deployment-workspace-top > .server-passport-shell {
   grid-area: server-passport !important;
   display: grid !important;
-  grid-template-columns: minmax(0, 1fr) minmax(270px, 330px) !important;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px) !important;
   gap: 18px !important;
-  align-items: start !important;
+  align-items: stretch !important;
   min-width: 0;
   width: 100%;
 }
@@ -170,10 +170,12 @@
   grid-row: 1 !important;
   min-width: 0;
   width: 100%;
-  height: auto !important;
+  height: 100% !important;
   min-height: 0 !important;
   margin: 0 !important;
-  align-self: start !important;
+  align-self: stretch !important;
+  gap: 12px;
+  padding: 16px 18px 15px;
 }
 
 .portal-v2-page-frame .deployment-workspace-quote {
@@ -184,13 +186,13 @@
   position: relative;
   grid-column: 2 !important;
   grid-row: 1 !important;
-  align-self: start !important;
+  align-self: stretch !important;
   min-width: 0;
   width: 100%;
-  height: auto !important;
+  height: 100% !important;
   min-height: 0 !important;
   margin: 0 !important;
-  padding: 30px 24px 24px;
+  padding: 24px 20px 18px;
   border: 1px solid rgba(157, 120, 49, 0.16);
   border-radius: 2px;
   background: #ffedb8;
@@ -212,7 +214,7 @@
 
 .portal-v2-page-frame .server-passport-meta .server-passport-label {
   display: block;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
   font-size: 0;
 }
 
@@ -233,7 +235,8 @@
 .portal-v2-page-frame .server-passport-meta dl > div {
   display: grid;
   gap: 3px;
-  padding: 12px 0;
+  min-width: 0;
+  padding: 9px 0;
   border-top: 1px dashed rgba(108, 82, 74, 0.18);
 }
 
@@ -244,72 +247,43 @@
 
 .portal-v2-page-frame .server-passport-meta dt {
   color: rgba(74, 57, 75, 0.58);
-  font: 700 0.58rem var(--portal-pencil);
+  font: 700 0.62rem var(--portal-pencil);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .portal-v2-page-frame .server-passport-meta dd {
   margin: 0;
+  overflow: visible;
   color: #563f60;
+  font-size: 0.74rem;
   font-weight: 800;
+  line-height: 1.35;
+  text-overflow: clip;
   overflow-wrap: anywhere;
+  white-space: normal;
 }
 
-/* Current Server + # identity render as one Passport surface. The selector is
-   its header and the identity/stats card is its body. */
+/* Current Server selection, # identity, and stats render as one Passport card. */
 .portal-v2-page-frame .server-workspace-selector-row {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) !important;
-  gap: 0 !important;
+  gap: 14px !important;
   align-items: stretch !important;
   min-width: 0;
-}
-
-.portal-v2-page-frame .server-workspace-selector-row > label {
-  position: relative;
-  min-width: 0 !important;
-  width: 100%;
-  min-height: 0 !important;
-  height: auto !important;
-  padding: 14px 16px 11px !important;
-  border: 1px solid rgba(112, 86, 158, 0.18);
-  border-bottom: 0;
-  border-radius: 15px 15px 0 0;
-  background:
-    linear-gradient(120deg, rgba(155, 124, 245, 0.09), rgba(255, 255, 255, 0.58)),
-    rgba(255, 255, 255, 0.5);
-  box-shadow: 0 9px 28px rgba(68, 52, 83, 0.045);
-  font-size: 0;
-}
-
-.portal-v2-page-frame .server-workspace-selector-row > label::before {
-  content: "SERVER PASSPORT";
-  display: block;
-  margin-bottom: 8px;
-  color: #7c6888;
-  font: 700 0.58rem var(--portal-pencil);
-  letter-spacing: 0.12em;
-}
-
-.portal-v2-page-frame .server-workspace-selector-row > label select {
-  width: 100%;
-  min-height: 42px;
-  font-size: 0.86rem;
-  font-weight: 800;
 }
 
 .portal-v2-page-frame .server-workspace-current-card {
   display: flex !important;
   width: 100%;
   min-width: 0 !important;
-  min-height: 0 !important;
+  min-height: 96px !important;
   height: auto !important;
   flex: none !important;
-  margin-top: -1px;
-  padding: 17px 18px 18px !important;
-  border-top: 1px dashed rgba(112, 86, 158, 0.15);
-  border-radius: 0 0 15px 15px;
+  margin-top: 0;
+  padding: 14px 16px !important;
+  border: 1px solid rgba(112, 86, 158, 0.18);
+  border-radius: 15px;
   box-shadow: 0 9px 28px rgba(68, 52, 83, 0.07);
 }
 
@@ -319,10 +293,39 @@
 }
 
 .portal-v2-page-frame .server-workspace-connection-note {
-  margin-top: 17px !important;
+  margin-top: 0 !important;
   min-width: 0;
   height: auto !important;
+  min-height: 72px !important;
+  padding: 12px 14px !important;
   align-self: start !important;
+}
+
+.portal-v2-page-frame .server-workspace-heading {
+  gap: 10px;
+}
+
+.portal-v2-page-frame .server-workspace-heading p:not(.tape-label) {
+  max-width: 620px;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.portal-v2-page-frame .deployment-header-actions .paper-button,
+.portal-v2-page-frame .server-workspace-actions .paper-button,
+.portal-v2-page-frame .server-workspace-actions .ink-button {
+  min-height: 36px;
+  padding: 7px 11px;
+  font-size: 0.66rem;
+}
+
+.portal-v2-page-frame .server-workspace-connection-copy strong {
+  font-size: 0.86rem;
+}
+
+.portal-v2-page-frame .server-workspace-connection-copy span,
+.portal-v2-page-frame .server-workspace-connection-copy small {
+  font-size: 0.7rem;
 }
 
 /* -------------------------------------------------------------------------- */

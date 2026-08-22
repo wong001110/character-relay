@@ -337,9 +337,8 @@ export interface MatrixComparison {
   classification: "improved" | "no_meaningful_change" | "regression" | "incompatible";
 }
 
-const userHeaders = {
-  "Content-Type": "application/json",
-  "X-Echo-User": "local-user"
+const jsonHeaders = {
+  "Content-Type": "application/json"
 };
 
 async function message(response: Response): Promise<string> {
@@ -356,15 +355,12 @@ async function message(response: Response): Promise<string> {
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
-    headers: { ...userHeaders, ...(init?.headers ?? {}) }
+    credentials: "include",
+    headers: { ...jsonHeaders, ...(init?.headers ?? {}) }
   });
   if (!response.ok) throw new Error(await message(response));
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
-}
-
-function adminHeaders(token: string): HeadersInit {
-  return { "X-Echo-Admin": token };
 }
 
 export const workspaceApi = {
@@ -503,30 +499,20 @@ export const workspaceApi = {
   matrixExportUrl: (id: string, format: "json" | "csv" | "markdown") =>
     `/api/matrices/${id}/export?format=${format}`,
 
-  storage: (adminToken: string) =>
-    request<StorageDiagnostics>("/api/admin/storage", {
-      headers: adminHeaders(adminToken)
-    }),
-  createProbe: (adminToken: string, marker: string) =>
+  storage: () => request<StorageDiagnostics>("/api/admin/storage"),
+  createProbe: (marker: string) =>
     request<PersistenceProbeView>(
       `/api/admin/storage/probes?marker=${encodeURIComponent(marker)}`,
-      { method: "POST", headers: adminHeaders(adminToken) }
+      { method: "POST" }
     ),
-  getProbe: (adminToken: string, id: string) =>
-    request<PersistenceProbeView>(`/api/admin/storage/probes/${id}`, {
-      headers: adminHeaders(adminToken)
-    }),
-  deleteProbe: (adminToken: string, id: string) =>
+  getProbe: (id: string) =>
+    request<PersistenceProbeView>(`/api/admin/storage/probes/${id}`),
+  deleteProbe: (id: string) =>
     request<void>(`/api/admin/storage/probes/${id}`, {
-      method: "DELETE",
-      headers: adminHeaders(adminToken)
+      method: "DELETE"
     }),
-  exportWorkspace: (adminToken: string) =>
-    request<WorkspaceArchive>("/api/admin/workspace/export", {
-      headers: adminHeaders(adminToken)
-    }),
+  exportWorkspace: () => request<WorkspaceArchive>("/api/admin/workspace/export"),
   importWorkspace: (
-    adminToken: string,
     archive: WorkspaceArchive,
     mode: "merge" | "replace"
   ) =>
@@ -534,7 +520,6 @@ export const workspaceApi = {
       "/api/admin/workspace/import",
       {
         method: "POST",
-        headers: adminHeaders(adminToken),
         body: JSON.stringify({ archive, mode })
       }
     )

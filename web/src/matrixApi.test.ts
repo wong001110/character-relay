@@ -54,7 +54,9 @@ describe("matrix API", () => {
     expect(url).toBe("/api/matrices/preview");
     expect(init.method).toBe("POST");
     expect(JSON.parse(String(init.body))).toEqual(definition);
-    expect(init.headers).toMatchObject({ "X-Echo-User": "local-user" });
+    expect(init.credentials).toBe("include");
+    expect(init.headers).toMatchObject({ "Content-Type": "application/json" });
+    expect(init.headers).not.toHaveProperty("X-Echo-User");
   });
 
   it("requires the preview task count when launching", async () => {

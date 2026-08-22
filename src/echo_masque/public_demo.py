@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass
 
 from argon2.exceptions import VerificationError
+from sqlalchemy import select
 
 from echo_masque.auth import AuthService
 from echo_masque.config import Settings
@@ -17,7 +18,13 @@ from echo_masque.persistence import (
     TargetAccessRepository,
     WorkspaceRepository,
 )
-from echo_masque.persistence.models import CharacterCardRecord, UserRecord
+from echo_masque.persistence.models import (
+    CharacterCardRecord,
+    RunSnapshotRecord,
+    TargetOwnershipRecord,
+    TrialRunRecord,
+    UserRecord,
+)
 from echo_masque.workspace import (
     PackItemInput,
     ScenarioCreate,
@@ -156,6 +163,7 @@ class PublicDemoService:
         }
 
         synchronized = 0
+        retained_card_ids: set[str] = set()
         for source_card in source_cards:
             source_target = self.repository.get_target(source_card.target_id)
             if source_target is None:
@@ -246,8 +254,85 @@ class PublicDemoService:
                 demo_owner_id=demo_owner_id,
                 demo_card_id=demo_card.id,
             )
+            retained_card_ids.add(demo_card.id)
             synchronized += 1
+        self._remove_stale_demo_cards(
+            demo_owner_id=demo_owner_id,
+            retained_card_ids=retained_card_ids,
+        )
         return synchronized
+
+    def _remove_stale_demo_cards(
+        self,
+        *,
+        demo_owner_id: str,
+        retained_card_ids: set[str],
+    ) -> None:
+        for demo_card in self.repository.list_character_cards(demo_owner_id):
+            if demo_card.id in retained_card_ids:
+                continue
+
+            target_id = demo_card.target_id
+            self._remove_stale_demo_runs(demo_owner_id, demo_card.id)
+            self.credential_store.delete(demo_owner_id, demo_card.id)
+            if not self.repository.delete_character_card(demo_card.id, demo_owner_id):
+                raise RuntimeError("Public Demo stale Character cleanup failed.")
+
+            if self._demo_owner_still_uses_target(demo_owner_id, target_id):
+                continue
+            self.target_access_repository.remove(
+                owner_id=demo_owner_id,
+                target_id=target_id,
+            )
+            if self._target_is_unreferenced(target_id):
+                self.repository.delete_target(target_id)
+
+    def _remove_stale_demo_runs(self, owner_id: str, card_id: str) -> None:
+        with self.auth_repository.database.session() as session:
+            run_ids = list(
+                session.scalars(
+                    select(RunSnapshotRecord.run_id).where(
+                        RunSnapshotRecord.owner_id == owner_id,
+                        RunSnapshotRecord.character_card_id == card_id,
+                    )
+                )
+            )
+        for run_id in run_ids:
+            if not self.workspace_repository.delete_run(run_id, owner_id):
+                raise RuntimeError("Public Demo stale Trial cleanup failed.")
+
+    def _demo_owner_still_uses_target(self, owner_id: str, target_id: str) -> bool:
+        with self.auth_repository.database.session() as session:
+            return (
+                session.scalar(
+                    select(CharacterCardRecord.id)
+                    .where(
+                        CharacterCardRecord.owner_id == owner_id,
+                        CharacterCardRecord.target_id == target_id,
+                    )
+                    .limit(1)
+                )
+                is not None
+            )
+
+    def _target_is_unreferenced(self, target_id: str) -> bool:
+        with self.auth_repository.database.session() as session:
+            card_id = session.scalar(
+                select(CharacterCardRecord.id)
+                .where(CharacterCardRecord.target_id == target_id)
+                .limit(1)
+            )
+            trial_id = session.scalar(
+                select(TrialRunRecord.id)
+                .where(TrialRunRecord.target_id == target_id)
+                .limit(1)
+            )
+            ownership_id = session.scalar(
+                select(TargetOwnershipRecord.id)
+                .where(TargetOwnershipRecord.target_id == target_id)
+                .limit(1)
+            )
+            return card_id is None and trial_id is None and ownership_id is None
 
     def _selected_source_cards(
         self,

@@ -1,0 +1,106 @@
+# AI coding agent handoff
+
+Status: **canonical takeover guide**
+
+This page is the stable handoff when OpenWiki output is absent or stale. It is manually maintained and authoritative only as navigation; source, tests, schemas, migrations, and task-relevant contracts still decide behavior.
+
+## Five-minute takeover
+
+1. Read `AGENTS.md` and `docs/ai-agent-development-workflow.md`.
+2. Run `git status --short --branch`, identify the base/merge-base, and do not assume an open PR is on `main`.
+3. If `openwiki/quickstart.md` exists, use it for orientation, then verify every important claim at its cited source.
+4. Read `docs/README.md`, `docs/architecture.md`, and the task-relevant canonical contract.
+5. Inspect the exact implementation, types/schemas, persistence objects, and tests for the subsystem.
+6. State an evidence map and the invariants that must remain unchanged before editing.
+7. Run targeted checks while iterating, then the relevant complete validation before handoff.
+
+Do not infer a missing endpoint, setting, field, metric, state, permission, or database behavior. Search for it.
+
+## Current baseline
+
+- Product: Character Relay; Echo Masque is its evaluation module.
+- Production platform connector: Discord.
+- API/runtime: FastAPI + Python under `src/echo_masque/`.
+- Portal: React/Vite under `web/src/`.
+- Connector: Node/discord.js under `connectors/discord/`.
+- Persistence: SQLAlchemy with SQLite in the supported Railway deployment.
+- Production topology: one app replica and one persistent `/data` Volume while SQLite remains in use.
+- Application configuration prefix: `CHARACTER_RELAY_*`.
+- Intelligence authority: Intelligence Core v3. Topic authority and Topic fallback are forbidden.
+- Public Demo: shared, server-enforced read-only workspace; do not weaken mutation boundaries in the client or API.
+
+Branch/PR status and live deployment health are intentionally not frozen here. Check Git and the relevant CI/deployment system at task start.
+
+## Module, source, and proof map
+
+| Subsystem | Owning source | Proof/tests | Contract |
+| --- | --- | --- | --- |
+| API composition | `src/echo_masque/api/app.py`, `src/echo_masque/api/routes/` | API and phase tests in `tests/` | `docs/architecture.md` |
+| Authentication/accounts/vault | `src/echo_masque/auth.py`, `src/echo_masque/account_lifecycle.py`, `src/echo_masque/credentials.py`, auth/account routes | `tests/test_phase15_*.py` | `docs/phase-15-security.md` |
+| Character Cards/prompts | character routes, `src/echo_masque/character_prompts.py`, target modules | `tests/test_character_*.py`, `tests/test_prompt_*.py` | prompt/evaluation phase docs |
+| Deployment/server workspace | deployment routes and `src/echo_masque/persistence/deployment_*` | `tests/test_deployments.py`, `tests/test_deployment_*.py` | `docs/discord-server-workspace.md` |
+| Discord delivery | `connectors/discord/src/` | co-located Connector Vitest files | `connectors/discord/README.md` |
+| Conversation structure | `conversation_relations.py`, `conversation_structure_resolver.py`, conversation-structure persistence | `tests/test_conversation_relations_v3.py`, `tests/test_conversation_structure_*.py` | `docs/intelligence-core-v3-architecture.md` |
+| Belief/entity/evidence | `belief_revision_v3.py`, `current_turn_belief_v3.py`, `evidence_graph_v3.py`, matching persistence | Intelligence v3 and belief/evidence tests | `docs/intelligence-core-v3-architecture.md` |
+| Context/participation | `context_resolver_v3.py`, `participation_planner_v3.py`, `conversation_planner.py` | context/planner/participation tests | `docs/intelligence-core-v3-architecture.md` |
+| Character/Social Turn | `src/echo_masque/orchestration/`, conversation runtime | character/social graph tests | `docs/langgraph-roadmap.md` |
+| Media | `media_*`, `planner_media.py`, `conversation_media.py`, generated-media modules | `tests/test_media_*.py`, planner/generated-media tests | media contracts/roadmaps |
+| Knowledge/RAG/Wiki | `knowledge_*`, `context_layer.py`, related persistence | knowledge/context RAG tests | `docs/context-rag-v1.md` |
+| Tools/scheduler | `tool_runtime.py`, `tool_external.py`, scheduler/condition-watch modules | tool/watch/scheduler tests | tool-calling docs |
+| Observability | `runtime_trace.py`, provider trace modules/routes | runtime/provider trace tests | `docs/provider-tracing.md` |
+| Evaluation lab | scenario/test-pack/run/matrix/authoring/calibration modules and routes | Phase 13–16 tests | Phase 14/16 docs |
+| Public Demo | `public_demo.py`, middleware/quota, auth/API integration | `tests/test_public_demo*.py` | read-only invariant in `AGENTS.md`/README |
+| Portal | feature components/APIs under `web/src/` | `web/src/*.test.ts` | UI contracts and approved references |
+
+Search before relying on a glob or a historical filename; the table identifies ownership areas, not an exhaustive dependency graph.
+
+## Non-negotiable runtime boundaries
+
+- Runtime owns scope, permissions, identity, lifecycle, and side effects.
+- Raw messages/media/tool results/external results remain provenance evidence.
+- Conversation Threads structure conversation; they are not durable knowledge authority.
+- Episodes describe what happened; Beliefs describe revisable current belief.
+- Wiki is a derived readable projection and cannot outrank source evidence.
+- Relationship/Impression are social intelligence, not factual memory.
+- Planner-only media knowledge cannot silently become Character perception.
+- `unresolved` is a valid outcome; do not force low-confidence identity or membership.
+- Demo remains read-only and credentials never enter logs, exports, traces, docs, or generated wiki.
+- Generated UI images govern composition only; current APIs/types/tests govern data and behavior.
+
+## Validation map
+
+```bash
+# Python
+python -m ruff check .
+python -m mypy src
+python -m pytest
+
+# Portal
+cd web
+npm ci
+npm run typecheck
+npm test
+npm run build
+
+# Discord Connector
+cd connectors/discord
+npm ci
+npm run typecheck
+npm test
+npm run build
+```
+
+Use the root Docker/CI workflows for deployment validation. Live acceptance needs real deployment authority and secrets; never substitute invented local values.
+
+## End-of-task handoff
+
+Record:
+
+- branch/base and scope;
+- canonical docs and exact source contracts read;
+- tests added/relied on and commands run;
+- UI reference, when applicable;
+- intentional deviations and adjacent work left out;
+- unresolved conflicts or live evidence still required.
+
+If architecture changed, update its canonical contract and this map. Refresh OpenWiki from updated `main` in a dedicated documentation pass when the CLI/provider is available.

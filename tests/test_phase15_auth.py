@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -109,11 +110,49 @@ def test_session_can_be_listed_and_revoked(tmp_path: Path) -> None:
 
     sessions = client.get("/api/auth/sessions")
     assert sessions.status_code == 200
-    current = next(item for item in sessions.json() if item["current"])
+    payload = sessions.json()
+    assert payload["page"] == 1
+    assert payload["page_size"] == 20
+    assert payload["total"] == 1
+    assert payload["pages"] == 1
+    current = next(item for item in payload["items"] if item["current"])
 
     revoked = client.delete(f"/api/auth/sessions/{current['id']}")
     assert revoked.status_code == 204
     assert client.get("/api/auth/me").status_code == 401
+
+
+def test_sessions_are_paginated_twenty_at_a_time(tmp_path: Path) -> None:
+    key = Fernet.generate_key().decode("ascii")
+    app = create_app(settings(tmp_path / "session-pages.db", key))
+    client = TestClient(app)
+    auth = register(client, "session-pages@example.com")
+    user_id = str(auth["user"]["id"])
+    expires_at = datetime.now(UTC) + timedelta(days=1)
+    for index in range(24):
+        app.state.auth_repository.create_session(
+            user_id=user_id,
+            token_hash=f"session-page-token-{index}",
+            expires_at=expires_at,
+            user_agent_hash=None,
+        )
+
+    first = client.get("/api/auth/sessions")
+    assert first.status_code == 200, first.text
+    assert first.json()["page"] == 1
+    assert first.json()["page_size"] == 20
+    assert first.json()["total"] == 25
+    assert first.json()["pages"] == 2
+    assert len(first.json()["items"]) == 20
+
+    second = client.get(
+        "/api/auth/sessions",
+        params={"page": 2, "page_size": 20},
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["page"] == 2
+    assert len(second.json()["items"]) == 5
+    assert sum(item["current"] for item in second.json()["items"]) == 1
 
 
 def test_provider_credential_is_encrypted_and_survives_restart(tmp_path: Path) -> None:

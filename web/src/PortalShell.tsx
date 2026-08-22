@@ -77,9 +77,6 @@ export function PortalShell({
         <div className="portal-v2-account">
           <span className="portal-v2-language-control"><LanguageSwitcher /></span>
           {publicDemo && <span className="portal-v2-demo-stamp">DEMO</span>}
-          <span className="portal-v2-notification" aria-hidden="true">
-            <FunctionalIcon name="bell" size={20} />
-          </span>
           <button
             type="button"
             className="portal-v2-theme-toggle"
@@ -91,7 +88,13 @@ export function PortalShell({
             <FunctionalIcon name={theme === "dark" ? "sun" : "moon"} size={16} />
             <span>{theme === "dark" ? (zh ? "深色" : "Dark") : (zh ? "浅色" : "Light")}</span>
           </button>
-          <button type="button" className="portal-v2-user-chip" onClick={() => onNavigate("settings")}>
+          <button
+            type="button"
+            className="portal-v2-user-chip"
+            onClick={() => onNavigate("settings")}
+            aria-label={zh ? `打开 ${user.display_name} 的账户设置` : `Open account settings for ${user.display_name}`}
+            title={user.display_name}
+          >
             <span className="portal-v2-user-avatar" aria-hidden="true">{initials}</span>
             <span><strong>{user.display_name}</strong><small>{user.role === "admin" ? "Super Admin ✦" : "Creator"}</small></span>
             <FunctionalIcon name="chevron" size={15} />

@@ -7,7 +7,6 @@ from typing import Literal, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field, SecretStr
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from echo_masque.account_lifecycle import (
@@ -19,7 +18,6 @@ from echo_masque.api.dependencies import (
     CurrentUserDependency,
     SuperAdminUserDependency,
 )
-from echo_masque.auth import SYSTEM_RUNTIME_USER_ID
 from echo_masque.credentials import CredentialVault, CredentialVaultUnavailable
 from echo_masque.persistence import (
     AuthRepository,
@@ -45,7 +43,6 @@ from echo_masque.synthetic_test_accounts import (
 from echo_masque.workspace import WorkspaceArchive
 
 router = APIRouter(tags=["accounts"])
-_ACCOUNT_SECURITY_LIMIT = 10
 KeyGroupCapability = Literal["character", "media", "image_generation"]
 
 
@@ -117,6 +114,14 @@ class AccountAdminView(BaseModel):
             is_active=record.is_active,
             created_at=record.created_at,
         )
+
+
+class AccountAdminPage(BaseModel):
+    items: list[AccountAdminView]
+    page: int
+    page_size: int
+    total: int
+    pages: int
 
 
 class RoleUpdate(BaseModel):
@@ -361,27 +366,52 @@ def revoke_invitation(
         raise HTTPException(status_code=404, detail="Active invitation not found.")
 
 
-@router.get("/api/admin/users", response_model=list[AccountAdminView])
+@router.get("/api/admin/users", response_model=AccountAdminPage)
 def list_users(
     request: Request,
     admin: AdminUserDependency,
-) -> list[AccountAdminView]:
-    """Return only the ten newest active accounts for Account & Security."""
-
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    search: str | None = Query(default=None, max_length=320),
+) -> AccountAdminPage:
     del admin
-    with database(request).session() as session:
-        records = list(
-            session.scalars(
-                select(UserRecord)
-                .where(
-                    UserRecord.id != SYSTEM_RUNTIME_USER_ID,
-                    UserRecord.is_active.is_(True),
-                )
-                .order_by(UserRecord.created_at.desc(), UserRecord.id.desc())
-                .limit(_ACCOUNT_SECURITY_LIMIT)
-            )
+    records, total, safe_page, pages = lifecycle_service(request).list_users_page(
+        page=page,
+        page_size=page_size,
+        search=search,
+    )
+    return AccountAdminPage(
+        items=[AccountAdminView.from_record(item) for item in records],
+        page=safe_page,
+        page_size=page_size,
+        total=total,
+        pages=pages,
+    )
+
+
+@router.delete("/api/admin/users/{user_id}", response_model=LifecycleResult)
+def delete_user(
+    user_id: str,
+    request: Request,
+    admin: AdminUserDependency,
+) -> LifecycleResult:
+    if user_id == admin.id:
+        raise HTTPException(
+            status_code=409,
+            detail="Use the account deletion flow to delete the current Admin account.",
         )
-    return [AccountAdminView.from_record(item) for item in records]
+    record = auth_repository(request).get_user(user_id)
+    if record is None or not record.is_active:
+        raise HTTPException(status_code=404, detail="Active account not found.")
+    try:
+        affected = lifecycle_service(request).delete_account(
+            user_id,
+            email=record.email,
+            actor_user_id=admin.id,
+        )
+    except LifecycleConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return LifecycleResult(affected=affected)
 
 
 @router.delete(
@@ -781,6 +811,7 @@ def delete_account(
         affected = lifecycle_service(request).delete_account(
             user.id,
             email=user.email,
+            actor_user_id=user.id,
         )
     except LifecycleConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

@@ -19,20 +19,39 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - name: Validate Python
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
+          python -m pip check
           python -m ruff check .
           python -m mypy src
           python -m pytest
       - name: Validate web
         working-directory: web
         run: |
-          npm install
+          npm ci
           npm run typecheck
           npm test
           npm run build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: connectors/discord/package-lock.json
+      - name: Validate Discord connector
+        working-directory: connectors/discord
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Validate production images
+        run: |
+          docker build --tag echo-masque:release .
+          docker build --tag character-relay-discord-connector:release connectors/discord
       - name: Build Python distribution
         run: |
           python -m pip install build

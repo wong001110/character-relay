@@ -83,6 +83,28 @@
   min-width: 0;
 }
 
+.server-workspace-current-select {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 320px;
+  gap: 5px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.server-workspace-current-select select {
+  width: 100%;
+  min-height: 42px;
+  padding-inline: 11px 36px;
+  overflow: hidden;
+  border: 1px solid rgba(112, 86, 158, 0.22);
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.72);
+  color: #30243e;
+  font: inherit;
+  text-overflow: ellipsis;
+}
+
 .server-workspace-current-card span,
 .server-workspace-current-card small,
 .server-readonly-identity span,

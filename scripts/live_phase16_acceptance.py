@@ -81,6 +81,61 @@ def assert_secret_free(serialized: str, *secrets: str) -> None:
             raise RuntimeError(f"Live Phase 16 output exposed forbidden material: {value[:20]}")
 
 
+def validate_prompt_inspection(
+    inspected: dict[str, Any],
+    *,
+    exact_prompt: str,
+) -> str:
+    raw_prompt = inspected.get("raw_system_prompt")
+    compiled_prompt = inspected.get("compiled_system_prompt")
+    if raw_prompt != exact_prompt:
+        raise RuntimeError("Prompt Inspector did not preserve the raw System Prompt.")
+    if (
+        not isinstance(compiled_prompt, str)
+        or compiled_prompt == exact_prompt
+        or exact_prompt not in compiled_prompt
+    ):
+        raise RuntimeError("Prompt Inspector did not compile the raw System Prompt.")
+    if inspected.get("system_prompt") != compiled_prompt:
+        raise RuntimeError("Prompt Inspector Runtime System Message was not compiled.")
+    if inspected.get("messages") != [{"role": "system", "content": compiled_prompt}]:
+        raise RuntimeError("Prompt Inspector messages did not match the compiled Prompt.")
+    return compiled_prompt
+
+
+def validate_prompt_export(
+    export_format: str,
+    body: str,
+    *,
+    raw_prompt: str,
+    compiled_prompt: str,
+) -> None:
+    if export_format == "raw":
+        valid = body.strip() == raw_prompt
+    elif export_format == "text":
+        valid = body.strip() == compiled_prompt
+    elif export_format == "markdown":
+        valid = raw_prompt in body and compiled_prompt in body
+    elif export_format == "json":
+        payload = json.loads(body)
+        valid = (
+            payload.get("raw_system_prompt") == raw_prompt
+            and payload.get("compiled_system_prompt") == compiled_prompt
+            and payload.get("system_prompt") == compiled_prompt
+        )
+    elif export_format == "openai":
+        payload = json.loads(body)
+        valid = payload.get("messages") == [
+            {"role": "system", "content": compiled_prompt}
+        ]
+    else:
+        raise RuntimeError(f"Unsupported Prompt export format: {export_format}")
+    if not valid:
+        raise RuntimeError(
+            f"Prompt export {export_format} did not match the raw/compiled contract."
+        )
+
+
 def run_acceptance(
     base_url: str,
     *,
@@ -197,10 +252,12 @@ def run_acceptance(
             )
             card_id = card["id"]
             inspected = expect(user.get(f"/api/characters/{card_id}/prompt"), 200)
-            if inspected["system_prompt"] != exact_prompt:
-                raise RuntimeError("Prompt Inspector did not return the Runtime System Message.")
+            compiled_prompt = validate_prompt_inspection(
+                inspected,
+                exact_prompt=exact_prompt,
+            )
             assert_secret_free(json.dumps(inspected), dummy_provider_key)
-            for export_format in ("text", "markdown", "json", "openai"):
+            for export_format in ("raw", "text", "markdown", "json", "openai"):
                 response = user.get(
                     f"/api/characters/{card_id}/prompt/export",
                     params={"format": export_format},
@@ -210,8 +267,12 @@ def run_acceptance(
                         f"Prompt export {export_format} failed: "
                         f"{response.status_code} {response.text[:500]}"
                     )
-                if exact_prompt not in response.text:
-                    raise RuntimeError(f"Prompt export {export_format} omitted exact Prompt.")
+                validate_prompt_export(
+                    export_format,
+                    response.text,
+                    raw_prompt=exact_prompt,
+                    compiled_prompt=compiled_prompt,
+                )
                 assert_secret_free(response.text, dummy_provider_key)
 
             dataset = expect(

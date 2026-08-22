@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 
-import { api, type AuthSession, type AuthUser } from "./api";
+import { api, type AuthSession, type AuthUser, type Page } from "./api";
 import { FunctionalIcon } from "./components/ui";
 import { NotebookField, NotebookInput } from "./NotebookUI";
+import { Pagination } from "./Pagination";
 
 interface Props {
   user: AuthUser;
@@ -11,17 +12,45 @@ interface Props {
 }
 
 export function AccountSettingsPanel({ user, onLogout, onDeleted }: Props) {
-  const [sessions, setSessions] = useState<AuthSession[]>([]);
+  const [sessionPage, setSessionPage] = useState(1);
+  const [sessionResult, setSessionResult] = useState<Page<AuthSession>>({
+    items: [],
+    page: 1,
+    page_size: 20,
+    total: 0,
+    pages: 1
+  });
+  const [sessionsLoading, setSessionsLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    void loadSessions();
-  }, []);
+    let active = true;
+    setSessionsLoading(true);
+    void api.listSessionsPage(sessionPage, 20)
+      .then((result) => {
+        if (!active) return;
+        setSessionResult(result);
+        if (result.page !== sessionPage) setSessionPage(result.page);
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setMessage(reason instanceof Error ? reason.message : "Could not load sessions.");
+        }
+      })
+      .finally(() => {
+        if (active) setSessionsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [sessionPage]);
 
-  async function loadSessions() {
+  async function loadSessions(page = sessionPage) {
     try {
-      setSessions(await api.listSessions());
+      const result = await api.listSessionsPage(page, 20);
+      setSessionResult(result);
+      if (result.page !== sessionPage) setSessionPage(result.page);
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "Could not load sessions.");
     }
@@ -107,7 +136,7 @@ export function AccountSettingsPanel({ user, onLogout, onDeleted }: Props) {
           </div>
         </div>
         <div className="settings-list">
-          {sessions.map((session) => (
+          {sessionResult.items.map((session) => (
             <div className="settings-list-row" key={session.id}>
               <div>
                 <strong>{session.current ? "Current session" : "Signed-in session"}</strong>
@@ -126,8 +155,17 @@ export function AccountSettingsPanel({ user, onLogout, onDeleted }: Props) {
               )}
             </div>
           ))}
-          {sessions.length === 0 && <p className="settings-empty-copy">No session details available.</p>}
+          {!sessionsLoading && sessionResult.items.length === 0 && (
+            <p className="settings-empty-copy">No session details available.</p>
+          )}
         </div>
+        <Pagination
+          page={sessionResult.page}
+          pages={sessionResult.pages}
+          total={sessionResult.total}
+          disabled={busy || sessionsLoading}
+          onPage={setSessionPage}
+        />
         <button className="settings-action-button" type="button" disabled={busy} onClick={() => void signOut()}>
           <FunctionalIcon name="chevron" size={16} /> Sign out
         </button>

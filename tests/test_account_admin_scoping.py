@@ -85,14 +85,14 @@ def soft_delete(client: TestClient, email: str) -> None:
     assert response.status_code == 200, response.text
 
 
-def test_account_security_returns_only_ten_newest_active_users(tmp_path: Path) -> None:
+def test_account_security_paginates_and_searches_active_users(tmp_path: Path) -> None:
     app = create_app(settings(tmp_path / "latest-users.db"))
     admin = TestClient(app)
     login(admin)
     now = datetime.now(UTC)
 
     created_ids: list[str] = []
-    for index in range(12):
+    for index in range(25):
         record = app.state.auth_repository.create_user(
             email=f"member-{index}@example.com",
             display_name=f"Member {index}",
@@ -122,10 +122,39 @@ def test_account_security_returns_only_ten_newest_active_users(tmp_path: Path) -
     response = admin.get("/api/admin/users")
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert len(payload) == 10
-    assert all(item["is_active"] is True for item in payload)
-    assert deleted.id not in {item["id"] for item in payload}
-    assert [item["id"] for item in payload] == list(reversed(created_ids[-10:]))
+    assert payload["page"] == 1
+    assert payload["page_size"] == 20
+    assert payload["total"] == 26
+    assert payload["pages"] == 2
+    assert len(payload["items"]) == 20
+    assert all(item["is_active"] is True for item in payload["items"])
+    assert deleted.id not in {item["id"] for item in payload["items"]}
+    assert [item["id"] for item in payload["items"]] == list(
+        reversed(created_ids[-20:])
+    )
+
+    second_page = admin.get(
+        "/api/admin/users",
+        params={"page": 2, "page_size": 20},
+    )
+    assert second_page.status_code == 200, second_page.text
+    assert second_page.json()["page"] == 2
+    assert len(second_page.json()["items"]) == 6
+
+    searched = admin.get(
+        "/api/admin/users",
+        params={"search": "MEMBER 7", "page_size": 20},
+    )
+    assert searched.status_code == 200, searched.text
+    assert searched.json()["total"] == 1
+    assert [item["id"] for item in searched.json()["items"]] == [created_ids[7]]
+
+    literal_wildcard = admin.get(
+        "/api/admin/users",
+        params={"search": "%", "page_size": 20},
+    )
+    assert literal_wildcard.status_code == 200, literal_wildcard.text
+    assert literal_wildcard.json()["total"] == 0
 
 
 def test_synthetic_test_account_is_hard_deleted_with_trace_and_invitation(tmp_path: Path) -> None:

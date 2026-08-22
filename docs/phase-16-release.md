@@ -51,14 +51,14 @@ Importing a bundle creates reviewable Scenario and Test Pack Drafts only. It doe
 
 ## Production quotas
 
-All values use the `ECHO_MASQUE_` environment prefix.
+Application settings use the `CHARACTER_RELAY_` environment prefix.
 
 | Variable | Default | Purpose |
 | --- | ---: | --- |
-| `MAX_AUTHORING_GENERATIONS_PER_DAY` | 50 | AI Authoring Runtime calls per account per day |
-| `MAX_EVALUATION_CASES_PER_DAY` | 1000 | Judge Case predictions per account per day |
-| `MAX_TEMPLATE_INSTANTIATIONS_PER_DAY` | 100 | Template and Share Bundle import operations per account per day |
-| `MAX_SHARED_ASSETS_PER_BUNDLE` | 200 | Maximum expanded Scenario + Test Pack assets in one bundle |
+| `CHARACTER_RELAY_MAX_AUTHORING_GENERATIONS_PER_DAY` | 50 | AI Authoring Runtime calls per account per day |
+| `CHARACTER_RELAY_MAX_EVALUATION_CASES_PER_DAY` | 1000 | Judge Case predictions per account per day |
+| `CHARACTER_RELAY_MAX_TEMPLATE_INSTANTIATIONS_PER_DAY` | 100 | Template and Share Bundle import operations per account per day |
+| `CHARACTER_RELAY_MAX_SHARED_ASSETS_PER_BUNDLE` | 200 | Maximum expanded Scenario + Test Pack assets in one bundle |
 
 Quota counters are stored in the existing persistent security bucket table. They survive application restarts and Railway redeployments when the SQLite volume is mounted correctly.
 
@@ -69,7 +69,7 @@ Phase 16 uses migration-safe table creation through the existing database initia
 Before deployment:
 
 1. Preserve the Railway Volume mounted at `/data`.
-2. Preserve `ECHO_MASQUE_DATABASE_URL=sqlite:////data/echo_masque.db`.
+2. Preserve `CHARACTER_RELAY_DATABASE_URL=sqlite:////data/echo_masque.db`.
 3. Preserve the Credential Vault encryption keys.
 4. Keep exactly one replica while SQLite remains the production database.
 5. Back up the account Workspace, Authoring, and Calibration archives before destructive infrastructure changes.

@@ -216,7 +216,21 @@ Dense technical pages such as Provider Calls and Runtime Raw intentionally retai
 
 ## Living showcase
 
-`/dev/ui` is the development-only living component showcase. It should be updated whenever a reusable UI primitive or Character Relay shared composition is added.
+`/dev/ui` is the Super Admin-only living component showcase. It runs through the normal
+Session bootstrap and verifies the server-provided `is_super_admin` signal before the
+catalog chunk is loaded. The Administration page is its only in-product entry point.
+
+The inventory is derived from module exports instead of a handwritten total. It currently
+contains **48 reusable components**:
+
+- 36 business-agnostic `components/ui` exports, including the two Notebook overlay bridges;
+- 6 Character Relay-aware `components/shared` compositions;
+- 5 production-reused Notebook controls not yet migrated into the canonical barrel;
+- 1 shared Pagination component.
+
+The first two groups are the 42-component formal library. The final six remain visible as
+shared utilities so migration debt is explicit instead of disappearing from the count.
+Feature-only page components are deliberately excluded.
 
 The showcase covers:
 
@@ -230,7 +244,10 @@ The showcase covers:
 - illustration-safe empty states;
 - avatar and settings rows;
 - Provider / Model / API Key compositions;
-- TopicNote / TemporaryRoleNote / ParticipantCard.
+- TopicNote / TemporaryRoleNote / ParticipantCard;
+- Notebook compatibility controls and shared Pagination;
+- IconButton / CharacterChip / PaperDrawer / PaperModal;
+- every current FunctionalIcon name.
 
 Generated illustration slots shown in the showcase are examples only. Production artwork must follow the image-generation contract in `docs/ui-ux-contract.md`.
 
@@ -245,6 +262,7 @@ Generated illustration slots shown in the showcase are examples only. Production
 - Decorations never become required controls.
 - Dense developer/trace views intentionally use lower decoration intensity than character-facing pages.
 - Page-specific CSS owns only layout/composition genuinely unique to that feature; reusable behavior belongs in a shared component.
+- `stabilization-hotfix.css` is the final compatibility layer: import it once from `web/src/main.tsx`, after the page styles. Feature components must not import it because module-order deduplication would move its rules ahead of later page CSS and make the cascade route-dependent.
 
 ## Imports
 

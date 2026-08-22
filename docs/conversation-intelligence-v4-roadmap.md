@@ -1,10 +1,12 @@
 # Smart Participation V4 — Conversation Intelligence Graph Roadmap
 
-Status: **IMPLEMENTED / RELEASE VALIDATED IN DRAFT PR #166**
+Status: **historical pre-v3 roadmap — superseded by Intelligence Core v3**
 
 Branch: `agent/conversation-intelligence-v4`
 
 Delivery rule: **all work in this roadmap stays in one Draft PR until final validation and explicit merge approval.** Do not split Turn Collector, participation pipeline reorder, conversation-aware resolution, Graph shadow mode, Graph reranking, Character Learned State, Topic/Media integration, or final rollout into separate implementation PRs.
+
+> Historical context only. Do not use Topic authority, rollout state, branch status, or file inventories here as current implementation guidance. The merged authority contract is `docs/intelligence-core-v3-architecture.md`; current source/tests decide implemented detail.
 
 ## Implementation result
 

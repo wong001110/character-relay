@@ -108,15 +108,38 @@ class AuthRepository:
             record.last_seen_at = now
             session.commit()
 
-    def list_sessions(self, user_id: str) -> list[AuthSessionRecord]:
+    def list_sessions_page(
+        self,
+        user_id: str,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[AuthSessionRecord], int, int, int]:
+        bounded_page_size = max(1, min(page_size, 100))
         with self.database.session() as session:
-            return list(
+            total = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(AuthSessionRecord)
+                    .where(AuthSessionRecord.user_id == user_id)
+                )
+                or 0
+            )
+            pages = max(1, (total + bounded_page_size - 1) // bounded_page_size)
+            safe_page = min(max(1, page), pages)
+            records = list(
                 session.scalars(
                     select(AuthSessionRecord)
                     .where(AuthSessionRecord.user_id == user_id)
-                    .order_by(AuthSessionRecord.created_at.desc())
+                    .order_by(
+                        AuthSessionRecord.created_at.desc(),
+                        AuthSessionRecord.id.desc(),
+                    )
+                    .offset((safe_page - 1) * bounded_page_size)
+                    .limit(bounded_page_size)
                 )
             )
+            return records, total, safe_page, pages
 
     def get_session(self, session_id: str, user_id: str) -> AuthSessionRecord | None:
         with self.database.session() as session:

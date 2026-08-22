@@ -283,6 +283,32 @@
   flex: 0 0 auto;
 }
 
+.settings-user-actions,
+.settings-user-delete-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-user-delete-confirm > span {
+  color: #854b57;
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.settings-user-delete-confirm .settings-danger-button,
+.settings-user-delete-confirm .settings-text-button {
+  min-height: 32px;
+  padding: 5px 9px;
+  font-size: 0.68rem;
+}
+
+.settings-delete-account-button {
+  color: #965664;
+}
+
 .settings-action-button,
 .settings-text-button,
 .settings-icon-button,
@@ -619,6 +645,10 @@
   padding-top: 4px;
 }
 
+.settings-member-search {
+  grid-template-columns: minmax(190px, 1fr) minmax(190px, 1fr) auto;
+}
+
 .settings-runtime-strip {
   display: flex;
   align-items: center;
@@ -644,6 +674,12 @@
   color: var(--notebook-muted);
   font-size: 0.7rem;
   line-height: 1.45;
+}
+
+.settings-component-library-strip .settings-action-button {
+  flex: 0 0 auto;
+  margin: 0;
+  text-decoration: none;
 }
 
 .settings-connector-status {

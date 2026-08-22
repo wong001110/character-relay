@@ -24,6 +24,7 @@ jobs:
           cache: pip
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e ".[dev]"
+      - run: python -m pip check
       - name: Ruff
         run: python -m ruff check .
       - name: Capture Ruff diagnostics
@@ -68,7 +69,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: npm install
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
@@ -83,7 +86,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - run: npm install
+          cache: npm
+          cache-dependency-path: connectors/discord/package-lock.json
+      - run: npm ci
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
@@ -132,6 +137,11 @@ jobs:
           done
           docker logs echo-masque-ci
           exit 1
+      - name: Verify non-root runtime access
+        run: |
+          test "$(docker exec echo-masque-ci id -u)" != "0"
+          docker exec echo-masque-ci test -w /data
+          docker exec echo-masque-ci python -c "from playwright.sync_api import sync_playwright; playwright = sync_playwright().start(); browser = playwright.chromium.launch(headless=True); print(browser.version); browser.close(); playwright.stop()"
       - name: Verify storage identity survives container replacement
         run: |
           before=$(python -c 'import json; print(json.load(open("health-before.json"))["storage"]["storage_instance_id"])')
@@ -152,6 +162,33 @@ jobs:
           test "$before" = "$after"
       - name: Run container smoke test
         run: python scripts/railway_smoke.py http://127.0.0.1:8000 --require-storage
+      - name: Verify Railway root-volume handoff
+        run: |
+          docker volume create echo-masque-ci-railway-data
+          docker run --rm \
+            --user 0 \
+            --entrypoint sh \
+            --volume echo-masque-ci-railway-data:/data \
+            echo-masque:ci \
+            -c 'chown root:root /data && chmod 0755 /data && touch /data/legacy.db && chmod 0644 /data/legacy.db'
+          docker run --detach \
+            --name echo-masque-ci-railway \
+            --user 0 \
+            --publish 8002:8002 \
+            --env PORT=8002 \
+            --env RAILWAY_RUN_UID=0 \
+            --volume echo-masque-ci-railway-data:/data \
+            echo-masque:ci
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:8002/health > railway-health.json; then
+              break
+            fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:8002/health
+          test "$(docker exec --user 0 echo-masque-ci-railway awk '/^Uid:/{print $2}' /proc/1/status)" = "10001"
+          docker exec --user character-relay echo-masque-ci-railway test -w /data
+          docker exec --user character-relay echo-masque-ci-railway test -w /data/legacy.db
       - name: Show container logs
         if: always()
         run: docker logs echo-masque-ci || true
@@ -160,4 +197,6 @@ jobs:
         run: |
           docker rm --force echo-masque-ci || true
           docker rm --force echo-masque-ci-unsafe || true
+          docker rm --force echo-masque-ci-railway || true
           docker volume rm echo-masque-ci-data || true
+          docker volume rm echo-masque-ci-railway-data || true

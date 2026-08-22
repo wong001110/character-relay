@@ -2089,22 +2089,39 @@
   color: #4f8562;
 }
 
-/* Keep the server context readable: the selector and Server card share a row,
-   while the managed Discord connection has a full-width row of its own. */
+/* Keep the server selector inside the Server identity card. The managed
+   Discord connection has a full-width row of its own. */
 .portal-v2-page-frame .server-passport-shell > .server-workspace-panel {
   gap: 16px;
   padding: 19px 22px 18px;
 }
 
 .portal-v2-page-frame .server-workspace-selector-row {
-  grid-template-columns: minmax(250px, .78fr) minmax(0, 1.42fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
 }
 
-.portal-v2-page-frame .server-workspace-selector-row > label,
 .portal-v2-page-frame .server-workspace-current-card {
-  min-height: 132px;
+  min-height: 112px;
   padding: 16px 18px;
+}
+
+.portal-v2-page-frame .server-workspace-current-select {
+  min-width: 0;
+  max-width: 520px;
+}
+
+.portal-v2-page-frame .server-workspace-current-select > span {
+  color: #775f7d;
+  font: 800 .59rem var(--portal-pencil);
+  letter-spacing: .08em;
+}
+
+.portal-v2-page-frame .server-workspace-current-select select {
+  width: 100%;
+  min-height: 42px;
+  padding-block: 7px;
+  font-size: .76rem;
 }
 
 .portal-v2-page-frame .server-workspace-connection-note {

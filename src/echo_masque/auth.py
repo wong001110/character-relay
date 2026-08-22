@@ -329,8 +329,18 @@ class AuthService:
             expires_at=self._utc(session.expires_at),
         )
 
-    def list_sessions(self, user_id: str) -> list[AuthSessionRecord]:
-        return self.repository.list_sessions(user_id)
+    def list_sessions_page(
+        self,
+        user_id: str,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[AuthSessionRecord], int, int, int]:
+        return self.repository.list_sessions_page(
+            user_id,
+            page=page,
+            page_size=page_size,
+        )
 
     def revoke_session(self, session_id: str, *, user_id: str) -> bool:
         revoked = self.repository.revoke_session(session_id, user_id=user_id)

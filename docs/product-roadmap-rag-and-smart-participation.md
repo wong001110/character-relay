@@ -1,8 +1,8 @@
-# Character Relay Runtime Roadmap
+# Character Relay Runtime Roadmap (historical V4 snapshot)
 
-This document records the current runtime boundaries and the implemented Smart Participation V4 / Conversation Intelligence milestone for Discord Smart Participation, Context/Topic/Memory, Media Understanding, RAG/Wiki, Tool Calling, and System Intelligence.
+Status: **historical pre-v3 roadmap**
 
-Detailed V4 architecture and implementation history lives in `docs/conversation-intelligence-v4-roadmap.md`; release evidence lives in `docs/conversation-intelligence-v4-validation.md`.
+This document records the Smart Participation V4 milestone that preceded the Intelligence Core v3 hard cutover. Its Topic-centric descriptions and “current” labels are preserved as history, not current implementation guidance. Use `docs/intelligence-core-v3-architecture.md`, `docs/architecture.md`, and current source/tests for the merged baseline.
 
 ## 1. Runtime boundaries
 
@@ -202,7 +202,7 @@ A cached Media Understanding may be reused for the same SHA content while `PERCE
 
 V4 also defines which selection/cooldown/burst state must survive restart or multi-replica operation instead of remaining Connector-process-local.
 
-See `docs/conversation-intelligence-v4-roadmap.md` for phase-by-phase scope, invariants, success metrics, shadow rollout, and merge gates.
+See `docs/conversation-intelligence-v4-roadmap.md` for historical phase context. Its rollout/merge gates are no longer active.
 
 ## 9. V4 delivery sequence — one PR
 

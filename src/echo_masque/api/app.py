@@ -358,6 +358,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "Public Demo ready: user=%s characters=%s scenarios=%s packs=%s",
             public_demo_result.user_id,
             public_demo_result.character_count,
+            public_demo_result.scenario_count,
             public_demo_result.test_pack_count,
         )
     quota_service = PublicDemoQuotaService(database, resolved)

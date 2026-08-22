@@ -32,8 +32,11 @@ Verify all of the following in Railway:
 6. Confirm the service variable is exactly:
 
 ```text
-ECHO_MASQUE_DATABASE_URL=sqlite:////data/echo_masque.db
+CHARACTER_RELAY_DATABASE_URL=sqlite:////data/echo_masque.db
+RAILWAY_RUN_UID=0
 ```
+
+Railway mounts the Volume as `root`. The root image's entrypoint uses this platform override only to repair `/data` ownership, then drops to the non-root `character-relay` user (UID `10001`) before starting Uvicorn. Ordinary Docker/Compose runs do not need `RAILWAY_RUN_UID`.
 
 7. Keep one replica while using SQLite.
 

@@ -53,6 +53,8 @@ describe("workspace API", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/scenarios");
     expect(init.method).toBe("POST");
+    expect(init.credentials).toBe("include");
+    expect(init.headers).not.toHaveProperty("X-Echo-User");
     expect(JSON.parse(String(init.body))).toMatchObject({
       name: "Identity pressure",
       max_turns: 4,
@@ -115,5 +117,22 @@ describe("workspace API", () => {
       judge_mode: "hybrid",
       test_language: "zh-CN"
     });
+  });
+
+  it("uses the authenticated browser session for admin storage requests", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ environment: "production" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await workspaceApi.storage();
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/admin/storage");
+    expect(init.credentials).toBe("include");
+    expect(init.headers).not.toHaveProperty("X-Echo-Admin");
   });
 });

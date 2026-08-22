@@ -6,9 +6,10 @@ Character Relay uses AI-assisted development across parallel branches. Do not re
 
 1. `docs/ai-agent-development-workflow.md`
 2. `openwiki/quickstart.md` if it exists, then only the relevant generated pages
-3. task-relevant canonical docs/status/decision files
-4. current source/types/tests for the subsystem
-5. for UI work: `docs/ui-ux-contract.md`, `docs/ui-component-library.md`, `docs/ui-page-migration-plan.md`, and the approved reference image when one exists
+3. `docs/agent-handoff.md` and `docs/README.md`
+4. task-relevant canonical docs/status/decision files
+5. current source/types/tests for the subsystem
+6. for UI work: `docs/ui-ux-contract.md`, `docs/ui-component-library.md`, `docs/ui-page-migration-plan.md`, and the approved reference image when one exists
 
 ## Non-negotiable grounding rules
 

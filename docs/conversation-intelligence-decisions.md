@@ -1,6 +1,8 @@
 # Conversation Intelligence Decision Log
 
-Status: normative design decisions for PR #169
+Status: **historical decision log for PR #169**
+
+> These decisions explain the pre-v3 design process. Intelligence Core v3 supersedes them wherever they rely on Topic authority, Topic-scoped Memory/Wiki/Discovery, or a shadow/parity migration that the hard cutover removed. Use `docs/intelligence-core-v3-architecture.md` for current authority.
 
 This file records architecture decisions explicitly accepted during review. When it conflicts with earlier proposal text in `conversation-intelligence-architecture.md`, **this decision log takes precedence** until the proposal is reconciled.
 

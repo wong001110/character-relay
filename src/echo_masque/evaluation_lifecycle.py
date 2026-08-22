@@ -93,7 +93,14 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             IntelligenceV3LifecycleRepository(database)
         )
 
-    def delete_account(self, user_id: str, *, email: str) -> dict[str, int]:
+    def delete_account(
+        self,
+        user_id: str,
+        *,
+        email: str,
+        actor_user_id: str | None = None,
+    ) -> dict[str, int]:
+        self.validate_account_deletion(user_id)
         evaluation_counts = self.evaluation_repository.delete_owner(user_id)
         interaction_counts = self.interaction_repository.delete_owner(user_id)
         expression_counts = self.expression_repository.delete_owner(user_id)
@@ -109,7 +116,11 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         episodic_sql_counts = self.episodic_sql_rag_repository.delete_owner(user_id)
         intelligence_v3_counts = self.intelligence_v3_repository.delete_owner(user_id)
         deployment_counts = self.deployment_repository.delete_owner(user_id)
-        deleted = super().delete_account(user_id, email=email)
+        deleted = super().delete_account(
+            user_id,
+            email=email,
+            actor_user_id=actor_user_id,
+        )
         return {
             **deleted,
             **evaluation_counts,

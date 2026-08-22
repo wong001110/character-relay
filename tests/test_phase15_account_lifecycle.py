@@ -12,6 +12,7 @@ from echo_masque.auth import AuthService, InvitationError
 from echo_masque.config import Settings
 from echo_masque.persistence import AuthRepository, Database
 from echo_masque.persistence.models import AuditEventRecord, InvitationRecord
+from echo_masque.persistence.server_access_repository import ServerAccessRepository
 
 PASSWORD = "correct horse battery staple"
 ADMIN_EMAIL = "admin@example.com"
@@ -237,3 +238,77 @@ def test_account_export_and_deletion_remove_sessions_credentials_and_workspace(
     assert "workspace.exported" in actions
     assert "account.deleted" in actions
     assert app.state.workspace_repository.counts(user_id)["characters"] == 0
+
+
+def test_admin_can_delete_another_account_but_not_the_current_admin(
+    tmp_path: Path,
+) -> None:
+    app = create_app(app_settings(tmp_path / "admin-account-delete.db"))
+    admin = TestClient(app)
+    member = TestClient(app)
+    login(admin, ADMIN_EMAIL)
+    member_auth = register(member, "admin-delete-member@example.com")
+    member_id = str(member_auth["user"]["id"])
+    created = member.post(
+        "/api/characters",
+        json=character_payload("Admin Delete Ann"),
+    )
+    assert created.status_code == 201
+    server_access = ServerAccessRepository(app.state.database)
+    server_access.grant_access(
+        user_id=member_id,
+        connection_id="admin-delete-connection",
+        guild_id="admin-delete-guild",
+        source="super_admin",
+    )
+    admin_record = app.state.auth_repository.get_user_by_email(ADMIN_EMAIL)
+    assert admin_record is not None
+    denied = member.delete(f"/api/admin/users/{admin_record.id}")
+    assert denied.status_code == 403
+
+    deleted = admin.delete(f"/api/admin/users/{member_id}")
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["affected"]["characters"] == 1
+    assert deleted.json()["affected"]["discord_server_access"] == 1
+    assert server_access.list_user_access(member_id) == []
+    stored_member = app.state.auth_repository.get_user(member_id)
+    assert stored_member is not None
+    assert stored_member.is_active is False
+    assert stored_member.display_name == "Deleted User"
+    assert member.get("/api/auth/me").status_code == 401
+
+    self_delete = admin.delete(f"/api/admin/users/{admin_record.id}")
+    assert self_delete.status_code == 409
+    stored_admin = app.state.auth_repository.get_user(admin_record.id)
+    assert stored_admin is not None
+    assert stored_admin.is_active is True
+
+    with app.state.database.session() as session:
+        actions = list(
+            session.scalars(
+                select(AuditEventRecord.action).where(
+                    AuditEventRecord.actor_user_id == admin_record.id,
+                    AuditEventRecord.resource_id == member_id,
+                )
+            )
+        )
+    assert "account.deletion_started" in actions
+    assert "account.deleted" in actions
+
+
+def test_final_admin_cannot_delete_account_through_confirmed_self_flow(
+    tmp_path: Path,
+) -> None:
+    app = create_app(app_settings(tmp_path / "final-admin-delete.db"))
+    admin = TestClient(app)
+    login(admin, ADMIN_EMAIL)
+
+    response = admin.request(
+        "DELETE",
+        "/api/account",
+        json={"email": ADMIN_EMAIL, "confirmation": "DELETE MY ACCOUNT"},
+    )
+    assert response.status_code == 409
+    record = app.state.auth_repository.get_user_by_email(ADMIN_EMAIL)
+    assert record is not None
+    assert record.is_active is True

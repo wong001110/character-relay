@@ -23,6 +23,7 @@ venv/
 # Frontend
 node_modules/
 web/dist/
+*.tsbuildinfo
 
 # Editors and operating systems
 .idea/

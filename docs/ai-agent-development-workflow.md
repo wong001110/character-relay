@@ -73,7 +73,7 @@ If `openwiki/quickstart.md` exists:
 2. follow only the pages relevant to the task;
 3. collect source-file links named by the wiki.
 
-If generated OpenWiki pages do not exist yet, use `openwiki/INSTRUCTIONS.md` plus the canonical docs directly.
+If generated OpenWiki pages do not exist yet, use `docs/agent-handoff.md`, `docs/README.md`, and the canonical docs directly. `openwiki/INSTRUCTIONS.md` is the generation brief, not a substitute generated quickstart.
 
 ### C. Verify at the source
 
@@ -170,6 +170,8 @@ openwiki --init
 
 Review the generated diff before committing it.
 
+Do not hand-write `openwiki/quickstart.md` to imitate generator output. When the CLI/provider is unavailable, keep the manually maintained takeover path in `docs/agent-handoff.md` current and report that generation was not run.
+
 ### Refresh after merged architectural work
 
 ```bash
@@ -202,12 +204,12 @@ For a long-lived stacked branch, the branch's PR body remains the active-work re
 
 ## 8. What OpenWiki should make easy to trace
 
-The generated wiki should provide source-linked maps for:
+The generated wiki should provide source-and-test-linked maps for:
 
 - repository architecture and service boundaries;
 - Discord connector flow and deployment/server scope;
 - Character Card / Prompt / Runtime / Credential ownership;
-- Smart Participation / Conversation Planner / Topic / Episode flows;
+- Intelligence Core v3 Conversation Structure / Episode / Belief / Context Resolver / Participation Planner flows, with obsolete Topic authority clearly forbidden;
 - Media Understanding and media dependency/perception boundaries;
 - Memory / RAG / Knowledge / Wiki / Graph distinctions;
 - Tool ownership: internal context tools vs external capability tools vs runtime-required operations;

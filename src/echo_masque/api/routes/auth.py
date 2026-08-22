@@ -6,7 +6,7 @@ import hashlib
 from datetime import datetime
 from typing import Literal, cast
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field, SecretStr
 
 from echo_masque.api.dependencies import (
@@ -93,6 +93,14 @@ class SessionView(BaseModel):
             revoked_at=record.revoked_at,
             current=record.id == current_session_id,
         )
+
+
+class SessionPage(BaseModel):
+    items: list[SessionView]
+    page: int
+    page_size: int
+    total: int
+    pages: int
 
 
 def service(request: Request) -> AuthService:
@@ -230,12 +238,28 @@ def logout(
     )
 
 
-@router.get("/sessions", response_model=list[SessionView])
-def sessions(request: Request, context: AuthContextDependency) -> list[SessionView]:
-    return [
-        SessionView.from_record(item, current_session_id=context.session_id)
-        for item in service(request).list_sessions(context.user.id)
-    ]
+@router.get("/sessions", response_model=SessionPage)
+def sessions(
+    request: Request,
+    context: AuthContextDependency,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+) -> SessionPage:
+    records, total, safe_page, pages = service(request).list_sessions_page(
+        context.user.id,
+        page=page,
+        page_size=page_size,
+    )
+    return SessionPage(
+        items=[
+            SessionView.from_record(item, current_session_id=context.session_id)
+            for item in records
+        ],
+        page=safe_page,
+        page_size=page_size,
+        total=total,
+        pages=pages,
+    )
 
 
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)

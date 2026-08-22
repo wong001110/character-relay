@@ -85,8 +85,28 @@ jobs:
           name: phase15-live-security
           path: phase15-live-security.json
           if-no-files-found: error
+      - name: Write acceptance summary
+        if: always()
+        run: |
+          {
+            echo "## Phase 15 live security acceptance"
+            echo ""
+            echo "- Result: \`${{ job.status }}\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Deployment: $LIVE_URL"
+            echo "- Evidence: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            if [ -f phase15-live-security.json ]; then
+              echo ""
+              echo "### Redacted result"
+              echo '```json'
+              cat phase15-live-security.json
+              echo ""
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Record successful acceptance
         if: success()
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
@@ -98,6 +118,7 @@ jobs:
             })
       - name: Record failed acceptance
         if: failure()
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |

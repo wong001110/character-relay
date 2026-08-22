@@ -13,7 +13,6 @@ import { DiscoveryIntelligencePanel } from "./DiscoveryIntelligencePanel";
 import { ParticipationIntelligencePanel } from "./ParticipationIntelligencePanel";
 import { SocialIntelligencePanel } from "./SocialIntelligencePanel";
 import "./intelligence-product-completion.css";
-import "./stabilization-hotfix.css";
 
 interface Props {
   cards: CharacterCard[];

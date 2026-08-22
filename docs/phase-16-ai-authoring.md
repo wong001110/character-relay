@@ -27,7 +27,7 @@ An Admin configures the Runtime from **Authoring Lab → Authoring Runtime**:
 - maximum Scenario count per request;
 - Provider API Key.
 
-The API Key enters the Phase 15 encrypted Credential Vault under the shared system Runtime owner. The browser never persists or receives the raw key. `ECHO_MASQUE_AUTHORING_API_KEY` is supported only as an optional read-only environment fallback.
+The API Key enters the Phase 15 encrypted Credential Vault under the shared system Runtime owner. The browser never persists or receives the raw key. `CHARACTER_RELAY_AUTHORING_API_KEY` is supported only as an optional read-only environment fallback.
 
 ## Structured generation
 

@@ -102,7 +102,6 @@ const copy = {
     review: "REVIEW",
     pending: "PENDING",
     storageTitle: "Storage diagnostics",
-    adminToken: "Admin token",
     connect: "Load diagnostics",
     databasePath: "Database path",
     writable: "Writable",
@@ -118,7 +117,6 @@ const copy = {
     merge: "Merge",
     replace: "Replace current workspace",
     importDone: "Workspace import completed.",
-    noToken: "Enter the Admin token first.",
     yes: "Yes",
     no: "No",
     unknown: "Unknown",
@@ -186,7 +184,6 @@ const copy = {
     review: "复核",
     pending: "进行中",
     storageTitle: "存储诊断",
-    adminToken: "Admin Token",
     connect: "载入诊断",
     databasePath: "数据库路径",
     writable: "可写",
@@ -202,7 +199,6 @@ const copy = {
     merge: "合并",
     replace: "替换当前工作区",
     importDone: "工作区导入完成。",
-    noToken: "请先输入 Admin Token。",
     yes: "是",
     no: "否",
     unknown: "未知",
@@ -418,9 +414,10 @@ function ExperimentPanel({ copy: c, cards, packs }: { copy: Copy; cards: Charact
 }
 
 function StoragePanel({ copy: c }: { copy: Copy }) {
-  const [token, setToken] = useState(() => window.sessionStorage.getItem("echo-masque-admin-token") ?? ""); const [diagnostics, setDiagnostics] = useState<StorageDiagnostics | null>(null); const [probe, setProbe] = useState<{ id: string; marker: string } | null>(null); const [message, setMessage] = useState<string | null>(null); const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
-  async function load() { if (!token) { setMessage(c.noToken); return; } try { window.sessionStorage.setItem("echo-masque-admin-token", token); setDiagnostics(await workspaceApi.storage(token)); setMessage(null); } catch (reason) { setMessage(reason instanceof Error ? reason.message : c.error); } }
-  async function exportArchive() { const archive = await workspaceApi.exportWorkspace(token); const url = URL.createObjectURL(new Blob([JSON.stringify(archive, null, 2)], { type: "application/json" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `echo-masque-workspace-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); URL.revokeObjectURL(url); }
-  async function importArchive(file: File) { const archive = JSON.parse(await file.text()) as WorkspaceArchive; await workspaceApi.importWorkspace(token, archive, importMode); setMessage(c.importDone); await load(); }
-  return <section className="workspace-section"><div className="section-heading"><div><p className="tape-label rose">{c.storage}</p><h2>{c.storageTitle}</h2></div></div><div className="storage-connect paper-sheet"><label>{c.adminToken}<input type="password" value={token} onChange={(e) => setToken(e.currentTarget.value)} /></label><button className="ink-button" onClick={() => void load()}>{c.connect}</button></div>{message && <p className="error-note">{message}</p>}{diagnostics && <div className="diagnostic-grid"><article className={`diagnostic-card paper-sheet ${diagnostics.warning ? "warning" : ""}`}><span>{c.databasePath}</span><strong>{diagnostics.database_path ?? diagnostics.database_url_redacted}</strong><p>{diagnostics.warning}</p></article><article className="diagnostic-card paper-sheet"><span>{c.writable}</span><strong>{diagnostics.writable ? c.yes : c.no}</strong><span>{c.persistent}</span><strong>{diagnostics.persistent_path_configured ? c.yes : c.no}</strong></article><article className="diagnostic-card paper-sheet"><span>{c.counts}</span><strong>{diagnostics.character_count} cards · {diagnostics.scenario_count} scenarios · {diagnostics.pack_count} packs · {diagnostics.run_count} runs</strong><span>{c.lastWrite}</span><strong>{diagnostics.last_write_at ?? c.unknown}</strong></article></div>}<div className="storage-tools"><article className="paper-sheet"><h3>{c.createProbe}</h3><p>{c.probeHelp}</p>{probe ? <><code>{probe.id}</code><div className="card-actions"><button onClick={() => void workspaceApi.getProbe(token, probe.id).then((value) => setMessage(`${c.checkProbe}: ${value.marker}`))}>{c.checkProbe}</button><button onClick={() => void workspaceApi.deleteProbe(token, probe.id).then(() => setProbe(null))}>{c.deleteProbe}</button></div></> : <button className="ink-button" onClick={() => void workspaceApi.createProbe(token, `probe-${Date.now()}`).then((value) => setProbe(value))}>{c.createProbe}</button>}</article><article className="paper-sheet"><h3>{c.export}</h3><button className="paper-button" onClick={() => void exportArchive()}>{c.export}</button><h3>{c.import}</h3><select value={importMode} onChange={(e) => setImportMode(e.currentTarget.value as "merge" | "replace")}><option value="merge">{c.merge}</option><option value="replace">{c.replace}</option></select><label className="file-button">{c.import}<input type="file" accept="application/json" onChange={(e) => { const file = e.currentTarget.files?.[0]; if (file) void importArchive(file); }} /></label></article></div></section>;
+  const [diagnostics, setDiagnostics] = useState<StorageDiagnostics | null>(null); const [probe, setProbe] = useState<{ id: string; marker: string } | null>(null); const [message, setMessage] = useState<string | null>(null); const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
+  async function load() { try { setDiagnostics(await workspaceApi.storage()); setMessage(null); } catch (reason) { setMessage(reason instanceof Error ? reason.message : c.error); } }
+  async function exportArchive() { const archive = await workspaceApi.exportWorkspace(); const url = URL.createObjectURL(new Blob([JSON.stringify(archive, null, 2)], { type: "application/json" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `character-relay-workspace-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); URL.revokeObjectURL(url); }
+  async function importArchive(file: File) { const archive = JSON.parse(await file.text()) as WorkspaceArchive; await workspaceApi.importWorkspace(archive, importMode); setMessage(c.importDone); await load(); }
+  useEffect(() => { void load(); }, []);
+  return <section className="workspace-section"><div className="section-heading"><div><p className="tape-label rose">{c.storage}</p><h2>{c.storageTitle}</h2></div><button className="ink-button" onClick={() => void load()}>{c.connect}</button></div>{message && <p className="error-note">{message}</p>}{diagnostics && <div className="diagnostic-grid"><article className={`diagnostic-card paper-sheet ${diagnostics.warning ? "warning" : ""}`}><span>{c.databasePath}</span><strong>{diagnostics.database_path ?? diagnostics.database_url_redacted}</strong><p>{diagnostics.warning}</p></article><article className="diagnostic-card paper-sheet"><span>{c.writable}</span><strong>{diagnostics.writable ? c.yes : c.no}</strong><span>{c.persistent}</span><strong>{diagnostics.persistent_path_configured ? c.yes : c.no}</strong></article><article className="diagnostic-card paper-sheet"><span>{c.counts}</span><strong>{diagnostics.character_count} cards · {diagnostics.scenario_count} scenarios · {diagnostics.pack_count} packs · {diagnostics.run_count} runs</strong><span>{c.lastWrite}</span><strong>{diagnostics.last_write_at ?? c.unknown}</strong></article></div>}<div className="storage-tools"><article className="paper-sheet"><h3>{c.createProbe}</h3><p>{c.probeHelp}</p>{probe ? <><code>{probe.id}</code><div className="card-actions"><button onClick={() => void workspaceApi.getProbe(probe.id).then((value) => setMessage(`${c.checkProbe}: ${value.marker}`))}>{c.checkProbe}</button><button onClick={() => void workspaceApi.deleteProbe(probe.id).then(() => setProbe(null))}>{c.deleteProbe}</button></div></> : <button className="ink-button" onClick={() => void workspaceApi.createProbe(`probe-${Date.now()}`).then((value) => setProbe(value))}>{c.createProbe}</button>}</article><article className="paper-sheet"><h3>{c.export}</h3><button className="paper-button" onClick={() => void exportArchive()}>{c.export}</button><h3>{c.import}</h3><select value={importMode} onChange={(e) => setImportMode(e.currentTarget.value as "merge" | "replace")}><option value="merge">{c.merge}</option><option value="replace">{c.replace}</option></select><label className="file-button">{c.import}<input type="file" accept="application/json" onChange={(e) => { const file = e.currentTarget.files?.[0]; if (file) void importArchive(file); }} /></label></article></div></section>;
 }

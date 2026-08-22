@@ -5,11 +5,13 @@ import {
   type AdminAccount,
   type AuditEventView,
   type AuthUser,
-  type InvitationView
+  type InvitationView,
+  type Page
 } from "./api";
 import { FunctionalIcon } from "./components/ui";
 import { deploymentApi, type PlatformConnection } from "./deploymentApi";
 import { NotebookField, NotebookInput, NotebookSelect } from "./NotebookUI";
+import { Pagination } from "./Pagination";
 import {
   serverAccessApi,
   type AdminServerAccess
@@ -21,14 +23,141 @@ interface Props {
   user: AuthUser;
 }
 
+const ACCOUNT_PAGE_SIZE = 20;
+const ACCOUNT_SEARCH_DELAY_MS = 300;
+
+interface ServerAccountPickerProps {
+  server: AdminServerAccess;
+  currentUserId: string;
+  busy: boolean;
+  onGrant: (server: AdminServerAccess, userId: string) => Promise<boolean>;
+}
+
+function ServerAccountPicker({
+  server,
+  currentUserId,
+  busy,
+  onGrant
+}: ServerAccountPickerProps) {
+  const [query, setQuery] = useState("");
+  const [options, setOptions] = useState<AdminAccount[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
+  const excludedUserIds = useMemo(
+    () => new Set([currentUserId, ...server.members.map((member) => member.user_id)]),
+    [currentUserId, server.members]
+  );
+
+  useEffect(() => {
+    const search = query.trim();
+    if (search.length < 2) {
+      setOptions([]);
+      setSearching(false);
+      setSearchFailed(false);
+      return;
+    }
+
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setSearching(true);
+      setSearchFailed(false);
+      void api.listAdminUsersPage({ search, pageSize: ACCOUNT_PAGE_SIZE })
+        .then((result) => {
+          if (active) {
+            setOptions(
+              result.items.filter((account) => !excludedUserIds.has(account.id))
+            );
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setOptions([]);
+            setSearchFailed(true);
+          }
+        })
+        .finally(() => {
+          if (active) setSearching(false);
+        });
+    }, ACCOUNT_SEARCH_DELAY_MS);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [excludedUserIds, query]);
+
+  async function grant() {
+    if (!selectedUserId) return;
+    if (await onGrant(server, selectedUserId)) {
+      setQuery("");
+      setOptions([]);
+      setSelectedUserId("");
+    }
+  }
+
+  let resultHint = `${options.length} matching account${options.length === 1 ? "" : "s"}`;
+  if (query.trim().length < 2) resultHint = "Type at least 2 characters";
+  if (searchFailed) resultHint = "Search unavailable — try again";
+  if (searching) resultHint = "Searching…";
+
+  return (
+    <div className="settings-member-add settings-member-search">
+      <NotebookField label="Search account" guide={resultHint}>
+        <NotebookInput
+          value={query}
+          type="search"
+          autoComplete="off"
+          placeholder="Name or email"
+          maxLength={320}
+          disabled={busy}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setSelectedUserId("");
+          }}
+        />
+      </NotebookField>
+      <NotebookSelect
+        aria-label={`Choose account to add to ${server.guild_name}`}
+        value={selectedUserId}
+        disabled={busy || searching || options.length === 0}
+        onChange={(event) => setSelectedUserId(event.target.value)}
+      >
+        <option value="">Choose account…</option>
+        {options.map((account) => (
+          <option key={account.id} value={account.id}>
+            {account.display_name} · {account.email}
+          </option>
+        ))}
+      </NotebookSelect>
+      <button
+        className="settings-action-button"
+        type="button"
+        disabled={busy || !selectedUserId}
+        onClick={() => void grant()}
+      >
+        <FunctionalIcon name="identity" size={16} /> Add account
+      </button>
+    </div>
+  );
+}
+
 export function AdministrationSettingsPanel({ user }: Props) {
   const [tab, setTab] = useState<AdminTab>("users");
-  const [users, setUsers] = useState<AdminAccount[]>([]);
   const [servers, setServers] = useState<AdminServerAccess[]>([]);
   const [connections, setConnections] = useState<PlatformConnection[]>([]);
   const [invitations, setInvitations] = useState<InvitationView[]>([]);
   const [audit, setAudit] = useState<AuditEventView[]>([]);
-  const [selectedUsers, setSelectedUsers] = useState<Record<string, string>>({});
+  const [userPage, setUserPage] = useState(1);
+  const [userResult, setUserResult] = useState<Page<AdminAccount>>({
+    items: [],
+    page: 1,
+    page_size: ACCOUNT_PAGE_SIZE,
+    total: 0,
+    pages: 1
+  });
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [pendingDeleteUserId, setPendingDeleteUserId] = useState<string | null>(null);
   const [newInvitationCode, setNewInvitationCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -37,17 +166,39 @@ export function AdministrationSettingsPanel({ user }: Props) {
     void load();
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    setUsersLoading(true);
+    void api.listAdminUsersPage({ page: userPage, pageSize: ACCOUNT_PAGE_SIZE })
+      .then((result) => {
+        if (!active) return;
+        setUserResult(result);
+        if (result.page !== userPage) setUserPage(result.page);
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setMessage(
+            reason instanceof Error ? reason.message : "Could not load accounts."
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setUsersLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [userPage]);
+
   async function load() {
     try {
-      const [nextUsers, nextServers, nextConnections, nextInvitations, nextAudit] =
+      const [nextServers, nextConnections, nextInvitations, nextAudit] =
         await Promise.all([
-          api.listAdminUsers(),
           serverAccessApi.listAdminServers(),
           deploymentApi.listConnections(),
           api.listInvitations(),
           api.listAuditEventsPage(null, 12)
         ]);
-      setUsers(nextUsers);
       setServers(nextServers);
       setConnections(nextConnections);
       setInvitations(nextInvitations);
@@ -61,13 +212,15 @@ export function AdministrationSettingsPanel({ user }: Props) {
     }
   }
 
-  async function run(action: () => Promise<void>) {
+  async function run(action: () => Promise<void>): Promise<boolean> {
     setBusy(true);
     setMessage(null);
     try {
       await action();
+      return true;
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : String(reason));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -91,9 +244,29 @@ export function AdministrationSettingsPanel({ user }: Props) {
     if (account.id === user.id) return;
     await run(async () => {
       const updated = await api.updateUserRole(account.id, role);
-      setUsers((current) =>
-        current.map((item) => (item.id === updated.id ? updated : item))
-      );
+      setUserResult((current) => ({
+        ...current,
+        items: current.items.map((item) => (item.id === updated.id ? updated : item))
+      }));
+    });
+  }
+
+  async function reloadUsers(page = userPage) {
+    const result = await api.listAdminUsersPage({ page, pageSize: ACCOUNT_PAGE_SIZE });
+    setUserResult(result);
+    if (result.page !== userPage) setUserPage(result.page);
+  }
+
+  async function deleteUser(account: AdminAccount) {
+    if (account.id === user.id) return;
+    await run(async () => {
+      await api.deleteAdminUser(account.id);
+      const [nextServers] = await Promise.all([
+        serverAccessApi.listAdminServers(),
+        reloadUsers(userPage)
+      ]);
+      setServers(nextServers);
+      setPendingDeleteUserId(null);
     });
   }
 
@@ -134,12 +307,12 @@ export function AdministrationSettingsPanel({ user }: Props) {
     });
   }
 
-  async function grantMember(server: AdminServerAccess) {
-    const userId = selectedUsers[server.guild_id];
-    if (!userId) return;
-    await run(async () => {
+  async function grantMember(
+    server: AdminServerAccess,
+    userId: string
+  ): Promise<boolean> {
+    return run(async () => {
       replaceServer(await serverAccessApi.grantMember(server.guild_id, userId));
-      setSelectedUsers((current) => ({ ...current, [server.guild_id]: "" }));
     });
   }
 
@@ -165,6 +338,19 @@ export function AdministrationSettingsPanel({ user }: Props) {
           </span>
         </div>
       </aside>
+
+      <div className="settings-runtime-strip settings-component-library-strip">
+        <div>
+          <strong>Component Library</strong>
+          <span>
+            Open the Super Admin-only living catalog to review every registered reusable
+            component, category, and visual state.
+          </span>
+        </div>
+        <a className="settings-action-button" href="/dev/ui">
+          <FunctionalIcon name="review" size={16} /> Open Component Library
+        </a>
+      </div>
 
       <nav className="settings-subtabs" aria-label="Administration sections">
         <button
@@ -210,7 +396,7 @@ export function AdministrationSettingsPanel({ user }: Props) {
               </div>
             </div>
             <div className="settings-list settings-user-list">
-              {users.map((account) => {
+              {userResult.items.map((account) => {
                 const serverCount = userServerCount(account.id);
                 return (
                   <div className="settings-list-row" key={account.id}>
@@ -221,24 +407,76 @@ export function AdministrationSettingsPanel({ user }: Props) {
                         {serverCount} server{serverCount === 1 ? "" : "s"}
                       </small>
                     </div>
-                    <NotebookSelect
-                      aria-label={`Role for ${account.display_name}`}
-                      value={account.role}
-                      disabled={busy || account.id === user.id}
-                      onChange={(event) =>
-                        void changeRole(
-                          account,
-                          event.target.value as "user" | "admin"
-                        )
-                      }
-                    >
-                      <option value="user">User</option>
-                      <option value="admin">Admin</option>
-                    </NotebookSelect>
+                    <div className="settings-user-actions">
+                      <NotebookSelect
+                        aria-label={`Role for ${account.display_name}`}
+                        value={account.role}
+                        disabled={busy || account.id === user.id}
+                        onChange={(event) =>
+                          void changeRole(
+                            account,
+                            event.target.value as "user" | "admin"
+                          )
+                        }
+                      >
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                      </NotebookSelect>
+                      {account.id !== user.id &&
+                        (pendingDeleteUserId === account.id ? (
+                          <div
+                            className="settings-user-delete-confirm"
+                            role="group"
+                            aria-label={`Confirm deletion of ${account.display_name}`}
+                          >
+                            <span>Delete account and workspace?</span>
+                            <button
+                              className="settings-danger-button"
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void deleteUser(account)}
+                            >
+                              Confirm delete
+                            </button>
+                            <button
+                              className="settings-text-button"
+                              type="button"
+                              disabled={busy}
+                              onClick={() => setPendingDeleteUserId(null)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className="settings-text-button settings-delete-account-button"
+                            type="button"
+                            title={`Delete ${account.display_name}`}
+                            aria-label={`Delete account ${account.display_name}`}
+                            disabled={busy}
+                            onClick={() => setPendingDeleteUserId(account.id)}
+                          >
+                            <FunctionalIcon name="warning" size={15} /> Delete
+                          </button>
+                        ))}
+                    </div>
                   </div>
                 );
               })}
+              {!usersLoading && userResult.items.length === 0 && (
+                <p className="settings-empty-copy">No registered accounts found.</p>
+              )}
             </div>
+            <Pagination
+              page={userResult.page}
+              pages={userResult.pages}
+              total={userResult.total}
+              disabled={busy || usersLoading}
+              onPage={(page) => {
+                setPendingDeleteUserId(null);
+                setUserPage(page);
+              }}
+            />
           </section>
 
           <section className="settings-paper-card">
@@ -353,11 +591,6 @@ export function AdministrationSettingsPanel({ user }: Props) {
       {tab === "servers" && (
         <div className="settings-server-admin-list">
           {servers.map((server) => {
-            const availableUsers = users.filter(
-              (account) =>
-                account.id !== user.id &&
-                !server.members.some((member) => member.user_id === account.id)
-            );
             return (
               <section
                 className="settings-paper-card settings-admin-server-card"
@@ -443,35 +676,12 @@ export function AdministrationSettingsPanel({ user }: Props) {
                       <p className="settings-empty-copy">No accounts assigned yet.</p>
                     )}
                   </div>
-                  {availableUsers.length > 0 && (
-                    <div className="settings-member-add">
-                      <NotebookSelect
-                        aria-label={`Add account to ${server.guild_name}`}
-                        value={selectedUsers[server.guild_id] ?? ""}
-                        onChange={(event) =>
-                          setSelectedUsers((current) => ({
-                            ...current,
-                            [server.guild_id]: event.target.value
-                          }))
-                        }
-                      >
-                        <option value="">Choose account…</option>
-                        {availableUsers.map((account) => (
-                          <option key={account.id} value={account.id}>
-                            {account.display_name} · {account.email}
-                          </option>
-                        ))}
-                      </NotebookSelect>
-                      <button
-                        className="settings-action-button"
-                        type="button"
-                        disabled={busy || !selectedUsers[server.guild_id]}
-                        onClick={() => void grantMember(server)}
-                      >
-                        <FunctionalIcon name="identity" size={16} /> Add account
-                      </button>
-                    </div>
-                  )}
+                  <ServerAccountPicker
+                    server={server}
+                    currentUserId={user.id}
+                    busy={busy}
+                    onGrant={grantMember}
+                  />
                 </div>
               </section>
             );

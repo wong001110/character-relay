@@ -7,13 +7,13 @@ Phase 15 changes Echo Masque from a trusted single-workspace deployment into a s
 Configure these Railway variables before enabling the account UI:
 
 ```text
-ECHO_MASQUE_ENVIRONMENT=production
-ECHO_MASQUE_DATABASE_URL=sqlite:////data/echo_masque.db
-ECHO_MASQUE_LEGACY_LOCAL_USER_ENABLED=false
-ECHO_MASQUE_PUBLIC_REGISTRATION_ENABLED=false
-ECHO_MASQUE_BOOTSTRAP_ADMIN_EMAIL=<admin email>
-ECHO_MASQUE_BOOTSTRAP_ADMIN_PASSWORD=<long unique password>
-ECHO_MASQUE_CREDENTIAL_ENCRYPTION_KEYS=<Fernet key>
+CHARACTER_RELAY_ENVIRONMENT=production
+CHARACTER_RELAY_DATABASE_URL=sqlite:////data/echo_masque.db
+CHARACTER_RELAY_LEGACY_LOCAL_USER_ENABLED=false
+CHARACTER_RELAY_PUBLIC_REGISTRATION_ENABLED=false
+CHARACTER_RELAY_BOOTSTRAP_ADMIN_EMAIL=<admin email>
+CHARACTER_RELAY_BOOTSTRAP_ADMIN_PASSWORD=<long unique password>
+CHARACTER_RELAY_CREDENTIAL_ENCRYPTION_KEYS=<Fernet key>
 ```
 
 Generate the first encryption key locally:
@@ -27,22 +27,22 @@ Keep the key outside Git and backups. The application cannot recover encrypted c
 Optional quota variables include:
 
 ```text
-ECHO_MASQUE_REQUEST_LIMIT_PER_MINUTE=300
-ECHO_MASQUE_LOGIN_FAILURE_LIMIT=5
-ECHO_MASQUE_LOGIN_FAILURE_WINDOW_SECONDS=900
-ECHO_MASQUE_LOGIN_BLOCK_SECONDS=900
-ECHO_MASQUE_MAX_CHARACTERS_PER_USER=100
-ECHO_MASQUE_MAX_SCENARIOS_PER_USER=250
-ECHO_MASQUE_MAX_TEST_PACKS_PER_USER=100
-ECHO_MASQUE_MAX_RUNS_PER_USER=2000
-ECHO_MASQUE_MAX_MATRICES_PER_USER=100
-ECHO_MASQUE_MAX_MATRIX_TASKS_PER_DAY=1000
-ECHO_MASQUE_MAX_CONCURRENT_RUNS_PER_USER=3
-ECHO_MASQUE_MAX_MATRIX_CONCURRENCY_PER_USER=4
-ECHO_MASQUE_MAX_WORKSPACE_RECORDS_PER_USER=3000
+CHARACTER_RELAY_REQUEST_LIMIT_PER_MINUTE=300
+CHARACTER_RELAY_LOGIN_FAILURE_LIMIT=5
+CHARACTER_RELAY_LOGIN_FAILURE_WINDOW_SECONDS=900
+CHARACTER_RELAY_LOGIN_BLOCK_SECONDS=900
+CHARACTER_RELAY_MAX_CHARACTERS_PER_USER=100
+CHARACTER_RELAY_MAX_SCENARIOS_PER_USER=250
+CHARACTER_RELAY_MAX_TEST_PACKS_PER_USER=100
+CHARACTER_RELAY_MAX_RUNS_PER_USER=2000
+CHARACTER_RELAY_MAX_MATRICES_PER_USER=100
+CHARACTER_RELAY_MAX_MATRIX_TASKS_PER_DAY=1000
+CHARACTER_RELAY_MAX_CONCURRENT_RUNS_PER_USER=3
+CHARACTER_RELAY_MAX_MATRIX_CONCURRENCY_PER_USER=4
+CHARACTER_RELAY_MAX_WORKSPACE_RECORDS_PER_USER=3000
 ```
 
-The legacy `ECHO_MASQUE_ADMIN_TOKEN`, Adaptive key, and Judge key remain read-only migration fallbacks. Production Admin APIs require an authenticated account with the `admin` role.
+The legacy `CHARACTER_RELAY_ADMIN_TOKEN`, Adaptive key, and Judge key settings remain read-only migration fallbacks. Production Admin APIs require an authenticated account with the `admin` role; the Portal does not use an Admin-token header.
 
 ## Backup-first migration
 
@@ -83,7 +83,7 @@ Character provider keys and shared Adaptive/Judge keys are encrypted with Fernet
 To rotate keys:
 
 1. Generate a new Fernet key.
-2. Set `ECHO_MASQUE_CREDENTIAL_ENCRYPTION_KEYS=<new>,<old>`.
+2. Set `CHARACTER_RELAY_CREDENTIAL_ENCRYPTION_KEYS=<new>,<old>`.
 3. Redeploy.
 4. Use **Rotate encrypted credentials** in the Admin account panel.
 5. Run the live security smoke.
@@ -101,7 +101,7 @@ A blocked request returns `429 Too Many Requests`; time-bound blocks include `Re
 
 Users can:
 
-- inspect and revoke Sessions;
+- inspect and revoke Sessions in server-paginated pages of 20;
 - export a secret-free account workspace archive;
 - delete their account with email and confirmation phrase verification.
 
@@ -110,10 +110,18 @@ Account deletion removes owned workspace resources, encrypted credentials, Sessi
 Admin users can:
 
 - create and revoke invitations;
+- page through active accounts, search active accounts by name or email, and use the
+  same bounded search when granting Discord Server access;
 - promote and demote accounts while retaining at least one Admin;
+- delete another account through the same workspace-removal, credential cleanup,
+  Session revocation, and identity-anonymization lifecycle used by self-deletion;
 - inspect append-only Audit Events;
 - claim pre-authentication local workspace data;
 - rotate encrypted credentials.
+
+The Administration deletion route cannot delete the currently authenticated Admin.
+That account must use the confirmed self-deletion flow, and the final active Admin
+remains protected in both flows.
 
 ## Live release gate
 
