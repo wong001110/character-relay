@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hmac
+import json
+from contextlib import suppress
 from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
@@ -40,6 +42,7 @@ from echo_masque.api.expression_schemas import (
     ExpressionRetrieveRequest,
 )
 from echo_masque.api.runtime_durability_schemas import (
+    DiscordCharacterDeliveryAckRequest,
     DiscordDeliveryAckRequest,
     DiscordDeliveryClaimRequest,
     DiscordDeliveryClaimView,
@@ -57,6 +60,11 @@ from echo_masque.api.social_turn_schemas import (
 from echo_masque.config import Settings
 from echo_masque.connector_runtime import ConnectorRuntimeError, DiscordConnectorRuntime
 from echo_masque.credentials import CredentialVault
+from echo_masque.discord_debug_capture import (
+    DiscordDebugCaptureOutcome,
+    DiscordDebugCaptureRecord,
+    DiscordDebugCaptureStore,
+)
 from echo_masque.orchestration import (
     CharacterTurnGraphRunner,
     SocialTurnGraphRunner,
@@ -69,6 +77,7 @@ from echo_masque.persistence import (
     InteractionRepository,
     Repository,
 )
+from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.deployment_repository import decode_ids
 from echo_masque.persistence.expression_models import DiscordExpressionSemanticRecord
 from echo_masque.persistence.expression_repository import expression_key
@@ -146,6 +155,91 @@ def social_turn_graph_runner(request: Request) -> SocialTurnGraphRunner | None:
 
 def durable_runtime_repository(request: Request) -> DurableRuntimeRepository:
     return cast(DurableRuntimeRepository, request.app.state.durable_runtime_repository)
+
+
+def discord_debug_capture_store(request: Request) -> DiscordDebugCaptureStore:
+    return cast(DiscordDebugCaptureStore, request.app.state.discord_debug_capture_store)
+
+
+def _capture_discord_ingress(
+    request: Request,
+    payload: DiscordInboundMessage,
+    *,
+    runtime_operation_id: str | None = None,
+    runtime_step_id: str | None = None,
+) -> DiscordDebugCaptureRecord | None:
+    """Capture only a validated Discord destination; never affect message handling."""
+
+    try:
+        deployments = deployment_repository(request)
+        deployment = deployments.deployment_matches_discord_destination(
+            payload.deployment_id,
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+            category_id=payload.category_id,
+        )
+        if deployment is None:
+            return None
+        profile = deployments.get_server_profile_for_deployment(deployment.id)
+        if (
+            profile is None
+            or profile.connection_id != payload.connection_id
+            or profile.guild_id != payload.guild_id
+        ):
+            return None
+        return discord_debug_capture_store(request).capture(
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            source_message_id=payload.message_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+            deployment_id=payload.deployment_id,
+            runtime_operation_id=(
+                payload.runtime_operation_id
+                if runtime_operation_id is None
+                else runtime_operation_id
+            ),
+            runtime_step_id=(
+                payload.runtime_step_id if runtime_step_id is None else runtime_step_id
+            ),
+            character_count=len(payload.text),
+            payload=payload.model_dump(mode="json"),
+        )
+    except Exception:
+        return None
+
+
+def _mark_discord_capture_outcome(
+    request: Request,
+    record: DiscordDebugCaptureRecord | None,
+    outcome: DiscordDebugCaptureOutcome,
+) -> None:
+    if record is None:
+        return
+    with suppress(Exception):
+        discord_debug_capture_store(request).mark_outcome(record.id, outcome)
+
+
+def _validated_character_turn_deployment(
+    request: Request,
+    payload: DiscordInboundMessage,
+) -> CharacterDeploymentRecord | None:
+    """Resolve Runtime-owned deployment/guild scope before deriving durable identifiers."""
+
+    deployment = deployment_repository(request).get_active_discord_deployment_for_guild(
+        payload.deployment_id,
+        connection_id=payload.connection_id,
+        guild_id=payload.guild_id,
+    )
+    return deployment
+
+
+def _durable_error_summary(error: Exception) -> str:
+    """Persist only a bounded error classification, never provider or message content."""
+
+    return type(error).__name__[:120]
 
 
 @router.get("/deployments", response_model=list[DiscordConnectorDeploymentView])
@@ -260,6 +354,8 @@ def sync_server_catalog(
     try:
         deployment_repository(request).sync_discord_server_catalog(
             connection_id=payload.connection_id,
+            visible_guild_ids=payload.visible_guild_ids,
+            failed_guild_ids=payload.failed_guild_ids,
             servers=[
                 (
                     server.guild_id,
@@ -270,17 +366,29 @@ def sync_server_catalog(
             ],
         )
         for server in payload.servers:
-            interaction_repository(request).sync_sticker_catalog(
-                connection_id=payload.connection_id,
-                guild_id=server.guild_id,
-                stickers=[item.model_dump() for item in server.stickers],
+            stickers = (
+                [item.model_dump() for item in server.stickers]
+                if server.stickers is not None
+                else None
             )
-            expression_repository(request).sync_server_resources(
-                connection_id=payload.connection_id,
-                guild_id=server.guild_id,
-                emojis=[item.model_dump() for item in server.emojis],
-                stickers=[item.model_dump() for item in server.stickers],
+            emojis = (
+                [item.model_dump() for item in server.emojis]
+                if server.emojis is not None
+                else None
             )
+            if stickers is not None:
+                interaction_repository(request).sync_sticker_catalog(
+                    connection_id=payload.connection_id,
+                    guild_id=server.guild_id,
+                    stickers=stickers,
+                )
+            if emojis is not None or stickers is not None:
+                expression_repository(request).sync_server_resources(
+                    connection_id=payload.connection_id,
+                    guild_id=server.guild_id,
+                    emojis=emojis,
+                    stickers=stickers,
+                )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Discord connection not found.") from exc
 
@@ -766,6 +874,93 @@ def mark_social_turn_delivery_uncertain(
     )
 
 
+@router.post("/messages/delivery/claim", response_model=DiscordDeliveryClaimView)
+def claim_character_turn_delivery(
+    payload: DiscordDeliveryClaimRequest,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> DiscordDeliveryClaimView:
+    """Claim a normal Character-turn Discord side effect before sending it."""
+
+    _authorize_connector(request, authorization)
+    repository = durable_runtime_repository(request)
+    operation = repository.get_operation(payload.operation_id)
+    if (
+        operation is None
+        or operation.connection_id != payload.connection_id
+        or operation.operation_kind != "character_turn"
+    ):
+        raise HTTPException(status_code=404, detail="Durable Character Turn operation not found.")
+    try:
+        claim_status, _step = repository.claim_delivery(
+            operation_id=payload.operation_id,
+            step_id=payload.step_id,
+            claim_nonce=payload.claim_nonce,
+        )
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    refreshed = repository.get_operation(payload.operation_id)
+    if refreshed is None:
+        raise HTTPException(status_code=404, detail="Durable Character Turn operation not found.")
+    return DiscordDeliveryClaimView(
+        claim_status=claim_status,
+        operation_status=cast(RuntimeOperationStatus, refreshed.status),
+        operation_id=payload.operation_id,
+        step_id=payload.step_id,
+    )
+
+
+@router.post("/messages/delivery/ack", status_code=status.HTTP_204_NO_CONTENT)
+def acknowledge_character_turn_delivery(
+    payload: DiscordCharacterDeliveryAckRequest,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    """Acknowledge normal delivery without accepting a connector cursor or deployment ID."""
+
+    _authorize_connector(request, authorization)
+    repository = durable_runtime_repository(request)
+    operation = repository.get_operation(payload.operation_id)
+    if (
+        operation is None
+        or operation.connection_id != payload.connection_id
+        or operation.operation_kind != "character_turn"
+    ):
+        raise HTTPException(status_code=404, detail="Durable Character Turn operation not found.")
+    try:
+        repository.acknowledge_character_delivery(
+            operation_id=payload.operation_id,
+            step_id=payload.step_id,
+            claim_nonce=payload.claim_nonce,
+            sent_message_ids=payload.sent_message_ids,
+        )
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/messages/delivery/uncertain", status_code=status.HTTP_204_NO_CONTENT)
+def mark_character_turn_delivery_uncertain(
+    payload: DiscordDeliveryFailureRequest,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    _authorize_connector(request, authorization)
+    repository = durable_runtime_repository(request)
+    operation = repository.get_operation(payload.operation_id)
+    if (
+        operation is None
+        or operation.connection_id != payload.connection_id
+        or operation.operation_kind != "character_turn"
+    ):
+        raise HTTPException(status_code=404, detail="Durable Character Turn operation not found.")
+    repository.mark_delivery_uncertain(
+        operation_id=payload.operation_id,
+        step_id=payload.step_id,
+        claim_nonce=payload.claim_nonce,
+        error=payload.error,
+    )
+
+
 @router.post("/social-turns/step", response_model=DiscordSocialTurnStepView)
 async def process_social_turn_step(
     payload: DiscordSocialTurnStepRequest,
@@ -780,12 +975,20 @@ async def process_social_turn_step(
             detail="Social Turn LangGraph orchestration is not enabled.",
         )
     if not payload.operation_id:
+        capture = _capture_discord_ingress(request, payload.payload)
         try:
-            return await runner(payload)
+            view = await runner(payload)
+            _mark_discord_capture_outcome(request, capture, "succeeded")
+            return view
         except ConnectorRuntimeError as exc:
+            _mark_discord_capture_outcome(request, capture, "conflict")
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
+            _mark_discord_capture_outcome(request, capture, "conflict")
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception:
+            _mark_discord_capture_outcome(request, capture, "provider_error")
+            raise
 
     repository = durable_runtime_repository(request)
     operation = repository.get_operation(payload.operation_id)
@@ -842,13 +1045,30 @@ async def process_social_turn_step(
             "runtime_step_id": step.step_id,
         }
     )
+    capture = _capture_discord_ingress(
+        request,
+        run_request.payload,
+        runtime_operation_id=payload.operation_id,
+        runtime_step_id=step.step_id,
+    )
     try:
         view = await runner(run_request)
     except Exception as exc:
-        repository.fail_social_step(step.step_id, str(exc))
+        capture_outcome: DiscordDebugCaptureOutcome = (
+            "conflict"
+            if isinstance(exc, (ConnectorRuntimeError, ValueError))
+            else "provider_error"
+        )
+        _mark_discord_capture_outcome(
+            request,
+            capture,
+            capture_outcome,
+        )
+        repository.fail_social_step(step.step_id, _durable_error_summary(exc))
         if isinstance(exc, (ConnectorRuntimeError, ValueError)):
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         raise
+    _mark_discord_capture_outcome(request, capture, "succeeded")
 
     smart_output = view.reply.smart_output
     delivery_required = not (
@@ -881,6 +1101,72 @@ async def process_discord_message(
     authorization: Annotated[str | None, Header()] = None,
 ) -> DiscordConnectorReplyView:
     _authorize_connector(request, authorization)
+    deployment = _validated_character_turn_deployment(request, payload)
+    if deployment is None:
+        return DiscordConnectorReplyView(
+            action="silent",
+            reason="no_active_deployment",
+            deployment_id=payload.deployment_id,
+        )
+    repository = durable_runtime_repository(request)
+    try:
+        operation = repository.claim_character_operation(
+            owner_id=deployment.owner_id,
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+            source_message_id=payload.message_id,
+            deployment_id=deployment.id,
+        )
+        if operation.status == "completed":
+            return DiscordConnectorReplyView(
+                action="silent",
+                reason="durable_delivery_already_acknowledged",
+                operation_id=operation.operation_id,
+                durable_status="delivered",
+            )
+        if operation.status == "uncertain":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Durable Character Turn requires delivery reconciliation.",
+            )
+        preparation, step = repository.prepare_character_step(
+            operation_id=operation.operation_id,
+            deployment_id=deployment.id,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    if preparation == "replay":
+        cached = DiscordConnectorReplyView.model_validate_json(step.response_json)
+        return cached.model_copy(update={"durable_status": "replayed"})
+    if preparation == "in_progress":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Durable Character Turn generation is in progress.",
+        )
+    if preparation == "uncertain":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Durable Character Turn step is uncertain.",
+        )
+
+    runtime_payload = payload.model_copy(
+        update={
+            # Never accept a caller-chosen durable identity for normal Discord ingress.
+            "runtime_operation_id": operation.operation_id,
+            "runtime_step_id": step.step_id,
+        }
+    )
+    capture = _capture_discord_ingress(
+        request,
+        runtime_payload,
+        runtime_operation_id=operation.operation_id,
+        runtime_step_id=step.step_id,
+    )
     # This projection is independent of whether the current Character is admitted to reply.
     # A known explicit reply is interaction evidence; admission and semantic interpretation are not.
     try:
@@ -893,12 +1179,45 @@ async def process_discord_message(
     try:
         runner = character_turn_graph_runner(request)
         if runner is not None:
-            return await runner(payload)
-        return await connector_runtime(request).respond(payload)
+            view = await runner(runtime_payload)
+        else:
+            view = await connector_runtime(request).respond(runtime_payload)
+        delivery_required = not (
+            view.action == "silent"
+            or (view.smart_output is not None and view.smart_output.action == "ignore")
+            or (
+                view.smart_output is None
+                and not view.text
+                and view.expression.action == "none"
+            )
+        )
+        durable_view = view.model_copy(
+            update={
+                "operation_id": operation.operation_id,
+                "step_id": step.step_id,
+                "durable_status": "generated" if delivery_required else "delivered",
+                "delivery_required": delivery_required,
+            }
+        )
+        repository.complete_social_step_generation(
+            step_id=step.step_id,
+            response_json=durable_view.model_dump_json(),
+            cursor_json=json.dumps({"pending_turns": []}, separators=(",", ":")),
+            delivery_required=delivery_required,
+        )
+        _mark_discord_capture_outcome(request, capture, "succeeded")
+        return durable_view
     except ConnectorRuntimeError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        _mark_discord_capture_outcome(request, capture, "conflict")
+        repository.fail_social_step(step.step_id, _durable_error_summary(exc))
+        raise HTTPException(
+            status_code=409,
+            detail="Character Runtime rejected the turn.",
+        ) from exc
     except Exception as exc:
+        _mark_discord_capture_outcome(request, capture, "provider_error")
+        repository.fail_social_step(step.step_id, _durable_error_summary(exc))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Character provider failed: {exc}",
+            detail=f"Character provider failed: {type(exc).__name__}.",
         ) from exc

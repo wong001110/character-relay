@@ -20,8 +20,11 @@ from echo_masque.character_prompts import (
     CharacterPromptProfile,
     compile_character_prompt,
 )
-from echo_masque.context_layer import CharacterTurnContext, ContextOrchestrator
+from echo_masque.character_turn_context_types import CharacterTurnContext
+from echo_masque.character_turn_context_v3 import CharacterTurnContextV3Service
+from echo_masque.context_resolver_v3 import ContextBundleV3
 from echo_masque.credentials import CredentialStore
+from echo_masque.discord_event_safety import safe_runtime_error_classification
 from echo_masque.domain import TargetResponse
 from echo_masque.interaction_grounding import ground_interaction
 from echo_masque.persistence import (
@@ -81,6 +84,8 @@ class PreparedCharacterTurn:
 
     resolved: ResolvedCharacterTurn
     turn_context: CharacterTurnContext | None
+    context_bundle: ContextBundleV3 | None
+    context_error: str
     smart_context: SmartOutputContext
     prompt: str
     enabled_tools: tuple[str, ...]
@@ -106,7 +111,7 @@ class DiscordConnectorRuntime:
         deployment_repository: DeploymentRepository,
         credential_store: CredentialStore,
         provider_factory: ConnectorProviderFactory = default_connector_provider_factory,
-        context_orchestrator: ContextOrchestrator | None = None,
+        context_service_v3: CharacterTurnContextV3Service | None = None,
         deployment_tool_repository: DeploymentToolRepository | None = None,
         tool_registry: ToolRegistry | None = None,
     ) -> None:
@@ -114,7 +119,7 @@ class DiscordConnectorRuntime:
         self.deployment_repository = deployment_repository
         self.credential_store = credential_store
         self.provider_factory = provider_factory
-        self.context_orchestrator = context_orchestrator
+        self.context_service_v3 = context_service_v3
         self.deployment_tool_repository = deployment_tool_repository
         self.tool_registry = tool_registry or default_tool_registry()
 
@@ -192,15 +197,10 @@ class DiscordConnectorRuntime:
         payload = resolved.payload
         deployment = resolved.deployment
         card = resolved.card
-        turn_context = (
-            self.context_orchestrator.build(
-                payload=payload,
-                deployment=deployment,
-                character_name=card.display_name,
-            )
-            if self.context_orchestrator is not None
-            else None
-        )
+        v3_context = self.context_service_v3.build(resolved) if self.context_service_v3 else None
+        turn_context = v3_context.turn_context if v3_context is not None else None
+        context_bundle = v3_context.bundle if v3_context is not None else None
+        context_error = v3_context.error_reason if v3_context is not None else ""
         smart_context = (
             turn_context.smart_output
             if turn_context is not None
@@ -215,6 +215,11 @@ class DiscordConnectorRuntime:
             payload=payload,
             smart_context=smart_context,
             turn_context=turn_context,
+            context_sections=(
+                context_bundle.prompt_sections()
+                if context_bundle is not None and not context_error
+                else ()
+            ),
         )
         enabled_tools = (
             self.deployment_tool_repository.get_enabled_tools_for_runtime(deployment.id)
@@ -240,6 +245,8 @@ class DiscordConnectorRuntime:
         return PreparedCharacterTurn(
             resolved=resolved,
             turn_context=turn_context,
+            context_bundle=context_bundle,
+            context_error=context_error,
             smart_context=smart_context,
             prompt=prompt,
             enabled_tools=enabled_tools,
@@ -267,7 +274,7 @@ class DiscordConnectorRuntime:
         except Exception as exc:
             self.deployment_repository.record_deployment_error(
                 deployment.id,
-                str(exc),
+                safe_runtime_error_classification(exc),
             )
             raise
 
@@ -291,7 +298,7 @@ class DiscordConnectorRuntime:
         except Exception as exc:
             self.deployment_repository.record_deployment_error(
                 prepared.resolved.deployment.id,
-                str(exc),
+                safe_runtime_error_classification(exc),
             )
             raise
 
@@ -312,7 +319,7 @@ class DiscordConnectorRuntime:
         except Exception as exc:
             self.deployment_repository.record_deployment_error(
                 prepared.resolved.deployment.id,
-                str(exc),
+                safe_runtime_error_classification(exc),
             )
             raise
 
@@ -333,7 +340,7 @@ class DiscordConnectorRuntime:
         except Exception as exc:
             self.deployment_repository.record_deployment_error(
                 prepared.resolved.deployment.id,
-                str(exc),
+                safe_runtime_error_classification(exc),
             )
             raise
 
@@ -379,7 +386,7 @@ class DiscordConnectorRuntime:
             except Exception as exc:
                 self.deployment_repository.record_deployment_error(
                     deployment.id,
-                    str(exc),
+                    safe_runtime_error_classification(exc),
                 )
                 smart_reason = "smart_output_retry_failed"
 
@@ -463,6 +470,16 @@ class DiscordConnectorRuntime:
         if resolved is None:
             raise ConnectorRuntimeError("Character turn resolution produced no result.")
         prepared = self.prepare_character_turn(resolved)
+        if prepared.context_error:
+            return DiscordConnectorReplyView(
+                action="silent",
+                reason=prepared.context_error,
+                deployment_id=resolved.deployment.id,
+                character_display_name=resolved.card.display_name,
+                context_trace=(
+                    prepared.turn_context.trace if prepared.turn_context is not None else None
+                ),
+            )
         response = await self.invoke_character_model(prepared)
         output = await self.resolve_character_output(prepared, response)
         return self.authorize_character_output(prepared, output)
@@ -591,6 +608,7 @@ class DiscordConnectorRuntime:
         payload: DiscordInboundMessage,
         smart_context: SmartOutputContext | None = None,
         turn_context: CharacterTurnContext | None = None,
+        context_sections: tuple[str, ...] = (),
     ) -> str:
         smart_context = smart_context or SmartOutputContext.from_payload(
             payload,
@@ -602,9 +620,7 @@ class DiscordConnectorRuntime:
             role_hint=role_hint,
         )
         grounding_guidance = grounding.prompt_guidance()
-        knowledge_guidance = (
-            turn_context.knowledge_prompt_guidance() if turn_context is not None else ()
-        )
+        knowledge_guidance = context_sections
         messages = list(payload.recent_messages)
         if not any(item.message_id == payload.message_id for item in messages):
             messages.append(

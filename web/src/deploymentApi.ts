@@ -1,4 +1,5 @@
 export type PlatformId = "discord" | "whatsapp" | "telegram";
+export const NEW_CONNECTION_PLATFORM = "discord" as const;
 export type ConnectionMode = "managed" | "local";
 export type ConnectionStatus = "connected" | "offline" | "error" | "disconnected";
 export type ParticipationMode =
@@ -233,11 +234,17 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const deploymentApi = {
   listConnections: () => request<PlatformConnection[]>("/api/connections"),
-  createConnection: (payload: PlatformConnectionCreate) =>
-    request<PlatformConnection>("/api/connections", {
+  createConnection: (payload: PlatformConnectionCreate) => {
+    if (payload.platform !== NEW_CONNECTION_PLATFORM) {
+      return Promise.reject(
+        new Error("Only Discord connections can be created. Existing legacy connections can still be reviewed or deleted.")
+      );
+    }
+    return request<PlatformConnection>("/api/connections", {
       method: "POST",
       body: JSON.stringify(payload)
-    }),
+    });
+  },
   updateConnection: (connectionId: string, payload: PlatformConnectionUpdate) =>
     request<PlatformConnection>(`/api/connections/${connectionId}`, {
       method: "PATCH",

@@ -43,28 +43,36 @@ from echo_masque.api.routes import (
     trials_router,
     workspace_router,
 )
+from echo_masque.api.routes.discord_debug_captures import (
+    router as discord_debug_captures_router,
+)
 from echo_masque.audit_middleware import SensitiveAuditMiddleware
 from echo_masque.auth import AuthService
 from echo_masque.authoring_archive import AuthoringArchiveService
 from echo_masque.authoring_generation import AuthoringGenerationService
 from echo_masque.authoring_runtime import AuthoringRuntimeService
 from echo_masque.browser_runtime import BrowserCapabilityManager, BrowserRuntimeSettings
-from echo_masque.character_recall import CharacterRecallService
+from echo_masque.character_turn_context_v3 import CharacterTurnContextV3Service
 from echo_masque.condition_watch_runtime import (
     ConditionWatchEvaluatorRuntime,
     ConditionWatchReminderNotifier,
 )
 from echo_masque.condition_watch_service import ConditionWatchService
 from echo_masque.config import Settings, get_settings
-from echo_masque.context_layer import ContextOrchestrator
+from echo_masque.context_resolver_v3 import ContextResolverV3
 from echo_masque.conversation_media import ConversationMediaReferenceService
+from echo_masque.conversation_structure_resolver import ConversationStructureResolver
 from echo_masque.coverage_analytics import CoverageAnalyticsService
 from echo_masque.credentials import CredentialVault
+from echo_masque.current_turn_belief_v3 import CurrentTurnBeliefRevisionService
 from echo_masque.deployment_activity import DeploymentBrowsingActivityService
 from echo_masque.deployment_activity_scheduler import DeploymentActivityScheduler
+from echo_masque.discord_debug_capture import InMemoryDiscordDebugCaptureStore
 from echo_masque.discord_inventory import DiscordInventoryService
 from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
+from echo_masque.evidence_graph_v3 import EvidenceGraphService
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService
+from echo_masque.intelligence_v3_projection import ProjectionConversationRuntimeCoordinator
 from echo_masque.internal_context import InternalContextService
 from echo_masque.judge_evaluation import JudgeEvaluationService
 from echo_masque.knowledge_consolidation_v3 import KnowledgeConsolidationV3Service
@@ -108,6 +116,7 @@ from echo_masque.persistence.conversation_runtime_repository import Conversation
 from echo_masque.persistence.conversation_structure_repository import (
     ConversationStructureRepository,
 )
+from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository
 from echo_masque.persistence.server_knowledge_v3_repository import (
     KnowledgeConsolidationCheckpointV3Repository,
     ServerWikiV3Repository,
@@ -125,6 +134,7 @@ from echo_masque.scheduled_reminder_service import ScheduledReminderDeliveryServ
 from echo_masque.semantic_participation import CharacterParticipationSemanticService
 from echo_masque.services import MatrixService, RuntimeService, TrialService
 from echo_masque.smart_participation_generation import SmartParticipationGenerationService
+from echo_masque.social_intelligence_v3 import SocialIntelligenceV3Service
 from echo_masque.template_sharing import EvaluationTemplateService
 from echo_masque.utility_gateway_live import ExistingProviderUtilityCaller
 from echo_masque.utility_gateway_router import UtilityGatewayRouter
@@ -161,6 +171,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     repository = Repository(database)
     deployment_repository = DeploymentRepository(database)
+    discord_debug_capture_store = InMemoryDiscordDebugCaptureStore()
     deployment_tool_repository = DeploymentToolRepository(database)
     discord_identity_repository = DiscordIdentityRepository(database)
     scheduled_reminder_repository = ScheduledReminderRepository(database)
@@ -195,10 +206,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     server_wiki_v3_repository = ServerWikiV3Repository(database)
     knowledge_checkpoint_v3_repository = KnowledgeConsolidationCheckpointV3Repository(database)
 
-    context_orchestrator = ContextOrchestrator(
-        knowledge_repository,
-        settings=resolved,
-    )
     if bootstrap_admin is not None:
         centralized = DiscordInventoryService(database).centralize(bootstrap_admin.id)
         if any(centralized.values()):
@@ -313,20 +320,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         processor=condition_watch_graph_runner,
         poll_seconds=resolved.condition_watch_poll_seconds,
     )
-    character_recall_service = CharacterRecallService(
-        belief_repository,
-        settings=resolved,
+    runtime_service = RuntimeService(repository, resolved, credential_store)
+    planner_utility_gateway = UtilityGatewayRouter(
+        runtime_service,
+        caller=ExistingProviderUtilityCaller(),
+    )
+    conversation_structure_resolver = ConversationStructureResolver(
+        conversation_structure_repository,
+        resolved,
+        planner_utility_gateway,
+    )
+    entity_evidence_repository = EntityEvidenceRepository(database)
+    conversation_runtime_coordinator = ProjectionConversationRuntimeCoordinator(
+        conversation_structure_repository,
+        conversation_runtime_repository,
+        graph=EvidenceGraphService(entity_evidence_repository),
+    )
+    context_resolver_v3 = ContextResolverV3(
+        structure=conversation_structure_repository,
+        runtime=conversation_runtime_repository,
+        entities=entity_evidence_repository,
+        beliefs=belief_repository,
+        social=SocialIntelligenceV3Service(database),
+        identities=discord_identity_repository,
+    )
+    character_turn_context_v3_service = CharacterTurnContextV3Service(
+        structure=conversation_structure_repository,
+        structure_resolver=conversation_structure_resolver,
+        runtime_coordinator=conversation_runtime_coordinator,
+        context_resolver=context_resolver_v3,
+        knowledge=knowledge_repository,
+        wiki=server_wiki_v3_repository,
+        corrections=CurrentTurnBeliefRevisionService(
+            repository=belief_repository,
+            gateway=planner_utility_gateway,
+        ),
     )
     discord_connector_runtime = RecallAwareMediaDiscordConnectorRuntime(
         repository,
         deployment_repository,
         credential_store,
-        context_orchestrator=context_orchestrator,
+        context_service_v3=character_turn_context_v3_service,
         deployment_tool_repository=deployment_tool_repository,
         tool_registry=tool_registry,
         live_media_service=live_media_service,
         conversation_media_service=conversation_media_service,
-        character_recall_service=character_recall_service,
     )
     character_turn_graph_runner = (
         CharacterTurnGraphRunner(
@@ -388,11 +426,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     repository.seed_demo_targets()
     repository.remove_demo_character_cards()
-    runtime_service = RuntimeService(repository, resolved, credential_store)
-    planner_utility_gateway = UtilityGatewayRouter(
-        runtime_service,
-        caller=ExistingProviderUtilityCaller(),
-    )
     knowledge_consolidation_v3_service = KnowledgeConsolidationV3Service(
         wiki=server_wiki_v3_repository,
         checkpoints=knowledge_checkpoint_v3_repository,
@@ -479,6 +512,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.auth_service = auth_service
     app.state.repository = repository
     app.state.deployment_repository = deployment_repository
+    app.state.discord_debug_capture_store = discord_debug_capture_store
     app.state.deployment_tool_repository = deployment_tool_repository
     app.state.tool_registry = tool_registry
     app.state.browser_runtime = browser_runtime
@@ -495,8 +529,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.smart_participation_repository = smart_participation_repository
     app.state.semantic_participation_service = semantic_participation_service
     app.state.knowledge_repository = knowledge_repository
-    app.state.context_orchestrator = context_orchestrator
-    app.state.character_recall_service = character_recall_service
+    app.state.context_resolver_v3 = context_resolver_v3
+    app.state.conversation_structure_resolver_v3 = conversation_structure_resolver
+    app.state.conversation_runtime_coordinator_v3 = conversation_runtime_coordinator
+    app.state.character_turn_context_v3_service = character_turn_context_v3_service
+    app.state.utility_gateway_router_v3 = planner_utility_gateway
     app.state.provider_trace_repository = provider_trace_repository
     app.state.durable_runtime_repository = durable_runtime_repository
     app.state.key_group_repository = key_group_repository
@@ -540,6 +577,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(accounts_router)
     app.include_router(admin_router)
+    app.include_router(discord_debug_captures_router)
     app.include_router(conversation_burst_observability_router)
     app.include_router(provider_traces_router)
     app.include_router(runtime_traces_router)

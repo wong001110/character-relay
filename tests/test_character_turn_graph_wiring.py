@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
@@ -38,11 +39,13 @@ def test_character_turn_and_later_modes_wire_runner(tmp_path: Path) -> None:
 def test_connector_message_endpoint_dispatches_to_graph_runner(tmp_path: Path) -> None:
     app = create_app(settings(tmp_path / "dispatch.db", langgraph_mode="character_turn"))
     called: list[str] = []
+    operation_ids: list[str] = []
 
     class FakeRunner:
         async def __call__(self, payload: DiscordInboundMessage) -> DiscordConnectorReplyView:
             deployment_id = payload.deployment_id
             called.append(deployment_id)
+            operation_ids.append(payload.runtime_operation_id)
             return DiscordConnectorReplyView(
                 action="silent",
                 reason="graph-dispatch",
@@ -50,6 +53,9 @@ def test_connector_message_endpoint_dispatches_to_graph_runner(tmp_path: Path) -
             )
 
     app.state.character_turn_graph_runner = FakeRunner()
+    app.state.deployment_repository.get_active_discord_deployment_for_guild = (
+        lambda *_args, **_kwargs: SimpleNamespace(id="deployment-1", owner_id="owner-1")
+    )
     client = TestClient(app)
     response = client.post(
         "/api/connectors/discord/messages",
@@ -71,6 +77,8 @@ def test_connector_message_endpoint_dispatches_to_graph_runner(tmp_path: Path) -
             "mentioned_bot": True,
             "replied_to_bot": False,
             "smart_candidate": False,
+            "runtime_operation_id": "caller-controlled-operation",
+            "runtime_step_id": "caller-controlled-step",
             "recent_messages": [],
         },
     )
@@ -78,3 +86,50 @@ def test_connector_message_endpoint_dispatches_to_graph_runner(tmp_path: Path) -
     assert response.status_code == 200, response.text
     assert response.json()["reason"] == "graph-dispatch"
     assert called == ["deployment-1"]
+    assert response.json()["operation_id"]
+    assert response.json()["step_id"]
+    assert response.json()["durable_status"] == "delivered"
+    assert operation_ids == [response.json()["operation_id"]]
+    assert operation_ids != ["caller-controlled-operation"]
+
+
+def test_connector_message_provider_error_does_not_expose_raw_detail(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "provider-error.db", langgraph_mode="character_turn"))
+    private_detail = "private provider response and Discord message"
+
+    class FailingRunner:
+        async def __call__(self, _payload: DiscordInboundMessage) -> DiscordConnectorReplyView:
+            raise RuntimeError(private_detail)
+
+    app.state.character_turn_graph_runner = FailingRunner()
+    app.state.deployment_repository.get_active_discord_deployment_for_guild = (
+        lambda *_args, **_kwargs: SimpleNamespace(id="deployment-1", owner_id="owner-1")
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/api/connectors/discord/messages",
+        headers={"Authorization": f"Bearer {CONNECTOR_SECRET}"},
+        json={
+            "connection_id": "connection-1",
+            "deployment_id": "deployment-1",
+            "message_id": "message-provider-error",
+            "guild_id": "guild-1",
+            "guild_name": "Guild",
+            "channel_id": "channel-1",
+            "channel_name": "general",
+            "category_id": "",
+            "thread_id": "",
+            "thread_name": "",
+            "author_id": "user-1",
+            "author_display_name": "Juen",
+            "text": "private source message",
+            "mentioned_bot": True,
+            "replied_to_bot": False,
+            "smart_candidate": False,
+            "recent_messages": [],
+        },
+    )
+
+    assert response.status_code == 502
+    assert private_detail not in response.text
+    assert "RuntimeError" in response.text

@@ -36,6 +36,11 @@ def _database() -> Database:
                     target_id="target-1",
                     display_name="Other Card",
                 ),
+            ]
+        )
+        session.flush()
+        session.add_all(
+            [
                 CharacterDeploymentRecord(
                     id="deployment-center",
                     owner_id="owner-1",
@@ -72,6 +77,11 @@ def _database() -> Database:
                     sticker_count=0,
                     status="active",
                 ),
+            ]
+        )
+        session.flush()
+        session.add_all(
+            [
                 DeploymentMessageIdentityRecord(
                     deployment_id="deployment-other",
                     owner_id="owner-1",

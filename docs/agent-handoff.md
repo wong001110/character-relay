@@ -8,11 +8,12 @@ This page is the stable handoff when OpenWiki output is absent or stale. It is m
 
 1. Read `AGENTS.md` and `docs/ai-agent-development-workflow.md`.
 2. Run `git status --short --branch`, identify the base/merge-base, and do not assume an open PR is on `main`.
-3. If `openwiki/quickstart.md` exists, use it for orientation, then verify every important claim at its cited source.
-4. Read `docs/README.md`, `docs/architecture.md`, and the task-relevant canonical contract.
-5. Inspect the exact implementation, types/schemas, persistence objects, and tests for the subsystem.
-6. State an evidence map and the invariants that must remain unchanged before editing.
-7. Run targeted checks while iterating, then the relevant complete validation before handoff.
+3. If `docs/active-development-plan.md` exists and names the branch, resume its current phase and verify its status against Git before editing.
+4. If `openwiki/quickstart.md` exists, use it for orientation, then verify every important claim at its cited source.
+5. Read `docs/README.md`, `docs/architecture.md`, and the task-relevant canonical contract.
+6. Inspect the exact implementation, types/schemas, persistence objects, and tests for the subsystem.
+7. State an evidence map and the invariants that must remain unchanged before editing.
+8. Work in coherent phase batches, run the phase validation gate, and leave the active plan ready for the next takeover.
 
 Do not infer a missing endpoint, setting, field, metric, state, permission, or database behavior. Search for it.
 
@@ -31,6 +32,21 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
 
 Branch/PR status and live deployment health are intentionally not frozen here. Check Git and the relevant CI/deployment system at task start.
 
+## Active development takeover
+
+`docs/active-development-plan.md` is the persistent branch-local handoff for multi-phase work. Use it only when its recorded branch matches the current branch. It should let an agent with no chat history recover:
+
+- the approved scope and explicit out-of-scope work;
+- the current phase and its allowed change surface;
+- source, contract, and test evidence already established;
+- invariants and security/authority boundaries;
+- validation already run and validation still required;
+- the phase commit gate, unresolved conflicts, and next concrete action.
+
+Do not turn the plan into a second architecture contract. When implementation changes authority or product behavior, update the relevant canonical document and point the plan to it.
+
+For an applicable active plan, use one integration owner: sub-agents may research, verify, test, or edit assigned non-overlapping files, while the main agent reviews the combined diff, resolves evidence conflicts, runs the phase gate, and creates at most one implementation commit for the phase. Do not create checkpoint commits or rerun the full suite after every small change.
+
 ## Module, source, and proof map
 
 | Subsystem | Owning source | Proof/tests | Contract |
@@ -42,10 +58,10 @@ Branch/PR status and live deployment health are intentionally not frozen here. C
 | Discord delivery | `connectors/discord/src/` | co-located Connector Vitest files | `connectors/discord/README.md` |
 | Conversation structure | `conversation_relations.py`, `conversation_structure_resolver.py`, conversation-structure persistence | `tests/test_conversation_relations_v3.py`, `tests/test_conversation_structure_*.py` | `docs/intelligence-core-v3-architecture.md` |
 | Belief/entity/evidence | `belief_revision_v3.py`, `current_turn_belief_v3.py`, `evidence_graph_v3.py`, matching persistence | Intelligence v3 and belief/evidence tests | `docs/intelligence-core-v3-architecture.md` |
-| Context/participation | `context_resolver_v3.py`, `participation_planner_v3.py`, `conversation_planner.py` | context/planner/participation tests | `docs/intelligence-core-v3-architecture.md` |
+| Context/participation | `context_resolver_v3.py`, `participation_planner_v3.py` | context/planner/participation tests | `docs/intelligence-core-v3-architecture.md` |
 | Character/Social Turn | `src/echo_masque/orchestration/`, conversation runtime | character/social graph tests | `docs/langgraph-roadmap.md` |
 | Media | `media_*`, `planner_media.py`, `conversation_media.py`, generated-media modules | `tests/test_media_*.py`, planner/generated-media tests | media contracts/roadmaps |
-| Knowledge/RAG/Wiki | `knowledge_*`, `context_layer.py`, related persistence | knowledge/context RAG tests | `docs/context-rag-v1.md` |
+| Knowledge/RAG/Wiki | `knowledge_*`, `character_turn_context_v3.py`, `character_turn_context_types.py`, related persistence | knowledge/context RAG tests | `docs/context-rag-v1.md` |
 | Tools/scheduler | `tool_runtime.py`, `tool_external.py`, scheduler/condition-watch modules | tool/watch/scheduler tests | tool-calling docs |
 | Observability | `runtime_trace.py`, provider trace modules/routes | runtime/provider trace tests | `docs/provider-tracing.md` |
 | Evaluation lab | scenario/test-pack/run/matrix/authoring/calibration modules and routes | Phase 13–16 tests | Phase 14/16 docs |
@@ -102,5 +118,7 @@ Record:
 - UI reference, when applicable;
 - intentional deviations and adjacent work left out;
 - unresolved conflicts or live evidence still required.
+
+For a multi-phase branch, also update `docs/active-development-plan.md` with the current phase status, commands/results, commit hash when committed, and the exact next takeover action.
 
 If architecture changed, update its canonical contract and this map. Refresh OpenWiki from updated `main` in a dedicated documentation pass when the CLI/provider is available.

@@ -1,12 +1,7 @@
 import { groupAddressAliases } from "./audienceAliases.js";
-import { recordSmartParticipationDecision } from "./behaviorDecisionTrace.js";
 import {
   consumeSmartSelection,
-  coordinateExplicitSmartParticipants,
-  evaluateSmartFollowUp,
-  evaluateSmartParticipation,
-  markExplicitSmartSelections,
-  type SmartParticipationSemanticScores
+  markExplicitSmartSelections
 } from "./smartParticipation.js";
 import type { DiscordDeployment } from "./types.js";
 
@@ -277,9 +272,7 @@ export function resolveAudience(
   candidates: DiscordDeployment[],
   text: string,
   replyDeploymentId?: string | null,
-  additionalGroupAliases: string[] = [],
-  semanticScores: SmartParticipationSemanticScores = {},
-  runtimeScopeKey?: string
+  additionalGroupAliases: string[] = []
 ): AudienceResolution {
   const options = [...new Set(candidates.map(displayName))];
   if (!candidates.length) {
@@ -289,65 +282,28 @@ export function resolveAudience(
   if (replyDeploymentId) {
     const replyTarget = candidates.find((item) => item.deployment_id === replyDeploymentId);
     if (replyTarget) {
-      markExplicitSmartSelections([replyTarget], Date.now(), runtimeScopeKey);
+      markExplicitSmartSelections([replyTarget]);
       return { deployments: [replyTarget], text: text.trim(), reason: "selected_reply", options };
     }
   }
 
   const groupText = stripGroupAddress(text, additionalGroupAliases);
   if (groupText !== null) {
-    markExplicitSmartSelections(candidates, Date.now(), runtimeScopeKey);
+    markExplicitSmartSelections(candidates);
     return { deployments: [...candidates], text: groupText, reason: "selected_all", options };
   }
 
   const named = namedAudience(candidates, text, options);
   if (named) {
     if (named.deployments.length === 1) {
-      const coordinated = coordinateExplicitSmartParticipants(
-        candidates,
-        named.deployments,
-        named.text,
-        Date.now(),
-        semanticScores,
-        runtimeScopeKey
-      );
-      if (coordinated.coordinated) {
-        return { ...named, deployments: coordinated.deployments, reason: "selected_coordinated" };
-      }
       return named;
     }
-    markExplicitSmartSelections(named.deployments, Date.now(), runtimeScopeKey);
+    markExplicitSmartSelections(named.deployments);
     return named;
   }
 
-  const smartDecision = evaluateSmartParticipation(
-    candidates,
-    text,
-    Date.now(),
-    semanticScores,
-    runtimeScopeKey
-  );
-  recordSmartParticipationDecision({
-    message: text,
-    decision: smartDecision,
-    deployments: candidates
-  });
-  if (smartDecision.selectedDeployments.length) {
-    return {
-      deployments: smartDecision.selectedDeployments,
-      text: text.trim(),
-      reason:
-        smartDecision.selectedDeployments.length > 1
-          ? "selected_smart_multiple"
-          : "selected_smart",
-      options
-    };
-  }
-
-  const only = candidates[0];
-  if (candidates.length === 1 && only) {
-    return { deployments: [only], text: text.trim(), reason: "selected_single", options };
-  }
+  // Ordinary messages are selected only by the authoritative v3 resolver in index.ts.
+  // This deterministic router intentionally remains silent when no direct address exists.
   return { deployments: [], text: text.trim(), reason: "ambiguous", options };
 }
 
@@ -557,14 +513,7 @@ export function resolveBotTagAudience(
 
   const sourceDeployment = candidates.find((item) => item.deployment_id === sourceDeploymentId);
   if (!sourceDeployment) return leading;
-  const followUp = evaluateSmartFollowUp(sourceDeployment, candidates);
-  if (!followUp.selectedDeployment) return leading;
-  return {
-    deployments: [followUp.selectedDeployment],
-    text: text.trim(),
-    reason: "selected_smart_follow_up",
-    options: leading.options
-  };
+  return leading;
 }
 
 export interface TriggerState {

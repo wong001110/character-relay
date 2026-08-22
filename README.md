@@ -144,10 +144,10 @@ Generated OpenWiki pages are navigation, not product contracts. Important claims
 
 ## Documentation
 
-- [`docs/README.md`](docs/README.md) — authority and document index
-- [`docs/architecture.md`](docs/architecture.md) — current service and ownership map
-- [`docs/agent-handoff.md`](docs/agent-handoff.md) — five-minute takeover protocol and source/test map
-- [`docs/intelligence-core-v3-architecture.md`](docs/intelligence-core-v3-architecture.md) — current intelligence authority contract
-- [`docs/ui-page-migration-plan.md`](docs/ui-page-migration-plan.md) — accepted UI composition/status contract
-- [`connectors/discord/README.md`](connectors/discord/README.md) — Connector setup and operations
+- [`docs/user/README.md`](docs/user/README.md) — Discord setup and everyday use
+- [`docs/operator/README.md`](docs/operator/README.md) — deployment, storage, security, and incident entry points
+- [`docs/developer/README.md`](docs/developer/README.md) — local setup, validation, and evidence-first development
+- [`docs/contracts/README.md`](docs/contracts/README.md) — current product and architecture authority
+- [`docs/history/README.md`](docs/history/README.md) — superseded designs and delivery records
+- [`docs/README.md`](docs/README.md) — complete audience and authority index
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution workflow

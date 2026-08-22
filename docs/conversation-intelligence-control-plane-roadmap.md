@@ -1,6 +1,6 @@
 # Conversation Intelligence Control Plane Roadmap
 
-Status: active development — architecture revision v2 (2026-08-18)
+Status: **historical branch roadmap — superseded by Intelligence Core v3 and current source/tests**
 Branch: `agent/conversation-intelligence-control-plane`
 
 ## Goal

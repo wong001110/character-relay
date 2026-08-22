@@ -95,27 +95,6 @@ class SmartParticipationSemanticProfileView(BaseModel):
     rebuilt: bool = False
 
 
-class SmartParticipationSemanticScoreRequest(BaseModel):
-    connection_id: str = Field(min_length=1, max_length=128)
-    message: str = Field(min_length=1, max_length=10000)
-    deployment_ids: list[str] = Field(default_factory=list, min_length=1, max_length=100)
-
-
-class SmartParticipationSemanticCandidateView(BaseModel):
-    deployment_id: str
-    character_card_id: str
-    semantic_relevance: float
-    profile_ready: bool
-
-
-class SmartParticipationSemanticScoreView(BaseModel):
-    available: bool
-    reason: str
-    model: str = ""
-    dimension: int = 0
-    candidates: list[SmartParticipationSemanticCandidateView] = Field(default_factory=list)
-
-
 class SmartParticipationPlaygroundRequest(BaseModel):
     message: str = Field(min_length=1, max_length=10000)
     previous_character_card_id: str = Field(default="", max_length=64)

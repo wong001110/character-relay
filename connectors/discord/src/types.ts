@@ -70,12 +70,14 @@ export interface DiscordCatalogServer {
   guild_id: string;
   guild_name: string;
   channels: DiscordCatalogChannel[];
-  emojis: DiscordCatalogEmoji[];
-  stickers: DiscordCatalogSticker[];
+  emojis?: DiscordCatalogEmoji[];
+  stickers?: DiscordCatalogSticker[];
 }
 
 export interface DiscordServerCatalogSync {
   connection_id: string;
+  visible_guild_ids: string[];
+  failed_guild_ids: string[];
   servers: DiscordCatalogServer[];
 }
 
@@ -366,6 +368,10 @@ export interface DiscordReply {
   context_trace?: DiscordContextTrace | null;
   tool_calls: DiscordToolExecutionTrace[];
   generated_artifact_ids: string[];
+  operation_id?: string;
+  step_id?: string;
+  durable_status?: "none" | "generated" | "replayed" | "delivered";
+  delivery_required?: boolean;
 }
 
 export type DiscordConnectorEventLevel = "info" | "warning" | "error";

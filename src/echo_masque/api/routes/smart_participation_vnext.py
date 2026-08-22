@@ -27,11 +27,11 @@ from echo_masque.api.smart_participation_vnext_schemas import (
     ReplyTargetRouteView,
     SmartParticipationResolveVNextView,
 )
+from echo_masque.character_turn_context_v3 import CharacterTurnContextV3Service
 from echo_masque.config import Settings
 from echo_masque.context_resolver_v3 import ContextBundleV3, ContextResolverV3, ContextTextHit
 from echo_masque.conversation_runtime import ConversationRuntimeCoordinator
 from echo_masque.conversation_structure_resolver import ConversationStructureResolver
-from echo_masque.current_turn_belief_v3 import CurrentTurnBeliefRevisionService
 from echo_masque.participation_planner_v3 import ParticipationPlannerV3
 from echo_masque.persistence import DeploymentRepository, Repository
 from echo_masque.persistence.belief_repository import BeliefRepository
@@ -168,14 +168,37 @@ def _context_resolver(request: Request) -> ContextResolverV3:
     return resolver
 
 
+def _character_turn_context(request: Request) -> CharacterTurnContextV3Service:
+    return cast(
+        CharacterTurnContextV3Service,
+        request.app.state.character_turn_context_v3_service,
+    )
+
+
 def _records_for_payload(payload: SmartParticipationResolveRequest, request: Request):
     repository = cast(DeploymentRepository, request.app.state.deployment_repository)
-    records = repository.list_connector_deployments(
+    listed_records = repository.list_connector_deployments(
         platform="discord",
         connection_id=payload.connection_id,
     )
-    requested = {item.deployment_id for item in payload.candidates}
-    return [item for item in records if item.id in requested]
+    listed_by_id = {item.id: item for item in listed_records}
+    records = []
+    seen: set[str] = set()
+    for candidate in payload.candidates:
+        deployment_id = candidate.deployment_id
+        if deployment_id in seen or deployment_id not in listed_by_id:
+            continue
+        matched = repository.deployment_matches_discord_destination(
+            deployment_id,
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+        )
+        if matched is not None:
+            records.append(matched)
+            seen.add(deployment_id)
+    return records
 
 
 def _current_text(payload: SmartParticipationResolveRequest) -> str:
@@ -279,6 +302,22 @@ def _candidate_evidence(
         burst_message_count=len(payload.burst_messages),
         analysis_chars=len(analysis),
         candidates=views,
+        speaker_plan=[],
+        speaker_plan_authoritative=True,
+        utility_used=False,
+    )
+
+
+def _empty_candidate_evidence(payload: SmartParticipationResolveRequest) -> SmartParticipationResolveView:
+    return SmartParticipationResolveView(
+        available=False,
+        reason="candidate_evidence_unavailable",
+        model="",
+        dimension=0,
+        burst_id=payload.burst_id,
+        burst_message_count=len(payload.burst_messages),
+        analysis_chars=len(_analysis_text(payload)),
+        candidates=[],
         speaker_plan=[],
         speaker_plan_authoritative=True,
         utility_used=False,
@@ -432,34 +471,35 @@ def resolve_smart_participation_vnext(
     """Resolve one turn using v3 conversation/context/participation authority."""
 
     _authorize_connector(request, authorization)
-    records = _records_for_payload(payload, request)
-    base = _candidate_evidence(payload=payload, records=records, request=request)
+    try:
+        records = _records_for_payload(payload, request)
+    except Exception:
+        return _base_result(
+            _empty_candidate_evidence(payload),
+            source="candidate_scope_resolution_failed",
+        )
+    try:
+        base = _candidate_evidence(payload=payload, records=records, request=request)
+    except Exception:
+        return _base_result(
+            _empty_candidate_evidence(payload),
+            source="candidate_evidence_failed",
+        )
     if not records:
         return _base_result(base, source="no_owner")
     owner_id = str(getattr(records[0], "owner_id", ""))
 
-    belief_repository = BeliefRepository(_database(request))
-    correction_service = CurrentTurnBeliefRevisionService(
-        repository=belief_repository,
-        gateway=_utility_gateway(request),
-    )
-    extraction = correction_service.extract_self_claim(
-        speaker_ref=payload.author_id,
-        text=_current_text(payload),
-    )
-    correction_shields = {}
-    for deployment in records:
-        revision = correction_service.apply_to_character(
-            extraction=extraction,
+    try:
+        correction_result = _character_turn_context(request).corrections_for_participation(
+            payload=payload,
             owner_id=owner_id,
-            character_card_id=deployment.character_card_id,
-            connection_id=payload.connection_id,
-            guild_id=payload.guild_id,
-            speaker_ref=payload.author_id,
-            source_message_id=_source_message_id(payload),
+            deployment_characters=tuple(
+                (deployment.id, deployment.character_card_id) for deployment in records
+            ),
         )
-        if revision is not None and revision.shield.active:
-            correction_shields[deployment.id] = revision.shield
+        correction_shields = correction_result.shields
+    except Exception:
+        return _base_result(base, source="belief_revision_failed")
 
     try:
         result = _service(request).resolve(payload=payload, owner_id=owner_id)
@@ -489,33 +529,39 @@ def resolve_smart_participation_vnext(
         for item in result.segments
     ]
     current_segment_id = _current_segment_id(payload, tuple(result.segments))
-    wiki_hits = _wiki_hits(request=request, owner_id=owner_id, payload=payload)
     contexts: dict[str, ContextBundleV3] = {}
-    resolver = _context_resolver(request)
-    for deployment in records:
-        contexts[deployment.id] = resolver.resolve(
-            owner_id=owner_id,
-            connection_id=payload.connection_id,
-            guild_id=payload.guild_id,
-            channel_id=payload.channel_id,
-            discord_thread_id=payload.thread_id,
-            query=_current_text(payload),
-            character_card_id=deployment.character_card_id,
-            deployment_id=deployment.id,
-            actor_id=payload.author_id,
-            segment_id=current_segment_id,
-            live_context=_live_context(payload),
-            wiki_hits=wiki_hits,
-            correction_shield=correction_shields.get(deployment.id),
-        )
+    try:
+        wiki_hits = _wiki_hits(request=request, owner_id=owner_id, payload=payload)
+        resolver = _context_resolver(request)
+        for deployment in records:
+            contexts[deployment.id] = resolver.resolve(
+                owner_id=owner_id,
+                connection_id=payload.connection_id,
+                guild_id=payload.guild_id,
+                channel_id=payload.channel_id,
+                discord_thread_id=payload.thread_id,
+                query=_current_text(payload),
+                character_card_id=deployment.character_card_id,
+                deployment_id=deployment.id,
+                actor_id=payload.author_id,
+                segment_id=current_segment_id,
+                live_context=_live_context(payload),
+                wiki_hits=wiki_hits,
+                correction_shield=correction_shields.get(deployment.id),
+            )
+    except Exception:
+        return _base_result(base, source="context_resolution_failed")
 
-    plan = _participation_planner(request).plan(
-        payload=payload,
-        deployments=tuple(records),
-        candidate_views=tuple(base.candidates),
-        segments=tuple(result.segments),
-        context_by_deployment=contexts,
-    )
+    try:
+        plan = _participation_planner(request).plan(
+            payload=payload,
+            deployments=tuple(records),
+            candidate_views=tuple(base.candidates),
+            segments=tuple(result.segments),
+            context_by_deployment=contexts,
+        )
+    except Exception:
+        return _base_result(base, source="participation_planner_failed")
     speaker_plan = [
         SmartParticipationSpeakerPlanItem(
             deployment_id=item.deployment_id,
@@ -540,15 +586,16 @@ def resolve_smart_participation_vnext(
     guidance_by_id = {item.deployment_id: item.guidance for item in plan.speakers}
     authoritative_ids = {item.deployment_id for item in plan.speakers}
     record_by_id = {item.id: item for item in records}
-    _persist_reply_targets(
-        payload=payload,
-        request=request,
-        owner_id=owner_id,
-        records_by_id=record_by_id,
-        targets=reply_targets,
-        guidance_by_id=guidance_by_id,
-        authoritative_ids=authoritative_ids,
-    )
+    with suppress(Exception):
+        _persist_reply_targets(
+            payload=payload,
+            request=request,
+            owner_id=owner_id,
+            records_by_id=record_by_id,
+            targets=reply_targets,
+            guidance_by_id=guidance_by_id,
+            authoritative_ids=authoritative_ids,
+        )
 
     return SmartParticipationResolveVNextView.model_validate(
         {
@@ -566,7 +613,7 @@ def resolve_smart_participation_vnext(
             "context_sufficiency": {
                 deployment_id: context.sufficiency for deployment_id, context in contexts.items()
             },
-            "utility_used": bool(result.utility_used or extraction.utility_used),
+            "utility_used": bool(result.utility_used or correction_result.utility_used),
         }
     )
 

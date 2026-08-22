@@ -59,6 +59,8 @@ def test_custom_target_crud_and_terminal_cancel(tmp_path: Path) -> None:
 
     deleted = client.delete(f"/api/targets/{target_id}")
     assert deleted.status_code == 204
+    assert client.get(f"/api/targets/{target_id}").status_code == 404
+    assert client.get(f"/api/trials/{run['id']}").status_code == 200
 
 
 def test_database_initialization_is_idempotent(tmp_path: Path) -> None:

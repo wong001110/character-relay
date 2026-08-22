@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from sqlalchemy import and_, delete, or_, select
+from sqlalchemy.exc import IntegrityError
 
 from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.database import Database
@@ -74,6 +75,171 @@ class DurableRuntimeRepository:
     @classmethod
     def social_step_id(cls, operation_id: str, step_index: int, deployment_id: str) -> str:
         return cls.stable_hash("social-step-v1", operation_id, step_index, deployment_id)
+
+    @classmethod
+    def character_operation_id(
+        cls,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        channel_id: str,
+        thread_id: str,
+        source_message_id: str,
+        deployment_id: str,
+    ) -> str:
+        """Derive a normal Character-turn identity from validated Discord scope only."""
+
+        return cls.stable_hash(
+            "discord-character-operation-v1",
+            owner_id,
+            connection_id,
+            guild_id,
+            channel_id,
+            thread_id,
+            source_message_id,
+            deployment_id,
+        )
+
+    def claim_character_operation(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        channel_id: str,
+        thread_id: str,
+        source_message_id: str,
+        deployment_id: str,
+    ) -> RuntimeOperationRecord:
+        """Claim one ordinary Discord Character turn after Runtime validates its scope.
+
+        The connector supplies no operation or step identity for this path.  The source message
+        text is deliberately not an identity input: Discord's immutable message ID is enough.
+        """
+
+        operation_id = self.character_operation_id(
+            owner_id=owner_id,
+            connection_id=connection_id,
+            guild_id=guild_id,
+            channel_id=channel_id,
+            thread_id=thread_id,
+            source_message_id=source_message_id,
+            deployment_id=deployment_id,
+        )
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            record = session.get(RuntimeOperationRecord, operation_id)
+            if record is None:
+                record = RuntimeOperationRecord(
+                    operation_id=operation_id,
+                    operation_kind="character_turn",
+                    owner_id=owner_id,
+                    connection_id=connection_id,
+                    guild_id=guild_id,
+                    channel_id=channel_id,
+                    thread_id=thread_id,
+                    source_message_id=source_message_id,
+                    status="active",
+                    initial_deployment_ids_json=self._json([deployment_id]),
+                    available_deployment_ids_json=self._json([deployment_id]),
+                    cursor_json=self._json(
+                        self.initial_cursor(
+                            [deployment_id], continuation_budget=0, max_depth=0
+                        )
+                    ),
+                    sources_json="[]",
+                    continuation_budget=0,
+                    max_depth=0,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(record)
+                try:
+                    session.commit()
+                except IntegrityError:
+                    session.rollback()
+                    record = session.get(RuntimeOperationRecord, operation_id)
+                    if record is None:
+                        raise
+                else:
+                    session.refresh(record)
+                    return record
+
+            identity = (
+                record.operation_kind,
+                record.owner_id,
+                record.connection_id,
+                record.guild_id,
+                record.channel_id,
+                record.thread_id,
+                record.source_message_id,
+                self._list(record.initial_deployment_ids_json),
+            )
+            supplied = (
+                "character_turn",
+                owner_id,
+                connection_id,
+                guild_id,
+                channel_id,
+                thread_id,
+                source_message_id,
+                [deployment_id],
+            )
+            if identity != supplied:
+                raise ValueError(
+                    "Runtime operation identity does not match its validated Discord event."
+                )
+            if record.status in {"active", "awaiting_delivery"}:
+                record.resume_count += 1
+                record.updated_at = now
+                session.commit()
+                session.refresh(record)
+            return record
+
+    def prepare_character_step(
+        self,
+        *,
+        operation_id: str,
+        deployment_id: str,
+    ) -> tuple[StepPreparationStatus, RuntimeStepRecord]:
+        """Prepare the sole generation step without using request text as an idempotency key."""
+
+        return self.prepare_social_step(
+            operation_id=operation_id,
+            step_index=0,
+            deployment_id=deployment_id,
+            request_hash=self.stable_hash(
+                "discord-character-step-v1", operation_id, deployment_id
+            ),
+        )
+
+    def acknowledge_character_delivery(
+        self,
+        *,
+        operation_id: str,
+        step_id: str,
+        claim_nonce: str,
+        sent_message_ids: list[str],
+    ) -> RuntimeOperationRecord:
+        """Acknowledge a normal turn from its persisted server-side step metadata."""
+
+        with self.database.session() as session:
+            step = session.get(RuntimeStepRecord, step_id)
+            if step is None or step.operation_id != operation_id:
+                raise KeyError("Durable Character Turn step was not found.")
+            cursor_json = step.cursor_json
+            deployment_id = step.deployment_id
+        return self.acknowledge_delivery(
+            operation_id=operation_id,
+            step_id=step_id,
+            claim_nonce=claim_nonce,
+            cursor_json=cursor_json,
+            sent_message_ids=sent_message_ids,
+            outgoing_text="",
+            applied=False,
+            deployment_id=deployment_id,
+        )
 
     @staticmethod
     def initial_cursor(
@@ -515,8 +681,18 @@ class DurableRuntimeRepository:
                 )
             )
             for step in generating:
-                step.status = "failed"
-                step.last_error = "process_restarted_during_generation"
+                operation = session.get(RuntimeOperationRecord, step.operation_id)
+                if operation is not None and operation.operation_kind == "character_turn":
+                    step.status = "uncertain"
+                    step.last_error = "process_restarted_during_character_generation"
+                    if operation.status != "completed":
+                        operation.status = "uncertain"
+                        operation.last_error = step.last_error
+                        operation.updated_at = now
+                else:
+                    # Existing Social Turn semantics intentionally permit generation replay.
+                    step.status = "failed"
+                    step.last_error = "process_restarted_during_generation"
                 step.updated_at = now
                 recovered["generation"] += 1
 

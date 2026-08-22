@@ -10,6 +10,7 @@ from sqlalchemy import delete, func, select
 
 from echo_masque.domain import TrialSuiteResult
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.key_group_models import CharacterKeyGroupAssignmentRecord
 from echo_masque.persistence.models import (
     AdminRuntimeRecord,
     CharacterCardRecord,
@@ -731,6 +732,11 @@ class WorkspaceRepository:
             session.execute(delete(TestPackItemRecord).where(TestPackItemRecord.pack_id.in_(pack_ids)))
         session.execute(delete(TestPackRecord).where(TestPackRecord.owner_id == owner_id))
         session.execute(delete(CustomScenarioRecord).where(CustomScenarioRecord.owner_id == owner_id))
+        session.execute(
+            delete(CharacterKeyGroupAssignmentRecord).where(
+                CharacterKeyGroupAssignmentRecord.owner_id == owner_id
+            )
+        )
         session.execute(delete(CharacterCardRecord).where(CharacterCardRecord.owner_id == owner_id))
         session.execute(delete(PersistenceProbeRecord).where(PersistenceProbeRecord.owner_id == owner_id))
 

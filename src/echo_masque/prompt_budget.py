@@ -14,11 +14,8 @@ from echo_masque.semantic_participation import (
     SemanticEncoder,
     _cosine,
 )
-from echo_masque.semantic_turn_runtime import SemanticTurnSignalStore
-from echo_masque.smart_output import SmartOutputContext, _expression_aliases
 
 if TYPE_CHECKING:
-    from echo_masque.api.expression_schemas import ExpressionCandidate
     from echo_masque.tool_runtime import ToolExecutionContext, ToolRegistry
 
 _TOOL_DENSE_MINIMUM = 0.48
@@ -112,91 +109,6 @@ _EXPLICIT_INTENT_PATTERNS: dict[str, re.Pattern[str]] = {
 }
 
 
-class BudgetSmartOutputContext(SmartOutputContext):
-    """Same Runtime authority as SmartOutputContext with a smaller dynamic protocol prompt."""
-
-    def prompt_guidance(self, candidates: list[ExpressionCandidate]) -> tuple[str, ...]:
-        aliases = _expression_aliases(candidates)
-        emoji_aliases = {
-            alias: item for alias, item in aliases.items() if item.resource_type == "emoji"
-        }
-        sticker_aliases = {
-            alias: item for alias, item in aliases.items() if item.resource_type == "sticker"
-        }
-        actions = list(self._available_actions(candidates))
-
-        lines = [
-            "Smart Output: choose exactly one natural Discord action; Runtime validates references.",
-            f"Allowed actions this turn: {', '.join(actions)}.",
-        ]
-        if self.participation_required:
-            lines.extend(
-                (
-                    "Runtime has already admitted this Character for the current turn.",
-                    "Return one visible action. Silence/ignore is not available for this turn.",
-                )
-            )
-        lines.extend(
-            (
-                "Return exactly one [[CR_OUTPUT {...}]] line and no reasoning or surrounding prose.",
-                'Message shape: [[CR_OUTPUT {"action":"message","content":[{"text":"..."}]}]]',
-                (
-                    'Short message shape: [[CR_OUTPUT {"action":"short_message",'
-                    '"content":[{"text":"..."}]}]]'
-                ),
-                (
-                    "For message content, every array item must be one separate JSON object containing "
-                    "exactly one of: text, emoji, mention. Never embed an emoji or mention object inside "
-                    "a text string."
-                ),
-            )
-        )
-        if not self.participation_required:
-            lines.append('Silence shape: [[CR_OUTPUT {"action":"ignore"}]]')
-        references = ", ".join(self.message_alias_to_id.keys())
-        lines.append(f"Message references: {references}.")
-        if len(self.message_alias_to_id) > 1:
-            lines.append(
-                "For message/short_message/sticker, optional reply_to may use one supplied message reference."
-            )
-
-        if self.participant_alias_descriptions:
-            lines.append(
-                "Mentionable participants (use {\"mention\":\"pN\"} as its own message-content item):"
-            )
-            lines.extend(self.participant_alias_descriptions)
-
-        if emoji_aliases or sticker_aliases:
-            lines.append("Retrieved Server expressions:")
-            for alias, item in aliases.items():
-                meaning = (item.semantic_description or item.semantic_intent or item.name).strip()
-                lines.append(
-                    f"- {alias}; type={item.resource_type}; name={item.name}; "
-                    f"actions={','.join(item.allowed_actions)}; meaning={meaning[:220]}"
-                )
-        if emoji_aliases:
-            lines.extend(
-                (
-                    (
-                        "Custom Emoji: inline Emoji MUST be its own content-array item, for example "
-                        'content:[{"text":"前面的文字 "},{"emoji":"e1"},{"text":" 后面的文字"}].'
-                    ),
-                    (
-                        'Never write an Emoji object inside a text value such as '
-                        '{"text":"hello {\\"emoji\\":\\"e1\\"}"}. '
-                        "For a reaction instead, use action=react with target + emoji when allowed."
-                    ),
-                )
-            )
-        if sticker_aliases:
-            lines.append("Sticker: action=sticker with sticker=sN; it is the whole social action.")
-        if self.participant_alias_descriptions or aliases:
-            lines.append(
-                "Never invent participant, message, Emoji, or Sticker aliases; never mention yourself."
-            )
-        return tuple(lines)
-
-
 def _tool_encoder(settings: Settings) -> SemanticEncoder:
     global _TOOL_ENCODER
     if _TOOL_ENCODER is not None:
@@ -281,11 +193,6 @@ def select_tool_ids_for_turn(
             else ()
         )
 
-    turn_signals = SemanticTurnSignalStore.get(context.deployment_id, context.message_id)
-    continuation_tool_ids = set(
-        turn_signals.continuation_tool_ids if turn_signals is not None else ()
-    )
-
     forced: list[str] = []
     for tool_id in available:
         item = catalog[tool_id]
@@ -294,12 +201,11 @@ def select_tool_ids_for_turn(
                 forced.append(tool_id)
             continue
         explicit = _explicit_intent(tool_id, query)
-        continuation = tool_id in continuation_tool_ids
-        # Side-effect schemas require either current explicit intent or a scoped semantic pending
-        # continuation. Runtime still validates assignment/availability/execution authority later.
-        if item.side_effect and not explicit and not continuation:
+        # Side-effect schemas require a current explicit intent. Runtime still validates
+        # assignment, availability, and execution authority later.
+        if item.side_effect and not explicit:
             continue
-        if explicit or continuation:
+        if explicit:
             forced.append(tool_id)
 
     try:
@@ -351,6 +257,5 @@ def select_tool_ids_for_turn(
 
 
 __all__ = [
-    "BudgetSmartOutputContext",
     "select_tool_ids_for_turn",
 ]

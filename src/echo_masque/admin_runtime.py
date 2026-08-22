@@ -24,14 +24,13 @@ UtilityCapability = Literal[
     "semantic_judge",
     "memory_intelligence",
     "knowledge_wiki",
-    "participation_tiebreak",
     "tool_continuation",
     "context_compiler",
     "media_understanding",
     "structured_summary",
 ]
 UtilityRoutingStrategy = Literal["best_available", "fixed_priority"]
-RUNTIME_DEFAULTS_VERSION = 5
+RUNTIME_DEFAULTS_VERSION = 6
 
 DEFAULT_ADAPTIVE_PROMPT = (
     "You are an adversarial but bounded AI character tester. Generate exactly one "
@@ -214,6 +213,40 @@ class AdminRuntimeConfig(BaseModel):
     )
     default_judge_mode: JudgeModeValue = "hybrid"
     defaults_version: int = RUNTIME_DEFAULTS_VERSION
+
+    @model_validator(mode="before")
+    @classmethod
+    def remove_retired_participation_tiebreak(cls, value: object) -> object:
+        """Migrate persisted Utility members away from the retired compatibility route."""
+
+        if not isinstance(value, dict):
+            return value
+        migrated = dict(value)
+        raw_gateway = migrated.get("utility_gateway")
+        if not isinstance(raw_gateway, dict):
+            return migrated
+        gateway = dict(raw_gateway)
+        raw_members = gateway.get("members")
+        if not isinstance(raw_members, (list, tuple)):
+            return migrated
+        members: list[object] = []
+        for raw_member in raw_members:
+            if not isinstance(raw_member, dict):
+                members.append(raw_member)
+                continue
+            member = dict(raw_member)
+            capabilities = member.get("capabilities")
+            if isinstance(capabilities, (list, tuple)):
+                retained = [
+                    item for item in capabilities if item != "participation_tiebreak"
+                ]
+                if not retained:
+                    continue
+                member["capabilities"] = retained
+            members.append(member)
+        gateway["members"] = members
+        migrated["utility_gateway"] = gateway
+        return migrated
 
 
 class AgentRuntimeStatus(BaseModel):

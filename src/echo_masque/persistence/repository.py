@@ -7,6 +7,7 @@ from sqlalchemy import delete, func, select
 
 from echo_masque.domain import TrialStatus, TrialSuiteResult
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.key_group_models import CharacterKeyGroupAssignmentRecord
 from echo_masque.persistence.models import (
     AdminRuntimeRecord,
     CharacterCardRecord,
@@ -52,6 +53,11 @@ class Repository:
         """Remove user-facing demo cards without deleting their historical trial runs."""
 
         with self.database.session() as session:
+            session.execute(
+                delete(CharacterKeyGroupAssignmentRecord).where(
+                    CharacterKeyGroupAssignmentRecord.character_card_id.in_(DEMO_CARD_IDS)
+                )
+            )
             session.execute(
                 delete(CharacterTrialRecord).where(
                     CharacterTrialRecord.character_card_id.in_(DEMO_CARD_IDS)
@@ -109,6 +115,18 @@ class Repository:
             record = session.get(TargetRecord, target_id)
             if record is None:
                 return False
+            if session.scalar(
+                select(CharacterCardRecord.id)
+                .where(CharacterCardRecord.target_id == target_id)
+                .limit(1)
+            ):
+                return False
+            if session.scalar(
+                select(TrialRunRecord.id).where(TrialRunRecord.target_id == target_id).limit(1)
+            ):
+                # The owner-facing access row is removed by the API route, but the immutable
+                # target row remains as a foreign-key anchor for historical Trial Runs.
+                return True
             session.delete(record)
             session.commit()
             return True
@@ -232,6 +250,11 @@ class Repository:
                     CharacterTrialRecord.character_card_id == card_id
                 )
             )
+            session.execute(
+                delete(CharacterKeyGroupAssignmentRecord).where(
+                    CharacterKeyGroupAssignmentRecord.character_card_id == card_id
+                )
+            )
             session.delete(card)
             session.commit()
             return True
@@ -264,6 +287,7 @@ class Repository:
         )
         with self.database.session() as session:
             session.add(run)
+            session.flush()
             if character_card_id is not None:
                 session.add(
                     CharacterTrialRecord(run_id=run.id, character_card_id=character_card_id)

@@ -2,6 +2,8 @@
 
 Character Relay persists correlated provider traces for OpenAI-compatible model calls, including DeepSeek. Provider request and response content is not written to Railway process logs.
 
+Provider Trace is separate from Discord temporary debug capture. Provider Trace records model-call diagnostics according to the configured trace mode and persistent retention. Discord capture is an explicitly enabled, Server-scoped, memory-only view of validated Runtime ingress and follows `docs/discord-debug-capture.md`; enabling one does not enable the other.
+
 The viewer is available inside the Portal only to the configured Bootstrap Admin account, which acts as the product's Super Admin. Regular Admin and User sessions receive `403 Forbidden` from the trace API.
 
 ## Portal access

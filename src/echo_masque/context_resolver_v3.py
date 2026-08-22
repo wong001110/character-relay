@@ -18,12 +18,13 @@ from echo_masque.persistence.conversation_structure_repository import (
     ConversationStructureRepository,
     ConversationThreadView,
 )
+from echo_masque.persistence.discord_identity_repository import DiscordIdentityRepository
 from echo_masque.persistence.entity_evidence_repository import (
     EntityEvidenceRepository,
     EntityV3View,
     KnowledgeGapView,
 )
-from echo_masque.social_intelligence_v3 import SocialIntelligenceV3Service
+from echo_masque.social_intelligence_v3 import SocialIntelligenceV3Service, SocialTargetType
 
 SufficiencyState = Literal[
     "sufficient",
@@ -70,11 +71,14 @@ class ContextBundleV3:
     correction_notice: str
     sufficiency: SufficiencyState
     reason: str
+    temporal_context: tuple[str, ...] = ()
 
     def prompt_sections(self) -> tuple[str, ...]:
         sections: list[str] = []
         if self.correction_notice:
             sections.append(self.correction_notice)
+        if self.temporal_context:
+            sections.append("SERVER TIME\n" + "\n".join(self.temporal_context))
         if self.thread is not None:
             sections.append(
                 "CONVERSATION THREAD\n"
@@ -157,6 +161,7 @@ class ContextResolverV3:
         entities: EntityEvidenceRepository,
         beliefs: BeliefRepository,
         social: SocialIntelligenceV3Service,
+        identities: DiscordIdentityRepository | None = None,
         budget: ContextBudget | None = None,
     ) -> None:
         self.structure = structure
@@ -164,7 +169,29 @@ class ContextResolverV3:
         self.entities = entities
         self.beliefs = beliefs
         self.social = social
+        self.identities = identities or DiscordIdentityRepository(runtime.database)
         self.budget = budget or ContextBudget()
+
+    def _episode_was_perceived(
+        self,
+        *,
+        connection_id: str,
+        deployment_id: str,
+        episode: ConversationEpisodeV3View,
+    ) -> bool:
+        if not deployment_id:
+            return False
+        return any(
+            (
+                route := self.identities.resolve_message_route(
+                    connection_id=connection_id,
+                    message_id=message_id,
+                )
+            )
+            is not None
+            and route.deployment_id == deployment_id
+            for message_id in episode.source_message_ids
+        )
 
     @staticmethod
     def _bounded_lines(values: tuple[str, ...], limit: int) -> tuple[str, ...]:
@@ -212,6 +239,9 @@ class ContextResolverV3:
         knowledge_hits: tuple[ContextTextHit, ...] = (),
         wiki_hits: tuple[ContextTextHit, ...] = (),
         correction_shield: CorrectionShield | None = None,
+        social_target_type: SocialTargetType = "actor",
+        social_target_key: str = "",
+        temporal_context: tuple[str, ...] = (),
     ) -> ContextBundleV3:
         segment: ConversationSegmentView | None = None
         if segment_id:
@@ -280,6 +310,12 @@ class ContextResolverV3:
         episode_values: list[ConversationEpisodeV3View] = []
         episode_remaining = self.budget.episode_chars
         for episode in episodes:
+            if not self._episode_was_perceived(
+                connection_id=connection_id,
+                deployment_id=deployment_id,
+                episode=episode,
+            ):
+                continue
             if thread_id and episode.conversation_thread_id not in {"", thread_id}:
                 continue
             cost = len(episode.summary)
@@ -321,12 +357,13 @@ class ContextResolverV3:
             limit=8,
         )
         social_context: tuple[str, ...] = ()
-        if deployment_id and actor_id:
+        target_key = social_target_key or actor_id
+        if deployment_id and target_key:
             social_context = self.social.prompt_context(
                 owner_id=owner_id,
                 source_deployment_id=deployment_id,
-                target_type="actor",
-                target_key=actor_id,
+                target_type=social_target_type,
+                target_key=target_key,
                 max_chars=self.budget.social_chars,
             )
 
@@ -385,6 +422,7 @@ class ContextResolverV3:
             correction_notice=shield.notice,
             sufficiency=sufficiency,
             reason=reason,
+            temporal_context=self._bounded_lines(temporal_context, 480),
         )
 
 

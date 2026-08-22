@@ -96,3 +96,19 @@ Before and after every Railway redeploy, compare `storage_instance_id`.
 ## Backup boundary
 
 Before infrastructure changes, export the Workspace JSON archive from **Storage & Backup**. The archive includes cards, Scenarios, Test Packs, snapshotted Runs, evidence, and non-secret Admin configuration. It excludes Subject, Adaptive, Judge, and Admin credentials.
+
+## Startup migration safety
+
+The Intelligence Core v3 hard-cutover keeps a dedicated persistent ledger. A completed ledger entry
+prevents a later restart from repeating the migration; a failed or interrupted entry is retried on
+the next startup using the migration's deterministic, repeat-safe projections. The ledger records
+only state and a safe exception type, never raw data or exception messages.
+
+The supported SQLite topology remains **one application replica**. Startup uses an in-process
+single-runner guard together with the persistent ledger; it is not a distributed lock and must not
+be used to justify running multiple SQLite-backed replicas.
+
+Before upgrading, take the Workspace export and preserve the SQLite Volume. SQLite foreign-key
+checks are enabled on every connection. A legacy-table rebuild is followed by `foreign_key_check`;
+if it reports an existing orphan, startup fails rather than marking the cutover complete. Repair or
+restore the database from the preserved Volume/backup before retrying the upgrade.

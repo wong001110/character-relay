@@ -159,3 +159,81 @@ def test_connector_event_schema_rejects_message_content(tmp_path: Path) -> None:
         json={"connection_id": connection["id"], "events": [unsafe]},
     )
     assert response.status_code == 422, response.text
+
+
+def test_connector_event_storage_recursively_removes_content_bearing_details(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(create_app(settings(tmp_path / "discord-event-redaction.db")))
+    login(client)
+    connection = create_connection(client)
+    unsafe = event("event-nested-private", "guild-a", "Guild A", "decision_recorded")
+    unsafe["message"] = "PRIVATE EVENT MESSAGE"
+    unsafe["details"] = {
+        "decision_reason": "mention_gate",
+        "candidate_count": 2,
+        "mentioned_bot": True,
+        "trigger_preview": "PRIVATE TRIGGER PREVIEW",
+        "error": "PRIVATE ERROR MESSAGE",
+        "providerErrorMessage": "PRIVATE PROVIDER ERROR MESSAGE",
+        "errorDetail": "PRIVATE COMBINED ERROR DETAIL",
+        "detail": "PRIVATE RESPONSE DETAIL",
+        "nested": {
+            "description": "PRIVATE DESCRIPTION",
+            "rawContent": "PRIVATE COMBINED RAW CONTENT",
+            "descriptionText": "PRIVATE COMBINED DESCRIPTION TEXT",
+            "planningText": "PRIVATE CAMEL PLAN",
+            "responseBody": "PRIVATE RESPONSE BODY",
+            "outgoing_text": "PRIVATE OUTGOING TEXT",
+            "payload": {"text": "PRIVATE NESTED TEXT"},
+            "response_status": "accepted",
+            "source_message_id": "source-safe-id",
+            "sourceMessageId": "camel-source-safe-id",
+        },
+        "items": [
+            {
+                "planning_text": "PRIVATE PLAN",
+                "reason_code": "eligible",
+            }
+        ],
+    }
+
+    response = client.post(
+        "/api/connectors/discord/events",
+        headers=connector_headers(),
+        json={"connection_id": connection["id"], "events": [unsafe]},
+    )
+    assert response.status_code == 204, response.text
+
+    stored = client.get("/api/discord/logs", params={"page_size": 50})
+    assert stored.status_code == 200, stored.text
+    details = stored.json()["items"][0]["details"]
+    assert stored.json()["items"][0]["message"] == "Discord connector operational event."
+    assert details == {
+        "decision_reason": "mention_gate",
+        "candidate_count": 2,
+        "mentioned_bot": True,
+        "nested": {
+            "response_status": "accepted",
+            "source_message_id": "source-safe-id",
+            "sourceMessageId": "camel-source-safe-id",
+        },
+        "items": [{"reason_code": "eligible"}],
+    }
+    for private_value in (
+        "PRIVATE TRIGGER PREVIEW",
+        "PRIVATE ERROR MESSAGE",
+        "PRIVATE PROVIDER ERROR MESSAGE",
+        "PRIVATE COMBINED ERROR DETAIL",
+        "PRIVATE RESPONSE DETAIL",
+        "PRIVATE DESCRIPTION",
+        "PRIVATE COMBINED RAW CONTENT",
+        "PRIVATE COMBINED DESCRIPTION TEXT",
+        "PRIVATE CAMEL PLAN",
+        "PRIVATE RESPONSE BODY",
+        "PRIVATE OUTGOING TEXT",
+        "PRIVATE NESTED TEXT",
+        "PRIVATE PLAN",
+        "PRIVATE EVENT MESSAGE",
+    ):
+        assert private_value not in stored.text

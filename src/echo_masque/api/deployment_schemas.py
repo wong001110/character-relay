@@ -6,6 +6,10 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, Field
 
+from echo_masque.discord_event_safety import (
+    DISCORD_OPERATIONAL_EVENT_MESSAGE,
+    safe_discord_event_details,
+)
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
     DiscordConnectorEventRecord,
@@ -324,17 +328,13 @@ class DiscordConnectorLogView(BaseModel):
 
     @classmethod
     def from_record(cls, record: DiscordConnectorEventRecord) -> "DiscordConnectorLogView":
-        try:
-            raw = json.loads(record.details_json)
-        except json.JSONDecodeError:
-            raw = {}
-        details = raw if isinstance(raw, dict) else {}
+        details = safe_discord_event_details(record.details_json)
         return cls(
             id=record.id,
             connection_id=record.connection_id,
             level=cast(Literal["info", "warning", "error"], record.level),
             event_type=record.event_type,
-            message=record.message,
+            message=DISCORD_OPERATIONAL_EVENT_MESSAGE,
             guild_id=record.guild_id,
             guild_name=record.guild_name,
             channel_id=record.channel_id,
@@ -344,7 +344,7 @@ class DiscordConnectorLogView(BaseModel):
             source_message_id=record.source_message_id,
             deployment_id=record.deployment_id,
             character_name=record.character_name,
-            details=cast(dict[str, object], details),
+            details=details,
             occurred_at=record.occurred_at,
         )
 

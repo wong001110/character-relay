@@ -1,4 +1,6 @@
 from pathlib import Path
+from typing import cast
+from uuid import uuid4
 
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
@@ -6,6 +8,7 @@ from pydantic import SecretStr
 
 from echo_masque.api import create_app
 from echo_masque.config import Settings
+from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 
 ADMIN_EMAIL = "relay-admin@example.com"
 ADMIN_PASSWORD = "CharacterRelayAdmin2026!"
@@ -55,7 +58,7 @@ def create_character(client: TestClient) -> dict[str, object]:
         },
     )
     assert response.status_code == 201, response.text
-    return response.json()
+    return cast(dict[str, object], response.json())
 
 
 def create_connection(client: TestClient, suffix: str = "primary") -> dict[str, object]:
@@ -71,7 +74,7 @@ def create_connection(client: TestClient, suffix: str = "primary") -> dict[str, 
         },
     )
     assert response.status_code == 201, response.text
-    return response.json()
+    return cast(dict[str, object], response.json())
 
 
 def deployment_payload(
@@ -293,6 +296,88 @@ def test_deployment_rejects_missing_owned_resources(tmp_path: Path) -> None:
         },
     )
     assert response.status_code == 404
+
+
+def test_new_connections_and_deployments_reject_unsupported_platforms_but_keep_legacy_records(
+    tmp_path: Path,
+) -> None:
+    app = create_app(settings(tmp_path / "legacy-platform-compatibility.db"))
+    client = TestClient(app)
+    login(client)
+    character = create_character(client)
+
+    for platform in ("whatsapp", "telegram"):
+        response = client.post(
+            "/api/connections",
+            json={
+                "platform": platform,
+                "display_name": f"{platform.title()} connector",
+                "connection_mode": "managed",
+                "external_account_id": "",
+                "status": "disconnected",
+                "metadata": {},
+            },
+        )
+        assert response.status_code == 422
+        assert "Only Discord connections can be created" in response.json()["detail"]
+
+    owner = app.state.auth_repository.get_user_by_email(ADMIN_EMAIL)
+    assert owner is not None
+    legacy_connection = app.state.deployment_repository.create_connection(
+        owner_id=owner.id,
+        platform="whatsapp",
+        display_name="Retired WhatsApp connector",
+        connection_mode="local",
+        external_account_id="legacy-device",
+        status="disconnected",
+        metadata={},
+    )
+    legacy_deployment_id = str(uuid4())
+    with app.state.database.session() as session:
+        session.add(
+            CharacterDeploymentRecord(
+                id=legacy_deployment_id,
+                owner_id=owner.id,
+                character_card_id=str(character["id"]),
+                connection_id=legacy_connection.id,
+                platform="whatsapp",
+                workspace_id="legacy-workspace",
+                workspace_name="Retired WhatsApp group",
+                channel_id="legacy-channel",
+                channel_name="Legacy group",
+                thread_id="",
+                thread_name="",
+                participation_mode="mention_and_reply",
+                memory_scope="channel_isolated",
+                version_label="Legacy",
+                sticker_count=0,
+                status="paused",
+            )
+        )
+        session.commit()
+
+    connections = client.get("/api/connections")
+    assert connections.status_code == 200
+    assert connections.json()[0]["platform"] == "whatsapp"
+    deployments = client.get("/api/deployments")
+    assert deployments.status_code == 200
+    assert deployments.json()[0]["platform"] == "whatsapp"
+
+    rejected_deployment = client.post(
+        "/api/deployments",
+        json=deployment_payload(
+            character_id=character["id"],
+            connection_id=legacy_connection.id,
+            workspace_id="legacy-workspace",
+            channel_id="new-channel",
+            channel_name="New legacy group",
+        ),
+    )
+    assert rejected_deployment.status_code == 422
+    assert "Only Discord deployments can be created" in rejected_deployment.json()["detail"]
+
+    assert client.delete(f"/api/deployments/{legacy_deployment_id}").status_code == 204
+    assert client.delete(f"/api/connections/{legacy_connection.id}").status_code == 204
 
 
 def test_deployment_page_filters_and_reports_global_counts(tmp_path: Path) -> None:

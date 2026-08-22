@@ -61,7 +61,7 @@ describe("Smart Participation hard preflight", () => {
 
     expect(result.eligible).toBe(false);
     expect(result.reason).toBe("profile_disabled");
-    expect(result.minimumScore).toBe(5);
+    expect(result.minimumScore).toBe(0);
     expect(result.signals).toEqual({ profile_disabled_blocked: 1 });
   });
 
@@ -89,7 +89,7 @@ describe("Smart Participation hard preflight", () => {
 
     expect(result.eligible).toBe(false);
     expect(result.reason).toBe("avoid_phrase");
-    expect(result.minimumScore).toBe(5);
+    expect(result.minimumScore).toBe(0);
     expect(result.signals).toEqual({ avoid_phrase_blocked: 1 });
   });
 

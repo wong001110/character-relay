@@ -23,7 +23,9 @@ Legacy header/token compatibility may exist only in non-production test/developm
 - Some runtime settings support an explicit environment fallback; values remain server-side.
 - API responses expose readiness/source/key metadata, never raw or encrypted credential values.
 - Workspace/account/authoring/share exports exclude keys, encrypted blobs, password hashes, Sessions, invitation codes, and authorization headers.
-- Logs, Runtime Trace, Provider Trace, reports, snapshots, replay, and diagnostics must remain recursively redacted.
+- Logs, ordinary Discord events, Runtime Trace, Provider Trace, reports, snapshots, replay, and diagnostics must remain recursively redacted.
+
+The only raw Discord debugging exception is the explicitly enabled, Server-scoped, Bootstrap Admin-only temporary Runtime-ingress capture described in `docs/discord-debug-capture.md`. It is bounded process memory rather than a persistent log, expires automatically, clears on restart, is excluded from exports/backups/OpenWiki, and must never make message handling fail.
 
 Token-usage fields such as input/output token counts are metrics, not credentials, and may be retained.
 
@@ -45,6 +47,8 @@ Token-usage fields such as input/output token counts are metrics, not credential
 ## Data retention and storage
 
 SQLite stores account/product state, messages/evidence, traces, and evaluation records. Operators must control access, retention, backups, and deletion for any personal or confidential content.
+
+Discord temporary debug-capture payloads do not enter SQLite. Audit records retain only capture action metadata such as actor, Server/session identifiers, expiry, and counts; they do not retain captured content.
 
 The supported Railway topology is one replica with a persistent Volume mounted at `/data`. Confirm persistence using `storage_instance_id` and a cross-redeploy Probe; a correct-looking path alone is not proof of durability.
 

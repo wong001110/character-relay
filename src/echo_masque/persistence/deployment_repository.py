@@ -8,6 +8,10 @@ from uuid import uuid4
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 
+from echo_masque.discord_event_safety import (
+    DISCORD_OPERATIONAL_EVENT_MESSAGE,
+    safe_discord_event_details,
+)
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
@@ -26,8 +30,6 @@ class DeploymentConflict(RuntimeError):
 
 
 _MAX_DISCORD_EVENTS_PER_CONNECTION = 5_000
-
-
 def _normalized_ids(values: list[str] | None) -> list[str]:
     return list(dict.fromkeys(item.strip() for item in (values or []) if item.strip()))
 
@@ -322,7 +324,7 @@ class DeploymentRepository:
                         connection_id=connection_id,
                         level=str(item["level"])[:16],
                         event_type=str(item["event_type"])[:80],
-                        message=str(item["message"])[:300],
+                        message=DISCORD_OPERATIONAL_EVENT_MESSAGE,
                         guild_id=str(item.get("guild_id", ""))[:200],
                         guild_name=str(item.get("guild_name", ""))[:160],
                         channel_id=str(item.get("channel_id", ""))[:200],
@@ -332,7 +334,9 @@ class DeploymentRepository:
                         source_message_id=str(item.get("source_message_id", ""))[:200],
                         deployment_id=str(item.get("deployment_id", ""))[:64],
                         character_name=str(item.get("character_name", ""))[:160],
-                        details_json=json.dumps(redact(safe_details), ensure_ascii=False),
+                        details_json=json.dumps(
+                            safe_discord_event_details(safe_details), ensure_ascii=False
+                        ),
                         occurred_at=occurred_at,
                     )
                 )
@@ -408,8 +412,10 @@ class DeploymentRepository:
         *,
         connection_id: str,
         servers: list[tuple[str, str, list[dict[str, object]]]],
+        visible_guild_ids: list[str] | None = None,
+        failed_guild_ids: list[str] | None = None,
     ) -> list[DiscordServerCatalogRecord]:
-        """Replace one connector's visible Discord server inventory."""
+        """Upsert successful snapshots and delete only Guilds explicitly no longer visible."""
 
         with self.database.session() as session:
             connection = session.get(PlatformConnectionRecord, connection_id)
@@ -423,11 +429,9 @@ class DeploymentRepository:
                     )
                 )
             }
-            seen: set[str] = set()
             now = utcnow()
             records: list[DiscordServerCatalogRecord] = []
             for guild_id, guild_name, channels in servers:
-                seen.add(guild_id)
                 record = existing.get(guild_id)
                 if record is None:
                     record = DiscordServerCatalogRecord(
@@ -442,9 +446,12 @@ class DeploymentRepository:
                 record.channels_json = json.dumps(channels)
                 record.synced_at = now
                 records.append(record)
-            for guild_id, record in existing.items():
-                if guild_id not in seen:
-                    session.delete(record)
+            if visible_guild_ids is not None:
+                visible = set(_normalized_ids(visible_guild_ids))
+                visible.update(_normalized_ids(failed_guild_ids))
+                for guild_id, record in existing.items():
+                    if guild_id not in visible:
+                        session.delete(record)
             session.commit()
             for record in records:
                 session.refresh(record)
@@ -974,6 +981,36 @@ class DeploymentRepository:
                 return None
             return session.get(DiscordServerProfileRecord, scope.server_profile_id)
 
+    def get_active_discord_deployment_for_guild(
+        self,
+        deployment_id: str,
+        *,
+        connection_id: str,
+        guild_id: str,
+    ) -> CharacterDeploymentRecord | None:
+        """Validate immutable deployment/guild ownership before durable ingress claim.
+
+        Channel/category exclusions remain owned by ``deployment_matches_discord_destination`` so
+        an excluded destination preserves the established fail-silent Runtime behavior.
+        """
+
+        with self.database.session() as session:
+            deployment = session.get(CharacterDeploymentRecord, deployment_id)
+            if (
+                deployment is None
+                or deployment.connection_id != connection_id
+                or deployment.platform != "discord"
+                or deployment.status != "active"
+            ):
+                return None
+            scope = session.get(DiscordDeploymentScopeRecord, deployment_id)
+            if scope is None:
+                return deployment if deployment.workspace_id == guild_id else None
+            profile = session.get(DiscordServerProfileRecord, scope.server_profile_id)
+            if profile is None or profile.guild_id != guild_id:
+                return None
+            return deployment
+
     def deployment_matches_discord_destination(
         self,
         deployment_id: str,
@@ -995,7 +1032,11 @@ class DeploymentRepository:
                 return None
             scope = session.get(DiscordDeploymentScopeRecord, deployment_id)
             if scope is None:
-                if deployment.channel_id == channel_id and deployment.thread_id == thread_id:
+                if (
+                    deployment.workspace_id == guild_id
+                    and deployment.channel_id == channel_id
+                    and deployment.thread_id == thread_id
+                ):
                     return deployment
                 return None
             profile = session.get(DiscordServerProfileRecord, scope.server_profile_id)

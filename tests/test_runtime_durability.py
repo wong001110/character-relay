@@ -1,5 +1,8 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+import pytest
 
 from echo_masque.persistence import (
     Database,
@@ -16,7 +19,9 @@ def repository(path: Path) -> tuple[Database, DurableRuntimeRepository]:
     return database, DurableRuntimeRepository(database)
 
 
-def claim_operation(runtime: DurableRuntimeRepository, *, operation_id: str = "op" * 32):
+def claim_operation(
+    runtime: DurableRuntimeRepository, *, operation_id: str = "op" * 32
+) -> RuntimeOperationRecord:
     return runtime.claim_social_operation(
         operation_id=operation_id,
         owner_id="owner-1",
@@ -96,6 +101,152 @@ def test_social_operation_and_generation_are_idempotent(tmp_path: Path) -> None:
     assert replay.step_id == step.step_id
     assert replay.response_json == '{"cached":true}'
     assert runtime.get_operation(first.operation_id).status == "awaiting_delivery"  # type: ignore[union-attr]
+
+
+def test_normal_character_turn_identity_replays_without_request_text_hash(tmp_path: Path) -> None:
+    _database, runtime = repository(tmp_path / "durable-character-turn.db")
+    first = runtime.claim_character_operation(
+        owner_id="owner-1",
+        connection_id="connection-1",
+        guild_id="guild-1",
+        channel_id="channel-1",
+        thread_id="thread-1",
+        source_message_id="message-1",
+        deployment_id="ann",
+    )
+    repeated = runtime.claim_character_operation(
+        owner_id="owner-1",
+        connection_id="connection-1",
+        guild_id="guild-1",
+        channel_id="channel-1",
+        thread_id="thread-1",
+        source_message_id="message-1",
+        deployment_id="ann",
+    )
+    assert first.operation_kind == "character_turn"
+    assert first.operation_id == repeated.operation_id
+
+    status, step = runtime.prepare_character_step(
+        operation_id=first.operation_id,
+        deployment_id="ann",
+    )
+    assert status == "execute"
+    runtime.complete_social_step_generation(
+        step_id=step.step_id,
+        response_json='{"action":"reply","text":"cached"}',
+        cursor_json='{"pending_turns":[]}',
+        delivery_required=True,
+    )
+    replay_status, replay = runtime.prepare_character_step(
+        operation_id=first.operation_id,
+        deployment_id="ann",
+    )
+    assert replay_status == "replay"
+    assert replay.step_id == step.step_id
+    assert replay.response_json == '{"action":"reply","text":"cached"}'
+
+    claim, _ = runtime.claim_delivery(
+        operation_id=first.operation_id,
+        step_id=step.step_id,
+        claim_nonce="character-claim-0001",
+    )
+    assert claim == "granted"
+    restarted = DurableRuntimeRepository(runtime.database)
+    assert restarted.get_operation(first.operation_id).status == "uncertain"  # type: ignore[union-attr]
+
+
+def test_normal_character_delivery_ack_is_idempotent_and_completes(tmp_path: Path) -> None:
+    _database, runtime = repository(tmp_path / "durable-character-delivery.db")
+    operation = runtime.claim_character_operation(
+        owner_id="owner-1",
+        connection_id="connection-1",
+        guild_id="guild-1",
+        channel_id="channel-1",
+        thread_id="",
+        source_message_id="message-2",
+        deployment_id="ann",
+    )
+    _, step = runtime.prepare_character_step(
+        operation_id=operation.operation_id,
+        deployment_id="ann",
+    )
+    runtime.complete_social_step_generation(
+        step_id=step.step_id,
+        response_json='{"action":"reply"}',
+        cursor_json='{"pending_turns":[]}',
+        delivery_required=True,
+    )
+    runtime.claim_delivery(
+        operation_id=operation.operation_id,
+        step_id=step.step_id,
+        claim_nonce="character-claim-0002",
+    )
+    completed = runtime.acknowledge_character_delivery(
+        operation_id=operation.operation_id,
+        step_id=step.step_id,
+        claim_nonce="character-claim-0002",
+        sent_message_ids=["discord-message-2"],
+    )
+    assert completed.status == "completed"
+    replay = runtime.acknowledge_character_delivery(
+        operation_id=operation.operation_id,
+        step_id=step.step_id,
+        claim_nonce="character-claim-0002",
+        sent_message_ids=["discord-message-2"],
+    )
+    assert replay.status == "completed"
+    claim_status, _ = runtime.claim_delivery(
+        operation_id=operation.operation_id,
+        step_id=step.step_id,
+        claim_nonce="another-character-claim",
+    )
+    assert claim_status == "already_delivered"
+
+
+def test_normal_character_generation_restart_becomes_uncertain(tmp_path: Path) -> None:
+    database, runtime = repository(tmp_path / "durable-character-generation-restart.db")
+    operation = runtime.claim_character_operation(
+        owner_id="owner-1",
+        connection_id="connection-1",
+        guild_id="guild-1",
+        channel_id="channel-1",
+        thread_id="",
+        source_message_id="message-restart",
+        deployment_id="ann",
+    )
+    _, step = runtime.prepare_character_step(
+        operation_id=operation.operation_id,
+        deployment_id="ann",
+    )
+
+    restarted = DurableRuntimeRepository(database)
+    assert restarted.get_operation(operation.operation_id).status == "uncertain"  # type: ignore[union-attr]
+    with pytest.raises(RuntimeError, match="reconciliation"):
+        restarted.prepare_character_step(
+            operation_id=operation.operation_id,
+            deployment_id="ann",
+        )
+    assert step.step_id
+
+
+def test_concurrent_character_operation_claim_reuses_identity(tmp_path: Path) -> None:
+    _database, runtime = repository(tmp_path / "durable-character-concurrent.db")
+
+    def claim() -> str:
+        return runtime.claim_character_operation(
+            owner_id="owner-1",
+            connection_id="connection-1",
+            guild_id="guild-1",
+            channel_id="channel-1",
+            thread_id="",
+            source_message_id="message-concurrent",
+            deployment_id="ann",
+        ).operation_id
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        operation_ids = list(executor.map(lambda _: claim(), range(2)))
+
+    assert operation_ids[0] == operation_ids[1]
 
 
 def test_delivery_claim_ack_advances_and_scrubs_payloads(tmp_path: Path) -> None:

@@ -31,7 +31,7 @@ export function preflightSmartParticipationCandidate(
     return {
       deploymentId: deployment.deployment_id,
       eligible: false,
-      minimumScore: profile.minimumScore,
+      minimumScore: 0,
       reason: "profile_disabled",
       signals: { profile_disabled_blocked: 1 }
     };
@@ -41,7 +41,7 @@ export function preflightSmartParticipationCandidate(
     return {
       deploymentId: deployment.deployment_id,
       eligible: false,
-      minimumScore: profile.minimumScore,
+      minimumScore: 0,
       reason: "avoid_phrase",
       signals: { avoid_phrase_blocked: 1 }
     };
@@ -49,7 +49,7 @@ export function preflightSmartParticipationCandidate(
   return {
     deploymentId: deployment.deployment_id,
     eligible: true,
-    minimumScore: profile.minimumScore,
+    minimumScore: 0,
     reason: "eligible",
     signals: {}
   };

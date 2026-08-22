@@ -23,6 +23,7 @@ from echo_masque.connector_runtime import (
     ResolvedCharacterTurn,
 )
 from echo_masque.conversation_media import ConversationMediaReferenceService
+from echo_masque.discord_event_safety import safe_runtime_error_classification
 from echo_masque.domain import TargetResponse
 from echo_masque.live_media import (
     LiveMediaContext,
@@ -207,7 +208,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             if direct_tool_path:
                 self.deployment_repository.record_deployment_error(
                     prepared.resolved.deployment.id,
-                    str(exc),
+                    safe_runtime_error_classification(exc),
                 )
             self._isolate_provider_failure(prepared, exc)
             return self._provider_failure_response(exc)
@@ -215,7 +216,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             if direct_tool_path:
                 self.deployment_repository.record_deployment_error(
                     prepared.resolved.deployment.id,
-                    str(exc),
+                    safe_runtime_error_classification(exc),
                 )
             raise
 
@@ -241,7 +242,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         except Exception as exc:
             self.deployment_repository.record_deployment_error(
                 prepared.resolved.deployment.id,
-                str(exc),
+                safe_runtime_error_classification(exc),
             )
             raise
 
@@ -317,13 +318,11 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         if exc.deployment_fatal:
             return
         deployment = prepared.resolved.deployment
-        detail = str(exc).replace("\x00", "").strip()
-        last_error = exc.reason_code if not detail else f"{exc.reason_code}: {detail}"
         self.deployment_repository.update_deployment(
             deployment.id,
             deployment.owner_id,
             status="active",
-            last_error=last_error[:2000],
+            last_error=safe_runtime_error_classification(exc),
         )
 
     @staticmethod

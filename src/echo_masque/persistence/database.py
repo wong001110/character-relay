@@ -4,9 +4,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import Engine, create_engine
+from sqlite3 import Connection as SQLiteConnection
+
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import ConnectionPoolEntry, StaticPool
 
 from echo_masque.persistence.belief_models import (
     BeliefEvidenceDependencyRecord,
@@ -64,6 +66,12 @@ from echo_masque.persistence.episodic_sql_rag_models import (
     ConversationEpisodeEntityRecord,
 )
 from echo_masque.persistence.models import Base, StorageMetadataRecord
+from echo_masque.persistence.intelligence_v3_migration_models import (
+    IntelligenceV3HardCutoverMigrationRecord,
+)
+from echo_masque.persistence.operational_migration_models import (
+    OperationalDataMigrationRecord,
+)
 from echo_masque.persistence.server_knowledge_v3_models import (
     KnowledgeConsolidationCheckpointV3Record,
     ServerWikiPageV3Record,
@@ -149,6 +157,18 @@ END;
 """
 
 
+def _enable_sqlite_foreign_keys(
+    dbapi_connection: SQLiteConnection, _: ConnectionPoolEntry
+) -> None:
+    """Enable SQLite foreign-key checks for every newly opened DB-API connection."""
+
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cursor.close()
+
+
 class Database:
     def __init__(self, url: str) -> None:
         kwargs: dict[str, object] = {}
@@ -157,6 +177,8 @@ class Database:
         if url in {"sqlite://", "sqlite:///:memory:"}:
             kwargs["poolclass"] = StaticPool
         self.engine: Engine = create_engine(url, **kwargs)
+        if self.engine.dialect.name == "sqlite":
+            event.listen(self.engine, "connect", _enable_sqlite_foreign_keys)
         self.session_factory = sessionmaker(self.engine, expire_on_commit=False)
 
     def initialize(self) -> None:
@@ -205,6 +227,8 @@ class Database:
             DeploymentDiscoveryDecisionRecord,
             DeploymentDiscoverySharePolicyRecord,
             DeploymentDiscoveryShareRecord,
+            IntelligenceV3HardCutoverMigrationRecord,
+            OperationalDataMigrationRecord,
         )
         Base.metadata.create_all(self.engine)
 
@@ -217,6 +241,12 @@ class Database:
         )
 
         IntelligenceV3HardCutoverMigration(self).run()
+
+        from echo_masque.persistence.discord_event_privacy_migration import (
+            DiscordEventPrivacyMigration,
+        )
+
+        DiscordEventPrivacyMigration(self).run()
         self._ensure_sqlite_deployment_runtime_invariants()
 
     def _ensure_sqlite_deployment_runtime_invariants(self) -> None:

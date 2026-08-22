@@ -7,10 +7,8 @@ from echo_masque.admin_runtime import (
     UtilityGatewayProfile,
     UtilityProviderMember,
 )
-from echo_masque.participation_tiebreak import ParticipationTieBreakService
 from echo_masque.persistence import Database
 from echo_masque.persistence.wiki_aware_knowledge_repository import WikiAwareKnowledgeRepository
-from echo_masque.tool_continuation import ToolContinuationService
 from echo_masque.utility_gateway_contracts import RagUtilityDecision, UtilityRoute
 from echo_masque.utility_gateway_router import UtilityCallReply, UtilityGatewayRouter
 
@@ -75,35 +73,6 @@ class MalformedThenValidCaller:
 
 def credentials(_: str) -> FakeCredential:
     return FakeCredential()
-
-
-def test_phase7_consumers_require_explicit_capability_assignment() -> None:
-    runtime_without_phase7 = RuntimeStub(
-        UtilityGatewayProfile(
-            enabled=True,
-            members=(member("base", capabilities=("semantic_judge",)),),
-        )
-    )
-    gateway_without_phase7 = SimpleNamespace(runtime=runtime_without_phase7)
-
-    assert ParticipationTieBreakService._capability_enabled(gateway_without_phase7) is False
-    assert ToolContinuationService._capability_enabled(gateway_without_phase7) is False
-
-    runtime_with_phase7 = RuntimeStub(
-        UtilityGatewayProfile(
-            enabled=True,
-            members=(
-                member(
-                    "phase7",
-                    capabilities=("participation_tiebreak", "tool_continuation"),
-                ),
-            ),
-        )
-    )
-    gateway_with_phase7 = SimpleNamespace(runtime=runtime_with_phase7)
-
-    assert ParticipationTieBreakService._capability_enabled(gateway_with_phase7) is True
-    assert ToolContinuationService._capability_enabled(gateway_with_phase7) is True
 
 
 def test_wiki_overview_language_matrix_and_detail_guard() -> None:

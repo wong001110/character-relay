@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from echo_masque.persistence.belief_models import (
@@ -66,6 +67,58 @@ class CascadeInvalidationResult:
     affected_belief_ids: tuple[str, ...]
     rejected_belief_ids: tuple[str, ...]
     provisional_belief_ids: tuple[str, ...]
+
+
+def invalidate_evidence_edge_dependencies(
+    *,
+    session: Session,
+    owner_id: str,
+    evidence_edge_id: str,
+    now: datetime,
+) -> CascadeInvalidationResult:
+    """Invalidate active Belief dependencies inside the caller's transaction."""
+
+    affected: list[str] = []
+    rejected: list[str] = []
+    provisional: list[str] = []
+    dependencies = list(
+        session.scalars(
+            select(BeliefEvidenceDependencyRecord).where(
+                BeliefEvidenceDependencyRecord.owner_id == owner_id,
+                BeliefEvidenceDependencyRecord.evidence_edge_id == evidence_edge_id,
+                BeliefEvidenceDependencyRecord.status == "active",
+            )
+        )
+    )
+    for dependency in dependencies:
+        dependency.status = "invalid"
+        dependency.updated_at = now
+        belief = session.get(BeliefV3Record, dependency.belief_id)
+        if belief is None or belief.owner_id != owner_id:
+            continue
+        affected.append(belief.id)
+        active_count = session.scalar(
+            select(func.count(BeliefEvidenceDependencyRecord.id)).where(
+                BeliefEvidenceDependencyRecord.belief_id == belief.id,
+                BeliefEvidenceDependencyRecord.status == "active",
+            )
+        )
+        if int(active_count or 0) > 0 or belief.authored:
+            continue
+        if belief.origin in {"llm_inference", "media_inference", "visual_grounding"}:
+            belief.status = "rejected"
+            belief.valid_to = now
+            rejected.append(belief.id)
+        elif belief.status not in {"superseded", "expired", "rejected"}:
+            belief.status = "provisional"
+            provisional.append(belief.id)
+        belief.updated_at = now
+    return CascadeInvalidationResult(
+        evidence_edge_id=evidence_edge_id,
+        affected_belief_ids=tuple(dict.fromkeys(affected)),
+        rejected_belief_ids=tuple(dict.fromkeys(rejected)),
+        provisional_belief_ids=tuple(dict.fromkeys(provisional)),
+    )
 
 
 class BeliefRepository:
@@ -402,49 +455,20 @@ class BeliefRepository:
         now: datetime | None = None,
     ) -> CascadeInvalidationResult:
         current = now or datetime.now(UTC)
-        affected: list[str] = []
-        rejected: list[str] = []
-        provisional: list[str] = []
         with self.database.session() as session:
-            dependencies = list(
-                session.scalars(
-                    select(BeliefEvidenceDependencyRecord).where(
-                        BeliefEvidenceDependencyRecord.owner_id == owner_id,
-                        BeliefEvidenceDependencyRecord.evidence_edge_id == evidence_edge_id,
-                        BeliefEvidenceDependencyRecord.status == "active",
-                    )
-                )
+            result = invalidate_evidence_edge_dependencies(
+                session=session,
+                owner_id=owner_id,
+                evidence_edge_id=evidence_edge_id,
+                now=current,
             )
-            for dependency in dependencies:
-                dependency.status = "invalid"
-                dependency.updated_at = current
-                belief = session.get(BeliefV3Record, dependency.belief_id)
-                if belief is None or belief.owner_id != owner_id:
-                    continue
-                affected.append(belief.id)
-                active_count = session.scalar(
-                    select(func.count(BeliefEvidenceDependencyRecord.id)).where(
-                        BeliefEvidenceDependencyRecord.belief_id == belief.id,
-                        BeliefEvidenceDependencyRecord.status == "active",
-                    )
-                )
-                if int(active_count or 0) > 0 or belief.authored:
-                    continue
-                if belief.origin in {"llm_inference", "media_inference", "visual_grounding"}:
-                    belief.status = "rejected"
-                    belief.valid_to = current
-                    rejected.append(belief.id)
-                elif belief.status not in {"superseded", "expired", "rejected"}:
-                    belief.status = "provisional"
-                    provisional.append(belief.id)
-                belief.updated_at = current
             session.commit()
-        return CascadeInvalidationResult(
-            evidence_edge_id=evidence_edge_id,
-            affected_belief_ids=tuple(dict.fromkeys(affected)),
-            rejected_belief_ids=tuple(dict.fromkeys(rejected)),
-            provisional_belief_ids=tuple(dict.fromkeys(provisional)),
-        )
+        return result
 
 
-__all__ = ["BeliefRepository", "BeliefV3View", "CascadeInvalidationResult"]
+__all__ = [
+    "BeliefRepository",
+    "BeliefV3View",
+    "CascadeInvalidationResult",
+    "invalidate_evidence_edge_dependencies",
+]

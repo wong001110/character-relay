@@ -10,8 +10,6 @@ from echo_masque import __version__
 
 LangGraphMode = Literal["off", "condition_watch", "character_turn", "social_turn"]
 LangGraphWorkflow = Literal["condition_watch", "character_turn", "social_turn"]
-CharacterTurnIntelligenceMode = Literal["off", "shadow", "active"]
-ConversationIntelligenceRolloutMode = Literal["off", "shadow", "active"]
 _LANGGRAPH_MODE_RANK: dict[str, int] = {
     "off": 0,
     "condition_watch": 1,
@@ -41,14 +39,6 @@ class Settings(BaseSettings):
     provider_trace_max_records: int = 2000
 
     langgraph_mode: LangGraphMode = "off"
-    turn_intelligence_character_context_mode: CharacterTurnIntelligenceMode = "off"
-    smart_participation_v4_graph_rerank_mode: ConversationIntelligenceRolloutMode = "shadow"
-    smart_participation_v4_learned_state_mode: ConversationIntelligenceRolloutMode = "shadow"
-    smart_participation_v4_speaker_mode: ConversationIntelligenceRolloutMode = "shadow"
-    smart_participation_v4_utility_mode: ConversationIntelligenceRolloutMode = "shadow"
-    conversation_planner_mode: ConversationIntelligenceRolloutMode = "shadow"
-    conversation_planner_rollout_percent: int = Field(default=0, ge=0, le=100)
-
     semantic_embedding_enabled: bool = False
     semantic_embedding_model: str = "intfloat/multilingual-e5-small"
     semantic_embedding_model_file: str = "onnx/model_O4.onnx"

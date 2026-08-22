@@ -339,9 +339,9 @@ def test_transient_provider_failure_returns_silent_control_without_disabling_dep
 
     assert response.text == '[[CR_OUTPUT {"action":"ignore"}]]'
     assert response.trace["provider_failure"] == "provider_timeout"
-    assert deployments.errors == [("deployment-1", "DeepSeek did not respond before timeout.")]
+    assert deployments.errors == [("deployment-1", "provider_timeout")]
     assert deployments.updates[-1]["status"] == "active"
-    assert str(deployments.updates[-1]["last_error"]).startswith("provider_timeout:")
+    assert deployments.updates[-1]["last_error"] == "provider_timeout"
 
 
 def test_burst_visible_image_uses_original_source_message_for_perception() -> None:

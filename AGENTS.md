@@ -5,11 +5,12 @@ Character Relay uses AI-assisted development across parallel branches. Do not re
 ## Required reading before coding
 
 1. `docs/ai-agent-development-workflow.md`
-2. `openwiki/quickstart.md` if it exists, then only the relevant generated pages
-3. `docs/agent-handoff.md` and `docs/README.md`
-4. task-relevant canonical docs/status/decision files
-5. current source/types/tests for the subsystem
-6. for UI work: `docs/ui-ux-contract.md`, `docs/ui-component-library.md`, `docs/ui-page-migration-plan.md`, and the approved reference image when one exists
+2. `docs/active-development-plan.md` when it exists and names the current branch
+3. `openwiki/quickstart.md` if it exists, then only the relevant generated pages
+4. `docs/agent-handoff.md` and `docs/README.md`
+5. task-relevant canonical docs/status/decision files
+6. current source/types/tests for the subsystem
+7. for UI work: `docs/ui-ux-contract.md`, `docs/ui-component-library.md`, `docs/ui-page-migration-plan.md`, and the approved reference image when one exists
 
 ## Non-negotiable grounding rules
 
@@ -24,7 +25,18 @@ Character Relay uses AI-assisted development across parallel branches. Do not re
 
 ## Before implementation
 
-State the evidence map you are using: source files/types, canonical docs, tests, and UI reference (if any). Identify invariants that must remain unchanged.
+State the evidence map you are using: source files/types, canonical docs, tests, and UI reference (if any). Identify invariants that must remain unchanged. When an active development plan applies, identify the current phase and keep the change inside that phase's scope and commit gate.
+
+## Phased branch execution
+
+When `docs/active-development-plan.md` names the current branch, it is the branch-local execution and takeover record. Update its phase status, evidence, validation, and handoff notes as work progresses. It does not outrank source/tests or canonical product contracts.
+
+- Work in coherent phase-sized batches. Do not commit or run the full validation suite after every small file edit.
+- Run focused checks after a coherent implementation batch and the phase's relevant complete checks before its commit gate.
+- Create at most one implementation commit per phase. Fix validation failures before that commit instead of producing checkpoint/fixup commits.
+- Sub-agents may perform bounded research, verification, testing, or editing tasks. The main agent owns scope, evidence reconciliation, shared-tree integration, diff review, validation decisions, and the phase commit.
+- Sub-agents do not independently commit shared work unless the active plan explicitly delegates a separate branch and commit boundary.
+- Before changing phases, leave the active plan usable by an agent with no chat history.
 
 ## Before completion
 

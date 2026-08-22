@@ -14,6 +14,7 @@ from sqlalchemy import and_, delete, func, or_, select, update
 from echo_masque.auth import SYSTEM_RUNTIME_USER_ID
 from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence import AuthRepository, Database
+from echo_masque.persistence.key_group_models import CharacterKeyGroupAssignmentRecord
 from echo_masque.persistence.models import (
     AuditEventRecord,
     AuthSessionRecord,
@@ -552,6 +553,13 @@ class AccountLifecycleService:
             card_ids = [item.id for item in card_records]
             target_ids = {item.target_id for item in card_records}
             if card_ids:
+                deleted["key_group_assignments"] = self._rowcount(
+                    session.execute(
+                        delete(CharacterKeyGroupAssignmentRecord).where(
+                            CharacterKeyGroupAssignmentRecord.character_card_id.in_(card_ids)
+                        )
+                    )
+                )
                 deleted["prompt_versions"] = self._rowcount(
                     session.execute(
                         delete(PromptVersionRecord).where(

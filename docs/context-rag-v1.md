@@ -1,5 +1,7 @@
 # Context Layer + RAG V1
 
+Status: **current RAG storage/scope reference; context composition updated for Intelligence Core v3**
+
 Context Layer + RAG V1 adds bounded, scoped knowledge retrieval to deployed Character Relay turns without changing Smart Participation, Smart Output, or Discord execution authority.
 
 ```text
@@ -19,11 +21,11 @@ RAG is context preparation, not a second LLM Judge. A normal turn still uses one
 
 ## Context Layer boundary
 
-`ContextOrchestrator` is the runtime boundary that prepares one `CharacterTurnContext` before the character model is called.
+`CharacterTurnContextV3Service` in `src/echo_masque/character_turn_context_v3.py` is the current application-level boundary that prepares one `CharacterTurnContext` before the Character model is called. Shared trace/context types live in `src/echo_masque/character_turn_context_types.py`.
 
 The current context contains:
 
-- the existing `SmartOutputContext`, which owns prompt-local message, participant, Emoji, and Sticker references;
+- prompt-local message, participant, Emoji, and Sticker references;
 - bounded RAG knowledge chunks;
 - a privacy-safe context trace for observability.
 

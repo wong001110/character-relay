@@ -1,5 +1,7 @@
 # Conversation Intelligence Control Plane — Acceptance Checklist
 
+Status: **historical branch acceptance record — not current runtime authority**
+
 PR: #187  
 Branch: `agent/conversation-intelligence-control-plane`
 

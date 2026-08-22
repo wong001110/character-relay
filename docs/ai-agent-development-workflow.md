@@ -63,6 +63,8 @@ Record:
 - current task/PR scope;
 - whether the task is implementing merged behavior or stacked/unmerged work.
 
+If `docs/active-development-plan.md` exists and names the current branch, read it before planning implementation. Confirm its current phase against Git and repository evidence; update stale status instead of following it blindly.
+
 Never assume an open PR is already on `main`.
 
 ### B. Orient through OpenWiki
@@ -101,7 +103,39 @@ Write down what must not change. Examples:
 
 ---
 
-## 4. Hallucination guards during implementation
+## 4. Phased delivery, validation, and delegation
+
+Long-lived or cross-cutting branches use `docs/active-development-plan.md` as a branch-local execution ledger. It must state the approved scope, evidence map, invariants, phase statuses, validation gates, and work left for the next agent. It records active work; it is not a new source of product authority.
+
+### Batch size and commit cadence
+
+- Group related source, schema, test, and canonical-document changes into one coherent phase batch.
+- Do not create a commit for each file, small refactor, or intermediate test repair.
+- During implementation, use the smallest checks that provide useful feedback after a coherent batch; do not rerun the full repository suite after every edit.
+- At the end of the phase, run the complete validation named by its gate, repair failures, review the integrated diff, then create at most one implementation commit for that phase.
+- A failed check is not a commit boundary. Keep the phase uncommitted until its gate passes or is explicitly recorded as blocked.
+- The final branch gate still requires the relevant cross-project checks even when each phase passed its own targeted suite.
+
+Read-only investigation may happen throughout a phase. A targeted test may be run earlier when needed to reproduce a defect or protect a risky migration, but routine micro-validation should not replace the batch cadence.
+
+### Sub-agent delegation
+
+The main agent may delegate bounded, independently reviewable work such as research, source mapping, verification, test execution, or edits in an explicitly assigned file set. Delegation does not transfer integration authority.
+
+The main agent must:
+
+- give each sub-agent the current phase, evidence, invariants, allowed files, and expected output;
+- avoid overlapping edit ownership in the shared worktree;
+- reconcile conflicting findings against source and canonical contracts;
+- inspect all delegated diffs and test results;
+- integrate validation and create the phase's single implementation commit;
+- record material findings and remaining work in the active plan.
+
+Sub-agents should not commit shared-tree changes independently unless a separate branch/commit boundary is explicitly assigned.
+
+---
+
+## 5. Hallucination guards during implementation
 
 AI agents MUST NOT:
 
@@ -119,7 +153,7 @@ When uncertain, the agent should surface the missing source instead of filling t
 
 ---
 
-## 5. Evidence map for every non-trivial PR
+## 6. Evidence map for every non-trivial PR
 
 The PR description should include a compact evidence map:
 
@@ -134,7 +168,7 @@ This gives the next agent a traceable chain back to source instead of requiring 
 
 ---
 
-## 6. Canonical docs vs generated wiki
+## 7. Canonical docs vs generated wiki
 
 Keep two layers deliberately separate.
 
@@ -158,7 +192,7 @@ Do not put a critical product decision only in a generated page. Put the decisio
 
 ---
 
-## 7. OpenWiki operating cycle
+## 8. OpenWiki operating cycle
 
 Once OpenWiki is installed/configured for the chosen provider/model:
 
@@ -202,7 +236,7 @@ For a long-lived stacked branch, the branch's PR body remains the active-work re
 
 ---
 
-## 8. What OpenWiki should make easy to trace
+## 9. What OpenWiki should make easy to trace
 
 The generated wiki should provide source-and-test-linked maps for:
 
@@ -223,7 +257,7 @@ Every major generated explanation should name the source paths that support it.
 
 ---
 
-## 9. UI-specific agent workflow
+## 10. UI-specific agent workflow
 
 For approved UI renovation pages:
 
@@ -238,7 +272,7 @@ For approved UI renovation pages:
 
 ---
 
-## 10. End-of-task protocol
+## 11. End-of-task protocol
 
 Before declaring work complete:
 
@@ -246,6 +280,7 @@ Before declaring work complete:
 - review diff for unrelated changes;
 - confirm no secrets or generated credentials are present;
 - update canonical status/decision docs if behavior/architecture changed;
+- update the active development plan's phase status, validation evidence, commit, and next takeover point when it applies;
 - record evidence and deviations in the PR;
 - if the change is merged architecture, schedule/perform an OpenWiki refresh against `main` rather than assuming the existing wiki is current.
 

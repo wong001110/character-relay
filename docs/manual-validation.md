@@ -54,6 +54,11 @@ These checks supplement automated CI. Do not use production credentials in scree
 - [ ] Restart the Connector during an in-flight delivery test and confirm deduplication/recovery prevents duplicate visible output.
 - [ ] Exercise an authorized tool, attachment/link preview, generated media, and a failed provider/tool path.
 - [ ] Confirm Connector and backend logs contain no Bot token, connector shared secret, provider key, or raw authorization header.
+- [ ] Confirm ordinary Discord events contain source IDs and structured decisions but no message preview, prompt, response, planning text, or nested raw payload.
+- [ ] As a normal User and a non-Bootstrap Admin, confirm temporary Discord capture APIs and controls are unavailable.
+- [ ] As Bootstrap Admin, enable a 15-minute capture for one test Server; confirm another Server is not captured, raw detail requires an explicit reveal, the response is `no-store`, and start/reveal/stop/clear audits contain no raw text.
+- [ ] Exercise direct `/messages`, a non-durable Social Turn, a newly generated durable Social Turn step, and a durable replay; confirm the three generation paths are captured and the replay is not duplicated.
+- [ ] Stop, expire, clear, and restart during test captures; confirm new messages are not captured after stop/expiry, records disappear after clear/restart, and capture-store failure does not change the Character Turn response.
 
 ## Portal and accessibility
 

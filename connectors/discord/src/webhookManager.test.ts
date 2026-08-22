@@ -169,4 +169,29 @@ describe("DiscordWebhookManager", () => {
       "message-2"
     ]);
   });
+
+  it("never persists a Discord response body as webhook status", async () => {
+    const privateBody = "private Discord response containing message content";
+    const reportWebhookStatus = vi.fn().mockResolvedValue(undefined);
+    const relay = { reportWebhookStatus } as unknown as RelayClient;
+    const item = deployment();
+    item.webhook_id = "webhook-1";
+    item.webhook_token = "token-1";
+    item.webhook_status = "active";
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(privateBody, { status: 500 })
+    );
+
+    const manager = new DiscordWebhookManager("bot-token", relay);
+    await expect(manager.send(item, ["private outgoing text"], "bot-1")).rejects.toThrow(
+      "Discord webhook returned HTTP 500."
+    );
+
+    expect(reportWebhookStatus).toHaveBeenCalledWith({
+      deployment_id: "deployment-1",
+      status: "error",
+      last_error: "kind=Error status=500"
+    });
+    expect(JSON.stringify(reportWebhookStatus.mock.calls)).not.toContain(privateBody);
+  });
 });

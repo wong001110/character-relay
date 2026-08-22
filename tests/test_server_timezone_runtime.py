@@ -3,9 +3,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from echo_masque.api.connector_schemas import DiscordInboundMessage
-from echo_masque.context_layer import ContextOrchestrator
-from echo_masque.persistence import Database, DeploymentRepository, KnowledgeRepository, Repository
+from echo_masque.persistence import Database, DeploymentRepository, Repository
 from echo_masque.persistence.scheduled_reminder_repository import ScheduledReminderRepository
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.providers import ChatToolCall, ChatToolFunctionCall
@@ -127,38 +125,6 @@ def test_legacy_utc_timezone_is_migrated_once_but_future_explicit_utc_is_preserv
     assert saved is not None
     assert runtime.migrate_legacy_utc_defaults() == 0
     assert runtime.get_timezone(profile_id=profile.id, owner_id="owner-1") == "UTC"
-
-
-def test_context_prompt_uses_server_timezone() -> None:
-    database, connection_id, card_id = seeded_database()
-    deployment = DeploymentRepository(database).list_deployments("owner-1")[0]
-    orchestrator = ContextOrchestrator(KnowledgeRepository(database))
-    payload = DiscordInboundMessage(
-        connection_id=connection_id,
-        deployment_id=deployment.id,
-        message_id="message-1",
-        guild_id="guild-1",
-        guild_name="Guild",
-        channel_id="channel-1",
-        channel_name="general",
-        author_id="user-1",
-        author_display_name="Juen",
-        text="What time is dinner?",
-        mentioned_bot=True,
-        recent_messages=[],
-    )
-
-    context = orchestrator.build(
-        payload=payload,
-        deployment=deployment,
-        character_name="Ann",
-    )
-    guidance = "\n".join(context.knowledge_prompt_guidance())
-
-    assert card_id == deployment.character_card_id
-    assert "Default timezone: Asia/Kuala_Lumpur" in guidance
-    assert "+08:00" in guidance
-    assert "Interpret dates and times without an explicit timezone" in guidance
 
 
 def test_current_time_defaults_to_server_timezone() -> None:

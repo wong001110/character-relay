@@ -17,6 +17,7 @@ def seeded_repository(path: Path) -> tuple[Database, ConditionWatchRepository]:
                 target_kind="prompt_model",
             )
         )
+        session.flush()
         session.add(
             CharacterCardRecord(
                 id="watch-character",
@@ -25,6 +26,7 @@ def seeded_repository(path: Path) -> tuple[Database, ConditionWatchRepository]:
                 display_name="Watch Character",
             )
         )
+        session.flush()
         session.add(
             CharacterDeploymentRecord(
                 id="watch-deployment",

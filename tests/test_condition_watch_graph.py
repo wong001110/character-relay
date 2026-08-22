@@ -24,6 +24,7 @@ def seeded_repository(path: Path) -> ConditionWatchRepository:
     database.initialize()
     with database.session() as session:
         session.add(TargetRecord(id="target", name="Target", target_kind="prompt_model"))
+        session.flush()
         session.add(
             CharacterCardRecord(
                 id="character",
@@ -32,6 +33,7 @@ def seeded_repository(path: Path) -> ConditionWatchRepository:
                 display_name="Character",
             )
         )
+        session.flush()
         session.add(
             CharacterDeploymentRecord(
                 id="deployment",

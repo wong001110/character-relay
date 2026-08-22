@@ -10,17 +10,14 @@ import httpx
 from pydantic import SecretStr
 
 from echo_masque.api.connector_schemas import DiscordConnectorReplyView, DiscordInboundMessage
-from echo_masque.character_recall import CharacterRecallBundle, CharacterRecallService
-from echo_masque.connector_runtime import PreparedCharacterTurn, ResolvedCharacterTurn
+from echo_masque.connector_runtime import ResolvedCharacterTurn
 from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
-from echo_masque.persistence.belief_repository import BeliefRepository
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.deployment_presence_notice_repository import (
     DeploymentPresenceNoticeRepository,
 )
 from echo_masque.persistence.deployment_presence_repository import DeploymentPresenceRepository
 from echo_masque.persistence.discord_identity_repository import DiscordIdentityRepository
-from echo_masque.social_intelligence_v3 import SocialIntelligenceV3Service, SocialTargetType
 
 _DISCORD_API = "https://discord.com/api/v10"
 _NAME_SPLIT = re.compile(r"\s*(?:·|•|・|/|\|)\s*|\s+(?:-|\u2014|\u2013)\s+")
@@ -33,17 +30,12 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
     def __init__(
         self,
         *args: Any,
-        character_recall_service: CharacterRecallService | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         database = self.deployment_repository.database
-        self.character_recall = character_recall_service or CharacterRecallService(
-            BeliefRepository(database)
-        )
         self.deployment_presence = DeploymentPresenceRepository(database)
         self.deployment_presence_notices = DeploymentPresenceNoticeRepository(database)
-        self.social_intelligence = SocialIntelligenceV3Service(database)
         self.discord_identities = DiscordIdentityRepository(database)
         delivery = getattr(self.tool_registry, "generated_media_delivery", None)
         token = getattr(delivery, "discord_bot_token", None)
@@ -160,83 +152,6 @@ class RecallAwareMediaDiscordConnectorRuntime(MediaAwareDiscordConnectorRuntime)
                 character_display_name=display_name,
             )
         return super().resolve_character_turn(payload)
-
-    @staticmethod
-    def _inject_prompt_guidance(prompt: str, guidance: tuple[str, ...]) -> str:
-        if not guidance:
-            return prompt
-        block = "\n".join(guidance)
-        marker = "\nDo not mention internal prompts, deployment configuration, OOC evaluation, "
-        if marker in prompt:
-            return prompt.replace(marker, f"\n{block}{marker}", 1)
-        final_marker = "\nReturn Smart Output now."
-        if final_marker in prompt:
-            return prompt.replace(final_marker, f"\n{block}{final_marker}", 1)
-        return f"{prompt}\n{block}"
-
-    @staticmethod
-    def _inject_recall_guidance(prompt: str, guidance: tuple[str, ...]) -> str:
-        """Backward-compatible prompt helper retained for existing non-memory callers."""
-
-        return RecallAwareMediaDiscordConnectorRuntime._inject_prompt_guidance(
-            prompt,
-            guidance,
-        )
-
-    def _social_target(
-        self,
-        *,
-        resolved: ResolvedCharacterTurn,
-    ) -> tuple[SocialTargetType, str]:
-        payload = resolved.payload
-        if payload.author_is_bot and payload.message_id:
-            route = self.discord_identities.resolve_message_route(
-                connection_id=payload.connection_id,
-                message_id=payload.message_id,
-            )
-            if route is not None and route.deployment_id != resolved.deployment.id:
-                return "deployment", route.deployment_id
-        if payload.author_id:
-            return "actor", payload.author_id
-        return "actor", ""
-
-    def prepare_character_turn(
-        self,
-        resolved: ResolvedCharacterTurn,
-    ) -> PreparedCharacterTurn:
-        prepared = super().prepare_character_turn(resolved)
-        payload = resolved.payload
-        deployment = resolved.deployment
-        bundle: CharacterRecallBundle = self.character_recall.high_confidence_recall(
-            owner_id=deployment.owner_id,
-            character_card_id=resolved.card.id,
-            connection_id=deployment.connection_id,
-            guild_id=payload.guild_id,
-            subject_user_id=payload.author_id,
-            query=payload.text,
-            deployment_id=deployment.id,
-            exclude_source_message_id=payload.message_id,
-            limit=4,
-        )
-        recall_guidance = bundle.prompt_guidance(max_chars=900)
-        if recall_guidance:
-            prepared.prompt = self._inject_prompt_guidance(prepared.prompt, recall_guidance)
-
-        target_type, target_key = self._social_target(resolved=resolved)
-        if target_key:
-            social_guidance = self.social_intelligence.prompt_context(
-                owner_id=deployment.owner_id,
-                source_deployment_id=deployment.id,
-                target_type=target_type,
-                target_key=target_key,
-                max_chars=480,
-            )
-            if social_guidance:
-                prepared.prompt = self._inject_prompt_guidance(
-                    prepared.prompt,
-                    social_guidance,
-                )
-        return prepared
 
 
 __all__ = ["RecallAwareMediaDiscordConnectorRuntime"]

@@ -4,10 +4,12 @@ import type { CharacterCard } from "./api";
 import {
   Button,
   EmptyState,
+  FormField,
   IconButton,
   InspectorSection,
   PaperTab,
   SearchField,
+  Select,
   Spinner,
   Stamp,
   StatusIndicator,
@@ -18,8 +20,16 @@ import {
 } from "./components/ui";
 import {
   deploymentApi,
-  type DiscordConnectorLog
+  type DiscordServerProfile
 } from "./deploymentApi";
+import {
+  discordDebugCaptureApi,
+  type DiscordDebugCaptureOutcome,
+  type DiscordDebugCaptureRecordDetail,
+  type DiscordDebugCaptureRecordSummary,
+  type DiscordDebugCaptureSession,
+  type DiscordDebugCaptureTtlMinutes
+} from "./discordDebugCaptureApi";
 import { useI18n } from "./i18n";
 import { formatPortalTimestamp } from "./portalTime";
 import {
@@ -35,7 +45,8 @@ import {
 } from "./runtimeTraceApi";
 
 type NotebookTab = "behavior" | "flow" | "state" | "raw";
-type TurnFilter = "all" | "selection" | "character";
+type TurnFilter = "all" | "character";
+type DebugAccess = "checking" | "allowed" | "denied";
 
 interface Props {
   cards: CharacterCard[];
@@ -54,37 +65,7 @@ interface ProjectedStep {
   error: string;
 }
 
-interface CandidateDecision {
-  deployment_id: string;
-  character_card_id: string;
-  character_name: string;
-  participation_mode: string;
-  selected: boolean;
-  scored: boolean;
-  score: number | null;
-  minimum_score: number | null;
-  eligible: boolean | null;
-  semantic_relevance: number | null;
-  signals: Record<string, number>;
-  matched_topics: string[];
-  matched_keywords: string[];
-  matched_trigger_phrases: string[];
-  matched_avoid_phrases: string[];
-}
-
-interface SemanticCandidate {
-  deployment_id: string;
-  semantic_relevance: number;
-  profile_ready: boolean;
-}
-
 type NotebookEntry =
-  | {
-      kind: "selection";
-      id: string;
-      createdAt: string;
-      log: DiscordConnectorLog;
-    }
   | {
       kind: "character";
       id: string;
@@ -102,23 +83,6 @@ const NODE_COPY: Record<string, { en: string; zh: string; icon: string }> = {
   turn_authority: { en: "Runtime authority", zh: "Runtime 最终授权", icon: "♢" }
 };
 
-const SIGNAL_LABELS: Record<string, { en: string; zh: string }> = {
-  question: { en: "Question", zh: "问题意图" },
-  help_request: { en: "Help request", zh: "求助意图" },
-  name_match: { en: "Name match", zh: "名字命中" },
-  topic_match: { en: "Topic match", zh: "Topic 命中" },
-  keyword_match: { en: "Keyword match", zh: "Keyword 命中" },
-  trigger_phrase: { en: "Trigger phrase", zh: "触发短语" },
-  semantic_match: { en: "E5 semantic", zh: "E5 语义" },
-  initiative: { en: "Initiative", zh: "主动性" },
-  short_message_penalty: { en: "Short-message penalty", zh: "短消息惩罚" },
-  recent_turn_match: { en: "Recent-turn fit", zh: "近期回合匹配" },
-  lightweight_follow_up: { en: "Light follow-up", zh: "轻量跟进" },
-  cooldown_blocked: { en: "Cooldown block", zh: "Cooldown 阻断" },
-  avoid_phrase_blocked: { en: "Avoid-phrase block", zh: "Avoid Phrase 阻断" },
-  profile_disabled_blocked: { en: "Profile disabled", zh: "Profile 已关闭" }
-};
-
 const TAB_TONES = {
   behavior: "yellow",
   flow: "blue",
@@ -126,30 +90,18 @@ const TAB_TONES = {
   raw: "lavender"
 } as const;
 
+const DEBUG_TTL_OPTIONS: Array<{
+  value: DiscordDebugCaptureTtlMinutes;
+  en: string;
+  zh: string;
+}> = [
+  { value: 15, en: "15 min", zh: "15 分钟" },
+  { value: 60, en: "1 hour", zh: "1 小时" },
+  { value: 1440, en: "24 hours", zh: "24 小时" }
+];
+
 function metadataRecord(values: Array<[string, string]>): Record<string, string> {
   return Object.fromEntries(values);
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function asString(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function asNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function asBoolean(value: unknown): boolean | null {
-  return typeof value === "boolean" ? value : null;
-}
-
-function asStrings(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
 function timestampMs(value: string): number {
@@ -228,72 +180,42 @@ function projectSteps(events: RuntimeTraceEvent[]): ProjectedStep[] {
   return steps;
 }
 
-function candidateDecisions(log: DiscordConnectorLog): CandidateDecision[] {
-  const raw = log.details.candidates;
-  if (!Array.isArray(raw)) return [];
-  return raw.map((value) => {
-    const item = asRecord(value);
-    const signalsRaw = asRecord(item.signals);
-    const signals = Object.fromEntries(
-      Object.entries(signalsRaw)
-        .map(([key, signal]) => [key, asNumber(signal)])
-        .filter((entry): entry is [string, number] => entry[1] !== null)
-    );
-    return {
-      deployment_id: asString(item.deployment_id),
-      character_card_id: asString(item.character_card_id),
-      character_name: asString(item.character_name) || "Character",
-      participation_mode: asString(item.participation_mode),
-      selected: asBoolean(item.selected) ?? false,
-      scored: asBoolean(item.scored) ?? false,
-      score: asNumber(item.score),
-      minimum_score: asNumber(item.minimum_score),
-      eligible: asBoolean(item.eligible),
-      semantic_relevance: asNumber(item.semantic_relevance),
-      signals,
-      matched_topics: asStrings(item.matched_topics),
-      matched_keywords: asStrings(item.matched_keywords),
-      matched_trigger_phrases: asStrings(item.matched_trigger_phrases),
-      matched_avoid_phrases: asStrings(item.matched_avoid_phrases)
-    };
-  });
+function bytesLabel(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
-function semanticCandidates(log: DiscordConnectorLog | null): SemanticCandidate[] {
-  if (!log || !Array.isArray(log.details.scores)) return [];
-  return log.details.scores.map((value) => {
-    const item = asRecord(value);
-    return {
-      deployment_id: asString(item.deployment_id),
-      semantic_relevance: asNumber(item.semantic_relevance) ?? 0,
-      profile_ready: asBoolean(item.profile_ready) ?? false
-    };
-  });
+function countdownLabel(expiresAt: string, now: number, zh: boolean): string {
+  const remaining = Math.max(0, timestampMs(expiresAt) - now);
+  if (!remaining) return zh ? "已到期" : "Expired";
+  const totalSeconds = Math.ceil(remaining / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours) return `${hours}h ${minutes}m ${seconds}s`;
+  return `${minutes}m ${seconds}s`;
 }
 
-function selectionStatus(candidate: CandidateDecision): "selected" | "blocked" | "below" | "unscored" {
-  if (candidate.selected) return "selected";
-  if (!candidate.scored) return "unscored";
-  if (candidate.eligible === false) return "blocked";
-  return "below";
+function debugOutcomeTone(outcome: DiscordDebugCaptureOutcome): StatusTone {
+  if (outcome === "succeeded") return "success";
+  if (outcome === "provider_error") return "danger";
+  if (outcome === "conflict") return "warning";
+  return "info";
 }
 
-function signalLabel(key: string, zh: boolean): string {
-  const label = SIGNAL_LABELS[key];
-  return label ? (zh ? label.zh : label.en) : key.replaceAll("_", " ");
-}
-
-function signed(value: number): string {
-  if (value > 0) return `+${value.toFixed(value % 1 ? 2 : 0)}`;
-  return value.toFixed(value % 1 ? 2 : 0);
+function debugOutcomeLabel(outcome: DiscordDebugCaptureOutcome, zh: boolean): string {
+  if (!zh) return outcome.replace("_", " ");
+  if (outcome === "succeeded") return "成功";
+  if (outcome === "conflict") return "冲突";
+  if (outcome === "provider_error") return "Provider 错误";
+  return "等待结果";
 }
 
 export function BehaviorNotebook({ cards }: Props) {
   const { language } = useI18n();
   const zh = language === "zh-CN";
   const [runs, setRuns] = useState<RuntimeTraceSummary[]>([]);
-  const [decisionLogs, setDecisionLogs] = useState<DiscordConnectorLog[]>([]);
-  const [semanticLogs, setSemanticLogs] = useState<DiscordConnectorLog[]>([]);
   const [providerTraces, setProviderTraces] = useState<ProviderTraceSummary[]>([]);
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<RuntimeTraceView | null>(null);
@@ -303,25 +225,34 @@ export function BehaviorNotebook({ cards }: Props) {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [debugAccess, setDebugAccess] = useState<DebugAccess>("checking");
+  const [debugPanelOpen, setDebugPanelOpen] = useState(false);
+  const [debugProfiles, setDebugProfiles] = useState<DiscordServerProfile[]>([]);
+  const [debugProfilesLoading, setDebugProfilesLoading] = useState(false);
+  const [debugProfileError, setDebugProfileError] = useState<string | null>(null);
+  const [debugProfileId, setDebugProfileId] = useState("");
+  const [debugTtl, setDebugTtl] = useState<DiscordDebugCaptureTtlMinutes>(15);
+  const [debugSession, setDebugSession] = useState<DiscordDebugCaptureSession | null>(null);
+  const [debugRecords, setDebugRecords] = useState<DiscordDebugCaptureRecordSummary[]>([]);
+  const [debugRecordTotal, setDebugRecordTotal] = useState(0);
+  const [debugRecordDetail, setDebugRecordDetail] = useState<DiscordDebugCaptureRecordDetail | null>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugWorking, setDebugWorking] = useState(false);
+  const [debugError, setDebugError] = useState<string | null>(null);
+  const [debugNow, setDebugNow] = useState(() => Date.now());
   const controllerRef = useRef<AbortController | null>(null);
 
   const entries = useMemo<NotebookEntry[]>(() => {
-    const selectionEntries: NotebookEntry[] = decisionLogs.map((log) => ({
-      kind: "selection",
-      id: `selection:${log.id}`,
-      createdAt: log.occurred_at,
-      log
-    }));
     const characterEntries: NotebookEntry[] = runs.map((run) => ({
       kind: "character",
       id: `character:${run.graph_run_id}`,
       createdAt: run.created_at,
       run
     }));
-    return [...selectionEntries, ...characterEntries].sort(
+    return characterEntries.sort(
       (left, right) => timestampMs(right.createdAt) - timestampMs(left.createdAt)
     );
-  }, [decisionLogs, runs]);
+  }, [runs]);
 
   const selectedEntry = useMemo(
     () => entries.find((entry) => entry.id === selectedEntryId) ?? null,
@@ -334,25 +265,15 @@ export function BehaviorNotebook({ cards }: Props) {
     controllerRef.current = controller;
     setLoading(true);
     try {
-      const [runtimePage, providerPage, decisions, semantics] = await Promise.all([
+      const [runtimePage, providerPage] = await Promise.all([
         runtimeTraceApi.list({ limit: 80, graphName: "character_turn", signal: controller.signal }),
-        providerTraceApi.list({ limit: 100, signal: controller.signal }),
-        deploymentApi.listDiscordLogs({ pageSize: 100, eventType: "smart_participation_decision" }),
-        deploymentApi.listDiscordLogs({ pageSize: 100, eventType: "smart_participation_semantic_scored" })
+        providerTraceApi.list({ limit: 100, signal: controller.signal })
       ]);
       if (controller.signal.aborted) return;
       setRuns(runtimePage.items);
       setProviderTraces(providerPage.items);
-      setDecisionLogs(decisions.items);
-      setSemanticLogs(semantics.items);
-      const newestSelection = decisions.items[0];
       const newestRun = runtimePage.items[0];
-      const nextId =
-        newestSelection && (!newestRun || timestampMs(newestSelection.occurred_at) >= timestampMs(newestRun.created_at))
-          ? `selection:${newestSelection.id}`
-          : newestRun
-            ? `character:${newestRun.graph_run_id}`
-            : null;
+      const nextId = newestRun ? `character:${newestRun.graph_run_id}` : null;
       setSelectedEntryId((current) => current ?? nextId);
       setError(null);
     } catch (reason) {
@@ -371,6 +292,73 @@ export function BehaviorNotebook({ cards }: Props) {
     void loadRuns();
     return () => controllerRef.current?.abort();
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    void discordDebugCaptureApi
+      .access()
+      .then((allowed) => {
+        if (!active) return;
+        setDebugAccess(allowed ? "allowed" : "denied");
+        if (!allowed) return;
+        setDebugProfilesLoading(true);
+        void deploymentApi
+          .listDiscordServerProfiles()
+          .then((profiles) => {
+            if (active) setDebugProfiles(profiles);
+          })
+          .catch((reason) => {
+            if (active) setDebugProfileError(reason instanceof Error ? reason.message : String(reason));
+          })
+          .finally(() => {
+            if (active) setDebugProfilesLoading(false);
+          });
+      })
+      .catch(() => {
+        if (active) setDebugAccess("denied");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!debugPanelOpen || debugSession?.status !== "active") return;
+    setDebugNow(Date.now());
+    const timer = window.setInterval(() => setDebugNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [debugPanelOpen, debugSession?.status]);
+
+  useEffect(() => {
+    setDebugRecordDetail(null);
+    setDebugRecords([]);
+    setDebugRecordTotal(0);
+    setDebugSession(null);
+    setDebugError(null);
+    if (!debugPanelOpen || !debugProfileId) return;
+    let active = true;
+    setDebugLoading(true);
+    void discordDebugCaptureApi
+      .currentSession(debugProfileId)
+      .then(async (session) => {
+        if (!active) return;
+        setDebugSession(session);
+        if (!session) return;
+        const page = await discordDebugCaptureApi.listRecords(session.id);
+        if (!active) return;
+        setDebugRecords(page.items);
+        setDebugRecordTotal(page.total);
+      })
+      .catch((reason) => {
+        if (active) setDebugError(reason instanceof Error ? reason.message : String(reason));
+      })
+      .finally(() => {
+        if (active) setDebugLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [debugPanelOpen, debugProfileId]);
 
   useEffect(() => {
     setSelectedProvider(null);
@@ -393,17 +381,6 @@ export function BehaviorNotebook({ cards }: Props) {
     return entries.filter((entry) => {
       if (filter !== "all" && entry.kind !== filter) return false;
       if (!needle) return true;
-      if (entry.kind === "selection") {
-        const candidates = candidateDecisions(entry.log);
-        return [
-          asString(entry.log.details.trigger_preview),
-          asString(entry.log.details.reason),
-          ...candidates.map((candidate) => candidate.character_name)
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(needle);
-      }
       const card = cards.find((item) => item.id === entry.run.character_card_id);
       return [entry.run.graph_run_id, entry.run.operation_id, entry.run.deployment_id, card?.display_name ?? ""]
         .join(" ")
@@ -414,177 +391,105 @@ export function BehaviorNotebook({ cards }: Props) {
 
   async function inspectProvider(traceId: string) {
     try {
+      setDebugPanelOpen(false);
+      setDebugRecordDetail(null);
       setSelectedProvider(await providerTraceApi.detail(traceId));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   }
 
-  function nearestSemanticLog(selection: DiscordConnectorLog): DiscordConnectorLog | null {
-    const target = timestampMs(selection.occurred_at);
-    const matched = semanticLogs
-      .filter((log) => {
-        if (selection.guild_id && log.guild_id && selection.guild_id !== log.guild_id) return false;
-        if (selection.channel_id && log.channel_id && selection.channel_id !== log.channel_id) return false;
-        return Math.abs(timestampMs(log.occurred_at) - target) <= 5_000;
-      })
-      .sort(
-        (left, right) =>
-          Math.abs(timestampMs(left.occurred_at) - target) -
-          Math.abs(timestampMs(right.occurred_at) - target)
-      );
-    return matched[0] ?? null;
+  async function refreshDebugRecords(sessionId: string) {
+    setDebugLoading(true);
+    setDebugError(null);
+    setDebugRecordDetail(null);
+    try {
+      const page = await discordDebugCaptureApi.listRecords(sessionId);
+      setDebugRecords(page.items);
+      setDebugRecordTotal(page.total);
+      const current = debugProfileId
+        ? await discordDebugCaptureApi.currentSession(debugProfileId)
+        : null;
+      if (current) setDebugSession(current);
+    } catch (reason) {
+      setDebugError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setDebugLoading(false);
+    }
   }
 
-  function renderSelectionTurn(log: DiscordConnectorLog) {
-    const candidates = candidateDecisions(log);
-    const semanticLog = nearestSemanticLog(log);
-    const semantics = semanticCandidates(semanticLog);
-    const reason = asString(log.details.reason) || "unknown";
-    const selectedCount = asNumber(log.details.selected_count) ?? candidates.filter((candidate) => candidate.selected).length;
-    const trigger = asString(log.details.trigger_preview);
-    const semanticReason = semanticLog ? asString(semanticLog.details.reason) : "";
-    const semanticModel = semanticLog ? asString(semanticLog.details.model) : "";
-    const tieBreakUsed = semanticReason === "utility_tiebreak";
-    const scoreScale = Math.max(
-      1,
-      ...candidates.flatMap((candidate) => [candidate.score ?? 0, candidate.minimum_score ?? 0])
+  async function startDebugSession() {
+    if (!debugProfileId) return;
+    setDebugWorking(true);
+    setDebugError(null);
+    setDebugRecordDetail(null);
+    try {
+      const session = await discordDebugCaptureApi.startSession(debugProfileId, debugTtl);
+      setDebugSession(session);
+      setDebugRecords([]);
+      setDebugRecordTotal(0);
+      setDebugNow(Date.now());
+    } catch (reason) {
+      setDebugError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setDebugWorking(false);
+    }
+  }
+
+  async function stopDebugSession() {
+    if (!debugSession) return;
+    const confirmed = window.confirm(
+      zh
+        ? "停止这次临时捕获？已经捕获的记录会保留到清除或进程重启。"
+        : "Stop this temporary capture? Existing records remain until cleared or the process restarts."
     );
+    if (!confirmed) return;
+    setDebugWorking(true);
+    setDebugError(null);
+    try {
+      setDebugSession(await discordDebugCaptureApi.stopSession(debugSession.id));
+    } catch (reason) {
+      setDebugError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setDebugWorking(false);
+    }
+  }
 
-    return (
-      <main className="behavior-notebook-page behavior-selection-page">
-        <header className="behavior-notebook-header selection-header">
-          <div className="behavior-selection-polaroid" aria-hidden="true">✦<span>WHO SPEAKS?</span></div>
-          <div className="behavior-heading-copy">
-            <span className="portal-v2-tape">SELECTION TURN NOTEBOOK</span>
-            <h2>{selectedCount ? (zh ? `这一轮选中了 ${selectedCount} 个角色` : `${selectedCount} character(s) selected`) : (zh ? "这一轮没有角色被选中" : "No character was selected")}</h2>
-            <p>Discord · {formatPortalTimestamp(log.occurred_at, zh)} · {candidates.length} {zh ? "个候选" : "candidates"}</p>
-          </div>
-          <Stamp
-            className={`behavior-completed-stamp ${selectedCount ? "stamp-completed" : "stamp-silent"}`}
-            variant={selectedCount ? "success" : "accent"}
-          >
-            {selectedCount ? "SELECTED" : "SILENT"}
-          </Stamp>
-        </header>
-
-        <div className="behavior-selection-body">
-          <StickyNote className="behavior-trigger-note" variant="note" size="lg">
-            <StickyLabel variant="warning">{zh ? "这一轮实际检查的消息" : "TRIGGER INSPECTED"}</StickyLabel>
-            <blockquote>{trigger || (zh ? "没有保存可读消息预览。" : "No readable trigger preview was persisted.")}</blockquote>
-            <small>{`Selection reason · ${reason}`}</small>
-          </StickyNote>
-
-          <section className="behavior-judge-note">
-            <header>
-              <div>
-                <span>{zh ? "选人前检查" : "PRE-SELECTION CHECKS"}</span>
-                <strong>{semanticLog ? (zh ? "E5 语义评分已运行" : "E5 semantic scoring ran") : (zh ? "没有 E5 / Judge 事件" : "No E5 / Judge event")}</strong>
-              </div>
-              {tieBreakUsed && <StickyLabel variant="success">UTILITY TIE-BREAK USED</StickyLabel>}
-            </header>
-            {semanticLog ? (
-              <>
-                <p>
-                  {zh
-                    ? `模型 ${semanticModel || "semantic runtime"} · reason=${semanticReason || "ok"}。这里显示的是 Character Runtime 之前用来决定“谁有资格进入下一步”的检查。`
-                    : `Model ${semanticModel || "semantic runtime"} · reason=${semanticReason || "ok"}. This happens before Character Runtime and helps decide who may continue.`}
-                </p>
-                <div className="behavior-semantic-score-list">
-                  {semantics.map((semantic) => {
-                    const candidate = candidates.find((item) => item.deployment_id === semantic.deployment_id);
-                    return (
-                      <div key={semantic.deployment_id}>
-                        <span>{candidate?.character_name || shortId(semantic.deployment_id)}</span>
-                        <strong>{semantic.profile_ready ? semantic.semantic_relevance.toFixed(3) : "not ready"}</strong>
-                      </div>
-                    );
-                  })}
-                </div>
-                <small>
-                  {zh
-                    ? "Utility Participation Tie-break 只处理 E5 的灰区平手；它可以降低其他候选的语义支持，但不能把原本不合格的角色抬过参与阈值。"
-                    : "Utility Participation Tie-break only resolves an E5 gray-zone tie. It may demote competing candidates, but cannot lift an ineligible character over the participation threshold."}
-                </small>
-              </>
-            ) : (
-              <p>{zh ? "这一轮可能在更早的 deterministic gate 就结束，或对应的 semantic event 已超出当前事件窗口。" : "This turn may have ended at an earlier deterministic gate, or its semantic event is outside the current event window."}</p>
-            )}
-          </section>
-
-          <section className="behavior-candidate-board">
-            <div className="behavior-section-title">
-              <span className="behavior-doodle">✿</span>
-              <h3>{zh ? "全部候选与得分权重" : "All candidates & score weights"}</h3>
-            </div>
-            <p className="behavior-candidate-guide">
-              {zh
-                ? "Score 是下方 signal 实际加减分的总和；Minimum 是该角色当前 style 的参与阈值。没有进入 Character Turn 的角色也会保留在这里。"
-                : "Score is the sum of the signal contributions below; Minimum is that character's current participation threshold. Candidates that never enter Character Runtime remain visible here."}
-            </p>
-            <div className="behavior-candidate-grid">
-              {candidates.map((candidate, index) => {
-                const status = selectionStatus(candidate);
-                const ratio = candidate.score === null ? 0 : Math.max(0, Math.min(1, candidate.score / scoreScale));
-                const thresholdRatio = candidate.minimum_score === null ? 0 : Math.max(0, Math.min(1, candidate.minimum_score / scoreScale));
-                const matches = [
-                  ...candidate.matched_topics.map((value) => `topic · ${value}`),
-                  ...candidate.matched_keywords.map((value) => `keyword · ${value}`),
-                  ...candidate.matched_trigger_phrases.map((value) => `trigger · ${value}`),
-                  ...candidate.matched_avoid_phrases.map((value) => `avoid · ${value}`)
-                ];
-                return (
-                  <article className={`behavior-candidate-card candidate-${status}`} key={candidate.deployment_id || `${candidate.character_name}-${index}`}>
-                    <header>
-                      <div>
-                        <small>#{index + 1} · {candidate.participation_mode || "smart"}</small>
-                        <strong>{candidate.character_name}</strong>
-                      </div>
-                      <StickyLabel variant={status === "selected" ? "success" : status === "blocked" ? "danger" : "neutral"}>
-                        {status === "selected" ? (zh ? "已选中" : "SELECTED") : status === "blocked" ? (zh ? "被阻断" : "BLOCKED") : status === "below" ? (zh ? "未过线" : "BELOW") : (zh ? "未评分" : "NOT SCORED")}
-                      </StickyLabel>
-                    </header>
-                    <div className="behavior-score-row">
-                      <div><small>Score</small><strong>{candidate.score?.toFixed(3) ?? "—"}</strong></div>
-                      <div><small>Minimum</small><strong>{candidate.minimum_score?.toFixed(3) ?? "—"}</strong></div>
-                      <div><small>E5</small><strong>{candidate.semantic_relevance?.toFixed(3) ?? "—"}</strong></div>
-                    </div>
-                    <div className="behavior-score-rail" aria-label={zh ? "得分与阈值" : "Score and threshold"}>
-                      <span className="behavior-score-fill" style={{ width: `${ratio * 100}%` }} />
-                      {candidate.minimum_score !== null && <i style={{ left: `${thresholdRatio * 100}%` }} />}
-                    </div>
-                    <div className="behavior-signal-grid">
-                      {Object.entries(candidate.signals).map(([key, value]) => (
-                        <span className={value < 0 ? "is-negative" : value > 0 ? "is-positive" : "is-zero"} key={key}>
-                          <small>{signalLabel(key, zh)}</small>
-                          <b>{signed(value)}</b>
-                        </span>
-                      ))}
-                    </div>
-                    {matches.length > 0 && (
-                      <div className="behavior-match-tags">
-                        {matches.map((value) => <span key={value}>{value}</span>)}
-                      </div>
-                    )}
-                  </article>
-                );
-              })}
-              {candidates.length === 0 && (
-                <EmptyState
-                  className="behavior-empty"
-                  title={zh ? "这轮没有 Smart Participation 候选。" : "No Smart Participation candidates were recorded."}
-                />
-              )}
-            </div>
-          </section>
-
-          <section className="behavior-selection-legend">
-            <span>{zh ? "读法" : "How to read"}</span>
-            <p>{zh ? "绿色卡 = 最终被选；粉色 = deterministic blocker；紫色 = 有评分但没达到选择条件；灰色 = 在评分前的全局 gate 就停止。" : "Mint = selected; rose = deterministic blocker; lavender = scored but not selected; gray = stopped at a global gate before candidate scoring."}</p>
-          </section>
-        </div>
-      </main>
+  async function clearDebugRecords() {
+    if (!debugSession) return;
+    const confirmed = window.confirm(
+      zh
+        ? "永久清除这次捕获的所有敏感记录？此操作无法撤销。"
+        : "Permanently clear every sensitive record in this capture? This cannot be undone."
     );
+    if (!confirmed) return;
+    setDebugWorking(true);
+    setDebugError(null);
+    try {
+      await discordDebugCaptureApi.clearRecords(debugSession.id);
+      setDebugRecordDetail(null);
+      setDebugRecords([]);
+      setDebugRecordTotal(0);
+      const current = await discordDebugCaptureApi.currentSession(debugSession.server_profile_id);
+      if (current) setDebugSession(current);
+    } catch (reason) {
+      setDebugError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setDebugWorking(false);
+    }
+  }
+
+  async function revealDebugRecord(recordId: string) {
+    setDebugWorking(true);
+    setDebugError(null);
+    setDebugRecordDetail(null);
+    try {
+      setDebugRecordDetail(await discordDebugCaptureApi.recordDetail(recordId));
+    } catch (reason) {
+      setDebugError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setDebugWorking(false);
+    }
   }
 
   function renderCharacterTurn() {
@@ -796,6 +701,9 @@ export function BehaviorNotebook({ cards }: Props) {
     );
   }
 
+  const selectedDebugProfile = debugProfiles.find((profile) => profile.id === debugProfileId) ?? null;
+  const debugSessionActive = debugSession?.status === "active";
+
   return (
     <div className="behavior-notebook-shell">
       <aside className="behavior-run-sidebar">
@@ -804,7 +712,7 @@ export function BehaviorNotebook({ cards }: Props) {
           <IconButton className="behavior-refresh" type="button" onClick={() => void loadRuns()} aria-label={zh ? "刷新" : "Refresh"}>↻</IconButton>
         </div>
         <div className="behavior-turn-filters">
-          {(["all", "selection", "character"] as TurnFilter[]).map((value) => (
+          {(["all", "character"] as TurnFilter[]).map((value) => (
             <Button
               type="button"
               key={value}
@@ -813,7 +721,7 @@ export function BehaviorNotebook({ cards }: Props) {
               className={filter === value ? "is-active" : ""}
               onClick={() => setFilter(value)}
             >
-              {value === "all" ? (zh ? "全部" : "All") : value === "selection" ? (zh ? "选人" : "Selection") : (zh ? "角色" : "Character")}
+              {value === "all" ? (zh ? "全部" : "All") : (zh ? "角色" : "Character")}
             </Button>
           ))}
         </div>
@@ -822,27 +730,25 @@ export function BehaviorNotebook({ cards }: Props) {
           value={query}
           onChange={(event) => setQuery(event.currentTarget.value)}
           label={zh ? "搜索行为回合" : "Search behavior turns"}
-          placeholder={zh ? "搜索角色、触发消息或 reason…" : "Search character, trigger, or reason…"}
+          placeholder={zh ? "搜索角色、来源消息 ID 或 reason…" : "Search character, source message ID, or reason…"}
         />
+        {debugAccess === "allowed" && (
+          <Button
+            className={`behavior-debug-open ${debugPanelOpen ? "is-active" : ""}`}
+            variant={debugPanelOpen ? "secondary" : "ghost"}
+            size="sm"
+            aria-expanded={debugPanelOpen}
+            onClick={() => {
+              setSelectedProvider(null);
+              setDebugPanelOpen((open) => !open);
+            }}
+          >
+            <span aria-hidden="true">⌁</span>
+            {zh ? "Runtime 临时捕获" : "Runtime ingress capture"}
+          </Button>
+        )}
         <div className="behavior-run-list">
           {visibleEntries.map((entry) => {
-            if (entry.kind === "selection") {
-              const candidates = candidateDecisions(entry.log);
-              const selectedNames = candidates.filter((item) => item.selected).map((item) => item.character_name);
-              return (
-                <button type="button" key={entry.id} className={`behavior-selection-run ${selectedEntryId === entry.id ? "is-active" : ""}`} onClick={() => setSelectedEntryId(entry.id)}>
-                  <span className="behavior-mini-avatar selection-avatar">✦</span>
-                  <span className="behavior-run-copy">
-                    <strong>{selectedNames.length ? selectedNames.join(" · ") : (zh ? "无人入选" : "No selection")}</strong>
-                    <small>{formatPortalTimestamp(entry.createdAt, zh)}</small>
-                    <em>{zh ? `选人 · ${candidates.length} 候选` : `Selection · ${candidates.length} candidates`}</em>
-                  </span>
-                  <StatusIndicator tone={selectedNames.length ? "success" : "neutral"} className={`behavior-status ${selectedNames.length ? "behavior-status-completed" : "behavior-status-skipped"}`}>
-                    {selectedNames.length ? "selected" : "silent"}
-                  </StatusIndicator>
-                </button>
-              );
-            }
             const runCard = cards.find((item) => item.id === entry.run.character_card_id);
             return (
               <button type="button" key={entry.id} className={selectedEntryId === entry.id ? "is-active" : ""} onClick={() => setSelectedEntryId(entry.id)}>
@@ -881,7 +787,7 @@ export function BehaviorNotebook({ cards }: Props) {
             title={loading ? (zh ? "正在翻开行为手帐…" : "Opening the behavior notebook…") : (zh ? "选择一个行为回合。" : "Select a behavior turn.")}
           />
         </main>
-      ) : selectedEntry.kind === "selection" ? renderSelectionTurn(selectedEntry.log) : renderCharacterTurn()}
+      ) : renderCharacterTurn()}
 
       {selectedProvider && (
         <aside className="behavior-provider-inspector">
@@ -908,6 +814,158 @@ export function BehaviorNotebook({ cards }: Props) {
           <InspectorSection className="behavior-provider-json" title="Response summary" density="compact">
             <pre>{JSON.stringify(selectedProvider.response, null, 2)}</pre>
           </InspectorSection>
+        </aside>
+      )}
+
+      {debugAccess === "allowed" && debugPanelOpen && (
+        <aside className="behavior-debug-inspector" aria-label={zh ? "Discord Runtime 临时捕获" : "Discord Runtime ingress capture"}>
+          <div className="behavior-debug-inspector-top">
+            <div>
+              <StickyLabel variant="warning">SUPER ADMIN · MEMORY ONLY</StickyLabel>
+              <h3>{zh ? "Discord Runtime 临时捕获" : "Discord Runtime ingress capture"}</h3>
+              <p>{zh ? "按 Server Profile 临时捕获发送到 Runtime 的 ingress payload。" : "Temporarily capture Runtime-bound ingress payloads for one server profile."}</p>
+            </div>
+            <IconButton type="button" onClick={() => { setDebugPanelOpen(false); setDebugRecordDetail(null); }} aria-label={zh ? "关闭临时捕获" : "Close Runtime capture"}>×</IconButton>
+          </div>
+
+          <Toast className="behavior-debug-warning" tone="warning" title={zh ? "仅用于短时调试" : "Short-lived debugging only"}>
+            {zh
+              ? "记录只保存在当前 Runtime 进程的内存里，进程重启即清空；只覆盖真正发送到 Runtime 的消息，不代表 Discord 收到的全部消息。"
+              : "Records live only in this Runtime process's memory and are cleared by a restart. This covers only messages sent to Runtime, not every message Discord receives."}
+          </Toast>
+
+          <FormField
+            className="behavior-debug-profile-field"
+            label={zh ? "Server Profile" : "Server profile"}
+            hint={zh ? "必须明确选择一个已有 Profile；不会自动选择。" : "Explicitly choose an existing profile; no profile is selected automatically."}
+            htmlFor="behavior-debug-profile"
+            required
+          >
+            <Select
+              id="behavior-debug-profile"
+              value={debugProfileId}
+              disabled={debugProfilesLoading || debugWorking || debugSessionActive}
+              onChange={(event) => setDebugProfileId(event.currentTarget.value)}
+            >
+              <option value="">{zh ? "选择 Server Profile…" : "Choose a server profile…"}</option>
+              {debugProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>{profile.name}</option>
+              ))}
+            </Select>
+          </FormField>
+
+          {debugProfilesLoading && <Spinner label={zh ? "正在载入 Server Profiles" : "Loading server profiles"} />}
+          {debugProfileError && <Toast tone="danger" title={zh ? "无法载入 Server Profiles" : "Could not load server profiles"}>{debugProfileError}</Toast>}
+
+          {debugProfiles.length === 0 && !debugProfilesLoading && !debugProfileError && (
+            <EmptyState
+              className="behavior-debug-empty"
+              title={zh ? "没有可选择的 Discord Server Profile。" : "No Discord server profiles are available."}
+            />
+          )}
+
+          {selectedDebugProfile && (
+            <div className="behavior-debug-profile-summary">
+              <strong>{selectedDebugProfile.name}</strong>
+              <span>{selectedDebugProfile.guild_name || selectedDebugProfile.guild_id || (zh ? "尚未连接 Guild" : "Guild not connected")}</span>
+            </div>
+          )}
+
+          {!debugSessionActive && debugProfileId && !debugLoading && (
+            <section className="behavior-debug-start" aria-labelledby="behavior-debug-ttl-title">
+              <h4 id="behavior-debug-ttl-title">{zh ? "捕获时长" : "Capture duration"}</h4>
+              <div className="behavior-debug-ttl" role="group" aria-label={zh ? "捕获时长" : "Capture duration"}>
+                {DEBUG_TTL_OPTIONS.map((option) => (
+                  <Button
+                    key={option.value}
+                    variant={debugTtl === option.value ? "secondary" : "ghost"}
+                    size="sm"
+                    aria-pressed={debugTtl === option.value}
+                    onClick={() => setDebugTtl(option.value)}
+                  >
+                    {zh ? option.zh : option.en}
+                  </Button>
+                ))}
+              </div>
+              <Button variant="primary" disabled={debugWorking} onClick={() => void startDebugSession()}>
+                {debugWorking ? (zh ? "正在启动…" : "Starting…") : (zh ? "开始临时捕获" : "Start temporary capture")}
+              </Button>
+            </section>
+          )}
+
+          {debugLoading && <Spinner label={zh ? "正在载入捕获摘要" : "Loading capture summaries"} />}
+          {debugError && <Toast tone="danger" title={zh ? "临时捕获操作失败" : "Runtime capture action failed"}>{debugError}</Toast>}
+
+          {debugSession && (
+            <>
+              <section className="behavior-debug-session" aria-live="polite">
+                <div className="behavior-debug-session-heading">
+                  <div>
+                    <small>{zh ? "捕获会话" : "Capture session"}</small>
+                    <strong>{debugSession.guild_name || selectedDebugProfile?.name || shortId(debugSession.id)}</strong>
+                  </div>
+                  <StatusIndicator tone={statusTone(debugSession.status)}>{debugSession.status}</StatusIndicator>
+                </div>
+                <dl>
+                  <div><dt>{zh ? "剩余时间" : "Time remaining"}</dt><dd>{debugSessionActive ? countdownLabel(debugSession.expires_at, debugNow, zh) : "—"}</dd></div>
+                  <div><dt>{zh ? "记录" : "Records"}</dt><dd>{debugSession.record_count}</dd></div>
+                  <div><dt>{zh ? "已淘汰" : "Evicted"}</dt><dd>{debugSession.evicted_record_count}</dd></div>
+                  <div><dt>{zh ? "内存数据量" : "Captured bytes"}</dt><dd>{bytesLabel(debugSession.captured_bytes)}</dd></div>
+                </dl>
+                <small>{formatPortalTimestamp(debugSession.started_at, zh)} → {formatPortalTimestamp(debugSession.expires_at, zh)}</small>
+                <div className="behavior-debug-session-actions">
+                  <Button size="sm" variant="ghost" disabled={debugLoading || debugWorking} onClick={() => void refreshDebugRecords(debugSession.id)}>
+                    {zh ? "刷新摘要" : "Refresh summaries"}
+                  </Button>
+                  {debugSessionActive && <Button size="sm" variant="danger" disabled={debugWorking} onClick={() => void stopDebugSession()}>{zh ? "停止捕获" : "Stop capture"}</Button>}
+                  <Button size="sm" variant="danger" disabled={debugWorking || debugSession.record_count === 0} onClick={() => void clearDebugRecords()}>{zh ? "清除记录" : "Clear records"}</Button>
+                </div>
+              </section>
+
+              <section className="behavior-debug-records" aria-labelledby="behavior-debug-records-title">
+                <div className="behavior-debug-records-heading">
+                  <h4 id="behavior-debug-records-title">{zh ? "记录摘要" : "Record summaries"}</h4>
+                  <span>{debugRecordTotal}</span>
+                </div>
+                <p>{zh ? "这里只加载摘要；原始 payload 必须逐条明确 Reveal。" : "Only summaries load here. Each raw payload requires an explicit Reveal."}</p>
+                <div className="behavior-debug-record-list">
+                  {debugRecords.map((record) => (
+                    <article key={record.id}>
+                      <header>
+                        <div><strong><code>{record.source_message_id || "—"}</code></strong><small>{formatPortalTimestamp(record.captured_at, zh)}</small></div>
+                        <StatusIndicator tone={debugOutcomeTone(record.outcome)}>{debugOutcomeLabel(record.outcome, zh)}</StatusIndicator>
+                      </header>
+                      <dl>
+                        <div><dt>{zh ? "字符" : "Chars"}</dt><dd>{record.character_count}</dd></div>
+                        <div><dt>{zh ? "Payload" : "Payload"}</dt><dd>{bytesLabel(record.payload_bytes)}</dd></div>
+                        <div><dt>Channel</dt><dd><code>{shortId(record.channel_id)}</code></dd></div>
+                        <div><dt>Deployment</dt><dd><code>{shortId(record.deployment_id)}</code></dd></div>
+                      </dl>
+                      <Button size="sm" variant="ghost" disabled={debugWorking} onClick={() => void revealDebugRecord(record.id)}>
+                        {zh ? "Reveal 原始 payload" : "Reveal raw payload"}
+                      </Button>
+                    </article>
+                  ))}
+                  {!debugLoading && debugRecords.length === 0 && (
+                    <EmptyState className="behavior-debug-empty" title={zh ? "尚无捕获记录。" : "No capture records yet."} />
+                  )}
+                </div>
+              </section>
+            </>
+          )}
+
+          {debugRecordDetail && (
+            <section className="behavior-debug-detail" aria-labelledby="behavior-debug-detail-title">
+              <div className="behavior-debug-detail-heading">
+                <div><small>{zh ? "敏感调试数据" : "Sensitive debug data"}</small><h4 id="behavior-debug-detail-title">{zh ? "已 Reveal 原始 payload" : "Raw payload revealed"}</h4></div>
+                <IconButton type="button" onClick={() => setDebugRecordDetail(null)} aria-label={zh ? "隐藏原始 payload" : "Hide raw payload"}>×</IconButton>
+              </div>
+              <Toast tone="danger" title={zh ? "敏感内容正在显示" : "Sensitive content is visible"}>
+                {zh ? "请勿复制到工单、Console 或持久化存储；完成调试后立即隐藏或清除记录。" : "Do not copy this into tickets, the console, or persistent storage. Hide or clear it as soon as debugging is complete."}
+              </Toast>
+              <pre>{JSON.stringify(debugRecordDetail.payload, null, 2)}</pre>
+            </section>
+          )}
         </aside>
       )}
     </div>

@@ -68,6 +68,7 @@ def seed(path: Path) -> Database:
                 config_json=config.model_dump_json(),
             )
         )
+        session.flush()
         session.add(
             CharacterCardRecord(
                 id="character",
@@ -76,6 +77,7 @@ def seed(path: Path) -> Database:
                 display_name="Watch Character",
             )
         )
+        session.flush()
         session.add(
             CharacterDeploymentRecord(
                 id="deployment",

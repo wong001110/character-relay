@@ -28,8 +28,8 @@ EntityType = Literal[
 
 @dataclass(frozen=True, slots=True)
 class EntityGroundingResult:
-    entity: EntityV3View
-    state: Literal["known", "provisional", "unknown"]
+    entity: EntityV3View | None
+    state: Literal["known", "provisional", "unresolved"]
     knowledge_gap: KnowledgeGapView | None = None
 
 
@@ -68,7 +68,7 @@ class EntityGroundingService:
             entity_type=entity_type,
         )
         if existing is not None:
-            state: Literal["known", "provisional", "unknown"] = (
+            state: Literal["known", "provisional", "unresolved"] = (
                 "known" if existing.status == "canonical" else "provisional"
             )
             gap: KnowledgeGapView | None = None
@@ -85,6 +85,9 @@ class EntityGroundingService:
                     now=current,
                 )
             return EntityGroundingResult(existing, state, gap)
+
+        if not any(ref.strip() for ref in evidence_refs):
+            return EntityGroundingResult(None, "unresolved")
 
         entity = self.repository.ensure_entity(
             owner_id=owner_id,
@@ -115,6 +118,8 @@ class EntityGroundingService:
         self,
         *,
         owner_id: str,
+        connection_id: str,
+        guild_id: str,
         entity_id: str,
         canonical_name: str = "",
         metadata: dict[str, str] | None = None,
@@ -123,6 +128,8 @@ class EntityGroundingService:
     ) -> EntityV3View:
         return self.repository.confirm_entity(
             owner_id=owner_id,
+            connection_id=connection_id,
+            guild_id=guild_id,
             entity_id=entity_id,
             canonical_name=canonical_name,
             metadata=metadata,
@@ -226,10 +233,18 @@ class EntityGroundingService:
         self,
         *,
         owner_id: str,
+        connection_id: str,
+        guild_id: str,
         edge_id: str,
         now: datetime | None = None,
     ) -> EvidenceEdgeV3View:
-        return self.repository.reject_edge(owner_id=owner_id, edge_id=edge_id, now=now)
+        return self.repository.reject_edge(
+            owner_id=owner_id,
+            connection_id=connection_id,
+            guild_id=guild_id,
+            edge_id=edge_id,
+            now=now,
+        )
 
     def entity_prompt_context(self, entity: EntityV3View) -> str:
         known = [

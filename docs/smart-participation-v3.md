@@ -1,5 +1,11 @@
 # Smart Participation V3 — Semantic Multi-Character Participation
 
+Status: **historical implementation note — superseded where it describes Connector-local selection or fallback**
+
+Current runtime authority is the Python Conversation Intelligence v3 `/api/smart-participation/resolve` contract. The Discord Connector retains deterministic scope, explicit-address, cooldown/rate, and delivery gates, but an ordinary message is sent only when the v3 response contains a valid authoritative speaker plan. Resolver failure or an empty plan is silent; there is no Connector-local semantic, Topic, or legacy endpoint fallback. Use `docs/intelligence-core-v3-architecture.md` and current source/tests for current behavior.
+
+> Everything below this notice records the superseded design. Statements such as “current”, “supported”, or “fail-open” describe that historical implementation and must not be used as present-day runtime guidance.
+
 Smart Participation V3 upgrades Character Relay from manual topic/keyword routing to semantic Character Card relevance while keeping runtime admission deterministic and fail-open.
 
 ## Scope
@@ -181,8 +187,6 @@ Python/API:
 - `CHARACTER_RELAY_SEMANTIC_EMBEDDING_DIMENSION`
 - `CHARACTER_RELAY_SEMANTIC_EMBEDDING_CACHE_DIR`
 
-Discord Connector:
-
-- `DISCORD_SMART_PARTICIPATION_MAX_PARTICIPANTS` (default `2`, allowed `1..3`)
+The former Connector-side participant-margin/cap settings are retired. Admission limits belong to the v3 server contract and policy.
 
 The production Docker image enables semantic participation and places the embedding-model cache under `/data/embedding-models` so it can reuse the Railway persistent volume.

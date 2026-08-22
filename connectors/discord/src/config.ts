@@ -16,12 +16,9 @@ export interface ConnectorConfig {
   messageContentIntent: boolean;
   smartParticipationEnabled: boolean;
   smartParticipationProfiles: SmartParticipationProfiles;
-  smartParticipationMinimumMargin: number;
-  smartParticipationMaxParticipants: number;
   smartParticipationChannelCooldownSeconds: number;
   smartParticipationWindowSeconds: number;
   smartParticipationMaxRepliesPerWindow: number;
-  smartParticipationLightweightFollowUpWindowSeconds: number;
   smartParticipationTurnCollectorEnabled: boolean;
   smartParticipationTurnCollectorQuietMs: number;
   smartParticipationTurnCollectorMaxWaitMs: number;
@@ -98,17 +95,6 @@ export function loadConfig(): ConnectorConfig {
     smartParticipationProfiles: parseSmartParticipationProfiles(
       process.env.DISCORD_SMART_PARTICIPATION_PROFILES_JSON
     ),
-    smartParticipationMinimumMargin: integer(
-      "DISCORD_SMART_PARTICIPATION_MINIMUM_MARGIN",
-      2,
-      0
-    ),
-    smartParticipationMaxParticipants: boundedInteger(
-      "DISCORD_SMART_PARTICIPATION_MAX_PARTICIPANTS",
-      2,
-      1,
-      3
-    ),
     smartParticipationChannelCooldownSeconds: integer(
       "DISCORD_SMART_PARTICIPATION_CHANNEL_COOLDOWN_SECONDS",
       45,
@@ -123,12 +109,6 @@ export function loadConfig(): ConnectorConfig {
       "DISCORD_SMART_PARTICIPATION_MAX_REPLIES_PER_WINDOW",
       3,
       1
-    ),
-    smartParticipationLightweightFollowUpWindowSeconds: boundedInteger(
-      "DISCORD_SMART_PARTICIPATION_LIGHTWEIGHT_FOLLOW_UP_WINDOW_SECONDS",
-      90,
-      1,
-      600
     ),
     smartParticipationTurnCollectorEnabled: boolean(
       "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_ENABLED",
@@ -182,13 +162,9 @@ export function loadConfig(): ConnectorConfig {
   configureSmartParticipation({
     enabled: config.smartParticipationEnabled,
     profiles: config.smartParticipationProfiles,
-    minimumMargin: config.smartParticipationMinimumMargin,
-    maxParticipants: config.smartParticipationMaxParticipants,
     channelCooldownSeconds: config.smartParticipationChannelCooldownSeconds,
     windowSeconds: config.smartParticipationWindowSeconds,
-    maxRepliesPerWindow: config.smartParticipationMaxRepliesPerWindow,
-    lightweightFollowUpWindowSeconds:
-      config.smartParticipationLightweightFollowUpWindowSeconds
+    maxRepliesPerWindow: config.smartParticipationMaxRepliesPerWindow
   });
   return config;
 }

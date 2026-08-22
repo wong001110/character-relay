@@ -128,6 +128,14 @@ def create_connection(
     request: Request,
     user: CurrentUserDependency,
 ) -> PlatformConnectionView:
+    if payload.platform != "discord":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "Only Discord connections can be created. Existing legacy connections remain "
+                "available for review and deletion."
+            ),
+        )
     if payload.platform == "discord" and not is_super_admin(user, request.app.state.settings):
         raise HTTPException(
             status_code=403,
@@ -460,6 +468,20 @@ def create_deployment(
     user: CurrentUserDependency,
 ) -> CharacterDeploymentView:
     repo = deployment_repository(request)
+    connection = repo.get_connection(payload.connection_id, user.id)
+    if connection is None:
+        shared_connections = {
+            item.id: item for item in repo.list_shared_connections_for_profiles(user.id)
+        }
+        connection = shared_connections.get(payload.connection_id)
+    if connection is not None and connection.platform != "discord":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "Only Discord deployments can be created. Existing legacy deployments remain "
+                "available for review and deletion."
+            ),
+        )
     try:
         record = repo.create_deployment(
             owner_id=user.id,

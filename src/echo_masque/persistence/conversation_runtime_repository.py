@@ -309,12 +309,40 @@ class ConversationRuntimeRepository:
         current = now or datetime.now(UTC)
         normalized_thread = conversation_thread_id[:64]
         with self.database.session() as session:
+            scoped_records = list(
+                session.scalars(
+                    select(ConversationEpisodeV3Record).where(
+                        ConversationEpisodeV3Record.owner_id == owner_id,
+                        ConversationEpisodeV3Record.connection_id == connection_id,
+                        ConversationEpisodeV3Record.guild_id == guild_id,
+                    )
+                )
+            )
+            replayed = next(
+                (
+                    candidate
+                    for candidate in scoped_records
+                    if segment_id in _decode_list(candidate.segment_ids_json)
+                    or (
+                        not segment_id
+                        and source_message_ids
+                        and set(source_message_ids).issubset(
+                            _decode_list(candidate.source_message_ids_json)
+                        )
+                    )
+                ),
+                None,
+            )
+            if replayed is not None:
+                return self.episode_view(replayed)
             record: ConversationEpisodeV3Record | None = None
             if normalized_thread:
                 record = session.scalar(
                     select(ConversationEpisodeV3Record)
                     .where(
                         ConversationEpisodeV3Record.owner_id == owner_id,
+                        ConversationEpisodeV3Record.connection_id == connection_id,
+                        ConversationEpisodeV3Record.guild_id == guild_id,
                         ConversationEpisodeV3Record.conversation_thread_id == normalized_thread,
                         ConversationEpisodeV3Record.status == "active",
                     )

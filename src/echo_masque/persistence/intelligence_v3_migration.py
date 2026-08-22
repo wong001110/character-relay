@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from threading import Lock
 from typing import Any, cast
 from uuid import NAMESPACE_URL, uuid5
 
@@ -21,6 +22,9 @@ from echo_masque.persistence.character_learned_state_event_models import (
 from echo_masque.persistence.conversation_runtime_models import ConversationEpisodeV3Record
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.discovery_share_models import DeploymentDiscoveryShareRecord
+from echo_masque.persistence.intelligence_v3_migration_models import (
+    IntelligenceV3HardCutoverMigrationRecord,
+)
 
 _LEGACY_TABLES_TO_DROP = (
     "conversation_" + "topics",
@@ -50,6 +54,9 @@ _ALLOWED_BELIEF_STATUSES = {
     "rejected",
     "expired",
 }
+
+_MIGRATION_LEDGER_ID = "intelligence-v3-hard-cutover-v1"
+_RUN_LOCK = Lock()
 
 
 def _json_strings(raw: object) -> tuple[str, ...]:
@@ -99,10 +106,24 @@ def _safe_column_name(value: str) -> bool:
     return bool(value) and value.replace("_", "").isalnum()
 
 
-def _sqlite_foreign_keys_enabled(connection: Connection) -> bool:
-    """Preserve the caller's SQLite foreign-key setting across a table rebuild."""
+def _disable_sqlite_foreign_keys(connection: Connection) -> None:
+    """Temporarily disable checks outside the rebuild transaction."""
 
-    return bool(connection.exec_driver_sql("PRAGMA foreign_keys").scalar())
+    connection.commit()
+    connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+    connection.commit()
+
+
+def _restore_sqlite_foreign_keys(connection: Connection) -> None:
+    connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+    connection.commit()
+
+
+def _assert_sqlite_foreign_key_check(connection: Connection) -> None:
+    violations = connection.exec_driver_sql("PRAGMA foreign_key_check").all()
+    if violations:
+        tables = ", ".join(sorted({str(row[0]) for row in violations}))
+        raise RuntimeError(f"SQLite foreign-key check failed after v3 migration: {tables}")
 
 
 class IntelligenceV3HardCutoverMigration:
@@ -110,6 +131,58 @@ class IntelligenceV3HardCutoverMigration:
 
     def __init__(self, database: Database) -> None:
         self.database = database
+
+    def _claim_run(self) -> bool:
+        """Persist a resumable attempt, unless this exact cutover has completed."""
+
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            record = session.get(IntelligenceV3HardCutoverMigrationRecord, _MIGRATION_LEDGER_ID)
+            if record is not None and record.status == "completed":
+                return False
+            if record is None:
+                record = IntelligenceV3HardCutoverMigrationRecord(
+                    id=_MIGRATION_LEDGER_ID,
+                    status="running",
+                    attempt_count=1,
+                    last_error="",
+                    started_at=now,
+                    updated_at=now,
+                    completed_at=None,
+                )
+                session.add(record)
+            else:
+                record.status = "running"
+                record.attempt_count += 1
+                record.started_at = now
+                record.updated_at = now
+                record.completed_at = None
+                record.last_error = ""
+            session.commit()
+        return True
+
+    def _complete_run(self) -> None:
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            record = session.get(IntelligenceV3HardCutoverMigrationRecord, _MIGRATION_LEDGER_ID)
+            if record is None:
+                raise RuntimeError("Intelligence v3 migration ledger claim is missing")
+            record.status = "completed"
+            record.updated_at = now
+            record.completed_at = now
+            record.last_error = ""
+            session.commit()
+
+    def _fail_run(self, error: Exception) -> None:
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            record = session.get(IntelligenceV3HardCutoverMigrationRecord, _MIGRATION_LEDGER_ID)
+            if record is None:
+                raise RuntimeError("Intelligence v3 migration ledger claim is missing") from error
+            record.status = "failed"
+            record.updated_at = now
+            record.last_error = type(error).__name__[:120]
+            session.commit()
 
     def _migrate_core_memory(self) -> int:
         table = _reflect(self.database, "character_core_memories")
@@ -282,25 +355,26 @@ class IntelligenceV3HardCutoverMigration:
         with self.database.engine.connect() as connection:
             rows = list(connection.execute(select(table)).mappings())
         expected_names = {column.name for column in expected.columns}
-        with self.database.engine.begin() as connection:
-            foreign_keys_enabled = _sqlite_foreign_keys_enabled(connection)
-            connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
-            connection.exec_driver_sql(f'DROP TABLE IF EXISTS "{table.name}"')
-            expected.create(bind=connection, checkfirst=True)
-            for row in rows:
-                values = {
-                    name: row.get(name)
-                    for name in expected_names
-                    if name in row and row.get(name) is not None
-                }
-                if "conversation_thread_id" in expected_names:
-                    values.setdefault("conversation_thread_id", "")
-                if "source_segment_id" in expected_names:
-                    values.setdefault("source_segment_id", "")
-                connection.execute(expected.insert().values(**values))
-            connection.exec_driver_sql(
-                f"PRAGMA foreign_keys={'ON' if foreign_keys_enabled else 'OFF'}"
-            )
+        with self.database.engine.connect() as connection:
+            _disable_sqlite_foreign_keys(connection)
+            try:
+                with connection.begin():
+                    connection.exec_driver_sql(f'DROP TABLE IF EXISTS "{table.name}"')
+                    expected.create(bind=connection, checkfirst=True)
+                    for row in rows:
+                        values = {
+                            name: row.get(name)
+                            for name in expected_names
+                            if name in row and row.get(name) is not None
+                        }
+                        if "conversation_thread_id" in expected_names:
+                            values.setdefault("conversation_thread_id", "")
+                        if "source_segment_id" in expected_names:
+                            values.setdefault("source_segment_id", "")
+                        connection.execute(expected.insert().values(**values))
+            finally:
+                _restore_sqlite_foreign_keys(connection)
+            _assert_sqlite_foreign_key_check(connection)
         return len(rows)
 
     def _migrate_behavior_event_schema(self) -> dict[str, int]:
@@ -328,23 +402,26 @@ class IntelligenceV3HardCutoverMigration:
                 and str(row.get("subject_type") or "") != "topic"
             ]
             expected_names = {column.name for column in expected.columns}
-            with self.database.engine.begin() as connection:
-                foreign_keys_enabled = _sqlite_foreign_keys_enabled(connection)
-                connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
-                connection.exec_driver_sql('DROP TABLE IF EXISTS "character_learned_state_events"')
-                expected.create(bind=connection, checkfirst=True)
-                for row in preserved:
-                    values = {
-                        name: row.get(name)
-                        for name in expected_names
-                        if name in row and row.get(name) is not None
-                    }
-                    values.setdefault("conversation_thread_id", "")
-                    values.setdefault("source_segment_id", "")
-                    connection.execute(expected.insert().values(**values))
-                connection.exec_driver_sql(
-                    f"PRAGMA foreign_keys={'ON' if foreign_keys_enabled else 'OFF'}"
-                )
+            with self.database.engine.connect() as connection:
+                _disable_sqlite_foreign_keys(connection)
+                try:
+                    with connection.begin():
+                        connection.exec_driver_sql(
+                            'DROP TABLE IF EXISTS "character_learned_state_events"'
+                        )
+                        expected.create(bind=connection, checkfirst=True)
+                        for row in preserved:
+                            values = {
+                                name: row.get(name)
+                                for name in expected_names
+                                if name in row and row.get(name) is not None
+                            }
+                            values.setdefault("conversation_thread_id", "")
+                            values.setdefault("source_segment_id", "")
+                            connection.execute(expected.insert().values(**values))
+                finally:
+                    _restore_sqlite_foreign_keys(connection)
+                _assert_sqlite_foreign_key_check(connection)
             return {
                 "aggregate_removed": aggregate_removed,
                 "events_removed": len(rows) - len(preserved),
@@ -395,31 +472,48 @@ class IntelligenceV3HardCutoverMigration:
     def _drop_legacy_tables(self) -> tuple[str, ...]:
         existing = set(inspect(self.database.engine).get_table_names())
         dropped: list[str] = []
-        with self.database.engine.begin() as connection:
-            if self.database.engine.dialect.name == "sqlite":
-                foreign_keys_enabled = _sqlite_foreign_keys_enabled(connection)
-                connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
-            for table_name in _LEGACY_TABLES_TO_DROP:
-                if table_name not in existing:
-                    continue
-                connection.exec_driver_sql(f'DROP TABLE IF EXISTS "{table_name}"')
-                dropped.append(table_name)
-            if self.database.engine.dialect.name == "sqlite":
-                connection.exec_driver_sql(
-                    f"PRAGMA foreign_keys={'ON' if foreign_keys_enabled else 'OFF'}"
-                )
+        if self.database.engine.dialect.name != "sqlite":
+            with self.database.engine.begin() as connection:
+                for table_name in _LEGACY_TABLES_TO_DROP:
+                    if table_name not in existing:
+                        continue
+                    connection.exec_driver_sql(f'DROP TABLE IF EXISTS "{table_name}"')
+                    dropped.append(table_name)
+            return tuple(dropped)
+        with self.database.engine.connect() as connection:
+            _disable_sqlite_foreign_keys(connection)
+            try:
+                with connection.begin():
+                    for table_name in _LEGACY_TABLES_TO_DROP:
+                        if table_name not in existing:
+                            continue
+                        connection.exec_driver_sql(f'DROP TABLE IF EXISTS "{table_name}"')
+                        dropped.append(table_name)
+            finally:
+                _restore_sqlite_foreign_keys(connection)
+            _assert_sqlite_foreign_key_check(connection)
         return tuple(dropped)
 
     def run(self) -> dict[str, Any]:
-        result: dict[str, Any] = {
-            "core_memories_migrated": self._migrate_core_memory(),
-            "memory_vnext_migrated": self._migrate_memory_vnext(),
-            "episodes_migrated": self._migrate_episodes(),
-            "behavior_state": self._migrate_behavior_event_schema(),
-            "discovery_share_schema_rebuilt": self._migrate_discovery_share_schema(),
-        }
-        result["dropped_tables"] = self._drop_legacy_tables()
-        return result
+        # SQLite is deployed as one application replica. This lock provides one runner inside
+        # that process; the persistent ledger makes an interrupted attempt resumable after restart.
+        with _RUN_LOCK:
+            if not self._claim_run():
+                return {"already_completed": True}
+            try:
+                result: dict[str, Any] = {
+                    "core_memories_migrated": self._migrate_core_memory(),
+                    "memory_vnext_migrated": self._migrate_memory_vnext(),
+                    "episodes_migrated": self._migrate_episodes(),
+                    "behavior_state": self._migrate_behavior_event_schema(),
+                    "discovery_share_schema_rebuilt": self._migrate_discovery_share_schema(),
+                }
+                result["dropped_tables"] = self._drop_legacy_tables()
+                self._complete_run()
+                return result
+            except Exception as error:
+                self._fail_run(error)
+                raise
 
 
 __all__ = ["IntelligenceV3HardCutoverMigration"]

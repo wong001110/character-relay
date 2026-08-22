@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from echo_masque.api.smart_participation_v4_schemas import (
+from echo_masque.api.smart_participation_v3_schemas import (
     SmartParticipationBurstMessage,
     SmartParticipationResolveCandidate,
     SmartParticipationResolveRequest,

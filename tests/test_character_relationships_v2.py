@@ -7,11 +7,13 @@ import pytest
 from echo_masque.character_relationships import CharacterRelationshipService
 from echo_masque.persistence import Database
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
-from echo_masque.persistence.models import CharacterCardRecord
+from echo_masque.persistence.models import CharacterCardRecord, TargetRecord
 
 
 def seed(database: Database) -> None:
     with database.session() as session:
+        session.add(TargetRecord(id="target-1", name="Relationship fixture", target_kind="stable"))
+        session.flush()
         session.add_all(
             [
                 CharacterCardRecord(
@@ -28,6 +30,11 @@ def seed(database: Database) -> None:
                     display_name="B",
                     persona_summary="Warm but stubborn.",
                 ),
+            ]
+        )
+        session.flush()
+        session.add_all(
+            [
                 CharacterDeploymentRecord(
                     id="dep-a",
                     owner_id="owner-1",

@@ -1,4 +1,5 @@
 import type { RelayClient } from "./relayClient.js";
+import { formatSafeDiagnosticError } from "./safeDiagnosticError.js";
 import type { DiscordDeployment } from "./types.js";
 
 interface DiscordApiWebhook {
@@ -15,6 +16,10 @@ interface DiscordApiMessage {
 
 const DISCORD_API = "https://discord.com/api/v10";
 const WEBHOOK_NAME = "Character Relay";
+
+function discordHttpError(context: string, status: number): Error {
+  return Object.assign(new Error(`${context} returned HTTP ${status}.`), { status });
+}
 
 function identityAvatarUrl(deployment: DiscordDeployment): string {
   const custom = deployment.identity_avatar_url.trim();
@@ -102,9 +107,7 @@ export class DiscordWebhookManager {
         );
       }
       if (!response.ok) {
-        throw new Error(
-          `Discord webhook attachment returned HTTP ${response.status}: ${await response.text()}`
-        );
+        throw discordHttpError("Discord webhook attachment", response.status);
       }
       const message = (await response.json()) as DiscordApiMessage;
       deployment.webhook_status = "active";
@@ -117,13 +120,12 @@ export class DiscordWebhookManager {
         .catch(() => undefined);
       return [message.id];
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
       deployment.webhook_status = "error";
       await this.relay
         .reportWebhookStatus({
           deployment_id: deployment.deployment_id,
           status: "error",
-          last_error: message
+          last_error: formatSafeDiagnosticError(error)
         })
         .catch(() => undefined);
       throw error;
@@ -140,13 +142,12 @@ export class DiscordWebhookManager {
     try {
       return await this.sendWithBinding(deployment, chunks, botUserId, allowedUserIds);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
       deployment.webhook_status = "error";
       await this.relay
         .reportWebhookStatus({
           deployment_id: deployment.deployment_id,
           status: "error",
-          last_error: message
+          last_error: formatSafeDiagnosticError(error)
         })
         .catch(() => undefined);
       throw error;
@@ -174,9 +175,7 @@ export class DiscordWebhookManager {
         response = await this.executeWebhook(binding, deployment, chunk, allowedUserIds);
       }
       if (!response.ok) {
-        throw new Error(
-          `Discord webhook returned HTTP ${response.status}: ${await response.text()}`
-        );
+        throw discordHttpError("Discord webhook", response.status);
       }
       const message = (await response.json()) as DiscordApiMessage;
       messageIds.push(message.id);
@@ -269,9 +268,7 @@ export class DiscordWebhookManager {
   private async listChannelWebhooks(channelId: string): Promise<DiscordApiWebhook[]> {
     const response = await this.botRequest(`/channels/${channelId}/webhooks`);
     if (!response.ok) {
-      throw new Error(
-        `Unable to inspect Discord webhooks (HTTP ${response.status}): ${await response.text()}`
-      );
+      throw discordHttpError("Discord webhook inspection", response.status);
     }
     return response.json() as Promise<DiscordApiWebhook[]>;
   }
@@ -282,9 +279,7 @@ export class DiscordWebhookManager {
       body: JSON.stringify({ name: WEBHOOK_NAME })
     });
     if (!response.ok) {
-      throw new Error(
-        `Unable to create Discord webhook (HTTP ${response.status}): ${await response.text()}`
-      );
+      throw discordHttpError("Discord webhook creation", response.status);
     }
     return response.json() as Promise<DiscordApiWebhook>;
   }

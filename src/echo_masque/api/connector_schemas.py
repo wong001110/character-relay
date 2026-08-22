@@ -1,9 +1,9 @@
 """Internal schemas used by managed and local platform connectors."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from echo_masque.api.expression_schemas import (
     DiscordCatalogEmoji,
@@ -11,8 +11,8 @@ from echo_masque.api.expression_schemas import (
     ExpressionContent,
     ExpressionDecision,
 )
+from echo_masque.character_turn_context_types import CharacterContextTraceView
 from echo_masque.config import LangGraphMode
-from echo_masque.context_layer import CharacterContextTraceView
 from echo_masque.smart_output import (
     DiscordActionParticipant,
     DiscordSmartOutputView,
@@ -81,13 +81,32 @@ class DiscordCatalogServer(BaseModel):
     guild_id: str = Field(min_length=1, max_length=200)
     guild_name: str = Field(min_length=1, max_length=160)
     channels: list[DiscordCatalogChannel] = Field(default_factory=list, max_length=1000)
-    emojis: list[DiscordCatalogEmoji] = Field(default_factory=list, max_length=1000)
-    stickers: list[DiscordCatalogSticker] = Field(default_factory=list, max_length=1000)
+    emojis: list[DiscordCatalogEmoji] | None = Field(default=None, max_length=1000)
+    stickers: list[DiscordCatalogSticker] | None = Field(default=None, max_length=1000)
 
 
 class DiscordServerCatalogSync(BaseModel):
     connection_id: str = Field(min_length=1, max_length=64)
+    visible_guild_ids: list[str] | None = Field(default=None, max_length=200)
+    failed_guild_ids: list[str] = Field(default_factory=list, max_length=200)
     servers: list[DiscordCatalogServer] = Field(default_factory=list, max_length=200)
+
+    @model_validator(mode="after")
+    def validate_catalog_partition(self) -> Self:
+        failed = set(self.failed_guild_ids)
+        successful = {server.guild_id for server in self.servers}
+        if self.visible_guild_ids is None:
+            if failed:
+                raise ValueError("failed_guild_ids requires an explicit visible_guild_ids snapshot")
+            return self
+        visible = set(self.visible_guild_ids)
+        if not failed.issubset(visible):
+            raise ValueError("failed_guild_ids must be a subset of visible_guild_ids")
+        if not successful.issubset(visible):
+            raise ValueError("successful server snapshots must be visible")
+        if failed & successful:
+            raise ValueError("a Guild cannot be both successful and failed")
+        return self
 
 
 class DiscordWebhookRegistration(BaseModel):
@@ -354,3 +373,7 @@ class DiscordConnectorReplyView(BaseModel):
     context_trace: CharacterContextTraceView | None = None
     tool_calls: list[ToolExecutionTrace] = Field(default_factory=list, max_length=8)
     generated_artifact_ids: list[str] = Field(default_factory=list, max_length=4)
+    operation_id: str = ""
+    step_id: str = ""
+    durable_status: Literal["none", "generated", "replayed", "delivered"] = "none"
+    delivery_required: bool = False

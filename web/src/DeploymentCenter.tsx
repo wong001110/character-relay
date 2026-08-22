@@ -12,7 +12,8 @@ import {
   type MemoryScope,
   type ParticipationMode,
   type PlatformConnection,
-  type PlatformId
+  type PlatformId,
+  NEW_CONNECTION_PLATFORM
 } from "./deploymentApi";
 import { DeploymentToolSelector } from "./DeploymentToolSelector";
 import {
@@ -50,21 +51,6 @@ const platformLabels: Record<PlatformId, string> = {
   discord: "Discord",
   whatsapp: "WhatsApp",
   telegram: "Telegram"
-};
-
-const platformNotes: Record<PlatformId, { en: string; zh: string }> = {
-  discord: {
-    en: "Managed Gateway connector with reusable server profiles and per-character webhook identities.",
-    zh: "托管式 Gateway Connector，支持可复用 Server 配置与角色 Webhook 身份。"
-  },
-  whatsapp: {
-    en: "Local experimental connector. The linked-device session stays on the user's computer.",
-    zh: "本地实验 Connector，Linked Device Session 保留在用户电脑。"
-  },
-  telegram: {
-    en: "Managed Bot connector with native group and sticker support.",
-    zh: "托管式 Bot Connector，支持群组与原生贴图。"
-  }
 };
 
 function statusLabel(status: string): string {
@@ -480,14 +466,9 @@ export function DeploymentCenter({
   const globallyExcludedChannels = new Set(selectedProfile?.excluded_channel_ids ?? []);
   const globallyExcludedCategories = new Set(selectedProfile?.excluded_category_ids ?? []);
 
-  function changeConnectionPlatform(platform: PlatformId) {
-    setConnectionPlatform(platform);
-    setConnectionMode(platform === "whatsapp" ? "local" : "managed");
-  }
-
   function openNewConnection() {
     setEditingConnection(null);
-    setConnectionPlatform("discord");
+    setConnectionPlatform(NEW_CONNECTION_PLATFORM);
     setConnectionMode("managed");
     setConnectionManagerOpen(true);
     setConnectionOpen(true);
@@ -531,7 +512,7 @@ export function DeploymentCenter({
         });
       } else {
         await deploymentApi.createConnection({
-          platform: connectionPlatform,
+          platform: NEW_CONNECTION_PLATFORM,
           display_name: displayName,
           connection_mode: connectionMode,
           external_account_id: externalAccountId,
@@ -932,17 +913,11 @@ export function DeploymentCenter({
                         </div>
                         <label>
                           {zh ? "平台" : "Platform"}
-                          <select
-                            value={connectionPlatform}
-                            onChange={(event) =>
-                              changeConnectionPlatform(event.currentTarget.value as PlatformId)
-                            }
-                            disabled={Boolean(editingConnection)}
-                          >
-                            <option value="discord">Discord</option>
-                            <option value="whatsapp">WhatsApp</option>
-                            <option value="telegram">Telegram</option>
-                          </select>
+                          <span className="connection-note">
+                            {editingConnection
+                              ? platformLabels[connectionPlatform]
+                              : "Discord"}
+                          </span>
                         </label>
                         <label>
                           {zh ? "账户显示名称" : "Account display name"}
@@ -978,8 +953,8 @@ export function DeploymentCenter({
                               ? "平台类型建立后不能修改。管理标签不会被 Connector Heartbeat 覆盖。"
                               : "The platform is immutable after creation. Connector heartbeats do not overwrite the management label."
                             : zh
-                              ? platformNotes[connectionPlatform].zh
-                              : platformNotes[connectionPlatform].en}
+                              ? "托管式 Gateway Connector，支持可复用 Server 配置与角色 Webhook 身份。"
+                              : "Managed Gateway connector with reusable server profiles and per-character webhook identities."}
                         </p>
                         <button className="ink-button" disabled={working}>
                           {working
@@ -1135,7 +1110,7 @@ export function DeploymentCenter({
                             disabled={Boolean(editingDeployment) || Boolean(selectedWorkspaceProfile)}
                             required
                           >
-                            {connections.map((item) => (
+                            {connections.filter((item) => item.platform === "discord").map((item) => (
                               <option value={item.id} key={item.id}>
                                 {item.display_name} · {platformLabels[item.platform]}
                               </option>

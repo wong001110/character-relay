@@ -16,7 +16,6 @@ export type UtilityCapability =
   | "semantic_judge"
   | "memory_intelligence"
   | "knowledge_wiki"
-  | "participation_tiebreak"
   | "tool_continuation"
   | "context_compiler"
   | "media_understanding"
@@ -114,7 +113,6 @@ const capabilityLabels: Record<UtilityCapability, string> = {
   semantic_judge: "Semantic Judge",
   memory_intelligence: "Memory",
   knowledge_wiki: "LLM Wiki",
-  participation_tiebreak: "Participation Tie-break",
   tool_continuation: "Tool Continuation",
   context_compiler: "Context Compiler",
   media_understanding: "Media Understanding",
@@ -125,7 +123,6 @@ const capabilityIcons: Record<UtilityCapability, string> = {
   semantic_judge: "⚖",
   memory_intelligence: "✦",
   knowledge_wiki: "▤",
-  participation_tiebreak: "◎",
   tool_continuation: "⌁",
   context_compiler: "</>",
   media_understanding: "▧",

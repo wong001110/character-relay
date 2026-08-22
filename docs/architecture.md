@@ -75,9 +75,9 @@ The v3 hard cutover removed Topic authority. Topic fallback, Topic lifecycle aut
 | Character/Social orchestration | `src/echo_masque/orchestration/`, conversation runtime modules |
 | Conversation structure | `conversation_relations.py`, `conversation_structure_resolver.py`, conversation-structure persistence |
 | Belief/entity/evidence | v3 belief/evidence modules and matching persistence |
-| Context and participation | `context_resolver_v3.py`, `participation_planner_v3.py`, `conversation_planner.py` |
+| Context and participation | `context_resolver_v3.py`, `participation_planner_v3.py` |
 | Media perception/delivery | media, planner-media, conversation-media, generated-media modules |
-| Knowledge/RAG/Wiki | knowledge modules, `context_layer.py`, matching persistence |
+| Knowledge/RAG/Wiki | knowledge modules, `character_turn_context_v3.py`, `character_turn_context_types.py`, matching persistence |
 | Tools/scheduling | tool runtime/external modules, scheduler and condition-watch modules |
 | Observability | runtime/provider trace modules, repositories, and Admin routes |
 | Evaluation/authoring/calibration | scenario, run, matrix, authoring, calibration modules/routes |

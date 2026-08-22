@@ -6,10 +6,12 @@ import json
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 
+from echo_masque.persistence.belief_repository import invalidate_evidence_edge_dependencies
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.entity_evidence_models import (
     EntityV3Record,
@@ -262,6 +264,8 @@ class EntityEvidenceRepository:
         self,
         *,
         owner_id: str,
+        connection_id: str,
+        guild_id: str,
         entity_id: str,
         canonical_name: str = "",
         metadata: dict[str, str] | None = None,
@@ -271,7 +275,12 @@ class EntityEvidenceRepository:
         current = now or datetime.now(UTC)
         with self.database.session() as session:
             record = session.get(EntityV3Record, entity_id)
-            if record is None or record.owner_id != owner_id:
+            if (
+                record is None
+                or record.owner_id != owner_id
+                or record.connection_id != connection_id
+                or record.guild_id != guild_id
+            ):
                 raise KeyError("Entity not found.")
             if record.status in {"rejected", "merged"}:
                 raise ValueError("Rejected or merged Entity cannot be confirmed in place.")
@@ -389,7 +398,104 @@ class EntityEvidenceRepository:
         allowed = {"active", "unresolved", "rejected", "superseded", "expired"}
         if status not in allowed:
             status = "unresolved"
+        normalized_evidence_refs = tuple(
+            sorted(dict.fromkeys(item for item in evidence_refs if item))
+        )
+        evidence_refs_json = _list_json(list(normalized_evidence_refs), limit=64)
+        normalized_source_ref_type = source_ref_type[:40]
+        normalized_source_ref = source_ref[:320]
+        normalized_relation_type = relation_type[:80]
+        normalized_target_ref_type = target_ref_type[:40]
+        normalized_target_ref = target_ref[:320]
+        normalized_authority_class = authority_class[:48]
+        normalized_source_kind = source_kind[:48]
+        normalized_producer = producer[:120]
+        normalized_source_model = source_model[:240]
+        normalized_supersedes_edge_id = supersedes_edge_id[:64]
+        projection_key = json.dumps(
+            {
+                "owner_id": owner_id,
+                "connection_id": connection_id,
+                "guild_id": guild_id,
+                "source_ref_type": normalized_source_ref_type,
+                "source_ref": normalized_source_ref,
+                "relation_type": normalized_relation_type,
+                "target_ref_type": normalized_target_ref_type,
+                "target_ref": normalized_target_ref,
+                "authority_class": normalized_authority_class,
+                "source_kind": normalized_source_kind,
+                "evidence_refs": normalized_evidence_refs,
+                "supersedes_edge_id": normalized_supersedes_edge_id,
+                "producer": normalized_producer,
+                "source_model": normalized_source_model,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        projection_id = str(uuid5(NAMESPACE_URL, projection_key))
         with self.database.session() as session:
+            deterministic_existing = session.get(EvidenceEdgeV3Record, projection_id)
+            if deterministic_existing is not None:
+                if deterministic_existing.owner_id != owner_id:
+                    raise ValueError("Evidence projection key collision across owners.")
+                if (
+                    deterministic_existing.connection_id != connection_id
+                    or deterministic_existing.guild_id != guild_id
+                ):
+                    raise ValueError("Evidence projection key collision across server scopes.")
+                # A later source-state projection can advance a live edge, but replaying an
+                # older source state must never revive rejected/superseded provenance.
+                if deterministic_existing.status not in {"rejected", "superseded"}:
+                    deterministic_existing.status = status
+                    deterministic_existing.confidence = max(0.0, min(float(confidence), 1.0))
+                    if deterministic_existing.valid_from is None and valid_from is not None:
+                        deterministic_existing.valid_from = valid_from
+                    if valid_to is not None:
+                        deterministic_existing.valid_to = valid_to
+                    deterministic_existing.updated_at = current
+                    session.commit()
+                    session.refresh(deterministic_existing)
+                return self.edge_view(deterministic_existing)
+            projection_candidates = list(
+                session.scalars(
+                    select(EvidenceEdgeV3Record).where(
+                        EvidenceEdgeV3Record.owner_id == owner_id,
+                        EvidenceEdgeV3Record.connection_id == connection_id,
+                        EvidenceEdgeV3Record.guild_id == guild_id,
+                        EvidenceEdgeV3Record.source_ref_type == normalized_source_ref_type,
+                        EvidenceEdgeV3Record.source_ref == normalized_source_ref,
+                        EvidenceEdgeV3Record.relation_type == normalized_relation_type,
+                        EvidenceEdgeV3Record.target_ref_type == normalized_target_ref_type,
+                        EvidenceEdgeV3Record.target_ref == normalized_target_ref,
+                        EvidenceEdgeV3Record.authority_class == normalized_authority_class,
+                        EvidenceEdgeV3Record.source_kind == normalized_source_kind,
+                        EvidenceEdgeV3Record.producer == normalized_producer,
+                        EvidenceEdgeV3Record.source_model == normalized_source_model,
+                        EvidenceEdgeV3Record.supersedes_edge_id == normalized_supersedes_edge_id,
+                    )
+                )
+            )
+            existing = next(
+                (
+                    candidate
+                    for candidate in projection_candidates
+                    if candidate.evidence_refs_json == evidence_refs_json
+                ),
+                None,
+            )
+            if existing is not None:
+                if existing.status not in {"rejected", "superseded"}:
+                    existing.status = status
+                    existing.confidence = max(0.0, min(float(confidence), 1.0))
+                    if existing.valid_from is None and valid_from is not None:
+                        existing.valid_from = valid_from
+                    if valid_to is not None:
+                        existing.valid_to = valid_to
+                    existing.updated_at = current
+                    session.commit()
+                    session.refresh(existing)
+                return self.edge_view(existing)
             if supersedes_edge_id:
                 previous = session.get(EvidenceEdgeV3Record, supersedes_edge_id)
                 if previous is None or previous.owner_id != owner_id:
@@ -398,30 +504,37 @@ class EntityEvidenceRepository:
                     previous.status = "superseded"
                     previous.updated_at = current
             record = EvidenceEdgeV3Record(
-                id=str(uuid4()),
+                id=projection_id,
                 owner_id=owner_id,
                 connection_id=connection_id,
                 guild_id=guild_id,
-                source_ref_type=source_ref_type[:40],
-                source_ref=source_ref[:320],
-                relation_type=relation_type[:80],
-                target_ref_type=target_ref_type[:40],
-                target_ref=target_ref[:320],
+                source_ref_type=normalized_source_ref_type,
+                source_ref=normalized_source_ref,
+                relation_type=normalized_relation_type,
+                target_ref_type=normalized_target_ref_type,
+                target_ref=normalized_target_ref,
                 confidence=max(0.0, min(float(confidence), 1.0)),
-                authority_class=authority_class[:48],
-                source_kind=source_kind[:48],
-                evidence_refs_json=_list_json(list(evidence_refs), limit=64),
+                authority_class=normalized_authority_class,
+                source_kind=normalized_source_kind,
+                evidence_refs_json=evidence_refs_json,
                 status=status,
-                supersedes_edge_id=supersedes_edge_id[:64],
-                producer=producer[:120],
-                source_model=source_model[:240],
+                supersedes_edge_id=normalized_supersedes_edge_id,
+                producer=normalized_producer,
+                source_model=normalized_source_model,
                 valid_from=valid_from,
                 valid_to=valid_to,
                 created_at=current,
                 updated_at=current,
             )
             session.add(record)
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                concurrent = session.get(EvidenceEdgeV3Record, projection_id)
+                if concurrent is None:
+                    raise
+                return self.edge_view(concurrent)
             session.refresh(record)
             return self.edge_view(record)
 
@@ -429,18 +542,31 @@ class EntityEvidenceRepository:
         self,
         *,
         owner_id: str,
+        connection_id: str,
+        guild_id: str,
         edge_id: str,
         now: datetime | None = None,
     ) -> EvidenceEdgeV3View:
         current = now or datetime.now(UTC)
         with self.database.session() as session:
             record = session.get(EvidenceEdgeV3Record, edge_id)
-            if record is None or record.owner_id != owner_id:
+            if (
+                record is None
+                or record.owner_id != owner_id
+                or record.connection_id != connection_id
+                or record.guild_id != guild_id
+            ):
                 raise KeyError("Evidence edge not found.")
             if record.status == "superseded":
                 raise ValueError("Superseded evidence history cannot be rejected in place.")
             record.status = "rejected"
             record.updated_at = current
+            invalidate_evidence_edge_dependencies(
+                session=session,
+                owner_id=owner_id,
+                evidence_edge_id=record.id,
+                now=current,
+            )
             session.commit()
             session.refresh(record)
             return self.edge_view(record)
@@ -501,10 +627,20 @@ class EntityEvidenceRepository:
         if not normalized_missing:
             raise ValueError("Knowledge Gap requires at least one missing field.")
         with self.database.session() as session:
+            entity = session.get(EntityV3Record, entity_id)
+            if (
+                entity is None
+                or entity.owner_id != owner_id
+                or entity.connection_id != connection_id
+                or entity.guild_id != guild_id
+            ):
+                raise KeyError("Entity not found.")
             open_records = list(
                 session.scalars(
                     select(KnowledgeGapRecord).where(
                         KnowledgeGapRecord.owner_id == owner_id,
+                        KnowledgeGapRecord.connection_id == connection_id,
+                        KnowledgeGapRecord.guild_id == guild_id,
                         KnowledgeGapRecord.entity_id == entity_id,
                         KnowledgeGapRecord.resolution_state.in_(
                             ("unresolved", "searching")
@@ -573,17 +709,43 @@ class EntityEvidenceRepository:
             )
         return tuple(self.gap_view(record) for record in records)
 
+    def gap_for_scope(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        gap_id: str,
+    ) -> KnowledgeGapView:
+        with self.database.session() as session:
+            record = session.get(KnowledgeGapRecord, gap_id)
+            if (
+                record is None
+                or record.owner_id != owner_id
+                or record.connection_id != connection_id
+                or record.guild_id != guild_id
+            ):
+                raise KeyError("Knowledge Gap not found.")
+            return self.gap_view(record)
+
     def mark_gap_searching(
         self,
         *,
         owner_id: str,
+        connection_id: str,
+        guild_id: str,
         gap_id: str,
         now: datetime | None = None,
     ) -> KnowledgeGapView:
         current = now or datetime.now(UTC)
         with self.database.session() as session:
             record = session.get(KnowledgeGapRecord, gap_id)
-            if record is None or record.owner_id != owner_id:
+            if (
+                record is None
+                or record.owner_id != owner_id
+                or record.connection_id != connection_id
+                or record.guild_id != guild_id
+            ):
                 raise KeyError("Knowledge Gap not found.")
             record.resolution_state = "searching"
             record.discovery_requested = True
@@ -596,6 +758,8 @@ class EntityEvidenceRepository:
         self,
         *,
         owner_id: str,
+        connection_id: str,
+        guild_id: str,
         gap_id: str,
         evidence_refs: tuple[str, ...],
         state: str = "resolved",
@@ -613,7 +777,12 @@ class EntityEvidenceRepository:
             state = "resolved"
         with self.database.session() as session:
             record = session.get(KnowledgeGapRecord, gap_id)
-            if record is None or record.owner_id != owner_id:
+            if (
+                record is None
+                or record.owner_id != owner_id
+                or record.connection_id != connection_id
+                or record.guild_id != guild_id
+            ):
                 raise KeyError("Knowledge Gap not found.")
             record.resolution_state = state
             record.resolution_evidence_refs_json = _list_json(

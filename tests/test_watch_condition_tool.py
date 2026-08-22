@@ -20,6 +20,7 @@ def seed(path: Path) -> tuple[Database, ConditionWatchRepository]:
     database.initialize()
     with database.session() as session:
         session.add(TargetRecord(id="target", name="Target", target_kind="prompt_model"))
+        session.flush()
         session.add(
             CharacterCardRecord(
                 id="character",
@@ -28,6 +29,7 @@ def seed(path: Path) -> tuple[Database, ConditionWatchRepository]:
                 display_name="Character",
             )
         )
+        session.flush()
         session.add(
             CharacterDeploymentRecord(
                 id="deployment",

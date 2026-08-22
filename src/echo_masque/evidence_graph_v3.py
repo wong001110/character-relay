@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from echo_masque.persistence.conversation_runtime_repository import ConversationEpisodeV3View
@@ -14,6 +16,8 @@ from echo_masque.persistence.entity_evidence_repository import (
     EntityEvidenceRepository,
     EvidenceEdgeV3View,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class EvidenceGraphService:
@@ -54,10 +58,13 @@ class EvidenceGraphService:
                 else "conversation_interpretation"
             ),
             source_kind=relation.source,
-            evidence_refs=relation.evidence_refs,
+            evidence_refs=(*relation.evidence_refs, f"message_relation:{relation.id}"),
             status=status,
             producer="message_relation_v3",
-            valid_from=current,
+            valid_from=relation.created_at,
+            valid_to=(
+                relation.updated_at if relation.status in {"rejected", "superseded"} else None
+            ),
             now=current,
         )
 
@@ -85,10 +92,11 @@ class EvidenceGraphService:
             confidence=membership.confidence,
             authority_class="conversation_structure",
             source_kind=membership.source,
-            evidence_refs=segment.message_ids,
+            evidence_refs=(*segment.message_ids, f"thread_membership:{membership.id}"),
             status=status if membership.thread_id else "unresolved",
             producer="conversation_structure_v3",
-            valid_from=current,
+            valid_from=membership.created_at,
+            valid_to=membership.superseded_at,
             now=current,
         )
 
@@ -104,78 +112,107 @@ class EvidenceGraphService:
         current = now or datetime.now(UTC)
         values: list[EvidenceEdgeV3View] = []
         for segment_id in episode.segment_ids:
-            values.append(
-                self.repository.add_edge(
-                    owner_id=owner_id,
-                    connection_id=connection_id,
-                    guild_id=guild_id,
-                    source_ref_type="episode",
-                    source_ref=episode.id,
-                    relation_type="HAS_SEGMENT",
-                    target_ref_type="segment",
-                    target_ref=segment_id,
-                    confidence=1.0,
-                    authority_class="projection",
-                    source_kind="episode_v3",
-                    evidence_refs=episode.source_message_ids,
-                    status="active",
-                    producer="episode_v3",
-                    valid_from=current,
-                    now=current,
-                )
+            edge = self._project_episode_edge(
+                self.repository.add_edge,
+                owner_id=owner_id,
+                connection_id=connection_id,
+                guild_id=guild_id,
+                source_ref_type="episode",
+                source_ref=episode.id,
+                relation_type="HAS_SEGMENT",
+                target_ref_type="segment",
+                target_ref=segment_id,
+                confidence=1.0,
+                authority_class="projection",
+                source_kind="episode_v3",
+                evidence_refs=(f"episode:{episode.id}", f"segment:{segment_id}"),
+                status="active",
+                producer="episode_v3",
+                valid_from=episode.started_at,
+                now=current,
             )
+            if edge is not None:
+                values.append(edge)
         if episode.conversation_thread_id:
-            values.append(
-                self.repository.add_edge(
-                    owner_id=owner_id,
-                    connection_id=connection_id,
-                    guild_id=guild_id,
-                    source_ref_type="episode",
-                    source_ref=episode.id,
-                    relation_type="OCCURRED_IN_THREAD",
-                    target_ref_type="thread",
-                    target_ref=episode.conversation_thread_id,
-                    confidence=1.0,
-                    authority_class="projection",
-                    source_kind="episode_v3",
-                    evidence_refs=episode.segment_ids,
-                    status="active",
-                    producer="episode_v3",
-                    valid_from=current,
-                    now=current,
-                )
+            edge = self._project_episode_edge(
+                self.repository.add_edge,
+                owner_id=owner_id,
+                connection_id=connection_id,
+                guild_id=guild_id,
+                source_ref_type="episode",
+                source_ref=episode.id,
+                relation_type="OCCURRED_IN_THREAD",
+                target_ref_type="thread",
+                target_ref=episode.conversation_thread_id,
+                confidence=1.0,
+                authority_class="projection",
+                source_kind="episode_v3",
+                evidence_refs=(
+                    f"episode:{episode.id}",
+                    f"thread:{episode.conversation_thread_id}",
+                ),
+                status="active",
+                producer="episode_v3",
+                valid_from=episode.started_at,
+                now=current,
             )
+            if edge is not None:
+                values.append(edge)
         for entity_id in episode.entity_ids:
-            values.append(
-                self.repository.add_edge(
-                    owner_id=owner_id,
-                    connection_id=connection_id,
-                    guild_id=guild_id,
-                    source_ref_type="episode",
-                    source_ref=episode.id,
-                    relation_type="INVOLVES_ENTITY",
-                    target_ref_type="entity",
-                    target_ref=entity_id,
-                    confidence=0.9,
-                    authority_class="projection",
-                    source_kind="episode_v3",
-                    evidence_refs=episode.segment_ids,
-                    status="active",
-                    producer="episode_v3",
-                    valid_from=current,
-                    now=current,
-                )
+            edge = self._project_episode_edge(
+                self.repository.add_edge,
+                owner_id=owner_id,
+                connection_id=connection_id,
+                guild_id=guild_id,
+                source_ref_type="episode",
+                source_ref=episode.id,
+                relation_type="INVOLVES_ENTITY",
+                target_ref_type="entity",
+                target_ref=entity_id,
+                confidence=0.9,
+                authority_class="projection",
+                source_kind="episode_v3",
+                evidence_refs=(f"episode:{episode.id}", f"entity:{entity_id}"),
+                status="active",
+                producer="episode_v3",
+                valid_from=episode.started_at,
+                now=current,
             )
+            if edge is not None:
+                values.append(edge)
         return tuple(values)
+
+    @staticmethod
+    def _project_episode_edge(
+        operation: Callable[..., EvidenceEdgeV3View],
+        /,
+        **kwargs: object,
+    ) -> EvidenceEdgeV3View | None:
+        try:
+            return operation(**kwargs)
+        except Exception as exc:
+            logger.warning(
+                "Intelligence v3 Episode edge projection failed",
+                extra={"projection_kind": "episode_edge", "error_type": type(exc).__name__},
+            )
+            return None
 
     def reject_interpretation(
         self,
         *,
         owner_id: str,
+        connection_id: str,
+        guild_id: str,
         edge_id: str,
         now: datetime | None = None,
     ) -> EvidenceEdgeV3View:
-        return self.repository.reject_edge(owner_id=owner_id, edge_id=edge_id, now=now)
+        return self.repository.reject_edge(
+            owner_id=owner_id,
+            connection_id=connection_id,
+            guild_id=guild_id,
+            edge_id=edge_id,
+            now=now,
+        )
 
 
 __all__ = ["EvidenceGraphService"]

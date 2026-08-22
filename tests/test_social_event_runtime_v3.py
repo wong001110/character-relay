@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 from echo_masque.api.connector_schemas import DiscordInboundMessage
-from echo_masque.api.smart_participation_outcome_schemas import (
-    SmartParticipationOutcomeObservation,
-)
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_repository import DeploymentRepository
 from echo_masque.persistence.discord_identity_repository import DiscordIdentityRepository
 from echo_masque.persistence.models import CharacterCardRecord, TargetRecord
-from echo_masque.smart_participation_outcome import SmartParticipationOutcomeService
 from echo_masque.social_event_runtime import ExplicitReplySocialEventProjector
 from echo_masque.social_intelligence_v3 import SocialIntelligenceV3Service
 
@@ -79,29 +75,6 @@ def _reply(*, connection_id: str, deployment_id: str) -> DiscordInboundMessage:
         replied_to_bot=True,
         reply_to_message_id="character-message",
     )
-
-
-def test_admission_alone_does_not_change_social_relationship_state() -> None:
-    database, connection_id, deployment_id = _seed()
-    SmartParticipationOutcomeService(DeploymentRepository(database)).record(
-        SmartParticipationOutcomeObservation(
-            connection_id=connection_id,
-            guild_id="guild-1",
-            channel_id="channel-1",
-            message_id="admission-message",
-            author_id="user-1",
-            selected_deployment_ids=[deployment_id],
-        )
-    )
-
-    state = SocialIntelligenceV3Service(database).relationships.get_state(
-        owner_id="owner-1",
-        source_deployment_id=deployment_id,
-        target_type="actor",
-        target_key="user-1",
-    )
-
-    assert state is None
 
 
 def test_explicit_reply_to_known_character_creates_resolved_direct_interaction() -> None:

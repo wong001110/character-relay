@@ -529,9 +529,19 @@ class ConversationStructureRepository:
         self,
         *,
         owner_id: str,
+        connection_id: str,
+        guild_id: str,
         segment_id: str,
     ) -> tuple[ThreadMembershipView, ...]:
         with self.database.session() as session:
+            segment = session.get(ConversationSegmentV3Record, segment_id)
+            if (
+                segment is None
+                or segment.owner_id != owner_id
+                or segment.connection_id != connection_id
+                or segment.guild_id != guild_id
+            ):
+                raise KeyError("Conversation Segment not found.")
             records = list(
                 session.scalars(
                     select(ThreadMembershipRecord)
@@ -717,6 +727,36 @@ class ConversationStructureRepository:
                         MessageRelationRecord.guild_id == guild_id,
                     )
                     .order_by(MessageRelationRecord.created_at.desc())
+                    .limit(max(1, min(limit, 500)))
+                )
+            )
+        return tuple(self.relation_view(item) for item in records)
+
+    def relations_for_messages(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        message_ids: tuple[str, ...],
+        limit: int = 200,
+    ) -> tuple[MessageRelationView, ...]:
+        """Return only relation interpretations produced inside one server scope."""
+
+        identifiers = tuple(dict.fromkeys(item for item in message_ids if item))
+        if not identifiers:
+            return ()
+        with self.database.session() as session:
+            records = list(
+                session.scalars(
+                    select(MessageRelationRecord)
+                    .where(
+                        MessageRelationRecord.owner_id == owner_id,
+                        MessageRelationRecord.connection_id == connection_id,
+                        MessageRelationRecord.guild_id == guild_id,
+                        MessageRelationRecord.source_message_id.in_(identifiers),
+                    )
+                    .order_by(MessageRelationRecord.created_at.asc())
                     .limit(max(1, min(limit, 500)))
                 )
             )

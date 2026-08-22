@@ -65,6 +65,8 @@ class KnowledgeConsolidationV3Service:
         *,
         owner_id: str,
         entity_id: str,
+        connection_id: str,
+        guild_id: str,
     ) -> tuple[
         EntityV3Record,
         list[BeliefV3Record],
@@ -73,13 +75,20 @@ class KnowledgeConsolidationV3Service:
     ]:
         with self.database.session() as session:
             entity = session.get(EntityV3Record, entity_id)
-            if entity is None or entity.owner_id != owner_id:
+            if (
+                entity is None
+                or entity.owner_id != owner_id
+                or entity.connection_id != connection_id
+                or entity.guild_id != guild_id
+            ):
                 raise KeyError("Entity not found.")
             beliefs = list(
                 session.scalars(
                     select(BeliefV3Record)
                     .where(
                         BeliefV3Record.owner_id == owner_id,
+                        BeliefV3Record.connection_id == entity.connection_id,
+                        BeliefV3Record.guild_id == entity.guild_id,
                         BeliefV3Record.subject_entity_id == entity_id,
                         BeliefV3Record.status.in_(("active", "provisional", "disputed")),
                     )
@@ -95,6 +104,8 @@ class KnowledgeConsolidationV3Service:
                     select(EvidenceEdgeV3Record)
                     .where(
                         EvidenceEdgeV3Record.owner_id == owner_id,
+                        EvidenceEdgeV3Record.connection_id == entity.connection_id,
+                        EvidenceEdgeV3Record.guild_id == entity.guild_id,
                         EvidenceEdgeV3Record.target_ref_type == "entity",
                         EvidenceEdgeV3Record.target_ref == entity_id,
                         EvidenceEdgeV3Record.status.in_(("active", "unresolved")),
@@ -149,6 +160,8 @@ class KnowledgeConsolidationV3Service:
         *,
         owner_id: str,
         entity_id: str,
+        connection_id: str,
+        guild_id: str,
         reason: str = "entity_checkpoint",
         now: datetime | None = None,
     ) -> KnowledgeConsolidationV3Result:
@@ -156,6 +169,8 @@ class KnowledgeConsolidationV3Service:
         entity, beliefs, episodes, edges = self._entity_snapshot(
             owner_id=owner_id,
             entity_id=entity_id,
+            connection_id=connection_id,
+            guild_id=guild_id,
         )
         entity_source: dict[str, object] = {
             "id": entity.id,
@@ -200,6 +215,24 @@ class KnowledgeConsolidationV3Service:
             "evidence_edges": edge_source,
         }
         source_hash = self._hash(source)
+        source_count = 1 + len(beliefs) + len(episodes) + len(edges)
+        completed = self.checkpoints.completed_for_source_hash(
+            owner_id=owner_id,
+            connection_id=entity.connection_id,
+            guild_id=entity.guild_id,
+            source_ref_type="entity",
+            source_ref=entity.id,
+            source_hash=source_hash,
+        )
+        if completed is not None:
+            return KnowledgeConsolidationV3Result(
+                status="completed",
+                source_ref_type="entity",
+                source_ref=entity.id,
+                wiki_page_id=completed.wiki_page_id,
+                source_count=completed.source_count,
+                utility_status=completed.utility_status,
+            )
         title = entity.canonical_name
         body = self._fallback_entity_body(entity, beliefs, episodes)
         keywords = tuple(
@@ -281,7 +314,7 @@ class KnowledgeConsolidationV3Service:
             source_hash=source_hash,
             status="completed",
             reason=reason,
-            source_count=1 + len(beliefs) + len(episodes) + len(edges),
+            source_count=source_count,
             wiki_page_id=page.id,
             utility_status=utility_status,
             now=current,
@@ -291,7 +324,7 @@ class KnowledgeConsolidationV3Service:
             source_ref_type="entity",
             source_ref=entity.id,
             wiki_page_id=page.id,
-            source_count=1 + len(beliefs) + len(episodes) + len(edges),
+            source_count=source_count,
             utility_status=utility_status,
         )
 

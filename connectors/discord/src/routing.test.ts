@@ -11,6 +11,11 @@ import {
   shouldSubmitMessage,
   splitDiscordMessage
 } from "./routing.js";
+import {
+  markExplicitSmartSelections,
+  markV3SmartParticipationSelections,
+  resetSmartParticipationState
+} from "./smartParticipation.js";
 import type { DiscordDeployment } from "./types.js";
 
 function deployment(
@@ -429,7 +434,18 @@ it("applies explicit trigger modes", () => {
       hasReadableText: true
     };
     expect(shouldSubmitMessage(smart, ordinaryMessage, false)).toBe(false);
+    expect(shouldSubmitMessage(smart, ordinaryMessage, true)).toBe(false);
+    markV3SmartParticipationSelections([smart]);
     expect(shouldSubmitMessage(smart, ordinaryMessage, true)).toBe(true);
+    markExplicitSmartSelections([smart]);
+    expect(
+      shouldSubmitMessage(
+        smart,
+        { mentionedBot: true, repliedToBot: false, hasReadableText: true },
+        true
+      )
+    ).toBe(true);
+    resetSmartParticipationState();
   });
 
   it("splits long Discord messages without losing content", () => {

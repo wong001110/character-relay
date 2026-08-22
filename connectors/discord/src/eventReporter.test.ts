@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { DiscordEventReporter } from "./eventReporter.js";
+import {
+  DiscordEventReporter,
+  type DiscordConnectorEventInput
+} from "./eventReporter.js";
 import type { DiscordConnectorEvent } from "./types.js";
 
-function fixture(eventType: string) {
+function fixture(eventType: string): DiscordConnectorEventInput {
   return {
     level: "info" as const,
     event_type: eventType,
@@ -28,7 +31,12 @@ describe("DiscordEventReporter", () => {
     const reporter = new DiscordEventReporter(async (events) => {
       attempts += 1;
       delivered.push(events.map((item) => ({ ...item })));
-      if (attempts === 1) throw new Error("API unavailable");
+      if (attempts === 1) {
+        throw Object.assign(new Error("API unavailable with private Discord text"), {
+          code: "ECONNRESET",
+          status: 503
+        });
+      }
     });
 
     reporter.record(fixture("mention_received"));
@@ -36,7 +44,8 @@ describe("DiscordEventReporter", () => {
 
     await reporter.flush();
     expect(reporter.pendingCount).toBe(2);
-    expect(reporter.lastError).toContain("API unavailable");
+    expect(reporter.lastError).toBe("kind=Error code=ECONNRESET status=503");
+    expect(reporter.lastError).not.toContain("private Discord text");
 
     await reporter.flush();
     expect(reporter.pendingCount).toBe(0);
@@ -57,5 +66,53 @@ describe("DiscordEventReporter", () => {
     reporter.record(fixture("two"));
     reporter.record(fixture("three"));
     expect(reporter.pendingCount).toBe(2);
+  });
+
+  it("recursively removes content-bearing detail fields without removing diagnostics", async () => {
+    const delivered: DiscordConnectorEvent[][] = [];
+    const reporter = new DiscordEventReporter(async (events) => {
+      delivered.push(events);
+    });
+    const event = fixture("structured_diagnostic");
+    event.details = {
+      operation_id: "operation-1",
+      candidate_count: 2,
+      selected: true,
+      trigger_preview: "private preview",
+      error: "private error containing message text",
+      providerErrorMessage: "private provider error",
+      errorDetail: "private combined error detail",
+      detail: "private response detail",
+      nested: {
+        Text: "private text",
+        description: "private description",
+        rawContent: "private combined raw content",
+        descriptionText: "private combined description text",
+        planningText: "private camel plan",
+        responseBody: "private response body",
+        sourceMessageId: "source-safe-id",
+        payload_id: "payload-1",
+        Planning_Text: "private plan",
+        scores: [{ deployment_id: "deployment-1", RESPONSE: "private response" }]
+      },
+      items: [{ Raw: "private raw", reason: "selected" }]
+    };
+
+    reporter.record(event);
+    await reporter.flush();
+
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]?.[0]?.details).toEqual({
+      operation_id: "operation-1",
+      candidate_count: 2,
+      selected: true,
+      nested: {
+        payload_id: "payload-1",
+        sourceMessageId: "source-safe-id",
+        scores: [{ deployment_id: "deployment-1" }]
+      },
+      items: [{ reason: "selected" }]
+    });
+    expect(JSON.stringify(delivered)).not.toContain("private");
   });
 });

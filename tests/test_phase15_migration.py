@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from echo_masque.persistence import Database
-from echo_masque.persistence.models import CharacterCardRecord
+from echo_masque.persistence.models import CharacterCardRecord, TargetRecord
 from scripts.phase15_migrate import run_migration
 
 
@@ -12,6 +12,8 @@ def test_phase15_migration_backs_up_and_is_idempotent(tmp_path: Path) -> None:
     database.initialize()
     database.ensure_storage_instance_id()
     with database.session() as session:
+        session.add(TargetRecord(id="demo-stable", name="Legacy target", target_kind="stable"))
+        session.flush()
         session.add(
             CharacterCardRecord(
                 id="legacy-card",

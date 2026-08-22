@@ -156,6 +156,21 @@ class DiscordDeliveryFailureRequest(BaseModel):
     error: str = Field(default="delivery_failed_or_uncertain", max_length=1000)
 
 
+class DiscordCharacterDeliveryAckRequest(BaseModel):
+    """Connector acknowledgement for an ordinary Character turn.
+
+    Cursor and deployment are intentionally omitted: Runtime reloads both from the claimed step.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    connection_id: str = Field(min_length=1, max_length=64)
+    operation_id: str = Field(min_length=32, max_length=64)
+    step_id: str = Field(min_length=32, max_length=64)
+    claim_nonce: str = Field(min_length=16, max_length=64)
+    sent_message_ids: list[str] = Field(default_factory=list, max_length=20)
+
+
 class RuntimeTraceEventView(BaseModel):
     id: int
     node_name: str

@@ -24,9 +24,7 @@ import type {
   DiscordWebhookRegistrationResult,
   DiscordWebhookStatusReport
 } from "./types.js";
-import { resolveExplicitAudiencePreflight } from "./audiencePreflight.js";
 import type { DiscordPortalParticipationProfile } from "./smartParticipation.js";
-import { preflightSmartParticipationCandidates } from "./smartParticipationPreflight.js";
 import type {
   DiscordDeliveryAckRequest,
   DiscordDeliveryClaim,
@@ -37,45 +35,70 @@ import type {
   DiscordSocialOperationClaimRequest
 } from "./durableRuntime.js";
 
-export interface DiscordSemanticParticipationCandidate {
+export interface DiscordV3ParticipationCandidate {
   deployment_id: string;
   character_card_id: string;
-  semantic_relevance: number;
+  eligible: boolean;
+  deterministic_score: number;
+  minimum_score: number;
+  deterministic_signals: Record<string, number>;
+  raw_e5_relevance: number;
   profile_ready: boolean;
+  semantic_points: number;
+  final_evidence_score: number;
 }
 
-export interface DiscordParticipationShadowPlanItem {
+export interface DiscordV3SpeakerPlanItem {
   deployment_id: string;
   turn_role: string;
   reason: string;
-  guidance?: string;
+  guidance: string;
 }
 
-export interface DiscordParticipationShadowCandidate {
+export interface DiscordV3ConversationSegment {
+  id: string;
+  message_ids: string[];
+  participant_ids: string[];
+  kind: string;
+  summary: string;
+  conversation_thread_id: string;
+  membership_relation: string;
+  membership_confidence: number;
+  confidence: number;
+  source: string;
+}
+
+export interface DiscordV3ReplyTarget {
   deployment_id: string;
-  deterministic_score: number;
-  semantic_points: number;
-  shadow_final_score: number;
-  shadow_selected: boolean;
+  segment_id: string;
+  conversation_thread_id: string;
+  score: number;
+  reason: string;
+  grounding_level: string;
+  context_sufficiency: string;
 }
 
-export interface DiscordSemanticParticipationResult {
+export interface DiscordV3ParticipationResult {
+  resolver_version: "conversation-intelligence-v3";
   available: boolean;
   reason: string;
   model: string;
   dimension: number;
-  candidates: DiscordSemanticParticipationCandidate[];
-  speaker_plan?: DiscordParticipationShadowPlanItem[];
-  shadow_speaker_plan?: DiscordParticipationShadowPlanItem[];
-  shadow_candidate_scores?: DiscordParticipationShadowCandidate[];
-  speaker_plan_authoritative?: boolean;
-  conversation_plan_version?: string;
-  conversation_planner_used?: boolean;
-  conversation_planner_accepted?: boolean;
-  conversation_planner_authoritative?: boolean;
-  conversation_planner_rollout_bucket?: number;
-  conversation_planner_rollout_percent?: number;
-  conversation_planner_shadow_plan?: DiscordParticipationShadowPlanItem[];
+  burst_id: string;
+  burst_message_count: number;
+  analysis_chars: number;
+  candidates: DiscordV3ParticipationCandidate[];
+  segmentation_used: boolean;
+  segmentation_source: string;
+  conversation_segments: DiscordV3ConversationSegment[];
+  reply_targets: DiscordV3ReplyTarget[];
+  speaker_plan: DiscordV3SpeakerPlanItem[];
+  speaker_plan_authoritative: true;
+  participation_plan_reason: string;
+  media_grounding_level: string;
+  media_grounding_reason: string;
+  context_sufficiency: Record<string, string>;
+  utility_used: boolean;
 }
 
 export interface DiscordParticipationBurstMessage {
@@ -143,35 +166,6 @@ export interface DiscordSmartParticipationScoreRequest {
   media_descriptors?: DiscordPlannerMediaDescriptor[];
   media_dependency?: "required" | "optional" | "none";
   media_dependency_locked?: boolean;
-}
-
-interface DiscordV4ParticipationCandidate {
-  deployment_id: string;
-  character_card_id: string;
-  deterministic_score: number;
-  raw_e5_relevance: number;
-  profile_ready: boolean;
-  semantic_points: number;
-  shadow_final_score: number;
-  shadow_selected: boolean;
-}
-
-interface DiscordV4ParticipationResult {
-  available: boolean;
-  reason: string;
-  model: string;
-  dimension: number;
-  candidates: DiscordV4ParticipationCandidate[];
-  speaker_plan?: DiscordParticipationShadowPlanItem[];
-  shadow_speaker_plan?: DiscordParticipationShadowPlanItem[];
-  speaker_plan_authoritative?: boolean;
-  conversation_plan_version?: string;
-  conversation_planner_used?: boolean;
-  conversation_planner_accepted?: boolean;
-  conversation_planner_authoritative?: boolean;
-  conversation_planner_rollout_bucket?: number;
-  conversation_planner_rollout_percent?: number;
-  conversation_planner_shadow_plan?: DiscordParticipationShadowPlanItem[];
 }
 
 interface ConnectorAttachment {
@@ -242,11 +236,6 @@ function errorDetail(error: unknown): string {
   return error.message;
 }
 
-function missingV4Resolver(error: unknown): boolean {
-  const detail = errorDetail(error);
-  return detail.includes("HTTP 404") || detail.includes("HTTP 405");
-}
-
 function stringValue(value: unknown, maximum: number): string {
   return typeof value === "string" ? value.trim().slice(0, maximum) : "";
 }
@@ -262,17 +251,166 @@ function nestedString(value: unknown, key: string, maximum: number): string {
   return stringValue((value as Record<string, unknown>)[key], maximum);
 }
 
-function configuredGroupAliases(): string[] {
-  const raw = process.env.DISCORD_GROUP_ADDRESS_ALIASES?.trim();
-  if (!raw) return [];
-  return [
-    ...new Set(
-      raw
-        .split(/\r?\n|,/u)
-        .map((item) => item.trim())
-        .filter(Boolean)
-    )
-  ];
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function strictStringValue(
+  value: unknown,
+  maximum: number,
+  requireNonEmpty = false
+): string | null {
+  if (typeof value !== "string" || value.length > maximum) return null;
+  const normalized = value.trim();
+  return requireNonEmpty && !normalized ? null : normalized;
+}
+
+function booleanValue(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+function stringArrayValue(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const parsed = value.map((item) => strictStringValue(item, 200, true));
+  return parsed.every((item): item is string => item !== null) ? parsed : null;
+}
+
+function stringRecordValue(value: unknown): Record<string, string> | null {
+  const source = record(value);
+  if (!source || !Object.values(source).every((item) => typeof item === "string")) return null;
+  return source as Record<string, string>;
+}
+
+function numberRecordValue(value: unknown): Record<string, number> | null {
+  const source = record(value);
+  if (!source || !Object.values(source).every((item) => numberValue(item) !== null)) return null;
+  return source as Record<string, number>;
+}
+
+function parseV3Candidate(value: unknown): DiscordV3ParticipationCandidate | null {
+  const source = record(value);
+  if (!source) return null;
+  const deploymentId = strictStringValue(source.deployment_id, 64, true);
+  const cardId = strictStringValue(source.character_card_id, 64, true);
+  const eligible = booleanValue(source.eligible);
+  const deterministicScore = numberValue(source.deterministic_score);
+  const minimumScore = numberValue(source.minimum_score);
+  const signals = numberRecordValue(source.deterministic_signals);
+  const relevance = numberValue(source.raw_e5_relevance);
+  const profileReady = booleanValue(source.profile_ready);
+  const semanticPoints = numberValue(source.semantic_points);
+  const finalEvidenceScore = numberValue(source.final_evidence_score);
+  if (
+    !deploymentId || !cardId || eligible === null || deterministicScore === null ||
+    minimumScore === null || !signals || relevance === null || profileReady === null ||
+    semanticPoints === null || finalEvidenceScore === null
+  ) return null;
+  return {
+    deployment_id: deploymentId,
+    character_card_id: cardId,
+    eligible,
+    deterministic_score: deterministicScore,
+    minimum_score: minimumScore,
+    deterministic_signals: signals,
+    raw_e5_relevance: relevance,
+    profile_ready: profileReady,
+    semantic_points: semanticPoints,
+    final_evidence_score: finalEvidenceScore
+  };
+}
+
+function parseV3PlanItem(value: unknown): DiscordV3SpeakerPlanItem | null {
+  const source = record(value);
+  if (!source) return null;
+  const deploymentId = strictStringValue(source.deployment_id, 64, true);
+  const turnRole = strictStringValue(source.turn_role, 80, true);
+  const reason = strictStringValue(source.reason, 240);
+  const guidance = strictStringValue(source.guidance, 240);
+  return deploymentId && turnRole && reason !== null && guidance !== null
+    ? { deployment_id: deploymentId, turn_role: turnRole, reason, guidance }
+    : null;
+}
+
+function parseV3Segment(value: unknown): DiscordV3ConversationSegment | null {
+  const source = record(value);
+  if (!source) return null;
+  const id = strictStringValue(source.id, 200, true);
+  const messageIds = stringArrayValue(source.message_ids);
+  const participantIds = stringArrayValue(source.participant_ids);
+  const kind = strictStringValue(source.kind, 80, true);
+  const summary = strictStringValue(source.summary, 2_000);
+  const threadId = strictStringValue(source.conversation_thread_id, 200);
+  const membershipRelation = strictStringValue(source.membership_relation, 80);
+  const membershipConfidence = numberValue(source.membership_confidence);
+  const confidence = numberValue(source.confidence);
+  const sourceName = strictStringValue(source.source, 120);
+  if (!id || !messageIds || !participantIds || !kind || summary === null || threadId === null || membershipRelation === null || membershipConfidence === null || confidence === null || sourceName === null) return null;
+  return { id, message_ids: messageIds, participant_ids: participantIds, kind, summary, conversation_thread_id: threadId, membership_relation: membershipRelation, membership_confidence: membershipConfidence, confidence, source: sourceName };
+}
+
+function parseV3ReplyTarget(value: unknown): DiscordV3ReplyTarget | null {
+  const source = record(value);
+  if (!source) return null;
+  const deploymentId = strictStringValue(source.deployment_id, 64, true);
+  const segmentId = strictStringValue(source.segment_id, 200, true);
+  const threadId = strictStringValue(source.conversation_thread_id, 200);
+  const score = numberValue(source.score);
+  const reason = strictStringValue(source.reason, 240);
+  const groundingLevel = strictStringValue(source.grounding_level, 80);
+  const sufficiency = strictStringValue(source.context_sufficiency, 80);
+  if (!deploymentId || !segmentId || threadId === null || score === null || reason === null || groundingLevel === null || sufficiency === null) return null;
+  return { deployment_id: deploymentId, segment_id: segmentId, conversation_thread_id: threadId, score, reason, grounding_level: groundingLevel, context_sufficiency: sufficiency };
+}
+
+function parsedArray<T>(value: unknown, parser: (item: unknown) => T | null): T[] | null {
+  if (!Array.isArray(value)) return null;
+  const parsed = value.map(parser);
+  return parsed.every((item): item is T => item !== null) ? parsed : null;
+}
+
+function parseV3ParticipationResult(value: unknown): DiscordV3ParticipationResult | null {
+  const source = record(value);
+  if (!source || source.resolver_version !== "conversation-intelligence-v3") return null;
+  const available = booleanValue(source.available);
+  const reason = strictStringValue(source.reason, 240, true);
+  const model = strictStringValue(source.model, 240);
+  const dimension = integerValue(source.dimension);
+  const burstId = strictStringValue(source.burst_id, 80);
+  const burstCount = integerValue(source.burst_message_count);
+  const analysisChars = integerValue(source.analysis_chars);
+  const candidates = parsedArray(source.candidates, parseV3Candidate);
+  const segmentationUsed = booleanValue(source.segmentation_used);
+  const segmentationSource = strictStringValue(source.segmentation_source, 240);
+  const segments = parsedArray(source.conversation_segments, parseV3Segment);
+  const targets = parsedArray(source.reply_targets, parseV3ReplyTarget);
+  const speakerPlan = parsedArray(source.speaker_plan, parseV3PlanItem);
+  const authoritative = booleanValue(source.speaker_plan_authoritative);
+  const planReason = strictStringValue(source.participation_plan_reason, 240);
+  const groundingLevel = strictStringValue(source.media_grounding_level, 80);
+  const groundingReason = strictStringValue(source.media_grounding_reason, 240);
+  const sufficiency = stringRecordValue(source.context_sufficiency);
+  const utilityUsed = booleanValue(source.utility_used);
+  if (available === null || !reason || model === null || dimension === null || burstId === null || burstCount === null || analysisChars === null || !candidates || segmentationUsed === null || segmentationSource === null || !segments || !targets || !speakerPlan || authoritative !== true || planReason === null || groundingLevel === null || groundingReason === null || !sufficiency || utilityUsed === null) return null;
+  const candidateIds = new Set(candidates.map((item) => item.deployment_id));
+  const segmentIds = new Set(segments.map((item) => item.id));
+  const targetIds = new Set(targets.map((item) => item.deployment_id));
+  const speakerIds = speakerPlan.map((item) => item.deployment_id);
+  if (
+    candidateIds.size !== candidates.length ||
+    segmentIds.size !== segments.length ||
+    targetIds.size !== targets.length ||
+    new Set(speakerIds).size !== speakerIds.length ||
+    targets.some((item) => !candidateIds.has(item.deployment_id) || !segmentIds.has(item.segment_id)) ||
+    speakerIds.some((deploymentId) => !candidateIds.has(deploymentId) || !targetIds.has(deploymentId)) ||
+    Object.keys(sufficiency).some((deploymentId) => !candidateIds.has(deploymentId))
+  ) return null;
+  return { resolver_version: "conversation-intelligence-v3", available, reason, model, dimension, burst_id: burstId, burst_message_count: burstCount, analysis_chars: analysisChars, candidates, segmentation_used: segmentationUsed, segmentation_source: segmentationSource, conversation_segments: segments, reply_targets: targets, speaker_plan: speakerPlan, speaker_plan_authoritative: true, participation_plan_reason: planReason, media_grounding_level: groundingLevel, media_grounding_reason: groundingReason, context_sufficiency: sufficiency, utility_used: utilityUsed };
 }
 
 export class RelayClient {
@@ -446,60 +584,12 @@ export class RelayClient {
     );
   }
 
-  async scoreSmartParticipation(
+  async resolveSmartParticipation(
     payload: DiscordSmartParticipationScoreRequest
-  ): Promise<DiscordSemanticParticipationResult> {
-    const cachedCandidates = payload.deployment_ids.flatMap((deploymentId) => {
-      const deployment = this.deploymentCache.get(deploymentId);
-      return deployment ? [deployment] : [];
-    });
-    const hasBurstContext = Boolean(payload.burst_id || payload.burst_messages?.length);
-    if (!hasBurstContext && cachedCandidates.length === payload.deployment_ids.length) {
-      const explicit = resolveExplicitAudiencePreflight(
-        cachedCandidates,
-        payload.message,
-        null,
-        configuredGroupAliases()
-      );
-      if (explicit) {
-        return {
-          available: false,
-          reason: `explicit_audience_preflight:${explicit.reason}`,
-          model: "",
-          dimension: 0,
-          candidates: []
-        };
-      }
-    }
-
-    const runtimePreflight = payload.candidate_preflight ?? [];
-    const hardPreflight =
-      !runtimePreflight.length && cachedCandidates.length === payload.deployment_ids.length
-        ? preflightSmartParticipationCandidates(cachedCandidates, payload.message)
-        : [];
-    const runtimePreflightById = new Map(
-      runtimePreflight.map((candidate) => [candidate.deployment_id, candidate])
-    );
-    const hardPreflightById = new Map(
-      hardPreflight.map((candidate) => [candidate.deploymentId, candidate])
-    );
-    const effectivePreflight = runtimePreflight.length ? runtimePreflight : hardPreflight;
-    if (effectivePreflight.length && effectivePreflight.every((candidate) => !candidate.eligible)) {
-      return {
-        available: false,
-        reason: "hard_preflight_no_eligible_candidates",
-        model: "",
-        dimension: 0,
-        candidates: []
-      };
-    }
-
-    try {
-      const resolved = await this.request<DiscordV4ParticipationResult>(
-        "/api/smart-participation/resolve",
-        {
-          method: "POST",
-          body: JSON.stringify({
+  ): Promise<DiscordV3ParticipationResult> {
+    const resolved = await this.request<unknown>("/api/smart-participation/resolve", {
+      method: "POST",
+      body: JSON.stringify({
             connection_id: this.connectionId,
             guild_id: payload.guild_id ?? "",
             channel_id: payload.channel_id ?? "",
@@ -519,67 +609,24 @@ export class RelayClient {
             media_dependency: payload.media_dependency ?? "none",
             media_dependency_locked: payload.media_dependency_locked ?? false,
             candidates: payload.deployment_ids.map((deploymentId) => {
-              const runtime = runtimePreflightById.get(deploymentId);
-              const hard = hardPreflightById.get(deploymentId);
+              const runtime = payload.candidate_preflight?.find(
+                (candidate) => candidate.deployment_id === deploymentId
+              );
               return {
                 deployment_id: deploymentId,
-                eligible: runtime?.eligible ?? hard?.eligible ?? true,
+                eligible: runtime?.eligible ?? true,
                 deterministic_score: runtime?.deterministic_score ?? 0,
-                minimum_score: runtime?.minimum_score ?? hard?.minimumScore ?? 0,
-                signals: runtime?.signals ?? hard?.signals ?? {}
+                minimum_score: runtime?.minimum_score ?? 0,
+                signals: runtime?.signals ?? {}
               };
             })
           })
-        }
-      );
-      return {
-        available: resolved.available,
-        reason: `v4_resolver:${resolved.reason}`,
-        model: resolved.model,
-        dimension: resolved.dimension,
-        speaker_plan: resolved.speaker_plan ?? [],
-        shadow_speaker_plan: resolved.shadow_speaker_plan ?? [],
-        shadow_candidate_scores: resolved.candidates.map((candidate) => ({
-          deployment_id: candidate.deployment_id,
-          deterministic_score: candidate.deterministic_score,
-          semantic_points: candidate.semantic_points,
-          shadow_final_score: candidate.shadow_final_score,
-          shadow_selected: candidate.shadow_selected
-        })),
-        speaker_plan_authoritative: resolved.speaker_plan_authoritative ?? false,
-        conversation_plan_version: resolved.conversation_plan_version ?? "",
-        conversation_planner_used: resolved.conversation_planner_used ?? false,
-        conversation_planner_accepted: resolved.conversation_planner_accepted ?? false,
-        conversation_planner_authoritative:
-          resolved.conversation_planner_authoritative ?? false,
-        conversation_planner_rollout_bucket:
-          resolved.conversation_planner_rollout_bucket ?? 0,
-        conversation_planner_rollout_percent:
-          resolved.conversation_planner_rollout_percent ?? 0,
-        conversation_planner_shadow_plan:
-          resolved.conversation_planner_shadow_plan ?? [],
-        candidates: resolved.candidates.map((candidate) => ({
-          deployment_id: candidate.deployment_id,
-          character_card_id: candidate.character_card_id,
-          semantic_relevance: candidate.raw_e5_relevance,
-          profile_ready: candidate.profile_ready
-        }))
-      };
-    } catch (error) {
-      if (!missingV4Resolver(error)) throw error;
+    });
+    const parsed = parseV3ParticipationResult(resolved);
+    if (!parsed) {
+      throw new Error("Character Relay returned an invalid conversation-intelligence-v3 resolve response.");
     }
-
-    return this.request<DiscordSemanticParticipationResult>(
-      "/api/smart-participation/semantic-score",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          connection_id: this.connectionId,
-          message: payload.message,
-          deployment_ids: payload.deployment_ids
-        })
-      }
-    );
+    return parsed;
   }
 
   async recentSmartParticipationSpeaker(input: {
@@ -629,7 +676,8 @@ export class RelayClient {
       {
         method: "POST",
         body: JSON.stringify({ connection_id: this.connectionId, ...payload })
-      }
+      },
+      true
     );
   }
 
@@ -665,7 +713,8 @@ export class RelayClient {
       {
         method: "POST",
         body: JSON.stringify({ connection_id: this.connectionId, ...payload })
-      }
+      },
+      true
     );
   }
 
@@ -677,7 +726,8 @@ export class RelayClient {
       {
         method: "POST",
         body: JSON.stringify({ connection_id: this.connectionId, ...payload })
-      }
+      },
+      true
     );
   }
 
@@ -690,6 +740,48 @@ export class RelayClient {
         method: "POST",
         body: JSON.stringify({ connection_id: this.connectionId, ...payload })
       }
+    );
+  }
+
+  async claimCharacterTurnDelivery(
+    payload: DiscordDeliveryClaimRequest
+  ): Promise<DiscordDeliveryClaim> {
+    return this.request<DiscordDeliveryClaim>(
+      "/api/connectors/discord/messages/delivery/claim",
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      },
+      true
+    );
+  }
+
+  async acknowledgeCharacterTurnDelivery(payload: {
+    operation_id: string;
+    step_id: string;
+    claim_nonce: string;
+    sent_message_ids: string[];
+  }): Promise<void> {
+    await this.request<void>(
+      "/api/connectors/discord/messages/delivery/ack",
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      },
+      true
+    );
+  }
+
+  async markCharacterTurnDeliveryUncertain(
+    payload: DiscordDeliveryFailureRequest
+  ): Promise<void> {
+    await this.request<void>(
+      "/api/connectors/discord/messages/delivery/uncertain",
+      {
+        method: "POST",
+        body: JSON.stringify({ connection_id: this.connectionId, ...payload })
+      },
+      true
     );
   }
 
@@ -894,12 +986,17 @@ export class RelayClient {
     }
   }
 
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
+  private async request<T>(
+    path: string,
+    init?: RequestInit,
+    retryable = init?.method === "GET"
+  ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     let response: Response | undefined;
     let lastNetworkError: unknown;
 
-    for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt += 1) {
+    const attempts = retryable ? RETRY_DELAYS_MS.length : 1;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       const wait = RETRY_DELAYS_MS[attempt];
       if (wait) await delay(wait);
 
@@ -915,7 +1012,7 @@ export class RelayClient {
         });
       } catch (error) {
         lastNetworkError = error;
-        if (attempt < RETRY_DELAYS_MS.length - 1) continue;
+        if (attempt < attempts - 1) continue;
         throw new Error(
           `Unable to reach Character Relay at ${url}: ${errorDetail(error)}`,
           { cause: error }
@@ -924,7 +1021,7 @@ export class RelayClient {
 
       if (
         TRANSIENT_STATUS_CODES.has(response.status) &&
-        attempt < RETRY_DELAYS_MS.length - 1
+        attempt < attempts - 1
       ) {
         continue;
       }

@@ -154,3 +154,48 @@ def test_runtime_migrates_pre_gateway_config_to_disabled_gateway(tmp_path: Path)
     stored_json = json.loads(stored.config_json)
     assert stored_json["defaults_version"] == RUNTIME_DEFAULTS_VERSION
     assert stored_json["utility_gateway"]["enabled"] is False
+
+
+def test_runtime_migrates_retired_participation_tiebreak_capability(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "runtime-retired-capability.db"))
+    service = app.state.runtime_service
+    current = service.config().model_dump(mode="json")
+    current["utility_gateway"] = {
+        "enabled": True,
+        "routing_strategy": "best_available",
+        "members": [
+            {
+                "id": "mixed",
+                "name": "Mixed",
+                "enabled": True,
+                "provider": "openrouter",
+                "base_url": "https://offline.invalid",
+                "model": "offline-model",
+                "capabilities": ["semantic_judge", "participation_tiebreak"],
+                "free_only": True,
+                "priority": 1,
+            },
+            {
+                "id": "retired-only",
+                "name": "Retired",
+                "enabled": True,
+                "provider": "openrouter",
+                "base_url": "https://offline.invalid",
+                "model": "offline-model",
+                "capabilities": ["participation_tiebreak"],
+                "free_only": True,
+                "priority": 2,
+            },
+        ],
+        "paid_fallback": current["utility_gateway"]["paid_fallback"],
+    }
+    current["defaults_version"] = RUNTIME_DEFAULTS_VERSION - 1
+    service.repository.save_admin_runtime(current)
+
+    migrated = service.config()
+
+    assert [member.id for member in migrated.utility_gateway.members] == ["mixed"]
+    assert migrated.utility_gateway.members[0].capabilities == ("semantic_judge",)
+    stored = service.repository.get_admin_runtime()
+    assert stored is not None
+    assert "participation_tiebreak" not in stored.config_json

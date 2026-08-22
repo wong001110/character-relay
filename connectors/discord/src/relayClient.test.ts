@@ -136,4 +136,14 @@ describe("RelayClient media enrichment", () => {
       ]);
     }
   });
+
+  it("does not retry a generation POST after a transient response", async () => {
+    const fetchMock = vi.fn(async () => new Response("unavailable", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new RelayClient("https://relay.test", "connector-token", "conn-1");
+    await expect(client.processMessage(payload)).rejects.toThrow("HTTP 503");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

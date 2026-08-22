@@ -48,3 +48,9 @@ Applied Sessions keep their own trigger counts, cooldown state, status, target u
 The Discord Connector requests `GatewayIntentBits.GuildExpressions` and fetches each visible Guild's custom Stickers during Server catalog synchronization. Sticker ID, name, description, tags, format, and asset URL are upserted into the Server's Sticker Dictionary before the Sticker is used in conversation.
 
 Manual intent, emotion, and semantic descriptions remain authoritative and are not overwritten by later Discord metadata refreshes. Standard Discord Stickers that are not Guild assets are still learned when they appear in an incoming message.
+
+## Logs and temporary debugging
+
+The Behavior Notebook's ordinary Discord event view is Server-filtered and contains structured operational diagnostics only. It may show source message/deployment identifiers, decisions, reason codes, counts, scores, and timings, but it does not retain message previews or nested raw content.
+
+When those fields are insufficient, the Bootstrap Admin may explicitly start a bounded temporary Runtime-ingress capture for the selected Server. The capture is memory-only, expires after 15 minutes, 1 hour, or 24 hours, clears on restart, and requires an explicit reveal before raw content is fetched. It covers only messages submitted by the Connector to Character Relay Runtime; it is not a complete Discord Gateway capture. See `docs/discord-debug-capture.md` before enabling it.

@@ -232,6 +232,33 @@ class KnowledgeConsolidationCheckpointV3Repository:
     def __init__(self, database: Database) -> None:
         self.database = database
 
+    def completed_for_source_hash(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        source_ref_type: str,
+        source_ref: str,
+        source_hash: str,
+    ) -> KnowledgeConsolidationCheckpointV3Record | None:
+        with self.database.session() as session:
+            record = session.scalar(
+                select(KnowledgeConsolidationCheckpointV3Record).where(
+                    KnowledgeConsolidationCheckpointV3Record.owner_id == owner_id,
+                    KnowledgeConsolidationCheckpointV3Record.connection_id == connection_id,
+                    KnowledgeConsolidationCheckpointV3Record.guild_id == guild_id,
+                    KnowledgeConsolidationCheckpointV3Record.source_ref_type
+                    == source_ref_type,
+                    KnowledgeConsolidationCheckpointV3Record.source_ref == source_ref,
+                    KnowledgeConsolidationCheckpointV3Record.source_hash == source_hash,
+                    KnowledgeConsolidationCheckpointV3Record.status == "completed",
+                )
+            )
+            if record is not None:
+                session.expunge(record)
+            return record
+
     def save(
         self,
         *,

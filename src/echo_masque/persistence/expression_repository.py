@@ -199,8 +199,8 @@ class ExpressionRepository:
         *,
         connection_id: str,
         guild_id: str,
-        emojis: list[dict[str, object]],
-        stickers: list[dict[str, object]],
+        emojis: list[dict[str, object]] | None,
+        stickers: list[dict[str, object]] | None,
     ) -> dict[str, int]:
         with self.database.session() as session:
             connection = self._connection(session, connection_id)
@@ -216,6 +216,8 @@ class ExpressionRepository:
             counts = {"emoji": 0, "sticker": 0}
             seen: dict[str, set[str]] = {"emoji": set(), "sticker": set()}
             for resource_type, items in (("emoji", emojis), ("sticker", stickers)):
+                if items is None:
+                    continue
                 for item in items:
                     raw_resource_id = (
                         item.get("emoji_id")
@@ -252,6 +254,10 @@ class ExpressionRepository:
                     counts[resource_type] += 1
             for owner_id in owner_ids:
                 for resource_type, resource_ids in seen.items():
+                    if (resource_type == "emoji" and emojis is None) or (
+                        resource_type == "sticker" and stickers is None
+                    ):
+                        continue
                     records = list(
                         session.scalars(
                             select(DiscordExpressionSemanticRecord).where(

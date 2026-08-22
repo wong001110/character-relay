@@ -97,3 +97,18 @@ For approved UI pages, state explicitly:
 - Do not preserve generated prose solely to avoid diffs. Regenerate from sources.
 - Review generated output for hallucinated endpoints/settings/status, scope widening, secrets, obsolete Topic authority, and broken source links before committing.
 - After accepted architectural work merges, refresh from updated `main` in a dedicated docs pass.
+
+## Repository generation cycle
+
+The repository-level `.openwikiignore` is a read boundary for secrets, local databases, dependencies, caches, logs, and generated build output. Keep source, tests, workflows, and manual `docs/` visible to generation.
+
+From an updated `main`, initialize or regenerate code-mode documentation with the installed OpenWiki CLI. Current official forms include:
+
+```text
+openwiki --init
+openwiki code --update --print
+```
+
+The first command defaults to code mode for a repository. The second refreshes code-mode output and prints progress. OpenWiki owns generated files under `openwiki/` and only its marked block in agent instruction files; this human-authored `openwiki/INSTRUCTIONS.md` remains the stable brief.
+
+Do not run generation automatically as part of an implementation phase. Use a dedicated post-merge documentation branch, then inspect the entire generated diff before committing it.

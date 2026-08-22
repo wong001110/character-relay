@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from echo_masque.api.smart_participation_v4_schemas import (
+from echo_masque.api.smart_participation_v3_schemas import (
     SmartParticipationBurstMessage,
     SmartParticipationResolveCandidate,
     SmartParticipationResolveRequest,
@@ -72,7 +72,12 @@ class AmbiguousUtility:
             )
         )
 
-    def invoke(self, capability: str, *_: object, **__: object):
+    def invoke(
+        self,
+        capability: str,
+        *_: object,
+        **__: object,
+    ) -> tuple[ConversationJudgeResult, None]:
         assert capability == "semantic_judge"
         self.calls += 1
         return (
@@ -243,7 +248,12 @@ def test_membership_reassignment_preserves_history() -> None:
         reason="later clarification connected the discussions",
         now=now,
     )
-    history = repo.membership_history(owner_id="owner-1", segment_id=segment.id)
+    history = repo.membership_history(
+        owner_id="owner-1",
+        connection_id="connection-1",
+        guild_id="guild-1",
+        segment_id=segment.id,
+    )
     assert len(history) == 2
     assert history[0].status == "superseded"
     assert history[1].status == "active"
@@ -338,6 +348,11 @@ def test_split_and_merge_keep_membership_revision_provenance() -> None:
     current = repo.current_membership(owner_id="owner-1", segment_id=original.id)
     assert current is not None
     assert current.thread_id == original.thread_id
-    history = repo.membership_history(owner_id="owner-1", segment_id=original.id)
+    history = repo.membership_history(
+        owner_id="owner-1",
+        connection_id="connection-1",
+        guild_id="guild-1",
+        segment_id=original.id,
+    )
     assert len(history) == 3
     assert [item.version for item in history] == [1, 2, 3]

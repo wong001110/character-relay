@@ -11,7 +11,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, model_validator
@@ -22,7 +22,6 @@ from echo_masque.browser_runtime import (
     BrowserToolUnavailable,
 )
 from echo_masque.network_safety import PublicUrlGuard
-from echo_masque.persistence.scheduled_reminder_repository import ScheduledReminderRepository
 from echo_masque.providers import ChatToolCall, ChatToolDefinition, ChatToolFunction
 from echo_masque.tool_external import (
     ExternalToolFailed,
@@ -30,6 +29,11 @@ from echo_masque.tool_external import (
     ExternalToolRuntime,
     json_result,
 )
+
+if TYPE_CHECKING:
+    from echo_masque.persistence.scheduled_reminder_repository import (
+        ScheduledReminderRepository,
+    )
 
 ToolOperation = Literal["read", "write", "coordination"]
 ToolRisk = Literal["low", "medium", "high"]

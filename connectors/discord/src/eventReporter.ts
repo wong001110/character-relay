@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  drainSmartParticipationDecisionEvents,
-  pendingSmartParticipationDecisionCount
-} from "./behaviorDecisionTrace.js";
+import { formatSafeDiagnosticError } from "./safeDiagnosticError.js";
 import type { DiscordConnectorEvent } from "./types.js";
 
 export type DiscordConnectorEventInput = Omit<
@@ -14,6 +11,84 @@ export type DiscordConnectorEventInput = Omit<
 export type DiscordConnectorEventSink = (
   events: DiscordConnectorEvent[]
 ) => Promise<void>;
+
+const CONTENT_BEARING_DETAIL_TOKENS = new Set([
+  "answer",
+  "body",
+  "completion",
+  "text",
+  "content",
+  "raw",
+  "payload",
+  "prompt",
+  "response",
+  "outgoingtext",
+  "planningtext",
+  "error",
+  "lasterror",
+  "errormessage",
+  "detail",
+  "description",
+  "input",
+  "message",
+  "messages",
+  "output",
+  "preview",
+  "query",
+  "request",
+  "transcript"
+]);
+
+const SAFE_STRUCTURED_STRING_SUFFIXES = [
+  "_code",
+  "_id",
+  "_kind",
+  "_mode",
+  "_reason",
+  "_source",
+  "_status",
+  "_type"
+];
+
+function normalizedDetailKey(key: string): string {
+  return key
+    .replaceAll(/([a-z0-9])([A-Z])/gu, "$1_$2")
+    .toLowerCase()
+    .replaceAll(/[-\s]+/gu, "_");
+}
+
+function isContentBearingDetail(key: string, value: unknown): boolean {
+  if (
+    typeof value !== "string" &&
+    !Array.isArray(value) &&
+    (value === null || typeof value !== "object")
+  ) {
+    return false;
+  }
+  const normalized = normalizedDetailKey(key);
+  const tokens = normalized.split("_");
+  const contentBearing = tokens.some((token) => CONTENT_BEARING_DETAIL_TOKENS.has(token));
+  const structuredString = SAFE_STRUCTURED_STRING_SUFFIXES.some((suffix) =>
+    normalized.endsWith(suffix)
+  );
+  return contentBearing && !structuredString;
+}
+
+function sanitizeDetailValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeDetailValue);
+  if (value === null || typeof value !== "object") return value;
+
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, nestedValue] of Object.entries(value)) {
+    if (isContentBearingDetail(key, nestedValue)) continue;
+    sanitized[key] = sanitizeDetailValue(nestedValue);
+  }
+  return sanitized;
+}
+
+function sanitizeDetails(details: Record<string, unknown>): Record<string, unknown> {
+  return sanitizeDetailValue(details) as Record<string, unknown>;
+}
 
 export class DiscordEventReporter {
   private readonly queue: DiscordConnectorEvent[] = [];
@@ -45,16 +120,11 @@ export class DiscordEventReporter {
     this.queue.push({
       id: randomUUID(),
       occurred_at: occurredAt,
-      ...event
+      ...event,
+      details: sanitizeDetails(event.details)
     });
     this.lastRecordedEventAt = occurredAt;
     this.lastRecordedEventType = event.event_type;
-  }
-
-  private absorbBehaviorDecisions(): void {
-    for (const event of drainSmartParticipationDecisionEvents()) {
-      this.enqueue(event);
-    }
   }
 
   record(event: DiscordConnectorEventInput): void {
@@ -64,7 +134,6 @@ export class DiscordEventReporter {
 
   async flush(): Promise<void> {
     if (this.flushing) return;
-    this.absorbBehaviorDecisions();
     if (!this.queue.length) return;
     this.flushing = true;
     const batch = this.queue.slice(0, this.batchSize);
@@ -75,7 +144,7 @@ export class DiscordEventReporter {
       this.lastSuccessfulFlushAt = new Date().toISOString();
       this.sentEvents += batch.length;
     } catch (error) {
-      this.lastFailure = error instanceof Error ? error.message : String(error);
+      this.lastFailure = formatSafeDiagnosticError(error);
     } finally {
       this.flushing = false;
     }
@@ -88,7 +157,7 @@ export class DiscordEventReporter {
   }
 
   get pendingCount(): number {
-    return this.queue.length + pendingSmartParticipationDecisionCount();
+    return this.queue.length;
   }
 
   get lastError(): string | null {

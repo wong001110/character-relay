@@ -1,8 +1,10 @@
 from pydantic import SecretStr
+from sqlalchemy import select
 
 from echo_masque.config import Settings
 from echo_masque.credentials import CredentialVault
 from echo_masque.persistence import AuthRepository, Database, KeyGroupRepository, Repository
+from echo_masque.persistence.key_group_models import CharacterKeyGroupAssignmentRecord
 
 
 def _fixture() -> tuple[Database, AuthRepository, Repository, str, str]:
@@ -126,3 +128,24 @@ def test_key_group_resolves_default_and_override_models() -> None:
     )
     assert overridden is not None
     assert overridden.model == "mimo-override"
+
+
+def test_deleting_character_card_removes_key_group_assignments_first() -> None:
+    database, _, repository, owner_id, card_id = _fixture()
+    groups = KeyGroupRepository(database)
+    group = groups.create_group(
+        owner_id=owner_id,
+        name="Character",
+        provider="openrouter",
+        default_models={"character": "deepseek/example"},
+    )
+    groups.set_assignment(
+        owner_id=owner_id,
+        character_card_id=card_id,
+        capability="character",
+        key_group_id=group.id,
+    )
+
+    assert repository.delete_character_card(card_id, owner_id) is True
+    with database.session() as session:
+        assert list(session.scalars(select(CharacterKeyGroupAssignmentRecord))) == []

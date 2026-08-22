@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from echo_masque.api.dependencies import CurrentUserDependency
 from echo_masque.character_relationships import CharacterRelationshipService, RelationshipStateView
+from echo_masque.knowledge_consolidation_v3 import KnowledgeConsolidationV3Result
 from echo_masque.persistence import DeploymentRepository
 from echo_masque.persistence.character_relationship_models import DeploymentRelationshipEventRecord
 from echo_masque.persistence.conversation_structure_repository import (
@@ -187,6 +188,17 @@ class ServerParticipationIntelligenceView(BaseModel):
     recent_reply_decisions: list[ReplyPlannerDecisionView] = Field(default_factory=list)
 
 
+class KnowledgeConsolidationCheckpointView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str
+    source_ref_type: str
+    source_ref: str
+    wiki_page_id: str
+    source_count: int
+    utility_status: str
+
+
 def _server_profile(
     request: Request,
     user: CurrentUserDependency,
@@ -198,6 +210,19 @@ def _server_profile(
             raise HTTPException(status_code=404, detail="Server Profile not found.")
         session.expunge(profile)
         return profile
+
+
+def _consolidation_result(
+    value: KnowledgeConsolidationV3Result,
+) -> KnowledgeConsolidationCheckpointView:
+    return KnowledgeConsolidationCheckpointView(
+        status=value.status,
+        source_ref_type=value.source_ref_type,
+        source_ref=value.source_ref,
+        wiki_page_id=value.wiki_page_id,
+        source_count=value.source_count,
+        utility_status=value.utility_status,
+    )
 
 
 def _relationship_state(value: RelationshipStateView | None) -> RelationshipStateProductView | None:
@@ -605,6 +630,33 @@ def server_participation_intelligence(
         ],
         recent_reply_decisions=decision_views,
     )
+
+
+@router.post(
+    "/server-profiles/{server_profile_id}/knowledge-consolidation/entities/{entity_id}",
+    response_model=KnowledgeConsolidationCheckpointView,
+)
+def consolidate_server_entity_knowledge(
+    server_profile_id: str,
+    entity_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+) -> KnowledgeConsolidationCheckpointView:
+    """Owner-triggered, server-scoped Wiki checkpoint for one existing Entity."""
+
+    profile = _server_profile(request, user, server_profile_id)
+    service = request.app.state.knowledge_consolidation_v3_service
+    try:
+        result = service.consolidate_entity(
+            owner_id=user.id,
+            connection_id=profile.connection_id,
+            guild_id=profile.guild_id,
+            entity_id=entity_id,
+            reason="owner_manual_checkpoint",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Entity not found.") from exc
+    return _consolidation_result(result)
 
 
 __all__ = ["router"]

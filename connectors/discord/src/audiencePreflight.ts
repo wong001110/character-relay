@@ -32,8 +32,7 @@ export function resolveExplicitAudiencePreflight(
     candidates.map(withoutSmartParticipation),
     text,
     replyDeploymentId,
-    groupAliases,
-    {}
+    groupAliases
   );
   if (!EXPLICIT_REASONS.has(preflight.reason)) return null;
 

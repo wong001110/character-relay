@@ -228,6 +228,31 @@ def _build_context(
         )
         raise
     context.prepared = prepared
+    if prepared.context_error:
+        context.reply = DiscordConnectorReplyView(
+            action="silent",
+            reason=prepared.context_error,
+            deployment_id=prepared.resolved.deployment.id,
+            character_display_name=prepared.resolved.card.display_name,
+            context_trace=(
+                prepared.turn_context.trace if prepared.turn_context is not None else None
+            ),
+        )
+        _emit(
+            state,
+            context,
+            node_name="turn_context",
+            node_kind="context",
+            status="completed",
+            changed_keys=("context_status", "rag_status", "status", "outcome"),
+            metadata=(("result", prepared.context_error),),
+        )
+        return {
+            "context_status": "failed",
+            "rag_status": "failed",
+            "status": "completed",
+            "outcome": "silent",
+        }
     invite_turn_state = current_character_invite_turn()
     if (
         invite_turn_state is not None
@@ -237,7 +262,7 @@ def _build_context(
         context.invite_turn_state = invite_turn_state
     else:
         context.invite_turn_state = None
-    rag_status: StageStatus = "completed" if prepared.turn_context is not None else "skipped"
+    rag_status: StageStatus = "completed" if prepared.context_bundle is not None else "skipped"
     _emit(
         state,
         context,
@@ -245,9 +270,13 @@ def _build_context(
         node_kind="context",
         status="completed",
         changed_keys=("context_status", "rag_status"),
-        metadata=(("rag_pipeline", "available" if prepared.turn_context is not None else "none"),),
+        metadata=(("rag_pipeline", "v3" if prepared.context_bundle is not None else "none"),),
     )
     return {"context_status": "completed", "rag_status": rag_status}
+
+
+def _route_after_context(state: CharacterTurnGraphState) -> str:
+    return "end" if state.get("outcome") == "silent" else "model"
 
 
 async def _invoke_model(
@@ -530,7 +559,11 @@ def build_character_turn_graph() -> Any:
         _route_after_resolve,
         {"context": "turn_context", "end": END},
     )
-    builder.add_edge("turn_context", "turn_model")
+    builder.add_conditional_edges(
+        "turn_context",
+        _route_after_context,
+        {"model": "turn_model", "end": END},
+    )
     builder.add_conditional_edges(
         "turn_model",
         _route_after_model,
