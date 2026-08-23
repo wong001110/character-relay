@@ -1,12 +1,13 @@
 from pathlib import Path
 
+import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from echo_masque.api import create_app
 from echo_masque.config import Settings
-from echo_masque.persistence.models import RunSnapshotRecord
+from echo_masque.persistence.models import RunSnapshotRecord, UserRecord
 from echo_masque.public_demo import (
     PUBLIC_DEMO_EMAIL,
     PUBLIC_DEMO_PASSWORD,
@@ -178,6 +179,59 @@ def test_public_demo_sync_is_idempotent_and_copies_encrypted_credentials(
     assert len(second_restart.get("/api/characters").json()) == 2
     assert len(second_restart.get("/api/scenarios").json()) == 2
     assert len(second_restart.get("/api/test-packs").json()) == 1
+
+
+def test_public_demo_sync_restores_a_soft_deleted_reserved_account(tmp_path: Path) -> None:
+    database_path = tmp_path / "public-demo-recovery.db"
+    key = Fernet.generate_key().decode("ascii")
+    demo_settings = settings(database_path, key, demo_enabled=True)
+    first = create_app(demo_settings)
+
+    with first.state.database.session() as session:
+        stored = session.get(UserRecord, PUBLIC_DEMO_USER_ID)
+        assert stored is not None
+        stored.email = f"deleted-{PUBLIC_DEMO_USER_ID}@echo-masque.invalid"
+        stored.display_name = "Deleted User"
+        stored.is_active = False
+        session.commit()
+
+    recovered = create_app(demo_settings)
+    user = recovered.state.auth_repository.get_user(PUBLIC_DEMO_USER_ID)
+    assert user is not None
+    assert user.email == PUBLIC_DEMO_EMAIL
+    assert user.display_name == "Echo Masque Demo"
+    assert user.is_active is True
+
+
+def test_public_demo_sync_rejects_an_email_owned_by_another_account(tmp_path: Path) -> None:
+    database_path = tmp_path / "public-demo-email-conflict.db"
+    key = Fernet.generate_key().decode("ascii")
+    disabled = create_app(settings(database_path, key, demo_enabled=False))
+    disabled.state.auth_repository.create_user(
+        user_id="another-user",
+        email=PUBLIC_DEMO_EMAIL,
+        display_name="Other User",
+        password_hash=disabled.state.auth_service.passwords.hash("OtherUserPassword2026!"),
+    )
+
+    with pytest.raises(RuntimeError, match="Public Demo email"):
+        create_app(settings(database_path, key, demo_enabled=True))
+
+
+def test_admin_cannot_delete_the_reserved_public_demo_account(tmp_path: Path) -> None:
+    database_path = tmp_path / "public-demo-delete-protection.db"
+    key = Fernet.generate_key().decode("ascii")
+    app = create_app(settings(database_path, key, demo_enabled=True))
+    admin = TestClient(app)
+    login(admin, ADMIN_EMAIL, ADMIN_PASSWORD)
+
+    response = admin.delete(f"/api/admin/users/{PUBLIC_DEMO_USER_ID}")
+    assert response.status_code == 409
+    assert "cannot be deleted" in response.json()["detail"]
+
+    demo = app.state.auth_repository.get_user(PUBLIC_DEMO_USER_ID)
+    assert demo is not None
+    assert demo.is_active is True
 
 
 def test_public_demo_sync_removes_stale_demo_character_resources_only(

@@ -40,6 +40,7 @@ from echo_masque.persistence.models import (
 )
 from echo_masque.persistence.security_models import RateLimitBucketRecord
 from echo_masque.persistence.server_access_models import DiscordServerAccessRecord
+from echo_masque.public_demo import PUBLIC_DEMO_USER_ID
 
 InvitationRole = Literal["user", "admin"]
 LOCAL_WORKSPACE_OWNER = "local-user"
@@ -426,6 +427,8 @@ class AccountLifecycleService:
     def validate_account_deletion(self, user_id: str) -> None:
         if user_id == SYSTEM_RUNTIME_USER_ID:
             raise LifecycleConflict("The system Runtime account cannot be deleted.")
+        if user_id == PUBLIC_DEMO_USER_ID:
+            raise LifecycleConflict("The shared Public Demo account cannot be deleted.")
         with self.database.session() as session:
             user = session.get(UserRecord, user_id)
             if user is None or not user.is_active:

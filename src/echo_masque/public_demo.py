@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass
 
 from argon2.exceptions import VerificationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from echo_masque.auth import AuthService
 from echo_masque.config import Settings
@@ -118,31 +118,42 @@ class PublicDemoService:
         return result
 
     def _ensure_demo_user(self) -> UserRecord:
-        record = self.auth_repository.get_user_by_email(PUBLIC_DEMO_EMAIL)
-        if record is None:
-            return self.auth_repository.create_user(
-                user_id=PUBLIC_DEMO_USER_ID,
-                email=PUBLIC_DEMO_EMAIL,
-                display_name=PUBLIC_DEMO_DISPLAY_NAME,
-                password_hash=self.auth_service.passwords.hash(PUBLIC_DEMO_PASSWORD),
-                role="user",
-            )
-
-        password_valid = False
-        try:
-            password_valid = bool(
-                self.auth_service.passwords.verify(
-                    record.password_hash,
-                    PUBLIC_DEMO_PASSWORD,
+        with self.auth_repository.database.session() as session:
+            stored = session.get(UserRecord, PUBLIC_DEMO_USER_ID)
+            email_owner = session.scalar(
+                select(UserRecord).where(
+                    func.lower(UserRecord.email) == PUBLIC_DEMO_EMAIL
                 )
             )
-        except VerificationError:
-            password_valid = False
-
-        with self.auth_repository.database.session() as session:
-            stored = session.get(UserRecord, record.id)
+            if email_owner is not None and email_owner.id != PUBLIC_DEMO_USER_ID:
+                raise RuntimeError(
+                    "The configured Public Demo email is owned by a different account."
+                )
             if stored is None:
-                raise RuntimeError("Public Demo account disappeared during synchronization.")
+                stored = UserRecord(
+                    id=PUBLIC_DEMO_USER_ID,
+                    email=PUBLIC_DEMO_EMAIL,
+                    display_name=PUBLIC_DEMO_DISPLAY_NAME,
+                    password_hash=self.auth_service.passwords.hash(PUBLIC_DEMO_PASSWORD),
+                    role="user",
+                    is_active=True,
+                )
+                session.add(stored)
+                session.commit()
+                session.refresh(stored)
+                return stored
+
+            password_valid = False
+            try:
+                password_valid = bool(
+                    self.auth_service.passwords.verify(
+                        stored.password_hash,
+                        PUBLIC_DEMO_PASSWORD,
+                    )
+                )
+            except VerificationError:
+                password_valid = False
+
             stored.email = PUBLIC_DEMO_EMAIL
             stored.display_name = PUBLIC_DEMO_DISPLAY_NAME
             stored.role = "user"
