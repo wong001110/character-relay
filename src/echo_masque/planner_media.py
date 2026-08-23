@@ -16,6 +16,7 @@ from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.content_resolver import ResolvedContentSource, resolve_static_url
 from echo_masque.live_media import DiscordAttachment, LiveMediaContext
 from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
+from echo_masque.media_attention import visible_embed_preview_for_url
 from echo_masque.media_dependency import resolve_media_dependency
 from echo_masque.media_runtime import MediaUnderstandingProvider, MediaUnderstandingService
 
@@ -102,19 +103,12 @@ class PlannerMediaDescriptorService:
         url: str,
         index: int,
     ) -> PlannerMediaDescriptor:
-        matching = next(
-            (
-                item
-                for item in payload.embeds
-                if item.url.strip() == url.strip() or (item.title or item.description)
-            ),
-            None,
-        )
+        matching = visible_embed_preview_for_url(payload, url)
         title = matching.title.strip() if matching is not None else ""
         description = matching.description.strip() if matching is not None else ""
         provider = matching.provider_name.strip() if matching is not None else ""
         return PlannerMediaDescriptor(
-            ref=f"url:{index}",
+            ref=f"message:{payload.message_id}:url:{index}",
             kind="link",
             state="preview_only" if title or description or provider else "unresolved",
             label=provider,
@@ -166,14 +160,17 @@ class PlannerMediaDescriptorService:
     async def resolve(self, payload: DiscordInboundMessage) -> PlannerMediaResult:
         attachments = await self.media._discord_attachments(payload)
         urls = self.media._extract_urls(payload.text)
-        burst_ids = [item for item in payload.burst_media_message_ids[:2] if item.strip()]
+        burst_ids = [item for item in payload.burst_media_message_ids[:3] if item.strip()]
         has_media = bool(attachments or urls or payload.embeds or burst_ids)
         dependency = resolve_media_dependency(text=payload.text, has_media=has_media)
         descriptors: list[PlannerMediaDescriptor] = []
         needs_objective_subject = not payload.text.strip() or dependency.dependency == "required"
 
-        for index, attachment in enumerate(attachments[:2], start=1):
+        for index, attachment in enumerate(attachments, start=1):
+            if len(descriptors) >= 6:
+                break
             media_type = self.media._media_type(attachment.content_type, attachment.filename)
+            ref = f"message:{payload.message_id}:attachment:{index}"
             if media_type in {"image", "video"} and needs_objective_subject:
                 context = await self._utility_attachment_context(
                     attachment=attachment,
@@ -181,7 +178,7 @@ class PlannerMediaDescriptorService:
                 )
                 if context is not None:
                     descriptors.append(
-                        self._from_context(ref=f"attachment:{index}", context=context)
+                        self._from_context(ref=ref, context=context)
                     )
                     continue
             kind: PlannerMediaKind = cast(
@@ -191,7 +188,7 @@ class PlannerMediaDescriptorService:
             label = attachment.filename.strip()
             descriptors.append(
                 PlannerMediaDescriptor(
-                    ref=f"attachment:{index}",
+                    ref=ref,
                     kind=kind,
                     state="preview_only",
                     label=label,
@@ -202,6 +199,8 @@ class PlannerMediaDescriptorService:
             )
 
         for source_message_id in burst_ids:
+            if len(descriptors) >= 6:
+                break
             source_payload = payload.model_copy(
                 update={
                     "message_id": source_message_id,
@@ -212,7 +211,9 @@ class PlannerMediaDescriptorService:
                 }
             )
             source_attachments = await self.media._discord_attachments(source_payload)
-            for attachment in source_attachments[:1]:
+            for index, attachment in enumerate(source_attachments, start=1):
+                if len(descriptors) >= 6:
+                    break
                 media_type = self.media._media_type(attachment.content_type, attachment.filename)
                 if media_type not in {"image", "video"}:
                     continue
@@ -223,12 +224,26 @@ class PlannerMediaDescriptorService:
                 if context is not None:
                     descriptors.append(
                         self._from_context(
-                            ref=f"burst:{source_message_id}",
+                            ref=f"message:{source_message_id}:attachment:{index}",
                             context=context,
                         )
                     )
+                    continue
+                descriptors.append(
+                    PlannerMediaDescriptor(
+                        ref=f"message:{source_message_id}:attachment:{index}",
+                        kind=cast(PlannerMediaKind, media_type),
+                        state="preview_only",
+                        label=attachment.filename.strip(),
+                        subject=attachment.filename.strip(),
+                        source_key=attachment.source_key,
+                        source_url=attachment.url,
+                    )
+                )
 
         for index, raw_url in enumerate(urls[:3], start=1):
+            if len(descriptors) >= 6:
+                break
             preview = self._preview_for_url(payload, raw_url, index)
             try:
                 source = resolve_static_url(raw_url)
@@ -252,7 +267,7 @@ class PlannerMediaDescriptorService:
             if resolved_context is not None:
                 descriptors.append(
                     self._from_context(
-                        ref=f"url:{index}",
+                        ref=f"message:{payload.message_id}:url:{index}",
                         context=resolved_context,
                         source_url=source.canonical_url,
                     )

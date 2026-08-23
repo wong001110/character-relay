@@ -108,6 +108,8 @@ export interface DiscordParticipationBurstMessage {
   text: string;
   created_at: string;
   reply_to_message_id: string;
+  reply_to_author_id?: string;
+  reply_to_author_display_name?: string;
 }
 
 export interface DiscordSmartParticipationCandidatePreflight {
@@ -154,7 +156,10 @@ export interface DiscordSmartParticipationScoreRequest {
   thread_id?: string;
   message_id?: string;
   author_id?: string;
+  author_display_name?: string;
   reply_to_message_id?: string;
+  reply_to_author_id?: string;
+  reply_to_author_display_name?: string;
   burst_id?: string;
   burst_messages?: DiscordParticipationBurstMessage[];
   minimum_margin?: number;

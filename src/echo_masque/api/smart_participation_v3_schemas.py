@@ -18,6 +18,8 @@ class SmartParticipationBurstMessage(BaseModel):
     text: str = Field(default="", max_length=4_000)
     created_at: str = Field(default="", max_length=80)
     reply_to_message_id: str = Field(default="", max_length=200)
+    reply_to_author_id: str = Field(default="", max_length=200)
+    reply_to_author_display_name: str = Field(default="", max_length=200)
 
 
 class SmartParticipationMediaDescriptor(BaseModel):
@@ -52,7 +54,10 @@ class SmartParticipationResolveRequest(BaseModel):
     thread_id: str = Field(default="", max_length=128)
     message_id: str = Field(default="", max_length=200)
     author_id: str = Field(default="", max_length=200)
+    author_display_name: str = Field(default="", max_length=200)
     reply_to_message_id: str = Field(default="", max_length=200)
+    reply_to_author_id: str = Field(default="", max_length=200)
+    reply_to_author_display_name: str = Field(default="", max_length=200)
     message: str = Field(default="", max_length=4_000)
     burst_id: str = Field(default="", max_length=80)
     burst_messages: list[SmartParticipationBurstMessage] = Field(

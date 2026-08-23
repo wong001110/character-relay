@@ -4,7 +4,13 @@ from echo_masque.api.connector_schemas import (
     DiscordEmbedContent,
     DiscordInboundMessage,
 )
-from echo_masque.media_attention import CharacterMediaAttentionDecider, media_preview_lines
+from echo_masque.media_attention import (
+    CharacterMediaAttentionDecider,
+    has_complete_visible_embed_preview,
+    has_visible_embed_preview,
+    media_preview_lines,
+    visible_embed_preview_for_url,
+)
 from echo_masque.provider_trace_classification import provider_trace_category
 from echo_masque.providers import ChatMessage, ProviderCompletion
 from echo_masque.targets import PromptModelConfig, PromptModelTarget
@@ -58,6 +64,43 @@ def test_media_preview_includes_discord_visible_embed_before_watching() -> None:
 
     assert any("Cherry Studio V2" in line for line in preview)
     assert any("bilibili" in line.casefold() for line in preview)
+    assert has_visible_embed_preview(payload()) is True
+    assert has_complete_visible_embed_preview(payload()) is True
+
+
+def test_preview_coverage_requires_each_shared_url() -> None:
+    value = payload().model_copy(
+        update={"text": f"{payload().text} https://example.test/unpreviewed"}
+    )
+
+    assert has_complete_visible_embed_preview(value) is False
+
+
+def test_embed_preview_matching_does_not_reuse_one_card_for_another_url() -> None:
+    value = payload().model_copy(
+        update={"text": f"{payload().text} https://example.test/unpreviewed"}
+    )
+
+    assert visible_embed_preview_for_url(value, payload().text.split()[-1]) is not None
+    assert visible_embed_preview_for_url(value, "https://example.test/unpreviewed") is None
+
+
+def test_x_preview_accepts_fxtwitter_embed_for_the_same_status() -> None:
+    value = payload().model_copy(
+        update={
+            "text": "https://x.com/gwenbina/status/2091052290190827983",
+            "embeds": [
+                payload().embeds[0].model_copy(
+                    update={
+                        "url": "https://fxtwitter.com/gwenbina/status/2091052290190827983",
+                        "provider_name": "FxTwitter",
+                    }
+                )
+            ],
+        }
+    )
+
+    assert has_complete_visible_embed_preview(value) is True
 
 
 def test_attention_decision_uses_persona_without_mutating_character_history() -> None:

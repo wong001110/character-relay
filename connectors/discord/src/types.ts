@@ -288,6 +288,7 @@ export interface DiscordInboundMessage {
   smart_candidate: boolean;
   author_is_bot: boolean;
   stickers: DiscordStickerContent[];
+  media_descriptors?: DiscordPlannerMediaDescriptor[];
   burst_media_message_ids?: string[];
   conversation_burst_id?: string;
   burst_source_message_ids?: string[];
@@ -307,6 +308,17 @@ export interface DiscordInboundMessage {
   expression_candidates: DiscordExpressionCandidate[];
   runtime_operation_id?: string;
   runtime_step_id?: string;
+}
+
+export interface DiscordPlannerMediaDescriptor {
+  ref: string;
+  kind: "image" | "video" | "article" | "link" | "file";
+  state: "resolved" | "preview_only" | "unresolved";
+  label: string;
+  subject: string;
+  summary: string;
+  source_key: string;
+  source_url: string;
 }
 
 export type DiscordSocialTurnOrigin = "selected" | "invite" | "mention";

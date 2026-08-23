@@ -25,11 +25,13 @@ interface Props {
   targets: TargetView[];
   deployments: CharacterDeployment[];
   selectedCard: CharacterCard | null;
+  selectedFileSection?: FileSection;
   error: string | null;
   demoMode?: boolean;
   onCreate: () => void;
   onOpenFile: (card: CharacterCard) => void;
   onCloseFile: () => void;
+  onFileSectionChange?: (section: FileSection) => void;
   onEdit: (card: CharacterCard) => void;
   onPrompt: (card: CharacterCard) => void;
   onEnter: (card: CharacterCard) => void;
@@ -37,7 +39,7 @@ interface Props {
 }
 
 type ArchiveFilter = "all" | "deployed" | "not-deployed" | "needs-setup";
-type FileSection = "profile" | "persona" | "prompt" | "memory" | "runtime" | "deployments";
+export type FileSection = "profile" | "persona" | "prompt" | "memory" | "runtime" | "deployments";
 
 const PAGE_SIZE = 9;
 
@@ -107,11 +109,13 @@ export function CharacterShelf({
   targets,
   deployments,
   selectedCard,
+  selectedFileSection,
   error,
   demoMode = false,
   onCreate,
   onOpenFile,
   onCloseFile,
+  onFileSectionChange,
   onEdit,
   onPrompt,
   onEnter,
@@ -122,7 +126,8 @@ export function CharacterShelf({
   const [query, setQuery] = useState("");
   const [archiveFilter, setArchiveFilter] = useState<ArchiveFilter>("all");
   const [page, setPage] = useState(1);
-  const [fileSection, setFileSection] = useState<FileSection>("profile");
+  const [localFileSection, setLocalFileSection] = useState<FileSection>("profile");
+  const fileSection = selectedFileSection ?? localFileSection;
   const [semanticCard, setSemanticCard] = useState<CharacterCard | null>(null);
   const [portraitVersions, setPortraitVersions] = useState<Record<string, number>>({});
   const [portraitWorking, setPortraitWorking] = useState<string | null>(null);
@@ -198,7 +203,7 @@ export function CharacterShelf({
   }, [page, pageCount]);
 
   useEffect(() => {
-    setFileSection("profile");
+    if (selectedFileSection === undefined) setLocalFileSection("profile");
     setCredentialStatus(null);
     setCredentialError(null);
     if (!selectedCard) return;
@@ -214,7 +219,12 @@ export function CharacterShelf({
     return () => {
       current = false;
     };
-  }, [selectedCard?.id]);
+  }, [selectedCard?.id, selectedFileSection]);
+
+  function selectFileSection(next: FileSection) {
+    if (onFileSectionChange) onFileSectionChange(next);
+    else setLocalFileSection(next);
+  }
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
@@ -384,7 +394,7 @@ export function CharacterShelf({
         {portraitMessage && <Toast tone="success" title={zh ? "角色图片已更新" : "Portrait updated"}>{portraitMessage}</Toast>}
         <div className="character-file-page-layout">
           <aside className="character-file-index">
-            <PageFlagGroup orientation="vertical" label={zh ? "角色档案索引" : "Character file index"}>{fileSections.map((section) => <PageFlag key={section.id} tone={section.tone} active={fileSection === section.id} onClick={() => setFileSection(section.id)}><FunctionalIcon name={section.icon} size={18} /><span className="cr-page-flag__label">{zh ? section.zh : section.en}</span></PageFlag>)}</PageFlagGroup>
+            <PageFlagGroup orientation="vertical" label={zh ? "角色档案索引" : "Character file index"}>{fileSections.map((section) => <PageFlag key={section.id} tone={section.tone} active={fileSection === section.id} onClick={() => selectFileSection(section.id)}><FunctionalIcon name={section.icon} size={18} /><span className="cr-page-flag__label">{zh ? section.zh : section.en}</span></PageFlag>)}</PageFlagGroup>
             <span className="character-file-index-mark" aria-hidden="true">♡</span>
           </aside>
           <article className="character-file-paper">{renderFilePage(selectedCard)}</article>

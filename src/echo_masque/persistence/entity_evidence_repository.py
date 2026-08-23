@@ -8,9 +8,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 
+from echo_masque.pagination import (
+    decode_ranked_time_cursor,
+    decode_time_cursor,
+    encode_ranked_time_cursor,
+    encode_time_cursor,
+)
 from echo_masque.persistence.belief_repository import invalidate_evidence_edge_dependencies
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.entity_evidence_models import (
@@ -192,9 +198,7 @@ class EntityEvidenceRepository:
             records = list(session.scalars(statement))
         for record in records:
             names = {record.normalized_name}
-            names.update(
-                normalize_entity_name(item) for item in _list(record.aliases_json)
-            )
+            names.update(normalize_entity_name(item) for item in _list(record.aliases_json))
             if needle in names:
                 return self.entity_view(record)
         return None
@@ -370,6 +374,48 @@ class EntityEvidenceRepository:
                 )
             )
         return tuple(self.entity_view(record) for record in records)
+
+    def recent_entities_page(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> tuple[tuple[EntityV3View, ...], str | None]:
+        bounded_limit = max(1, min(limit, 200))
+        with self.database.session() as session:
+            query = select(EntityV3Record).where(
+                EntityV3Record.owner_id == owner_id,
+                EntityV3Record.connection_id == connection_id,
+                EntityV3Record.guild_id == guild_id,
+                EntityV3Record.status.not_in(("rejected", "merged")),
+            )
+            if cursor:
+                updated_at, identifier = decode_time_cursor(cursor)
+                query = query.where(
+                    or_(
+                        EntityV3Record.updated_at < updated_at,
+                        and_(
+                            EntityV3Record.updated_at == updated_at,
+                            EntityV3Record.id < identifier,
+                        ),
+                    )
+                )
+            records = list(
+                session.scalars(
+                    query.order_by(
+                        EntityV3Record.updated_at.desc(), EntityV3Record.id.desc()
+                    ).limit(bounded_limit + 1)
+                )
+            )
+        has_more = len(records) > bounded_limit
+        items = records[:bounded_limit]
+        next_cursor = (
+            encode_time_cursor(items[-1].updated_at, items[-1].id) if has_more and items else None
+        )
+        return tuple(self.entity_view(record) for record in items), next_cursor
 
     def add_edge(
         self,
@@ -621,9 +667,7 @@ class EntityEvidenceRepository:
         now: datetime | None = None,
     ) -> KnowledgeGapView:
         current = now or datetime.now(UTC)
-        normalized_missing = tuple(
-            dict.fromkeys(item for item in missing_fields if item)
-        )
+        normalized_missing = tuple(dict.fromkeys(item for item in missing_fields if item))
         if not normalized_missing:
             raise ValueError("Knowledge Gap requires at least one missing field.")
         with self.database.session() as session:
@@ -642,9 +686,7 @@ class EntityEvidenceRepository:
                         KnowledgeGapRecord.connection_id == connection_id,
                         KnowledgeGapRecord.guild_id == guild_id,
                         KnowledgeGapRecord.entity_id == entity_id,
-                        KnowledgeGapRecord.resolution_state.in_(
-                            ("unresolved", "searching")
-                        ),
+                        KnowledgeGapRecord.resolution_state.in_(("unresolved", "searching")),
                     )
                 )
             )
@@ -695,9 +737,7 @@ class EntityEvidenceRepository:
                         KnowledgeGapRecord.owner_id == owner_id,
                         KnowledgeGapRecord.connection_id == connection_id,
                         KnowledgeGapRecord.guild_id == guild_id,
-                        KnowledgeGapRecord.resolution_state.in_(
-                            ("unresolved", "searching")
-                        ),
+                        KnowledgeGapRecord.resolution_state.in_(("unresolved", "searching")),
                         KnowledgeGapRecord.importance >= minimum_importance,
                     )
                     .order_by(
@@ -708,6 +748,59 @@ class EntityEvidenceRepository:
                 )
             )
         return tuple(self.gap_view(record) for record in records)
+
+    def unresolved_gaps_page(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        minimum_importance: float = 0.0,
+        limit: int = 40,
+        cursor: str | None = None,
+    ) -> tuple[tuple[KnowledgeGapView, ...], str | None]:
+        bounded_limit = max(1, min(limit, 200))
+        with self.database.session() as session:
+            query = select(KnowledgeGapRecord).where(
+                KnowledgeGapRecord.owner_id == owner_id,
+                KnowledgeGapRecord.connection_id == connection_id,
+                KnowledgeGapRecord.guild_id == guild_id,
+                KnowledgeGapRecord.resolution_state.in_(("unresolved", "searching")),
+                KnowledgeGapRecord.importance >= minimum_importance,
+            )
+            if cursor:
+                importance, updated_at, identifier = decode_ranked_time_cursor(cursor)
+                query = query.where(
+                    or_(
+                        KnowledgeGapRecord.importance < importance,
+                        and_(
+                            KnowledgeGapRecord.importance == importance,
+                            KnowledgeGapRecord.updated_at < updated_at,
+                        ),
+                        and_(
+                            KnowledgeGapRecord.importance == importance,
+                            KnowledgeGapRecord.updated_at == updated_at,
+                            KnowledgeGapRecord.id < identifier,
+                        ),
+                    )
+                )
+            records = list(
+                session.scalars(
+                    query.order_by(
+                        KnowledgeGapRecord.importance.desc(),
+                        KnowledgeGapRecord.updated_at.desc(),
+                        KnowledgeGapRecord.id.desc(),
+                    ).limit(bounded_limit + 1)
+                )
+            )
+        has_more = len(records) > bounded_limit
+        items = records[:bounded_limit]
+        next_cursor = (
+            encode_ranked_time_cursor(items[-1].importance, items[-1].updated_at, items[-1].id)
+            if has_more and items
+            else None
+        )
+        return tuple(self.gap_view(record) for record in items), next_cursor
 
     def gap_for_scope(
         self,

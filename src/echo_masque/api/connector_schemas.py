@@ -11,6 +11,7 @@ from echo_masque.api.expression_schemas import (
     ExpressionContent,
     ExpressionDecision,
 )
+from echo_masque.api.smart_participation_v3_schemas import SmartParticipationMediaDescriptor
 from echo_masque.character_turn_context_types import CharacterContextTraceView
 from echo_masque.config import LangGraphMode
 from echo_masque.smart_output import (
@@ -335,6 +336,11 @@ class DiscordInboundMessage(BaseModel):
     stickers: list[DiscordStickerContent] = Field(default_factory=list, max_length=3)
     attachments: list[DiscordAttachmentContent] = Field(default_factory=list, max_length=10)
     embeds: list[DiscordEmbedContent] = Field(default_factory=list, max_length=10)
+    # Planner descriptors are opaque routing/provenance evidence. They never establish
+    # Character perception; Runtime media understanding remains the authority for that.
+    media_descriptors: list[SmartParticipationMediaDescriptor] = Field(
+        default_factory=list, max_length=6
+    )
     burst_media_message_ids: list[str] = Field(default_factory=list, max_length=3)
     conversation_burst_id: str = Field(default="", max_length=80)
     burst_source_message_ids: list[str] = Field(default_factory=list, max_length=20)

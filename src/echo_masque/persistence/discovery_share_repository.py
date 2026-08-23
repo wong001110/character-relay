@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
+from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.discovery_share_models import (
@@ -164,6 +165,46 @@ class DiscoveryShareRepository:
                 )
             )
 
+    def list_for_deployment_page(
+        self,
+        *,
+        owner_id: str,
+        deployment_id: str,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> tuple[tuple[DeploymentDiscoveryShareRecord, ...], str | None]:
+        bounded_limit = max(1, min(limit, 500))
+        with self.database.session() as session:
+            query = select(DeploymentDiscoveryShareRecord).where(
+                DeploymentDiscoveryShareRecord.owner_id == owner_id,
+                DeploymentDiscoveryShareRecord.deployment_id == deployment_id,
+            )
+            if cursor:
+                created_at, identifier = decode_time_cursor(cursor)
+                query = query.where(
+                    or_(
+                        DeploymentDiscoveryShareRecord.created_at < created_at,
+                        and_(
+                            DeploymentDiscoveryShareRecord.created_at == created_at,
+                            DeploymentDiscoveryShareRecord.id < identifier,
+                        ),
+                    )
+                )
+            records = list(
+                session.scalars(
+                    query.order_by(
+                        DeploymentDiscoveryShareRecord.created_at.desc(),
+                        DeploymentDiscoveryShareRecord.id.desc(),
+                    ).limit(bounded_limit + 1)
+                )
+            )
+        has_more = len(records) > bounded_limit
+        items = records[:bounded_limit]
+        next_cursor = (
+            encode_time_cursor(items[-1].created_at, items[-1].id) if has_more and items else None
+        )
+        return tuple(items), next_cursor
+
     def approve(
         self, *, owner_id: str, share_id: str, now: datetime | None = None
     ) -> DeploymentDiscoveryShareRecord | None:
@@ -311,15 +352,15 @@ class DiscoveryShareRepository:
                 .where(
                     DeploymentDiscoveryShareRecord.owner_id == owner_id,
                     DeploymentDiscoveryShareRecord.deployment_id == deployment_id,
-                    DeploymentDiscoveryShareRecord.status.in_(("queued", "delivering", "delivered")),
+                    DeploymentDiscoveryShareRecord.status.in_(
+                        ("queued", "delivering", "delivered")
+                    ),
                     DeploymentDiscoveryShareRecord.created_at >= since,
                 )
             )
             return int(value or 0)
 
-    def latest_delivery_time(
-        self, *, owner_id: str, deployment_id: str
-    ) -> datetime | None:
+    def latest_delivery_time(self, *, owner_id: str, deployment_id: str) -> datetime | None:
         with self.database.session() as session:
             return session.scalar(
                 select(func.max(DeploymentDiscoveryShareRecord.delivered_at)).where(

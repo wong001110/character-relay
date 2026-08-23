@@ -361,16 +361,25 @@ def list_browsing_sessions(
     request: Request,
     user: CurrentUserDependency,
     limit: int = Query(default=50, ge=1, le=200),
+    cursor: str | None = Query(default=None, max_length=1000),
 ) -> DeploymentActivitySessionListView:
     profile = repository(request).get_profile(owner_id=user.id, deployment_id=deployment_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Deployment not found.")
-    rows = activity_repository(request).list_for_deployment(
-        owner_id=user.id,
-        deployment_id=deployment_id,
-        limit=limit,
+    try:
+        rows, next_cursor = activity_repository(request).list_for_deployment_page(
+            owner_id=user.id,
+            deployment_id=deployment_id,
+            limit=limit,
+            cursor=cursor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return DeploymentActivitySessionListView(
+        items=[_activity(row) for row in rows],
+        next_cursor=next_cursor,
+        has_more=next_cursor is not None,
     )
-    return DeploymentActivitySessionListView(items=[_activity(row) for row in rows])
 
 
 @router.get(
@@ -398,11 +407,20 @@ def list_discovery_exposures(
     request: Request,
     user: CurrentUserDependency,
     limit: int = Query(default=100, ge=1, le=500),
+    cursor: str | None = Query(default=None, max_length=1000),
 ) -> DeploymentDiscoveryExposureListView:
     repo = repository(request)
     if repo.get_profile(owner_id=user.id, deployment_id=deployment_id) is None:
         raise HTTPException(status_code=404, detail="Deployment not found.")
-    rows = repo.list_exposures(owner_id=user.id, deployment_id=deployment_id, limit=limit)
+    try:
+        rows, next_cursor = repo.list_exposures_page(
+            owner_id=user.id,
+            deployment_id=deployment_id,
+            limit=limit,
+            cursor=cursor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     items: list[DeploymentDiscoveryExposureView] = []
     with request.app.state.database.session() as session:
         for row in rows:
@@ -422,7 +440,11 @@ def list_discovery_exposures(
                     last_exposed_at=row.last_exposed_at,
                 )
             )
-    return DeploymentDiscoveryExposureListView(items=items)
+    return DeploymentDiscoveryExposureListView(
+        items=items,
+        next_cursor=next_cursor,
+        has_more=next_cursor is not None,
+    )
 
 
 @router.get(
@@ -434,11 +456,20 @@ def list_discovery_decisions(
     request: Request,
     user: CurrentUserDependency,
     limit: int = Query(default=100, ge=1, le=500),
+    cursor: str | None = Query(default=None, max_length=1000),
 ) -> DeploymentDiscoveryDecisionListView:
     repo = repository(request)
     if repo.get_profile(owner_id=user.id, deployment_id=deployment_id) is None:
         raise HTTPException(status_code=404, detail="Deployment not found.")
-    rows = repo.list_decisions(owner_id=user.id, deployment_id=deployment_id, limit=limit)
+    try:
+        rows, next_cursor = repo.list_decisions_page(
+            owner_id=user.id,
+            deployment_id=deployment_id,
+            limit=limit,
+            cursor=cursor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     items: list[DeploymentDiscoveryDecisionView] = []
     with request.app.state.database.session() as session:
         for row in rows:
@@ -459,7 +490,11 @@ def list_discovery_decisions(
                     created_at=row.created_at,
                 )
             )
-    return DeploymentDiscoveryDecisionListView(items=items)
+    return DeploymentDiscoveryDecisionListView(
+        items=items,
+        next_cursor=next_cursor,
+        has_more=next_cursor is not None,
+    )
 
 
 @router.get(
@@ -471,19 +506,29 @@ def list_discovery_shares(
     request: Request,
     user: CurrentUserDependency,
     limit: int = Query(default=100, ge=1, le=500),
+    cursor: str | None = Query(default=None, max_length=1000),
 ) -> DeploymentDiscoveryShareListView:
     if repository(request).get_profile(owner_id=user.id, deployment_id=deployment_id) is None:
         raise HTTPException(status_code=404, detail="Deployment not found.")
+    try:
+        rows, next_cursor = share_repository(request).list_for_deployment_page(
+            owner_id=user.id,
+            deployment_id=deployment_id,
+            limit=limit,
+            cursor=cursor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     values = []
-    for row in share_repository(request).list_for_deployment(
-        owner_id=user.id,
-        deployment_id=deployment_id,
-        limit=limit,
-    ):
+    for row in rows:
         view = _share_view(request, row)
         if view is not None:
             values.append(view)
-    return DeploymentDiscoveryShareListView(items=values)
+    return DeploymentDiscoveryShareListView(
+        items=values,
+        next_cursor=next_cursor,
+        has_more=next_cursor is not None,
+    )
 
 
 @router.post(

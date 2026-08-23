@@ -159,6 +159,12 @@ def run_smoke(base_url: str, *, require_storage: bool = False) -> None:
     _, content_type = request_text(base_url, "/")
     if content_type != "text/html":
         raise RuntimeError(f"Root did not serve the web client: {content_type}")
+    for portal_path in ["/characters", "/deployments", "/toolbox", "/settings", "/dev/ui"]:
+        _, portal_content_type = request_text(base_url, portal_path)
+        if portal_content_type != "text/html":
+            raise RuntimeError(
+                f"Portal deep link {portal_path} did not serve HTML: {portal_content_type}"
+            )
 
     targets = request_json(base_url, "/api/targets")
     target_ids = {item.get("id") for item in targets}

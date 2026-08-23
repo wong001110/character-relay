@@ -17,7 +17,13 @@ from echo_masque.current_turn_belief_v3 import (
     CurrentTurnBeliefRevisionService,
     CurrentTurnClaimExtraction,
 )
+from echo_masque.deployment_discovery_service import (
+    DeploymentDiscoveryPreviewService,
+    DeploymentDiscoveryUnavailable,
+)
 from echo_masque.domain import TargetResponse
+from echo_masque.entity_grounding_v3 import EntityGroundingService
+from echo_masque.knowledge_gap_discovery_v3 import KnowledgeGapDiscoveryService
 from echo_masque.orchestration import CharacterTurnGraphRunner
 from echo_masque.persistence import Database, DeploymentRepository, KnowledgeRepository, Repository
 from echo_masque.persistence.belief_repository import BeliefRepository
@@ -27,7 +33,10 @@ from echo_masque.persistence.conversation_structure_repository import (
     ConversationStructureRepository,
 )
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
-from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository
+from echo_masque.persistence.entity_evidence_repository import (
+    EntityEvidenceRepository,
+    KnowledgeGapView,
+)
 from echo_masque.persistence.models import CharacterCardRecord, TargetRecord
 from echo_masque.persistence.server_knowledge_v3_repository import ServerWikiV3Repository
 from echo_masque.persistence.smart_participation_state_models import (
@@ -100,6 +109,8 @@ def _service(
     structure_resolver: object | None = None,
     runtime_coordinator: object | None = None,
     corrections: object | None = None,
+    entity_grounding: EntityGroundingService | None = None,
+    knowledge_gap_discovery: KnowledgeGapDiscoveryService | None = None,
 ) -> CharacterTurnContextV3Service:
     structure = ConversationStructureRepository(database)
     runtime = ConversationRuntimeRepository(database)
@@ -123,6 +134,8 @@ def _service(
             CurrentTurnBeliefRevisionService,
             corrections or CurrentTurnBeliefRevisionService(repository=BeliefRepository(database)),
         ),
+        entity_grounding=entity_grounding,
+        knowledge_gap_discovery=knowledge_gap_discovery,
     )
 
 
@@ -403,3 +416,177 @@ def test_context_failure_routes_graph_silently_without_provider_call(tmp_path: P
     assert result.state["outcome"] == "silent"
     assert result.state["context_status"] == "failed"
     assert provider_called is False
+
+
+def _entity_segment() -> ConversationSegmentView:
+    return ConversationSegmentView(
+        id="segment-entity",
+        burst_id="burst-entity",
+        message_ids=("message-1",),
+        participant_ids=("user-1",),
+        kind="discussion",
+        summary="Entity question",
+        thread_id="",
+        membership_relation="unresolved",
+        membership_confidence=1.0,
+        confidence=1.0,
+        source="test",
+        created_at=datetime.now(UTC),
+    )
+
+
+def test_entity_runtime_does_not_promote_arbitrary_message_tokens(tmp_path: Path) -> None:
+    database = Database(f"sqlite:///{tmp_path / 'no-arbitrary-entity.db'}")
+    database.initialize()
+    entities = EntityEvidenceRepository(database)
+    service = _service(database, entity_grounding=EntityGroundingService(entities))
+    resolved = _resolved()
+    resolved.payload = resolved.payload.model_copy(update={"text": "Who is CompletelyUnknownName?"})
+
+    service._ground_existing_entity_references(
+        resolved=resolved,
+        segment=_entity_segment(),
+    )
+
+    assert (
+        entities.recent_entities(
+            owner_id="owner-1", connection_id="connection-1", guild_id="guild-1"
+        )
+        == ()
+    )
+
+
+def test_entity_runtime_reuses_only_same_scope_provisional_entity_and_gap_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite:///{tmp_path / 'entity-runtime-scope.db'}")
+    database.initialize()
+    entities = EntityEvidenceRepository(database)
+    local = entities.ensure_entity(
+        owner_id="owner-1",
+        connection_id="connection-1",
+        guild_id="guild-1",
+        name="Pilot",
+        entity_type="person",
+        source_refs=("message:earlier",),
+    )
+    entities.ensure_entity(
+        owner_id="owner-1",
+        connection_id="connection-1",
+        guild_id="guild-2",
+        name="Pilot",
+        entity_type="person",
+        source_refs=("message:other-server",),
+    )
+    service = _service(database, entity_grounding=EntityGroundingService(entities))
+    resolved = _resolved()
+    resolved.payload = resolved.payload.model_copy(update={"text": "Who is Pilot?"})
+
+    service._ground_existing_entity_references(resolved=resolved, segment=_entity_segment())
+    service._ground_existing_entity_references(resolved=resolved, segment=_entity_segment())
+
+    local_gaps = entities.unresolved_gaps(
+        owner_id="owner-1", connection_id="connection-1", guild_id="guild-1"
+    )
+    assert len(local_gaps) == 1
+    assert local_gaps[0].entity_id == local.id
+    assert local_gaps[0].missing_fields == ("identity",)
+    assert local_gaps[0].importance == 0.75
+    assert (
+        entities.unresolved_gaps(
+            owner_id="owner-1", connection_id="connection-1", guild_id="guild-2"
+        )
+        == ()
+    )
+
+
+class _CandidatesReadyDiscovery:
+    async def run_knowledge_gap(self, **_: object) -> object:
+        return SimpleNamespace(ranked=())
+
+
+class _UnavailableDiscovery:
+    async def run_knowledge_gap(self, **_: object) -> object:
+        raise DeploymentDiscoveryUnavailable("no configured source")
+
+
+def _gap_service(
+    database: Database,
+    discovery: object,
+) -> tuple[EntityEvidenceRepository, KnowledgeGapDiscoveryService, KnowledgeGapView]:
+    entities = EntityEvidenceRepository(database)
+    entity = entities.ensure_entity(
+        owner_id="owner-1",
+        connection_id="connection-1",
+        guild_id="guild-1",
+        name="Pilot",
+        entity_type="person",
+        source_refs=("message:seed",),
+    )
+    gap = entities.create_gap(
+        owner_id="owner-1",
+        connection_id="connection-1",
+        guild_id="guild-1",
+        entity_id=entity.id,
+        missing_fields=("identity",),
+        triggered_by_ref="message:seed",
+        importance=0.75,
+    )
+    return (
+        entities,
+        KnowledgeGapDiscoveryService(
+            entities=entities,
+            discovery=cast(DeploymentDiscoveryPreviewService, discovery),
+        ),
+        gap,
+    )
+
+
+def test_knowledge_gap_candidates_remain_unresolved_until_evidence_acceptance(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite:///{tmp_path / 'gap-candidates.db'}")
+    database.initialize()
+    entities, service, gap = _gap_service(database, _CandidatesReadyDiscovery())
+
+    result = asyncio.run(
+        service.search(
+            owner_id="owner-1",
+            deployment_id="deployment-1",
+            connection_id="connection-1",
+            guild_id="guild-1",
+            gap=gap,
+        )
+    )
+
+    assert result.status == "candidates_ready"
+    assert result.gap.resolution_state == "searching"
+    assert (
+        entities.gap_for_scope(
+            owner_id="owner-1",
+            connection_id="connection-1",
+            guild_id="guild-1",
+            gap_id=gap.id,
+        ).resolution_state
+        == "searching"
+    )
+
+
+def test_unavailable_knowledge_gap_discovery_reopens_unresolved(tmp_path: Path) -> None:
+    database = Database(f"sqlite:///{tmp_path / 'gap-unavailable.db'}")
+    database.initialize()
+    _entities, service, gap = _gap_service(database, _UnavailableDiscovery())
+
+    result = asyncio.run(
+        service.search(
+            owner_id="owner-1",
+            deployment_id="deployment-1",
+            connection_id="connection-1",
+            guild_id="guild-1",
+            gap=gap,
+        )
+    )
+
+    assert result.status == "unavailable"
+    assert result.gap.resolution_state == "unresolved"
+    assert result.gap.discovery_requested is True

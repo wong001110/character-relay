@@ -1,8 +1,9 @@
 """Discord Connector Runtime extension for shared-content perception.
 
-Visible image attachments remain passively perceived. Links, videos, and other non-visible
-shared content are now inspected through a Runtime-owned Tool only when the Character model
-requests it during the normal Character turn. This avoids a separate Media Attention LLM pass.
+Visible image attachments remain passively perceived. Complete Discord link previews provide
+preview-grounded metadata without exposing a media Tool; links, videos, and other uncovered
+shared content are inspected through a Runtime-owned Tool only when the Character model requests
+it during the normal Character turn. This avoids a separate Media Attention LLM pass.
 """
 
 from __future__ import annotations
@@ -32,7 +33,12 @@ from echo_masque.live_media import (
     media_prompt_guidance,
 )
 from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
-from echo_masque.media_attention import MediaResponseStance, has_shared_content
+from echo_masque.media_attention import (
+    MediaResponseStance,
+    has_complete_visible_embed_preview,
+    has_shared_content,
+    media_preview_lines,
+)
 from echo_masque.media_dependency import resolve_media_dependency
 from echo_masque.providers import ProviderError
 from echo_masque.providers.trace import provider_trace_scope
@@ -49,7 +55,7 @@ class MediaEpistemicSnapshot:
     """Runtime truth for one Character's relationship to shared content in one turn."""
 
     state: MediaEpistemicState
-    attention_action: Literal["passive", "required", "watch", "skip"]
+    attention_action: Literal["passive", "preview", "required", "watch", "skip"]
     attention_reason: str
     response_stance: MediaResponseStance
     stance_reason: str
@@ -107,8 +113,29 @@ def _passive_image_unavailable_guidance(payload: DiscordInboundMessage) -> tuple
     return tuple(lines)
 
 
-def _active_media_choice_guidance() -> tuple[str, ...]:
+def _passive_image_budget_guidance(
+    payload: DiscordInboundMessage,
+    observed_count: int,
+) -> tuple[str, ...]:
+    total = sum(1 for item in payload.attachments if _is_visible_image_attachment(item))
+    if total <= observed_count:
+        return ()
     return (
+        (
+            f"Runtime produced reliable visual observations for {observed_count} of {total} "
+            "visible image attachments in this turn's bounded media budget."
+        ),
+        (
+            "Other image attachments are known only as posted content. Do not infer their visual "
+            "details unless Runtime supplies separate observations later."
+        ),
+    )
+
+
+def _active_media_choice_guidance(
+    payload: DiscordInboundMessage | None = None,
+) -> tuple[str, ...]:
+    lines = [
         "Character media inspection choice:",
         (
             "A shared link/video/other non-visible item is present. You are not required to open "
@@ -124,6 +151,34 @@ def _active_media_choice_guidance() -> tuple[str, ...]:
             "For the current shared media/link, use media_inspect rather than generic web/file "
             "tools when you need the actual content."
         ),
+    ]
+    if payload is not None:
+        previews = media_preview_lines(payload)
+        if previews:
+            lines.extend(("Visible preview metadata (not unseen media facts):", *previews))
+    return tuple(lines)
+
+
+def _visible_embed_preview_guidance(
+    payload: DiscordInboundMessage,
+) -> tuple[str, ...]:
+    """Ground Roleplay in the Discord-visible preview without claiming media perception."""
+
+    previews = media_preview_lines(payload)
+    return (
+        "Character media preview:",
+        (
+            "Runtime truth: actual_media_perception=skipped. Discord supplied a visible link "
+            "preview, so you may use its displayed metadata as conversation context."
+        ),
+        (
+            "The preview does not establish that you opened the linked post or perceived the "
+            "GIF's animation, unseen frames, audio, or page contents. Do not infer those details."
+        ),
+        "Respond from the visible preview and conversation only; no media inspection is needed "
+        "merely because this preview exists.",
+        "Visible preview:",
+        *previews,
     )
 
 
@@ -374,6 +429,8 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         )
         if dependency.dependency != "optional":
             return False
+        if has_complete_visible_embed_preview(active):
+            return False
         return (
             self.tool_registry.tool_id_for_provider_name("media_inspect") == _MEDIA_INSPECT_TOOL_ID
         )
@@ -538,6 +595,10 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
                     prepared,
                     _passive_image_unavailable_guidance(passive_payload),
                 )
+            self._inject_guidance(
+                prepared,
+                _passive_image_budget_guidance(passive_payload, len(current_contexts)),
+            )
 
         if passive_contexts:
             self._inject_guidance(prepared, _passive_image_guidance(passive_contexts))
@@ -614,11 +675,42 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             return
 
         if dependency.dependency == "optional":
-            # Optional inspection remains Character-driven. Planner-only descriptors are never
-            # injected here, so Runtime knowledge does not become Character perception.
-            self._inject_guidance(prepared, _active_media_choice_guidance())
+            # A human-visible Discord Embed is sufficient for ordinary social reactions. Do not
+            # expose media.inspect for that case; explicit content questions remain REQUIRED and
+            # are resolved above before Roleplay generation.
+            if has_complete_visible_embed_preview(active_payload):
+                self._inject_guidance(
+                    prepared,
+                    _visible_embed_preview_guidance(active_payload),
+                )
+            else:
+                # Optional inspection remains Character-driven for links without a usable
+                # preview. Planner-only descriptors are never injected here, so Runtime
+                # knowledge does not become Character perception.
+                self._inject_guidance(
+                    prepared,
+                    _active_media_choice_guidance(active_payload),
+                )
 
-        if passive_payload is not None:
+        if has_complete_visible_embed_preview(active_payload):
+            self._record_epistemic(
+                key,
+                now,
+                MediaEpistemicSnapshot(
+                    state="perceived" if passive_contexts else "skipped",
+                    attention_action="preview",
+                    attention_reason="visible_discord_embed_preview",
+                    response_stance="truthful",
+                    stance_reason=(
+                        "Discord-visible preview metadata is grounded; linked media remains "
+                        "uninspected unless an explicit content request requires it."
+                    ),
+                    context_count=len(passive_contexts),
+                    cache_hits=passive_cache_hits,
+                    media_result_reason="visible_link_preview_only",
+                ),
+            )
+        elif passive_payload is not None:
             self._record_epistemic(
                 key,
                 now,
@@ -719,7 +811,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             return
 
         previous = self._current_epistemic(key)
-        if previous is not None and previous.attention_action == "required":
+        if previous is not None and previous.attention_action in {"preview", "required"}:
             return
         passive_count = previous.context_count if previous is not None else 0
         passive_cache_hits = previous.cache_hits if previous is not None else 0

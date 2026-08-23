@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
+from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_activity_models import (
     DeploymentActivitySessionItemRecord,
@@ -270,6 +271,46 @@ class DeploymentActivityRepository:
                 )
             )
         return tuple(self._view(record) for record in records)
+
+    def list_for_deployment_page(
+        self,
+        *,
+        owner_id: str,
+        deployment_id: str,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> tuple[tuple[DeploymentActivitySessionView, ...], str | None]:
+        bounded_limit = max(1, min(limit, 200))
+        with self.database.session() as session:
+            query = select(DeploymentActivitySessionRecord).where(
+                DeploymentActivitySessionRecord.owner_id == owner_id,
+                DeploymentActivitySessionRecord.deployment_id == deployment_id,
+            )
+            if cursor:
+                created_at, identifier = decode_time_cursor(cursor)
+                query = query.where(
+                    or_(
+                        DeploymentActivitySessionRecord.created_at < created_at,
+                        and_(
+                            DeploymentActivitySessionRecord.created_at == created_at,
+                            DeploymentActivitySessionRecord.id < identifier,
+                        ),
+                    )
+                )
+            records = list(
+                session.scalars(
+                    query.order_by(
+                        DeploymentActivitySessionRecord.created_at.desc(),
+                        DeploymentActivitySessionRecord.id.desc(),
+                    ).limit(bounded_limit + 1)
+                )
+            )
+        has_more = len(records) > bounded_limit
+        items = records[:bounded_limit]
+        next_cursor = (
+            encode_time_cursor(items[-1].created_at, items[-1].id) if has_more and items else None
+        )
+        return tuple(self._view(record) for record in items), next_cursor
 
     def list_due_scheduled(
         self,

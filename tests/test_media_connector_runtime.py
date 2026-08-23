@@ -3,7 +3,11 @@ import json
 from types import SimpleNamespace
 from typing import Any, cast
 
-from echo_masque.api.connector_schemas import DiscordInboundMessage
+from echo_masque.api.connector_schemas import (
+    DiscordAttachmentContent,
+    DiscordEmbedContent,
+    DiscordInboundMessage,
+)
 from echo_masque.live_media import LiveMediaContext, LiveMediaResult
 from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
 from echo_masque.media_tools import MediaToolRegistry
@@ -189,6 +193,29 @@ def link_payload() -> DiscordInboundMessage:
     )
 
 
+def twitter_gif_payload() -> DiscordInboundMessage:
+    return DiscordInboundMessage(
+        connection_id="connection-1",
+        deployment_id="deployment-1",
+        message_id="gif-message-1",
+        guild_id="guild-1",
+        channel_id="channel-1",
+        author_id="user-1",
+        author_display_name="Juen",
+        text="https://x.com/gwenbina/status/2091052290190827983",
+        embeds=[
+            DiscordEmbedContent(
+                embed_type="rich",
+                url="https://x.com/gwenbina/status/2091052290190827983",
+                title="ket (@gwenbina)",
+                description="A GIF shared from X.",
+                provider_name="FxTwitter",
+                author_name="ket (@gwenbina)",
+            )
+        ],
+    )
+
+
 def prepared_turn(target: object) -> SimpleNamespace:
     payload = link_payload()
     return SimpleNamespace(
@@ -215,6 +242,12 @@ def prepared_turn(target: object) -> SimpleNamespace:
     )
 
 
+def prepared_twitter_gif_turn(target: object) -> SimpleNamespace:
+    prepared = prepared_turn(target)
+    prepared.resolved.payload = twitter_gif_payload()
+    return prepared
+
+
 def runtime_for(
     service: FakeLiveMediaService,
     deployment_repository: object | None = None,
@@ -239,7 +272,7 @@ def register_payload(
     setter = cast(Any, runtime.tool_registry).set_turn_media_payload
     setter(
         deployment_id="deployment-1",
-        message_id="message-1",
+        message_id=prepared.resolved.payload.message_id,
         payload=prepared.resolved.payload,
     )
 
@@ -262,6 +295,99 @@ def test_link_preview_does_not_run_media_understanding_before_character_decision
     assert service.calls == 0
     assert "Character media inspection choice:" in prepared.prompt
     assert "call media_inspect" in prepared.prompt
+
+
+def test_visible_twitter_gif_embed_uses_preview_without_exposing_media_tool() -> None:
+    service = FakeLiveMediaService()
+    provider = SkipMediaProvider()
+    runtime = runtime_for(service)
+    prepared = prepared_twitter_gif_turn(prompt_target(provider))
+    register_payload(runtime, prepared)
+
+    asyncio.run(runtime._ensure_media_context(cast(Any, prepared)))
+
+    assert service.calls == 0
+    assert "Character media preview:" in prepared.prompt
+    assert "actual_media_perception=skipped" in prepared.prompt
+    assert "Character media inspection choice:" not in prepared.prompt
+    assert runtime._enabled_tools_for_turn(cast(Any, prepared)) == ()
+    assert runtime._forced_tool_ids(cast(Any, prepared)) == ()
+
+    runtime._finalize_media_epistemic(
+        cast(Any, prepared),
+        cast(Any, SimpleNamespace(tool_traces=[])),
+    )
+    metadata = trace_metadata(runtime, prepared)
+    assert metadata["actual_perception"] == "skipped"
+    assert metadata["attention_action"] == "preview"
+    assert metadata["media_result_reason"] == "visible_link_preview_only"
+
+
+def test_multiple_image_attachments_remain_passive_as_one_media_batch() -> None:
+    service = FakeLiveMediaService(
+        LiveMediaResult(
+            status="completed",
+            reason="ok",
+            contexts=(
+                LiveMediaContext(
+                    source_key="sha256:image-1",
+                    kind="image",
+                    label="image-1.png",
+                    summary="The first visible image.",
+                ),
+            ),
+        )
+    )
+    runtime = runtime_for(service)
+    prepared = prepared_twitter_gif_turn(prompt_target(SkipMediaProvider()))
+    prepared.resolved.payload = prepared.resolved.payload.model_copy(
+        update={
+            "text": "看这些",
+            "embeds": [],
+            "attachments": [
+                DiscordAttachmentContent(
+                    attachment_id=f"image-{index}",
+                    url=f"https://cdn.discord.test/image-{index}.png",
+                    filename=f"image-{index}.png",
+                    content_type="image/png",
+                )
+                for index in range(1, 4)
+            ],
+        }
+    )
+    register_payload(runtime, prepared)
+
+    passive, active = runtime._split_passive_images(prepared.resolved.payload)
+
+    assert passive is not None
+    assert len(passive.attachments) == 3
+    assert active.attachments == []
+    assert runtime._active_shared_payload(prepared.resolved.payload) is None
+    assert runtime._enabled_tools_for_turn(cast(Any, prepared)) == ()
+
+    asyncio.run(runtime._ensure_media_context(cast(Any, prepared)))
+    assert "1 of 3 visible image attachments" in prepared.prompt
+
+
+def test_preview_does_not_hide_inspection_for_another_unpreviewed_media_item() -> None:
+    service = FakeLiveMediaService()
+    runtime = runtime_for(service)
+    prepared = prepared_twitter_gif_turn(prompt_target(SkipMediaProvider()))
+    prepared.resolved.payload = prepared.resolved.payload.model_copy(
+        update={
+            "attachments": [
+                DiscordAttachmentContent(
+                    attachment_id="video-1",
+                    url="https://cdn.discord.test/video.mp4",
+                    filename="video.mp4",
+                    content_type="video/mp4",
+                )
+            ]
+        }
+    )
+    register_payload(runtime, prepared)
+
+    assert runtime._enabled_tools_for_turn(cast(Any, prepared)) == ("media.inspect",)
 
 
 def test_skip_and_ignore_is_one_character_call_and_zero_media_calls() -> None:

@@ -157,6 +157,37 @@ def test_bilibili_experimental_adapter_uses_persisted_hashed_query_cache(tmp_pat
     assert calls == ["desktop robot"]
 
 
+def test_bilibili_adapter_repairs_legacy_url_title_cache(tmp_path: Path) -> None:
+    database = Database(f"sqlite:///{tmp_path / 'bilibili-title-repair.db'}")
+    database.initialize()
+    calls = 0
+
+    def search(query: str, limit: int) -> list[dict[str, object]]:
+        nonlocal calls
+        calls += 1
+        title = (
+            "http://www.bilibili.com/video/av117099598972678"
+            if calls == 1
+            else "实际的视频标题"
+        )
+        row: dict[str, object] = {
+            "id": "av117099598972678",
+            "title": title,
+            "webpage_url": "http://www.bilibili.com/video/av117099598972678",
+        }
+        return [row][:limit]
+
+    adapter = BilibiliDiscoveryAdapter(database=database, search_function=search)
+    request = DiscoveryFetchRequest(queries=("repair title",), limit=1, include_popular=False)
+
+    first = asyncio.run(adapter.fetch_candidates(request))
+    second = asyncio.run(adapter.fetch_candidates(request))
+
+    assert first[0].title == ""
+    assert second[0].title == "实际的视频标题"
+    assert calls == 2
+
+
 def test_social_association_uses_accessible_v3_episode_thread_and_social_model(
     tmp_path: Path,
 ) -> None:

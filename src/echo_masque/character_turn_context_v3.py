@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 from collections import OrderedDict
 from dataclasses import dataclass
 from threading import RLock
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, TypeVar, cast
 
 from sqlalchemy import select
 
 from echo_masque.api.connector_schemas import DiscordContextMessage, DiscordInboundMessage
 from echo_masque.api.smart_participation_v3_schemas import (
     SmartParticipationBurstMessage,
+    SmartParticipationMediaDescriptor,
     SmartParticipationResolveCandidate,
     SmartParticipationResolveRequest,
 )
@@ -28,12 +31,18 @@ from echo_masque.current_turn_belief_v3 import (
     CurrentTurnBeliefRevisionService,
     CurrentTurnClaimExtraction,
 )
+from echo_masque.entity_grounding_v3 import EntityGroundingService, EntityType
+from echo_masque.knowledge_gap_discovery_v3 import KnowledgeGapDiscoveryService
 from echo_masque.knowledge_retrieval import KnowledgeCandidate
 from echo_masque.persistence.belief_models import BeliefRevisionEventRecord, BeliefV3Record
 from echo_masque.persistence.conversation_structure_models import ConversationSegmentV3Record
 from echo_masque.persistence.conversation_structure_repository import (
     ConversationSegmentView,
     ConversationStructureRepository,
+)
+from echo_masque.persistence.entity_evidence_repository import (
+    KnowledgeGapView,
+    normalize_entity_name,
 )
 from echo_masque.persistence.knowledge_repository import KnowledgeRepository
 from echo_masque.persistence.server_knowledge_v3_repository import ServerWikiV3Repository
@@ -86,6 +95,8 @@ class CharacterTurnContextV3Service:
         knowledge: KnowledgeRepository,
         wiki: ServerWikiV3Repository,
         corrections: CurrentTurnBeliefRevisionService,
+        entity_grounding: EntityGroundingService | None = None,
+        knowledge_gap_discovery: KnowledgeGapDiscoveryService | None = None,
         cache_size: int = 512,
     ) -> None:
         self.structure = structure
@@ -95,12 +106,15 @@ class CharacterTurnContextV3Service:
         self.knowledge = knowledge
         self.wiki = wiki
         self.corrections = corrections
+        self.entity_grounding = entity_grounding
+        self.knowledge_gap_discovery = knowledge_gap_discovery
         self.database = structure.database
         self.server_runtime = ServerRuntimeRepository(self.database)
         self.cache_size = max(32, min(cache_size, 4096))
         self._lock = RLock()
         self._extractions: OrderedDict[str, CurrentTurnClaimExtraction] = OrderedDict()
         self._shields: OrderedDict[str, CorrectionShield] = OrderedDict()
+        self._knowledge_gap_tasks: set[asyncio.Task[None]] = set()
 
     def _cache_get(
         self,
@@ -158,6 +172,38 @@ class CharacterTurnContextV3Service:
             for item in values[-5:]
         ]
 
+    @staticmethod
+    def _attachment_provenance(
+        payload: DiscordInboundMessage,
+    ) -> list[SmartParticipationMediaDescriptor]:
+        """Retain opaque attachment identity for direct-turn Episode provenance only.
+
+        These descriptors contain no analysis and are never emitted as Character perception.
+        They cover direct/mention turns that do not first travel through planner media routing.
+        """
+
+        values: list[SmartParticipationMediaDescriptor] = []
+        for index, attachment in enumerate(payload.attachments[:6], start=1):
+            content_type = attachment.content_type.casefold()
+            kind = (
+                "image"
+                if content_type.startswith("image/")
+                else "video"
+                if content_type.startswith("video/")
+                else "file"
+            )
+            values.append(
+                SmartParticipationMediaDescriptor(
+                    ref=f"message:{payload.message_id}:attachment:{index}",
+                    kind=kind,
+                    state="preview_only",
+                    label=attachment.filename,
+                    source_key=f"discord-attachment:{attachment.attachment_id}",
+                    source_url=attachment.url or attachment.proxy_url,
+                )
+            )
+        return values
+
     @classmethod
     def _structure_payload(
         cls,
@@ -175,6 +221,11 @@ class CharacterTurnContextV3Service:
             message=payload.text[:4000],
             burst_id=payload.conversation_burst_id or f"message:{payload.message_id}",
             burst_messages=cls._burst_messages(payload),
+            media_descriptors=(
+                list(payload.media_descriptors)
+                if payload.media_descriptors
+                else cls._attachment_provenance(payload)
+            ),
             max_participants=1,
             candidates=[
                 SmartParticipationResolveCandidate(
@@ -395,9 +446,15 @@ class CharacterTurnContextV3Service:
         )
         extraction = self._cache_get(self._extractions, extraction_key)
         if extraction is None:
+            burst_context = tuple(
+                f"{item.author_id} [{item.message_id}]: {item.text}"
+                for item in payload.burst_messages
+                if item.text.strip()
+            )
             extraction = self.corrections.extract_self_claim(
                 speaker_ref=payload.author_id,
                 text=payload.message,
+                burst_context=burst_context,
             )
             self._cache_put(self._extractions, extraction_key, extraction)
         shields: dict[str, CorrectionShield] = {}
@@ -429,6 +486,10 @@ class CharacterTurnContextV3Service:
                     guild_id=payload.guild_id,
                     speaker_ref=payload.author_id,
                     source_message_id=source_message_id,
+                    evidence_message_ids=tuple(
+                        item.message_id for item in payload.burst_messages
+                    ),
+                    burst_id=payload.burst_id,
                 )
                 cached = revision.shield if revision is not None else CorrectionShield((), "", "")
             self._cache_put(self._shields, key, cached)
@@ -469,9 +530,15 @@ class CharacterTurnContextV3Service:
         )
         extraction = self._cache_get(self._extractions, extraction_key)
         if not isinstance(extraction, CurrentTurnClaimExtraction):
+            burst_context = tuple(
+                f"{item.author_id} [{item.message_id}]: {item.text}"
+                for item in payload.recent_messages
+                if item.text.strip()
+            )
             extraction = self.corrections.extract_self_claim(
                 speaker_ref=payload.author_id,
                 text=payload.text,
+                burst_context=burst_context,
             )
             self._cache_put(self._extractions, extraction_key, extraction)
         revision = self.corrections.apply_to_character(
@@ -482,6 +549,8 @@ class CharacterTurnContextV3Service:
             guild_id=payload.guild_id,
             speaker_ref=payload.author_id,
             source_message_id=payload.message_id,
+            evidence_message_ids=tuple(item.message_id for item in payload.recent_messages),
+            burst_id=payload.conversation_burst_id,
         )
         shield = revision.shield if revision is not None else CorrectionShield((), "", "")
         self._cache_put(self._shields, cache_key, shield)
@@ -552,6 +621,151 @@ class CharacterTurnContextV3Service:
             )
         )
 
+    @staticmethod
+    def _explicit_existing_entity_reference(text: str, name: str) -> bool:
+        """Recognize only an exact reference to an already scoped Entity.
+
+        The inbound Conversation contracts do not carry Entity extraction output.  In particular,
+        this deliberately does not promote arbitrary message tokens into Entity names.  A stored
+        Entity may be reused only when its canonical name or alias appears explicitly in the
+        current message.
+        """
+
+        normalized_name = normalize_entity_name(name)
+        if len(normalized_name) < 2:
+            return False
+        normalized_text = normalize_entity_name(text)
+        if not normalized_text:
+            return False
+        if normalized_name.isascii() and normalized_name.replace(" ", "").isalnum():
+            return (
+                re.search(
+                    rf"(?<![a-z0-9_]){re.escape(normalized_name)}(?![a-z0-9_])",
+                    normalized_text,
+                )
+                is not None
+            )
+        return normalized_name in normalized_text
+
+    @staticmethod
+    def _identity_question(text: str) -> bool:
+        lowered = text.casefold()
+        return (
+            "?" in text
+            or "\uff1f" in text
+            or any(
+                token in lowered
+                for token in (
+                    "who",
+                    "what",
+                    "identity",
+                    "\u8c01",
+                    "\u4ec0\u4e48",
+                    "\u4ec0\u9ebc",
+                    "\u8eab\u4efd",
+                )
+            )
+        )
+
+    def _dispatch_knowledge_gap_search(
+        self,
+        *,
+        resolved: ResolvedCharacterTurn,
+        gap: KnowledgeGapView,
+    ) -> None:
+        """Schedule an eligible search without coupling Character-turn success to Discovery."""
+
+        service = self.knowledge_gap_discovery
+        if service is None:
+            return
+        # A previous runtime attempt owns the open Gap until Content Understanding accepts
+        # evidence or the Discovery service explicitly reopens it.  Do not re-dispatch on a
+        # repeated Character turn.
+        if (
+            getattr(gap, "resolution_state", "") != "unresolved"
+            or bool(getattr(gap, "discovery_requested", False))
+            or float(getattr(gap, "importance", 0.0)) < 0.65
+        ):
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Synchronous callers (including narrow maintenance/test paths) have no safe task
+            # lifecycle.  The Gap remains unresolved and can be handled by a later runtime turn.
+            return
+
+        async def search_safely() -> None:
+            try:
+                await service.search(
+                    owner_id=resolved.deployment.owner_id,
+                    deployment_id=resolved.deployment.id,
+                    connection_id=resolved.payload.connection_id,
+                    guild_id=resolved.payload.guild_id,
+                    gap=gap,
+                )
+            except Exception:
+                # Discovery is optional and must never block context construction.  Do not log
+                # message text, candidate content, or credential-derived details here.
+                logger.warning(
+                    "Knowledge Gap Discovery dispatch failed deployment=%s gap=%s",
+                    resolved.deployment.id,
+                    getattr(gap, "id", ""),
+                )
+
+        task = loop.create_task(
+            search_safely(),
+            name="character-relay-knowledge-gap-discovery",
+        )
+        self._knowledge_gap_tasks.add(task)
+        task.add_done_callback(self._knowledge_gap_tasks.discard)
+
+    def _ground_existing_entity_references(
+        self,
+        *,
+        resolved: ResolvedCharacterTurn,
+        segment: ConversationSegmentView,
+    ) -> None:
+        """Reuse scoped Entity records and open only supported provisional-identity Gaps."""
+
+        grounding = self.entity_grounding
+        if grounding is None:
+            return
+        payload = resolved.payload
+        owner_id = resolved.deployment.owner_id
+        evidence_refs = tuple(
+            value for value in (f"message:{payload.message_id}", f"segment:{segment.id}") if value
+        )
+        if not evidence_refs:
+            return
+        # `recent_entities` is already owner/connection/guild scoped.  The only missing-field
+        # contract currently supported by this runtime is a provisional Entity's canonical
+        # identity; ordinary canonical records do not imply unknown fields.
+        for entity in grounding.repository.recent_entities(
+            owner_id=owner_id,
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            limit=30,
+        ):
+            names = (entity.canonical_name, *entity.aliases)
+            if not any(
+                self._explicit_existing_entity_reference(payload.text, name) for name in names
+            ):
+                continue
+            provisional = entity.status == "provisional"
+            result = grounding.resolve_or_provision(
+                owner_id=owner_id,
+                connection_id=payload.connection_id,
+                guild_id=payload.guild_id,
+                name=entity.canonical_name,
+                entity_type=cast(EntityType, entity.entity_type),
+                evidence_refs=evidence_refs,
+                missing_fields=("identity",) if provisional else (),
+                importance=0.75 if provisional and self._identity_question(payload.text) else 0.5,
+                triggered_by_ref=f"message:{payload.message_id}",
+            )
+            if result.knowledge_gap is not None:
+                self._dispatch_knowledge_gap_search(resolved=resolved, gap=result.knowledge_gap)
+
     def build(self, resolved: ResolvedCharacterTurn) -> CharacterTurnContextV3Result:
         """Build authoritative v3 context without consulting any old context path."""
 
@@ -575,6 +789,7 @@ class CharacterTurnContextV3Service:
                 "Interpret dates and times without an explicit timezone in this Server timezone.",
             )
             segment, conversation_thread_id = self._resolve_segment(resolved)
+            self._ground_existing_entity_references(resolved=resolved, segment=segment)
             shield = self.correction_for_turn(resolved)
             knowledge_hits, candidates, eligible_count, candidate_count = self._knowledge_hits(
                 resolved

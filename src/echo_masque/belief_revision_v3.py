@@ -137,6 +137,7 @@ class BeliefRevisionService:
         source_message_id: str = "",
         dependency_edge_ids: tuple[str, ...] = (),
         explicit_correction: bool = False,
+        claim_confidence: float | None = None,
         importance: float = 0.6,
         scope: str = "server",
         now: datetime | None = None,
@@ -152,6 +153,42 @@ class BeliefRevisionService:
                 "incomplete_claim",
             )
         authority = BeliefAuthorityPolicy.resolve(domain=domain, source=source)
+        bounded_confidence = authority.default_confidence
+        if claim_confidence is not None:
+            bounded_confidence = min(
+                bounded_confidence,
+                max(0.0, min(float(claim_confidence), 1.0)),
+            )
+        bounded_importance = max(0.0, min(float(importance), 1.0))
+        if source_message_id and self.repository.has_revision_event(
+            owner_id=owner_id,
+            character_card_id=character_card_id,
+            connection_id=connection_id,
+            guild_id=guild_id,
+            subject_ref=subject_ref,
+            predicate=predicate,
+            source_message_id=source_message_id,
+        ):
+            existing = self.repository.active_for_claim(
+                owner_id=owner_id,
+                connection_id=connection_id,
+                guild_id=guild_id,
+                subject_entity_id=subject_entity_id,
+                subject_ref=subject_ref,
+                predicate=predicate,
+                character_card_id=character_card_id,
+            )
+            same_value = next(
+                (item for item in existing if self._same_value(item.value_text, compact_value)),
+                existing[0] if existing else None,
+            )
+            return BeliefRevisionResult(
+                "ignored",
+                same_value,
+                (same_value.id,) if same_value is not None else (),
+                self._empty_shield(),
+                "duplicate_source_message",
+            )
         existing = self.repository.active_for_claim(
             owner_id=owner_id,
             connection_id=connection_id,
@@ -167,7 +204,7 @@ class BeliefRevisionService:
             reinforced = self.repository.reinforce(
                 owner_id=owner_id,
                 belief_id=chosen.id,
-                confidence=authority.default_confidence,
+                confidence=bounded_confidence,
                 evidence_refs=evidence_refs,
                 now=current,
             )
@@ -224,8 +261,8 @@ class BeliefRevisionService:
                 authority_class=authority.authority_class,
                 authority_score=authority.score,
                 origin=source,
-                confidence=authority.default_confidence,
-                importance=importance,
+                confidence=bounded_confidence,
+                importance=bounded_importance,
                 status="active" if authority.score >= 0.7 else "provisional",
                 evidence_refs=evidence_refs,
                 supersedes_belief_id=highest.id,
@@ -276,8 +313,8 @@ class BeliefRevisionService:
                 authority_class=authority.authority_class,
                 authority_score=authority.score,
                 origin=source,
-                confidence=authority.default_confidence,
-                importance=importance,
+                confidence=bounded_confidence,
+                importance=bounded_importance,
                 status="disputed",
                 evidence_refs=evidence_refs,
                 dependency_edge_ids=dependency_edge_ids,
@@ -334,8 +371,8 @@ class BeliefRevisionService:
             authority_class=authority.authority_class,
             authority_score=authority.score,
             origin=source,
-            confidence=authority.default_confidence,
-            importance=importance,
+            confidence=bounded_confidence,
+            importance=bounded_importance,
             status=status,
             evidence_refs=evidence_refs,
             dependency_edge_ids=dependency_edge_ids,

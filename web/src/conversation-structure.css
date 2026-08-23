@@ -6,6 +6,19 @@
   gap: 14px;
 }
 
+/* The global scrapbook tape intentionally overhangs its heading. Inside this tabbed
+   panel that negative margin would cover the notebook tabs, so keep each label in flow. */
+.conversation-structure-sheet .tape-label {
+  margin: 0;
+  align-self: start;
+}
+
+/* Deployment scrapbook styles use a more specific selector and otherwise put the
+   first tab heading back over the index strip. Keep this override scoped to this panel. */
+.portal-v2-page-frame .deployment-page .conversation-structure-sheet .tape-label {
+  margin: 0;
+}
+
 .conversation-structure-heading {
   display: flex;
   justify-content: space-between;
@@ -54,6 +67,7 @@
   align-items: flex-end;
   gap: 5px;
   overflow-x: auto;
+  overflow-y: hidden;
   padding: 2px 4px 0;
   border-bottom: 1px solid rgba(75, 69, 61, 0.18);
 }
@@ -121,7 +135,6 @@
   align-items: start;
 }
 
-.conversation-thread-list article,
 .conversation-segment-list article,
 .conversation-evidence-card {
   display: grid;
@@ -132,12 +145,10 @@
   box-shadow: 0 2px 0 rgba(75, 69, 61, 0.04);
 }
 
-.conversation-thread-list article:nth-child(3n + 2),
 .conversation-evidence-card:nth-child(3n + 2) {
   transform: rotate(0.18deg);
 }
 
-.conversation-thread-list header,
 .conversation-segment-list header,
 .conversation-evidence-card header {
   display: flex;
@@ -146,17 +157,24 @@
   align-items: flex-start;
 }
 
-.conversation-thread-list header span,
+.conversation-segment-list header > *,
+.conversation-evidence-card header > * {
+  min-width: 0;
+}
+
+.conversation-segment-list header strong,
+.conversation-evidence-card header strong {
+  overflow-wrap: anywhere;
+}
+
 .conversation-segment-list header span,
 .conversation-evidence-card header span,
-.conversation-thread-list small,
 .conversation-segment-list small,
 .conversation-evidence-card small {
   font-size: 0.75rem;
   opacity: 0.72;
 }
 
-.conversation-thread-list p,
 .conversation-segment-list p,
 .conversation-evidence-card p {
   margin: 0;
@@ -169,6 +187,139 @@
   border-left: 2px solid rgba(75, 69, 61, 0.16);
 }
 
+.conversation-thread-map {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.78fr) minmax(0, 1.35fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.conversation-thread-map-index,
+.conversation-thread-map-detail,
+.conversation-thread-fragments {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(75, 69, 61, 0.17);
+  background: rgba(255, 255, 255, 0.36);
+}
+
+.conversation-thread-map-index > header,
+.conversation-thread-map-detail > header,
+.conversation-thread-segments > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.conversation-thread-map-index > header > div,
+.conversation-thread-map-detail > header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.conversation-thread-map-index > header small,
+.conversation-thread-map-detail > header > span,
+.conversation-thread-segments > header small {
+  font-size: 0.72rem;
+  opacity: 0.72;
+}
+
+.conversation-thread-list button {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  padding: 10px 11px;
+  border: 1px solid rgba(75, 69, 61, 0.16);
+  background: rgba(255, 255, 255, 0.5);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversation-thread-list button:hover,
+.conversation-thread-list button.is-selected {
+  border-color: rgba(105, 82, 133, 0.48);
+  background: rgba(232, 225, 243, 0.78);
+  box-shadow: 2px 2px 0 rgba(75, 69, 61, 0.08);
+}
+
+.conversation-thread-list button:focus-visible,
+.conversation-thread-fragments > button:focus-visible {
+  outline: 3px solid rgba(80, 111, 169, 0.72);
+  outline-offset: 3px;
+}
+
+.conversation-thread-list button > span,
+.conversation-thread-list button > small {
+  font-size: 0.72rem;
+  opacity: 0.72;
+}
+
+.conversation-thread-list button > span {
+  justify-self: start;
+  padding: 2px 6px;
+  border: 1px solid rgba(75, 69, 61, 0.18);
+  background: rgba(255, 255, 255, 0.35);
+  text-transform: uppercase;
+}
+
+.conversation-thread-list button > strong,
+.conversation-thread-map-detail strong,
+.conversation-thread-map-detail p,
+.conversation-thread-map-detail dd {
+  overflow-wrap: anywhere;
+}
+
+.conversation-thread-map-detail > p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.conversation-thread-map-detail dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.conversation-thread-map-detail dl div {
+  min-width: 0;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.conversation-thread-map-detail dt {
+  font-size: 0.7rem;
+  opacity: 0.68;
+}
+
+.conversation-thread-map-detail dd {
+  margin: 3px 0 0;
+}
+
+.conversation-thread-segments {
+  display: grid;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.conversation-thread-fragments {
+  grid-column: 1 / -1;
+  border-style: dashed;
+}
+
+.conversation-thread-fragments > button {
+  width: fit-content;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .knowledge-gap-card {
   background: rgba(255, 244, 190, 0.5);
 }
@@ -179,6 +330,290 @@
 
 .impression-card {
   background: rgba(233, 230, 242, 0.5);
+}
+
+.conversation-episode-board {
+  display: grid;
+  gap: 12px;
+}
+
+.conversation-relation-board {
+  display: grid;
+  gap: 12px;
+}
+
+.conversation-relation-board-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.conversation-relation-board-heading > div {
+  display: grid;
+  gap: 4px;
+  max-width: 760px;
+}
+
+.conversation-relation-board-heading small {
+  opacity: 0.72;
+}
+
+.conversation-relation-note-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.conversation-relation-note {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 170px;
+  gap: 7px;
+  padding: 18px 15px 13px;
+  border: 1px solid rgba(104, 87, 54, 0.25);
+  border-radius: 2px;
+  background: linear-gradient(135deg, rgba(255, 232, 190, 0.94), rgba(251, 216, 173, 0.86));
+  box-shadow: 2px 4px 0 rgba(75, 69, 61, 0.1);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transform: rotate(0.38deg);
+}
+
+.conversation-relation-note:nth-child(3n + 2) {
+  background: linear-gradient(135deg, rgba(215, 235, 232, 0.94), rgba(191, 220, 216, 0.86));
+  transform: rotate(-0.46deg);
+}
+
+.conversation-relation-note:nth-child(3n) {
+  background: linear-gradient(135deg, rgba(235, 223, 244, 0.94), rgba(220, 205, 237, 0.86));
+  transform: rotate(0.22deg);
+}
+
+.conversation-relation-note::before {
+  content: "";
+  position: absolute;
+  width: 54px;
+  height: 15px;
+  top: -8px;
+  left: calc(50% - 27px);
+  background: rgba(213, 193, 156, 0.58);
+  transform: rotate(1deg);
+}
+
+.conversation-relation-note:hover {
+  transform: translateY(-2px) rotate(0.38deg);
+}
+
+.conversation-relation-note:nth-child(3n + 2):hover {
+  transform: translateY(-2px) rotate(-0.46deg);
+}
+
+.conversation-relation-note:nth-child(3n):hover {
+  transform: translateY(-2px) rotate(0.22deg);
+}
+
+.conversation-relation-note:focus-visible {
+  outline: 3px solid rgba(80, 111, 169, 0.72);
+  outline-offset: 3px;
+}
+
+.conversation-relation-note header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.conversation-relation-note header > span {
+  padding: 2px 6px;
+  border: 1px solid rgba(75, 69, 61, 0.18);
+  background: rgba(255, 255, 255, 0.36);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.conversation-relation-note header small,
+.conversation-relation-note > small {
+  font-size: 0.72rem;
+  opacity: 0.76;
+}
+
+.conversation-relation-note > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.conversation-relation-arrow {
+  font-size: 0.76rem;
+  opacity: 0.76;
+}
+
+.conversation-episode-board-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.conversation-episode-board-heading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.conversation-episode-board-heading small {
+  opacity: 0.72;
+}
+
+.conversation-episode-note-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.conversation-episode-note {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 158px;
+  gap: 10px;
+  padding: 18px 15px 13px;
+  border: 1px solid rgba(104, 87, 54, 0.25);
+  border-radius: 2px;
+  background: linear-gradient(135deg, rgba(255, 246, 179, 0.94), rgba(255, 240, 157, 0.86));
+  box-shadow: 2px 4px 0 rgba(75, 69, 61, 0.1);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transform: rotate(-0.45deg);
+}
+
+.conversation-episode-note:nth-child(3n + 2) {
+  background: linear-gradient(135deg, rgba(222, 240, 216, 0.94), rgba(198, 226, 198, 0.86));
+  transform: rotate(0.55deg);
+}
+
+.conversation-episode-note:nth-child(3n) {
+  background: linear-gradient(135deg, rgba(227, 224, 246, 0.94), rgba(211, 205, 237, 0.86));
+  transform: rotate(-0.2deg);
+}
+
+.conversation-episode-note::before {
+  content: "";
+  position: absolute;
+  width: 54px;
+  height: 15px;
+  top: -8px;
+  left: calc(50% - 27px);
+  background: rgba(213, 193, 156, 0.58);
+  transform: rotate(-1deg);
+}
+
+.conversation-episode-note:hover {
+  transform: translateY(-2px) rotate(-0.45deg);
+}
+
+.conversation-episode-note:focus-visible,
+.conversation-unresolved-fragments button:focus-visible {
+  outline: 3px solid rgba(80, 111, 169, 0.72);
+  outline-offset: 3px;
+}
+
+.conversation-episode-note strong {
+  display: -webkit-box;
+  overflow: hidden;
+  min-width: 0;
+  color: #3e3a32;
+  font-size: 0.95rem;
+  line-height: 1.38;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.conversation-episode-note small,
+.conversation-episode-note time {
+  font-size: 0.72rem;
+  opacity: 0.76;
+}
+
+.conversation-episode-status {
+  justify-self: start;
+  padding: 2px 6px;
+  border: 1px solid rgba(75, 69, 61, 0.18);
+  background: rgba(255, 255, 255, 0.36);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.conversation-unresolved-fragments {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed rgba(75, 69, 61, 0.26);
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.conversation-unresolved-fragments > button,
+.conversation-unresolved-fragments > div > button {
+  width: fit-content;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.conversation-unresolved-fragments > div {
+  display: grid;
+  gap: 5px;
+}
+
+.conversation-unresolved-fragments small {
+  margin-left: 6px;
+  opacity: 0.65;
+}
+
+.conversation-episode-drawer-content {
+  display: grid;
+  gap: 14px;
+}
+
+.conversation-episode-drawer-content > p,
+.conversation-episode-drawer-content li,
+.conversation-episode-drawer-content dd {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.conversation-episode-drawer-content dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.conversation-episode-drawer-content dl div {
+  min-width: 0;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.conversation-episode-drawer-content dt {
+  font-size: 0.72rem;
+  opacity: 0.7;
+}
+
+.conversation-episode-drawer-content dd {
+  margin: 3px 0 0;
 }
 
 @media (max-width: 900px) {
@@ -201,7 +636,35 @@
   }
 
   .conversation-structure-layout,
-  .conversation-evidence-grid {
+  .conversation-evidence-grid,
+  .conversation-episode-note-grid,
+  .conversation-relation-note-grid,
+  .conversation-episode-drawer-content dl,
+  .conversation-thread-map,
+  .conversation-thread-map-detail dl {
     grid-template-columns: 1fr;
+  }
+
+  .conversation-episode-board-heading,
+  .conversation-relation-board-heading {
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-episode-note,
+  .conversation-episode-note:nth-child(3n + 2),
+  .conversation-episode-note:nth-child(3n),
+  .conversation-relation-note,
+  .conversation-relation-note:nth-child(3n + 2),
+  .conversation-relation-note:nth-child(3n) {
+    transform: none;
+  }
+
+  .conversation-episode-note:hover,
+  .conversation-relation-note:hover,
+  .conversation-relation-note:nth-child(3n + 2):hover,
+  .conversation-relation-note:nth-child(3n):hover {
+    transform: none;
   }
 }

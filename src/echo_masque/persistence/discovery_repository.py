@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import uuid4
 
-from sqlalchemy import delete, exists, select
+from sqlalchemy import and_, delete, exists, or_, select
 from sqlalchemy.engine import CursorResult
 
 from echo_masque.discovery_contracts import (
@@ -17,6 +17,7 @@ from echo_masque.discovery_contracts import (
     DiscoveryDecision,
     DiscoveryMode,
 )
+from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.discovery_models import (
@@ -273,6 +274,48 @@ class DiscoveryRepository:
                 )
             )
 
+    def list_exposures_page(
+        self,
+        *,
+        owner_id: str,
+        deployment_id: str,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> tuple[tuple[DeploymentDiscoveryExposureRecord, ...], str | None]:
+        bounded_limit = max(1, min(limit, 500))
+        with self.database.session() as session:
+            query = select(DeploymentDiscoveryExposureRecord).where(
+                DeploymentDiscoveryExposureRecord.owner_id == owner_id,
+                DeploymentDiscoveryExposureRecord.deployment_id == deployment_id,
+            )
+            if cursor:
+                last_exposed_at, identifier = decode_time_cursor(cursor)
+                query = query.where(
+                    or_(
+                        DeploymentDiscoveryExposureRecord.last_exposed_at < last_exposed_at,
+                        and_(
+                            DeploymentDiscoveryExposureRecord.last_exposed_at == last_exposed_at,
+                            DeploymentDiscoveryExposureRecord.id < identifier,
+                        ),
+                    )
+                )
+            records = list(
+                session.scalars(
+                    query.order_by(
+                        DeploymentDiscoveryExposureRecord.last_exposed_at.desc(),
+                        DeploymentDiscoveryExposureRecord.id.desc(),
+                    ).limit(bounded_limit + 1)
+                )
+            )
+        has_more = len(records) > bounded_limit
+        items = records[:bounded_limit]
+        next_cursor = (
+            encode_time_cursor(items[-1].last_exposed_at, items[-1].id)
+            if has_more and items
+            else None
+        )
+        return tuple(items), next_cursor
+
     def list_decisions(
         self,
         *,
@@ -292,6 +335,46 @@ class DiscoveryRepository:
                     .limit(max(1, min(limit, 500)))
                 )
             )
+
+    def list_decisions_page(
+        self,
+        *,
+        owner_id: str,
+        deployment_id: str,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> tuple[tuple[DeploymentDiscoveryDecisionRecord, ...], str | None]:
+        bounded_limit = max(1, min(limit, 500))
+        with self.database.session() as session:
+            query = select(DeploymentDiscoveryDecisionRecord).where(
+                DeploymentDiscoveryDecisionRecord.owner_id == owner_id,
+                DeploymentDiscoveryDecisionRecord.deployment_id == deployment_id,
+            )
+            if cursor:
+                created_at, identifier = decode_time_cursor(cursor)
+                query = query.where(
+                    or_(
+                        DeploymentDiscoveryDecisionRecord.created_at < created_at,
+                        and_(
+                            DeploymentDiscoveryDecisionRecord.created_at == created_at,
+                            DeploymentDiscoveryDecisionRecord.id < identifier,
+                        ),
+                    )
+                )
+            records = list(
+                session.scalars(
+                    query.order_by(
+                        DeploymentDiscoveryDecisionRecord.created_at.desc(),
+                        DeploymentDiscoveryDecisionRecord.id.desc(),
+                    ).limit(bounded_limit + 1)
+                )
+            )
+        has_more = len(records) > bounded_limit
+        items = records[:bounded_limit]
+        next_cursor = (
+            encode_time_cursor(items[-1].created_at, items[-1].id) if has_more and items else None
+        )
+        return tuple(items), next_cursor
 
     def cleanup_expired_unexposed(self, *, now: datetime | None = None) -> int:
         current = (now or datetime.now(UTC)).astimezone(UTC)

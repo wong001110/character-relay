@@ -124,8 +124,11 @@ def test_cross_burst_reply_is_structural_thread_authority() -> None:
                 SmartParticipationBurstMessage(
                     message_id="m2",
                     author_id="u2",
+                    author_display_name="Mina",
                     text="哈哈",
                     reply_to_message_id="m1",
+                    reply_to_author_id="u1",
+                    reply_to_author_display_name="Zhi",
                 )
             ],
             burst_id="b2",
@@ -141,12 +144,13 @@ def test_cross_burst_reply_is_structural_thread_authority() -> None:
         connection_id="connection-1",
         guild_id="guild-1",
     )
-    assert any(
-        item.source_message_id == "m2"
-        and item.relation_type == "REPLY_TO"
-        and item.target_ref == "m1"
-        for item in relations
-    )
+    relation = next(item for item in relations if item.source_message_id == "m2")
+    assert relation.relation_type == "REPLY_TO"
+    assert relation.target_ref == "m1"
+    assert relation.source_author_id == "u2"
+    assert relation.source_author_display_name == "Mina"
+    assert relation.target_author_id == "u1"
+    assert relation.target_author_display_name == "Zhi"
 
 
 def test_thread_anchor_stays_stable_while_working_summary_moves_forward() -> None:

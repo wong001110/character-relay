@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
+from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.conversation_structure_models import (
     ConversationSegmentV3Record,
     ConversationThreadRecord,
@@ -103,10 +104,14 @@ class ConversationSegmentView:
 class MessageRelationView:
     id: str
     source_message_id: str
+    source_author_id: str
+    source_author_display_name: str
     relation_class: str
     relation_type: str
     target_ref_type: str
     target_ref: str
+    target_author_id: str
+    target_author_display_name: str
     confidence: float
     source: str
     evidence_refs: tuple[str, ...]
@@ -192,10 +197,14 @@ class ConversationStructureRepository:
         return MessageRelationView(
             id=record.id,
             source_message_id=record.source_message_id,
+            source_author_id=record.source_author_id,
+            source_author_display_name=record.source_author_display_name,
             relation_class=record.relation_class,
             relation_type=record.relation_type,
             target_ref_type=record.target_ref_type,
             target_ref=record.target_ref,
+            target_author_id=record.target_author_id,
+            target_author_display_name=record.target_author_display_name,
             confidence=record.confidence,
             source=record.source,
             evidence_refs=_decode_strings(record.evidence_refs_json),
@@ -321,6 +330,68 @@ class ConversationStructureRepository:
                     record.updated_at = current
             session.commit()
         return tuple(self.thread_view(item) for item in records)
+
+    def recent_threads_for_server_page(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        limit: int = 20,
+        cursor: str | None = None,
+        now: datetime | None = None,
+    ) -> tuple[tuple[ConversationThreadView, ...], str | None]:
+        """List server-scoped Threads with a stable descending activity cursor."""
+
+        current = now or datetime.now(UTC)
+        bounded_limit = max(1, min(limit, 100))
+        with self.database.session() as session:
+            query = select(ConversationThreadRecord).where(
+                ConversationThreadRecord.owner_id == owner_id,
+                ConversationThreadRecord.connection_id == connection_id,
+                ConversationThreadRecord.guild_id == guild_id,
+                ConversationThreadRecord.status != "archived",
+            )
+            if cursor:
+                last_active_at, identifier = decode_time_cursor(cursor)
+                query = query.where(
+                    or_(
+                        ConversationThreadRecord.last_active_at < last_active_at,
+                        and_(
+                            ConversationThreadRecord.last_active_at == last_active_at,
+                            ConversationThreadRecord.id < identifier,
+                        ),
+                    )
+                )
+            records = list(
+                session.scalars(
+                    query.order_by(
+                        ConversationThreadRecord.last_active_at.desc(),
+                        ConversationThreadRecord.id.desc(),
+                    ).limit(bounded_limit + 1)
+                )
+            )
+            has_more = len(records) > bounded_limit
+            items = records[:bounded_limit]
+            for record in items:
+                age = current - (self._aware(record.last_active_at) or current)
+                desired = (
+                    "hot"
+                    if age <= timedelta(minutes=30)
+                    else "warm"
+                    if age <= timedelta(hours=6)
+                    else "dormant"
+                )
+                if record.status != desired:
+                    record.status = desired
+                    record.updated_at = current
+            session.commit()
+        next_cursor = (
+            encode_time_cursor(items[-1].last_active_at, items[-1].id)
+            if has_more and items
+            else None
+        )
+        return tuple(self.thread_view(item) for item in items), next_cursor
 
     def create_thread(
         self,
@@ -600,6 +671,52 @@ class ConversationStructureRepository:
             ]
         return tuple(values)
 
+    def recent_segments_page(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> tuple[tuple[ConversationSegmentView, ...], str | None]:
+        bounded_limit = max(1, min(limit, 500))
+        with self.database.session() as session:
+            query = select(ConversationSegmentV3Record).where(
+                ConversationSegmentV3Record.owner_id == owner_id,
+                ConversationSegmentV3Record.connection_id == connection_id,
+                ConversationSegmentV3Record.guild_id == guild_id,
+            )
+            if cursor:
+                created_at, identifier = decode_time_cursor(cursor)
+                query = query.where(
+                    or_(
+                        ConversationSegmentV3Record.created_at < created_at,
+                        and_(
+                            ConversationSegmentV3Record.created_at == created_at,
+                            ConversationSegmentV3Record.id < identifier,
+                        ),
+                    )
+                )
+            records = list(
+                session.scalars(
+                    query.order_by(
+                        ConversationSegmentV3Record.created_at.desc(),
+                        ConversationSegmentV3Record.id.desc(),
+                    ).limit(bounded_limit + 1)
+                )
+            )
+            has_more = len(records) > bounded_limit
+            items = records[:bounded_limit]
+            values = [
+                self.segment_view(item, self._current_membership_record(session, item.id))
+                for item in items
+            ]
+        next_cursor = (
+            encode_time_cursor(items[-1].created_at, items[-1].id) if has_more and items else None
+        )
+        return tuple(values), next_cursor
+
     def thread_for_message(
         self,
         *,
@@ -655,10 +772,14 @@ class ConversationStructureRepository:
         channel_id: str,
         discord_thread_id: str,
         source_message_id: str,
+        source_author_id: str = "",
+        source_author_display_name: str = "",
         relation_class: str,
         relation_type: str,
         target_ref_type: str,
         target_ref: str,
+        target_author_id: str = "",
+        target_author_display_name: str = "",
         confidence: float,
         source: str,
         evidence_refs: tuple[str, ...],
@@ -684,6 +805,17 @@ class ConversationStructureRepository:
                 .limit(1)
             )
             if existing is not None:
+                if source_author_id and not existing.source_author_id:
+                    existing.source_author_id = source_author_id[:200]
+                if source_author_display_name and not existing.source_author_display_name:
+                    existing.source_author_display_name = source_author_display_name[:200]
+                if target_author_id and not existing.target_author_id:
+                    existing.target_author_id = target_author_id[:200]
+                if target_author_display_name and not existing.target_author_display_name:
+                    existing.target_author_display_name = target_author_display_name[:200]
+                if session.is_modified(existing):
+                    session.commit()
+                    session.refresh(existing)
                 return self.relation_view(existing)
             record = MessageRelationRecord(
                 id=str(uuid4()),
@@ -693,10 +825,14 @@ class ConversationStructureRepository:
                 channel_id=channel_id,
                 discord_thread_id=discord_thread_id,
                 source_message_id=source_message_id,
+                source_author_id=source_author_id[:200],
+                source_author_display_name=source_author_display_name[:200],
                 relation_class=relation_class[:24],
                 relation_type=relation_type[:40],
                 target_ref_type=target_ref_type[:32],
                 target_ref=target_ref[:240],
+                target_author_id=target_author_id[:200],
+                target_author_display_name=target_author_display_name[:200],
                 confidence=max(0.0, min(float(confidence), 1.0)),
                 source=source[:32],
                 evidence_refs_json=_encode_strings(list(evidence_refs), limit=16),
@@ -731,6 +867,48 @@ class ConversationStructureRepository:
                 )
             )
         return tuple(self.relation_view(item) for item in records)
+
+    def recent_relations_page(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        limit: int = 200,
+        cursor: str | None = None,
+    ) -> tuple[tuple[MessageRelationView, ...], str | None]:
+        bounded_limit = max(1, min(limit, 500))
+        with self.database.session() as session:
+            query = select(MessageRelationRecord).where(
+                MessageRelationRecord.owner_id == owner_id,
+                MessageRelationRecord.connection_id == connection_id,
+                MessageRelationRecord.guild_id == guild_id,
+            )
+            if cursor:
+                created_at, identifier = decode_time_cursor(cursor)
+                query = query.where(
+                    or_(
+                        MessageRelationRecord.created_at < created_at,
+                        and_(
+                            MessageRelationRecord.created_at == created_at,
+                            MessageRelationRecord.id < identifier,
+                        ),
+                    )
+                )
+            records = list(
+                session.scalars(
+                    query.order_by(
+                        MessageRelationRecord.created_at.desc(),
+                        MessageRelationRecord.id.desc(),
+                    ).limit(bounded_limit + 1)
+                )
+            )
+        has_more = len(records) > bounded_limit
+        items = records[:bounded_limit]
+        next_cursor = (
+            encode_time_cursor(items[-1].created_at, items[-1].id) if has_more and items else None
+        )
+        return tuple(self.relation_view(item) for item in items), next_cursor
 
     def relations_for_messages(
         self,

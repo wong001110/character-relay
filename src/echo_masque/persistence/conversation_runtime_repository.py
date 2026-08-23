@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
+from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.conversation_runtime_models import (
     ConversationEpisodeV3Record,
     PendingActionV3Record,
@@ -452,6 +453,48 @@ class ConversationRuntimeRepository:
                 )
             )
         return tuple(self.episode_view(record) for record in records)
+
+    def recent_episodes_page(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        limit: int = 40,
+        cursor: str | None = None,
+    ) -> tuple[tuple[ConversationEpisodeV3View, ...], str | None]:
+        bounded_limit = max(1, min(limit, 200))
+        with self.database.session() as session:
+            query = select(ConversationEpisodeV3Record).where(
+                ConversationEpisodeV3Record.owner_id == owner_id,
+                ConversationEpisodeV3Record.connection_id == connection_id,
+                ConversationEpisodeV3Record.guild_id == guild_id,
+            )
+            if cursor:
+                ended_at, identifier = decode_time_cursor(cursor)
+                query = query.where(
+                    or_(
+                        ConversationEpisodeV3Record.ended_at < ended_at,
+                        and_(
+                            ConversationEpisodeV3Record.ended_at == ended_at,
+                            ConversationEpisodeV3Record.id < identifier,
+                        ),
+                    )
+                )
+            records = list(
+                session.scalars(
+                    query.order_by(
+                        ConversationEpisodeV3Record.ended_at.desc(),
+                        ConversationEpisodeV3Record.id.desc(),
+                    ).limit(bounded_limit + 1)
+                )
+            )
+        has_more = len(records) > bounded_limit
+        items = records[:bounded_limit]
+        next_cursor = (
+            encode_time_cursor(items[-1].ended_at, items[-1].id) if has_more and items else None
+        )
+        return tuple(self.episode_view(record) for record in items), next_cursor
 
     def create_pending_action(
         self,

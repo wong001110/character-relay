@@ -11,6 +11,8 @@ import {
   type DeploymentPresenceState,
   type DeploymentPresenceView
 } from "./deploymentPresenceApi";
+import { pageCount, pageItems } from "./conversationPagination";
+import { Pagination } from "./Pagination";
 import "./deployment-presence.css";
 
 interface Props {
@@ -27,6 +29,7 @@ interface PresenceRow {
 }
 
 const REFRESH_INTERVAL_MS = 15_000;
+const PRESENCE_PAGE_SIZE = 8;
 
 function stamp(value: string | null, zh: boolean): string {
   if (!value) return "—";
@@ -91,6 +94,7 @@ export function DeploymentPresencePanel({ serverProfileId, zh }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
   const load = useCallback(async (quiet = false) => {
     try {
@@ -156,6 +160,19 @@ export function DeploymentPresencePanel({ serverProfileId, zh }: Props) {
     }
     return next;
   }, [rows]);
+  const pages = pageCount(rows.length, PRESENCE_PAGE_SIZE);
+  const visibleRows = useMemo(
+    () => pageItems(rows, page, PRESENCE_PAGE_SIZE),
+    [rows, page]
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [serverProfileId]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(Math.max(1, current), pages));
+  }, [pages]);
 
   if (loading) {
     return (
@@ -215,7 +232,7 @@ export function DeploymentPresencePanel({ serverProfileId, zh }: Props) {
       </div>
 
       <div className="presence-card-grid">
-        {rows.map(({ deployment, presence, rhythm, error: rowError, rhythmError }) => {
+        {visibleRows.map(({ deployment, presence, rhythm, error: rowError, rhythmError }) => {
           const currentState = presence?.state ?? "idle";
           const timezone = rhythm?.schedule_timezone ?? "";
           return (
@@ -352,6 +369,8 @@ export function DeploymentPresencePanel({ serverProfileId, zh }: Props) {
           );
         })}
       </div>
+
+      <Pagination page={page} pages={pages} total={rows.length} onPage={setPage} />
 
       {rows.length === 0 && (
         <section className="paper-sheet presence-observatory-empty">

@@ -54,6 +54,14 @@ export interface DiscoverySession {
   error: string;
 }
 
+export interface DiscoveryPage<T> {
+  items: T[];
+  next_cursor: string | null;
+  has_more: boolean;
+  /** False when the response came from the pre-cursor bounded-array contract. */
+  paged: boolean;
+}
+
 export interface DiscoveryExposure {
   id: string;
   deployment_id: string;
@@ -125,6 +133,23 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   throw new Error(raw || `Request failed with ${response.status}`);
 }
 
+function page<T>(raw: { items?: T[]; next_cursor?: string | null; has_more?: boolean }): DiscoveryPage<T> {
+  const paged = Object.prototype.hasOwnProperty.call(raw, "next_cursor") ||
+    Object.prototype.hasOwnProperty.call(raw, "has_more");
+  return {
+    items: raw.items ?? [],
+    next_cursor: raw.next_cursor ?? null,
+    has_more: raw.has_more ?? raw.next_cursor != null,
+    paged
+  };
+}
+
+export interface DiscoveryPageOptions {
+  cursor?: string | null;
+  limit?: number;
+  signal?: AbortSignal;
+}
+
 function root(deploymentId: string): string {
   return `/api/deployments/${encodeURIComponent(deploymentId)}/discovery`;
 }
@@ -148,20 +173,28 @@ export const discoveryApi = {
     });
   },
 
-  sessions(deploymentId: string) {
-    return request<{ items: DiscoverySession[] }>(`${root(deploymentId)}/sessions?limit=20`);
+  sessions(deploymentId: string, options: DiscoveryPageOptions = {}) {
+    const query = new URLSearchParams({ limit: String(options.limit ?? 20) });
+    if (options.cursor) query.set("cursor", options.cursor);
+    return request<{ items?: DiscoverySession[]; next_cursor?: string | null; has_more?: boolean }>(`${root(deploymentId)}/sessions?${query}`, { signal: options.signal }).then(page);
   },
 
-  exposures(deploymentId: string) {
-    return request<{ items: DiscoveryExposure[] }>(`${root(deploymentId)}/exposures?limit=50`);
+  exposures(deploymentId: string, options: DiscoveryPageOptions = {}) {
+    const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+    if (options.cursor) query.set("cursor", options.cursor);
+    return request<{ items?: DiscoveryExposure[]; next_cursor?: string | null; has_more?: boolean }>(`${root(deploymentId)}/exposures?${query}`, { signal: options.signal }).then(page);
   },
 
-  decisions(deploymentId: string) {
-    return request<{ items: DiscoveryDecision[] }>(`${root(deploymentId)}/decisions?limit=50`);
+  decisions(deploymentId: string, options: DiscoveryPageOptions = {}) {
+    const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+    if (options.cursor) query.set("cursor", options.cursor);
+    return request<{ items?: DiscoveryDecision[]; next_cursor?: string | null; has_more?: boolean }>(`${root(deploymentId)}/decisions?${query}`, { signal: options.signal }).then(page);
   },
 
-  shares(deploymentId: string) {
-    return request<{ items: DiscoveryShare[] }>(`${root(deploymentId)}/shares?limit=50`);
+  shares(deploymentId: string, options: DiscoveryPageOptions = {}) {
+    const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+    if (options.cursor) query.set("cursor", options.cursor);
+    return request<{ items?: DiscoveryShare[]; next_cursor?: string | null; has_more?: boolean }>(`${root(deploymentId)}/shares?${query}`, { signal: options.signal }).then(page);
   },
 
   browse(deploymentId: string, platform?: DiscoveryPlatform) {

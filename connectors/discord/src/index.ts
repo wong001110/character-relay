@@ -2067,15 +2067,52 @@ async function processMessage(
           )
         ].slice(-2)
       : [];
+    const replyAuthorByMessageId = new Map<string, { id: string; displayName: string }>();
+    {
+      const burstAuthorByMessageId = new Map(
+        (burst?.items ?? [collectedTurn]).map((item) => [
+          item.source.id,
+          { id: item.source.author.id, displayName: item.authorDisplayName }
+        ])
+      );
+      await Promise.all(
+        (burst?.items ?? [collectedTurn]).map(async (item) => {
+          const replyToMessageId = item.source.reference?.messageId;
+          if (!replyToMessageId) return;
+          const inBurst = burstAuthorByMessageId.get(replyToMessageId);
+          if (inBurst) {
+            replyAuthorByMessageId.set(item.source.id, inBurst);
+            return;
+          }
+          try {
+            const referenced = await item.source.fetchReference();
+            replyAuthorByMessageId.set(item.source.id, {
+              id: referenced.author.id,
+              displayName:
+                referenced.member?.displayName ??
+                referenced.author.globalName ??
+                referenced.author.username
+            });
+          } catch {
+            // The relation stays valid by message ID when Discord no longer exposes its parent.
+          }
+        })
+      );
+    }
     const participationBurstMessages = burst
-      ? burst.items.map((item) => ({
-          message_id: item.source.id,
-          author_id: item.source.author.id,
-          author_display_name: item.authorDisplayName,
-          text: item.originalText,
-          created_at: item.source.createdAt.toISOString(),
-          reply_to_message_id: item.source.reference?.messageId ?? ""
-        }))
+      ? burst.items.map((item) => {
+          const replyAuthor = replyAuthorByMessageId.get(item.source.id);
+          return {
+            message_id: item.source.id,
+            author_id: item.source.author.id,
+            author_display_name: item.authorDisplayName,
+            text: item.originalText,
+            created_at: item.source.createdAt.toISOString(),
+            reply_to_message_id: item.source.reference?.messageId ?? "",
+            reply_to_author_id: replyAuthor?.id ?? "",
+            reply_to_author_display_name: replyAuthor?.displayName ?? ""
+          };
+        })
       : [];
 
     let plannerMedia: DiscordPlannerMediaResult | null = null;
@@ -2242,7 +2279,10 @@ async function processMessage(
             thread_id: location.threadId,
             message_id: guildMessage.id,
             author_id: guildMessage.author.id,
+            author_display_name: authorDisplayName,
             reply_to_message_id: guildMessage.reference?.messageId ?? "",
+            reply_to_author_id: replyAuthorByMessageId.get(guildMessage.id)?.id ?? "",
+            reply_to_author_display_name: replyAuthorByMessageId.get(guildMessage.id)?.displayName ?? "",
             burst_id: participationBurstId,
             burst_messages: participationBurstMessages,
             channel_cooldown_seconds: config.smartParticipationChannelCooldownSeconds,
@@ -2768,6 +2808,7 @@ async function processMessage(
         author_is_bot: Boolean(sourceDeployment),
         emojis: socialSource ? [] : emojis,
         stickers: socialSource ? [] : stickers,
+        media_descriptors: socialSource ? [] : (plannerMedia?.descriptors ?? []),
         burst_media_message_ids: socialSource ? [] : burstMediaMessageIds,
         conversation_burst_id: socialSource ? "" : participationBurstId,
         burst_source_message_ids: socialSource

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { AdminSettings } from "./AdminSettings";
 import {
@@ -11,24 +12,28 @@ import {
   type TargetView
 } from "./api";
 import { AuthScreen } from "./AuthScreen";
-import { AuthoringLab } from "./AuthoringLab";
-import { CalibrationLab } from "./CalibrationLab";
 import { CharacterCreator } from "./CharacterCreator";
 import { CharacterShelf } from "./CharacterShelf";
-import { CoverageLab } from "./CoverageLab";
 import { DeploymentCenter } from "./DeploymentCenter";
 import { deploymentApi, type CharacterDeployment } from "./deploymentApi";
-import { EvaluationLab } from "./EvaluationLab";
 import { useI18n } from "./i18n";
 import { MatrixWorkspace } from "./MatrixWorkspace";
+import { MockDeploymentWorkspace } from "./MockDeploymentWorkspace";
 import { PackRunLauncher } from "./PackRunLauncher";
 import { PortalDashboard } from "./PortalDashboard";
 import { PortalShell, type PortalSection } from "./PortalShell";
 import { PromptInspector } from "./PromptInspector";
 import { isPublicDemoUser } from "./publicDemo";
+import { isMockPortal } from "./portalEnvironment";
+import {
+  characterRouteForPath,
+  characterRoutes,
+  matchesPortalRoute,
+  portalRoutes,
+  workspaceSectionForPath
+} from "./portalRoutes";
 import { SettingsWorkspace } from "./SettingsWorkspace";
 import { serverAccessApi } from "./serverAccessApi";
-import { TemplateLab } from "./TemplateLab";
 import { TestRoom } from "./TestRoom";
 import { ToolboxWorkspace } from "./ToolboxWorkspace";
 import { WorkspaceHub } from "./WorkspaceHub";
@@ -42,10 +47,6 @@ import "./admin-runtimes.css";
 import "./portal-v2.css";
 import "./portal-reference-shell.css";
 
-const SHOW_ADVANCED_LABS = false;
-const COMPONENT_LIBRARY_PATH = "/dev/ui";
-const requestedComponentLibrary =
-  (window.location.pathname.replace(/\/+$/, "") || "/") === COMPONENT_LIBRARY_PATH;
 const ComponentLibraryPage = lazy(() =>
   import("./ComponentLibraryPage").then((module) => ({
     default: module.ComponentLibraryPage
@@ -65,6 +66,12 @@ function initialTheme(): PortalTheme {
 
 export default function App() {
   const { language, t } = useI18n();
+  const location = useLocation();
+  const navigateTo = useNavigate();
+  const requestedComponentLibrary = matchesPortalRoute(
+    location.pathname,
+    portalRoutes.componentLibrary
+  );
   const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [booting, setBooting] = useState(true);
@@ -73,22 +80,16 @@ export default function App() {
   const [targets, setTargets] = useState<TargetView[]>([]);
   const [deployments, setDeployments] = useState<CharacterDeployment[]>([]);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
-  const [section, setSection] = useState<PortalSection>("dashboard");
+  const section = workspaceSectionForPath(location.pathname) ?? "dashboard";
+  const characterRoute = characterRouteForPath(location.pathname);
+  const routeCard = characterRoute?.cardId
+    ? cards.find((card) => card.id === characterRoute.cardId) ?? null
+    : null;
   const [theme, setTheme] = useState<PortalTheme>(initialTheme);
-  const [activeCard, setActiveCard] = useState<CharacterCard | null>(null);
-  const [fileCard, setFileCard] = useState<CharacterCard | null>(null);
-  const [creatorOpen, setCreatorOpen] = useState(false);
-  const [editingCard, setEditingCard] = useState<CharacterCard | null>(null);
-  const [promptCard, setPromptCard] = useState<CharacterCard | null>(null);
   const [adminOpen, setAdminOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [matrixOpen, setMatrixOpen] = useState(false);
   const [deploymentCharacterId, setDeploymentCharacterId] = useState<string | null>(null);
-  const [authoringOpen, setAuthoringOpen] = useState(false);
-  const [calibrationOpen, setCalibrationOpen] = useState(false);
-  const [evaluationOpen, setEvaluationOpen] = useState(false);
-  const [coverageOpen, setCoverageOpen] = useState(false);
-  const [templateOpen, setTemplateOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [componentLibraryAccess, setComponentLibraryAccess] = useState<
     "idle" | "checking" | "allowed" | "denied"
@@ -101,6 +102,21 @@ export default function App() {
   useEffect(() => {
     let active = true;
     async function bootstrap() {
+      if (isMockPortal) {
+        setAuthConfig({
+          registration_enabled: false,
+          invitation_required: false,
+          authentication_required: false
+        });
+        setUser({
+          id: "mock-ui-reviewer",
+          email: "mock-ui@local.invalid",
+          display_name: "Mock UI Reviewer",
+          role: "admin"
+        });
+        setBooting(false);
+        return;
+      }
       try {
         const config = await api.getAuthConfig();
         if (!active) return;
@@ -127,11 +143,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (workspaceAllowed && !requestedComponentLibrary) void load();
-  }, [workspaceAllowed]);
+    if (workspaceAllowed && !requestedComponentLibrary && !isMockPortal) void load();
+  }, [workspaceAllowed, requestedComponentLibrary]);
 
   useEffect(() => {
     if (!requestedComponentLibrary || !workspaceAllowed) return;
+    if (isMockPortal) {
+      setComponentLibraryAccess("allowed");
+      return;
+    }
     let active = true;
     setComponentLibraryAccess("checking");
     void serverAccessApi.overview()
@@ -170,15 +190,6 @@ export default function App() {
       setTargets(nextTargets);
       setDeployments(nextDeployments);
       setRuntime(nextRuntime);
-      setActiveCard((current) =>
-        current ? nextCards.find((item) => item.id === current.id) ?? null : null
-      );
-      setPromptCard((current) =>
-        current ? nextCards.find((item) => item.id === current.id) ?? null : null
-      );
-      setFileCard((current) =>
-        current ? nextCards.find((item) => item.id === current.id) ?? null : null
-      );
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("app.openShelfError"));
@@ -190,21 +201,11 @@ export default function App() {
     setTargets([]);
     setDeployments([]);
     setRuntime(null);
-    setSection("dashboard");
-    setActiveCard(null);
-    setFileCard(null);
-    setCreatorOpen(false);
-    setEditingCard(null);
-    setPromptCard(null);
+    navigateTo(portalRoutes.dashboard);
     setAdminOpen(false);
     setWorkspaceOpen(false);
     setMatrixOpen(false);
     setDeploymentCharacterId(null);
-    setAuthoringOpen(false);
-    setCalibrationOpen(false);
-    setEvaluationOpen(false);
-    setCoverageOpen(false);
-    setTemplateOpen(false);
   }
 
   async function logout() {
@@ -222,15 +223,12 @@ export default function App() {
   }
 
   function saved(card: CharacterCard) {
-    setCreatorOpen(false);
-    setEditingCard(null);
-    setFileCard(card);
     setCards((current) =>
       current.some((item) => item.id === card.id)
         ? current.map((item) => (item.id === card.id ? card : item))
         : [card, ...current]
     );
-    setActiveCard((current) => (current?.id === card.id ? card : current));
+    navigateTo(characterRoutes.file(card.id));
     void load();
   }
 
@@ -255,17 +253,25 @@ export default function App() {
   }
 
   function navigate(next: PortalSection) {
-    setSection(next);
+    navigateTo(portalRoutes[next]);
     setWorkspaceOpen(false);
     setMatrixOpen(false);
-    if (next !== "characters") {
-      setActiveCard(null);
-      setFileCard(null);
-      setCreatorOpen(false);
-      setEditingCard(null);
-      setPromptCard(null);
-    }
     if (next !== "deployments") setDeploymentCharacterId(null);
+  }
+
+  function openCharacterFile(card: CharacterCard) {
+    navigateTo(characterRoutes.file(card.id));
+  }
+
+  function openCharacterFileSection(
+    card: CharacterCard,
+    section: "profile" | "persona" | "prompt" | "memory" | "runtime" | "deployments"
+  ) {
+    navigateTo(
+      section === "profile"
+        ? characterRoutes.file(card.id)
+        : characterRoutes.fileSection(card.id, section)
+    );
   }
 
   function openDeployments(characterId: string | null = null) {
@@ -338,6 +344,26 @@ export default function App() {
     );
   }
 
+  if (isMockPortal && !requestedComponentLibrary) {
+    if (section === "deployments") {
+      return withShell(<MockDeploymentWorkspace />, "deployments");
+    }
+    return (
+      <main className="auth-page">
+        <section className="auth-card paper-sheet">
+          <h1>Mock UI mode</h1>
+          <p>This build contains local UI fixtures and does not connect to a live API.</p>
+          <a className="paper-button" href={portalRoutes.deployments}>
+            Open Server Notebook preview
+          </a>
+          <a className="paper-button" href={portalRoutes.componentLibrary}>
+            Open Component Library
+          </a>
+        </section>
+      </main>
+    );
+  }
+
   if (requestedComponentLibrary) {
     if (componentLibraryAccess === "allowed") {
       return (
@@ -351,6 +377,11 @@ export default function App() {
             </main>
           }
         >
+          {isMockPortal && (
+            <div className="ui-mode-banner" role="status">
+              MOCK DATA — NO LIVE CONNECTION
+            </div>
+          )}
           <ComponentLibraryPage />
         </Suspense>
       );
@@ -376,65 +407,6 @@ export default function App() {
     );
   }
 
-  if (SHOW_ADVANCED_LABS && templateOpen && user) {
-    return withShell(
-      <TemplateLab
-        cards={cards}
-        onClose={() => {
-          setTemplateOpen(false);
-          void load();
-        }}
-      />,
-      "toolbox"
-    );
-  }
-  if (SHOW_ADVANCED_LABS && coverageOpen && user) {
-    return withShell(
-      <CoverageLab
-        cards={cards}
-        onClose={() => {
-          setCoverageOpen(false);
-          void load();
-        }}
-      />,
-      "toolbox"
-    );
-  }
-  if (SHOW_ADVANCED_LABS && evaluationOpen && user) {
-    return withShell(
-      <EvaluationLab
-        onClose={() => {
-          setEvaluationOpen(false);
-          void load();
-        }}
-      />,
-      "toolbox"
-    );
-  }
-  if (SHOW_ADVANCED_LABS && calibrationOpen && user) {
-    return withShell(
-      <CalibrationLab
-        onClose={() => {
-          setCalibrationOpen(false);
-          void load();
-        }}
-      />,
-      "toolbox"
-    );
-  }
-  if (SHOW_ADVANCED_LABS && authoringOpen && user) {
-    return withShell(
-      <AuthoringLab
-        user={user}
-        cards={cards}
-        onClose={() => {
-          setAuthoringOpen(false);
-          void load();
-        }}
-      />,
-      "toolbox"
-    );
-  }
   if (matrixOpen) {
     return withShell(
       <MatrixWorkspace
@@ -463,8 +435,8 @@ export default function App() {
     );
   }
 
-  const editingTarget = editingCard
-    ? targets.find((item) => item.id === editingCard.target_id) ?? null
+  const editingTarget = routeCard
+    ? targets.find((item) => item.id === routeCard.target_id) ?? null
     : null;
 
   if (section === "dashboard") {
@@ -474,10 +446,7 @@ export default function App() {
         runtime={runtime}
         onNavigate={navigate}
         onCreateCharacter={() => {
-          setSection("characters");
-          setFileCard(null);
-          setEditingCard(null);
-          setCreatorOpen(true);
+          navigateTo(characterRoutes.new);
         }}
       />,
       "dashboard"
@@ -521,15 +490,22 @@ export default function App() {
     );
   }
 
-  if (creatorOpen && !publicDemo) {
+  if (
+    (characterRoute?.view === "new" || characterRoute?.view === "edit") &&
+    !publicDemo &&
+    (characterRoute.view === "new" || routeCard)
+  ) {
     return withShell(
       <CharacterCreator
         targets={targets}
-        card={editingCard}
+        card={characterRoute.view === "edit" ? routeCard : null}
         target={editingTarget}
         onClose={() => {
-          setCreatorOpen(false);
-          setEditingCard(null);
+          navigateTo(
+            characterRoute.view === "edit" && routeCard
+              ? characterRoutes.file(routeCard.id)
+              : characterRoutes.archive
+          );
         }}
         onSaved={saved}
       />,
@@ -537,15 +513,15 @@ export default function App() {
     );
   }
 
-  if (activeCard) {
-    const target = targets.find((item) => item.id === activeCard.target_id);
+  if (characterRoute?.view === "test" && routeCard) {
+    const target = targets.find((item) => item.id === routeCard.target_id);
     if (!target) {
       return withShell(
         <main className="room-page">
           <section className="paper-sheet missing-binding">
             <h1>{t("app.bindingMissingTitle")}</h1>
             <p>{t("app.bindingMissingBody")}</p>
-            <button className="paper-button" onClick={() => setActiveCard(null)}>
+            <button className="paper-button" onClick={() => navigateTo(characterRoutes.file(routeCard.id))}>
               {t("app.returnShelf")}
             </button>
           </section>
@@ -555,10 +531,10 @@ export default function App() {
     }
     return withShell(
       <TestRoom
-        card={activeCard}
+        card={routeCard}
         target={target}
         runtime={runtime}
-        onBack={() => setActiveCard(null)}
+        onBack={() => navigateTo(characterRoutes.file(routeCard.id))}
         onAdmin={openAdmin}
       />,
       "characters"
@@ -571,27 +547,38 @@ export default function App() {
         cards={cards}
         targets={targets}
         deployments={deployments}
-        selectedCard={fileCard}
+        selectedCard={
+          characterRoute?.view === "file" || characterRoute?.view === "prompt-inspector"
+            ? routeCard
+            : null
+        }
+        selectedFileSection={
+          characterRoute?.view === "file" || characterRoute?.view === "prompt-inspector"
+            ? characterRoute.fileSection ?? "profile"
+            : undefined
+        }
         error={error}
         demoMode={publicDemo}
         onCreate={() => {
-          setFileCard(null);
-          setEditingCard(null);
-          setCreatorOpen(true);
+          navigateTo(characterRoutes.new);
         }}
-        onOpenFile={setFileCard}
-        onCloseFile={() => setFileCard(null)}
+        onOpenFile={openCharacterFile}
+        onCloseFile={() => navigateTo(characterRoutes.archive)}
+        onFileSectionChange={(section) => {
+          if (routeCard) openCharacterFileSection(routeCard, section);
+        }}
         onEdit={(card) => {
-          setFileCard(card);
-          setEditingCard(card);
-          setCreatorOpen(true);
+          navigateTo(characterRoutes.edit(card.id));
         }}
-        onPrompt={setPromptCard}
-        onEnter={setActiveCard}
+        onPrompt={(card) => navigateTo(characterRoutes.promptInspector(card.id))}
+        onEnter={(card) => navigateTo(characterRoutes.test(card.id))}
         onDeploy={(card) => openDeployments(card.id)}
       />
-      {promptCard && (
-        <PromptInspector card={promptCard} onClose={() => setPromptCard(null)} />
+      {characterRoute?.view === "prompt-inspector" && routeCard && (
+        <PromptInspector
+          card={routeCard}
+          onClose={() => navigateTo(characterRoutes.fileSection(routeCard.id, "prompt"))}
+        />
       )}
     </>,
     "characters"

@@ -6,16 +6,28 @@ import asyncio
 import json
 import re
 from typing import Literal, Protocol
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from echo_masque.api.connector_schemas import DiscordInboundMessage
+from echo_masque.api.connector_schemas import DiscordEmbedContent, DiscordInboundMessage
 from echo_masque.content_resolver import resolve_static_url
 from echo_masque.live_media import LiveMediaContext
 from echo_masque.providers import ChatMessage
 from echo_masque.targets import PromptModelTarget
 
 _URL_PATTERN = re.compile(r"https?://[^\s<>\]\[(){}\"']+", re.IGNORECASE)
+_STATUS_ID_PATTERN = re.compile(r"/status/(\d+)", re.IGNORECASE)
+_SOCIAL_PREVIEW_HOSTS = frozenset(
+    {
+        "x.com",
+        "www.x.com",
+        "twitter.com",
+        "www.twitter.com",
+        "fxtwitter.com",
+        "www.fxtwitter.com",
+    }
+)
 _ATTENTION_MARKER = "[MEDIA_ATTENTION]"
 _MAX_PREVIEW_LINES = 8
 _MAX_RECENT_MESSAGES = 6
@@ -92,6 +104,100 @@ def media_preview_lines(payload: DiscordInboundMessage) -> tuple[str, ...]:
             lines.append(f"Shared web link: {raw_url[:1000]}")
 
     return tuple(dict.fromkeys(lines[:_MAX_PREVIEW_LINES]))
+
+
+def has_visible_embed_preview(payload: DiscordInboundMessage) -> bool:
+    """Return whether Discord supplied human-visible link-preview metadata.
+
+    Embed metadata is safe preview evidence, but it is not equivalent to perceiving the
+    linked asset. In particular, a Discord card for an X/Twitter GIF may expose the author,
+    title, and provider while leaving the animation and linked page unseen.
+    """
+
+    return any(_has_embed_preview_metadata(embed) for embed in payload.embeds[:4])
+
+
+def _preview_matches_url(raw_url: str, embed_url: str) -> bool:
+    raw = raw_url.strip().rstrip("/")
+    embedded = embed_url.strip().rstrip("/")
+    if not raw or not embedded:
+        return False
+    if raw.casefold() == embedded.casefold():
+        return True
+    raw_status = _STATUS_ID_PATTERN.search(raw)
+    embedded_status = _STATUS_ID_PATTERN.search(embedded)
+    raw_host = (urlparse(raw).hostname or "").casefold()
+    embedded_host = (urlparse(embedded).hostname or "").casefold()
+    return bool(
+        raw_status
+        and embedded_status
+        and raw_status.group(1) == embedded_status.group(1)
+        and raw_host in _SOCIAL_PREVIEW_HOSTS
+        and embedded_host in _SOCIAL_PREVIEW_HOSTS
+    )
+
+
+def _has_embed_preview_metadata(embed: DiscordEmbedContent) -> bool:
+    return any(
+        value.strip()
+        for value in (
+            embed.title,
+            embed.description,
+            embed.provider_name,
+            embed.author_name,
+        )
+    )
+
+
+def visible_embed_preview_for_url(
+    payload: DiscordInboundMessage,
+    raw_url: str,
+) -> DiscordEmbedContent | None:
+    """Return the visible Embed that corresponds to one URL, if supplied by Discord."""
+
+    return next(
+        (
+            embed
+            for embed in payload.embeds[:4]
+            if _has_embed_preview_metadata(embed) and _preview_matches_url(raw_url, embed.url)
+        ),
+        None,
+    )
+
+
+def has_complete_visible_embed_preview(payload: DiscordInboundMessage) -> bool:
+    """Return whether every active shared item has a usable Discord-visible preview.
+
+    Image attachments are removed before this helper is called because they are passively
+    perceived by Runtime. Non-image attachments and bare URLs remain uncovered unless a
+    matching Embed carries visible metadata. This prevents one preview card from masking a
+    second unseen video/file/link in the same Discord message.
+    """
+
+    if payload.attachments:
+        return False
+    previews = tuple(
+        embed
+        for embed in payload.embeds[:4]
+        if _has_embed_preview_metadata(embed)
+    )
+    if not previews:
+        return False
+    urls = tuple(
+        dict.fromkeys(
+            match.rstrip(".,!?;:\uff0c\u3002\uff01\uff1f\uff1b\uff1a")
+            for match in _URL_PATTERN.findall(payload.text)
+        )
+    )
+    if not urls:
+        return True
+    return all(
+        any(
+            _preview_matches_url(raw_url, embed.url)
+            for embed in previews
+        )
+        for raw_url in urls
+    )
 
 
 def has_shared_content(payload: DiscordInboundMessage) -> bool:
@@ -356,9 +462,12 @@ __all__ = [
     "MediaAttentionDecider",
     "MediaAttentionDecision",
     "MediaResponseStance",
+    "has_complete_visible_embed_preview",
     "has_shared_content",
+    "has_visible_embed_preview",
     "media_preview_lines",
     "skipped_media_guidance",
     "unavailable_media_guidance",
+    "visible_embed_preview_for_url",
     "watched_media_guidance",
 ]

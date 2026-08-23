@@ -67,12 +67,21 @@ class DeploymentDiscoveryDecisionView(BaseModel):
     created_at: datetime
 
 
+class CursorPaginationView(BaseModel):
+    next_cursor: str | None = None
+    has_more: bool = False
+
+
 class DeploymentDiscoveryExposureListView(BaseModel):
     items: list[DeploymentDiscoveryExposureView]
+    next_cursor: str | None = None
+    has_more: bool = False
 
 
 class DeploymentDiscoveryDecisionListView(BaseModel):
     items: list[DeploymentDiscoveryDecisionView]
+    next_cursor: str | None = None
+    has_more: bool = False
 
 
 class DiscoverySeedView(BaseModel):
@@ -154,6 +163,8 @@ class DeploymentActivitySessionDetailView(BaseModel):
 
 class DeploymentActivitySessionListView(BaseModel):
     items: list[DeploymentActivitySessionView]
+    next_cursor: str | None = None
+    has_more: bool = False
 
 
 class DeploymentDiscoveryShareView(BaseModel):
@@ -181,6 +192,8 @@ class DeploymentDiscoveryShareView(BaseModel):
 
 class DeploymentDiscoveryShareListView(BaseModel):
     items: list[DeploymentDiscoveryShareView]
+    next_cursor: str | None = None
+    has_more: bool = False
 
 
 __all__ = [
@@ -198,6 +211,7 @@ __all__ = [
     "DeploymentDiscoveryShareListView",
     "DeploymentDiscoveryShareView",
     "DeploymentDiscoveryShadowPreviewView",
+    "CursorPaginationView",
     "DiscoveryItemView",
     "DiscoveryPlatform",
     "DiscoveryRolloutMode",

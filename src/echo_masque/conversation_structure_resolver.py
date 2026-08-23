@@ -166,8 +166,11 @@ class ConversationStructureResolver:
             SmartParticipationBurstMessage(
                 message_id=payload.message_id or "message",
                 author_id=payload.author_id or "unknown",
+                author_display_name=payload.author_display_name,
                 text=payload.message,
                 reply_to_message_id=payload.reply_to_message_id,
+                reply_to_author_id=payload.reply_to_author_id,
+                reply_to_author_display_name=payload.reply_to_author_display_name,
             ),
         )
 
@@ -620,10 +623,14 @@ class ConversationStructureResolver:
                 channel_id=payload.channel_id,
                 discord_thread_id=payload.thread_id,
                 source_message_id=item.message_id,
+                source_author_id=item.author_id,
+                source_author_display_name=item.author_display_name,
                 relation_class="interaction",
                 relation_type="REPLY_TO",
                 target_ref_type="message",
                 target_ref=item.reply_to_message_id,
+                target_author_id=item.reply_to_author_id,
+                target_author_display_name=item.reply_to_author_display_name,
                 confidence=1.0,
                 source="discord_explicit",
                 evidence_refs=(item.message_id, item.reply_to_message_id),

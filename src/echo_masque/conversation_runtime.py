@@ -7,7 +7,10 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
-from echo_masque.api.smart_participation_v3_schemas import SmartParticipationResolveRequest
+from echo_masque.api.smart_participation_v3_schemas import (
+    SmartParticipationMediaDescriptor,
+    SmartParticipationResolveRequest,
+)
 from echo_masque.conversation_structure_resolver import ConversationSegmentationResult
 from echo_masque.persistence.conversation_runtime_models import ConversationEpisodeV3Record
 from echo_masque.persistence.conversation_runtime_repository import (
@@ -87,6 +90,59 @@ class ConversationRuntimeCoordinator:
         )
         return (text,) if text and any(cue in lowered for cue in cues) else ()
 
+    @staticmethod
+    def _descriptor_message_id(
+        descriptor: SmartParticipationMediaDescriptor,
+        *,
+        fallback_message_id: str,
+    ) -> str:
+        """Resolve the source message encoded by a planner descriptor reference.
+
+        Planner descriptors remain routing-only evidence. The message prefix is used here only
+        to retain raw Discord provenance in an Episode/working state; descriptor subject or
+        summary is deliberately not copied into Character context.
+        """
+
+        ref = descriptor.ref.strip()
+        if ref.startswith("message:"):
+            source, separator, _ = ref.removeprefix("message:").partition(":")
+            if separator and source:
+                return source[:200]
+        # Older descriptor responses used ``burst:<message_id>``. Keep them attributable while
+        # Connector and backend versions roll forward independently.
+        if ref.startswith("burst:"):
+            source, _, _ = ref.removeprefix("burst:").partition(":")
+            if source:
+                return source[:200]
+        return fallback_message_id[:200]
+
+    @classmethod
+    def _media_refs_for_segment(
+        cls,
+        *,
+        payload: SmartParticipationResolveRequest,
+        source_message_ids: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        """Return opaque, message-scoped media references for one resolved Segment."""
+
+        fallback = payload.message_id or (
+            payload.burst_messages[-1].message_id if payload.burst_messages else ""
+        )
+        message_ids = set(source_message_ids)
+        values: list[str] = []
+        for descriptor in payload.media_descriptors:
+            source_message_id = cls._descriptor_message_id(
+                descriptor,
+                fallback_message_id=fallback,
+            )
+            if not source_message_id or source_message_id not in message_ids:
+                continue
+            media_identity = descriptor.source_key.strip() or descriptor.ref.strip()
+            if not media_identity:
+                continue
+            values.append(f"message:{source_message_id}:media:{media_identity}"[:720])
+        return tuple(dict.fromkeys(values))
+
     def observe(
         self,
         *,
@@ -99,6 +155,10 @@ class ConversationRuntimeCoordinator:
         episode_views: list[ConversationEpisodeV3View] = []
         working_views: list[ThreadWorkingStateView] = []
         for segment in result.segments:
+            media_refs = self._media_refs_for_segment(
+                payload=payload,
+                source_message_ids=segment.message_ids,
+            )
             membership = self.structure.current_membership(
                 owner_id=owner_id,
                 segment_id=segment.id,
@@ -130,6 +190,7 @@ class ConversationRuntimeCoordinator:
                     active_entity_ids=entity_ids,
                     open_questions=self._question_candidates(segment.summary),
                     waiting_states=self._waiting_candidates(segment.summary),
+                    referenced_media=media_refs,
                     expires_at=current + _DEFAULT_WORKING_TTL,
                     now=current,
                 )
@@ -147,6 +208,7 @@ class ConversationRuntimeCoordinator:
                 source_message_ids=segment.message_ids,
                 participant_ids=segment.participant_ids,
                 entity_ids=entity_ids,
+                media_refs=media_refs,
                 summary=segment.summary,
                 key_events=(segment.summary,) if segment.summary else (),
                 now=current,

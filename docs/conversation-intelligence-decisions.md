@@ -165,7 +165,10 @@ Examples of obvious REQUIRED cases include requests whose answer depends on unse
 
 A Runtime-locked REQUIRED dependency cannot be downgraded by Utility.
 
-For REQUIRED media, Runtime owns the resolution before the final Character response. OPTIONAL media may remain Character-driven through `media.inspect`.
+For REQUIRED media, Runtime owns the resolution before the final Character response. OPTIONAL
+media without complete visible preview coverage may remain Character-driven through
+`media.inspect`; a complete Discord Embed preview is sufficient for ordinary metadata-grounded
+social behavior but never establishes perception of unseen media content.
 
 ---
 

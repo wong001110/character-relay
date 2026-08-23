@@ -13,10 +13,12 @@ from sqlalchemy import select
 from echo_masque.api import create_app
 from echo_masque.api.smart_participation_v3_schemas import (
     SmartParticipationBurstMessage,
+    SmartParticipationMediaDescriptor,
     SmartParticipationResolveCandidate,
     SmartParticipationResolveRequest,
 )
 from echo_masque.config import Settings
+from echo_masque.conversation_runtime import ConversationRuntimeCoordinator
 from echo_masque.conversation_structure_resolver import ConversationStructureResolver
 from echo_masque.entity_grounding_v3 import EntityGroundingService
 from echo_masque.evidence_graph_v3 import EvidenceGraphService
@@ -178,6 +180,55 @@ def test_closed_episode_replay_returns_existing_episode() -> None:
     with database.session() as session:
         records = list(session.scalars(select(ConversationEpisodeV3Record)))
     assert len(records) == 1
+
+
+def test_episode_and_working_state_keep_each_media_reference_by_source_message() -> None:
+    database = _database()
+    structure = ConversationStructureRepository(database)
+    resolver = ConversationStructureResolver(
+        structure,
+        Settings(semantic_embedding_enabled=False),
+        None,
+    )
+    payload = _projection_payload().model_copy(
+        update={
+            "media_descriptors": [
+                SmartParticipationMediaDescriptor(
+                    ref="message:projection-message-1:attachment:1",
+                    kind="image",
+                    state="preview_only",
+                    source_key="discord-attachment:first",
+                ),
+                SmartParticipationMediaDescriptor(
+                    ref="message:projection-message-1:attachment:2",
+                    kind="image",
+                    state="preview_only",
+                    source_key="discord-attachment:second",
+                ),
+                SmartParticipationMediaDescriptor(
+                    ref="message:projection-message-2:attachment:1",
+                    kind="video",
+                    state="preview_only",
+                    source_key="discord-attachment:third",
+                ),
+            ]
+        }
+    )
+    result = resolver.resolve(payload=payload, owner_id="owner-1")
+    coordinator = ConversationRuntimeCoordinator(
+        structure,
+        ConversationRuntimeRepository(database),
+    )
+
+    observation = coordinator.observe(owner_id="owner-1", payload=payload, result=result)
+
+    expected = {
+        "message:projection-message-1:media:discord-attachment:first",
+        "message:projection-message-1:media:discord-attachment:second",
+        "message:projection-message-2:media:discord-attachment:third",
+    }
+    assert set(observation.episodes[0].media_refs) == expected
+    assert set(observation.working_states[0].referenced_media) == expected
 
 
 def test_rejecting_evidence_invalidates_dependent_belief() -> None:

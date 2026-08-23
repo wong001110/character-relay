@@ -27,6 +27,8 @@ Intelligence Core v3 is the current intelligence authority. Topic fallback, Topi
 - [Deploy on Railway](railway-deployment.md)
 - [Security and privacy](security.md)
 - [Run release checks](manual-validation.md)
+- [Portal development and mock UI review](portal-development.md)
+- [Intelligence repair scope](intelligence-repair-scope.md)
 - [Repository architecture](architecture.md)
 - [Turn Director and focused Roleplay implementation record](turn-director-prompt-implementation.md) — verify branch/commit status before treating it as merged behavior
 - [Current branch execution ledger](active-development-plan.md) — use only when its recorded branch matches the checkout

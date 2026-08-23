@@ -17,22 +17,23 @@ MediaDependency = Literal["required", "optional", "none"]
 _REQUIRED_PATTERNS = (
     re.compile(
         r"(?:看(?:看|一下)?|读|讀|打开|打開|检查|檢查|分析|总结|總結).{0,16}"
-        r"(?:这个|這個|视频|影片|链接|連結|图片|圖片|照片|附件|media|video|link|image)",
+        r"(?:这个|這個|视频|影片|gif|GIF|链接|連結|图片|圖片|照片|附件|media|video|link|image)",
         re.I,
     ),
     re.compile(
-        r"(?:这个|這個|视频|影片|链接|連結|图片|圖片|照片|附件|里面|裡面).{0,24}"
-        r"(?:讲了什么|講了什麼|说了什么|說了什麼|是什么|是什麼|写了什么|寫了什麼|"
+        r"(?:这个|這個|视频|影片|gif|GIF|链接|連結|图片|圖片|照片|附件|里面|裡面).{0,24}"
+        r"(?:讲了什么|講了什麼|说了什么|說了什麼|是什么|是什麼|写了什么|寫了什麼|做什么|做什麼|"
+        r"在做什么|在做什麼|干嘛|幹嘛|干吗|幹嗎|"
         r"内容|內容|总结|總結|分析|谁|誰|哪里|哪裡|为什么|為什麼)",
         re.I,
     ),
     re.compile(
         r"(?:what(?:'s|\s+is)?\s+(?:in|on)|what\s+does|summari[sz]e|inspect|open|read|analy[sz]e)"
-        r".{0,24}(?:video|image|link|attachment|media|clip|page)",
+        r".{0,24}(?:video|image|gif|link|attachment|media|clip|page)",
         re.I,
     ),
     re.compile(
-        r"(?:video|image|link|attachment|media|clip|page).{0,24}"
+        r"(?:video|image|gif|link|attachment|media|clip|page).{0,24}"
         r"(?:say|show|contain|about|mean|summari[sz]e|explain)",
         re.I,
     ),

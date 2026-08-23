@@ -6,28 +6,28 @@ A Character may decide not to inspect an image, video, or article and still bluf
 
 ```text
 Discord content
-  -> Media Attention
-       action: watch | skip
-       response_stance: neutral | truthful | bluff | lie | tease | evasive | guess | uncertain
-  -> optional Media Understanding
+  -> Runtime media gate
+       visible image attachments: passive perception
+       complete Discord Embed preview: preview-grounded
+       explicit content request: required Media Understanding
+       uncovered shared content: optional Runtime-owned media.inspect
+  -> Media Understanding only when required or media.inspect is requested
   -> Runtime epistemic state
        skipped | perceived | unavailable
   -> Character reply
 ```
 
-The private Media Attention decision records two different motives:
-
-- `reason`: why the Character chose to inspect or skip the content;
-- `stance_reason`: the short social motive behind how the Character intends to present itself.
-
-`response_stance` is model-declared intent, not a post-hoc lie detector. It is selected before the final Character response and is injected back into the Character turn as private guidance. It never grants unseen media facts.
+The dedicated Media Attention LLM pre-pass is no longer used. Runtime makes the deterministic
+epistemic gate first. A Discord-visible Embed can ground title/provider/author/description
+metadata, but it does not establish perception of a linked GIF's motion, unseen frames, audio,
+or page contents. Multiple attachments are handled as one bounded batch: passive image
+attachments are separated from unpreviewed media so one visible preview cannot hide another
+inspection-eligible item.
 
 Runtime Trace adds a `turn_media_epistemic` event with bounded metadata:
 
 - actual perception state;
-- attention action and reason;
-- model-declared social stance and stance note;
-- deterministic stance grounding relative to the real perception state;
+- attention action (`passive`, `preview`, `required`, `watch`, or `skip`) and reason;
 - Media Context count and cache-hit count;
 - bounded media-resolution status.
 
@@ -35,18 +35,23 @@ Examples:
 
 ```text
 actual_perception=skipped
-response_stance=bluff
-stance_grounding=intentional_without_perception
+attention_action=preview
+media_result_reason=visible_link_preview_only
 ```
 
-means the Character did not inspect the content but privately chose to present confidence or knowledge it did not actually obtain.
+means the Character had a human-visible Discord preview but did not inspect the linked content.
+It may react to the displayed metadata, but must not claim to have seen the GIF animation or
+other unseen details.
 
 ```text
 actual_perception=perceived
-response_stance=truthful
-stance_grounding=grounded_in_perception
+attention_action=required
 ```
 
-means the Character obtained reliable Media Context and intends to respond honestly from that perception.
+means Runtime obtained reliable Media Context before Character generation because the current
+turn required content understanding.
 
-The final Discord message remains free-form persona behavior. Superadmin Runtime Trace is the authoritative place to inspect the internal distinction; Provider Trace remains the place to verify whether Media Attention or Media Understanding actually called an external model.
+The final Discord message remains free-form persona behavior. Runtime Trace is the authoritative
+place to inspect the distinction; Provider Trace verifies whether Media Understanding actually
+called an external model. Raw media content and provider payloads do not belong in ordinary
+diagnostic events.

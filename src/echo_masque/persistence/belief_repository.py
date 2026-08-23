@@ -288,6 +288,44 @@ class BeliefRepository:
             )
             session.commit()
 
+    def has_revision_event(
+        self,
+        *,
+        owner_id: str,
+        character_card_id: str,
+        connection_id: str,
+        guild_id: str,
+        subject_ref: str,
+        predicate: str,
+        source_message_id: str,
+    ) -> bool:
+        """Return whether this exact scoped source already produced a claim revision.
+
+        Source message IDs are the runtime idempotency key for current-turn extraction.  The
+        Belief join is intentional: revision events themselves predate character/connection/
+        guild columns, so scope must be checked against the Belief that owns the event.
+        """
+
+        if not source_message_id:
+            return False
+        with self.database.session() as session:
+            statement = (
+                select(BeliefRevisionEventRecord.id)
+                .join(BeliefV3Record, BeliefV3Record.id == BeliefRevisionEventRecord.belief_id)
+                .where(
+                    BeliefRevisionEventRecord.owner_id == owner_id,
+                    BeliefRevisionEventRecord.source_message_id == source_message_id,
+                    BeliefRevisionEventRecord.subject_ref == subject_ref,
+                    BeliefRevisionEventRecord.predicate == predicate,
+                    BeliefV3Record.owner_id == owner_id,
+                    BeliefV3Record.character_card_id == character_card_id,
+                    BeliefV3Record.connection_id == connection_id,
+                    BeliefV3Record.guild_id == guild_id,
+                )
+                .limit(1)
+            )
+            return session.scalar(statement) is not None
+
     def active_for_claim(
         self,
         *,

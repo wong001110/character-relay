@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from echo_masque.api.routes import (
@@ -67,8 +67,10 @@ from echo_masque.credentials import CredentialVault
 from echo_masque.current_turn_belief_v3 import CurrentTurnBeliefRevisionService
 from echo_masque.deployment_activity import DeploymentBrowsingActivityService
 from echo_masque.deployment_activity_scheduler import DeploymentActivityScheduler
+from echo_masque.deployment_discovery_service import DeploymentDiscoveryPreviewService
 from echo_masque.discord_debug_capture import InMemoryDiscordDebugCaptureStore
 from echo_masque.discord_inventory import DiscordInventoryService
+from echo_masque.entity_grounding_v3 import EntityGroundingService
 from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
 from echo_masque.evidence_graph_v3 import EvidenceGraphService
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService
@@ -76,6 +78,7 @@ from echo_masque.intelligence_v3_projection import ProjectionConversationRuntime
 from echo_masque.internal_context import InternalContextService
 from echo_masque.judge_evaluation import JudgeEvaluationService
 from echo_masque.knowledge_consolidation_v3 import KnowledgeConsolidationV3Service
+from echo_masque.knowledge_gap_discovery_v3 import KnowledgeGapDiscoveryService
 from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
 from echo_masque.live_media_scoped import KeyGroupScopedLiveMediaContextService
 from echo_masque.media_tools import MediaToolRegistry
@@ -331,6 +334,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         planner_utility_gateway,
     )
     entity_evidence_repository = EntityEvidenceRepository(database)
+    knowledge_gap_discovery_service = KnowledgeGapDiscoveryService(
+        entities=entity_evidence_repository,
+        discovery=DeploymentDiscoveryPreviewService(database, resolved),
+    )
     conversation_runtime_coordinator = ProjectionConversationRuntimeCoordinator(
         conversation_structure_repository,
         conversation_runtime_repository,
@@ -355,6 +362,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             repository=belief_repository,
             gateway=planner_utility_gateway,
         ),
+        entity_grounding=EntityGroundingService(entity_evidence_repository),
+        knowledge_gap_discovery=knowledge_gap_discovery_service,
     )
     discord_connector_runtime = RecallAwareMediaDiscordConnectorRuntime(
         repository,
@@ -530,6 +539,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.smart_participation_repository = smart_participation_repository
     app.state.semantic_participation_service = semantic_participation_service
     app.state.knowledge_repository = knowledge_repository
+    app.state.entity_evidence_repository = entity_evidence_repository
+    app.state.knowledge_gap_discovery_service = knowledge_gap_discovery_service
     app.state.context_resolver_v3 = context_resolver_v3
     app.state.conversation_structure_resolver_v3 = conversation_structure_resolver
     app.state.conversation_runtime_coordinator_v3 = conversation_runtime_coordinator
@@ -609,6 +620,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     web_dist = Path("web/dist")
     if web_dist.exists():
+        @app.get("/characters", include_in_schema=False)
+        @app.get("/characters/", include_in_schema=False)
+        @app.get("/characters/new", include_in_schema=False)
+        @app.get("/characters/{character_id}/prompt/inspect", include_in_schema=False)
+        @app.get("/characters/{character_id}/persona", include_in_schema=False)
+        @app.get("/characters/{character_id}/prompt", include_in_schema=False)
+        @app.get("/characters/{character_id}/memory", include_in_schema=False)
+        @app.get("/characters/{character_id}/runtime", include_in_schema=False)
+        @app.get("/characters/{character_id}/deployments", include_in_schema=False)
+        @app.get("/characters/{character_id}/edit", include_in_schema=False)
+        @app.get("/characters/{character_id}/test", include_in_schema=False)
+        @app.get("/characters/{character_id}", include_in_schema=False)
+        @app.get("/deployments", include_in_schema=False)
+        @app.get("/deployments/", include_in_schema=False)
+        @app.get("/deployments/{server_profile_id}/characters", include_in_schema=False)
+        @app.get("/deployments/{server_profile_id}/knowledge", include_in_schema=False)
+        @app.get("/deployments/{server_profile_id}/interactions", include_in_schema=False)
+        @app.get("/deployments/{server_profile_id}/intelligence", include_in_schema=False)
+        @app.get("/deployments/{server_profile_id}/intelligence/presence", include_in_schema=False)
+        @app.get("/deployments/{server_profile_id}/intelligence/social", include_in_schema=False)
+        @app.get(
+            "/deployments/{server_profile_id}/intelligence/participation",
+            include_in_schema=False,
+        )
+        @app.get(
+            "/deployments/{server_profile_id}/intelligence/conversation",
+            include_in_schema=False,
+        )
+        @app.get("/deployments/{server_profile_id}/intelligence/discovery", include_in_schema=False)
+        @app.get("/toolbox", include_in_schema=False)
+        @app.get("/toolbox/", include_in_schema=False)
+        @app.get("/settings", include_in_schema=False)
+        @app.get("/settings/", include_in_schema=False)
+        @app.get("/dev/ui", include_in_schema=False)
+        @app.get("/dev/ui/", include_in_schema=False)
+        def portal_index(
+            character_id: str = "",
+            server_profile_id: str = "",
+        ) -> FileResponse:
+            """Serve the Portal entry document for an explicitly supported client route."""
+
+            del character_id
+            del server_profile_id
+            return FileResponse(web_dist / "index.html")
+
         app.mount("/", StaticFiles(directory=web_dist, html=True), name="web")
     else:
 

@@ -12,6 +12,7 @@ import { DeploymentPresencePanel } from "./DeploymentPresencePanel";
 import { DiscoveryIntelligencePanel } from "./DiscoveryIntelligencePanel";
 import { ParticipationIntelligencePanel } from "./ParticipationIntelligencePanel";
 import { SocialIntelligencePanel } from "./SocialIntelligencePanel";
+import type { IntelligenceWorkspaceTab } from "./portalRoutes";
 import "./intelligence-product-completion.css";
 
 interface Props {
@@ -19,17 +20,19 @@ interface Props {
   profile: DiscordServerProfile;
   catalog?: DiscordServerCatalog;
   zh: boolean;
+  activeTab?: IntelligenceWorkspaceTab;
+  onTabChange?: (tab: IntelligenceWorkspaceTab) => void;
 }
 
-type IntelligenceWorkspaceTab =
-  | "presence"
-  | "social"
-  | "participation"
-  | "conversation"
-  | "discovery";
-
-export function ConversationIntelligenceInspector({ cards, profile, zh }: Props) {
-  const [workspaceTab, setWorkspaceTab] = useState<IntelligenceWorkspaceTab>("presence");
+export function ConversationIntelligenceInspector({
+  cards,
+  profile,
+  zh,
+  activeTab,
+  onTabChange
+}: Props) {
+  const [localWorkspaceTab, setLocalWorkspaceTab] = useState<IntelligenceWorkspaceTab>("presence");
+  const workspaceTab = activeTab ?? localWorkspaceTab;
   const [deployments, setDeployments] = useState<CharacterDeployment[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -50,6 +53,11 @@ export function ConversationIntelligenceInspector({ cards, profile, zh }: Props)
   useEffect(() => {
     void loadDeployments();
   }, [profile.id]);
+
+  function selectWorkspaceTab(next: IntelligenceWorkspaceTab) {
+    if (onTabChange) onTabChange(next);
+    else setLocalWorkspaceTab(next);
+  }
 
   const tabs: Array<{ key: IntelligenceWorkspaceTab; en: string; zh: string }> = [
     { key: "presence", en: "Live Presence", zh: "当前状态" },
@@ -90,7 +98,7 @@ export function ConversationIntelligenceInspector({ cards, profile, zh }: Props)
             type="button"
             key={item.key}
             className={workspaceTab === item.key ? "is-active" : ""}
-            onClick={() => setWorkspaceTab(item.key)}
+            onClick={() => selectWorkspaceTab(item.key)}
           >
             {zh ? item.zh : item.en}
           </button>

@@ -11,6 +11,14 @@ def test_explicit_media_question_is_runtime_required() -> None:
     assert decision.utility_refinement_allowed is False
 
 
+def test_explicit_gif_question_is_runtime_required() -> None:
+    decision = resolve_media_dependency(text="这个 GIF 在做什么?", has_media=True)
+
+    assert decision.dependency == "required"
+    assert decision.locked is True
+    assert decision.utility_refinement_allowed is False
+
+
 def test_media_only_turn_is_optional_after_planner_descriptor() -> None:
     decision = resolve_media_dependency(text="", has_media=True)
     assert decision.dependency == "optional"

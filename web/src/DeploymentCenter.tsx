@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import type { CharacterCard } from "./api";
 import {
@@ -32,6 +33,11 @@ import { InteractionSessionsPanel } from "./InteractionSessionsPanel";
 import { KnowledgeBasePanel } from "./KnowledgeBasePanel";
 import { SmartParticipationStudio } from "./SmartParticipationStudio";
 import { serverRuntimeApi } from "./serverRuntimeApi";
+import {
+  deploymentRouteForPath,
+  deploymentRoutes,
+  type DeploymentNotebookTab
+} from "./portalRoutes";
 
 interface Props {
   cards: CharacterCard[];
@@ -45,7 +51,7 @@ interface ChannelGroup {
   channels: DiscordCatalogChannel[];
 }
 
-type ServerNotebookTab = "characters" | "knowledge" | "interactions" | "intelligence";
+type ServerNotebookTab = DeploymentNotebookTab;
 
 const platformLabels: Record<PlatformId, string> = {
   discord: "Discord",
@@ -224,6 +230,9 @@ export function DeploymentCenter({
 }: Props) {
   const { language } = useI18n();
   const zh = language === "zh-CN";
+  const location = useLocation();
+  const navigate = useNavigate();
+  const deploymentRoute = deploymentRouteForPath(location.pathname);
   const [connections, setConnections] = useState<PlatformConnection[]>([]);
   const [serverProfiles, setServerProfiles] = useState<DiscordServerProfile[]>([]);
   const [serverCatalog, setServerCatalog] = useState<DiscordServerCatalog[]>([]);
@@ -242,8 +251,8 @@ export function DeploymentCenter({
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedServerProfileId, setSelectedServerProfileId] = useState(() =>
-    new URLSearchParams(window.location.search).get("server_profile") ?? ""
+  const [selectedServerProfileId, setSelectedServerProfileId] = useState(
+    () => deploymentRoute?.serverProfileId ?? ""
   );
   const serverSelectionInitialized = useRef(false);
 
@@ -268,7 +277,38 @@ export function DeploymentCenter({
 
   const [statusFilter, setStatusFilter] = useState<"all" | DeploymentStatus>("all");
   const [characterFilter, setCharacterFilter] = useState(initialCharacterId ?? "all");
-  const [serverNotebookTab, setServerNotebookTab] = useState<ServerNotebookTab>("characters");
+  const [serverNotebookTab, setServerNotebookTab] = useState<ServerNotebookTab>(
+    () => deploymentRoute?.notebookTab ?? "characters"
+  );
+
+  function selectServerProfile(serverProfileId: string) {
+    setSelectedServerProfileId(serverProfileId);
+    if (!serverProfileId) {
+      navigate(deploymentRoutes.index);
+      return;
+    }
+    const target =
+      serverNotebookTab === "intelligence"
+        ? deploymentRoutes.intelligence(
+            serverProfileId,
+            deploymentRoute?.intelligenceTab ?? "presence"
+          )
+        : deploymentRoutes.notebook(serverProfileId, serverNotebookTab);
+    navigate(target);
+  }
+
+  function openServerNotebook(
+    tab: ServerNotebookTab,
+    intelligenceTab = deploymentRoute?.intelligenceTab ?? "presence"
+  ) {
+    setServerNotebookTab(tab);
+    if (!selectedServerProfileId) return;
+    navigate(
+      tab === "intelligence"
+        ? deploymentRoutes.intelligence(selectedServerProfileId, intelligenceTab)
+        : deploymentRoutes.notebook(selectedServerProfileId, tab)
+    );
+  }
 
   async function load(page = deploymentPage) {
     try {
@@ -296,11 +336,11 @@ export function DeploymentCenter({
       setConnections(nextConnections);
       setServerProfiles(nextProfiles);
       setServerCatalog(nextCatalog);
-      setSelectedServerProfileId((current) =>
-        current && nextProfiles.some((item) => item.id === current)
-          ? current
-          : nextProfiles[0]?.id ?? ""
-      );
+      const nextProfileId =
+        selectedServerProfileId && nextProfiles.some((item) => item.id === selectedServerProfileId)
+          ? selectedServerProfileId
+          : nextProfiles[0]?.id ?? "";
+      if (nextProfileId !== selectedServerProfileId) selectServerProfile(nextProfileId);
       setDeployments(nextDeployments.items);
       setDeploymentPage(nextDeployments.page);
       setDeploymentPages(nextDeployments.pages);
@@ -341,10 +381,16 @@ export function DeploymentCenter({
   }, [characterFilter, selectedServerProfileId, statusFilter]);
 
   useEffect(() => {
-    const url = new URL(window.location.href);
-    if (selectedServerProfileId) url.searchParams.set("server_profile", selectedServerProfileId);
-    else url.searchParams.delete("server_profile");
-    window.history.replaceState({}, "", url);
+    if (!deploymentRoute) return;
+    if (deploymentRoute.serverProfileId !== selectedServerProfileId) {
+      setSelectedServerProfileId(deploymentRoute.serverProfileId ?? "");
+    }
+    if (deploymentRoute.notebookTab !== serverNotebookTab) {
+      setServerNotebookTab(deploymentRoute.notebookTab);
+    }
+  }, [deploymentRoute, selectedServerProfileId, serverNotebookTab]);
+
+  useEffect(() => {
     if (serverSelectionInitialized.current) {
       setDeploymentOpen(false);
       setEditingDeployment(null);
@@ -355,7 +401,7 @@ export function DeploymentCenter({
 
   useEffect(() => {
     if (!selectedServerProfileId && serverNotebookTab !== "characters") {
-      setServerNotebookTab("characters");
+      openServerNotebook("characters");
     }
   }, [selectedServerProfileId, serverNotebookTab]);
 
@@ -377,7 +423,7 @@ export function DeploymentCenter({
     if (!initialCharacterId) return;
     setCharacterFilter(initialCharacterId);
     setDraftCharacterId(initialCharacterId);
-    setServerNotebookTab("characters");
+    openServerNotebook("characters");
     setDeploymentOpen(true);
   }, [initialCharacterId]);
 
@@ -475,7 +521,7 @@ export function DeploymentCenter({
   }
 
   function openConnectionManager() {
-    setServerNotebookTab("characters");
+    openServerNotebook("characters");
     setConnectionManagerOpen(true);
   }
 
@@ -535,7 +581,7 @@ export function DeploymentCenter({
   function openNewDeployment() {
     const connectionId = selectedWorkspaceProfile?.connection_id ?? "";
     if (!selectedWorkspaceProfile) return;
-    setServerNotebookTab("characters");
+    openServerNotebook("characters");
     setEditingDeployment(null);
     setDraftCharacterId(initialCharacterId ?? cards[0]?.id ?? "");
     setDraftConnectionId(connectionId);
@@ -547,7 +593,7 @@ export function DeploymentCenter({
   }
 
   function openEditDeployment(item: CharacterDeployment) {
-    setServerNotebookTab("characters");
+    openServerNotebook("characters");
     setEditingDeployment(item);
     setDraftCharacterId(item.character_card_id);
     setDraftConnectionId(item.connection_id);
@@ -734,7 +780,7 @@ export function DeploymentCenter({
             selectedProfileId={selectedServerProfileId}
             demoMode={demoMode}
             zh={zh}
-            onSelectProfile={setSelectedServerProfileId}
+            onSelectProfile={selectServerProfile}
             onChanged={load}
             onError={(message) => setError(message || null)}
             onOpenLogs={() => setEventLogOpen(true)}
@@ -791,7 +837,7 @@ export function DeploymentCenter({
             type="button"
             className={serverNotebookTab === "characters" ? "is-active" : ""}
             aria-current={serverNotebookTab === "characters" ? "page" : undefined}
-            onClick={() => setServerNotebookTab("characters")}
+            onClick={() => openServerNotebook("characters")}
           >
             <span aria-hidden="true">♙</span>
             <strong>{zh ? "角色部署" : "Characters"}</strong>
@@ -801,7 +847,7 @@ export function DeploymentCenter({
             type="button"
             className={serverNotebookTab === "knowledge" ? "is-active" : ""}
             aria-current={serverNotebookTab === "knowledge" ? "page" : undefined}
-            onClick={() => setServerNotebookTab("knowledge")}
+            onClick={() => openServerNotebook("knowledge")}
             disabled={!selectedWorkspaceProfile}
           >
             <span aria-hidden="true">▤</span>
@@ -811,7 +857,7 @@ export function DeploymentCenter({
             type="button"
             className={serverNotebookTab === "interactions" ? "is-active" : ""}
             aria-current={serverNotebookTab === "interactions" ? "page" : undefined}
-            onClick={() => setServerNotebookTab("interactions")}
+            onClick={() => openServerNotebook("interactions")}
             disabled={!selectedWorkspaceProfile}
           >
             <span aria-hidden="true">⌁</span>
@@ -821,7 +867,7 @@ export function DeploymentCenter({
             type="button"
             className={serverNotebookTab === "intelligence" ? "is-active" : ""}
             aria-current={serverNotebookTab === "intelligence" ? "page" : undefined}
-            onClick={() => setServerNotebookTab("intelligence")}
+            onClick={() => openServerNotebook("intelligence")}
             disabled={!selectedWorkspaceProfile}
           >
             <span aria-hidden="true">◉</span>
@@ -1848,6 +1894,8 @@ export function DeploymentCenter({
               profile={selectedWorkspaceProfile}
               catalog={selectedWorkspaceCatalog}
               zh={zh}
+              activeTab={deploymentRoute?.intelligenceTab ?? "presence"}
+              onTabChange={(tab) => openServerNotebook("intelligence", tab)}
             />
           )}
 

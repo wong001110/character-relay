@@ -390,6 +390,39 @@
   grid-column: auto;
 }
 
+/* Intelligence tabs share one content rhythm. Keep the scrapbook labels in the
+   document flow here: the global tape treatment intentionally overhangs other
+   pages, but that overhang makes tab headings collide with the notebook index. */
+.intelligence-product-workspace .tape-label {
+  margin: 0;
+  align-self: start;
+}
+
+.intelligence-product-workspace > .social-v2-panel,
+.intelligence-product-workspace > .participation-vnext-panel,
+.intelligence-product-workspace > .discovery-intelligence-panel,
+.intelligence-product-workspace > .conversation-structure-sheet {
+  box-sizing: border-box;
+  min-width: 0;
+  margin: 0;
+  padding: 18px 20px 22px;
+}
+
+.intelligence-product-workspace .intelligence-product-heading > div:first-child {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.intelligence-product-workspace .intelligence-product-heading h2,
+.intelligence-product-workspace .intelligence-product-heading h3 {
+  margin: 0;
+}
+
+.intelligence-product-workspace .intelligence-product-heading p {
+  margin: 0;
+}
+
 .intelligence-workspace-empty {
   display: grid;
   gap: 6px;

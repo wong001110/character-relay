@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { CharacterCard } from "./api";
 import type { CharacterDeployment } from "./deploymentApi";
@@ -13,6 +13,8 @@ import {
   type CharacterRelationshipPrior,
   type RelationshipGeneration
 } from "./relationshipApi";
+import { pageCount, pageItems } from "./conversationPagination";
+import { Pagination } from "./Pagination";
 
 interface Props {
   cards: CharacterCard[];
@@ -22,6 +24,8 @@ interface Props {
 
 type SocialView = "lived" | "canonical";
 type Dimension = "familiarity" | "affinity" | "trust" | "comfort";
+
+const SOCIAL_TARGET_PAGE_SIZE = 10;
 
 interface PriorDraft {
   relationship_type: string;
@@ -116,10 +120,16 @@ export function SocialIntelligencePanel({ cards, deployments, zh }: Props) {
   );
   const [data, setData] = useState<DeploymentSocialIntelligence | null>(null);
   const [targetKey, setTargetKey] = useState("");
+  const [targetPage, setTargetPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const sourceDeployment = deployments.find((item) => item.id === sourceDeploymentId) ?? null;
+  const targetPages = pageCount(data?.items.length ?? 0, SOCIAL_TARGET_PAGE_SIZE);
+  const visibleTargets = useMemo(
+    () => pageItems(data?.items ?? [], targetPage, SOCIAL_TARGET_PAGE_SIZE),
+    [data?.items, targetPage]
+  );
   const selectedTarget = data?.items.find(
     (item) => `${item.target_type}:${item.target_key}` === targetKey
   ) ?? data?.items[0] ?? null;
@@ -141,6 +151,7 @@ export function SocialIntelligencePanel({ cards, deployments, zh }: Props) {
             ? `${next.items[0].target_type}:${next.items[0].target_key}`
             : ""
       );
+      setTargetPage(1);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -159,6 +170,10 @@ export function SocialIntelligencePanel({ cards, deployments, zh }: Props) {
   useEffect(() => {
     void loadSocial();
   }, [sourceDeploymentId]);
+
+  useEffect(() => {
+    setTargetPage((current) => Math.min(Math.max(1, current), targetPages));
+  }, [targetPages]);
 
   return (
     <section className="paper-sheet social-v2-panel">
@@ -214,20 +229,32 @@ export function SocialIntelligencePanel({ cards, deployments, zh }: Props) {
           ) : (
             <div className="social-v2-layout">
               <aside className="social-v2-target-list">
-                {data.items.map((item) => {
-                  const key = `${item.target_type}:${item.target_key}`;
-                  return (
-                    <button
-                      type="button"
-                      key={key}
-                      className={key === `${selectedTarget?.target_type}:${selectedTarget?.target_key}` ? "is-active" : ""}
-                      onClick={() => setTargetKey(key)}
-                    >
-                      {item.avatar_url ? <img src={item.avatar_url} alt="" /> : <span>{item.label.slice(0, 1).toUpperCase()}</span>}
-                      <div><strong>{item.label}</strong><small>{targetKindLabel(item)}</small></div>
-                    </button>
-                  );
-                })}
+                <div className="social-v2-target-list-items">
+                  {visibleTargets.map((item) => {
+                    const key = `${item.target_type}:${item.target_key}`;
+                    return (
+                      <button
+                        type="button"
+                        key={key}
+                        className={key === `${selectedTarget?.target_type}:${selectedTarget?.target_key}` ? "is-active" : ""}
+                        onClick={() => setTargetKey(key)}
+                      >
+                        {item.avatar_url ? <img src={item.avatar_url} alt="" /> : <span>{item.label.slice(0, 1).toUpperCase()}</span>}
+                        <div><strong>{item.label}</strong><small>{targetKindLabel(item)}</small></div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <Pagination
+                  page={targetPage}
+                  pages={targetPages}
+                  total={data.items.length}
+                  onPage={(nextPage) => {
+                    setTargetPage(nextPage);
+                    const nextTarget = pageItems(data.items, nextPage, SOCIAL_TARGET_PAGE_SIZE)[0];
+                    if (nextTarget) setTargetKey(`${nextTarget.target_type}:${nextTarget.target_key}`);
+                  }}
+                />
               </aside>
 
               {selectedTarget && (

@@ -248,6 +248,7 @@ class Database:
 
         DiscordEventPrivacyMigration(self).run()
         self._ensure_sqlite_deployment_runtime_invariants()
+        self._ensure_sqlite_message_relation_author_snapshots()
 
     def _ensure_sqlite_deployment_runtime_invariants(self) -> None:
         if self.engine.dialect.name != "sqlite":
@@ -268,6 +269,28 @@ class Database:
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_SERVER_UPDATE_TRIGGER)
             connection.exec_driver_sql("DROP TRIGGER IF EXISTS cr_delete_deployment_presence")
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_PRESENCE_DELETE_TRIGGER)
+
+    def _ensure_sqlite_message_relation_author_snapshots(self) -> None:
+        """Add non-content author snapshots to pre-existing Conversation v3 relation tables."""
+
+        if self.engine.dialect.name != "sqlite":
+            return
+        required = {
+            "source_author_id": "VARCHAR(200) NOT NULL DEFAULT ''",
+            "source_author_display_name": "VARCHAR(200) NOT NULL DEFAULT ''",
+            "target_author_id": "VARCHAR(200) NOT NULL DEFAULT ''",
+            "target_author_display_name": "VARCHAR(200) NOT NULL DEFAULT ''",
+        }
+        with self.engine.begin() as connection:
+            columns = {
+                str(row[1])
+                for row in connection.exec_driver_sql("PRAGMA table_info(message_relations_v3)").all()
+            }
+            for name, definition in required.items():
+                if columns and name not in columns:
+                    connection.exec_driver_sql(
+                        f"ALTER TABLE message_relations_v3 ADD COLUMN {name} {definition}"
+                    )
 
     def inspect_deployment_server_duplicates(self) -> tuple[DeploymentServerDuplicate, ...]:
         if self.engine.dialect.name != "sqlite":

@@ -220,6 +220,10 @@ Dense technical pages such as Provider Calls and Runtime Raw intentionally retai
 Session bootstrap and verifies the server-provided `is_super_admin` signal before the
 catalog chunk is loaded. The Administration page is its only in-product entry point.
 
+`npm run dev:mock` is a separate, browser-local fixture build for UI review. In that build only,
+the catalogue uses a local mock reviewer and displays the persistent mock-data indicator; it does
+not call an API and does not weaken production's server-side Super Admin requirement.
+
 The inventory is derived from module exports instead of a handwritten total. It currently
 contains **48 reusable components**:
 

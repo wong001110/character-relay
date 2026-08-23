@@ -102,7 +102,15 @@ Media behavior separates content understanding from Character epistemic truth.
 Current design includes:
 
 - visible image attachments can be passively perceived;
-- links/videos/other non-visible shared content are inspected through the normal Runtime-owned `media.inspect` Tool when the Character chooses to inspect them;
+- Discord link previews with usable visible metadata (including X/Twitter GIF cards) are
+  treated as `preview_grounded` for ordinary social reactions; the preview does not establish
+  perception of GIF motion, unseen frames, audio, or linked-page contents;
+- links/videos/other non-visible shared content without complete preview coverage are inspected
+  through the normal Runtime-owned `media.inspect` Tool when the Character chooses to inspect
+  them;
+- a message containing multiple media items is evaluated as a batch: all visible image
+  attachments remain passive, while any unpreviewed video/file/link keeps the inspection path
+  available; media understanding remains bounded by the existing per-turn media budget;
 - the dedicated Media Attention LLM pre-pass has been removed;
 - Media Understanding results can reuse SHA-256/cache identity;
 - historical Conversation Media supports semantic recall with stricter automatic-recency and low-information safeguards;

@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter, useLocation } from "react-router-dom";
 import App from "./App";
 import "./discordEventLog.css";
 import "./discordServerProfiles.css";
@@ -29,20 +30,33 @@ import "./lab-scrapbook-v3.css";
 import "./ui-showcase-icons.css";
 import "./overlay-layers.css";
 import "./paper-texture-system.css";
+import "./portal-environment.css";
 // Keep the stabilization layer last so its cross-page responsive contracts
 // do not depend on which feature component happens to load first.
 import "./stabilization-hotfix.css";
 import { I18nProvider } from "./i18n";
+import { portalRoutes } from "./portalRoutes";
+import { shouldRenderSystemIntelligenceDock } from "./portalEnvironment";
 import { SemanticRoutingJudgeDock } from "./SemanticRoutingJudgeDock";
 
-const normalizedPath = window.location.pathname.replace(/\/+$/, "") || "/";
-const showUiShowcase = normalizedPath === "/dev/ui";
+function PortalRoot() {
+  const location = useLocation();
+  const showUiShowcase = location.pathname.replace(/\/+$/, "") === portalRoutes.componentLibrary;
+
+  return (
+    <>
+      <App />
+      {shouldRenderSystemIntelligenceDock(showUiShowcase) && <SemanticRoutingJudgeDock />}
+    </>
+  );
+}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <I18nProvider>
-      <App />
-      {!showUiShowcase && <SemanticRoutingJudgeDock />}
-    </I18nProvider>
+    <BrowserRouter>
+      <I18nProvider>
+        <PortalRoot />
+      </I18nProvider>
+    </BrowserRouter>
   </StrictMode>
 );

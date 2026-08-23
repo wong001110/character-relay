@@ -89,7 +89,29 @@ class BilibiliDiscoveryAdapter:
         by_key = {row.canonical_key: row for row in rows}
         if any(key not in by_key for key in hit.result_keys):
             return None
-        return tuple(self._candidate_from_record(by_key[key]) for key in hit.result_keys)
+        candidates = tuple(self._candidate_from_record(by_key[key]) for key in hit.result_keys)
+        # Older flat-search results persisted the page URL as the title. Do not keep
+        # serving that bad cache entry: a subsequent browse must hydrate the video
+        # metadata and repair the shared Discovery item.
+        if any(
+            not candidate.title.strip()
+            or self._title_is_url(candidate.title, candidate.url)
+            for candidate in candidates
+        ):
+            return None
+        return candidates
+
+    @staticmethod
+    def _title_is_url(title: str, url: str) -> bool:
+        normalized_title = title.strip().rstrip("/").casefold()
+        normalized_url = url.strip().rstrip("/").casefold()
+        return bool(normalized_title) and (
+            normalized_title == normalized_url
+            or (
+                normalized_title.startswith(("http://", "https://"))
+                and "bilibili.com/video/" in normalized_title
+            )
+        )
 
     async def fetch_candidates(
         self, request: DiscoveryFetchRequest
@@ -165,11 +187,14 @@ class BilibiliDiscoveryAdapter:
             return None
         url = webpage if webpage.startswith("http") else f"https://www.bilibili.com/video/{canonical_id}"
         thumbnail = str(row.get("thumbnail") or row.get("thumbnail_url") or "").strip()
+        title = str(row.get("title") or row.get("fulltitle") or row.get("alt_title") or "").strip()
+        if cls._title_is_url(title, url):
+            title = ""
         return DiscoveryCandidate(
             source=cls.source,
             canonical_key=f"bilibili:{canonical_id}",
             content_kind="video",
-            title=str(row.get("title") or "").strip(),
+            title=title,
             description=str(row.get("description") or "").strip(),
             creator=str(row.get("uploader") or row.get("channel") or row.get("creator") or "").strip(),
             url=url,
@@ -186,7 +211,10 @@ class BilibiliDiscoveryAdapter:
             "quiet": True,
             "no_warnings": True,
             "skip_download": True,
-            "extract_flat": True,
+            # BilibiliSearchIE yields URL results. Flat extraction therefore stores
+            # the URL as the title; resolve each result so the candidate carries the
+            # actual video title/uploader metadata.
+            "extract_flat": False,
             "playlistend": max(1, min(limit, 12)),
             "socket_timeout": 15,
             "retries": 1,

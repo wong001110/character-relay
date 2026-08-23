@@ -19,7 +19,7 @@ by a coherent phase—do not regenerate unrelated documentation.
 | Knowledge, RAG, Wiki | `knowledge_*`, `character_turn_context_v3.py` | knowledge/context tests | `docs/context-rag-v1.md` |
 | Observability | `providers/trace.py`, `runtime_trace.py` | `test_provider_trace*.py`, runtime trace tests | `docs/provider-tracing.md` |
 | Evaluation / calibration | evaluation services and `api/routes/` | `test_phase14.py`, `test_phase16_*.py` | `docs/phase-14-experiment-matrix.md`, `docs/phase-16-authoring.md` |
-| Portal | `web/src/` | `web/src/*.test.ts` | `docs/ui-ux-contract.md`, `docs/ui-page-migration-plan.md` |
+| Portal | `web/src/main.tsx`, `web/src/App.tsx`, `web/src/portalRoutes.ts`, `web/src/DeploymentCenter.tsx`, `web/src/ConversationStructurePanel.tsx`, `web/src/conversationThreadMap.ts`, `web/src/conversationRelationBoard.ts`, `src/echo_masque/api/app.py` | `web/src/portalEnvironment.test.ts`, `web/src/conversationEpisodeBoard.test.ts`, `web/src/conversationThreadMap.test.ts`, `web/src/conversationRelationBoard.test.ts`, `tests/test_conversation_structure_v3.py`, `tests/test_conversation_relations_v3.py`, `tests/test_portal_static_routes.py` | `docs/ui-ux-contract.md`, `docs/ui-page-migration-plan.md`, `docs/portal-routing-environments-plan.md`, `docs/portal-development.md` |
 
 ## Required handoff record
 

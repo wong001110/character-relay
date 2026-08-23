@@ -1,0 +1,13 @@
+.ui-mode-banner {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 8px 16px;
+  border-bottom: 1px dashed rgba(75, 69, 61, 0.35);
+  background: #fff3b9;
+  color: #5e4311;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-align: center;
+}

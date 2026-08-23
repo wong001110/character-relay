@@ -10,6 +10,8 @@ import {
   type DiscoverySession,
   type DiscoveryShare
 } from "./discoveryApi";
+import { pageCount, pageItems } from "./conversationPagination";
+import { Pagination } from "./Pagination";
 
 interface Props {
   deployments: CharacterDeployment[];
@@ -17,6 +19,28 @@ interface Props {
 }
 
 type DiscoveryView = "overview" | "perception" | "decisions" | "shares";
+
+const DISCOVERY_PAGE_SIZE = 12;
+
+type DiscoveryCollection = "sessions" | "exposures" | "decisions" | "shares";
+
+interface CursorState {
+  page: number;
+  cursor: string | null;
+  nextCursor: string | null;
+  hasMore: boolean;
+  paged: boolean;
+  history: Array<string | null>;
+}
+
+const initialCursorState = (): CursorState => ({
+  page: 1,
+  cursor: null,
+  nextCursor: null,
+  hasMore: false,
+  paged: false,
+  history: [null]
+});
 
 function instant(value: string): number {
   const hasZone = /(?:Z|[+-]\d{2}:\d{2})$/iu.test(value);
@@ -77,6 +101,16 @@ export function DiscoveryIntelligencePanel({ deployments, zh }: Props) {
   const [exposures, setExposures] = useState<DiscoveryExposure[]>([]);
   const [decisions, setDecisions] = useState<DiscoveryDecision[]>([]);
   const [shares, setShares] = useState<DiscoveryShare[]>([]);
+  const [sessionPage, setSessionPage] = useState(1);
+  const [exposurePage, setExposurePage] = useState(1);
+  const [decisionPage, setDecisionPage] = useState(1);
+  const [sharePage, setSharePage] = useState(1);
+  const [cursorState, setCursorState] = useState<Record<DiscoveryCollection, CursorState>>({
+    sessions: initialCursorState(),
+    exposures: initialCursorState(),
+    decisions: initialCursorState(),
+    shares: initialCursorState()
+  });
   const [view, setView] = useState<DiscoveryView>("overview");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -90,6 +124,34 @@ export function DiscoveryIntelligencePanel({ deployments, zh }: Props) {
   const latestResult =
     sessions.find((item) => ["completed", "skipped", "failed"].includes(item.status)) ?? null;
   const metricSession = activeSession ?? sessions[0] ?? null;
+  const sessionPages = cursorState.sessions.paged
+    ? (cursorState.sessions.hasMore ? cursorState.sessions.page + 1 : cursorState.sessions.page)
+    : fixturePageCount(sessions.length, sessionPage);
+  const visibleSessions = useMemo(
+    () => cursorState.sessions.paged ? sessions : pageItems(sessions, sessionPage, DISCOVERY_PAGE_SIZE),
+    [cursorState.sessions.paged, sessions, sessionPage]
+  );
+  const exposurePages = cursorState.exposures.paged
+    ? (cursorState.exposures.hasMore ? cursorState.exposures.page + 1 : cursorState.exposures.page)
+    : fixturePageCount(exposures.length, exposurePage);
+  const visibleExposures = useMemo(
+    () => cursorState.exposures.paged ? exposures : pageItems(exposures, exposurePage, DISCOVERY_PAGE_SIZE),
+    [cursorState.exposures.paged, exposures, exposurePage]
+  );
+  const decisionPages = cursorState.decisions.paged
+    ? (cursorState.decisions.hasMore ? cursorState.decisions.page + 1 : cursorState.decisions.page)
+    : fixturePageCount(decisions.length, decisionPage);
+  const visibleDecisions = useMemo(
+    () => cursorState.decisions.paged ? decisions : pageItems(decisions, decisionPage, DISCOVERY_PAGE_SIZE),
+    [cursorState.decisions.paged, decisions, decisionPage]
+  );
+  const sharePages = cursorState.shares.paged
+    ? (cursorState.shares.hasMore ? cursorState.shares.page + 1 : cursorState.shares.page)
+    : fixturePageCount(shares.length, sharePage);
+  const visibleShares = useMemo(
+    () => cursorState.shares.paged ? shares : pageItems(shares, sharePage, DISCOVERY_PAGE_SIZE),
+    [cursorState.shares.paged, shares, sharePage]
+  );
 
   useEffect(() => {
     if (!deployments.some((item) => item.id === deploymentId)) {
@@ -99,6 +161,10 @@ export function DiscoveryIntelligencePanel({ deployments, zh }: Props) {
     }
   }, [deploymentId, deployments]);
 
+  function fixturePageCount(total: number, page: number): number {
+    return pageCount(total, DISCOVERY_PAGE_SIZE) || Math.max(1, page);
+  }
+
   async function load() {
     if (!deploymentId) return;
     try {
@@ -107,10 +173,10 @@ export function DiscoveryIntelligencePanel({ deployments, zh }: Props) {
       const [nextProfile, nextPresence, nextSessions, nextExposures, nextDecisions, nextShares] = await Promise.all([
         discoveryApi.profile(deploymentId),
         deploymentPresenceApi.get(deploymentId),
-        discoveryApi.sessions(deploymentId),
-        discoveryApi.exposures(deploymentId),
-        discoveryApi.decisions(deploymentId),
-        discoveryApi.shares(deploymentId)
+        discoveryApi.sessions(deploymentId, { limit: DISCOVERY_PAGE_SIZE }),
+        discoveryApi.exposures(deploymentId, { limit: DISCOVERY_PAGE_SIZE }),
+        discoveryApi.decisions(deploymentId, { limit: DISCOVERY_PAGE_SIZE }),
+        discoveryApi.shares(deploymentId, { limit: DISCOVERY_PAGE_SIZE })
       ]);
       setProfile(nextProfile);
       setPresence(nextPresence);
@@ -118,6 +184,16 @@ export function DiscoveryIntelligencePanel({ deployments, zh }: Props) {
       setExposures(nextExposures.items);
       setDecisions(nextDecisions.items);
       setShares(nextShares.items);
+      setSessionPage(1);
+      setExposurePage(1);
+      setDecisionPage(1);
+      setSharePage(1);
+      setCursorState({
+        sessions: { ...initialCursorState(), nextCursor: nextSessions.next_cursor, hasMore: nextSessions.has_more, paged: nextSessions.paged },
+        exposures: { ...initialCursorState(), nextCursor: nextExposures.next_cursor, hasMore: nextExposures.has_more, paged: nextExposures.paged },
+        decisions: { ...initialCursorState(), nextCursor: nextDecisions.next_cursor, hasMore: nextDecisions.has_more, paged: nextDecisions.paged },
+        shares: { ...initialCursorState(), nextCursor: nextShares.next_cursor, hasMore: nextShares.has_more, paged: nextShares.paged }
+      });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -128,6 +204,85 @@ export function DiscoveryIntelligencePanel({ deployments, zh }: Props) {
   useEffect(() => {
     void load();
   }, [deploymentId]);
+
+  useEffect(() => {
+    setSessionPage((current) => Math.min(Math.max(1, current), sessionPages));
+  }, [sessionPages]);
+
+  useEffect(() => {
+    setExposurePage((current) => Math.min(Math.max(1, current), exposurePages));
+  }, [exposurePages]);
+
+  useEffect(() => {
+    setDecisionPage((current) => Math.min(Math.max(1, current), decisionPages));
+  }, [decisionPages]);
+
+  useEffect(() => {
+    setSharePage((current) => Math.min(Math.max(1, current), sharePages));
+  }, [sharePages]);
+
+  async function loadCollectionPage(collection: DiscoveryCollection, page: number) {
+    const state = cursorState[collection];
+    if (!state.paged) {
+      if (collection === "sessions") setSessionPage(page);
+      if (collection === "exposures") setExposurePage(page);
+      if (collection === "decisions") setDecisionPage(page);
+      if (collection === "shares") setSharePage(page);
+      return;
+    }
+    if (page < 1 || (page > state.page && !state.hasMore)) return;
+    const cursor = page === state.page
+      ? state.cursor
+      : page > state.page
+        ? state.nextCursor
+        : state.history[page - 1] ?? null;
+    if (page > state.page && !cursor) return;
+    try {
+      setLoading(true);
+      setError("");
+      const next = collection === "sessions"
+        ? await discoveryApi.sessions(deploymentId, { limit: DISCOVERY_PAGE_SIZE, cursor })
+        : collection === "exposures"
+          ? await discoveryApi.exposures(deploymentId, { limit: DISCOVERY_PAGE_SIZE, cursor })
+          : collection === "decisions"
+            ? await discoveryApi.decisions(deploymentId, { limit: DISCOVERY_PAGE_SIZE, cursor })
+            : await discoveryApi.shares(deploymentId, { limit: DISCOVERY_PAGE_SIZE, cursor });
+      if (collection === "sessions") setSessions(next.items as DiscoverySession[]);
+      if (collection === "exposures") setExposures(next.items as DiscoveryExposure[]);
+      if (collection === "decisions") setDecisions(next.items as DiscoveryDecision[]);
+      if (collection === "shares") setShares(next.items as DiscoveryShare[]);
+      setCursorState((current) => {
+        const previous = current[collection];
+        const history = page > previous.page
+          ? [...previous.history, cursor]
+          : previous.history.slice(0, page);
+        return {
+          ...current,
+          [collection]: {
+            page,
+            cursor,
+            nextCursor: next.next_cursor,
+            hasMore: next.has_more,
+            paged: next.paged,
+            history
+          }
+        };
+      });
+      if (collection === "sessions") setSessionPage(page);
+      if (collection === "exposures") setExposurePage(page);
+      if (collection === "decisions") setDecisionPage(page);
+      if (collection === "shares") setSharePage(page);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function changeCollectionPage(collection: DiscoveryCollection, page: number) {
+    if (!deploymentId || page === cursorState[collection].page) return;
+    void loadCollectionPage(collection, page);
+  }
 
   async function browse() {
     if (!profile || profile.mode === "off") return;
@@ -241,7 +396,7 @@ export function DiscoveryIntelligencePanel({ deployments, zh }: Props) {
                   : "SKIPPED means a scheduled visit did not execute, for example because its leisure window expired. It does not mean the YouTube/Bilibili source failed."}
               </small>
               <div className="discovery-intelligence-list">
-                {sessions.map((item) => (
+                {visibleSessions.map((item) => (
                   <article key={item.id}>
                     <header><strong>{item.platform || item.source || "Discovery"}</strong><span>{item.status.toUpperCase()}</span></header>
                     <p>{sessionReason(item, zh)}</p>
@@ -256,53 +411,63 @@ export function DiscoveryIntelligencePanel({ deployments, zh }: Props) {
                 ))}
                 {sessions.length === 0 && <small>{zh ? "还没有 browsing session。" : "No browsing sessions yet."}</small>}
               </div>
+              <Pagination page={sessionPage} pages={sessionPages} total={sessions.length} onPage={(page) => changeCollectionPage("sessions", page)} disabled={loading} />
             </>
           )}
 
           {view === "perception" && (
-            <div className="discovery-intelligence-list">
-              {exposures.map((item) => (
-                <article key={item.id}>
-                  <header><strong>{item.item.title || item.item.url}</strong><span>{item.attention_level.toUpperCase()}</span></header>
-                  <p>{item.subjective_reason || "—"}</p>
-                  <small>interest {item.interest_score.toFixed(2)} · {item.item.creator || item.item.source} · {stamp(item.last_exposed_at, zh)}</small>
-                </article>
-              ))}
-              {exposures.length === 0 && <small>{zh ? "还没有 perception evidence。" : "No perception evidence yet."}</small>}
-            </div>
+            <>
+              <div className="discovery-intelligence-list">
+                {visibleExposures.map((item) => (
+                  <article key={item.id}>
+                    <header><strong>{item.item.title || item.item.url}</strong><span>{item.attention_level.toUpperCase()}</span></header>
+                    <p>{item.subjective_reason || "—"}</p>
+                    <small>interest {item.interest_score.toFixed(2)} · {item.item.creator || item.item.source} · {stamp(item.last_exposed_at, zh)}</small>
+                  </article>
+                ))}
+                {exposures.length === 0 && <small>{zh ? "还没有 perception evidence。" : "No perception evidence yet."}</small>}
+              </div>
+              <Pagination page={exposurePage} pages={exposurePages} total={exposures.length} onPage={(page) => changeCollectionPage("exposures", page)} disabled={loading} />
+            </>
           )}
 
           {view === "decisions" && (
-            <div className="discovery-intelligence-list">
-              {decisions.map((item) => (
-                <article key={item.id}>
-                  <header><strong>{item.item.title || item.item.url}</strong><span>{item.decision.toUpperCase()}</span></header>
-                  <p>{item.motivation || "—"}</p>
-                  <small>{item.mode.toUpperCase()} · confidence {item.confidence.toFixed(2)} · {stamp(item.created_at, zh)}</small>
-                </article>
-              ))}
-              {decisions.length === 0 && <small>{zh ? "还没有 Discovery decision。" : "No Discovery decisions yet."}</small>}
-            </div>
+            <>
+              <div className="discovery-intelligence-list">
+                {visibleDecisions.map((item) => (
+                  <article key={item.id}>
+                    <header><strong>{item.item.title || item.item.url}</strong><span>{item.decision.toUpperCase()}</span></header>
+                    <p>{item.motivation || "—"}</p>
+                    <small>{item.mode.toUpperCase()} · confidence {item.confidence.toFixed(2)} · {stamp(item.created_at, zh)}</small>
+                  </article>
+                ))}
+                {decisions.length === 0 && <small>{zh ? "还没有 Discovery decision。" : "No Discovery decisions yet."}</small>}
+              </div>
+              <Pagination page={decisionPage} pages={decisionPages} total={decisions.length} onPage={(page) => changeCollectionPage("decisions", page)} disabled={loading} />
+            </>
           )}
 
           {view === "shares" && (
-            <div className="discovery-intelligence-list">
-              {shares.map((item) => (
-                <article key={item.id}>
-                  <header><strong>{item.item.title || item.item.url}</strong><span>{item.status.toUpperCase()}</span></header>
-                  <p>{item.motivation || item.draft_text || "—"}</p>
-                  <small>{item.mode.toUpperCase()} · confidence {item.confidence.toFixed(2)} · {stamp(item.created_at, zh)}</small>
-                  {item.last_error && <small className="deployment-inline-error">{item.last_error}</small>}
-                  {item.status === "pending_review" && (
-                    <div className="discovery-share-actions">
-                      <button type="button" className="ink-button" disabled={loading} onClick={() => void resolveShare(item, "approve")}>{zh ? "批准" : "Approve"}</button>
-                      <button type="button" className="paper-button" disabled={loading} onClick={() => void resolveShare(item, "reject")}>{zh ? "拒绝" : "Reject"}</button>
-                    </div>
-                  )}
-                </article>
-              ))}
-              {shares.length === 0 && <small>{zh ? "还没有分享记录。" : "No share records yet."}</small>}
-            </div>
+            <>
+              <div className="discovery-intelligence-list">
+                {visibleShares.map((item) => (
+                  <article key={item.id}>
+                    <header><strong>{item.item.title || item.item.url}</strong><span>{item.status.toUpperCase()}</span></header>
+                    <p>{item.motivation || item.draft_text || "—"}</p>
+                    <small>{item.mode.toUpperCase()} · confidence {item.confidence.toFixed(2)} · {stamp(item.created_at, zh)}</small>
+                    {item.last_error && <small className="deployment-inline-error">{item.last_error}</small>}
+                    {item.status === "pending_review" && (
+                      <div className="discovery-share-actions">
+                        <button type="button" className="ink-button" disabled={loading} onClick={() => void resolveShare(item, "approve")}>{zh ? "批准" : "Approve"}</button>
+                        <button type="button" className="paper-button" disabled={loading} onClick={() => void resolveShare(item, "reject")}>{zh ? "拒绝" : "Reject"}</button>
+                      </div>
+                    )}
+                  </article>
+                ))}
+                {shares.length === 0 && <small>{zh ? "还没有分享记录。" : "No share records yet."}</small>}
+              </div>
+              <Pagination page={sharePage} pages={sharePages} total={shares.length} onPage={(page) => changeCollectionPage("shares", page)} disabled={loading} />
+            </>
           )}
         </>
       )}

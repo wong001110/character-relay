@@ -1,14 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   intelligenceProductApi,
   type ServerParticipationIntelligence
 } from "./intelligenceProductApi";
+import { pageCount, pageItems } from "./conversationPagination";
+import { Pagination } from "./Pagination";
 
 interface Props {
   serverProfileId: string;
   zh: boolean;
 }
+
+const PARTICIPATION_PAGE_SIZE = 8;
 
 function stamp(value: string | null, zh: boolean): string {
   if (!value) return "—";
@@ -24,6 +28,25 @@ export function ParticipationIntelligencePanel({ serverProfileId, zh }: Props) {
   const [data, setData] = useState<ServerParticipationIntelligence | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [deploymentPage, setDeploymentPage] = useState(1);
+  const [decisionPage, setDecisionPage] = useState(1);
+  const [scopePage, setScopePage] = useState(1);
+
+  const deploymentPages = pageCount(data?.deployments.length ?? 0, PARTICIPATION_PAGE_SIZE);
+  const visibleDeployments = useMemo(
+    () => pageItems(data?.deployments ?? [], deploymentPage, PARTICIPATION_PAGE_SIZE),
+    [data?.deployments, deploymentPage]
+  );
+  const decisionPages = pageCount(data?.recent_reply_decisions.length ?? 0, PARTICIPATION_PAGE_SIZE);
+  const visibleDecisions = useMemo(
+    () => pageItems(data?.recent_reply_decisions ?? [], decisionPage, PARTICIPATION_PAGE_SIZE),
+    [data?.recent_reply_decisions, decisionPage]
+  );
+  const scopePages = pageCount(data?.scopes.length ?? 0, PARTICIPATION_PAGE_SIZE);
+  const visibleScopes = useMemo(
+    () => pageItems(data?.scopes ?? [], scopePage, PARTICIPATION_PAGE_SIZE),
+    [data?.scopes, scopePage]
+  );
 
   async function load() {
     if (!serverProfileId) return;
@@ -31,6 +54,9 @@ export function ParticipationIntelligencePanel({ serverProfileId, zh }: Props) {
       setLoading(true);
       setError("");
       setData(await intelligenceProductApi.participation(serverProfileId));
+      setDeploymentPage(1);
+      setDecisionPage(1);
+      setScopePage(1);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -41,6 +67,18 @@ export function ParticipationIntelligencePanel({ serverProfileId, zh }: Props) {
   useEffect(() => {
     void load();
   }, [serverProfileId]);
+
+  useEffect(() => {
+    setDeploymentPage((current) => Math.min(Math.max(1, current), deploymentPages));
+  }, [deploymentPages]);
+
+  useEffect(() => {
+    setDecisionPage((current) => Math.min(Math.max(1, current), decisionPages));
+  }, [decisionPages]);
+
+  useEffect(() => {
+    setScopePage((current) => Math.min(Math.max(1, current), scopePages));
+  }, [scopePages]);
 
   return (
     <section className="paper-sheet participation-vnext-panel">
@@ -76,7 +114,7 @@ export function ParticipationIntelligencePanel({ serverProfileId, zh }: Props) {
               <strong>{zh ? "参与模式与最近 admission" : "Participation mode & latest admission"}</strong>
             </div>
             <div className="participation-deployment-grid">
-              {data.deployments.map((item) => (
+              {visibleDeployments.map((item) => (
                 <article key={item.deployment_id}>
                   <header><strong>{item.character_display_name}</strong><span>{item.status.toUpperCase()}</span></header>
                   <p>{item.participation_mode.replaceAll("_", " ")}</p>
@@ -85,6 +123,7 @@ export function ParticipationIntelligencePanel({ serverProfileId, zh }: Props) {
                 </article>
               ))}
             </div>
+            <Pagination page={deploymentPage} pages={deploymentPages} total={data.deployments.length} onPage={setDeploymentPage} />
           </section>
 
           <section className="participation-vnext-section">
@@ -99,7 +138,7 @@ export function ParticipationIntelligencePanel({ serverProfileId, zh }: Props) {
               </div>
             ) : (
               <div className="reply-decision-list">
-                {data.recent_reply_decisions.map((item, index) => (
+                {visibleDecisions.map((item, index) => (
                   <article key={`${item.source_message_id}:${item.deployment_id}:${index}`}>
                     <header>
                       <div><strong>{item.character_display_name}</strong><span>{item.authoritative ? "AUTHORITATIVE" : item.plan_kind.toUpperCase()}</span></div>
@@ -117,6 +156,7 @@ export function ParticipationIntelligencePanel({ serverProfileId, zh }: Props) {
                 ))}
               </div>
             )}
+            <Pagination page={decisionPage} pages={decisionPages} total={data.recent_reply_decisions.length} onPage={setDecisionPage} />
           </section>
 
           <section className="participation-vnext-section">
@@ -125,7 +165,7 @@ export function ParticipationIntelligencePanel({ serverProfileId, zh }: Props) {
               <strong>{zh ? "Server 级 cooldown / rate evidence" : "Server cooldown / rate evidence"}</strong>
             </div>
             <div className="participation-scope-list">
-              {data.scopes.slice(0, 12).map((item, index) => (
+              {visibleScopes.map((item, index) => (
                 <div key={`${item.channel_id}:${item.thread_id}:${index}`}>
                   <strong>#{item.channel_id}{item.thread_id ? ` / ${item.thread_id}` : ""}</strong>
                   <span>{zh ? "窗口次数" : "window count"} {item.window_count}</span>
@@ -134,6 +174,7 @@ export function ParticipationIntelligencePanel({ serverProfileId, zh }: Props) {
               ))}
               {data.scopes.length === 0 && <small>{zh ? "暂无 durable admission evidence。" : "No durable admission evidence yet."}</small>}
             </div>
+            <Pagination page={scopePage} pages={scopePages} total={data.scopes.length} onPage={setScopePage} />
           </section>
         </>
       )}

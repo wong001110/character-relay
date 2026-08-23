@@ -147,8 +147,14 @@ A provider error must not be represented as if the Character voluntarily chose `
 The current Runtime already treats visible image attachments differently from links/videos:
 
 - Visible image attachments are passively perceived when analysis is available.
-- Links, videos, and other non-visible shared content are exposed to the Character through `media.inspect`.
+- A complete human-visible Discord Embed is `preview_grounded`; its title/provider/author/
+  description may be used, but it does not expose linked GIF motion, unseen frames, audio, or
+  page contents.
+- Links, videos, and other non-visible shared content without complete preview coverage are
+  exposed to the Character through `media.inspect`.
 - The Character may answer without calling `media.inspect`.
+- Multiple media items are evaluated together: passive image attachments are separated from
+  unpreviewed media, so one preview card cannot hide another inspection-eligible item.
 
 Therefore, "the bot sometimes speaks without looking at media" is not only a threshold problem. It is allowed by the current design.
 
@@ -198,7 +204,9 @@ Character LLM
 
 ### 4.4 Optional media remains Character-driven
 
-For OPTIONAL media, `media.inspect` remains useful as a Character exploration tool.
+For OPTIONAL media without complete visible preview coverage, `media.inspect` remains useful as
+a Character exploration tool. A complete Discord Embed preview does not expose the Tool for an
+ordinary social reaction; an explicit content question still enters the REQUIRED Runtime path.
 
 This preserves persona-specific curiosity without making correctness depend on that curiosity.
 
