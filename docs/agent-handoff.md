@@ -2,14 +2,14 @@
 
 Status: **canonical takeover guide**
 
-This page is the stable handoff when OpenWiki output is absent or stale. It is manually maintained and authoritative only as navigation; source, tests, schemas, migrations, and task-relevant contracts still decide behavior.
+This page is the stable handoff for AI-assisted development. It is manually maintained and authoritative only as navigation; source, tests, schemas, migrations, and task-relevant contracts still decide behavior.
 
 ## Five-minute takeover
 
 1. Read `AGENTS.md` and `docs/ai-agent-development-workflow.md`.
 2. Run `git status --short --branch`, identify the base/merge-base, and do not assume an open PR is on `main`.
 3. If `docs/active-development-plan.md` exists and names the branch, resume its current phase and verify its status against Git before editing.
-4. If `openwiki/quickstart.md` exists, use it for orientation, then verify every important claim at its cited source.
+4. Read `docs/agent-map.md`, then the relevant row's source, proving tests, and canonical contract.
 5. Read `docs/README.md`, `docs/architecture.md`, and the task-relevant canonical contract.
 6. Inspect the exact implementation, types/schemas, persistence objects, and tests for the subsystem.
 7. State an evidence map and the invariants that must remain unchanged before editing.
@@ -121,4 +121,4 @@ Record:
 
 For a multi-phase branch, also update `docs/active-development-plan.md` with the current phase status, commands/results, commit hash when committed, and the exact next takeover action.
 
-If architecture changed, update its canonical contract and this map. Refresh OpenWiki from updated `main` in a dedicated documentation pass when the CLI/provider is available.
+If architecture changed, update its canonical contract and the affected row in `docs/agent-map.md` in the same coherent phase.

@@ -1,0 +1,36 @@
+# AI agent module map
+
+Status: **maintained navigation for AI-assisted development**
+
+Use this map after `AGENTS.md` and before editing. It shortens orientation; source, types,
+tests, migrations, and canonical contracts remain authoritative. Update only the row affected
+by a coherent phase—do not regenerate unrelated documentation.
+
+| Work area | Start in source | Proving tests | Contract / entry point |
+| --- | --- | --- | --- |
+| Application/API composition | `src/echo_masque/api/app.py`, `src/echo_masque/api/routes/` | API tests in `tests/` | `docs/architecture.md` |
+| Auth, credentials, Public Demo | `auth.py`, `credentials.py`, `public_demo.py` | `tests/test_phase15_*.py`, `tests/test_public_demo*.py` | `docs/security.md` |
+| Discord ingress and delivery | `connectors/discord/src/`, `api/routes/connectors.py` | Connector Vitest and Discord route tests | `connectors/discord/README.md`, `docs/discord-server-workspace.md` |
+| Character turn / Roleplay | `connector_runtime.py`, `orchestration/character_turn_graph.py`, `smart_output.py` | `test_character_turn_graph.py`, `test_roleplay_prompt_composition.py` | `docs/turn-director-prompt-implementation.md` |
+| Intelligence Core v3 | `conversation_structure_resolver.py`, `context_resolver_v3.py`, `participation_planner_v3.py` | `test_conversation_structure_*.py`, context/planner tests | `docs/intelligence-core-v3-architecture.md` |
+| Utility / Turn Director | `utility_gateway_*.py`, `connector_runtime.py` | `test_utility_gateway_*.py`, `test_turn_director_runtime.py` | `docs/turn-director-prompt-implementation.md` |
+| Social intelligence | `social_intelligence_v3.py`, `social_event_runtime.py` | `test_social_event_runtime_v3.py` | Intelligence v3 contract |
+| Media and tools | `media_*`, `tool_runtime.py`, `internal_context.py` | `test_media_*.py`, `test_tool_runtime.py` | media/tool contracts named in `docs/agent-handoff.md` |
+| Knowledge, RAG, Wiki | `knowledge_*`, `character_turn_context_v3.py` | knowledge/context tests | `docs/context-rag-v1.md` |
+| Observability | `providers/trace.py`, `runtime_trace.py` | `test_provider_trace*.py`, runtime trace tests | `docs/provider-tracing.md` |
+| Evaluation / calibration | evaluation services and `api/routes/` | `test_phase14.py`, `test_phase16_*.py` | `docs/phase-14-experiment-matrix.md`, `docs/phase-16-authoring.md` |
+| Portal | `web/src/` | `web/src/*.test.ts` | `docs/ui-ux-contract.md`, `docs/ui-page-migration-plan.md` |
+
+## Required handoff record
+
+For every non-trivial phase, update the branch plan or relevant status document with:
+
+1. source, contract, and test evidence used;
+2. invariants preserved and authority/security boundaries;
+3. focused validation commands and results;
+4. the single phase commit hash after the gate passes;
+5. intentional omissions and the next concrete takeover action.
+
+If a map row becomes inaccurate because ownership moved, update it in the same commit as the
+ownership change. Never place secrets, raw Discord captures, provider prompts, or credentials in
+this map or a handoff.

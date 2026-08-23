@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
-from echo_masque.api.connector_schemas import DiscordInboundMessage
+from echo_masque.api.connector_schemas import DiscordContextMessage, DiscordInboundMessage
 from echo_masque.character_turn_context_v3 import (
     CharacterTurnContextV3Service,
 )
@@ -310,6 +310,30 @@ def test_v3_bundle_sections_reach_the_provider_prompt(tmp_path: Path) -> None:
     database.initialize()
     target = _PromptCaptureTarget()
     resolved = _resolved()
+    resolved.payload = resolved.payload.model_copy(
+        update={
+            "recent_messages": [
+                DiscordContextMessage(
+                    message_id="segment-message",
+                    author_id="user-2",
+                    author_display_name="Segment member",
+                    text="Selected discussion.",
+                ),
+                DiscordContextMessage(
+                    message_id="other-message",
+                    author_id="user-3",
+                    author_display_name="Other member",
+                    text="Unrelated simultaneous discussion.",
+                ),
+                DiscordContextMessage(
+                    message_id="message-1",
+                    author_id="user-1",
+                    author_display_name="Juen",
+                    text="What did we decide?",
+                ),
+            ]
+        }
+    )
     resolved.target = target  # type: ignore[assignment]
     turn_context = SimpleNamespace(
         smart_output=SmartOutputContext.from_payload(
@@ -318,7 +342,10 @@ def test_v3_bundle_sections_reach_the_provider_prompt(tmp_path: Path) -> None:
         ),
         trace=None,
     )
-    bundle = SimpleNamespace(prompt_sections=lambda: ("V3 BUNDLE SENTINEL",))
+    bundle = SimpleNamespace(
+        prompt_sections=lambda: ("V3 BUNDLE SENTINEL",),
+        segment=SimpleNamespace(message_ids=("segment-message", "message-1")),
+    )
     context_service = SimpleNamespace(
         build=lambda _: SimpleNamespace(
             bundle=bundle,
@@ -338,6 +365,10 @@ def test_v3_bundle_sections_reach_the_provider_prompt(tmp_path: Path) -> None:
 
     assert "V3 BUNDLE SENTINEL" in prepared.prompt
     assert "V3 BUNDLE SENTINEL" in target.prompt
+    assert "Selected discussion." in prepared.prompt
+    assert "What did we decide?" in prepared.prompt
+    assert "Unrelated simultaneous discussion." not in prepared.prompt
+    assert prepared.prompt_manifest["focused_segment_applied"] is True
 
 
 def test_context_failure_routes_graph_silently_without_provider_call(tmp_path: Path) -> None:

@@ -199,6 +199,7 @@ def prepared_turn(target: object) -> SimpleNamespace:
             payload=payload,
         ),
         prompt="Recent conversation:\nhello\nReturn Smart Output now.",
+        prompt_manifest={},
         enabled_tools=(),
         tool_context=ToolExecutionContext(
             owner_id="owner-1",
@@ -326,6 +327,30 @@ def test_runtime_owned_media_tool_is_hidden_from_manual_tool_catalog() -> None:
     ids = {item.id for item in registry.catalog()}
     assert "media.inspect" not in ids
     assert registry.tool_id_for_provider_name("media_inspect") == "media.inspect"
+
+
+def test_roleplay_does_not_receive_runtime_owned_internal_context_tools() -> None:
+    service = FakeLiveMediaService()
+
+    class InternalOnlyRegistry:
+        def internal_tool_ids(self) -> tuple[str, ...]:
+            return ("memory.search", "conversation.search", "wiki.lookup")
+
+        def tool_id_for_provider_name(self, _: str) -> None:
+            return None
+
+    runtime = MediaAwareDiscordConnectorRuntime(
+        cast(Any, object()),
+        cast(Any, FakeDeploymentRepository()),
+        cast(Any, object()),
+        tool_registry=cast(Any, InternalOnlyRegistry()),
+        live_media_service=cast(Any, service),
+    )
+    prepared = prepared_turn(prompt_target(SkipMediaProvider()))
+    prepared.enabled_tools = ("image.generate",)
+
+    assert runtime._enabled_tools_for_turn(cast(Any, prepared)) == ("image.generate",)
+    assert runtime._forced_tool_ids(cast(Any, prepared)) == ()
 
 
 def test_transient_provider_failure_returns_silent_control_without_disabling_deployment() -> None:

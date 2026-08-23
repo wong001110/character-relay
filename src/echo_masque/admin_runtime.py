@@ -22,6 +22,7 @@ UtilityProviderId = Literal[
 ]
 UtilityCapability = Literal[
     "semantic_judge",
+    "turn_director",
     "memory_intelligence",
     "knowledge_wiki",
     "tool_continuation",

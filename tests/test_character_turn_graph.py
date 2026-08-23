@@ -154,6 +154,7 @@ def test_character_turn_graph_matches_direct_runtime(tmp_path: Path) -> None:
     assert graph_result.state["deployment_id"] == deployment["id"]
     assert graph_result.state["character_card_id"] == deployment["character_card_id"]
     assert graph_result.state["context_status"] == "completed"
+    assert graph_result.state["director_status"] == "completed"
     assert graph_result.state["model_status"] == "completed"
     assert graph_result.state["tool_status"] == "not_started"
     assert graph_result.state["tool_rounds"] == 0
@@ -169,6 +170,7 @@ def test_character_turn_graph_matches_direct_runtime(tmp_path: Path) -> None:
     assert completed_nodes == [
         "turn_resolve",
         "turn_context",
+        "turn_director",
         "turn_model",
         "turn_smart_output",
         "turn_authority",
@@ -249,6 +251,7 @@ def test_character_turn_graph_routes_model_tool_model_explicitly(
     assert completed_nodes == [
         "turn_resolve",
         "turn_context",
+        "turn_director",
         "turn_model",
         "turn_tool_execution",
         "turn_model",

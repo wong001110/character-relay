@@ -13,5 +13,6 @@ These documents define current product or architecture boundaries. Source, schem
 | Portal behavior and composition | [UI/UX contract](../ui-ux-contract.md), [component library](../ui-component-library.md), [page migration plan](../ui-page-migration-plan.md) |
 | External HTTP targets | [HTTP target contract](../http-target-contract.md) |
 | Server-local time | [Server timezone runtime](../server-timezone-runtime.md) |
+| Evaluation approval and calibration | [Evaluation authoring](../phase-16-authoring.md), [calibration](../phase-16-calibration.md), [release acceptance](../phase-16-release.md) |
 
 Subsystem documents such as Context/RAG, media epistemics, provider tracing, Smart Output, and tool calling apply only where current source/tests still implement their stated boundary. If a contract and implementation conflict, surface the conflict; do not manufacture compatibility behavior.

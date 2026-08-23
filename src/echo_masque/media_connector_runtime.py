@@ -378,21 +378,16 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             self.tool_registry.tool_id_for_provider_name("media_inspect") == _MEDIA_INSPECT_TOOL_ID
         )
 
-    def _internal_tool_ids(self) -> tuple[str, ...]:
-        getter = getattr(self.tool_registry, "internal_tool_ids", None)
-        if not callable(getter):
-            return ()
-        raw = getter()
-        return tuple(str(item) for item in raw if str(item))
-
     def _enabled_tools_for_turn(self, prepared: PreparedCharacterTurn) -> tuple[str, ...]:
-        values = [*prepared.enabled_tools, *self._internal_tool_ids()]
+        """Roleplay receives only deployment tools and Runtime-owned media inspection."""
+
+        values = list(prepared.enabled_tools)
         if self._media_inspection_enabled(prepared):
             values.append(_MEDIA_INSPECT_TOOL_ID)
         return tuple(dict.fromkeys(values))
 
     def _forced_tool_ids(self, prepared: PreparedCharacterTurn) -> tuple[str, ...]:
-        values = list(self._internal_tool_ids())
+        values: list[str] = []
         if self._media_inspection_enabled(prepared):
             values.append(_MEDIA_INSPECT_TOOL_ID)
         return tuple(dict.fromkeys(values))

@@ -1,7 +1,7 @@
 from echo_masque.api.connector_schemas import DiscordInboundMessage
 from echo_masque.api.expression_schemas import ExpressionCandidate
 from echo_masque.connector_runtime import DiscordConnectorRuntime
-from echo_masque.smart_output import DiscordActionParticipant
+from echo_masque.smart_output import DiscordActionParticipant, SmartOutputContext
 
 
 def candidate(
@@ -132,3 +132,27 @@ def test_smart_output_prompt_explains_social_actions_and_hides_raw_ids() -> None
     assert "deployment:deployment-2" not in prompt
     assert "legacy CR_EXPRESSION controls" in prompt
     assert "never omit the CR_EXPRESSION decision" not in prompt
+
+
+def test_expression_prompt_prefers_short_intent_over_long_description() -> None:
+    emoji = candidate()
+    emoji = emoji.model_copy(
+        update={"semantic_description": "This is a deliberately much longer description."}
+    )
+
+    prompt = "\n".join(SmartOutputContext.from_payload(
+        DiscordInboundMessage(
+            connection_id="connection-1",
+            deployment_id="deployment-1",
+            message_id="message-1",
+            guild_id="guild-1",
+            channel_id="channel-1",
+            author_id="user-1",
+            author_display_name="Juen",
+            text="hello",
+        ),
+        character_name="Ann",
+    ).prompt_guidance([emoji]))
+
+    assert "intent=curious_peek" in prompt
+    assert "deliberately much longer description" not in prompt

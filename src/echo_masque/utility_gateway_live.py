@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from typing import NoReturn
 
 from pydantic import BaseModel
@@ -137,7 +138,9 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
         temperature: float,
         json_object: bool,
     ) -> ProviderCompletion:
+        context = copy_context()
         future = _EXECUTOR.submit(
+            context.run,
             self._run,
             self._complete(
                 route,
@@ -166,7 +169,9 @@ class ExistingProviderUtilityCaller(UtilityProviderCaller):
         max_output_tokens: int,
         temperature: float,
     ) -> ProviderCompletion:
+        context = copy_context()
         future = _EXECUTOR.submit(
+            context.run,
             self._run,
             self._complete_structured(
                 route,

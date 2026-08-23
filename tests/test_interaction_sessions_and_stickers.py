@@ -258,7 +258,8 @@ def test_social_prompt_explains_stickers_and_bounded_roast() -> None:
         interaction_target_display_name="Target",
     )
     prompt = DiscordConnectorRuntime._social_prompt(character_name="Ann", payload=payload)
-    assert "playfully expressing disbelief" in prompt
+    assert "intent: playful_disbelief" in prompt
+    assert "playfully expressing disbelief" not in prompt
     assert "Portal-configured Roast Interaction Session" in prompt
     assert "Never target identity traits" in prompt
     assert "speaker 1 of 2" in prompt
@@ -299,5 +300,5 @@ def test_social_prompt_keeps_prior_sticker_only_messages() -> None:
         ],
     )
     prompt = DiscordConnectorRuntime._social_prompt(character_name="Ann", payload=payload)
-    recent_section = prompt.split("Latest triggering message:", maxsplit=1)[0]
-    assert "quietly saying hello" in recent_section
+    assert "intent: greeting" in prompt
+    assert "quietly saying hello" not in prompt

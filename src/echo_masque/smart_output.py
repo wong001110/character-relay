@@ -331,10 +331,15 @@ class SmartOutputContext:
         if expression_aliases:
             lines.append("Retrieved Server expression aliases:")
             for alias, item in expression_aliases.items():
-                meaning = item.semantic_description or item.semantic_intent or item.name
+                meaning = (
+                    item.semantic_intent
+                    or item.semantic_emotion
+                    or item.semantic_description
+                    or item.name
+                )
                 lines.append(
                     f"- {alias}; type={item.resource_type}; name={item.name}; "
-                    f"actions={','.join(item.allowed_actions)}; meaning={meaning}"
+                    f"actions={','.join(item.allowed_actions)}; intent={meaning}"
                 )
         else:
             lines.append("Retrieved Server expression aliases: none.")

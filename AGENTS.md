@@ -6,18 +6,17 @@ Character Relay uses AI-assisted development across parallel branches. Do not re
 
 1. `docs/ai-agent-development-workflow.md`
 2. `docs/active-development-plan.md` when it exists and names the current branch
-3. `openwiki/quickstart.md` if it exists, then only the relevant generated pages
-4. `docs/agent-handoff.md` and `docs/README.md`
-5. task-relevant canonical docs/status/decision files
-6. current source/types/tests for the subsystem
-7. for UI work: `docs/ui-ux-contract.md`, `docs/ui-component-library.md`, `docs/ui-page-migration-plan.md`, and the approved reference image when one exists
+3. `docs/agent-map.md`, `docs/agent-handoff.md`, and `docs/README.md`
+4. task-relevant canonical docs/status/decision files
+5. current source/types/tests for the subsystem
+6. for UI work: `docs/ui-ux-contract.md`, `docs/ui-component-library.md`, `docs/ui-page-migration-plan.md`, and the approved reference image when one exists
 
 ## Non-negotiable grounding rules
 
 - Never invent an endpoint, field, status, metric, limit, config key, or database behavior.
 - Never treat generated UI reference text/numbers as product data.
 - Never assume an open/stacked PR is already on `main`.
-- Never treat OpenWiki output as stronger evidence than code/tests/canonical contracts.
+- Never treat an agent map or handoff note as stronger evidence than code/tests/canonical contracts.
 - When sources conflict, surface the conflict instead of silently choosing a plausible answer.
 - Preserve scope/authority/security boundaries; do not broaden user/server/character visibility by inference.
 - Do not expose secrets or credentials in code, logs, docs, tests, or wiki output.
@@ -38,14 +37,19 @@ When `docs/active-development-plan.md` names the current branch, it is the branc
 - Sub-agents do not independently commit shared work unless the active plan explicitly delegates a separate branch and commit boundary.
 - Before changing phases, leave the active plan usable by an agent with no chat history.
 
+## Documentation synchronization
+
+- `docs/agent-map.md` is the maintained navigation map for agents; it is not an
+  auto-generated wiki and is never product authority.
+- When a change affects a module boundary, Runtime authority, configuration, persistence,
+  endpoint, or validation ownership, update the corresponding row in `docs/agent-map.md`
+  and the canonical contract/status document in the same coherent phase.
+- When a change is local implementation detail only, do not rewrite broad documentation;
+  record it in the active plan/handoff only when it changes takeover or validation work.
+- Each phase handoff must record the evidence paths, validation command/result, commit hash,
+  deliberate omissions, and the next concrete action. Do not generate a full-repository wiki
+  from an unmerged feature branch.
+
 ## Before completion
 
 Run relevant checks, review the diff for unrelated changes, update canonical status/decision docs if architecture changed, and record intentional deviations in the PR description.
-
-<!-- OPENWIKI:START -->
-## OpenWiki orientation
-
-This repository uses OpenWiki as a generated orientation/synthesis layer for coding agents. If `openwiki/quickstart.md` exists, start there and trace important claims back to the cited source paths before editing behavior.
-
-The stable OpenWiki generation brief is `openwiki/INSTRUCTIONS.md`. Generated wiki pages are not canonical product contracts and should normally be refreshed from updated `main` in a dedicated documentation pass after architectural changes are merged.
-<!-- OPENWIKI:END -->

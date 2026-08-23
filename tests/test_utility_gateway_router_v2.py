@@ -9,6 +9,7 @@ from echo_masque.admin_runtime import (
 from echo_masque.persistence import Database
 from echo_masque.utility_gateway_contracts import (
     RagUtilityDecision,
+    TurnDirectorProposal,
     UtilityGatewayUnavailable,
     UtilityRoute,
 )
@@ -23,14 +24,20 @@ class FakeCredential:
     pass
 
 
-def provider(member_id: str, provider_id: str, priority: int) -> UtilityProviderMember:
+def provider(
+    member_id: str,
+    provider_id: str,
+    priority: int,
+    *,
+    capabilities: tuple[str, ...] = ("semantic_judge",),
+) -> UtilityProviderMember:
     return UtilityProviderMember(
         id=member_id,
         name=member_id,
         provider=provider_id,  # type: ignore[arg-type]
         base_url="https://offline.invalid",
         model="offline-model",
-        capabilities=("semantic_judge",),
+        capabilities=capabilities,  # type: ignore[arg-type]
         priority=priority,
     )
 
@@ -146,3 +153,74 @@ def test_paid_fallback_requires_enable_and_respects_call_cap() -> None:
         pass
     else:
         raise AssertionError("oversized paid fallback was not blocked")
+
+
+class DirectorCaller:
+    def call(
+        self,
+        route: UtilityRoute,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        max_output_tokens: int,
+        temperature: float,
+    ) -> UtilityCallReply:
+        del route, system_prompt, user_prompt, max_output_tokens, temperature
+        return UtilityCallReply(
+            text=(
+                '{"response_mode":"answer","response_posture":"informed_response",'
+                '"focus_message_ids":["message-1"],"read_requests":['
+                '{"tool_id":"wiki.lookup","query":"release date","limit":2}'
+                '],"confidence":0.9,"reason_code":"knowledge_gap"}'
+            ),
+            latency_ms=8,
+        )
+
+
+def test_turn_director_requires_its_own_capability() -> None:
+    runtime = RuntimeStub(
+        UtilityGatewayProfile(
+            enabled=True,
+            members=(provider("judge", "groq", 1),),
+        )
+    )
+    gateway = UtilityGatewayRouter(
+        runtime,  # type: ignore[arg-type]
+        caller=DirectorCaller(),
+        credential_resolver=credentials,  # type: ignore[arg-type]
+    )
+
+    try:
+        gateway.turn_director_decision(prompt="current turn")
+    except UtilityGatewayUnavailable as exc:
+        assert str(exc) == "no_eligible_provider"
+    else:
+        raise AssertionError("semantic judge capability was reused as turn director")
+
+
+def test_turn_director_returns_a_strict_advisory_contract() -> None:
+    runtime = RuntimeStub(
+        UtilityGatewayProfile(
+            enabled=True,
+            members=(
+                provider(
+                    "director",
+                    "groq",
+                    1,
+                    capabilities=("turn_director",),
+                ),
+            ),
+        )
+    )
+    gateway = UtilityGatewayRouter(
+        runtime,  # type: ignore[arg-type]
+        caller=DirectorCaller(),
+        credential_resolver=credentials,  # type: ignore[arg-type]
+    )
+
+    proposal, result = gateway.turn_director_decision(prompt="current turn")
+
+    assert isinstance(proposal, TurnDirectorProposal)
+    assert proposal.focus_message_ids == ("message-1",)
+    assert proposal.read_requests[0].tool_id == "wiki.lookup"
+    assert result.route.member_id == "director"

@@ -109,6 +109,36 @@ class ParticipationUtilityDecision(BaseModel):
     reason_code: str = Field(default="", max_length=80)
 
 
+class TurnDirectorReadRequest(BaseModel):
+    """A bounded request for Runtime-owned internal context only."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tool_id: Literal["memory.search", "conversation.search", "wiki.lookup"]
+    query: str = Field(min_length=1, max_length=400)
+    limit: int = Field(default=2, ge=1, le=4)
+
+
+class TurnDirectorProposal(BaseModel):
+    """Advisory plan for one already-admitted V3 Character turn."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    response_mode: Literal["answer", "continue", "acknowledge", "clarify"]
+    response_posture: Literal[
+        "informed_response",
+        "respond_to_challenge",
+        "group_participant",
+        "casual_peer",
+        "role_peer",
+        "cautious_peer",
+    ]
+    focus_message_ids: tuple[str, ...] = Field(default=(), max_length=3)
+    read_requests: tuple[TurnDirectorReadRequest, ...] = Field(default=(), max_length=2)
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason_code: str = Field(default="", max_length=80)
+
+
 class ToolContinuationUtilityDecision(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -168,6 +198,8 @@ __all__ = [
     "RagUtilityDecision",
     "SummaryUtilityResult",
     "ToolContinuationUtilityDecision",
+    "TurnDirectorProposal",
+    "TurnDirectorReadRequest",
     "UtilityGatewaySnapshot",
     "UtilityGatewayUnavailable",
     "UtilityHealth",

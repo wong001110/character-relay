@@ -4,7 +4,7 @@ Status: **required workflow for AI-assisted coding**
 
 Character Relay is developed with multiple AI coding agents and parallel branches. The primary risk is not only code defects; it is **context drift**: an agent may confidently invent an endpoint, assume an old architecture is current, apply a proposal that was never accepted, or treat generated UI copy as real product data.
 
-This workflow adds an OpenWiki-backed orientation layer while keeping code, tests, contracts, and accepted decision/status documents authoritative.
+This workflow uses a maintained agent navigation map while keeping code, tests, contracts, and accepted decision/status documents authoritative.
 
 ---
 
@@ -17,7 +17,7 @@ Use this hierarchy instead of relying on chat memory:
 1. Current branch source code, schemas/types, migrations, and tests.
 2. Current `main` source when determining the merged baseline.
 3. Canonical implementation/status/decision docs explicitly referenced by the task.
-4. OpenWiki-generated documentation as a navigation/synthesis layer.
+4. `docs/agent-map.md` and `docs/agent-handoff.md` as maintained navigation layers.
 5. PR discussion, issue text, or conversation memory.
 
 ### Intended architecture / UI direction
@@ -25,16 +25,16 @@ Use this hierarchy instead of relying on chat memory:
 1. Accepted decision/contract/status documents in `docs/`.
 2. Approved UI reference + `docs/ui-page-migration-plan.md` for visual composition only.
 3. Current code/tests for what is actually possible today.
-4. OpenWiki synthesis.
+4. Agent navigation and handoff synthesis.
 5. Proposal docs / old PR descriptions / chat memory.
 
 If sources conflict, **do not reconcile by guessing**. State the conflict and choose the source whose authority matches the question (implemented behavior vs intended direction), or stop for review when the conflict changes product behavior.
 
 ---
 
-## 2. OpenWiki's role
+## 2. Agent navigation map
 
-OpenWiki is used to maintain a navigable, agent-oriented wiki for the repository. Its job is to help an agent answer:
+`docs/agent-map.md` is the maintained, agent-oriented navigation layer for the repository. Its job is to help an agent answer:
 
 - What is this subsystem?
 - Which files own it?
@@ -44,9 +44,7 @@ OpenWiki is used to maintain a navigable, agent-oriented wiki for the repository
 - Which tests prove the behavior?
 - Where should the next change be made?
 
-OpenWiki is **not** an independent source of product truth. Generated pages can be stale or synthesize source material incorrectly; agents must trace claims back to code/tests/canonical docs before changing behavior.
-
-The persistent generation brief lives in `openwiki/INSTRUCTIONS.md`.
+The map is **not** an independent source of product truth. It can be stale; agents must trace claims back to code/tests/canonical docs before changing behavior.
 
 ---
 
@@ -67,15 +65,11 @@ If `docs/active-development-plan.md` exists and names the current branch, read i
 
 Never assume an open PR is already on `main`.
 
-### B. Orient through OpenWiki
+### B. Orient through the maintained map
 
-If `openwiki/quickstart.md` exists:
-
-1. read it;
-2. follow only the pages relevant to the task;
-3. collect source-file links named by the wiki.
-
-If generated OpenWiki pages do not exist yet, use `docs/agent-handoff.md`, `docs/README.md`, and the canonical docs directly. `openwiki/INSTRUCTIONS.md` is the generation brief, not a substitute generated quickstart.
+1. read `docs/agent-map.md` and `docs/agent-handoff.md`;
+2. follow only the row and canonical documents relevant to the task;
+3. collect the named source and proving-test paths before editing.
 
 ### C. Verify at the source
 
@@ -145,9 +139,9 @@ AI agents MUST NOT:
 - silently merge mutually inconsistent architectural proposals;
 - treat a previous chat answer as stronger evidence than repository sources;
 - widen Discord server/user/character data scope because a wiki summary is vague;
-- expose secrets, provider keys, credential values, or secret-derived data in OpenWiki pages;
+- expose secrets, provider keys, credential values, or secret-derived data in the agent map or handoff;
 - rewrite unrelated feature logic in a visual/UI PR;
-- update generated OpenWiki pages manually as if they were canonical source documents.
+- treat the agent map or handoff as a substitute for source/test verification.
 
 When uncertain, the agent should surface the missing source instead of filling the gap with a plausible guess.
 
@@ -168,7 +162,7 @@ This gives the next agent a traceable chain back to source instead of requiring 
 
 ---
 
-## 7. Canonical docs vs generated wiki
+## 7. Canonical docs vs agent navigation
 
 Keep two layers deliberately separate.
 
@@ -180,65 +174,22 @@ Examples:
 - status/roadmap documents;
 - UI/UX contract and approved UI plan;
 - security/runtime authority rules;
-- `openwiki/INSTRUCTIONS.md`.
+- `docs/agent-map.md` and `docs/agent-handoff.md` as navigation only.
 
 Humans/agents edit these intentionally when decisions change.
 
-### Generated OpenWiki layer
+### Agent map maintenance
 
-`openwiki/` pages generated by OpenWiki summarize and connect the repository. Treat them as disposable/rebuildable documentation.
-
-Do not put a critical product decision only in a generated page. Put the decision in a canonical document and let OpenWiki link/summarize it.
-
----
-
-## 8. OpenWiki operating cycle
-
-Once OpenWiki is installed/configured for the chosen provider/model:
-
-### First repository generation
-
-```bash
-openwiki --init
-```
-
-Review the generated diff before committing it.
-
-Do not hand-write `openwiki/quickstart.md` to imitate generator output. When the CLI/provider is unavailable, keep the manually maintained takeover path in `docs/agent-handoff.md` current and report that generation was not run.
-
-### Refresh after merged architectural work
-
-```bash
-openwiki --update
-```
-
-### CI / non-interactive inspection mode
-
-```bash
-openwiki code --update --print
-```
-
-Use upstream OpenWiki documentation for provider/model configuration rather than hard-coding one vendor into Character Relay.
-
-### Parallel-branch policy
-
-Do **not** regenerate the whole wiki independently in every feature branch. That creates noisy conflicts and allows an unmerged branch to masquerade as repository truth.
-
-Preferred cycle:
-
-1. feature PR changes code + canonical docs/status as needed;
-2. feature PR is reviewed/merged;
-3. a dedicated docs/OpenWiki refresh branch runs against updated `main`;
-4. review OpenWiki changes for hallucinated/stale claims;
-5. merge the documentation refresh separately.
-
-For a long-lived stacked branch, the branch's PR body remains the active-work record. OpenWiki represents the merged baseline unless a branch-local refresh is explicitly requested and clearly labelled.
+Do not regenerate or rewrite the whole map in every feature branch. In the same phase that
+changes an ownership boundary, source entry point, canonical contract, or proving-test location,
+update only the affected map row and handoff. A branch plan remains the active-work record until
+the branch is merged; it must never masquerade as merged baseline behavior.
 
 ---
 
-## 9. What OpenWiki should make easy to trace
+## 8. What the agent map must make easy to trace
 
-The generated wiki should provide source-and-test-linked maps for:
+The agent map should provide source-and-test-linked paths for:
 
 - repository architecture and service boundaries;
 - Discord connector flow and deployment/server scope;
@@ -253,7 +204,7 @@ The generated wiki should provide source-and-test-linked maps for:
 - testing, CI, deployment, and manual validation;
 - current roadmap/status documents with clear implemented/planned/deprecated markers.
 
-Every major generated explanation should name the source paths that support it.
+Every important map claim should name the source paths that support it.
 
 ---
 
@@ -282,6 +233,6 @@ Before declaring work complete:
 - update canonical status/decision docs if behavior/architecture changed;
 - update the active development plan's phase status, validation evidence, commit, and next takeover point when it applies;
 - record evidence and deviations in the PR;
-- if the change is merged architecture, schedule/perform an OpenWiki refresh against `main` rather than assuming the existing wiki is current.
+- if the change moves an ownership or validation boundary, update the affected agent-map row and handoff in the same phase.
 
 The goal is that a future agent can answer **"why is this here, what owns it, and where is the proof?"** without relying on the previous agent's memory.

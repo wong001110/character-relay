@@ -363,6 +363,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         context_service_v3=character_turn_context_v3_service,
         deployment_tool_repository=deployment_tool_repository,
         tool_registry=tool_registry,
+        turn_director_gateway=planner_utility_gateway,
         live_media_service=live_media_service,
         conversation_media_service=conversation_media_service,
     )

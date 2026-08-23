@@ -49,6 +49,19 @@ def test_provider_trace_uses_private_sink_without_process_logs(
             owner_id="owner-1",
             deployment_id="deployment-1",
             character_card_id="character-1",
+            prompt_manifest={
+                "version": 1,
+                "total_chars": 2048,
+                "section_chars": {"identity": 128, "recent_conversation": 256},
+                "trigger_already_in_recent": True,
+                "focused_message_count": 3,
+                "focused_segment_applied": True,
+                "focused_trigger_excluded": True,
+                "director_brief_present": True,
+                "director_brief_chars": 360,
+                "director_read_count": 1,
+                "secret": "must not be traced",
+            },
         ):
             completion = asyncio.run(
                 provider.complete(
@@ -81,6 +94,19 @@ def test_provider_trace_uses_private_sink_without_process_logs(
     assert "deepseek-secret-key" not in serialized
     assert response_event["input_tokens"] == 21
     assert response_event["output_tokens"] == 7
+    assert request_event["prompt_manifest"] == {
+        "version": 1,
+        "total_chars": 2048,
+        "trigger_already_in_recent": True,
+        "focused_message_count": 3,
+        "focused_segment_applied": True,
+        "focused_trigger_excluded": True,
+        "director_brief_present": True,
+        "director_brief_chars": 360,
+        "director_read_count": 1,
+        "section_chars": {"identity": 128, "recent_conversation": 256},
+    }
+    assert "must not be traced" not in json.dumps(request_event)
     assert not any("provider.request" in record.message for record in caplog.records)
     assert not any("provider.response" in record.message for record in caplog.records)
 

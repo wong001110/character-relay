@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -18,6 +18,81 @@ ProviderTraceSink = Callable[[dict[str, object]], None]
 _DEFAULT_TRACE_MODE: ProviderTraceMode = "summary"
 _DEFAULT_MAX_CHARS = 4000
 _TRACE_SINK: ProviderTraceSink | None = None
+_PROMPT_MANIFEST_COUNTERS = frozenset(
+    {
+        "total_chars",
+        "section_count",
+        "recent_message_count",
+        "duplicate_suppressed_count",
+        "expression_candidate_count",
+        "expression_intent_count",
+        "expression_description_fallback_count",
+        "focused_message_count",
+        "director_brief_chars",
+        "director_read_count",
+    }
+)
+_PROMPT_MANIFEST_FLAGS = frozenset(
+    {
+        "trigger_already_in_recent",
+        "live_context_suppressed",
+        "focused_segment_applied",
+        "focused_trigger_excluded",
+        "director_brief_present",
+    }
+)
+_PROMPT_MANIFEST_SECTION_NAMES = frozenset(
+    {
+        "identity",
+        "participation",
+        "interaction",
+        "output_contract",
+        "v3_context",
+        "safety",
+        "location",
+        "recent_conversation",
+        "trigger",
+        "footer",
+        "conversation_scope",
+    }
+)
+
+
+def _bounded_nonnegative_int(value: object, *, maximum: int = 1_000_000) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if not isinstance(value, int):
+        return None
+    return max(0, min(value, maximum))
+
+
+def _prompt_manifest(value: Mapping[str, object] | None) -> dict[str, object] | None:
+    """Keep provider traces structural; prompt text must never enter this payload."""
+
+    if value is None:
+        return None
+    version = _bounded_nonnegative_int(value.get("version"), maximum=9)
+    if version is None:
+        return None
+    manifest: dict[str, object] = {"version": version}
+    for key in _PROMPT_MANIFEST_COUNTERS:
+        counter = _bounded_nonnegative_int(value.get(key))
+        if counter is not None:
+            manifest[key] = counter
+    for key in _PROMPT_MANIFEST_FLAGS:
+        flag = value.get(key)
+        if isinstance(flag, bool):
+            manifest[key] = flag
+    sections = value.get("section_chars")
+    if isinstance(sections, Mapping):
+        section_chars: dict[str, int] = {}
+        for key in _PROMPT_MANIFEST_SECTION_NAMES:
+            counter = _bounded_nonnegative_int(sections.get(key))
+            if counter is not None:
+                section_chars[key] = counter
+        if section_chars:
+            manifest["section_chars"] = section_chars
+    return manifest
 
 
 @dataclass(frozen=True)
@@ -28,6 +103,7 @@ class _ProviderTraceScope:
     operation_id: str = ""
     graph_run_id: str = ""
     runtime_node: str = ""
+    prompt_manifest: dict[str, object] | None = None
 
 
 _TRACE_SCOPE: ContextVar[_ProviderTraceScope | None] = ContextVar(
@@ -52,6 +128,7 @@ def provider_trace_scope(
     operation_id: str | None = None,
     graph_run_id: str | None = None,
     runtime_node: str | None = None,
+    prompt_manifest: Mapping[str, object] | None = None,
 ) -> Iterator[None]:
     """Bind account/runtime identifiers to provider traces for the current async context."""
 
@@ -74,6 +151,11 @@ def provider_trace_scope(
         ),
         runtime_node=(
             runtime_node.strip() if runtime_node is not None else current.runtime_node
+        ),
+        prompt_manifest=(
+            _prompt_manifest(prompt_manifest)
+            if prompt_manifest is not None
+            else current.prompt_manifest
         ),
     )
     token = _TRACE_SCOPE.set(scope)
@@ -234,6 +316,8 @@ class ProviderTrace:
             "trace_mode": mode,
             **trace._scope_payload(),
         }
+        if scope.prompt_manifest is not None:
+            event["prompt_manifest"] = scope.prompt_manifest
         event.update(_message_content(messages, mode=mode, maximum=trace.max_chars))
         _emit(event)
         return trace

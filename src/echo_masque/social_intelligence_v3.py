@@ -61,6 +61,20 @@ def _encode(values: tuple[str, ...], *, limit: int = 32) -> str:
     return json.dumps(clean, ensure_ascii=False)
 
 
+def _social_posture(state: RelationshipStateView) -> str:
+    """Render relationship state as a bounded social cue, never as prompt-visible scores."""
+
+    familiarity = "newly acquainted" if state.familiarity < 0.3 else "familiar"
+    if state.familiarity >= 0.7:
+        familiarity = "well acquainted"
+    warmth = "reserved" if state.affinity < 0.35 else "warm"
+    if state.affinity >= 0.7:
+        warmth = "very warm"
+    trust = "careful" if state.trust < 0.35 else "open"
+    comfort = "keep some distance" if state.comfort < 0.35 else "easygoing"
+    return f"{familiarity}; {warmth}; {trust}; {comfort}."
+
+
 @dataclass(frozen=True, slots=True)
 class SocialEventV3View:
     id: str
@@ -414,11 +428,7 @@ class SocialIntelligenceV3Service:
             return ()
         parts = ["Relevant lived social context (subjective, not factual canon):"]
         if state is not None:
-            parts.append(
-                "Relationship signals: "
-                f"familiarity={state.familiarity:.2f}, affinity={state.affinity:.2f}, "
-                f"trust={state.trust:.2f}, comfort={state.comfort:.2f}."
-            )
+            parts.append("Suggested social posture: " + _social_posture(state))
         if impression is not None and impression.confidence >= 0.5:
             detail = "; ".join(impression.observations[:2]) or impression.summary
             if detail:
