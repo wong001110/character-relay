@@ -28,6 +28,16 @@ _REQUIRED_PATTERNS = (
         re.I,
     ),
     re.compile(
+        r"(?:参考|參考|照着|照著|按照|依照|仿照|拿).{0,16}"
+        r"(?:这个|這個|这张|這張|这些|這些|这几张|這幾張|图片|圖片|照片|帖子|貼文|链接|連結)",
+        re.I,
+    ),
+    re.compile(
+        r"(?:这个|這個|这张|這張|这些|這些|这几张|這幾張|图片|圖片|照片|帖子|貼文).{0,16}"
+        r"(?:参考|參考|照着|照著|仿照|试试|試試)",
+        re.I,
+    ),
+    re.compile(
         r"(?:what(?:'s|\s+is)?\s+(?:in|on)|what\s+does|summari[sz]e|inspect|open|read|analy[sz]e)"
         r".{0,24}(?:video|image|gif|link|attachment|media|clip|page)",
         re.I,
@@ -37,12 +47,18 @@ _REQUIRED_PATTERNS = (
         r"(?:say|show|contain|about|mean|summari[sz]e|explain)",
         re.I,
     ),
+    re.compile(
+        r"(?:use|reference|match|base|model).{0,24}"
+        r"(?:this|that).{0,12}(?:image|picture|photo|post|link|media|reference)",
+        re.I,
+    ),
 )
 _NONE_PATTERNS = (
     re.compile(r"(?:不用|不必|别|別|不要).{0,12}(?:看|打开|打開|读|讀|分析|检查|檢查)", re.I),
+    re.compile(r"(?:不用|不必|别|別|不要).{0,12}(?:参考|參考|照着|照著|仿照)", re.I),
     re.compile(
         r"(?:do\s+not|don't|dont|no\s+need\s+to).{0,16}"
-        r"(?:open|read|inspect|watch|analy[sz]e)",
+        r"(?:open|read|inspect|watch|analy[sz]e|reference|use)",
         re.I,
     ),
 )

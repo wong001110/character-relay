@@ -26,6 +26,25 @@ def test_bilibili_and_x_get_platform_source_keys() -> None:
     assert bilibili.kind == "video"
     assert post.source_key == "x:123456789"
     assert post.kind == "social_post"
+    assert post.canonical_url == "https://x.com/example/status/123456789"
+
+
+def test_x_mirror_links_collapse_to_one_source_identity() -> None:
+    urls = (
+        "https://x.com/example/status/2091682495720722697?s=46",
+        "https://twitter.com/example/status/2091682495720722697",
+        "https://fixupx.com/example/status/2091682495720722697?s=46",
+        "https://fxtwitter.com/example/status/2091682495720722697",
+        "https://vxtwitter.com/example/status/2091682495720722697",
+    )
+    sources = [resolve_static_url(url) for url in urls]
+
+    assert {item.source_key for item in sources} == {"x:2091682495720722697"}
+    assert {item.kind for item in sources} == {"social_post"}
+    assert {item.platform for item in sources} == {"x"}
+    assert {item.canonical_url for item in sources} == {
+        "https://x.com/example/status/2091682495720722697"
+    }
 
 
 def test_short_link_requires_network_resolution_later() -> None:

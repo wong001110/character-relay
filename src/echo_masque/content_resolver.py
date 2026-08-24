@@ -15,6 +15,21 @@ _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"}
 _VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".mkv", ".m4v"}
 _AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac"}
 _TRACKING_QUERY_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
+_X_STATUS_HOSTS = frozenset(
+    {
+        "x.com",
+        "www.x.com",
+        "twitter.com",
+        "www.twitter.com",
+        "fixupx.com",
+        "www.fixupx.com",
+        "fxtwitter.com",
+        "www.fxtwitter.com",
+        "vxtwitter.com",
+        "www.vxtwitter.com",
+    }
+)
+_X_STATUS_PATTERN = re.compile(r"^/(?:([^/]+)/)?status/(\d+)(?:/|$)", re.IGNORECASE)
 
 
 class ResolvedContentSource(BaseModel):
@@ -95,6 +110,29 @@ def _platform_video(
     )
 
 
+def _x_status_source(
+    *,
+    url: str,
+    host: str,
+    path: str,
+) -> ResolvedContentSource | None:
+    if host not in _X_STATUS_HOSTS:
+        return None
+    match = _X_STATUS_PATTERN.match(path)
+    if match is None:
+        return None
+    screen_name = (match.group(1) or "i").strip().lstrip("@") or "i"
+    status_id = match.group(2)
+    canonical = f"https://x.com/{screen_name}/status/{status_id}"
+    return ResolvedContentSource(
+        source_url=url,
+        canonical_url=canonical,
+        source_key=f"x:{status_id}",
+        kind="social_post",
+        platform="x",
+    )
+
+
 def resolve_static_url(url: str) -> ResolvedContentSource:
     """Resolve identities available from the URL itself; redirects/extraction happen later."""
 
@@ -145,16 +183,9 @@ def resolve_static_url(url: str) -> ResolvedContentSource:
             status="partial",
         )
 
-    if host in {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}:
-        match = re.search(r"/status/(\d+)", path)
-        if match:
-            return ResolvedContentSource(
-                source_url=url,
-                canonical_url=canonical,
-                source_key=f"x:{match.group(1)}",
-                kind="social_post",
-                platform="x",
-            )
+    x_status = _x_status_source(url=url, host=host, path=path)
+    if x_status is not None:
+        return x_status
 
     if host.endswith("tiktok.com"):
         match = re.search(r"/video/(\d+)", path)
