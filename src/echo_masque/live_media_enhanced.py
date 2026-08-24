@@ -23,6 +23,11 @@ from echo_masque.platform_keyframes import PlatformKeyframeExtractor
 from echo_masque.platform_media import PlatformMediaResolution, YtDlpMediaResolver
 from echo_masque.provider_credentials import ResolvedProviderCredential
 from echo_masque.reader_cleanup import clean_public_reader_text
+from echo_masque.shared_content import (
+    SharedContentManifest,
+    SharedContentResolver,
+    default_shared_content_resolver,
+)
 from echo_masque.tool_external import ExternalToolFailed
 
 _ARTICLE_MAX_CHARS = 14_000
@@ -35,11 +40,13 @@ _HTTP_FALLBACK_PROVIDER = "content-extractor"
 _HTTP_FALLBACK_MODEL = "http-browser-v1"
 _MIN_USEFUL_HTTP_CHARS = 300
 _MAX_PLATFORM_TEXT_LINKS = 3
+_MAX_SHARED_SOCIAL_LINKS = 2
+_MAX_SHARED_SOURCE_ASSETS = 4
 _PLATFORM_KEYFRAME_VERSION = "platform-keyframes-v1"
 
 
 class EnhancedLiveMediaContextService(LiveMediaContextService):
-    """Prefer connector metadata, local platform sampling, and Jina Reader articles."""
+    """Prefer connector metadata, source manifests, platform sampling, and Jina articles."""
 
     def __init__(
         self,
@@ -49,6 +56,7 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
         jina_reader: JinaReaderClient | None = None,
         platform_resolver: YtDlpMediaResolver | None = None,
         platform_keyframe_extractor: PlatformKeyframeExtractor | None = None,
+        shared_content_resolver: SharedContentResolver | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -65,6 +73,10 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
         self.platform_keyframe_extractor = (
             platform_keyframe_extractor or PlatformKeyframeExtractor()
         )
+        self.shared_content_resolver = shared_content_resolver or default_shared_content_resolver(
+            url_guard=self.url_guard,
+            http_transport=self.http_transport,
+        )
         self._platform_context: dict[str, PlatformMediaResolution] = {}
 
     @classmethod
@@ -77,6 +89,7 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
     ) -> EnhancedLiveMediaContextService:
         """Rebuild a just-created base service while preserving configured dependencies."""
 
+        shared_resolver = getattr(service, "shared_content_resolver", None)
         return cls(
             media_repository=service.media_repository,
             credential_resolver=service.credential_resolver,
@@ -86,6 +99,9 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
             url_guard=service.url_guard,
             browser_runtime=browser_runtime,
             jina_api_key=jina_api_key,
+            shared_content_resolver=(
+                shared_resolver if isinstance(shared_resolver, SharedContentResolver) else None
+            ),
         )
 
     async def contexts_for_turn(
@@ -95,13 +111,45 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
         character_card_id: str,
         payload: DiscordInboundMessage,
     ) -> LiveMediaResult:
-        """Let yt-dlp transcript/metadata work even without a multimodal provider key."""
+        """Resolve complete social source manifests before page-level fallback extraction."""
 
         credential = self.credential_resolver.resolve(
             owner_id=owner_id,
             character_card_id=character_card_id,
             capability="media",
         )
+        (
+            shared_contexts,
+            consumed_social_urls,
+            shared_failures,
+            shared_cache_hits,
+        ) = await self._shared_social_contexts(
+            payload=payload,
+            credential=credential,
+        )
+        if shared_contexts:
+            remainder_text = payload.text
+            for raw_url in consumed_social_urls:
+                remainder_text = remainder_text.replace(raw_url, " ")
+            remainder_payload = payload.model_copy(update={"text": remainder_text.strip()})
+            remainder = await super().contexts_for_turn(
+                owner_id=owner_id,
+                character_card_id=character_card_id,
+                payload=remainder_payload,
+            )
+            combined = tuple([*shared_contexts, *remainder.contexts][:5])
+            partial = bool(shared_failures or self._remainder_failed(remainder))
+            return LiveMediaResult(
+                status="partial" if partial else "completed",
+                reason=(
+                    "shared_content_context_with_partial_failures"
+                    if partial
+                    else "shared_content_context"
+                ),
+                contexts=combined,
+                cache_hits=shared_cache_hits + remainder.cache_hits,
+            )
+
         if credential is not None:
             return await super().contexts_for_turn(
                 owner_id=owner_id,
@@ -145,10 +193,7 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
             payload=remainder_payload,
         )
         combined = tuple([*platform_contexts, *remainder.contexts][:5])
-        remainder_failed = remainder.status in {"failed", "partial"} or (
-            remainder.status == "skipped"
-            and remainder.reason == "media_key_group_not_configured"
-        )
+        remainder_failed = self._remainder_failed(remainder)
         partial = bool(platform_failures or remainder_failed)
         return LiveMediaResult(
             status="partial" if partial else "completed",
@@ -159,6 +204,106 @@ class EnhancedLiveMediaContextService(LiveMediaContextService):
             ),
             contexts=combined,
             cache_hits=remainder.cache_hits,
+        )
+
+    async def _shared_social_contexts(
+        self,
+        *,
+        payload: DiscordInboundMessage,
+        credential: ResolvedProviderCredential | None,
+    ) -> tuple[tuple[LiveMediaContext, ...], list[str], int, int]:
+        """Enrich social posts and perceive up to four source assets when a turn inspects them."""
+
+        contexts: list[LiveMediaContext] = []
+        consumed_urls: list[str] = []
+        failures = 0
+        cache_hits = 0
+        social_links = 0
+        for raw_url in self._extract_urls(payload.text)[:_MAX_PLATFORM_TEXT_LINKS]:
+            try:
+                source = resolve_static_url(raw_url)
+            except ValueError:
+                continue
+            if source.kind != "social_post":
+                continue
+            social_links += 1
+            if social_links > _MAX_SHARED_SOCIAL_LINKS:
+                break
+            manifest = await self.shared_content_resolver.resolve(source)
+            if not self._manifest_has_context(manifest):
+                continue
+            consumed_urls.append(raw_url)
+            if manifest.text:
+                details = []
+                if manifest.author:
+                    details.append(f"Author: {manifest.author}")
+                count = manifest.discovered_asset_count
+                expected = (
+                    str(manifest.expected_asset_count)
+                    if manifest.expected_asset_count is not None
+                    else "unknown"
+                )
+                details.append(
+                    "Source asset inventory: "
+                    f"{manifest.inventory_state}; discovered={count}; expected={expected}"
+                )
+                contexts.append(
+                    LiveMediaContext(
+                        source_key=manifest.source_key,
+                        kind="article",
+                        label=manifest.author or manifest.platform,
+                        summary=manifest.text[:12_000],
+                        visible_text=manifest.text[:16_000],
+                        notable_details=tuple(details),
+                    )
+                )
+            if credential is None:
+                failures += int(bool(manifest.assets))
+                if len(contexts) >= 5:
+                    break
+                continue
+
+            available_slots = max(0, 5 - len(contexts))
+            asset_budget = min(_MAX_SHARED_SOURCE_ASSETS, available_slots)
+            for asset in manifest.assets[:asset_budget]:
+                try:
+                    resolved = await self._resolve_binary_source(
+                        source_key=asset.asset_key,
+                        url=asset.url,
+                        media_type=asset.kind,
+                        filename=asset.label or f"{manifest.platform}-{asset.ordinal}",
+                        declared_size=None,
+                        declared_mime="",
+                    )
+                    analysis, hit = await self._analyze(resolved.asset, credential)
+                    contexts.append(
+                        self._analysis_context(
+                            asset.asset_key,
+                            asset.kind,
+                            asset.label or manifest.platform,
+                            analysis,
+                        )
+                    )
+                    cache_hits += int(hit)
+                except Exception:
+                    failures += 1
+            if len(contexts) >= 5:
+                break
+        return tuple(contexts[:5]), consumed_urls, failures, cache_hits
+
+    @staticmethod
+    def _manifest_has_context(manifest: SharedContentManifest) -> bool:
+        return bool(
+            manifest.text
+            or manifest.assets
+            or manifest.inventory_state in {"partial", "complete"}
+        )
+
+    @staticmethod
+    def _remainder_failed(result: LiveMediaResult) -> bool:
+        return result.status in {"failed", "partial"} or (
+            result.status == "skipped"
+            and result.reason == "media_key_group_not_configured"
         )
 
     async def _discord_attachments(
