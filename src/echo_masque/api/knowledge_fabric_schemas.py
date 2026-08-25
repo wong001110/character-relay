@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeAccessGrantRecord,
     KnowledgeCorpusRecord,
+    KnowledgeExternalSourceScheduleRecord,
     KnowledgeOverlayPolicyRecord,
     KnowledgeServerScopeRecord,
     KnowledgeSourceRecord,
@@ -204,6 +205,33 @@ class KnowledgeSourceView(BaseModel):
         )
 
 
+class KnowledgeExternalSourceScheduleUpdate(BaseModel):
+    enabled: bool
+    interval_seconds: int = Field(default=900, ge=900, le=604800)
+
+
+class KnowledgeExternalSourceScheduleView(BaseModel):
+    source_id: str
+    enabled: bool
+    interval_seconds: int
+    next_run_at: datetime | None
+    last_error_code: str | None
+    updated_at: datetime
+
+    @classmethod
+    def from_record(
+        cls, record: KnowledgeExternalSourceScheduleRecord
+    ) -> KnowledgeExternalSourceScheduleView:
+        return cls(
+            source_id=record.source_id,
+            enabled=record.enabled,
+            interval_seconds=record.interval_seconds,
+            next_run_at=record.next_run_at,
+            last_error_code=record.last_error_code,
+            updated_at=record.updated_at,
+        )
+
+
 def encode_profile(value: dict[str, str]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
@@ -219,6 +247,8 @@ __all__ = [
     "KnowledgeAccessGrantView",
     "KnowledgeCorpusCreate",
     "KnowledgeCorpusView",
+    "KnowledgeExternalSourceScheduleUpdate",
+    "KnowledgeExternalSourceScheduleView",
     "KnowledgeGrantUpdate",
     "KnowledgeOverlayPolicyUpdate",
     "KnowledgeOverlayPolicyView",

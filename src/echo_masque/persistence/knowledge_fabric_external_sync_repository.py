@@ -22,11 +22,21 @@ class KnowledgeFabricExternalSyncRepository:
         self.database = database
 
     def require_website_source(self, source_id: str) -> KnowledgeSourceRecord:
+        return self.require_public_https_source(
+            source_id, allowed_source_types=frozenset({WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE})
+        )
+
+    def require_public_https_source(
+        self,
+        source_id: str,
+        *,
+        allowed_source_types: frozenset[str],
+    ) -> KnowledgeSourceRecord:
         with self.database.session() as session:
             source = session.get(KnowledgeSourceRecord, source_id)
             if source is None:
                 raise KeyError("source")
-            if source.source_type != WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE:
+            if source.source_type not in allowed_source_types:
                 raise ValueError("External Website sync requires a public HTTPS Website Source.")
             return source
 
@@ -44,6 +54,7 @@ class KnowledgeFabricExternalSyncRepository:
         last_modified: str | None = None,
         changed: bool = False,
         checked_at: datetime | None = None,
+        allowed_source_types: frozenset[str] = frozenset({WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE}),
     ) -> KnowledgeExternalSourceSyncStateRecord:
         """Atomically update a Source's visible timestamps and its derived validator state."""
 
@@ -55,6 +66,7 @@ class KnowledgeFabricExternalSyncRepository:
             "content_type_rejected",
             "fetch_failed",
             "http_failed",
+            "invalid_feed",
             "invalid_encoding",
             "redirect_refused",
             "source_rejected",
@@ -66,7 +78,7 @@ class KnowledgeFabricExternalSyncRepository:
             source = session.get(KnowledgeSourceRecord, source_id)
             if source is None:
                 raise KeyError("source")
-            if source.source_type != WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE:
+            if source.source_type not in allowed_source_types:
                 raise ValueError("External Website sync requires a public HTTPS Website Source.")
             state = session.get(KnowledgeExternalSourceSyncStateRecord, source_id)
             if state is None:

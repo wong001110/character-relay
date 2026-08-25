@@ -13,6 +13,7 @@ dependencies = [
   "argon2-cffi>=25,<26",
   "boto3>=1.36,<2.0",
   "cryptography>=45,<51",
+  "defusedxml>=0.7,<1.0",
   "fastapi>=0.115,<1.0",
   "fastembed>=0.8,<0.9",
   "httpx>=0.28,<1.0",
@@ -50,8 +51,8 @@ testpaths = ["tests"]
 
 [tool.mutmut]
 source_paths = ["src/"]
-only_mutate = ["src/echo_masque/knowledge_fabric_external_policy.py"]
-pytest_add_cli_args_test_selection = ["tests/test_knowledge_fabric_website_sync.py"]
+only_mutate = ["src/echo_masque/knowledge_fabric_atom_policy.py"]
+pytest_add_cli_args_test_selection = ["tests/test_knowledge_fabric_atom_adapter.py"]
 
 [tool.ruff]
 target-version = "py312"

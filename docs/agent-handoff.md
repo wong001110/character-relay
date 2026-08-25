@@ -59,7 +59,10 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   rejects redirects/content/network failures without raw detail, and publishes changed valid
   responses through the existing private Cloudflare R2-default/S3-compatible service. It supplies
   no default egress client, public route, scheduler, crawl, credential, or Character live lookup.
-  Pinned egress transport, specialized source adapter, and sync-rate authority remain Phase 9b.
+  Phase 9b-1 adds the opt-in pinned-DNS/literal-IP worker transport, Atom 1.0 adapter, durable
+  schedule lease/rate state, and Super-Admin schedule control. It resolves once and fails closed
+  for any non-global candidate, dials no proxy/redirect/credential path, and never follows Atom
+  links. Phase 9b-2 selective invalidation and Phase 10 persisted Character policy remain.
   Phase 4's corpus-bound canonical entities,
   evidence-backed runtime-resolution history, conflicting assertions, world events, typed Evidence
   Graph relations, and lifecycle cleanup remain unchanged. Canonical identity is

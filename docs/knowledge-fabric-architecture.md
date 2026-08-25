@@ -446,6 +446,20 @@ credentials, and arbitrary configuration values cannot be recorded there. HTML/t
 deterministic; source-native MediaWiki/feed/API parsing and actual egress policy remain Phase 9b
 work.
 
+### Phase 9b-1 pinned transport and Atom boundary
+
+The approved automatic worker is opt-in per Source and is configured only by Super Admin. Its
+schedule defaults disabled, has a 15-minute minimum cadence, durable leases/retries, and a global
+per-host cooldown. The worker resolves a canonical public hostname once, rejects the request if
+any returned address is non-global, then dials one literal address while retaining the original
+hostname for HTTP Host and verified TLS SNI/certificate validation. It does not use proxy
+configuration, redirects, credentials, Tool Runtime, browser runtime, or a Character request.
+
+`atom_public_https` is the first source-native adapter. It accepts bounded Atom 1.0 XML using
+`defusedxml`, rejects DTD/entity declarations, and preserves only bounded entry evidence and safe
+link provenance. It never follows feed or entry links. Feed-specific entry/section identity and
+selective invalidation remain a later Phase 9b decision.
+
 ### Private/local content
 
 Cloud Character Relay cannot directly read an arbitrary local path. Support either explicit upload/import or a future Local Sync Agent that watches allowed paths and transmits only approved changed content. Local sync must support `.gitignore`-style exclusion and deny common secret paths/material such as `.env`, private keys, credential files, dependency/build/cache directories by default.

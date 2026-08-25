@@ -61,7 +61,9 @@ class KnowledgeFabricWebsiteSyncService:
         self.sync_repository = sync_repository
         self.ingestion_service = ingestion_service
         self.fetcher = fetcher
-        self.url_guard = url_guard or PublicUrlGuard()
+        # A production pinned transport resolves and validates exactly once itself.  Tests and
+        # alternate approved transports may supply this narrow preflight guard explicitly.
+        self.url_guard = url_guard
         self.adapter = adapter or KnowledgeFabricWebsiteAdapter()
 
     async def sync(
@@ -78,7 +80,8 @@ class KnowledgeFabricWebsiteSyncService:
             locator = canonical_public_https_locator(source.locator)
             if locator != source.locator:
                 raise WebsiteSourceRejected("Website locator is not canonical.")
-            await self.url_guard.validate(locator)
+            if self.url_guard is not None:
+                await self.url_guard.validate(locator)
         except (PublicUrlRejected, WebsiteSourceRejected):
             return self._failure(source_id=source_id, error_code="source_rejected", checked_at=now)
 

@@ -6,6 +6,7 @@ from hashlib import sha256
 from urllib.parse import urlsplit, urlunsplit
 
 WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE = "website_public_https"
+ATOM_PUBLIC_HTTPS_SOURCE_TYPE = "atom_public_https"
 _MAX_WEBSITE_RESPONSE_BYTES = 1_048_576
 _MAX_WEBSITE_VALIDATOR_CHARACTERS = 512
 _ALLOWED_CONTENT_TYPES = frozenset({"text/html", "text/markdown", "text/plain"})
@@ -100,6 +101,7 @@ def website_response_idempotency_key(*, source_id: str, content: bytes) -> str:
 
 
 __all__ = [
+    "ATOM_PUBLIC_HTTPS_SOURCE_TYPE",
     "WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE",
     "WebsiteSourceRejected",
     "canonical_public_https_locator",

@@ -135,6 +135,38 @@ class KnowledgeExternalSourceSyncStateRecord(Base):
     )
 
 
+class KnowledgeExternalSourceScheduleRecord(Base):
+    """Default-disabled durable lease/rate schedule for an approved public external Source."""
+
+    __tablename__ = "knowledge_external_source_schedules"
+
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_sources.id"), primary_key=True
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    interval_seconds: Mapped[int] = mapped_column(Integer, default=900, nullable=False)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    lease_token: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error_code: Mapped[str | None] = mapped_column(String(80))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class KnowledgeExternalHostRateRecord(Base):
+    """One global host cooldown across all opt-in external Source schedules."""
+
+    __tablename__ = "knowledge_external_host_rates"
+
+    hostname: Mapped[str] = mapped_column(String(253), primary_key=True)
+    next_allowed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class KnowledgeObjectArtifactRecord(Base):
     """A private R2/S3 object reference; raw bytes never become a public database field."""
 
@@ -888,6 +920,9 @@ __all__ = [
     "KnowledgeEvidenceGraphRelationRecord",
     "KnowledgeEvidenceRetrievalEntryRecord",
     "KnowledgeEvidenceUnitRecord",
+    "KnowledgeExternalHostRateRecord",
+    "KnowledgeExternalSourceScheduleRecord",
+    "KnowledgeExternalSourceSyncStateRecord",
     "KnowledgeExtractedAssertionRecord",
     "KnowledgeIngestionCheckpointRecord",
     "KnowledgeIngestionJobRecord",

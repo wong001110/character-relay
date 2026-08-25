@@ -25,6 +25,7 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeAccessGrantRecord,
     KnowledgeCorpusRecord,
     KnowledgeExternalSourceSyncStateRecord,
+    KnowledgeExternalSourceScheduleRecord,
     KnowledgeOverlayPolicyRecord,
     KnowledgeServerAdministratorRecord,
     KnowledgeServerScopeRecord,
@@ -599,7 +600,19 @@ class KnowledgeFabricRepository:
             corpus_grant_count = 0
             corpus_count = 0
             external_sync_state_count = 0
+            external_schedule_count = 0
             if corpus_ids:
+                external_schedule_count = self._rowcount(
+                    session.execute(
+                        delete(KnowledgeExternalSourceScheduleRecord).where(
+                            KnowledgeExternalSourceScheduleRecord.source_id.in_(
+                                select(KnowledgeSourceRecord.id).where(
+                                    KnowledgeSourceRecord.corpus_id.in_(corpus_ids)
+                                )
+                            )
+                        )
+                    )
+                )
                 external_sync_state_count = self._rowcount(
                     session.execute(
                         delete(KnowledgeExternalSourceSyncStateRecord).where(
@@ -669,6 +682,7 @@ class KnowledgeFabricRepository:
             **interpretation_counts,
             **content_counts,
             "knowledge_fabric_corpora": corpus_count,
+            "knowledge_fabric_external_source_schedules": external_schedule_count,
             "knowledge_fabric_external_source_sync_states": external_sync_state_count,
             "knowledge_fabric_sources": source_count,
             "knowledge_fabric_corpus_grants": corpus_grant_count,

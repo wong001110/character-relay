@@ -15,6 +15,8 @@ from echo_masque.api.knowledge_fabric_schemas import (
     KnowledgeAccessGrantView,
     KnowledgeCorpusCreate,
     KnowledgeCorpusView,
+    KnowledgeExternalSourceScheduleUpdate,
+    KnowledgeExternalSourceScheduleView,
     KnowledgeGrantUpdate,
     KnowledgeOverlayPolicyUpdate,
     KnowledgeOverlayPolicyView,
@@ -30,6 +32,9 @@ from echo_masque.knowledge_fabric_policy import (
     may_manage_global_library,
 )
 from echo_masque.persistence import AuthRepository
+from echo_masque.persistence.knowledge_fabric_external_schedule_repository import (
+    KnowledgeFabricExternalScheduleRepository,
+)
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeCorpusRecord,
     KnowledgeServerScopeRecord,
@@ -51,6 +56,13 @@ def _fabric(request: Request) -> KnowledgeFabricRepository:
 
 def _auth(request: Request) -> AuthRepository:
     return cast(AuthRepository, request.app.state.auth_repository)
+
+
+def _external_schedules(request: Request) -> KnowledgeFabricExternalScheduleRepository:
+    return cast(
+        KnowledgeFabricExternalScheduleRepository,
+        request.app.state.knowledge_fabric_external_schedule_repository,
+    )
 
 
 def _is_public_demo(request: Request, email: str) -> bool:
@@ -462,6 +474,38 @@ def list_global_sources(
         KnowledgeSourceView.from_record(record)
         for record in _fabric(request).list_sources(corpus_id)
     ]
+
+
+@router.put(
+    "/admin/sources/{source_id}/external-sync-schedule",
+    response_model=KnowledgeExternalSourceScheduleView,
+)
+def configure_external_source_schedule(
+    source_id: str,
+    payload: KnowledgeExternalSourceScheduleUpdate,
+    request: Request,
+    user: SuperAdminUserDependency,
+) -> KnowledgeExternalSourceScheduleView:
+    _require_global_manager(request, user)
+    try:
+        record = _external_schedules(request).configure(
+            source_id=source_id,
+            enabled=payload.enabled,
+            interval_seconds=payload.interval_seconds,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Knowledge Source not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _audit(
+        request,
+        actor_user_id=user.id,
+        action="knowledge_fabric.external_sync_schedule_updated",
+        resource_type="knowledge_source",
+        resource_id=source_id,
+        metadata={"enabled": record.enabled, "interval_seconds": record.interval_seconds},
+    )
+    return KnowledgeExternalSourceScheduleView.from_record(record)
 
 
 @router.post(

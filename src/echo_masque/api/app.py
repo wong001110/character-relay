@@ -1,5 +1,6 @@
 """FastAPI application factory."""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -79,10 +80,23 @@ from echo_masque.intelligence_v3_projection import ProjectionConversationRuntime
 from echo_masque.internal_context import InternalContextService
 from echo_masque.judge_evaluation import JudgeEvaluationService
 from echo_masque.knowledge_consolidation_v3 import KnowledgeConsolidationV3Service
+from echo_masque.knowledge_fabric_atom_sync import KnowledgeFabricAtomSyncService
 from echo_masque.knowledge_fabric_context import KnowledgeContextBuilder
 from echo_masque.knowledge_fabric_epistemic_policy import DenyAllCharacterEpistemicPolicy
+from echo_masque.knowledge_fabric_external_policy import (
+    ATOM_PUBLIC_HTTPS_SOURCE_TYPE,
+    WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE,
+)
+from echo_masque.knowledge_fabric_external_sync_scheduler import (
+    KnowledgeFabricExternalSyncScheduler,
+)
 from echo_masque.knowledge_fabric_ingestion import KnowledgeFabricIngestionService
+from echo_masque.knowledge_fabric_pinned_fetcher import (
+    AsyncioPinnedHttpsDialTransport,
+    PinnedPublicHttpsFetcher,
+)
 from echo_masque.knowledge_fabric_query import KnowledgeQueryEngine
+from echo_masque.knowledge_fabric_website_sync import KnowledgeFabricWebsiteSyncService
 from echo_masque.knowledge_gap_discovery_v3 import KnowledgeGapDiscoveryService
 from echo_masque.knowledge_object_storage import object_storage_from_settings
 from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
@@ -130,6 +144,12 @@ from echo_masque.persistence.conversation_structure_repository import (
 from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository
 from echo_masque.persistence.knowledge_fabric_content_repository import (
     KnowledgeFabricContentRepository,
+)
+from echo_masque.persistence.knowledge_fabric_external_schedule_repository import (
+    KnowledgeFabricExternalScheduleRepository,
+)
+from echo_masque.persistence.knowledge_fabric_external_sync_repository import (
+    KnowledgeFabricExternalSyncRepository,
 )
 from echo_masque.persistence.server_knowledge_v3_repository import (
     KnowledgeConsolidationCheckpointV3Repository,
@@ -238,6 +258,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         knowledge_fabric_content_repository,
         knowledge_object_storage,
         object_key_prefix=resolved.knowledge_object_storage_prefix,
+    )
+    external_sync_repository = KnowledgeFabricExternalSyncRepository(database)
+    external_schedule_repository = KnowledgeFabricExternalScheduleRepository(database)
+
+    async def resolve_public_host(hostname: str) -> tuple[str, ...]:
+        loop = asyncio.get_running_loop()
+        records = await loop.getaddrinfo(hostname, 443, type=0)
+        return tuple(dict.fromkeys(str(record[4][0]) for record in records))
+
+    pinned_fetcher = PinnedPublicHttpsFetcher(
+        resolver=resolve_public_host,
+        dial_transport=AsyncioPinnedHttpsDialTransport(timeout_seconds=15),
+    )
+    website_sync_service = KnowledgeFabricWebsiteSyncService(
+        sync_repository=external_sync_repository,
+        ingestion_service=knowledge_fabric_ingestion_service,
+        fetcher=pinned_fetcher,
+    )
+    atom_sync_service = KnowledgeFabricAtomSyncService(
+        sync_repository=external_sync_repository,
+        ingestion_service=knowledge_fabric_ingestion_service,
+        fetcher=pinned_fetcher,
+    )
+    external_sync_scheduler = KnowledgeFabricExternalSyncScheduler(
+        schedule_repository=external_schedule_repository,
+        sync_by_source_type={
+            WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE: website_sync_service.sync,
+            ATOM_PUBLIC_HTTPS_SOURCE_TYPE: atom_sync_service.sync,
+        },
     )
 
     # Intelligence Core v3 runtime authorities.
@@ -536,10 +585,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await browser_runtime.start()
         await scheduled_reminder_delivery.start()
         await condition_watch_service.start()
+        await external_sync_scheduler.start()
         try:
             yield
         finally:
             await condition_watch_service.stop()
+            await external_sync_scheduler.stop()
             await scheduled_reminder_delivery.stop()
             await browser_runtime.stop()
 
@@ -591,6 +642,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.knowledge_object_storage = knowledge_object_storage
     app.state.knowledge_fabric_content_repository = knowledge_fabric_content_repository
     app.state.knowledge_fabric_ingestion_service = knowledge_fabric_ingestion_service
+    app.state.knowledge_fabric_external_schedule_repository = external_schedule_repository
+    app.state.knowledge_fabric_external_sync_scheduler = external_sync_scheduler
     app.state.entity_evidence_repository = entity_evidence_repository
     app.state.knowledge_gap_discovery_service = knowledge_gap_discovery_service
     app.state.context_resolver_v3 = context_resolver_v3
