@@ -62,7 +62,11 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   Phase 9b-1 adds the opt-in pinned-DNS/literal-IP worker transport, Atom 1.0 adapter, durable
   schedule lease/rate state, and Super-Admin schedule control. It resolves once and fails closed
   for any non-global candidate, dials no proxy/redirect/credential path, and never follows Atom
-  links. Phase 9b-2 selective invalidation and Phase 10 persisted Character policy remain.
+  links. Phase 9b-2 adds source-local Atom current-entry pointers: unchanged entry Evidence stays
+  reusable, changed/removed entries invalidate only their derived indexes, and current candidates/
+  projections fail closed to that map while preserving historical SourceVersion provenance. A
+  format-only feed snapshot creates no derived invalidation. Phase 10 persisted Character policy
+  remains.
   Phase 4's corpus-bound canonical entities,
   evidence-backed runtime-resolution history, conflicting assertions, world events, typed Evidence
   Graph relations, and lifecycle cleanup remain unchanged. Canonical identity is
@@ -72,7 +76,7 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   canonical Server tuple `(platform, connection_id, workspace_id)` and explicit
   `KnowledgeServerAdministrator` membership remain unchanged. Only authenticated Super Admin can
   bootstrap/manage membership; owner-scoped Discord profiles and user-to-connection access grants
-  are not substitutes. Resume from the Phase 9 record in `docs/active-development-plan.md`.
+  are not substitutes. Resume from the Phase 10 record in `docs/active-development-plan.md`.
 - Production topology: PostgreSQL + pgvector is the target. While SQLite remains in use,
   keep one app replica and one persistent `/data` Volume.
 - Application configuration prefix: `CHARACTER_RELAY_*`.

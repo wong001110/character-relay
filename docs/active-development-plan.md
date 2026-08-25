@@ -1,13 +1,13 @@
 # Active development plan — Knowledge Fabric foundation
 
-Status: **branch-local execution record — Phases 1–8b, 9a, and 9b-1 are complete; Phase 9b-2 remains**
+Status: **branch-local execution record — Phases 1–8b and 9 are complete; Phase 10 remains**
 
 | Field | Value |
 | --- | --- |
 | Active branch | `codex/knowledge-fabric-foundation` |
 | Starting baseline | `main` at `68169b8d878ef4d8475e1e52c812fffcb19249a4` |
 | Delivery mode | coherent phase batches; at most one implementation commit per phase |
-| Current phase | Phase 9b-2 — selective invalidation design (planned) |
+| Current phase | Phase 10 — persisted Character corpus policy (planned) |
 | Integration owner | main/root coding agent for the active session |
 | Target architecture | `docs/knowledge-fabric-architecture.md` |
 | Blast-radius map | `docs/knowledge-fabric-impact-map.md` |
@@ -922,7 +922,7 @@ website, Wiki, API, or feed client.
 
 ## Phase 9 — Website/Wiki/API/feed adapters and adaptive freshness
 
-Status: **in progress — Phases 9a and 9b-1 are complete; Phase 9b-2 remains (2026-08-26)**
+Status: **complete — Phase 9 is complete; Phase 10 is next (2026-08-26)**
 
 Goal: support external continuously maintained sources without making Wiki the architecture.
 
@@ -987,13 +987,24 @@ authority, and the remaining full Phase 9 gate.
 
 ### 2026-08-26 Phase 9b / Phase 10 decision record
 
-    Status: product decisions confirmed by the user on 2026-08-26. Phase 9b-1 is complete; Phase 9b-2 and Phase 10 remain unimplemented.
+    Status: product decisions confirmed by the user on 2026-08-26. Phase 9b is complete; Phase 10 remains unimplemented.
     Evidence: src/echo_masque/network_safety.py validates a public URL but returns no resolved address for a caller to dial. Existing Tool Runtime clients resolve again, can carry a different scope/credential/redirect contract, and are not an approved Fabric worker transport. KnowledgeSource.sync_policy_json/freshness_policy_json have no schedule/rate semantics. Source snapshot publication invalidates the whole source projection/index set, so current code cannot prove entry/section-only invalidation. Phase 10 still installs DenyAllCharacterEpistemicPolicy, has no persisted Character policy, and has no existing corpus/evidence domain field.
     Confirmed decisions: only Super Admin may enable autonomous sync; schedules default disabled, require 15 minutes or more, use a 60-second global hostname cooldown and durable lease/retry state; Atom 1.0 is the first specialized source; `defusedxml` is required; Atom entry links remain provenance only and are never followed. Phase 10 remains corpus-level default-deny with allow/deny and deny precedence; authored override stays corpus-level and is writable only by Super Admin or an explicit Server Administrator. Timeline, spoiler, perspective and domain taxonomy remain unapproved.
     Recommended next split after approval: Phase 9b-1 implements a literal-IP/pinned-DNS public HTTPS worker transport, Atom 1.0 adapter, bounded durable schedule/lease state, and no link crawling; Phase 9b-2 defines entry/section identity and selective invalidation. Phase 10 then implements default-deny, scope-bound corpus allow/deny with the selected override/write semantics, preserving query authorization-before-ranking and the shared turn/tool fail-closed gate.
     Phase 9b-1 implementation: `PinnedPublicHttpsFetcher` resolves once, rejects any non-global DNS candidate, dials one literal address while retaining the registered hostname for TLS SNI/certificate validation and HTTP Host, and rejects redirects/proxies/credentials/oversize responses. A durable default-disabled schedule/lease table and Super-Admin-only schedule API own egress consent; the application worker starts only this bounded scheduler. Atom source snapshots are DTD/entity-free `defusedxml` parses and retain only feed-entry evidence plus safe provenance links. User-owned lifecycle deletion removes derived schedule state. Focused proof: pinned transport (15 tests), Atom adapter (5 tests), schedule/migration (3 tests), Phase 3 lifecycle (6 tests), Website sync (5 tests); Ruff and MyPy pass; application composition creates successfully. Mutation proof ran in a disposable WSL-native copy because mutmut cache writes on `/mnt/d` stall in the Windows 9p client: 36 mutants, 34 killed, 2 equivalent, no timeout/no-test/interrupted result. Equivalent mutations 29 and 32 change `split(";", maxsplit=1)[0]` to zero/two max-splits; element zero is the same pre-semicolon value for every string.
     Commit: 5848fcc (feat: add pinned Atom source synchronization)
-    Deliberate omissions: no Tool Runtime/browser/Jina transport, proxy, redirect, credential mapping, manual sync trigger, crawl, Atom entry-link fetch, domain taxonomy, timeline/spoiler policy, or invented override semantic. Phase 9b-2 must define entry/section identity and selective invalidation before claiming incremental feed behavior.
+    Deliberate omissions: no Tool Runtime/browser/Jina transport, proxy, redirect, credential mapping, manual sync trigger, crawl, Atom entry-link fetch, domain taxonomy, timeline/spoiler policy, or invented override semantic.
+
+### 2026-08-26 Phase 9b-2 completion gate
+
+    Status: complete — selective Atom entry invalidation is implemented; Phase 10 is now next.
+    Changed authority/contracts: `knowledge_source_current_entries` is a derived source-local map from stable Atom entry locator to its current retained Evidence. It retains immutable source/document/Evidence history, reuses unchanged entry Evidence, remaps only new/materially changed entries (including title or safe-link provenance changes), and marks removed entries unavailable. Candidate retrieval and Atom source-overview rebuilds select only available mapped Evidence; retained projection dependencies retain their own source-version/hash. A reordered or raw-format-only Atom snapshot advances observation but creates neither index/projection invalidations nor a source-overview rebuild. Generic sources keep whole-source invalidation.
+    Key files: src/echo_masque/knowledge_fabric_current_entry_policy.py; src/echo_masque/knowledge_fabric_atom_adapter.py; src/echo_masque/persistence/knowledge_fabric_content_repository.py; src/echo_masque/persistence/knowledge_fabric_index_repository.py; src/echo_masque/persistence/knowledge_fabric_projection_repository.py; src/echo_masque/persistence/knowledge_fabric_models.py; src/echo_masque/persistence/schema_migrations.py; tests/test_knowledge_fabric_atom_current_entries.py; tests/test_knowledge_fabric_current_entry_policy.py
+    Validation: focused Atom/current-entry/projection/Phase 3/Phase 5/database batch passed before final review; targeted current-entry regression passed after lifecycle coverage was added. Ruff, strict MyPy (376 source files), and git diff --check passed. The tracked WSL runner `scripts/run_mutmut_wsl.sh` was syntax-checked and ran the configured current-entry policy scope from a disposable WSL-native copy: 12 killed / 0 survived / 0 timeout / 0 tooling failures. The non-fatal WSL systemd user-session warning remains unrelated to mutation execution.
+    Migration/data action: additive `knowledge_source_current_entries` table and migration ledger; no backfill is inferred for pre-map Atom Evidence, so Atom candidates fail closed until the next trusted Atom snapshot creates pointers.
+    Commit: 5186862 (feat: add selective Atom entry invalidation)
+    Deliberate omissions: no generic section-diff protocol, source-link crawling, alteration of immutable historical records, new egress authority, or Phase 10 Character policy.
+    Next action: implement Phase 10 corpus-level default-deny Character policy with explicit allow/deny precedence and preserve authorization-before-ranking.
 
 ## Phase 10 — Character epistemic policy
 
