@@ -51,8 +51,8 @@ testpaths = ["tests"]
 
 [tool.mutmut]
 source_paths = ["src/"]
-only_mutate = ["src/echo_masque/knowledge_fabric_atom_policy.py"]
-pytest_add_cli_args_test_selection = ["tests/test_knowledge_fabric_atom_adapter.py"]
+only_mutate = ["src/echo_masque/knowledge_fabric_current_entry_policy.py"]
+pytest_add_cli_args_test_selection = ["tests/test_knowledge_fabric_current_entry_policy.py"]
 
 [tool.ruff]
 target-version = "py312"

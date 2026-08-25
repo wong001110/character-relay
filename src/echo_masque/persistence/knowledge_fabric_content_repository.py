@@ -13,6 +13,11 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from echo_masque.knowledge_fabric_current_entry_policy import (
+    current_evidence_must_be_invalidated,
+    may_reuse_current_evidence,
+)
+from echo_masque.knowledge_fabric_external_policy import ATOM_PUBLIC_HTTPS_SOURCE_TYPE
 from echo_masque.knowledge_fabric_git_policy import GIT_SOURCE_TYPE
 from echo_masque.knowledge_fabric_ingestion_policy import (
     JOB_COMPLETED,
@@ -42,6 +47,7 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeIngestionCheckpointRecord,
     KnowledgeIngestionJobRecord,
     KnowledgeObjectArtifactRecord,
+    KnowledgeSourceCurrentEntryRecord,
     KnowledgeSourceRecord,
     KnowledgeSourceVersionRecord,
 )
@@ -59,6 +65,14 @@ class KnowledgeSourceVersionConflict(ValueError):
 
 class KnowledgeIngestionAlreadyRunning(RuntimeError):
     """Duplicate delivery must wait for recovery instead of publishing twice."""
+
+
+@dataclass(frozen=True, slots=True)
+class _CurrentEntryRefresh:
+    """The derived work caused by one immutable Atom snapshot."""
+
+    changed_evidence_ids: tuple[str, ...]
+    has_material_change: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -410,24 +424,41 @@ class KnowledgeFabricContentRepository:
             )
             session.add(version)
             session.flush()
-            # A newer immutable snapshot supersedes every view derived from an older
-            # version of this Source.  The next reader rebuilds lazily from the new
-            # Evidence rather than treating stale text as an authority.
-            KnowledgeFabricProjectionRepository(self.database).mark_source_projections_stale(
-                session,
-                source_id=source.id,
-            )
             for document_input in documents:
                 self._create_document_content(session, version=version, value=document_input)
-            for dependency_type in ("indexes", "projections"):
-                session.add(
-                    KnowledgeDependencyInvalidationRecord(
-                        id=str(uuid4()),
-                        source_version_id=version.id,
-                        dependency_type=dependency_type,
-                        metadata_json=_encode({"source_id": source.id}),
-                    )
+            entry_refresh = self._refresh_current_atom_entries(
+                session,
+                source=source,
+                version=version,
+            )
+            has_material_change = (
+                source.source_type != ATOM_PUBLIC_HTTPS_SOURCE_TYPE
+                or entry_refresh.has_material_change
+            )
+            if has_material_change:
+                # Generic Sources invalidate the whole source snapshot.  Atom Sources do so
+                # only when the stable entry map changed; reorder-only/raw-format snapshots
+                # leave derived current views usable.
+                KnowledgeFabricProjectionRepository(self.database).mark_source_projections_stale(
+                    session,
+                    source_id=source.id,
                 )
+                for dependency_type in ("indexes", "projections"):
+                    session.add(
+                        KnowledgeDependencyInvalidationRecord(
+                            id=str(uuid4()),
+                            source_version_id=version.id,
+                            dependency_type=dependency_type,
+                            metadata_json=_encode(
+                                {
+                                    "source_id": source.id,
+                                    "changed_entry_evidence_ids": list(
+                                        entry_refresh.changed_evidence_ids
+                                    ),
+                                }
+                            ),
+                        )
+                    )
             if activate_git_version:
                 self._activate_git_version_as_current(session, source=source, version=version)
             self._complete_job(session, record=job, source_version_id=version.id, stage="published")
@@ -709,6 +740,12 @@ class KnowledgeFabricContentRepository:
                     evidence_ids,
                 )
             )
+            counts["knowledge_fabric_source_current_entries"] = self._delete_ids(
+                session,
+                KnowledgeSourceCurrentEntryRecord,
+                KnowledgeSourceCurrentEntryRecord.source_id,
+                source_ids,
+            )
             counts["knowledge_fabric_evidence_units"] = self._delete_ids(
                 session,
                 KnowledgeEvidenceUnitRecord,
@@ -753,7 +790,107 @@ class KnowledgeFabricContentRepository:
                 artifact_ids,
             )
             session.commit()
-            return counts
+        return counts
+
+    def _refresh_current_atom_entries(
+        self,
+        session: Session,
+        *,
+        source: KnowledgeSourceRecord,
+        version: KnowledgeSourceVersionRecord,
+    ) -> _CurrentEntryRefresh:
+        """Advance only changed Atom entry pointers; preserved entry evidence stays reusable."""
+
+        if source.source_type != ATOM_PUBLIC_HTTPS_SOURCE_TYPE:
+            return _CurrentEntryRefresh((), True)
+        incoming = list(
+            session.execute(
+                select(
+                    KnowledgeCanonicalDocumentRecord,
+                    KnowledgeEvidenceUnitRecord,
+                )
+                .join(
+                    KnowledgeEvidenceUnitRecord,
+                    KnowledgeEvidenceUnitRecord.document_id == KnowledgeCanonicalDocumentRecord.id,
+                )
+                .where(KnowledgeCanonicalDocumentRecord.source_version_id == version.id)
+                .order_by(
+                    KnowledgeCanonicalDocumentRecord.canonical_locator,
+                    KnowledgeEvidenceUnitRecord.id,
+                )
+            ).tuples()
+        )
+        by_locator: dict[
+            str, tuple[KnowledgeCanonicalDocumentRecord, KnowledgeEvidenceUnitRecord]
+        ] = {}
+        for document, evidence in incoming:
+            locator = document.canonical_locator
+            if locator in by_locator:
+                raise KnowledgeSourceVersionConflict(
+                    "Atom entry identity must map to one Evidence Unit."
+                )
+            by_locator[locator] = (document, evidence)
+        existing = {
+            item.entry_locator: item
+            for item in session.scalars(
+                select(KnowledgeSourceCurrentEntryRecord).where(
+                    KnowledgeSourceCurrentEntryRecord.source_id == source.id
+                )
+            )
+        }
+        obsolete_evidence_ids: list[str] = []
+        changed_evidence_ids: list[str] = []
+        for locator, (document, evidence) in by_locator.items():
+            entry_sha256 = _atom_entry_material_hash(document, evidence)
+            current = existing.pop(locator, None)
+            if current is not None and may_reuse_current_evidence(
+                current_status=current.status,
+                current_content_sha256=current.entry_sha256,
+                current_evidence_unit_id=current.current_evidence_unit_id,
+                incoming_content_sha256=entry_sha256,
+            ):
+                current.current_source_version_id = version.id
+                continue
+            if current is None:
+                current = KnowledgeSourceCurrentEntryRecord(
+                    id=str(uuid4()),
+                    source_id=source.id,
+                    entry_locator=locator,
+                    current_source_version_id=version.id,
+                )
+                session.add(current)
+            elif current_evidence_must_be_invalidated(
+                status=current.status,
+                evidence_unit_id=current.current_evidence_unit_id,
+            ):
+                assert current.current_evidence_unit_id is not None
+                obsolete_evidence_ids.append(current.current_evidence_unit_id)
+            current.current_source_version_id = version.id
+            current.current_evidence_unit_id = evidence.id
+            current.entry_sha256 = entry_sha256
+            current.status = "available"
+            changed_evidence_ids.append(evidence.id)
+        for current in existing.values():
+            if current_evidence_must_be_invalidated(
+                status=current.status,
+                evidence_unit_id=current.current_evidence_unit_id,
+            ):
+                assert current.current_evidence_unit_id is not None
+                obsolete_evidence_ids.append(current.current_evidence_unit_id)
+            current.current_source_version_id = version.id
+            current.current_evidence_unit_id = None
+            current.entry_sha256 = None
+            current.status = "removed"
+        if obsolete_evidence_ids:
+            KnowledgeFabricIndexRepository.delete_indexes_for_evidence_units(
+                session,
+                tuple(obsolete_evidence_ids),
+            )
+        unique_changed_evidence_ids = tuple(sorted(set(changed_evidence_ids)))
+        return _CurrentEntryRefresh(
+            changed_evidence_ids=unique_changed_evidence_ids,
+            has_material_change=bool(unique_changed_evidence_ids or obsolete_evidence_ids),
+        )
 
     @staticmethod
     def empty_content_counts() -> dict[str, int]:
@@ -770,6 +907,7 @@ class KnowledgeFabricContentRepository:
             "knowledge_fabric_dependency_invalidations": 0,
             "knowledge_fabric_evidence_embeddings": 0,
             "knowledge_fabric_retrieval_entries": 0,
+            "knowledge_fabric_source_current_entries": 0,
         }
 
     def _create_document_content(
@@ -922,6 +1060,16 @@ def _encode(value: Mapping[str, object]) -> str:
     """Persist structured metadata, never arbitrary reprs that can leak object values."""
 
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _atom_entry_material_hash(
+    document: KnowledgeCanonicalDocumentRecord,
+    evidence: KnowledgeEvidenceUnitRecord,
+) -> str:
+    """Fingerprint every Atom field retained in current retrieval/projection output."""
+
+    retained_fields = (evidence.content_sha256, document.title, document.metadata_json)
+    return sha256("\x1f".join(retained_fields).encode("utf-8")).hexdigest()
 
 
 __all__ = [

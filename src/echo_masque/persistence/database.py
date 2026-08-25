@@ -97,6 +97,7 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeServerAdministratorRecord,
     KnowledgeServerScopeRecord,
     KnowledgeSourceRecord,
+    KnowledgeSourceCurrentEntryRecord,
     KnowledgeSourceVersionRecord,
     KnowledgeWorldEventParticipantRecord,
     KnowledgeWorldEventRecord,
@@ -310,6 +311,7 @@ class Database:
             KnowledgeServerAdministratorRecord,
             KnowledgeCorpusRecord,
             KnowledgeSourceRecord,
+            KnowledgeSourceCurrentEntryRecord,
             KnowledgeExternalSourceSyncStateRecord,
             KnowledgeExternalSourceScheduleRecord,
             KnowledgeExternalHostRateRecord,
@@ -345,6 +347,7 @@ class Database:
         from echo_masque.persistence.schema_migrations import (
             DatabaseFoundationMigration,
             KnowledgeFabricContentMigration,
+            KnowledgeFabricCurrentEntryMigration,
             KnowledgeFabricExternalScheduleMigration,
             KnowledgeFabricIndexMigration,
             KnowledgeFabricInterpretationMigration,
@@ -356,6 +359,7 @@ class Database:
         DatabaseFoundationMigration(self).run()
         KnowledgeFabricScopeMigration(self).run()
         KnowledgeFabricContentMigration(self).run()
+        KnowledgeFabricCurrentEntryMigration(self).run()
         KnowledgeFabricInterpretationMigration(self).run()
         KnowledgeFabricIndexMigration(self).run()
         KnowledgeFabricProjectionMigration(self).run()

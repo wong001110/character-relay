@@ -45,6 +45,11 @@ def test_atom_adapter_preserves_safe_entry_evidence_without_following_links() ->
         b"<!DOCTYPE feed><feed/>",
         b'<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>x</id></entry></feed>',
         b"<feed />",
+        (
+            b'<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>x</id>'
+            b"<summary>first</summary></entry><entry><id>x</id><summary>second</summary>"
+            b"</entry></feed>"
+        ),
     ],
 )
 def test_atom_adapter_rejects_unsafe_or_non_usable_feed(content: bytes) -> None:

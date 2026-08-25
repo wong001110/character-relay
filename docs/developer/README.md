@@ -46,7 +46,9 @@ Use focused tests while editing and run the relevant complete surface gate befor
 
 Use the bounded mutation scope for changed authorization, ownership, lifecycle, safety, and
 deterministic decision logic when it is configured for that module. Python mutation runs require
-Ubuntu CI or an installed WSL distribution; Portal and Connector runs use the package-local
+Ubuntu CI or an installed WSL distribution. From a Windows checkout, invoke
+`scripts/run_mutmut_wsl.sh` through WSL; it runs a temporary WSL-native copy so mutmut does not
+stall writing its cache under `/mnt/<drive>`. Portal and Connector runs use the package-local
 `test:mutation` scripts. Native Windows Stryker output is diagnostic only while its worker-cleanup
 permission issue remains; use the scheduled/manual Ubuntu workflow as gate evidence.
 The scheduled/manual workflow carries the initial smoke scopes, while a phase records the exact

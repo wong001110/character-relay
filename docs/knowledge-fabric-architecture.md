@@ -457,8 +457,24 @@ configuration, redirects, credentials, Tool Runtime, browser runtime, or a Chara
 
 `atom_public_https` is the first source-native adapter. It accepts bounded Atom 1.0 XML using
 `defusedxml`, rejects DTD/entity declarations, and preserves only bounded entry evidence and safe
-link provenance. It never follows feed or entry links. Feed-specific entry/section identity and
-selective invalidation remain a later Phase 9b decision.
+link provenance. It never follows feed or entry links.
+
+### Phase 9b-2 Atom entry identity and selective invalidation
+
+Each Atom document locator (`atom:<feed locator>#<entry-id hash>`) is a stable source-local entry
+identity. A mutable, derived current-entry map points that identity at its retained current Evidence
+Unit; it never replaces an immutable Source Version, canonical document, or Evidence Unit. Its
+entry fingerprint includes retained text, title, and canonical metadata, so a changed safe link or
+title is an entry change rather than stale provenance hidden behind old retrieval text.
+
+A later Atom snapshot reuses an unchanged entry's prior Evidence and retrieval row, remaps only
+new or materially changed entries, and marks disappeared entries removed. It deletes derived
+retrieval rows only for replaced/removed Evidence. Candidate selection and source-overview
+projections fail closed to the available current-entry map, while a projection dependency keeps the
+actual historical Source Version/hash of each retained Evidence. A byte-order/format-only Atom
+snapshot advances map observation but creates no index/projection invalidation and does not rebuild
+the existing projection. This is Atom-specific; generic Source snapshots retain whole-source
+invalidation semantics.
 
 ### Private/local content
 

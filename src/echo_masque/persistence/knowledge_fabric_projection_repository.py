@@ -16,6 +16,7 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeEvidenceUnitRecord,
     KnowledgeProjectionDependencyRecord,
     KnowledgeProjectionRecord,
+    KnowledgeSourceCurrentEntryRecord,
     KnowledgeSourceRecord,
     KnowledgeSourceVersionRecord,
 )
@@ -71,10 +72,20 @@ class KnowledgeFabricProjectionRepository:
             if version is None:
                 return None
             projection = self._find_source_overview(session, source_id=source_id)
-            if projection is not None and source_projection_is_current(
+            source = session.get(KnowledgeSourceRecord, source_id)
+            if source is None:
+                raise KeyError("source")
+            projection_is_current = projection is not None and source_projection_is_current(
                 projection_source_hash=projection.source_hash,
                 current_source_hash=version.source_hash,
                 stale=projection.stale,
+            )
+            if projection is not None and (
+                projection_is_current
+                or (
+                    source.source_type == "atom_public_https"
+                    and not projection.stale
+                )
             ):
                 return self._view(session, projection)
         return self.rebuild_source_overview(source_version_id=version.id)
@@ -89,21 +100,40 @@ class KnowledgeFabricProjectionRepository:
             source = session.get(KnowledgeSourceRecord, source_version.source_id)
             if source is None:
                 raise KeyError("source")
-            evidence_rows = list(
-                session.execute(
-                    select(KnowledgeEvidenceUnitRecord, KnowledgeCanonicalDocumentRecord.title)
-                    .join(
-                        KnowledgeCanonicalDocumentRecord,
-                        KnowledgeCanonicalDocumentRecord.id
-                        == KnowledgeEvidenceUnitRecord.document_id,
-                    )
-                    .where(KnowledgeEvidenceUnitRecord.source_version_id == source_version.id)
-                    .order_by(
-                        KnowledgeEvidenceUnitRecord.created_at,
-                        KnowledgeEvidenceUnitRecord.id,
-                    )
-                ).tuples()
+            evidence_statement = (
+                select(
+                    KnowledgeEvidenceUnitRecord,
+                    KnowledgeCanonicalDocumentRecord.title,
+                    KnowledgeSourceVersionRecord,
+                )
+                .join(
+                    KnowledgeCanonicalDocumentRecord,
+                    KnowledgeCanonicalDocumentRecord.id == KnowledgeEvidenceUnitRecord.document_id,
+                )
+                .join(
+                    KnowledgeSourceVersionRecord,
+                    KnowledgeSourceVersionRecord.id
+                    == KnowledgeEvidenceUnitRecord.source_version_id,
+                )
+                .order_by(
+                    KnowledgeEvidenceUnitRecord.created_at,
+                    KnowledgeEvidenceUnitRecord.id,
+                )
             )
+            if source.source_type == "atom_public_https":
+                evidence_statement = evidence_statement.join(
+                    KnowledgeSourceCurrentEntryRecord,
+                    KnowledgeSourceCurrentEntryRecord.current_evidence_unit_id
+                    == KnowledgeEvidenceUnitRecord.id,
+                ).where(
+                    KnowledgeSourceCurrentEntryRecord.source_id == source.id,
+                    KnowledgeSourceCurrentEntryRecord.status == "available",
+                )
+            else:
+                evidence_statement = evidence_statement.where(
+                    KnowledgeEvidenceUnitRecord.source_version_id == source_version.id
+                )
+            evidence_rows = list(session.execute(evidence_statement).tuples())
             projection = self._find_source_overview(session, source_id=source.id)
             if projection is None:
                 projection = KnowledgeProjectionRecord(
@@ -130,14 +160,14 @@ class KnowledgeFabricProjectionRepository:
                 )
 
             projection.text_content = self._source_overview_text(evidence_rows)
-            for evidence, _title in evidence_rows:
+            for evidence, _title, evidence_source_version in evidence_rows:
                 session.add(
                     KnowledgeProjectionDependencyRecord(
                         id=str(uuid4()),
                         projection_id=projection.id,
-                        source_version_id=source_version.id,
+                        source_version_id=evidence_source_version.id,
                         evidence_unit_id=evidence.id,
-                        source_hash=source_version.source_hash,
+                        source_hash=evidence_source_version.source_hash,
                         content_sha256=evidence.content_sha256,
                     )
                 )
@@ -227,13 +257,19 @@ class KnowledgeFabricProjectionRepository:
 
     @staticmethod
     def _source_overview_text(
-        evidence_rows: list[tuple[KnowledgeEvidenceUnitRecord, str]],
+        evidence_rows: list[
+            tuple[
+                KnowledgeEvidenceUnitRecord,
+                str,
+                KnowledgeSourceVersionRecord,
+            ]
+        ],
     ) -> str:
         """Keep a deterministic, provenance-preserving representation, not an invented summary."""
 
         return "\n\n".join(
             f"[{title or 'Untitled document'}]\n{evidence.text_content}"
-            for evidence, title in evidence_rows
+            for evidence, title, _source_version in evidence_rows
         )
 
     @staticmethod

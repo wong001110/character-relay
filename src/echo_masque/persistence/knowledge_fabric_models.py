@@ -224,6 +224,37 @@ class KnowledgeSourceVersionRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class KnowledgeSourceCurrentEntryRecord(Base):
+    """Derived current entry pointer for source-native incremental adapters.
+
+    It never replaces an immutable SourceVersion, document, or Evidence Unit.  It only says which
+    retained Evidence Unit is the current representation for one stable adapter entry identity.
+    """
+
+    __tablename__ = "knowledge_source_current_entries"
+    __table_args__ = (
+        UniqueConstraint("source_id", "entry_locator", name="uq_knowledge_source_current_entry"),
+        Index("ix_knowledge_source_current_entry_evidence", "current_evidence_unit_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_sources.id"), index=True, nullable=False
+    )
+    entry_locator: Mapped[str] = mapped_column(String(1000), nullable=False)
+    current_source_version_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_source_versions.id"), index=True, nullable=False
+    )
+    current_evidence_unit_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_evidence_units.id"), index=True
+    )
+    entry_sha256: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(24), default="available", nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class KnowledgeCanonicalDocumentRecord(Base):
     """Structured source-version content, distinct from a regenerable retrieval chunk."""
 

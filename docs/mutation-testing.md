@@ -46,9 +46,15 @@ also supported. Native Windows does not support mutmut execution, so run its sco
 CI. Portal and Connector reports remain platform-specific Stryker evidence.
 
 ```bash
-# Python (Linux or WSL)
+# Python (Linux)
 mutmut run
 mutmut export-cicd-stats
+
+# Python from Windows with an installed WSL distribution.  The wrapper copies
+# the current (including uncommitted) Python source/tests to a WSL-native
+# disposable directory before running mutmut, avoiding /mnt/<drive> cache I/O.
+wsl.exe -d Ubuntu -- bash -lc \
+  'cd /mnt/d/path/to/echo-masque && MUTMUT_COMMAND=/path/to/venv/bin/mutmut bash scripts/run_mutmut_wsl.sh --max-children 2'
 
 # Portal
 cd web
@@ -60,7 +66,8 @@ npm run test:mutation
 ```
 
 `mutants/`, Stryker sandboxes, and local HTML reports are analysis state and are intentionally
-ignored. Do not apply a mutant to a dirty worktree. Resolve survivors by adding or improving
+ignored. The WSL wrapper prints `mutmut results` and CI stats before it removes its native
+temporary copy, then returns the underlying `mutmut run` status. Do not apply a mutant to a dirty worktree. Resolve survivors by adding or improving
 behavioral tests, then re-run the same bounded scope. A timeout or compile failure is not evidence
 that the mutant was killed.
 

@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import bindparam, delete, select, text
+from sqlalchemy import bindparam, delete, exists, or_, select, text
 from sqlalchemy.orm import Session
 
 from echo_masque.knowledge_fabric_query_policy import interpretation_is_available_as_of
@@ -28,6 +28,7 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeEvidenceUnitRecord,
     KnowledgeExtractedAssertionRecord,
     KnowledgeInterpretationEvidenceRecord,
+    KnowledgeSourceCurrentEntryRecord,
     KnowledgeSourceRecord,
     KnowledgeSourceVersionRecord,
     KnowledgeWorldEventParticipantRecord,
@@ -63,13 +64,25 @@ class KnowledgeFabricIndexRepository:
         """Materialize portable retrieval rows for immutable Evidence Units in one version."""
 
         with self.database.session() as session:
-            evidence_ids = list(
-                session.scalars(
-                    select(KnowledgeEvidenceUnitRecord.id).where(
-                        KnowledgeEvidenceUnitRecord.source_version_id == source_version_id
-                    )
-                )
+            source_version = session.get(KnowledgeSourceVersionRecord, source_version_id)
+            if source_version is None:
+                raise KeyError("source_version")
+            source = session.get(KnowledgeSourceRecord, source_version.source_id)
+            if source is None:
+                raise KeyError("source")
+            statement = select(KnowledgeEvidenceUnitRecord.id).where(
+                KnowledgeEvidenceUnitRecord.source_version_id == source_version_id
             )
+            if source.source_type == "atom_public_https":
+                statement = statement.join(
+                    KnowledgeSourceCurrentEntryRecord,
+                    KnowledgeSourceCurrentEntryRecord.current_evidence_unit_id
+                    == KnowledgeEvidenceUnitRecord.id,
+                ).where(
+                    KnowledgeSourceCurrentEntryRecord.source_id == source.id,
+                    KnowledgeSourceCurrentEntryRecord.status == "available",
+                )
+            evidence_ids = list(session.scalars(statement))
         return [self.upsert_retrieval_entry(evidence_unit_id) for evidence_unit_id in evidence_ids]
 
     def upsert_retrieval_entry(
@@ -412,6 +425,11 @@ class KnowledgeFabricIndexRepository:
             "WHERE entry.corpus_id IN :corpus_ids "
             "AND evidence.status = 'available' AND version.status = 'available' "
             "AND source.enabled IS TRUE "
+            "AND (source.source_type <> 'atom_public_https' OR EXISTS ("
+            "SELECT 1 FROM knowledge_source_current_entries AS current_entry "
+            "WHERE current_entry.source_id = source.id "
+            "AND current_entry.current_evidence_unit_id = evidence.id "
+            "AND current_entry.status = 'available')) "
             "AND to_tsvector('simple', entry.retrieval_text) "
             "@@ websearch_to_tsquery('simple', :query) "
             "ORDER BY score DESC, entry.id ASC LIMIT :candidate_limit"
@@ -457,6 +475,11 @@ class KnowledgeFabricIndexRepository:
             "AND embedding.embedding IS NOT NULL "
             "AND evidence.status = 'available' AND version.status = 'available' "
             "AND source.enabled IS TRUE "
+            "AND (source.source_type <> 'atom_public_https' OR EXISTS ("
+            "SELECT 1 FROM knowledge_source_current_entries AS current_entry "
+            "WHERE current_entry.source_id = source.id "
+            "AND current_entry.current_evidence_unit_id = evidence.id "
+            "AND current_entry.status = 'available')) "
             "ORDER BY embedding.embedding <=> CAST(:query_vector AS vector), entry.id ASC "
             "LIMIT :candidate_limit"
         ).bindparams(bindparam("corpus_ids", expanding=True))
@@ -535,6 +558,14 @@ class KnowledgeFabricIndexRepository:
 
     @staticmethod
     def _candidate_select() -> Any:
+        current_atom_evidence = exists(
+            select(KnowledgeSourceCurrentEntryRecord.id).where(
+                KnowledgeSourceCurrentEntryRecord.source_id == KnowledgeSourceRecord.id,
+                KnowledgeSourceCurrentEntryRecord.current_evidence_unit_id
+                == KnowledgeEvidenceUnitRecord.id,
+                KnowledgeSourceCurrentEntryRecord.status == "available",
+            )
+        )
         return (
             select(
                 KnowledgeEvidenceRetrievalEntryRecord,
@@ -565,6 +596,10 @@ class KnowledgeFabricIndexRepository:
                 KnowledgeEvidenceUnitRecord.status == "available",
                 KnowledgeSourceVersionRecord.status == "available",
                 KnowledgeSourceRecord.enabled.is_(True),
+                or_(
+                    KnowledgeSourceRecord.source_type != "atom_public_https",
+                    current_atom_evidence,
+                ),
             )
         )
 

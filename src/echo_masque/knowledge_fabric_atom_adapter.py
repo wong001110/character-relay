@@ -52,12 +52,16 @@ class KnowledgeFabricAtomAdapter:
             urlsplit(locator).hostname or "Atom feed"
         )
         documents: list[CanonicalDocumentInput] = []
+        seen_entry_ids: set[str] = set()
         for ordinal, entry in enumerate(root.findall(f"{_ATOM}entry")):
             if ordinal >= _MAX_ENTRY_COUNT:
                 raise AtomResponseRejected("Atom payload has too many entries.")
             entry_id = _text(entry.find(f"{_ATOM}id"))
             if not entry_id:
                 raise AtomResponseRejected("Atom entry id is required.")
+            if entry_id in seen_entry_ids:
+                raise AtomResponseRejected("Atom entry id must be unique within a feed.")
+            seen_entry_ids.add(entry_id)
             title = _text(entry.find(f"{_ATOM}title")) or feed_title
             content = _text(entry.find(f"{_ATOM}content")) or _text(entry.find(f"{_ATOM}summary"))
             if not content:
