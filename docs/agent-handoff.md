@@ -42,6 +42,12 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   rebuild, and dependency-first lifecycle deletion. The Character-internal `knowledge.search` Tool
   now shares the same fail-closed Knowledge Context gate; it no longer calls Server Wiki lookup.
   Legacy Wiki tables/API/Portal are deferred compatibility only until the Phase 11 cutover.
+  Phase 8a adds a library-only deterministic adapter for an already-authorized Fabric Source:
+  manual text, Markdown, OOXML DOCX, and digital PDF bytes become existing immutable snapshot,
+  canonical structure, and Evidence records through the Phase 3 service. It neither exposes an
+  upload/local-path/network surface nor owns R2/S3 publication. Textless PDFs fail as a typed
+  OCR-required outcome; no fabricated text is persisted. Git acquisition, deny policy, credentials,
+  and source-version visibility are the next, separately planned Phase 8b boundary.
   Phase 4's corpus-bound canonical entities,
   evidence-backed runtime-resolution history, conflicting assertions, world events, typed Evidence
   Graph relations, and lifecycle cleanup remain unchanged. Canonical identity is

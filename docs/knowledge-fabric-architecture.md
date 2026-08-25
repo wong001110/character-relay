@@ -384,6 +384,17 @@ Git-native version/diff semantics should drive incremental sync. Code files shou
 
 Preserve section hierarchy, paragraphs, tables, lists, images, captions, page/section provenance, and structured table representations. For an embedded diagram, a visual observation may become evidence while the original asset remains referenced.
 
+### Phase 8a uploaded-document boundary
+
+The first delivered document adapter is deliberately library-only. An already-authorized caller
+supplies bytes for an existing Fabric Source, and the adapter deterministically emits the existing
+snapshot/canonical-document contract; only the ingestion service publishes the private R2/S3
+artifact and Source Version. It supports UTF-8 manual text/Markdown, OOXML DOCX structure, and
+PDF text layers. A PDF without usable text is an explicit OCR-required outcome, not synthetic
+Evidence. This does not define a public upload endpoint, arbitrary local-file access, child-asset
+store, OCR worker, or Credential Vault mapping. Those surfaces require their own authority and
+lifecycle contracts.
+
 ### Websites
 
 Generic websites use canonical URL detection, main-content extraction, sitemap/link discovery, deduplication, and conditional requests where available. Specialized adapters should preserve revision/category/navigation/thread semantics instead of scraping rendered text only.

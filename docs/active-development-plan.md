@@ -1,13 +1,13 @@
 # Active development plan — Knowledge Fabric foundation
 
-Status: **branch-local execution record — Phases 1–7 are complete; next phase is first Source adapters**
+Status: **branch-local execution record — Phases 1–7 and 8a are complete; next phase is Git Source adapter work**
 
 | Field | Value |
 | --- | --- |
 | Active branch | `codex/knowledge-fabric-foundation` |
 | Starting baseline | `main` at `68169b8d878ef4d8475e1e52c812fffcb19249a4` |
 | Delivery mode | coherent phase batches; at most one implementation commit per phase |
-| Current phase | Phase 8 — first Source adapters: Git and uploaded documents (planned) |
+| Current phase | Phase 8b — Git repository Source adapter (planned) |
 | Integration owner | main/root coding agent for the active session |
 | Target architecture | `docs/knowledge-fabric-architecture.md` |
 | Blast-radius map | `docs/knowledge-fabric-impact-map.md` |
@@ -745,45 +745,117 @@ Next action: Phase 8 should introduce deterministic-first Git/manual-import/stru
 Source Adapters without broad crawling, while preserving the existing private R2-default S3
 compatible object-storage boundary.
 
-## Phase 8 — first Source adapters: Git and uploaded documents
+## Phase 8a — uploaded document and manual-text adapters
 
-Status: **planned**
+Status: **complete — deterministic manual/uploaded document adapter delivered; Git remains Phase 8b**
 
-Goal: prove the generic ingestion contract with high-value private/project use cases before broad Web crawling.
+Goal: prove the existing immutable snapshot ingestion contract with caller-supplied, already
+authorized manual text and uploaded documents before broad Web crawling.
 
-Recommended order inside the phase:
+Split decision (2026-08-25): Git requires a separate acquisition, ignore/deny, commit/tree/diff,
+and version-visibility decision. The current Fabric has no Git credential-reference contract or
+upload/sync endpoint, while document compilation can safely remain a deterministic library that
+accepts already-authorized bytes and emits `SourceSnapshotIngestionRequest`. Keeping them together
+would either invent an external acquisition/credential surface or hide a second lifecycle decision
+inside a document parser. Phase 8a uses the existing private R2-default, S3-compatible artifact
+boundary; Phase 8b owns Git after its explicit acquisition/retention contract is grounded.
 
-- Git/GitHub repository Source adapter;
-- manual text/legacy RAG import adapter;
+Included order:
+
+- manual text (including a manual import only for an explicitly selected Fabric Source, never an
+  inferred legacy-RAG scope mapping);
 - Markdown/text;
 - DOCX structured parser;
-- PDF layout parser with OCR/document-vision fallback only when needed;
-- structured tables/images/assets where supported.
+- PDF layout-text parser with a typed `requires_ocr` outcome when no reliable text layer exists;
+- structural headings/paragraphs/lists/tables/links/images/page/section provenance where the
+  source format exposes it.
 
-Git requirements:
+Authority and omission boundary:
 
-- commit/tree/diff incremental sync;
-- ignore/deny secret and build/dependency paths;
-- source code AST/symbol/import/dependency extraction where practical;
-- no requirement to LLM-summarize every code file.
+- This is an adapter/library boundary, not a new public upload API or an arbitrary local-path
+  reader. Existing Source registration remains the authorization boundary.
+- It does not create object-store credentials, public object URLs, OCR, document vision, embedded
+  child-asset storage, or automatic migration of legacy RAG bases. Raw bytes remain the one private
+  source artifact, and unavailable scanned documents are not published as fabricated text.
 
 Document requirements:
 
 - preserve headings/paragraphs/lists/tables/links/images/page/section provenance;
-- store structured table + retrieval representation;
+- store structured table + retrieval representation where parser structure exposes it;
 - keep raw artifact in object storage;
 - LLM enrichment selective/lazy only.
 
 Required gate:
 
-- fixture-based parsing tests;
-- incremental Git change tests;
-- secret-exclusion tests;
-- scanned/digital PDF branch tests;
-- source-version/evidence/provenance tests;
-- ingestion job retry/idempotency tests.
+- fixture-based Markdown, DOCX, and digital/scanned-PDF branch tests;
+- source-version/evidence/provenance and private raw-artifact tests;
+- ingestion job retry/idempotency regression;
+- targeted mutation test for the pure document-type/scanned-content decision scope.
 
-Commit gate: one initial Source adapter commit. Split into two coherent phases only if Git and document parser dependencies become too large to validate together; update this plan first.
+Commit gate: one Phase 8a document/manual adapter implementation commit.
+
+### Phase 8a delivery record
+
+Evidence map: `knowledge_fabric_ingestion.py`, `knowledge_object_storage.py`,
+`knowledge_fabric_content_repository.py`, `knowledge_fabric_document_adapter.py`,
+`knowledge_fabric_document_policy.py`, `tests/test_knowledge_fabric_document_adapter.py`, and
+the Phase 3 content/storage lifecycle tests. The current Source registration APIs remain evidence
+that a caller must select an existing authorized Fabric Source; they do not authorize an upload API.
+
+Implementation: `KnowledgeFabricDocumentAdapter` is a deterministic library-only compiler for
+already-authorized manual UTF-8 text, Markdown, OOXML DOCX, and text-layer PDF bytes. It produces
+the existing immutable `SourceSnapshotIngestionRequest`; `KnowledgeFabricIngestionService` retains
+sole object-storage/job/publication authority. Markdown preserves heading hierarchy, paragraphs,
+lists, tables, inline links, and line coordinates. DOCX preserves heading/list/table/hyperlink/image
+relationship provenance using only its standard OOXML package. Digital PDFs preserve page and text
+layer provenance; a textless PDF raises typed `DocumentRequiresOcr` and cannot publish fabricated
+Evidence. Filename/type/OCR decisions are explicit pure policy and no arbitrary metadata field can
+carry credentials into a SourceVersion.
+
+Validation: `python -m ruff check src tests` passed; `python -m mypy` passed 363 source files; the
+combined Phase 3/5/6/7/8a regression batch passed **42 passed, 3 expected PostgreSQL skips**.
+WSL-native Mutmut, after deleting its generated cache to invalidate older results, generated 48
+mutants in `knowledge_fabric_document_policy.py` and killed all 48 (0 survived, timeout, or
+equivalent).
+
+Commit: `daf7a40` (`feat: add deterministic Fabric document adapters`).
+
+Deliberate omissions: no public upload endpoint, arbitrary local-path reader, network acquisition,
+Git client, private-Git credential contract, legacy RAG base-to-corpus inference, OCR/document
+vision worker, embedded child-asset storage, or LLM enrichment. The private Cloudflare R2-default,
+S3-compatible boundary and Phase 3 owner lifecycle stay unchanged.
+
+Next action: Phase 8b needs an explicit Git acquisition, deny/ignore, and source-version retention
+decision before code; it must not silently make current-code queries return obsolete Git revisions.
+
+## Phase 8b — Git repository Source adapter
+
+Status: **planned — follow Phase 8a**
+
+Goal: add a deterministic Git/GitHub adapter without expanding the document upload or credential
+surface.
+
+Git requirements:
+
+- immutable commit/tree identity and diff-driven incremental sync;
+- explicit ignore/deny secret, dependency, build, and cache policy;
+- source-code AST/symbol/import/dependency extraction where practical;
+- a safe acquisition boundary with public-HTTPS policy or an explicitly authorized future credential
+  reference; no token in Source locator/profile metadata;
+- explicit source-version retention/visibility semantics before an incremental sync claims that an
+  obsolete revision cannot be returned by a current-code query;
+- no requirement to LLM-summarize every code file.
+
+Required gate:
+
+- deterministic tree/commit fixture tests including no-change and changed-commit behavior;
+- secret-exclusion proof that bytes do not reach artifacts, documents, Evidence, job metadata, or
+  errors;
+- source-version/query-visibility decision tests;
+- ingestion retry/idempotency tests and targeted mutation testing of the pure allow/deny policy.
+
+Commit gate: one Phase 8b Git adapter implementation commit after the acquisition and retention
+contract is documented from repository evidence.
 
 ## Phase 9 — Website/Wiki/API/feed adapters and adaptive freshness
 
