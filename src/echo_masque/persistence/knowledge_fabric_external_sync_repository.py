@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from sqlalchemy import select
+
 from echo_masque.knowledge_fabric_external_policy import (
     WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE,
     normalized_website_validator,
@@ -43,6 +45,23 @@ class KnowledgeFabricExternalSyncRepository:
     def get_state(self, source_id: str) -> KnowledgeExternalSourceSyncStateRecord | None:
         with self.database.session() as session:
             return session.get(KnowledgeExternalSourceSyncStateRecord, source_id)
+
+    def list_states_for_source_ids(
+        self,
+        source_ids: tuple[str, ...],
+    ) -> list[KnowledgeExternalSourceSyncStateRecord]:
+        """Return redaction-safe sync outcomes for an already-authorized Source set."""
+
+        if not source_ids:
+            return []
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(KnowledgeExternalSourceSyncStateRecord)
+                    .where(KnowledgeExternalSourceSyncStateRecord.source_id.in_(source_ids))
+                    .order_by(KnowledgeExternalSourceSyncStateRecord.source_id)
+                )
+            )
 
     def record_outcome(
         self,

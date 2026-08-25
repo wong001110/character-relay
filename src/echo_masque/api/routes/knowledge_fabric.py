@@ -22,11 +22,14 @@ from echo_masque.api.knowledge_fabric_schemas import (
     KnowledgeGrantUpdate,
     KnowledgeOverlayPolicyUpdate,
     KnowledgeOverlayPolicyView,
+    KnowledgeQueryInspectorRequest,
+    KnowledgeQueryInspectorResultView,
     KnowledgeServerAdministratorView,
     KnowledgeServerGlobalCorpusAccessView,
     KnowledgeServerScopeCreate,
     KnowledgeServerScopeView,
     KnowledgeSourceCreate,
+    KnowledgeSourceOperationalView,
     KnowledgeSourceView,
     encode_profile,
 )
@@ -34,9 +37,13 @@ from echo_masque.knowledge_fabric_policy import (
     may_access_server_scope,
     may_manage_global_library,
 )
+from echo_masque.knowledge_fabric_query import KnowledgeQueryEngine, KnowledgeQueryRequest
 from echo_masque.persistence import AuthRepository
 from echo_masque.persistence.knowledge_fabric_external_schedule_repository import (
     KnowledgeFabricExternalScheduleRepository,
+)
+from echo_masque.persistence.knowledge_fabric_external_sync_repository import (
+    KnowledgeFabricExternalSyncRepository,
 )
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeCorpusRecord,
@@ -52,6 +59,8 @@ from echo_masque.public_demo import is_public_demo_email
 
 router = APIRouter(prefix="/api/knowledge-fabric", tags=["knowledge-fabric"])
 
+_QUERY_INSPECTOR_LIMIT = 4
+
 
 def _fabric(request: Request) -> KnowledgeFabricRepository:
     return cast(KnowledgeFabricRepository, request.app.state.knowledge_fabric_repository)
@@ -66,6 +75,17 @@ def _external_schedules(request: Request) -> KnowledgeFabricExternalScheduleRepo
         KnowledgeFabricExternalScheduleRepository,
         request.app.state.knowledge_fabric_external_schedule_repository,
     )
+
+
+def _external_sync(request: Request) -> KnowledgeFabricExternalSyncRepository:
+    return cast(
+        KnowledgeFabricExternalSyncRepository,
+        request.app.state.knowledge_fabric_external_sync_repository,
+    )
+
+
+def _query_engine(request: Request) -> KnowledgeQueryEngine:
+    return cast(KnowledgeQueryEngine, request.app.state.knowledge_query_engine)
 
 
 def _is_public_demo(request: Request, email: str) -> bool:
@@ -301,6 +321,39 @@ def list_system_global_corpora(
     ]
 
 
+@router.get(
+    "/admin/corpora/{corpus_id}/operational-sources",
+    response_model=list[KnowledgeSourceOperationalView],
+)
+def list_global_corpus_operational_sources(
+    corpus_id: str,
+    request: Request,
+    user: SuperAdminUserDependency,
+) -> list[KnowledgeSourceOperationalView]:
+    """Expose only redacted, persisted source/schedule/sync health to Super Admins."""
+
+    _require_global_manager(request, user)
+    _global_corpus_or_404(request, corpus_id)
+    sources = _fabric(request).list_sources(corpus_id)
+    source_ids = tuple(source.id for source in sources)
+    schedules = {
+        record.source_id: record
+        for record in _external_schedules(request).list_for_source_ids(source_ids)
+    }
+    sync_states = {
+        record.source_id: record
+        for record in _external_sync(request).list_states_for_source_ids(source_ids)
+    }
+    return [
+        KnowledgeSourceOperationalView.from_record(
+            source,
+            external_sync=sync_states.get(source.id),
+            external_schedule=schedules.get(source.id),
+        )
+        for source in sources
+    ]
+
+
 @router.post(
     "/server-scopes/{scope_id}/corpora",
     response_model=KnowledgeCorpusView,
@@ -343,6 +396,44 @@ def list_effective_corpora(
         KnowledgeCorpusView.from_record(item.corpus, overlay_mode=item.overlay_mode)
         for item in _fabric(request).list_effective_corpora(scope.id)
     ]
+
+
+@router.post(
+    "/server-scopes/{scope_id}/query-inspector",
+    response_model=KnowledgeQueryInspectorResultView,
+)
+def inspect_scoped_query(
+    scope_id: str,
+    payload: KnowledgeQueryInspectorRequest,
+    request: Request,
+    user: CurrentUserDependency,
+) -> KnowledgeQueryInspectorResultView:
+    """Inspect already-authorized Fabric Evidence without creating another retrieval path."""
+
+    scope = _scope_for_actor(request, scope_id=scope_id, user=user)
+    result = _query_engine(request).query(
+        KnowledgeQueryRequest(
+            server_scope_id=scope.id,
+            query=payload.query,
+            mode=payload.mode,
+            candidate_limit=_QUERY_INSPECTOR_LIMIT,
+            result_limit=_QUERY_INSPECTOR_LIMIT,
+            as_of=payload.as_of,
+        )
+    )
+    _audit(
+        request,
+        actor_user_id=user.id,
+        action="knowledge_fabric.query_inspected",
+        resource_type="knowledge_server_scope",
+        resource_id=scope.id,
+        metadata={
+            "mode": result.mode,
+            "accessible_corpus_count": result.accessible_corpus_count,
+            "hit_count": len(result.hits),
+        },
+    )
+    return KnowledgeQueryInspectorResultView.from_result(result)
 
 
 @router.get(

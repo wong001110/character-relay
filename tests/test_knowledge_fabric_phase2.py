@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -12,6 +13,11 @@ from echo_masque.knowledge_fabric_policy import (
     may_access_server_scope,
     may_manage_global_library,
     overlay_mode_or_inherit,
+)
+from echo_masque.knowledge_fabric_query import (
+    KnowledgeQueryHit,
+    KnowledgeQueryRequest,
+    KnowledgeQueryResult,
 )
 from echo_masque.persistence import Database
 from echo_masque.persistence.knowledge_fabric_models import (
@@ -91,6 +97,31 @@ def effective_corpus_ids(manager: TestClient, scope_id: object) -> set[object]:
     response = manager.get(f"/api/knowledge-fabric/server-scopes/{scope_id}/corpora")
     assert response.status_code == 200, response.text
     return {item["id"] for item in response.json()}
+
+
+class _QueryInspectorEngine:
+    def __init__(self) -> None:
+        self.requests: list[KnowledgeQueryRequest] = []
+
+    def query(self, request: KnowledgeQueryRequest) -> KnowledgeQueryResult:
+        self.requests.append(request)
+        return KnowledgeQueryResult(
+            mode=request.mode,
+            accessible_corpus_count=1,
+            freshness_status="not_requested",
+            hits=(
+                KnowledgeQueryHit(
+                    evidence_unit_id="evidence-1",
+                    corpus_id="corpus-1",
+                    source_version_id="version-1",
+                    evidence_locator="https://example.test/source#p1",
+                    document_title="Safe title",
+                    text_content="Scoped evidence only.",
+                    authority_profile="standard",
+                    channels=("sparse",),
+                ),
+            ),
+        )
 
 
 def test_scope_authority_is_explicit_and_never_inferred_from_legacy_access(tmp_path: Path) -> None:
@@ -412,6 +443,131 @@ def test_lifecycle_keeps_system_and_server_scope_data_but_removes_user_membershi
     assert fabric.get_corpus(user_corpus.id) is None
     assert not fabric.is_server_administrator(server_scope_id=scope.id, user_id=user.id)
     assert fabric.is_server_administrator(server_scope_id=scope.id, user_id=other.id)
+
+
+def test_super_admin_operational_source_view_is_redacted_and_source_backed(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "operational-source.db"))
+    admin = TestClient(app)
+    ordinary = TestClient(app)
+    login(admin, SUPER_EMAIL)
+    register(ordinary, "ordinary-operator@example.com")
+    login(ordinary, "ordinary-operator@example.com")
+    corpus = create_global_corpus(admin)
+    source = admin.post(
+        f"/api/knowledge-fabric/admin/corpora/{corpus['id']}/sources",
+        json={
+            "source_type": "website_public_https",
+            "locator": "https://example.test/guide",
+            "authority_profile": "official",
+        },
+    )
+    assert source.status_code == 201, source.text
+    source_id = source.json()["id"]
+    schedule = admin.put(
+        f"/api/knowledge-fabric/admin/sources/{source_id}/external-sync-schedule",
+        json={"enabled": True, "interval_seconds": 900},
+    )
+    assert schedule.status_code == 200, schedule.text
+    app.state.knowledge_fabric_external_sync_repository.record_outcome(
+        source_id=source_id,
+        outcome="unchanged",
+        checked_at=datetime(2026, 8, 26, tzinfo=UTC),
+    )
+
+    response = admin.get(
+        f"/api/knowledge-fabric/admin/corpora/{corpus['id']}/operational-sources"
+    )
+    assert response.status_code == 200, response.text
+    [operational] = response.json()
+    assert operational["id"] == source_id
+    assert operational["corpus_id"] == corpus["id"]
+    assert operational["source_type"] == "website_public_https"
+    assert operational["authority_profile"] == "official"
+    assert operational["enabled"] is True
+    assert operational["status"] == "registered"
+    assert operational["last_checked_at"].startswith("2026-08-26T00:00:00")
+    assert operational["last_changed_at"] is None
+    assert operational["external_sync"] is not None
+    assert operational["external_sync"]["last_outcome"] == "unchanged"
+    assert operational["external_sync"]["last_error_code"] is None
+    assert operational["external_schedule"] is not None
+    assert operational["external_schedule"]["enabled"] is True
+    assert operational["external_schedule"]["interval_seconds"] == 900
+    assert operational["external_schedule"]["last_error_code"] is None
+    assert "locator" not in operational
+    assert "access_profile" not in operational
+    assert (
+        ordinary.get(
+            f"/api/knowledge-fabric/admin/corpora/{corpus['id']}/operational-sources"
+        ).status_code
+        == 403
+    )
+
+
+def test_query_inspector_is_scope_bound_bounded_and_public_demo_denied(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "query-inspector.db", public_demo_enabled=True))
+    admin = TestClient(app)
+    manager = TestClient(app)
+    demo = TestClient(app)
+    login(admin, SUPER_EMAIL)
+    manager_id = register(manager, "query-manager@example.com")
+    login(manager, "query-manager@example.com")
+    response = demo.post(
+        "/api/auth/login",
+        json={"email": PUBLIC_DEMO_EMAIL, "password": PUBLIC_DEMO_PASSWORD},
+    )
+    assert response.status_code == 200, response.text
+    scope = bootstrap_scope(admin)
+    assert (
+        admin.put(
+            f"/api/knowledge-fabric/admin/server-scopes/{scope['id']}/administrators/{manager_id}"
+        ).status_code
+        == 200
+    )
+    engine = _QueryInspectorEngine()
+    app.state.knowledge_query_engine = engine
+
+    response = manager.post(
+        f"/api/knowledge-fabric/server-scopes/{scope['id']}/query-inspector",
+        json={"query": "Klee", "mode": "overview", "as_of": "2026-08-26T00:00:00Z"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["hits"] == [
+        {
+            "evidence_unit_id": "evidence-1",
+            "corpus_id": "corpus-1",
+            "source_version_id": "version-1",
+            "evidence_locator": "https://example.test/source#p1",
+            "document_title": "Safe title",
+            "text_content": "Scoped evidence only.",
+            "authority_profile": "standard",
+            "channels": ["sparse"],
+        }
+    ]
+    assert engine.requests == [
+        KnowledgeQueryRequest(
+            server_scope_id=str(scope["id"]),
+            query="Klee",
+            mode="overview",
+            candidate_limit=4,
+            result_limit=4,
+            as_of=datetime(2026, 8, 26, tzinfo=UTC),
+        )
+    ]
+    assert (
+        manager.post(
+            f"/api/knowledge-fabric/server-scopes/{scope['id']}/query-inspector",
+            json={"query": "Klee", "mode": "invented"},
+        ).status_code
+        == 422
+    )
+    assert (
+        demo.post(
+            f"/api/knowledge-fabric/server-scopes/{scope['id']}/query-inspector",
+            json={"query": "Klee", "mode": "overview"},
+        ).status_code
+        == 403
+    )
 
 
 def test_database_bootstrap_registers_all_phase2_models_and_records_revision(

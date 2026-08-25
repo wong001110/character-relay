@@ -8,11 +8,14 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator
 
+from echo_masque.knowledge_fabric_query import KnowledgeQueryHit, KnowledgeQueryResult
+from echo_masque.knowledge_fabric_query_policy import query_mode_is_valid
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeAccessGrantRecord,
     KnowledgeCharacterCorpusPolicyRecord,
     KnowledgeCorpusRecord,
     KnowledgeExternalSourceScheduleRecord,
+    KnowledgeExternalSourceSyncStateRecord,
     KnowledgeOverlayPolicyRecord,
     KnowledgeServerScopeRecord,
     KnowledgeSourceRecord,
@@ -264,6 +267,132 @@ class KnowledgeExternalSourceScheduleView(BaseModel):
         )
 
 
+class KnowledgeExternalSourceSyncStateView(BaseModel):
+    source_id: str
+    last_outcome: str
+    last_error_code: str | None
+    updated_at: datetime
+
+    @classmethod
+    def from_record(
+        cls, record: KnowledgeExternalSourceSyncStateRecord
+    ) -> KnowledgeExternalSourceSyncStateView:
+        return cls(
+            source_id=record.source_id,
+            last_outcome=record.last_outcome,
+            last_error_code=record.last_error_code,
+            updated_at=record.updated_at,
+        )
+
+
+class KnowledgeSourceOperationalView(BaseModel):
+    """Operator-safe Source status; profiles, locators, artifacts, and metadata stay private."""
+
+    id: str
+    corpus_id: str
+    source_type: str
+    authority_profile: str
+    enabled: bool
+    status: str
+    last_checked_at: datetime | None
+    last_changed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    external_sync: KnowledgeExternalSourceSyncStateView | None
+    external_schedule: KnowledgeExternalSourceScheduleView | None
+
+    @classmethod
+    def from_record(
+        cls,
+        record: KnowledgeSourceRecord,
+        *,
+        external_sync: KnowledgeExternalSourceSyncStateRecord | None,
+        external_schedule: KnowledgeExternalSourceScheduleRecord | None,
+    ) -> KnowledgeSourceOperationalView:
+        return cls(
+            id=record.id,
+            corpus_id=record.corpus_id,
+            source_type=record.source_type,
+            authority_profile=record.authority_profile,
+            enabled=record.enabled,
+            status=record.status,
+            last_checked_at=record.last_checked_at,
+            last_changed_at=record.last_changed_at,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+            external_sync=(
+                KnowledgeExternalSourceSyncStateView.from_record(external_sync)
+                if external_sync is not None
+                else None
+            ),
+            external_schedule=(
+                KnowledgeExternalSourceScheduleView.from_record(external_schedule)
+                if external_schedule is not None
+                else None
+            ),
+        )
+
+
+class KnowledgeQueryInspectorRequest(BaseModel):
+    query: str = Field(min_length=1)
+    mode: str = Field(default="overview", min_length=1, max_length=24)
+    as_of: datetime | None = None
+
+    @field_validator("query")
+    @classmethod
+    def query_is_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Knowledge query must not be blank.")
+        return value
+
+    @field_validator("mode")
+    @classmethod
+    def mode_is_supported(cls, value: str) -> str:
+        if not query_mode_is_valid(value):
+            raise ValueError("Unknown Knowledge query mode.")
+        return value
+
+
+class KnowledgeQueryInspectorHitView(BaseModel):
+    evidence_unit_id: str
+    corpus_id: str
+    source_version_id: str
+    evidence_locator: str
+    document_title: str
+    text_content: str
+    authority_profile: str
+    channels: list[str]
+
+    @classmethod
+    def from_hit(cls, hit: KnowledgeQueryHit) -> KnowledgeQueryInspectorHitView:
+        return cls(
+            evidence_unit_id=hit.evidence_unit_id,
+            corpus_id=hit.corpus_id,
+            source_version_id=hit.source_version_id,
+            evidence_locator=hit.evidence_locator,
+            document_title=hit.document_title,
+            text_content=hit.text_content,
+            authority_profile=hit.authority_profile,
+            channels=list(hit.channels),
+        )
+
+
+class KnowledgeQueryInspectorResultView(BaseModel):
+    mode: str
+    accessible_corpus_count: int
+    freshness_status: str
+    hits: list[KnowledgeQueryInspectorHitView]
+
+    @classmethod
+    def from_result(cls, result: KnowledgeQueryResult) -> KnowledgeQueryInspectorResultView:
+        return cls(
+            mode=result.mode,
+            accessible_corpus_count=result.accessible_corpus_count,
+            freshness_status=result.freshness_status,
+            hits=[KnowledgeQueryInspectorHitView.from_hit(hit) for hit in result.hits],
+        )
+
+
 def encode_profile(value: dict[str, str]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
@@ -283,14 +412,19 @@ __all__ = [
     "KnowledgeCorpusView",
     "KnowledgeExternalSourceScheduleUpdate",
     "KnowledgeExternalSourceScheduleView",
+    "KnowledgeExternalSourceSyncStateView",
     "KnowledgeGrantUpdate",
     "KnowledgeOverlayPolicyUpdate",
     "KnowledgeOverlayPolicyView",
+    "KnowledgeQueryInspectorHitView",
+    "KnowledgeQueryInspectorRequest",
+    "KnowledgeQueryInspectorResultView",
     "KnowledgeServerAdministratorView",
     "KnowledgeServerGlobalCorpusAccessView",
     "KnowledgeServerScopeCreate",
     "KnowledgeServerScopeView",
     "KnowledgeSourceCreate",
+    "KnowledgeSourceOperationalView",
     "KnowledgeSourceView",
     "encode_profile",
 ]

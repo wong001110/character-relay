@@ -31,7 +31,7 @@ would reject a changed behavior.
 
 | Surface | Runner | Initial bounded scope | Where to run |
 | --- | --- | --- | --- |
-| Python | `mutmut` with pytest (`tests/test_knowledge_fabric_character_policy.py`) | `echo_masque.knowledge_fabric_character_policy` | Ubuntu CI or an installed WSL distribution |
+| Python | `mutmut` with pytest (`test_knowledge_fabric_character_policy.py`, `test_knowledge_fabric_query_policy.py`) | `echo_masque.knowledge_fabric_character_policy`, `echo_masque.knowledge_fabric_query_policy` | Ubuntu CI or an installed WSL distribution |
 | Portal | StrykerJS with Vitest and TypeScript checking | `web/src/portalEnvironment.ts`, `web/src/knowledgeFabricApi.ts` | Node 22+ |
 | Discord Connector | StrykerJS with Vitest and TypeScript checking | `connectors/discord/src/audiencePreflight.ts` | Node 24.17+ |
 
@@ -70,6 +70,10 @@ ignored. The WSL wrapper prints `mutmut results` and CI stats before it removes 
 temporary copy, then returns the underlying `mutmut run` status. Do not apply a mutant to a dirty worktree. Resolve survivors by adding or improving
 behavioral tests, then re-run the same bounded scope. A timeout or compile failure is not evidence
 that the mutant was killed.
+
+For survivor investigation only, set `MUTMUT_KEEP_WORKDIR=1`. The wrapper prints the exact
+WSL-native temporary directory instead of removing it; inspect it with `mutmut show`, then remove
+that exact printed directory manually. Normal runs must leave this variable unset.
 
 ## Knowledge Fabric gates
 

@@ -71,8 +71,11 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   the Fabric surface for an authorized Discord server scope: effective Corpus visibility,
   reversible global grants/overlays, server-local Corpus/HTTP(S) Source registration, and
   Character policy. The page neither exposes Source credentials nor claims publication, sync, or
-  indexing; Public Demo remains server-enforced read-only. Phase 11b/11c remain open; resume from
-  the Phase 11 record in `docs/active-development-plan.md`.
+  indexing; Public Demo remains server-enforced read-only. Phase 11b-1 adds a scope-authorized
+  Query Inspector over the existing Engine and a Super-Admin-only redacted global-source health
+  view. It returns no profiles, locators, artifacts, validators, leases, or generic metadata, and
+  has no retry/rebuild/publish action. Phase 11b-2/11c remain open; resume from the Phase 11 record
+  in `docs/active-development-plan.md`.
   Phase 4's corpus-bound canonical entities,
   evidence-backed runtime-resolution history, conflicting assertions, world events, typed Evidence
   Graph relations, and lifecycle cleanup remain unchanged. Canonical identity is

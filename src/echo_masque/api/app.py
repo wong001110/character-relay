@@ -643,6 +643,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.knowledge_fabric_content_repository = knowledge_fabric_content_repository
     app.state.knowledge_fabric_ingestion_service = knowledge_fabric_ingestion_service
     app.state.knowledge_fabric_external_schedule_repository = external_schedule_repository
+    app.state.knowledge_fabric_external_sync_repository = external_sync_repository
     app.state.knowledge_fabric_external_sync_scheduler = external_sync_scheduler
     app.state.entity_evidence_repository = entity_evidence_repository
     app.state.knowledge_gap_discovery_service = knowledge_gap_discovery_service

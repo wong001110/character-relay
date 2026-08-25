@@ -25,7 +25,14 @@ case "$workdir" in
     exit 2
     ;;
 esac
-trap 'rm -rf -- "$workdir"' EXIT
+cleanup_workdir() {
+  if [[ "${MUTMUT_KEEP_WORKDIR:-}" == "1" ]]; then
+    echo "Preserving mutation work directory for inspection: $workdir" >&2
+    return
+  fi
+  rm -rf -- "$workdir"
+}
+trap cleanup_workdir EXIT
 
 tar \
   --exclude='.git' \

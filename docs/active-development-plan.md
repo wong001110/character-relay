@@ -1123,6 +1123,21 @@ the final integration and review.
 No batch may introduce a second retrieval authority, expose credentials, or use a denied Corpus
 as effective query input.
 
+### Phase 11b execution detail
+
+11b is split into read-only inspection before operator mutations because no invalidation consumer
+or configured embedding Runtime currently authorizes a rebuild/retry/publish promise.
+
+1. **11b-1 — Authorized query and source-health inspection.** Add an administrator-scoped Query
+   Inspector that delegates to the existing `KnowledgeQueryEngine`, and a Super-Admin-only,
+   redacted global-source operational view assembled only from persisted Source/schedule/sync
+   state. Its gate is Phase 2/5/schedule authorization proof, source-health privacy proof,
+   Portal/API type and test verification, and a targeted query-authorization mutation scope.
+2. **11b-2 — Operator actions only when executable.** Add retry/rebuild/publish or availability
+   controls only alongside a source-backed worker/invalidation consumer and its lifecycle,
+   idempotency, audit, and failure-path proof. It must not expose lease tokens, validator values,
+   generic metadata, credentials, or raw artifacts.
+
 ### 2026-08-26 Phase 11a completion gate
 
 ```text
@@ -1155,6 +1170,30 @@ its PostgreSQL/scale/lifecycle evidence remain for 11c.
 Next action: Phase 11b must add only source-backed, redacted Super Admin and scoped query/evidence
 read models. Do not expose rebuild/retry/publish controls until the invalidation worker and
 embedding-runtime contracts exist.
+```
+
+### 2026-08-26 Phase 11b-1 completion gate
+
+```text
+Status: complete — authorized query and global-source health inspection; 11b-2/11c remain open
+Commit: pending final diff review
+Changed authority/contracts: `POST /server-scopes/{scope_id}/query-inspector` first resolves the
+existing server scope through `_scope_for_actor`, then delegates to the one existing
+`KnowledgeQueryEngine` with its established four-result bounded request. It writes only a
+query-free audit summary. `GET /admin/corpora/{corpus_id}/operational-sources` is Super-Admin-only
+and returns a redacted persisted Source/schedule/sync-state view; locators, profiles, artifacts,
+validators, leases, generic metadata, and credentials remain private.
+Validation: `pytest` Phase 2/5/external-schedule/query-policy batch: 13 passed, 1 PostgreSQL-only
+skip; changed-source Ruff and strict MyPy (377 files) passed. WSL-native mutmut: 52 killed,
+4 reviewed equivalent survivors, 0 timeout/no-coverage/compile results. The retained equivalents
+are all in rank fusion: replacing first-seen values with identical values still uses Python's
+insertion ordering, and adding the same constant/positive multiplier to every candidate score
+preserves the ordered evidence IDs. The request-none and rank-offset behavioral mutations are
+killed by explicit tests. The nonfatal WSL systemd user-session warning persists.
+Deliberate omissions: no source/job/checkpoint/invalidation metadata, no raw artifacts, no dense
+embedding claim, and no retry/rebuild/publish action. Those require 11b-2 worker ownership proof.
+Next action: build the Super Admin Portal surface over these read models, then implement only
+worker-backed actions with lifecycle/idempotency evidence.
 ```
 
 ## Known implementation decisions that still require evidence in a phase

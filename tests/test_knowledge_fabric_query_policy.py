@@ -35,13 +35,16 @@ def test_temporal_interpretations_use_half_open_validity_interval() -> None:
         valid_to=end,
         as_of=datetime(2025, 12, 31, tzinfo=UTC),
     )
-    assert interpretation_is_available_as_of(valid_from=start, valid_to=end, as_of=start)
-    assert not interpretation_is_available_as_of(valid_from=start, valid_to=end, as_of=end)
     assert interpretation_is_available_as_of(
+        valid_from=start,
+        valid_to=end,
+        as_of=start,
+    )
+    assert not interpretation_is_available_as_of(
         valid_from=start,
         valid_to=None,
         as_of=datetime(2025, 12, 31, 19, tzinfo=UTC),
-    ) is False
+    )
     assert interpretation_is_available_as_of(
         valid_from=None,
         valid_to=end,
@@ -52,11 +55,11 @@ def test_temporal_interpretations_use_half_open_validity_interval() -> None:
         valid_to=end.replace(tzinfo=None),
         as_of=start,
     )
-    assert interpretation_is_available_as_of(
+    assert not interpretation_is_available_as_of(
         valid_from=start,
         valid_to=end,
         as_of=datetime(2025, 12, 31, 19, tzinfo=UTC),
-    ) is False
+    )
     assert interpretation_is_available_as_of(
         valid_from=start,
         valid_to=end,
@@ -96,4 +99,7 @@ def test_fusion_deduplicates_evidence_and_keeps_ties_stable() -> None:
         "entry-b",
         "entry-c",
     )
+    assert stable_reciprocal_rank_fusion(
+        (("a", "b", "x"), ("c", "d", "x"), ("y",))
+    ) == ("a", "c", "y", "x", "b", "d")
     assert stable_reciprocal_rank_fusion(()) == ()
