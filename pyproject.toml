@@ -50,8 +50,8 @@ testpaths = ["tests"]
 
 [tool.mutmut]
 source_paths = ["src/"]
-only_mutate = ["src/echo_masque/knowledge_fabric_projection_policy.py"]
-pytest_add_cli_args_test_selection = ["tests/test_knowledge_fabric_projection.py"]
+only_mutate = ["src/echo_masque/knowledge_fabric_document_policy.py"]
+pytest_add_cli_args_test_selection = ["tests/test_knowledge_fabric_document_adapter.py"]
 
 [tool.ruff]
 target-version = "py312"
