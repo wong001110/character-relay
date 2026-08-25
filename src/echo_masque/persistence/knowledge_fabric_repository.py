@@ -68,6 +68,15 @@ class EffectiveKnowledgeCorpus:
     overlay_mode: str
 
 
+@dataclass(frozen=True, slots=True)
+class GlobalKnowledgeCorpusAccess:
+    """Server-local grant/overlay state for an available system corpus."""
+
+    corpus_id: str
+    enabled: bool
+    overlay_mode: str
+
+
 if TYPE_CHECKING:
     from echo_masque.knowledge_object_storage import KnowledgeObjectStorage
 
@@ -430,6 +439,48 @@ class KnowledgeFabricRepository:
                     KnowledgeAccessGrantRecord.grantee_id == server_scope_id,
                 )
             )
+
+    def list_server_global_corpus_access(
+        self,
+        server_scope_id: str,
+    ) -> list[GlobalKnowledgeCorpusAccess]:
+        """Expose reversible grant/overlay state without treating denied corpora as effective."""
+
+        with self.database.session() as session:
+            corpus_ids = list(
+                session.scalars(
+                    select(KnowledgeCorpusRecord.id).where(
+                        KnowledgeCorpusRecord.owner_type == OWNER_SYSTEM,
+                        KnowledgeCorpusRecord.visibility == VISIBILITY_GLOBAL,
+                        KnowledgeCorpusRecord.status == "active",
+                    )
+                )
+            )
+            grants = {
+                item.corpus_id: item.enabled
+                for item in session.scalars(
+                    select(KnowledgeAccessGrantRecord).where(
+                        KnowledgeAccessGrantRecord.grantee_type == GRANTEE_SERVER,
+                        KnowledgeAccessGrantRecord.grantee_id == server_scope_id,
+                    )
+                )
+            }
+            overlays = {
+                item.corpus_id: item.mode
+                for item in session.scalars(
+                    select(KnowledgeOverlayPolicyRecord).where(
+                        KnowledgeOverlayPolicyRecord.server_scope_id == server_scope_id
+                    )
+                )
+            }
+        return [
+            GlobalKnowledgeCorpusAccess(
+                corpus_id=corpus_id,
+                enabled=grants.get(corpus_id, False),
+                overlay_mode=overlays.get(corpus_id, OVERLAY_INHERIT),
+            )
+            for corpus_id in corpus_ids
+        ]
 
     def set_overlay_policy(
         self,
@@ -904,5 +955,6 @@ __all__ = [
     "VISIBILITY_PRIVATE",
     "VISIBILITY_SHARED",
     "EffectiveKnowledgeCorpus",
+    "GlobalKnowledgeCorpusAccess",
     "KnowledgeFabricRepository",
 ]

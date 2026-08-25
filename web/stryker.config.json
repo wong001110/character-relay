@@ -9,6 +9,7 @@
   "tsconfigFile": "tsconfig.json",
   "mutate": [
     "src/portalEnvironment.ts",
+    "src/knowledgeFabricApi.ts",
     "!src/**/*.test.ts",
     "!src/**/*.test.tsx"
   ]

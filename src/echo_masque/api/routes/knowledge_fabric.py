@@ -23,6 +23,7 @@ from echo_masque.api.knowledge_fabric_schemas import (
     KnowledgeOverlayPolicyUpdate,
     KnowledgeOverlayPolicyView,
     KnowledgeServerAdministratorView,
+    KnowledgeServerGlobalCorpusAccessView,
     KnowledgeServerScopeCreate,
     KnowledgeServerScopeView,
     KnowledgeSourceCreate,
@@ -357,6 +358,26 @@ def list_available_system_global_corpora(
     return [
         KnowledgeCorpusView.from_record(record)
         for record in _fabric(request).list_available_system_global_corpora()
+    ]
+
+
+@router.get(
+    "/server-scopes/{scope_id}/global-corpora/access",
+    response_model=list[KnowledgeServerGlobalCorpusAccessView],
+)
+def list_server_global_corpus_access(
+    scope_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+) -> list[KnowledgeServerGlobalCorpusAccessView]:
+    scope = _scope_for_actor(request, scope_id=scope_id, user=user)
+    return [
+        KnowledgeServerGlobalCorpusAccessView(
+            corpus_id=item.corpus_id,
+            enabled=item.enabled,
+            overlay_mode=item.overlay_mode,
+        )
+        for item in _fabric(request).list_server_global_corpus_access(scope.id)
     ]
 
 

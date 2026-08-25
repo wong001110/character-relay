@@ -129,6 +129,12 @@ class KnowledgeAccessGrantView(BaseModel):
         )
 
 
+class KnowledgeServerGlobalCorpusAccessView(BaseModel):
+    corpus_id: str
+    enabled: bool
+    overlay_mode: str
+
+
 class KnowledgeOverlayPolicyUpdate(BaseModel):
     mode: str = Field(min_length=1, max_length=24)
 
@@ -281,6 +287,7 @@ __all__ = [
     "KnowledgeOverlayPolicyUpdate",
     "KnowledgeOverlayPolicyView",
     "KnowledgeServerAdministratorView",
+    "KnowledgeServerGlobalCorpusAccessView",
     "KnowledgeServerScopeCreate",
     "KnowledgeServerScopeView",
     "KnowledgeSourceCreate",

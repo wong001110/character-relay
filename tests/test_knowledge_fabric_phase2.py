@@ -205,11 +205,21 @@ def test_global_grants_and_overlay_are_scope_bound_without_corpus_copy(tmp_path:
         f"/api/knowledge-fabric/server-scopes/{scope_a['id']}/available-global-corpora"
     )
     assert [item["id"] for item in available.json()] == [corpus["id"]]
+    access = manager.get(
+        f"/api/knowledge-fabric/server-scopes/{scope_a['id']}/global-corpora/access"
+    )
+    assert access.status_code == 200, access.text
+    assert access.json() == [
+        {"corpus_id": corpus["id"], "enabled": False, "overlay_mode": "inherit"}
+    ]
     grant = manager.put(
         f"/api/knowledge-fabric/server-scopes/{scope_a['id']}/global-corpora/{corpus['id']}/grant",
         json={"enabled": True},
     )
     assert grant.status_code == 200, grant.text
+    assert manager.get(
+        f"/api/knowledge-fabric/server-scopes/{scope_a['id']}/global-corpora/access"
+    ).json() == [{"corpus_id": corpus["id"], "enabled": True, "overlay_mode": "inherit"}]
     effective = manager.get(f"/api/knowledge-fabric/server-scopes/{scope_a['id']}/corpora")
     assert {item["id"] for item in effective.json()} == {corpus["id"], local.json()["id"]}
     with app.state.database.session() as session:
@@ -250,6 +260,9 @@ def test_global_grants_and_overlay_are_scope_bound_without_corpus_copy(tmp_path:
     )
     assert denied.status_code == 200
     assert corpus["id"] not in effective_corpus_ids(manager, scope_a["id"])
+    assert manager.get(
+        f"/api/knowledge-fabric/server-scopes/{scope_a['id']}/global-corpora/access"
+    ).json() == [{"corpus_id": corpus["id"], "enabled": True, "overlay_mode": "deny"}]
     restored = manager.put(
         f"/api/knowledge-fabric/server-scopes/{scope_a['id']}/global-corpora/{corpus['id']}/overlay",
         json={"mode": "override"},
@@ -260,6 +273,12 @@ def test_global_grants_and_overlay_are_scope_bound_without_corpus_copy(tmp_path:
         second_manager.put(
             f"/api/knowledge-fabric/server-scopes/{scope_a['id']}/global-corpora/{corpus['id']}/overlay",
             json={"mode": "augment"},
+        ).status_code
+        == 404
+    )
+    assert (
+        second_manager.get(
+            f"/api/knowledge-fabric/server-scopes/{scope_a['id']}/global-corpora/access"
         ).status_code
         == 404
     )
@@ -321,6 +340,12 @@ def test_source_privacy_audit_and_public_demo_boundary(tmp_path: Path) -> None:
     )
     assert blocked.status_code == 403
     assert demo.get(f"/api/knowledge-fabric/server-scopes/{scope['id']}/corpora").status_code == 404
+    assert (
+        demo.get(
+            f"/api/knowledge-fabric/server-scopes/{scope['id']}/global-corpora/access"
+        ).status_code
+        == 404
+    )
 
 
 def test_lifecycle_keeps_system_and_server_scope_data_but_removes_user_membership(

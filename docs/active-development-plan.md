@@ -1045,7 +1045,7 @@ Commit gate: one epistemic-policy commit.
 
 ## Phase 11 — Portal/Admin operations, lifecycle hardening, scale and cleanup
 
-Status: **planned**
+Status: **in progress — split into non-overlapping Portal and final-cutover batches**
 
 Goal: expose the new architecture coherently and remove dead old product surfaces.
 
@@ -1099,6 +1099,63 @@ Required gate:
 - final docs/link/security review.
 
 Commit gate: one final product/cutover cleanup commit, or split Portal and cleanup only after updating this plan with non-overlapping gates.
+
+### Phase 11 execution split
+
+The scope is intentionally split so the new Server Portal can be reviewed without burying
+legacy deletion and lifecycle proof in the same diff. The main agent remains responsible for
+the final integration and review.
+
+1. **11a — Server Knowledge Fabric Portal.** Replace the active Deployment Workspace Knowledge
+   page's RAG V1 entry with scope-bound Fabric management: effective Corpora, reversible global
+   grants/overlays, server-local Corpus/Source registration, and Character allow/deny policy.
+   Gate: targeted Fabric authorization/Public Demo regression, Portal typecheck/Vitest/build,
+   changed-source Ruff/strict MyPy, and scoped management-request tests. It deliberately does
+   not delete compatibility code or claim Super Admin operational completion.
+2. **11b — Super Admin and operational inspection.** Add only source-backed management,
+   sync/index/job health, retry/rebuild/publish controls, and Evidence/Query inspection that
+   existing Runtime contracts can support. Gate: API authorization/lifecycle/observability proof,
+   Portal verification, and a targeted privileged-management mutation scope.
+3. **11c — Compatibility and final cutover.** Remove or archive old RAG/Wiki consumers only after
+   static reference proof and replacement-surface validation; finish lifecycle, scale,
+   PostgreSQL, documentation, Connector, mutation, and security gates listed above.
+
+No batch may introduce a second retrieval authority, expose credentials, or use a denied Corpus
+as effective query input.
+
+### 2026-08-26 Phase 11a completion gate
+
+```text
+Status: complete — Server Knowledge Fabric Portal batch; Phase 11b/11c remain open
+Commit: pending final diff review
+Changed authority/contracts: the active Deployment Workspace Knowledge page now resolves the
+selected Discord `(connection_id, guild_id)` only to an authorized Fabric server scope, never to
+legacy RAG. It manages effective Corpus visibility, reversible global grant/overlay state,
+server-local Corpus/HTTP(S) Source registration, and persisted Character allow/deny policy.
+The added access-state read model lists only active global Corpus IDs plus server-local grant and
+overlay state; a denied Corpus remains unavailable to retrieval but visible to its authorized
+administrator so it can be restored. Public Demo remains server-side denied and client-side
+read-only. Source registration does not claim a source is published, synced, or indexed.
+Key files: web/src/KnowledgeFabricPanel.tsx; web/src/knowledgeFabricApi.ts;
+web/src/DeploymentCenter.tsx; web/src/knowledgeFabricApi.test.ts;
+src/echo_masque/api/routes/knowledge_fabric.py;
+src/echo_masque/persistence/knowledge_fabric_repository.py;
+tests/test_knowledge_fabric_phase2.py
+Validation: targeted Python authorization/Public Demo regression — 8 passed; changed-source
+Ruff and strict MyPy (377 files) passed; Portal typecheck passed; Portal Vitest 22 files / 64
+tests passed; production Vite build passed. Portal Stryker mutated portalEnvironment and
+knowledgeFabricApi: 59 killed, 1 equivalent survivor, 34 TypeScript checker rejections, no
+timeout/runtime/no-coverage result. The equivalent survivor is the comment-only body of the
+non-JSON error catch: replacing it with an empty block preserves the same raw-body/fallback
+return path for every input. Windows left completed Stryker sandboxes; their reports were read and
+the exact generated sandboxes were removed before the final Portal test run.
+Known deviation: `python -m ruff check src tests` still reports two pre-existing E501 lines in
+tests/test_knowledge_fabric_external_schedule.py, outside this batch. The full Phase 11 gate and
+its PostgreSQL/scale/lifecycle evidence remain for 11c.
+Next action: Phase 11b must add only source-backed, redacted Super Admin and scoped query/evidence
+read models. Do not expose rebuild/retry/publish controls until the invalidation worker and
+embedding-runtime contracts exist.
+```
 
 ## Known implementation decisions that still require evidence in a phase
 

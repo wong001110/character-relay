@@ -67,7 +67,12 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   projections fail closed to that map while preserving historical SourceVersion provenance. A
   format-only feed snapshot creates no derived invalidation. Phase 10 adds persisted scoped
   Character corpus allow/deny: missing policy denies, deny wins, and server authorization still
-  happens before retrieval. Resume from Phase 11 in `docs/active-development-plan.md`.
+  happens before retrieval. Phase 11a makes the active Deployment Workspace Knowledge page use
+  the Fabric surface for an authorized Discord server scope: effective Corpus visibility,
+  reversible global grants/overlays, server-local Corpus/HTTP(S) Source registration, and
+  Character policy. The page neither exposes Source credentials nor claims publication, sync, or
+  indexing; Public Demo remains server-enforced read-only. Phase 11b/11c remain open; resume from
+  the Phase 11 record in `docs/active-development-plan.md`.
   Phase 4's corpus-bound canonical entities,
   evidence-backed runtime-resolution history, conflicting assertions, world events, typed Evidence
   Graph relations, and lifecycle cleanup remain unchanged. Canonical identity is
@@ -115,7 +120,7 @@ For an applicable active plan, use one integration owner: sub-agents may researc
 | Context/participation | `context_resolver_v3.py`, `participation_planner_v3.py` | context/planner/participation tests | `docs/intelligence-core-v3-architecture.md` |
 | Character/Social Turn | `src/echo_masque/orchestration/`, conversation runtime | character/social graph tests | `docs/langgraph-roadmap.md` |
 | Media | `media_*`, `planner_media.py`, `conversation_media.py`, generated-media modules | `tests/test_media_*.py`, planner/generated-media tests | media contracts/roadmaps |
-| Knowledge/RAG/Wiki | `knowledge_*`, `character_turn_context_v3.py`, `character_turn_context_types.py`, related persistence | knowledge/context RAG tests | `docs/context-rag-v1.md` |
+| Knowledge/RAG/Wiki | `knowledge_*`, `character_turn_context_v3.py`, `character_turn_context_types.py`, `persistence/knowledge_fabric_*`, `api/routes/knowledge_fabric.py`, `web/src/KnowledgeFabricPanel.tsx`, `web/src/knowledgeFabricApi.ts` | knowledge/context RAG tests, `tests/test_knowledge_fabric_phase2.py`, `web/src/knowledgeFabricApi.test.ts`, `web/src/KnowledgeFabricPanel.test.ts` | `docs/knowledge-fabric-architecture.md`, active Phase 11 plan |
 | Tools/scheduler | `tool_runtime.py`, `tool_external.py`, scheduler/condition-watch modules | tool/watch/scheduler tests | tool-calling docs |
 | Observability | `runtime_trace.py`, provider trace modules/routes | runtime/provider trace tests | `docs/provider-tracing.md` |
 | Evaluation lab | scenario/test-pack/run/matrix/authoring/calibration modules and routes | Phase 13–16 tests | Phase 14/16 docs |

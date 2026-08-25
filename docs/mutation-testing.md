@@ -31,8 +31,8 @@ would reject a changed behavior.
 
 | Surface | Runner | Initial bounded scope | Where to run |
 | --- | --- | --- | --- |
-| Python | `mutmut` with pytest (`tests/test_knowledge_fabric_entity_policy.py`) | `echo_masque.knowledge_fabric_interpretation_policy` | Ubuntu CI or an installed WSL distribution |
-| Portal | StrykerJS with Vitest and TypeScript checking | `web/src/portalEnvironment.ts` | Node 22+ |
+| Python | `mutmut` with pytest (`tests/test_knowledge_fabric_character_policy.py`) | `echo_masque.knowledge_fabric_character_policy` | Ubuntu CI or an installed WSL distribution |
+| Portal | StrykerJS with Vitest and TypeScript checking | `web/src/portalEnvironment.ts`, `web/src/knowledgeFabricApi.ts` | Node 22+ |
 | Discord Connector | StrykerJS with Vitest and TypeScript checking | `connectors/discord/src/audiencePreflight.ts` | Node 24.17+ |
 
 The initial modules are runner smoke/baseline scopes, not a claim that they are the only parts of
