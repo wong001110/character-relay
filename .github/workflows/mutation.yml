@@ -1,0 +1,81 @@
+name: Mutation testing
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Bounded mutation suite to run
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - python
+          - web
+          - discord-connector
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    if: ${{ github.event_name == 'schedule' || inputs.suite == 'all' || inputs.suite == 'python' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - run: mutmut run
+      - run: mutmut export-cicd-stats
+
+  web:
+    if: ${{ github.event_name == 'schedule' || inputs.suite == 'all' || inputs.suite == 'web' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run test:mutation
+      - name: Upload Portal mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-web-report
+          path: web/reports/mutation/
+          if-no-files-found: warn
+
+  discord-connector:
+    if: ${{ github.event_name == 'schedule' || inputs.suite == 'all' || inputs.suite == 'discord-connector' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: connectors/discord
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: connectors/discord/package-lock.json
+      - run: npm ci
+      - run: npm run test:mutation
+      - name: Upload Discord Connector mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-discord-connector-report
+          path: connectors/discord/reports/mutation/
+          if-no-files-found: warn

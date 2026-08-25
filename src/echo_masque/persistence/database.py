@@ -72,6 +72,10 @@ from echo_masque.persistence.intelligence_v3_migration_models import (
 from echo_masque.persistence.operational_migration_models import (
     OperationalDataMigrationRecord,
 )
+from echo_masque.persistence.schema_migration_models import (
+    DatabaseDataMigrationRecord,
+    DatabaseSchemaMigrationRecord,
+)
 from echo_masque.persistence.server_knowledge_v3_models import (
     KnowledgeConsolidationCheckpointV3Record,
     ServerWikiPageV3Record,
@@ -156,6 +160,40 @@ BEGIN
 END;
 """
 
+_POSTGRES_DEPLOYMENT_SERVER_UNIQUE_INDEX = """
+CREATE UNIQUE INDEX IF NOT EXISTS uq_character_deployment_discord_server
+ON character_deployments (owner_id, connection_id, workspace_id, character_card_id)
+WHERE platform = 'discord' AND workspace_id <> ''
+"""
+
+_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_FUNCTION = """
+CREATE OR REPLACE FUNCTION cr_delete_deployment_runtime() RETURNS trigger AS $$
+BEGIN
+    DELETE FROM deployment_presence WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_presence_notices WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_presence_rhythms WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_activity_session_items WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_activity_sessions WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_discovery_profiles WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_discovery_exposures WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_discovery_decisions WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_discovery_share_policies WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_discovery_shares WHERE deployment_id = OLD.id;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql
+"""
+
+_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_TRIGGER_DROP = """
+DROP TRIGGER IF EXISTS cr_delete_deployment_runtime ON character_deployments
+"""
+
+_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_TRIGGER_CREATE = """
+CREATE TRIGGER cr_delete_deployment_runtime
+AFTER DELETE ON character_deployments
+FOR EACH ROW EXECUTE FUNCTION cr_delete_deployment_runtime()
+"""
+
 
 def _enable_sqlite_foreign_keys(
     dbapi_connection: SQLiteConnection, _: ConnectionPoolEntry
@@ -181,7 +219,12 @@ class Database:
             event.listen(self.engine, "connect", _enable_sqlite_foreign_keys)
         self.session_factory = sessionmaker(self.engine, expire_on_commit=False)
 
-    def initialize(self) -> None:
+    def initialize(
+        self,
+        *,
+        run_legacy_migrations: bool = True,
+        allow_incomplete_data_migration: bool = False,
+    ) -> None:
         # Explicitly touch authority/runtime model classes so schema creation is deterministic.
         _ = (
             WikiPageRecord,
@@ -229,8 +272,26 @@ class Database:
             DeploymentDiscoveryShareRecord,
             IntelligenceV3HardCutoverMigrationRecord,
             OperationalDataMigrationRecord,
+            DatabaseSchemaMigrationRecord,
+            DatabaseDataMigrationRecord,
         )
         Base.metadata.create_all(self.engine)
+
+        # The foundation runner owns PostgreSQL extension/bootstrap revisions.  It
+        # deliberately precedes product migrations so later revisions can depend on
+        # pgvector without creating Knowledge Fabric semantics during this phase.
+        from echo_masque.persistence.schema_migrations import DatabaseFoundationMigration
+
+        DatabaseFoundationMigration(self).run()
+
+        if not allow_incomplete_data_migration:
+            self._assert_no_incomplete_data_migration()
+
+        if not run_legacy_migrations:
+            self._ensure_sqlite_deployment_runtime_invariants()
+            self._ensure_postgresql_deployment_runtime_invariants()
+            self._ensure_sqlite_message_relation_author_snapshots()
+            return
 
         # Existing installations may still contain old Topic/Memory/Episode tables.  The raw
         # hard-cutover migration preserves useful durable evidence into v3 stores, deliberately
@@ -248,7 +309,19 @@ class Database:
 
         DiscordEventPrivacyMigration(self).run()
         self._ensure_sqlite_deployment_runtime_invariants()
+        self._ensure_postgresql_deployment_runtime_invariants()
         self._ensure_sqlite_message_relation_author_snapshots()
+
+    def _assert_no_incomplete_data_migration(self) -> None:
+        """Fail closed rather than serving a target while its one-time copy is incomplete."""
+
+        with self.session() as session:
+            record = session.get(DatabaseDataMigrationRecord, "sqlite-to-postgresql-v1")
+        if record is not None and record.status != "completed":
+            raise RuntimeError(
+                "Database startup is blocked because the SQLite-to-PostgreSQL migration is "
+                f"{record.status!r}; finish it or use a fresh target database."
+            )
 
     def _ensure_sqlite_deployment_runtime_invariants(self) -> None:
         if self.engine.dialect.name != "sqlite":
@@ -269,6 +342,23 @@ class Database:
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_SERVER_UPDATE_TRIGGER)
             connection.exec_driver_sql("DROP TRIGGER IF EXISTS cr_delete_deployment_presence")
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_PRESENCE_DELETE_TRIGGER)
+
+    def _ensure_postgresql_deployment_runtime_invariants(self) -> None:
+        """Port the deployed SQLite identity and cleanup guarantees to PostgreSQL."""
+
+        if self.engine.dialect.name != "postgresql":
+            return
+        duplicates = self.inspect_deployment_server_duplicates()
+        if duplicates:
+            raise RuntimeError(
+                "PostgreSQL deployment migration found duplicate Discord server deployments; "
+                "repair them explicitly before enabling the server-wide unique constraint."
+            )
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql(_POSTGRES_DEPLOYMENT_SERVER_UNIQUE_INDEX)
+            connection.exec_driver_sql(_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_FUNCTION)
+            connection.exec_driver_sql(_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_TRIGGER_DROP)
+            connection.exec_driver_sql(_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_TRIGGER_CREATE)
 
     def _ensure_sqlite_message_relation_author_snapshots(self) -> None:
         """Add non-content author snapshots to pre-existing Conversation v3 relation tables."""
@@ -293,8 +383,6 @@ class Database:
                     )
 
     def inspect_deployment_server_duplicates(self) -> tuple[DeploymentServerDuplicate, ...]:
-        if self.engine.dialect.name != "sqlite":
-            return ()
         query = """
         SELECT owner_id, connection_id, workspace_id, character_card_id, COUNT(*)
         FROM character_deployments

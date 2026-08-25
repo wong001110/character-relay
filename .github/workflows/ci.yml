@@ -59,6 +59,36 @@ jobs:
           name: pytest-${{ matrix.python-version }}
           path: pytest-report.txt
 
+  postgres-foundation:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg16-trixie
+        env:
+          POSTGRES_DB: echo_masque_test
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d echo_masque_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      ECHO_MASQUE_ALLOW_DESTRUCTIVE_POSTGRES_TESTS: "yes"
+      ECHO_MASQUE_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/echo_masque_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - name: Fresh PostgreSQL foundation bootstrap
+        run: python -m pytest tests/test_database_foundation.py
+
   web:
     runs-on: ubuntu-latest
     defaults:

@@ -1,6 +1,33 @@
 # Production Storage Safety
 
-Echo Masque uses SQLite for its current Railway deployment. A database path that looks correct is not enough: `/data/echo_masque.db` is persistent only when `/data` is an actual Railway Volume mount in the active Production environment.
+## PostgreSQL production target (Knowledge Fabric Phase 1)
+
+New Knowledge Fabric production deployments use PostgreSQL with the `vector`
+extension. Application startup takes an advisory transaction lock, runs
+`CREATE EXTENSION IF NOT EXISTS vector`, and records the `database-foundation-v1`
+revision. The database user must have exactly the privilege needed for that
+bootstrap, or the extension must be installed by the platform operator before the
+application starts.
+
+PostgreSQL health intentionally reports `database_kind: "postgresql"` but never a
+connection host, database name, filesystem path, user, or credential. Database
+durability is verified through the provider's backup/restore controls plus the
+same application Persistence Probe described below.
+
+Use `scripts/migrate_sqlite_to_postgres.py` only with a stopped/quiet SQLite
+source, a retained source backup, an empty PostgreSQL target, and no application
+instance connected to that target. It creates a separate consistent SQLite snapshot
+for the transfer, will not merge data into a populated/unknown target, and will not
+delete or mutate the original source. The target's `running`/`failed` migration ledger
+blocks normal startup until the operator completes the copy or uses a fresh target.
+See `docs/railway-deployment.md` for the exact migration sequence.
+
+## Temporary SQLite migration source
+
+Until a deployment finishes the PostgreSQL migration, it may use SQLite as a
+temporary source. A database path that looks correct is not enough:
+`/data/echo_masque.db` is persistent only when `/data` is an actual Railway Volume
+mount in the active Production environment.
 
 ## Why data disappeared
 

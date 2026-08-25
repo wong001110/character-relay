@@ -44,7 +44,7 @@ def inspect_storage(
 
     parsed = make_url(settings.database_url)
     database_kind = parsed.get_backend_name()
-    database_path = _database_path(parsed.database)
+    database_path = _database_path(parsed.database) if database_kind == "sqlite" else None
     persistent_required = settings.environment == "production" and database_kind == "sqlite"
 
     if not persistent_required:

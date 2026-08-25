@@ -27,6 +27,7 @@ Intelligence Core v3 is the current intelligence authority. Topic fallback, Topi
 - [Deploy on Railway](railway-deployment.md)
 - [Security and privacy](security.md)
 - [Run release checks](manual-validation.md)
+- [Mutation testing](mutation-testing.md)
 - [Portal development and mock UI review](portal-development.md)
 - [Intelligence repair scope](intelligence-repair-scope.md)
 - [Repository architecture](architecture.md)

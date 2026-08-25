@@ -666,6 +666,8 @@ Add or extend proof for:
 - Public Demo read-only/access isolation;
 - Context Resolver/Character prompt integration;
 - Smart Participation does not fan out expensive Knowledge queries per candidate;
+- targeted mutation testing for changed authorization, overlay, ownership, lifecycle, query-filter,
+  and deterministic decision code, with reviewed survivor classifications;
 - Python lint/mypy/full relevant test suite, Portal tests/build, Connector tests/build when touched.
 
 ## 24. Documentation/contracts to update during implementation

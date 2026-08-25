@@ -7,7 +7,7 @@ Status: **branch-local execution record — Phase 0 complete when this planning 
 | Active branch | `codex/knowledge-fabric-foundation` |
 | Starting baseline | `main` at `68169b8d878ef4d8475e1e52c812fffcb19249a4` |
 | Delivery mode | coherent phase batches; at most one implementation commit per phase |
-| Current phase | Phase 1 — PostgreSQL production foundation |
+| Current phase | Phase 2 — Corpus/Source/access schema (blocked on canonical Server authority decision) |
 | Integration owner | main/root coding agent for the active session |
 | Target architecture | `docs/knowledge-fabric-architecture.md` |
 | Blast-radius map | `docs/knowledge-fabric-impact-map.md` |
@@ -104,6 +104,8 @@ The branch plan was grounded against current `main`, including:
 - Public Demo remains server-enforced read-only and isolated from private/global admin data.
 - Credentials, private raw source content and object-store secrets do not enter ordinary logs/traces/docs/fixtures.
 - No Topic fallback or dual old/new authority may be added to make a phase easier.
+- Mutation reports are evidence about the configured code scope only; a surviving mutant is not
+  silently ignored, and an equivalent/timeout/tooling classification is recorded with its phase.
 
 ## Working and commit protocol
 
@@ -158,7 +160,7 @@ Next action: Phase 1 PostgreSQL production foundation. Do not begin Source adapt
 
 ## Phase 1 — PostgreSQL production foundation
 
-Status: **planned**
+Status: **complete — commit pending final diff review**
 
 Goal: move the existing application runtime onto a sound PostgreSQL production foundation without yet changing Character Knowledge semantics.
 
@@ -180,6 +182,8 @@ Required work:
 - add `pgvector` extension availability/bootstrap without making Knowledge semantics depend on it yet;
 - update production deployment/storage documentation/config;
 - prove all current non-Knowledge Intelligence/Discord/Social/Media functionality still behaves correctly.
+- establish the bounded Python/Portal/Connector mutation runners and scheduled/manual CI baseline
+  without changing Knowledge behavior or adding a repository-wide score threshold.
 
 Hard questions to resolve before commit:
 
@@ -196,13 +200,15 @@ Required gate:
 - current full Python test suite or justified complete server/runtime gate on PostgreSQL;
 - Ruff + strict mypy;
 - deployment/storage health checks;
+- the configured Python/Portal/Connector mutation-runner smoke scopes on their supported
+  platforms, with reports recorded as non-blocking Phase 1 baselines;
 - no Knowledge behavior changes in this phase.
 
 Commit gate: one database-foundation commit.
 
 ## Phase 2 — Corpus, Source, Access Grant and overlay policy schema
 
-Status: **planned**
+Status: **blocked — canonical Server principal and Server Admin authorization predicate require product authority**
 
 Goal: establish the scope/authorization model before importing large content.
 
@@ -242,6 +248,8 @@ Required gate:
 - overlay precedence contract tests;
 - account deletion/claim tests;
 - Public Demo write/isolation tests;
+- targeted mutation scope for grants, overlay precedence, Super Admin, lifecycle, and Public Demo
+  decisions; resolve or classify every survivor;
 - PostgreSQL migration/idempotency checks.
 
 Commit gate: one scope/access schema commit.
@@ -351,6 +359,7 @@ Required gate:
 - permission-filter-before-ranking tests;
 - large-corpus synthetic performance/bounds test;
 - pgvector index plan/health check;
+- targeted mutation scope for authorization-before-ranking, freshness, and query-mode decisions;
 - no cross-server/global metadata leakage.
 
 Commit gate: one query/index engine commit.
@@ -393,6 +402,8 @@ Required gate:
 - stale -> external current-turn evidence behavior;
 - no duplicate old RAG/Wiki injection;
 - no Topic/legacy fallback;
+- targeted mutation scope for epistemic denial, prompt-injection boundary, and Smart Participation
+  admission/performance decisions;
 - latency/budget guard for Smart Participation and Character turn.
 
 Commit gate: one real-runtime Knowledge cutover commit.
@@ -525,6 +536,7 @@ Required gate:
 - spoiler/timeline regression fixtures when implemented;
 - no denied content in prompt/trace/query inspector available to unauthorized Character context;
 - explicit owner/admin policy update tests.
+- targeted mutation scope for Character corpus/domain allow/deny and authored override decisions.
 
 Commit gate: one epistemic-policy commit.
 
@@ -579,6 +591,7 @@ Required gate:
 - full Python relevant/full suite on PostgreSQL;
 - Connector tests/build if runtime contract changed;
 - static/reference scan for dead RAG/Wiki/SQLite production authority;
+- targeted Portal/Connector mutation scopes for privileged management and scoped inspection paths;
 - synthetic large-corpus performance and isolation test;
 - final docs/link/security review.
 
@@ -629,3 +642,64 @@ If you are an AI Coding Agent arriving on this branch now:
 - do not duplicate global corpus records per Server.
 
 Start with **Phase 1 PostgreSQL production foundation**, preserve current runtime behavior, and only move to Corpus/Source schema after the database gate passes.
+
+### 2026-08-25 Phase 1 mutation-testing foundation update
+
+```text
+Status: in progress
+Commit: none; Phase 1 remains open and permits only one final database-foundation commit
+Changed authority/contracts: mutation testing is required for configured protected decision scopes; it complements, not replaces, ordinary tests and migration/authorization proof
+Key files: docs/mutation-testing.md; AGENTS.md; docs/ai-agent-development-workflow.md; docs/agent-handoff.md; docs/agent-map.md; docs/developer/README.md; pyproject.toml; web/stryker.config.json; connectors/discord/stryker.config.json; .github/workflows/mutation.yml
+Validation: python -m ruff check . passed; python -m pytest tests/test_config.py passed (5); Portal typecheck + Vitest passed (20 files/55 tests); Connector typecheck + Vitest passed (17 files/91 tests); Portal Stryker baseline produced 9 killed / 3 survived / 5 compile-error mutants; Connector Stryker baseline produced 15 killed / 7 survived / 16 compile-error mutants; package/config JSON parse and git diff --check passed
+Migration/data action: none
+Known deviations: mutmut is installed/configured but native Windows explicitly requires WSL; local WSL enumeration is access-denied, so the Python mutant run remains for the Ubuntu scheduled/manual workflow. Stryker results are non-blocking Phase 1 baselines; their survivors and compile errors are recorded for classification before the relevant protected scope becomes a gate. Windows terminal process tracking left generated Stryker sandboxes/reports, which were removed after the completed reports were inspected.
+Next action: continue the Phase 1 PostgreSQL source/migration/deployment audit; use Linux CI or an available WSL environment to record the initial Python mutmut report before the Phase 1 database gate.
+```
+
+### 2026-08-25 Phase 1 PostgreSQL implementation update
+
+```text
+Status: in progress
+Commit: none; Phase 1 remains open and permits only one final database-foundation commit
+Changed authority/contracts: PostgreSQL is now a first-class database backend with a persistent foundation revision, pgvector extension bootstrap, PostgreSQL equivalents of the Discord server uniqueness/runtime-cleanup invariants, and an explicit SQLite-to-empty-PostgreSQL copy ledger. SQLite remains supported only for dev/test and as a retained migration source until an operator completes the documented cutover.
+Key files: src/echo_masque/persistence/database.py; src/echo_masque/persistence/schema_migration_models.py; src/echo_masque/persistence/schema_migrations.py; src/echo_masque/persistence/sqlite_to_postgres_migration.py; scripts/migrate_sqlite_to_postgres.py; tests/test_database_foundation.py; tests/test_storage_guard.py; .github/workflows/ci.yml; docs/railway-deployment.md; docs/storage-safety.md
+Validation: focused SQLite regression passed — python -m pytest tests/test_database_foundation.py tests/test_deployment_server_invariant.py tests/test_storage_guard.py tests/test_phase15_migration.py (10 passed, 2 PostgreSQL integration tests skipped because no explicit local disposable PostgreSQL URL); ruff and strict mypy passed for changed persistence modules; CI YAML parsed; git diff --check passed. The new CI postgres-foundation job provisions the official pgvector PostgreSQL 16 image and runs the fresh-bootstrap, unique/cleanup, SQLite-copy, and idempotency integration tests.
+Migration/data action: migrate_sqlite_to_postgres first creates a unique, consistent SQLite backup-API snapshot (including committed WAL content), fingerprints snapshot bytes, and copies only that snapshot. It requires a current completed Intelligence cutover with no non-empty legacy tables, takes a PostgreSQL advisory lock around a strict empty-target/unknown-object preflight, preserves IDs/sequences, and records success/failure without deleting or mutating the original source.
+Known deviations: local Docker is unavailable, so the PostgreSQL-only two-test gate is configured in CI but not locally executed. The source migration tool intentionally fails stale SQLite schemas instead of performing source-side repair during a cross-database cutover.
+Next action: review the combined Phase 1 diff and run the complete local Python/Portal/Connector validation gates; after the PostgreSQL CI evidence is available, make the single Phase 1 commit and begin Phase 2 Corpus/Source/access work.
+```
+
+### 2026-08-25 Phase 1 mutation baseline classification update
+
+```text
+Status: in progress
+Commit: none; this evidence remains part of the single Phase 1 commit
+Scope/results: Portal web/src/portalEnvironment.ts — 12 killed, 0 survived, 5 TypeScript-checker tooling/compile rejections (IDs 0, 5, 6, 10, 11). Discord Connector connectors/discord/src/audiencePreflight.ts — 22 killed, 0 survived, 0 timeout, 16 TypeScript-checker tooling/compile rejections (IDs 1-5, 9-11, 13, 17, 18, 22, 23, 25, 26, 37). No equivalent mutants or unclassified survivors remain in the configured Portal/Connector baseline scopes.
+Evidence changes: Portal import-time environment/default-path tests now prove mock/live `isMockPortal`; Connector collaborator-boundary/default-alias/empty-short-circuit/smart-scoring tests now prove preflight decisions. The scheduled/manual workflow uploads HTML reports for both JavaScript scopes.
+Platform result: both local Windows Stryker runs fully generated reports but exited 1 only after completion because worker cleanup's `taskkill` was access-denied. Elevated WSL inspection showed no installed Linux distribution. Ubuntu CI is therefore the supported passing platform for all three mutation runners; native Windows reports are diagnostic only.
+Known deviation: the Python mutmut command is configured with `only_mutate = ["src/echo_masque/config.py"]` and runs in Ubuntu CI, but has not been executed locally because this machine has no WSL distro. Its initial CI report must be recorded before Phase 1 is declared complete.
+Next action: obtain the scheduled/manual Ubuntu mutation workflow evidence, then run the full local validation/diff review and make the Phase 1 commit.
+```
+
+### 2026-08-25 Phase 1 final local validation update
+
+```text
+Status: in progress
+Commit: none; the final Phase 1 commit remains intentionally pending the Linux-only Python mutation evidence
+Validation: Python full gate — python -m pytest -x --junitxml <temporary path> passed: 696 passed, 2 skipped, 7 existing warnings, 0 failures, 0 errors (819.61s); temporary JUnit evidence was deleted after inspection. Changed persistence Ruff + strict mypy passed. Real disposable PostgreSQL 17 + psycopg verification passed: complete ORM schema, Discord partial unique index, runtime cleanup trigger, SQLite snapshot copy, serial reset, idempotent rerun, and changed-source refusal. pgvector extension bootstrap is exercised by the committed CI service definition because the local PostgreSQL install lacks pgvector. Portal full gate passed: typecheck, 20 files/56 tests, production build. Connector full gate passed: typecheck, 17 files/95 tests, build. CI/mutation workflow YAML and pyproject TOML parse; git diff --check passed.
+Mutation classification: Portal 12 killed/0 survived/5 tooling-compile; Connector 22 killed/0 survived/16 tooling-compile. Python mutmut is configured to mutate only config.py, but cannot run locally: elevated WSL status succeeds yet reports no installed distribution. Native Windows mutmut is unsupported; native Windows Stryker is diagnostic only because post-report worker cleanup is access-denied.
+Known deviations: no Linux distribution, Docker engine, or local pgvector is installed. No production database has been migrated or switched; the tool/docs provide a deliberate operator-controlled cutover only. Phase 2 reconnaissance found an unresolved product-authority decision: current source lacks a stable Server principal and a Server Admin predicate, so server-owned corpus/overlay authorization cannot safely be inferred from owner-scoped Discord profile IDs.
+Next action: with explicit authority, install an Ubuntu WSL distribution and run `mutmut run` + `mutmut export-cicd-stats`; otherwise obtain the manual/scheduled Ubuntu workflow report after the Phase 1 commit. Resolve the canonical Server principal/Server Admin authorization decision before implementing Phase 2 schema/API work.
+```
+
+### 2026-08-25 Phase 1 completion gate
+
+```text
+Status: complete — one final database-foundation commit is pending the final diff review
+Commit: pending; this completion record is included in the single Phase 1 implementation commit
+Changed authority/contracts: PostgreSQL + pgvector is production-capable while SQLite remains development/test and a deliberately operator-controlled migration source. A running/failed SQLite-copy ledger blocks ordinary target startup; only the migration tool can bypass it. No Character Knowledge semantic authority changed.
+Validation: Python full gate — 699 passed, 2 skipped, 7 existing warnings, 0 failures/errors (803.73s); changed persistence Ruff + strict mypy passed. Focused database/config regression — 13 passed, 2 explicit PostgreSQL tests skipped without a test URL. Real WSL/Docker pgvector PostgreSQL 16.15 — the two explicit foundation integration tests passed (2 passed in 8.10s), exercising CREATE EXTENSION vector, Discord unique deployment constraint, runtime cleanup trigger, SQLite-to-PostgreSQL copy, idempotent rerun, and changed-source refusal. The destructive test guard rejects both a missing opt-in and any database name other than the dedicated `echo_masque_test` before connecting/resetting. Portal — typecheck, 20 files/56 tests, production build passed. Connector — typecheck, 17 files/95 tests, build passed. Mutation baselines: Python mutmut (WSL-native temporary copy) 1 killed/0 survived/0 timeout; Portal 12 killed/0 survived/5 TypeScript checker rejections; Connector 22 killed/0 survived/16 TypeScript checker rejections. No equivalent or unclassified survivor remains. YAML/TOML parse and git diff --check passed.
+Mutation platform note: WSL can run the command, but the Windows-mounted workspace denies pytest cache writes; the supported local invocation copies the current worktree to a disposable WSL-native directory. The WSL systemd user-session warning is non-fatal. Native Windows Stryker remains diagnostic only because post-report worker cleanup is access-denied.
+Deliberate omissions: no production database was migrated or switched; the migration tool remains operator-invoked. No Phase 2 schema/API/runtime behavior was added.
+Next action: make the single Phase 1 commit, then resolve the durable canonical Server identity and Server Admin predicate before beginning Phase 2. Existing user-owned profiles and connection-scoped access grants must not be reused by inference.
+```

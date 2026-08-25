@@ -24,8 +24,13 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
 - API/runtime: FastAPI + Python under `src/echo_masque/`.
 - Portal: React/Vite under `web/src/`.
 - Connector: Node/discord.js under `connectors/discord/`.
-- Persistence: SQLAlchemy with SQLite in the supported Railway deployment.
-- Production topology: one app replica and one persistent `/data` Volume while SQLite remains in use.
+- Persistence: SQLAlchemy; the Phase 1 PostgreSQL + pgvector foundation is implemented,
+  while SQLite remains a development/test and temporary production-migration source.
+- Knowledge Fabric Phase 2 is blocked until product authority defines a durable canonical Server
+  principal and a Server Admin authorization predicate; current owner-scoped Discord profiles and
+  user-to-connection access grants are not substitutes.
+- Production topology: PostgreSQL + pgvector is the target. While SQLite remains in use,
+  keep one app replica and one persistent `/data` Volume.
 - Application configuration prefix: `CHARACTER_RELAY_*`.
 - Intelligence authority: Intelligence Core v3. Topic authority and Topic fallback are forbidden.
 - Public Demo: shared, server-enforced read-only workspace; do not weaken mutation boundaries in the client or API.
@@ -105,6 +110,22 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+For changed protected decision logic, also run the configured bounded mutation scope and record
+its result or the reason it does not yet apply:
+
+```bash
+# Python (Ubuntu CI or an installed WSL distribution)
+mutmut run
+mutmut export-cicd-stats
+
+# Portal / Discord Connector
+cd web && npm run test:mutation
+cd connectors/discord && npm run test:mutation
+```
+
+See `docs/mutation-testing.md` for the initial scopes, survivor classification, and cadence. Do
+not make a full-repository mutation run a routine per-edit check.
 
 Use the root Docker/CI workflows for deployment validation. Live acceptance needs real deployment authority and secrets; never substitute invented local values.
 

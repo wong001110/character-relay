@@ -42,6 +42,17 @@ npm run build
 
 Use focused tests while editing and run the relevant complete surface gate before handoff. CI remains the merge gate.
 
+## Mutation testing
+
+Use the bounded mutation scope for changed authorization, ownership, lifecycle, safety, and
+deterministic decision logic when it is configured for that module. Python mutation runs require
+Ubuntu CI or an installed WSL distribution; Portal and Connector runs use the package-local
+`test:mutation` scripts. Native Windows Stryker output is diagnostic only while its worker-cleanup
+permission issue remains; use the scheduled/manual Ubuntu workflow as gate evidence.
+The scheduled/manual workflow carries the initial smoke scopes, while a phase records the exact
+scope and any reviewed survivor. See [Mutation testing](../mutation-testing.md) before adding an
+exclusion or treating a score as proof of untested code.
+
 ## Before changing behavior
 
 1. Read repository `AGENTS.md` and the [AI agent workflow](../ai-agent-development-workflow.md).

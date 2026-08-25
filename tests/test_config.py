@@ -35,6 +35,14 @@ def test_retired_langgraph_boolean_env_does_not_enable_rollout(monkeypatch: Any)
     assert settings.langgraph_mode == "off"
 
 
+def test_langgraph_mode_allows_its_configured_workflow_boundary() -> None:
+    settings = Settings(environment="test", langgraph_mode="character_turn")
+
+    assert settings.langgraph_allows("character_turn")
+    assert settings.langgraph_allows("condition_watch")
+    assert not settings.langgraph_allows("social_turn")
+
+
 def test_discord_tool_token_uses_connector_env_name(monkeypatch: Any) -> None:
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "shared-discord-token")
 

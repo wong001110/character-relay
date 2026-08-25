@@ -18,6 +18,20 @@ def test_non_production_sqlite_does_not_require_a_mount(tmp_path: Path) -> None:
     assert status.mount_path is None
 
 
+def test_postgresql_storage_health_does_not_disclose_a_local_database_path() -> None:
+    status = inspect_storage(
+        Settings(
+            environment="production",
+            database_url="postgresql+psycopg://user:password@example.test:5432/echo_masque",
+        )
+    )
+
+    assert status.database_kind == "postgresql"
+    assert status.database_path is None
+    assert status.persistent_required is False
+    assert status.mount_ready is True
+
+
 def test_production_sqlite_must_be_under_data() -> None:
     with pytest.raises(UnsafeProductionStorageError, match="must be under /data"):
         inspect_storage(
