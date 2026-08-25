@@ -976,14 +976,14 @@ authority, and the remaining full Phase 9 gate.
 
 ### 2026-08-26 Phase 9a completion gate
 
-    Status: complete — one Phase 9a implementation commit is pending the final integrated diff review; Phase 9 remains open only for Phase 9b
-    Commit: pending
+    Status: complete — Phase 9a implementation is committed; Phase 9 remains open only for Phase 9b
+    Commit: 1cd5fd6 (feat: add bounded Fabric Website source sync)
     Changed authority/contracts: one exact public-HTTPS Website Source can be synchronized only by an injected, separately approved worker fetcher. It has no default egress client, public API, scheduler, crawl, redirect, credential, browser, or Character-live-lookup authority. A one-per-Source derived state stores only bounded ETag/Last-Modified validators and safe outcomes; malformed validators fail before private artifact or Source Version publication. User-owned Source deletion removes that derived state in the existing lifecycle transaction.
     Key files: src/echo_masque/knowledge_fabric_external_policy.py; src/echo_masque/knowledge_fabric_website_adapter.py; src/echo_masque/knowledge_fabric_website_sync.py; src/echo_masque/persistence/knowledge_fabric_external_sync_repository.py; src/echo_masque/persistence/knowledge_fabric_models.py; src/echo_masque/persistence/knowledge_fabric_repository.py; src/echo_masque/persistence/schema_migrations.py; tests/test_knowledge_fabric_website_sync.py; tests/test_knowledge_fabric_phase3.py
     Validation: python -m pytest tests/test_knowledge_fabric_website_sync.py tests/test_knowledge_fabric_git_adapter.py tests/test_knowledge_fabric_document_adapter.py tests/test_knowledge_fabric_phase3.py tests/test_knowledge_fabric_phase5.py tests/test_database_foundation.py passed: 30 passed, 3 expected PostgreSQL skips (88.85s). python -m ruff check src tests and python -m mypy src passed (369 source files); git diff --check passed. Focused WSL mutmut scope completed: 117 killed / 3 equivalent / 0 timeout, no unclassified survivor. Equivalent IDs: canonical locator mutation 33 changes rstrip(".") to rstrip("XX.XX"); urllib's hostname accessor lowercases ASCII host text before this operation, so added uppercase X is unreachable while both strip trailing dots. Response-policy mutations 29 and 32 change split(";", maxsplit=1)[0] to split(";", )[0] and split(";", maxsplit=2)[0]; each returns the same first semicolon-delimited segment for every string.
     Migration/data action: additive knowledge_external_source_sync_states schema plus revision ledger; existing Sources begin with no derived state and require no backfill.
     Known deviations: Cloudflare R2 remains the configured default private artifact provider; AWS S3 remains only the existing explicit S3-compatible deployment alternative. The WSL systemd user-session warning is non-fatal. The generated mutants/ cache was removed after result recording.
-    Next action: review the consolidated Phase 9a diff and make its one implementation commit, then define an approved pinned egress transport and one source-native specialized adapter/scheduling authority for Phase 9b.
+    Next action: define an approved pinned egress transport and one source-native specialized adapter/scheduling authority for Phase 9b.
 
 ## Phase 10 — Character epistemic policy
 
