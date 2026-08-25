@@ -985,6 +985,14 @@ authority, and the remaining full Phase 9 gate.
     Known deviations: Cloudflare R2 remains the configured default private artifact provider; AWS S3 remains only the existing explicit S3-compatible deployment alternative. The WSL systemd user-session warning is non-fatal. The generated mutants/ cache was removed after result recording.
     Next action: define an approved pinned egress transport and one source-native specialized adapter/scheduling authority for Phase 9b.
 
+### 2026-08-26 Phase 9b / Phase 10 decision record
+
+    Status: implementation is intentionally pending explicit product/egress decisions; no Phase 9b or Phase 10 runtime code has been added by this record.
+    Evidence: src/echo_masque/network_safety.py validates a public URL but returns no resolved address for a caller to dial. Existing Tool Runtime clients resolve again, can carry a different scope/credential/redirect contract, and are not an approved Fabric worker transport. KnowledgeSource.sync_policy_json/freshness_policy_json have no schedule/rate semantics. Source snapshot publication invalidates the whole source projection/index set, so current code cannot prove entry/section-only invalidation. Phase 10 still installs DenyAllCharacterEpistemicPolicy, has no persisted Character policy, and has no existing corpus/evidence domain field.
+    Required decisions: (1) which authority may enable autonomous external sync, (2) minimum interval, host/global rate and retry/backoff/lease rules, (3) first specialized Source and its retention/parser limits, (4) XML parser security dependency/contract, (5) whether an authored Character override is corpus-, Evidence-, entity-, or time-scoped and its precedence, and (6) the relationship between Character owner and explicit Server Administrator policy-write authority. Timeline, spoiler, perspective and domain taxonomy cannot be inferred from authority_profile.
+    Recommended next split after approval: Phase 9b-1 implements a literal-IP/pinned-DNS public HTTPS worker transport, Atom 1.0 adapter, bounded durable schedule/lease state, and no link crawling; Phase 9b-2 defines entry/section identity and selective invalidation. Phase 10 then implements default-deny, scope-bound corpus allow/deny with the selected override/write semantics, preserving query authorization-before-ranking and the shared turn/tool fail-closed gate.
+    Deliberate omissions: do not reuse Tool Runtime, browser, or Jina transport; do not add a default outbound client, API trigger, scheduler, credential mapping, Atom entry link fetch, domain taxonomy, timeline/spoiler policy, or a fake override semantic without approval.
+
 ## Phase 10 — Character epistemic policy
 
 Status: **planned**
