@@ -82,6 +82,7 @@ from echo_masque.persistence.key_group_repository import (
     KeyGroupRepository,
     ResolvedKeyGroup,
 )
+from echo_masque.persistence.knowledge_fabric_repository import KnowledgeFabricRepository
 from echo_masque.persistence.knowledge_models import (
     KnowledgeBaseRecord,
     KnowledgeChunkRecord,
@@ -195,6 +196,7 @@ __all__ = [
     "KnowledgeBaseRecord",
     "KnowledgeChunkRecord",
     "KnowledgeDocumentRecord",
+    "KnowledgeFabricRepository",
     "KnowledgeRepository",
     "KnowledgeRetrievalResult",
     "MatrixRepository",

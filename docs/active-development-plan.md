@@ -7,7 +7,7 @@ Status: **branch-local execution record — Phase 0 complete when this planning 
 | Active branch | `codex/knowledge-fabric-foundation` |
 | Starting baseline | `main` at `68169b8d878ef4d8475e1e52c812fffcb19249a4` |
 | Delivery mode | coherent phase batches; at most one implementation commit per phase |
-| Current phase | Phase 2 — Corpus/Source/access schema (blocked on canonical Server authority decision) |
+| Current phase | Phase 3 — Canonical content, source versions, Evidence Units and object storage (planned) |
 | Integration owner | main/root coding agent for the active session |
 | Target architecture | `docs/knowledge-fabric-architecture.md` |
 | Blast-radius map | `docs/knowledge-fabric-impact-map.md` |
@@ -208,9 +208,22 @@ Commit gate: one database-foundation commit.
 
 ## Phase 2 — Corpus, Source, Access Grant and overlay policy schema
 
-Status: **blocked — canonical Server principal and Server Admin authorization predicate require product authority**
+Status: **complete — implementation and Phase 2 gate passed; one phase commit pending final review**
 
 Goal: establish the scope/authorization model before importing large content.
+
+Approved Phase 2 authority decision (2026-08-25): canonical Server scope is the durable tuple
+`(platform, connection_id, workspace_id)`. `KnowledgeServerAdministrator` is the sole
+server-local administrator membership, and only an authenticated Super Admin may bootstrap a
+scope or manage that membership. Do not infer Knowledge Fabric authorization from Discord roles,
+Discord catalog/profile rows, join-code access, or owner-scoped Server Profiles. Scope or corpus
+visibility must be non-enumerating for unauthorized accounts; Public Demo receives no Fabric read
+or administration access.
+
+Lifecycle decision: deleting or removing a Server Administrator revokes that membership only. It
+does not delete the durable scope, server-local corpus, global grant, or another member. Connector
+deprovision is a future explicit, audited operation; catalog synchronization must not silently
+delete canonical Fabric scope data.
 
 Target contracts:
 
@@ -253,6 +266,43 @@ Required gate:
 - PostgreSQL migration/idempotency checks.
 
 Commit gate: one scope/access schema commit.
+
+### Phase 2 completion record — 2026-08-25
+
+Evidence: `src/echo_masque/persistence/knowledge_fabric_models.py`,
+`knowledge_fabric_repository.py`, `knowledge_fabric_policy.py`,
+`src/echo_masque/api/routes/knowledge_fabric.py`,
+`src/echo_masque/evaluation_lifecycle.py`, `src/echo_masque/persistence/database.py`, and
+`src/echo_masque/persistence/schema_migrations.py`; canonical authority contract in
+`docs/knowledge-fabric-architecture.md`; proof in `tests/test_knowledge_fabric_policy.py`,
+`tests/test_knowledge_fabric_phase2.py`, and `tests/test_database_foundation.py`.
+
+Changed authority: `KnowledgeServerScope(platform, connection_id, workspace_id)` and explicit
+`KnowledgeServerAdministrator` membership are independent of Discord catalog/profile/join-code
+state. Only authenticated Super Admin manages membership and system-global corpus/source state.
+Server-local corpora are private to the canonical scope. Global data is granted by reference, never
+copied. Public Demo is denied/non-enumerating at the Fabric read boundary as well as by its write
+middleware. Account delete/claim only affects explicit user-owned/grantee rows and preserves
+system/server data.
+
+Validation: focused Phase 2/security/lifecycle suite passed —
+`python -m pytest tests/test_knowledge_fabric_policy.py tests/test_knowledge_fabric_phase2.py tests/test_database_foundation.py tests/test_phase15_account_lifecycle.py tests/test_account_admin_scoping.py tests/test_public_demo.py tests/test_server_access_repository.py tests/test_superadmin_server_claims.py tests/test_knowledge_api.py`
+(53 passed, 2 explicit PostgreSQL tests skipped when no URL was configured); full Ruff and strict
+Mypy passed. Disposable WSL/Docker pgvector PostgreSQL 16 passed both guarded foundation tests
+(fresh schema/restart plus SQLite-to-PostgreSQL copy, idempotent rerun, and changed-source
+protection). Windows mutmut was unsupported, so the configured scope ran in an isolated WSL copy;
+`mutmut results` was empty after the run (no survivors, timeout, or unclassified result).
+
+Deliberate omissions: this phase stores source registration metadata only; it does not import
+content, versions, artifacts, credentials, indexes, query results, Character epistemic policy, or
+Portal surfaces. User/organization/shared schema values are reserved but have no V1 grant path.
+`augment`/`override` are explicit precedence modes; linking a local evidence corpus and resolving
+conflicting evidence is Phase 3+ Query Engine work. Connector deprovision remains an explicit
+future audited lifecycle operation, never a catalog-sync side effect.
+
+Commit: pending the single Phase 2 final diff review. Next concrete action: Phase 3, choose and
+document the object-storage provider/credential boundary before adding Source Version, canonical
+content, Evidence Unit, artifact, or ingestion-job persistence.
 
 ## Phase 3 — canonical content, source versioning, Evidence Units and object storage
 

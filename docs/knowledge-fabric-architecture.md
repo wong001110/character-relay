@@ -228,6 +228,23 @@ Do not reuse Conversation Episode as the universal world-event table. Conversati
 
 Knowledge storage scope and knowledge access are separate concepts.
 
+### Canonical Server principal (Phase 2 decision)
+
+The Knowledge Fabric Server principal is a durable `KnowledgeServerScope` identified by the exact
+tuple `(platform, connection_id, workspace_id)`. It is deliberately distinct from connector
+inventory, owner-scoped Discord Server Profiles, join-code access, and observed Discord roles.
+Those records may support other product features but never authorize Knowledge Fabric access.
+
+`KnowledgeServerAdministrator` is the only V1 server-local administrator membership. An
+authenticated Super Admin bootstraps scopes and exclusively adds or removes these memberships.
+There is no role-sync/profile fallback. Removing an administrator (including account deletion)
+revokes only that membership; it never deletes the server scope, server-local corpus, or another
+administrator. Connector deprovision must be an explicit audited lifecycle operation rather than
+a side effect of transient catalog synchronization.
+
+Public Demo has neither server membership nor global-library access. Its read API responses must
+remain non-enumerating even though the shared read-only middleware permits ordinary GET requests.
+
 Target hierarchy:
 
 ```text
@@ -257,7 +274,8 @@ KnowledgeAccessGrant
 For first product delivery:
 
 - Super Admin maintains system-global corpora;
-- a Server Admin/owner may enable or disable an available global corpus for that server;
+- an explicit Knowledge Server Administrator may enable or disable an available global corpus for
+  that server;
 - server-local corpora remain private to that server unless another explicit sharing policy is later introduced.
 
 ### Knowledge policy / overlay behavior

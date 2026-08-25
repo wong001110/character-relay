@@ -69,6 +69,14 @@ from echo_masque.persistence.models import Base, StorageMetadataRecord
 from echo_masque.persistence.intelligence_v3_migration_models import (
     IntelligenceV3HardCutoverMigrationRecord,
 )
+from echo_masque.persistence.knowledge_fabric_models import (
+    KnowledgeAccessGrantRecord,
+    KnowledgeCorpusRecord,
+    KnowledgeOverlayPolicyRecord,
+    KnowledgeServerAdministratorRecord,
+    KnowledgeServerScopeRecord,
+    KnowledgeSourceRecord,
+)
 from echo_masque.persistence.operational_migration_models import (
     OperationalDataMigrationRecord,
 )
@@ -274,15 +282,25 @@ class Database:
             OperationalDataMigrationRecord,
             DatabaseSchemaMigrationRecord,
             DatabaseDataMigrationRecord,
+            KnowledgeServerScopeRecord,
+            KnowledgeServerAdministratorRecord,
+            KnowledgeCorpusRecord,
+            KnowledgeSourceRecord,
+            KnowledgeAccessGrantRecord,
+            KnowledgeOverlayPolicyRecord,
         )
         Base.metadata.create_all(self.engine)
 
         # The foundation runner owns PostgreSQL extension/bootstrap revisions.  It
         # deliberately precedes product migrations so later revisions can depend on
         # pgvector without creating Knowledge Fabric semantics during this phase.
-        from echo_masque.persistence.schema_migrations import DatabaseFoundationMigration
+        from echo_masque.persistence.schema_migrations import (
+            DatabaseFoundationMigration,
+            KnowledgeFabricScopeMigration,
+        )
 
         DatabaseFoundationMigration(self).run()
+        KnowledgeFabricScopeMigration(self).run()
 
         if not allow_incomplete_data_migration:
             self._assert_no_incomplete_data_migration()

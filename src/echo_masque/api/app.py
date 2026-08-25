@@ -28,6 +28,7 @@ from echo_masque.api.routes import (
     evaluations_router,
     health_router,
     interactions_router,
+    knowledge_fabric_router,
     knowledge_router,
     matrices_router,
     prompt_inspector_router,
@@ -103,6 +104,7 @@ from echo_masque.persistence import (
     GeneratedMediaArtifactRepository,
     InteractionRepository,
     KeyGroupRepository,
+    KnowledgeFabricRepository,
     KnowledgeRepository,
     MatrixRepository,
     MediaAnalysisRepository,
@@ -201,6 +203,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved,
     )
     knowledge_repository = KnowledgeRepository(database)
+    knowledge_fabric_repository = KnowledgeFabricRepository(database)
 
     # Intelligence Core v3 runtime authorities.
     belief_repository = BeliefRepository(database)
@@ -422,6 +425,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         expression_repository,
         smart_participation_repository,
         knowledge_repository,
+        knowledge_fabric_repository,
         deployment_tool_repository,
         scheduled_reminder_repository,
         condition_watch_repository,
@@ -539,6 +543,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.smart_participation_repository = smart_participation_repository
     app.state.semantic_participation_service = semantic_participation_service
     app.state.knowledge_repository = knowledge_repository
+    app.state.knowledge_fabric_repository = knowledge_fabric_repository
     app.state.entity_evidence_repository = entity_evidence_repository
     app.state.knowledge_gap_discovery_service = knowledge_gap_discovery_service
     app.state.context_resolver_v3 = context_resolver_v3
@@ -608,6 +613,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(interactions_router)
     app.include_router(smart_participation_router)
     app.include_router(knowledge_router)
+    app.include_router(knowledge_fabric_router)
     app.include_router(connectors_router)
     app.include_router(prompt_inspector_router)
     app.include_router(targets_router)

@@ -3,7 +3,7 @@ from os import environ
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
@@ -15,12 +15,16 @@ from echo_masque.persistence.deployment_presence_models import DeploymentPresenc
 from echo_masque.persistence.intelligence_v3_migration_models import (
     IntelligenceV3HardCutoverMigrationRecord,
 )
+from echo_masque.persistence.knowledge_fabric_repository import KnowledgeFabricRepository
 from echo_masque.persistence.models import TargetRecord
 from echo_masque.persistence.schema_migration_models import (
     DatabaseDataMigrationRecord,
     DatabaseSchemaMigrationRecord,
 )
-from echo_masque.persistence.schema_migrations import DATABASE_FOUNDATION_REVISION
+from echo_masque.persistence.schema_migrations import (
+    DATABASE_FOUNDATION_REVISION,
+    KNOWLEDGE_FABRIC_SCOPE_REVISION,
+)
 from echo_masque.persistence.sqlite_to_postgres_migration import (
     SQLiteToPostgresMigrationError,
     _assert_source_schema_is_current,
@@ -227,6 +231,43 @@ def test_postgresql_foundation_when_explicit_test_database_is_available() -> Non
         assert connection.execute(
             text("SELECT extname FROM pg_extension WHERE extname = 'vector'")
         ).scalar_one() == "vector"
+        inspector = inspect(connection)
+        table_names = set(inspector.get_table_names())
+        corpus_indexes = {index["name"] for index in inspector.get_indexes("knowledge_corpora")}
+        grant_indexes = {
+            index["name"] for index in inspector.get_indexes("knowledge_access_grants")
+        }
+    assert {
+        "knowledge_server_scopes",
+        "knowledge_server_administrators",
+        "knowledge_corpora",
+        "knowledge_sources",
+        "knowledge_access_grants",
+        "knowledge_overlay_policies",
+    } <= table_names
+    assert "ix_knowledge_corpora_owner_scope" in corpus_indexes
+    assert "ix_knowledge_grant_grantee_access" in grant_indexes
+
+    fabric = KnowledgeFabricRepository(database)
+    scope = fabric.ensure_server_scope(
+        platform="discord",
+        connection_id="connection-fabric",
+        workspace_id="guild-fabric",
+    )
+    corpus = fabric.create_system_global_corpus(
+        name="PostgreSQL Fabric",
+        description="",
+        default_authority_profile="standard",
+        status="active",
+    )
+    assert fabric.set_server_global_grant(
+        server_scope_id=scope.id,
+        corpus_id=corpus.id,
+        enabled=True,
+    ) is not None
+    database.initialize()
+    with database.session() as session:
+        assert session.get(DatabaseSchemaMigrationRecord, KNOWLEDGE_FABRIC_SCOPE_REVISION)
 
     with database.session() as session:
         session.add(_deployment("deployment-a", channel_id="channel-a"))
@@ -259,6 +300,23 @@ def test_sqlite_to_postgres_migration_when_explicit_test_database_is_available(
     source_url = f"sqlite:///{source_path}"
     source = Database(source_url)
     source.initialize()
+    fabric = KnowledgeFabricRepository(source)
+    scope = fabric.ensure_server_scope(
+        platform="discord",
+        connection_id="connection-fabric",
+        workspace_id="guild-fabric",
+    )
+    corpus = fabric.create_system_global_corpus(
+        name="Migrated Fabric",
+        description="",
+        default_authority_profile="standard",
+        status="active",
+    )
+    assert fabric.set_server_global_grant(
+        server_scope_id=scope.id,
+        corpus_id=corpus.id,
+        enabled=True,
+    ) is not None
     with source.session() as session:
         session.add(TargetRecord(id="target-1", name="Migrated target", target_kind="stable"))
         session.commit()
@@ -276,6 +334,13 @@ def test_sqlite_to_postgres_migration_when_explicit_test_database_is_available(
     migrated.initialize()
     with migrated.session() as session:
         assert session.get(TargetRecord, "target-1") is not None
+    migrated_fabric = KnowledgeFabricRepository(migrated)
+    assert migrated_fabric.get_server_scope(scope.id) is not None
+    assert migrated_fabric.get_corpus(corpus.id) is not None
+    assert migrated_fabric.get_server_global_grant(
+        server_scope_id=scope.id,
+        corpus_id=corpus.id,
+    ) is not None
 
     second = migrate_sqlite_to_postgres(
         source_url,

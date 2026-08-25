@@ -1,6 +1,6 @@
 # Mutation Testing
 
-Status: **required quality practice for protected decision logic; Knowledge Fabric Phase 1 establishes and records the initial non-blocking baselines**
+Status: **required quality practice for protected decision logic; Knowledge Fabric Phase 2 adds its first targeted authorization/lifecycle scope**
 
 Mutation testing evaluates whether tests detect a small semantic change in production code. It
 does not replace ordinary unit, integration, migration, authorization, or live-deployment tests.
@@ -31,7 +31,7 @@ would reject a changed behavior.
 
 | Surface | Runner | Initial bounded scope | Where to run |
 | --- | --- | --- | --- |
-| Python | `mutmut` with pytest (`tests/test_config.py`) | `echo_masque.config` | Ubuntu CI or an installed WSL distribution |
+| Python | `mutmut` with pytest (`tests/test_knowledge_fabric_policy.py`) | `echo_masque.knowledge_fabric_policy` | Ubuntu CI or an installed WSL distribution |
 | Portal | StrykerJS with Vitest and TypeScript checking | `web/src/portalEnvironment.ts` | Node 22+ |
 | Discord Connector | StrykerJS with Vitest and TypeScript checking | `connectors/discord/src/audiencePreflight.ts` | Node 24.17+ |
 
@@ -41,10 +41,9 @@ only after it has a focused, fast test boundary.
 
 ## Commands
 
-Python requires a platform with `fork` support. The scheduled GitHub workflow uses Ubuntu. An
-installed WSL distribution is also supported; this workspace currently has no installed
-distribution. Native Windows Stryker can emit useful reports, but its worker cleanup currently
-ends with an access-denied `taskkill`, so only Ubuntu CI is passing mutation-gate evidence.
+Python requires a platform with `fork` support. The scheduled GitHub workflow uses Ubuntu; WSL is
+also supported. Native Windows does not support mutmut execution, so run its scope under WSL or
+CI. Portal and Connector reports remain platform-specific Stryker evidence.
 
 ```bash
 # Python (Linux or WSL)
@@ -69,8 +68,11 @@ that the mutant was killed.
 
 - Phase 1: install/configure the runners, prove the three bounded commands on their supported
   platform, and record the initial reports without a global score threshold.
-- Phase 2: Corpus grants, overlay precedence, Super Admin, account lifecycle, and Public Demo
-  denial logic receive targeted mutation scopes before their commit gate.
+- Phase 2: `knowledge_fabric_policy.py` supplies the focused mutable boundary for global-library
+  Super Admin restriction, explicit Server Administrator membership, Public Demo exclusion,
+  grant-before-access, overlay precedence, and user-only lifecycle/claim rules. Repository/API
+  integration remains covered by the Phase 2 regression suite; mutation results apply only to
+  this deterministic policy module.
 - Phases 3–6: version/job idempotency, canonical/runtime-entity resolution, authorization-before-
   ranking, epistemic filtering, and Character-context injection receive targeted mutation scopes.
 - Phases 7–11: Projection invalidation, source/adaptor secret exclusion, Character policy, and
