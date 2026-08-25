@@ -1,13 +1,13 @@
 # Active development plan — Knowledge Fabric foundation
 
-Status: **branch-local execution record — Phases 1–7 and 8a are complete; next phase is Git Source adapter work**
+Status: **branch-local execution record — Phases 1–8b and 9a are complete; Phase 9b remains**
 
 | Field | Value |
 | --- | --- |
 | Active branch | `codex/knowledge-fabric-foundation` |
 | Starting baseline | `main` at `68169b8d878ef4d8475e1e52c812fffcb19249a4` |
 | Delivery mode | coherent phase batches; at most one implementation commit per phase |
-| Current phase | Phase 8b — Git repository Source adapter (planned) |
+| Current phase | Phase 9b — approved external acquisition/specialized-adapter design (planned) |
 | Integration owner | main/root coding agent for the active session |
 | Target architecture | `docs/knowledge-fabric-architecture.md` |
 | Blast-radius map | `docs/knowledge-fabric-impact-map.md` |
@@ -922,7 +922,7 @@ website, Wiki, API, or feed client.
 
 ## Phase 9 — Website/Wiki/API/feed adapters and adaptive freshness
 
-Status: **planned**
+Status: **in progress — Phase 9a public-HTTPS response sync is complete; Phase 9b remains (2026-08-26)**
 
 Goal: support external continuously maintained sources without making Wiki the architecture.
 
@@ -944,6 +944,46 @@ Required gate:
 - network/auth failure handling.
 
 Commit gate: one external Source adapter/freshness commit or explicitly split coherent sub-phases after plan update.
+
+### Phase 9a — Public-HTTPS Website response sync boundary
+
+Decision: Phase 9a is deliberately worker/library-only. It will add one registered
+`website_public_https` Source contract for a configured, exact public HTTPS page, a deterministic
+HTML/text response compiler, conditional validator state, and changed/no-change outcome handling.
+It will not expose a sync HTTP route, scheduler, Portal control, Character live lookup, source
+credential, redirect following, discovery/crawl/sitemap traversal, browser rendering, feed/API/Wiki
+client, or default outbound HTTP client. The worker must inject an approved fetcher. This preserves
+the existing `PublicUrlGuard` as a preflight policy without treating a preflight DNS lookup as
+authorization for a new unpinned production egress client; an approved worker transport/DNS
+binding policy is a separate Phase 9b decision.
+
+The first source locator is canonical public HTTPS only: no userinfo, query, fragment, alternate
+port, or redirect. The fetch request may send only stored ETag/Last-Modified validators from a
+one-per-Source derived sync-state record. It accepts bounded `text/html`, `text/plain`, and
+`text/markdown` response bytes; a 304 creates no artifact/version, while a changed valid 200 flows
+through the existing private R2/S3 immutable snapshot service. A same-content 200 reuses the
+existing version/job and records a no-change check. HTTP/network/content rejections record only a
+bounded outcome/error code and no raw response/provider detail. Existing `last_checked_at` and
+`last_changed_at` become the source-visible timestamps; the new state stores only validators and
+safe outcome data, never configuration JSON or a credential.
+
+Phase 9a gate: deterministic generic Website fixtures for HTML/text structure; mocked changed 200,
+conditional 304, same-content 200, rejected URL/redirect/content, and network/auth failure
+outcomes; source timestamp/state and private artifact proof; targeted mutation testing of the pure
+external-response/validator policy. Phase 9b will add an approved egress transport plus a
+source-native specialized adapter (MediaWiki, feed, docs, forum, or API), explicit scheduling/rate
+authority, and the remaining full Phase 9 gate.
+
+### 2026-08-26 Phase 9a completion gate
+
+    Status: complete — one Phase 9a implementation commit is pending the final integrated diff review; Phase 9 remains open only for Phase 9b
+    Commit: pending
+    Changed authority/contracts: one exact public-HTTPS Website Source can be synchronized only by an injected, separately approved worker fetcher. It has no default egress client, public API, scheduler, crawl, redirect, credential, browser, or Character-live-lookup authority. A one-per-Source derived state stores only bounded ETag/Last-Modified validators and safe outcomes; malformed validators fail before private artifact or Source Version publication. User-owned Source deletion removes that derived state in the existing lifecycle transaction.
+    Key files: src/echo_masque/knowledge_fabric_external_policy.py; src/echo_masque/knowledge_fabric_website_adapter.py; src/echo_masque/knowledge_fabric_website_sync.py; src/echo_masque/persistence/knowledge_fabric_external_sync_repository.py; src/echo_masque/persistence/knowledge_fabric_models.py; src/echo_masque/persistence/knowledge_fabric_repository.py; src/echo_masque/persistence/schema_migrations.py; tests/test_knowledge_fabric_website_sync.py; tests/test_knowledge_fabric_phase3.py
+    Validation: python -m pytest tests/test_knowledge_fabric_website_sync.py tests/test_knowledge_fabric_git_adapter.py tests/test_knowledge_fabric_document_adapter.py tests/test_knowledge_fabric_phase3.py tests/test_knowledge_fabric_phase5.py tests/test_database_foundation.py passed: 30 passed, 3 expected PostgreSQL skips (88.85s). python -m ruff check src tests and python -m mypy src passed (369 source files); git diff --check passed. Focused WSL mutmut scope completed: 117 killed / 3 equivalent / 0 timeout, no unclassified survivor. Equivalent IDs: canonical locator mutation 33 changes rstrip(".") to rstrip("XX.XX"); urllib's hostname accessor lowercases ASCII host text before this operation, so added uppercase X is unreachable while both strip trailing dots. Response-policy mutations 29 and 32 change split(";", maxsplit=1)[0] to split(";", )[0] and split(";", maxsplit=2)[0]; each returns the same first semicolon-delimited segment for every string.
+    Migration/data action: additive knowledge_external_source_sync_states schema plus revision ledger; existing Sources begin with no derived state and require no backfill.
+    Known deviations: Cloudflare R2 remains the configured default private artifact provider; AWS S3 remains only the existing explicit S3-compatible deployment alternative. The WSL systemd user-session warning is non-fatal. The generated mutants/ cache was removed after result recording.
+    Next action: review the consolidated Phase 9a diff and make its one implementation commit, then define an approved pinned egress transport and one source-native specialized adapter/scheduling authority for Phase 9b.
 
 ## Phase 10 — Character epistemic policy
 

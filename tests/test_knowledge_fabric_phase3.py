@@ -29,6 +29,7 @@ from echo_masque.persistence.knowledge_fabric_content_repository import (
 )
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeCorpusRecord,
+    KnowledgeExternalSourceSyncStateRecord,
     KnowledgeObjectArtifactRecord,
     KnowledgeSourceRecord,
 )
@@ -313,6 +314,12 @@ def test_account_deletion_removes_private_object_and_all_derived_content(tmp_pat
         source = session.get(KnowledgeSourceRecord, source_id)
         assert source is not None
         source.corpus_id = "user-corpus"
+        session.add(
+            KnowledgeExternalSourceSyncStateRecord(
+                source_id=source_id,
+                last_outcome="changed",
+            )
+        )
         session.commit()
     version = service.ingest_snapshot(_request(source_id))
     artifact = content.get_artifact(version.artifact_id)
@@ -331,6 +338,7 @@ def test_account_deletion_removes_private_object_and_all_derived_content(tmp_pat
     assert counts["knowledge_fabric_object_artifacts"] == 1
     assert counts["knowledge_fabric_evidence_units"] == 1
     assert counts["knowledge_fabric_asset_references"] == 1
+    assert counts["knowledge_fabric_external_source_sync_states"] == 1
     assert artifact.object_key not in storage.objects
     with database.session() as session:
         assert session.get(KnowledgeObjectArtifactRecord, artifact.id) is None
@@ -340,6 +348,7 @@ def test_account_deletion_removes_private_object_and_all_derived_content(tmp_pat
             )
             is None
         )
+        assert session.get(KnowledgeExternalSourceSyncStateRecord, source_id) is None
 
 
 def test_s3_compatible_storage_stays_private_and_reuses_matching_content() -> None:

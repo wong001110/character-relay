@@ -53,8 +53,13 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   makes network calls, or accepts credentials. The existing ingestion service alone publishes the
   private R2/S3-compatible artifact. New Git commits atomically supersede the prior available
   version for the same Source without deleting its provenance/index rows; a retained commit can be
-  reactivated. Generic Source history remains unchanged. External Git/website acquisition and
-  freshness authority are Phase 9 work.
+  reactivated. Generic Source history remains unchanged. Phase 9a now provides a worker/library-only
+  public-HTTPS response boundary: an injected approved fetcher may supply one canonical public
+  page; the deterministic adapter stores only bounded conditional validators and safe outcomes,
+  rejects redirects/content/network failures without raw detail, and publishes changed valid
+  responses through the existing private Cloudflare R2-default/S3-compatible service. It supplies
+  no default egress client, public route, scheduler, crawl, credential, or Character live lookup.
+  Pinned egress transport, specialized source adapter, and sync-rate authority remain Phase 9b.
   Phase 4's corpus-bound canonical entities,
   evidence-backed runtime-resolution history, conflicting assertions, world events, typed Evidence
   Graph relations, and lifecycle cleanup remain unchanged. Canonical identity is

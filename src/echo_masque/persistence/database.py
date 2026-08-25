@@ -82,6 +82,7 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeEvidenceGraphRelationRecord,
     KnowledgeEvidenceRetrievalEntryRecord,
     KnowledgeEvidenceUnitRecord,
+    KnowledgeExternalSourceSyncStateRecord,
     KnowledgeExtractedAssertionRecord,
     KnowledgeIngestionCheckpointRecord,
     KnowledgeIngestionJobRecord,
@@ -307,6 +308,7 @@ class Database:
             KnowledgeServerAdministratorRecord,
             KnowledgeCorpusRecord,
             KnowledgeSourceRecord,
+            KnowledgeExternalSourceSyncStateRecord,
             KnowledgeObjectArtifactRecord,
             KnowledgeSourceVersionRecord,
             KnowledgeCanonicalDocumentRecord,
@@ -342,6 +344,7 @@ class Database:
             KnowledgeFabricIndexMigration,
             KnowledgeFabricInterpretationMigration,
             KnowledgeFabricProjectionMigration,
+            KnowledgeFabricExternalSyncMigration,
             KnowledgeFabricScopeMigration,
         )
 
@@ -351,6 +354,7 @@ class Database:
         KnowledgeFabricInterpretationMigration(self).run()
         KnowledgeFabricIndexMigration(self).run()
         KnowledgeFabricProjectionMigration(self).run()
+        KnowledgeFabricExternalSyncMigration(self).run()
 
         if not allow_incomplete_data_migration:
             self._assert_no_incomplete_data_migration()

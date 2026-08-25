@@ -426,6 +426,26 @@ document Sources, whose historical visibility behavior remains unchanged.
 
 Generic websites use canonical URL detection, main-content extraction, sitemap/link discovery, deduplication, and conditional requests where available. Specialized adapters should preserve revision/category/navigation/thread semantics instead of scraping rendered text only.
 
+### Phase 9a external-response boundary
+
+The first continuously maintained external Source is not an unrestricted web client. A
+worker/library-only `website_public_https` synchronizer accepts an injected, separately approved
+fetcher and one exact configured public HTTPS locator. It has no default HTTP client, public sync
+route, scheduler, Character-triggered live lookup, redirect traversal, credential, crawl, or
+browser authority. This distinction is intentional: `PublicUrlGuard` remains a useful public-host
+preflight, but does not by itself establish an approved pinned-DNS worker egress transport.
+
+The first contract accepts only canonical HTTPS pages with no credentials, query, fragment, or
+alternate port. It can issue ETag/Last-Modified conditional headers from a one-per-Source derived
+sync-state record. A valid bounded text/HTML response deterministically becomes an existing private
+source snapshot; 304 and same-content 200 outcomes create no new artifact/version. Source-visible
+`last_checked_at`/`last_changed_at` remain timestamps, while the derived record contains only
+validated single-line validators and bounded safe outcome/error codes. An invalid validator fails
+before the private artifact or Source Version can be published. Raw response/error detail,
+credentials, and arbitrary configuration values cannot be recorded there. HTML/text extraction is
+deterministic; source-native MediaWiki/feed/API parsing and actual egress policy remain Phase 9b
+work.
+
 ### Private/local content
 
 Cloud Character Relay cannot directly read an arbitrary local path. Support either explicit upload/import or a future Local Sync Agent that watches allowed paths and transmits only approved changed content. Local sync must support `.gitignore`-style exclusion and deny common secret paths/material such as `.env`, private keys, credential files, dependency/build/cache directories by default.

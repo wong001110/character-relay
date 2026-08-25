@@ -118,6 +118,23 @@ class KnowledgeSourceRecord(Base):
     )
 
 
+class KnowledgeExternalSourceSyncStateRecord(Base):
+    """Regenerable validator/outcome state for a Source; never raw response or credentials."""
+
+    __tablename__ = "knowledge_external_source_sync_states"
+
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_sources.id"), primary_key=True
+    )
+    etag: Mapped[str | None] = mapped_column(String(512))
+    last_modified: Mapped[str | None] = mapped_column(String(512))
+    last_outcome: Mapped[str] = mapped_column(String(40), default="never_checked", nullable=False)
+    last_error_code: Mapped[str | None] = mapped_column(String(80))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class KnowledgeObjectArtifactRecord(Base):
     """A private R2/S3 object reference; raw bytes never become a public database field."""
 

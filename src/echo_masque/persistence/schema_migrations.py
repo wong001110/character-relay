@@ -26,6 +26,7 @@ KNOWLEDGE_FABRIC_CONTENT_REVISION = "knowledge-fabric-content-v1"
 KNOWLEDGE_FABRIC_INTERPRETATION_REVISION = "knowledge-fabric-interpretation-v1"
 KNOWLEDGE_FABRIC_INDEX_REVISION = "knowledge-fabric-index-v1"
 KNOWLEDGE_FABRIC_PROJECTION_REVISION = "knowledge-fabric-projection-v1"
+KNOWLEDGE_FABRIC_EXTERNAL_SYNC_REVISION = "knowledge-fabric-external-sync-v1"
 
 
 class DatabaseFoundationMigration:
@@ -366,15 +367,70 @@ class KnowledgeFabricProjectionMigration:
             )
 
 
+class KnowledgeFabricExternalSyncMigration:
+    """Record the additive external Source sync-state schema after ORM bootstrap."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def run(self) -> None:
+        dialect = self.database.engine.dialect.name
+        if dialect == "postgresql":
+            with self.database.engine.begin() as connection:
+                connection.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+                    {"key": KNOWLEDGE_FABRIC_EXTERNAL_SYNC_REVISION},
+                )
+                self._record(connection, database_kind="postgresql")
+            return
+        with self.database.session() as session:
+            if (
+                session.get(
+                    DatabaseSchemaMigrationRecord,
+                    KNOWLEDGE_FABRIC_EXTERNAL_SYNC_REVISION,
+                )
+                is None
+            ):
+                session.add(
+                    DatabaseSchemaMigrationRecord(
+                        revision=KNOWLEDGE_FABRIC_EXTERNAL_SYNC_REVISION,
+                        database_kind=dialect,
+                    )
+                )
+                session.commit()
+
+    @staticmethod
+    def _record(connection: Connection, *, database_kind: str) -> None:
+        applied = connection.execute(
+            text("SELECT 1 FROM database_schema_migrations WHERE revision = :revision"),
+            {"revision": KNOWLEDGE_FABRIC_EXTERNAL_SYNC_REVISION},
+        ).scalar_one_or_none()
+        if applied is None:
+            connection.execute(
+                text(
+                    "INSERT INTO database_schema_migrations "
+                    "(revision, database_kind, applied_at) "
+                    "VALUES (:revision, :database_kind, :applied_at)"
+                ),
+                {
+                    "revision": KNOWLEDGE_FABRIC_EXTERNAL_SYNC_REVISION,
+                    "database_kind": database_kind,
+                    "applied_at": datetime.now(UTC),
+                },
+            )
+
+
 __all__ = [
     "DATABASE_FOUNDATION_REVISION",
     "KNOWLEDGE_FABRIC_CONTENT_REVISION",
+    "KNOWLEDGE_FABRIC_EXTERNAL_SYNC_REVISION",
     "KNOWLEDGE_FABRIC_INDEX_REVISION",
     "KNOWLEDGE_FABRIC_INTERPRETATION_REVISION",
     "KNOWLEDGE_FABRIC_PROJECTION_REVISION",
     "KNOWLEDGE_FABRIC_SCOPE_REVISION",
     "DatabaseFoundationMigration",
     "KnowledgeFabricContentMigration",
+    "KnowledgeFabricExternalSyncMigration",
     "KnowledgeFabricIndexMigration",
     "KnowledgeFabricInterpretationMigration",
     "KnowledgeFabricProjectionMigration",
