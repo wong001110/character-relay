@@ -79,7 +79,10 @@ from echo_masque.intelligence_v3_projection import ProjectionConversationRuntime
 from echo_masque.internal_context import InternalContextService
 from echo_masque.judge_evaluation import JudgeEvaluationService
 from echo_masque.knowledge_consolidation_v3 import KnowledgeConsolidationV3Service
+from echo_masque.knowledge_fabric_context import KnowledgeContextBuilder
+from echo_masque.knowledge_fabric_epistemic_policy import DenyAllCharacterEpistemicPolicy
 from echo_masque.knowledge_fabric_ingestion import KnowledgeFabricIngestionService
+from echo_masque.knowledge_fabric_query import KnowledgeQueryEngine
 from echo_masque.knowledge_gap_discovery_v3 import KnowledgeGapDiscoveryService
 from echo_masque.knowledge_object_storage import object_storage_from_settings
 from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
@@ -106,6 +109,7 @@ from echo_masque.persistence import (
     GeneratedMediaArtifactRepository,
     InteractionRepository,
     KeyGroupRepository,
+    KnowledgeFabricIndexRepository,
     KnowledgeFabricRepository,
     KnowledgeRepository,
     MatrixRepository,
@@ -216,6 +220,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     knowledge_fabric_content_repository = KnowledgeFabricContentRepository(
         database,
         object_storage=knowledge_object_storage,
+    )
+    knowledge_fabric_index_repository = KnowledgeFabricIndexRepository(database)
+    knowledge_query_engine = KnowledgeQueryEngine(
+        fabric_repository=knowledge_fabric_repository,
+        index_repository=knowledge_fabric_index_repository,
     )
     knowledge_fabric_ingestion_service = KnowledgeFabricIngestionService(
         knowledge_fabric_content_repository,
@@ -377,8 +386,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         structure_resolver=conversation_structure_resolver,
         runtime_coordinator=conversation_runtime_coordinator,
         context_resolver=context_resolver_v3,
-        knowledge=knowledge_repository,
-        wiki=server_wiki_v3_repository,
+        knowledge_context=KnowledgeContextBuilder(
+            fabric_repository=knowledge_fabric_repository,
+            query_engine=knowledge_query_engine,
+            epistemic_policy=DenyAllCharacterEpistemicPolicy(),
+        ),
         corrections=CurrentTurnBeliefRevisionService(
             repository=belief_repository,
             gateway=planner_utility_gateway,
@@ -570,6 +582,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.semantic_participation_service = semantic_participation_service
     app.state.knowledge_repository = knowledge_repository
     app.state.knowledge_fabric_repository = knowledge_fabric_repository
+    app.state.knowledge_fabric_index_repository = knowledge_fabric_index_repository
+    app.state.knowledge_query_engine = knowledge_query_engine
     app.state.knowledge_object_storage = knowledge_object_storage
     app.state.knowledge_fabric_content_repository = knowledge_fabric_content_repository
     app.state.knowledge_fabric_ingestion_service = knowledge_fabric_ingestion_service

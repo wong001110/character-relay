@@ -26,14 +26,18 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
 - Connector: Node/discord.js under `connectors/discord/`.
 - Persistence: SQLAlchemy; the Phase 1 PostgreSQL + pgvector foundation is implemented,
   while SQLite remains a development/test and temporary production-migration source.
-- Knowledge Fabric Phase 5 is complete at the current branch HEAD on the active branch. It adds
+- Knowledge Fabric Phase 6 is in progress on the active branch. Phase 5 adds
   source-aligned FTS/dense/entity-graph retrieval over derived index records and one internal
   `KnowledgeQueryEngine`. `list_effective_corpora()` is the sole server/corpus authorization
   resolver and is applied before each channel ranks. PostgreSQL uses `simple` FTS plus a
   pgvector HNSW index for the E5-small/384 profile; SQLite retains a deterministic test fallback.
   `current` reports local freshness as `insufficient` until an approved freshness schema and
-  authorized live lookup are introduced. It does not cut Character runtime consumers over or
-  infer record-level overlay shadowing. Phase 4's corpus-bound canonical entities,
+  authorized live lookup are introduced. Phase 6 composes that engine only after a Character turn
+  is selected, resolves an existing scope without creating one, removes legacy RAG/Server Wiki
+  prompt injection, and uses a fail-closed Character epistemic boundary. Its default admits no
+  corpus Evidence until Phase 10's persisted authored policy exists; queries remain non-blocking.
+  Live external fallback remains Phase 9 because no source/tool/evidence contract authorizes it.
+  Phase 4's corpus-bound canonical entities,
   evidence-backed runtime-resolution history, conflicting assertions, world events, typed Evidence
   Graph relations, and lifecycle cleanup remain unchanged. Canonical identity is
   `(corpus_id, entity_type, normalized_name)`; matching names never infer cross-corpus identity.
@@ -42,7 +46,7 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   canonical Server tuple `(platform, connection_id, workspace_id)` and explicit
   `KnowledgeServerAdministrator` membership remain unchanged. Only authenticated Super Admin can
   bootstrap/manage membership; owner-scoped Discord profiles and user-to-connection access grants
-  are not substitutes. Resume from the Phase 5 record in `docs/active-development-plan.md`.
+  are not substitutes. Resume from the Phase 6 record in `docs/active-development-plan.md`.
 - Production topology: PostgreSQL + pgvector is the target. While SQLite remains in use,
   keep one app replica and one persistent `/data` Volume.
 - Application configuration prefix: `CHARACTER_RELAY_*`.

@@ -596,6 +596,31 @@ Context Resolver decides what fits in the prompt budget. It must not know whethe
 
 Smart Participation must not execute the full Knowledge Query Engine for every candidate Character. Admission/routing may use cheap entity/relevance signals, but expensive corpus retrieval occurs only after a Character/turn is selected unless a separately bounded planner requirement proves otherwise.
 
+### Phase 6 Character Context cutover
+
+The implemented Character path resolves an existing Fabric Server Scope by the verified
+`(platform, connection_id, guild_id)` tuple without calling `ensure_server_scope()`. Only after a
+Character has been selected does it issue one bounded `overview` query and turn admitted results
+into the single `KNOWLEDGE EVIDENCE` Context section. The old RAG and Server Wiki prompt paths are
+not a second authority in either direct Character turns or Smart Participation candidate context.
+
+Character admission is deliberately fail-closed in this phase: the runtime has a
+`CharacterEpistemicPolicy` boundary, but its default denies every Evidence Unit. Phase 10 must
+replace that default with the persisted authored corpus/domain, timeline, spoiler, perspective,
+and override policy; server access alone is never inferred as Character knowledge.
+
+Prompted Evidence is marked as untrusted reference data, delimited from Runtime instructions, and
+includes only Evidence Unit/source-version identifiers plus authority/freshness metadata. Raw
+source locators are not sent to the prompt or ordinary trace. Unknown scopes and non-blocking
+query failures produce no knowledge evidence while keeping the normal Character turn available.
+
+This cutover does not add a live Web/API fallback. The current Query request has no approved
+freshness threshold, importance input, deployment tool authorization, user consent, registered
+source match, or typed turn-local external evidence result. Discovery remains candidate-only and
+is not a synchronous fact source. Phase 9 owns source adapters and adaptive freshness; any future
+external lookup must use the existing deployment Tool Runtime authorization rather than call a
+browser or provider directly.
+
 ## Internal Character tools
 
 The implementation target replaces `wiki.lookup` as the conceptual runtime tool with a provider-neutral `knowledge.search` capability. It may support bounded modes such as `auto`, `overview`, `exact`, `relationship`, or `timeline`, but the Character model must not need to know which projection/index backend served the result.

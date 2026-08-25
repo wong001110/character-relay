@@ -1,13 +1,13 @@
 # Active development plan — Knowledge Fabric foundation
 
-Status: **branch-local execution record — Phase 4 complete at the current branch HEAD; next phase is FTS + pgvector indexes and the Knowledge Query Engine**
+Status: **branch-local execution record — Phases 1–6 are complete; next phase is Projection and internal-tool cutover**
 
 | Field | Value |
 | --- | --- |
 | Active branch | `codex/knowledge-fabric-foundation` |
 | Starting baseline | `main` at `68169b8d878ef4d8475e1e52c812fffcb19249a4` |
 | Delivery mode | coherent phase batches; at most one implementation commit per phase |
-| Current phase | Phase 5 — FTS + pgvector indexes and Knowledge Query Engine (planned) |
+| Current phase | Phase 7 — Projection Layer and internal tool cutover (planned) |
 | Integration owner | main/root coding agent for the active session |
 | Target architecture | `docs/knowledge-fabric-architecture.md` |
 | Blast-radius map | `docs/knowledge-fabric-impact-map.md` |
@@ -567,12 +567,13 @@ surface, or Character runtime cutover. A different embedding model/dimension is 
 queryable but has no ANN index until an explicit profile/rebuild decision.
 
 Next action: Phase 6 should compose the Query Engine into the real Character Context boundary,
-apply Character epistemic policy before prompt injection, and add freshness-authorized external
-evidence without restoring dual RAG/Wiki authority.
+apply a fail-closed Character epistemic gate before prompt injection, and remove the duplicate
+legacy RAG/Wiki prompt path. External current-data fallback stays deferred until its authority
+contract is approved.
 
 ## Phase 6 — Character Context cutover and freshness/external lookup integration
 
-Status: **planned**
+Status: **completed — Fabric Character Context cutover committed**
 
 Goal: make the real Character turn consume the new KnowledgeQueryEngine/KnowledgeContext.
 
@@ -592,7 +593,9 @@ Required behavior:
 - CharacterTurnContext no longer depends conceptually on separate RAG + Server Wiki stores;
 - Context Resolver receives normalized KnowledgeContext/evidence and applies its budget;
 - server access + overlay + Character epistemic policy gate happens before prompt injection;
-- stale/missing high-importance current facts may escalate to authorized live Web/API evidence;
+- current-data Web/API fallback is deliberately deferred: `freshness_policy_json` has no approved
+  schema, Query requests do not carry Character/deployment/tool authority, and no typed
+  turn-local external-evidence contract exists. Phase 9 owns that adapter/freshness work;
 - Discovery candidate remains non-authoritative;
 - query engine failure keeps normal Character availability where knowledge grounding is non-blocking.
 
@@ -605,7 +608,8 @@ Required gate:
 - mention/reply/Smart/Social Character-turn tests;
 - KnowledgeContext reaches provider prompt with provenance/uncertainty safety;
 - unauthorized/epistemically denied facts do not reach prompt;
-- stale -> external current-turn evidence behavior;
+- `current` remains local-only and reports its existing freshness insufficiency without invoking
+  Discovery, Browser, or Tool Runtime;
 - no duplicate old RAG/Wiki injection;
 - no Topic/legacy fallback;
 - targeted mutation scope for epistemic denial, prompt-injection boundary, and Smart Participation
@@ -613,6 +617,51 @@ Required gate:
 - latency/budget guard for Smart Participation and Character turn.
 
 Commit gate: one real-runtime Knowledge cutover commit.
+
+### Phase 6 completion record — 2026-08-25
+
+Commit: `cdcf0e7 feat: cut Character context over to Knowledge Fabric`.
+
+Evidence: `src/echo_masque/knowledge_fabric_context.py`,
+`knowledge_fabric_epistemic_policy.py`, `character_turn_context_v3.py`,
+`context_resolver_v3.py`, `persistence/knowledge_fabric_repository.py`, `api/app.py`, and
+`api/routes/smart_participation_vnext.py`; proof in
+`tests/test_character_turn_context_v3.py` and
+`tests/test_knowledge_fabric_epistemic_policy.py`.
+
+Authority and runtime: the app composes one `KnowledgeQueryEngine` and the Character path looks up
+only an existing `(platform, connection_id, guild_id)` Fabric Scope before it queries. It neither
+creates a Scope nor runs the query while Smart Participation is evaluating candidates. The old RAG
+and Server Wiki prompt paths are removed from the direct Character and candidate-context routes.
+Fabric hits cross a fail-closed `CharacterEpistemicPolicy` boundary before the one normalized,
+bounded Context section; the default policy denies every hit until Phase 10 supplies persisted
+authored policy. Query and policy failure both fail closed without silencing the selected Character
+turn. Prompt evidence is untrusted, instruction-delimited, provenance-labelled, and excludes raw
+source locators from prompts and ordinary trace.
+
+Freshness reconciliation: Phase 6 does not call Discovery, Browser, or Tool Runtime to answer a
+current query. There is no approved freshness schema/threshold, importance signal, source match,
+deployment tool authority, consent, or typed turn-local external-evidence contract. Discovery
+remains candidate-only; Phase 9 owns adapters/adaptive freshness through the existing Tool Runtime
+authority boundary.
+
+Validation: `python -m ruff check .` passed. `python -m mypy` passed 359 source files. The final
+affected regression batch passed: 47 passed, 1 expected PostgreSQL skip, and 2 existing third-party
+warnings (Starlette TestClient deprecation and a Pydantic serializer warning). A prior broader
+Phase 2–6/context batch passed 61 passed, 1 expected PostgreSQL skip, with the same two warnings.
+The focused new Fabric/epistemic batch passed 8 tests. In an isolated WSL Ubuntu copy, `mutmut run`
+against `knowledge_fabric_epistemic_policy.py` generated 11 mutants and killed all 11; no mutants
+survived or were classified equivalent.
+
+Deliberate omissions: no persisted Character epistemic allow/deny, timeline, spoiler, perspective,
+or authored override policy (Phase 10); therefore the production default intentionally injects no
+Fabric Evidence. No Web/API freshness fallback, Source Adapter, external-result persistence,
+Projection/internal-tool migration, Portal surface, source-code adapter, or record-level overlay
+shadowing inference is added.
+
+Next action: Phase 7 should replace the remaining Wiki runtime/tool boundary with regenerable
+provenance-aware Knowledge Projections without bypassing the Phase 6 Character Context, and keep
+exact/source-evidence queries separate from derived Projections.
 
 ## Phase 7 — Projection Layer and internal tool cutover
 

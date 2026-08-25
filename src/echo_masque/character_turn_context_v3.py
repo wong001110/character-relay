@@ -24,7 +24,7 @@ from echo_masque.character_turn_context_types import (
     CharacterContextTraceView,
     CharacterTurnContext,
 )
-from echo_masque.context_resolver_v3 import ContextBundleV3, ContextResolverV3, ContextTextHit
+from echo_masque.context_resolver_v3 import ContextBundleV3, ContextResolverV3
 from echo_masque.conversation_runtime import ConversationRuntimeCoordinator
 from echo_masque.conversation_structure_resolver import ConversationStructureResolver
 from echo_masque.current_turn_belief_v3 import (
@@ -32,8 +32,8 @@ from echo_masque.current_turn_belief_v3 import (
     CurrentTurnClaimExtraction,
 )
 from echo_masque.entity_grounding_v3 import EntityGroundingService, EntityType
+from echo_masque.knowledge_fabric_context import KnowledgeContextBuilder
 from echo_masque.knowledge_gap_discovery_v3 import KnowledgeGapDiscoveryService
-from echo_masque.knowledge_retrieval import KnowledgeCandidate
 from echo_masque.persistence.belief_models import BeliefRevisionEventRecord, BeliefV3Record
 from echo_masque.persistence.conversation_structure_models import ConversationSegmentV3Record
 from echo_masque.persistence.conversation_structure_repository import (
@@ -44,8 +44,6 @@ from echo_masque.persistence.entity_evidence_repository import (
     KnowledgeGapView,
     normalize_entity_name,
 )
-from echo_masque.persistence.knowledge_repository import KnowledgeRepository
-from echo_masque.persistence.server_knowledge_v3_repository import ServerWikiV3Repository
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.persistence.smart_participation_state_models import (
     SmartParticipationReplyDecisionRecord,
@@ -92,8 +90,7 @@ class CharacterTurnContextV3Service:
         structure_resolver: ConversationStructureResolver,
         runtime_coordinator: ConversationRuntimeCoordinator,
         context_resolver: ContextResolverV3,
-        knowledge: KnowledgeRepository,
-        wiki: ServerWikiV3Repository,
+        knowledge_context: KnowledgeContextBuilder,
         corrections: CurrentTurnBeliefRevisionService,
         entity_grounding: EntityGroundingService | None = None,
         knowledge_gap_discovery: KnowledgeGapDiscoveryService | None = None,
@@ -103,8 +100,7 @@ class CharacterTurnContextV3Service:
         self.structure_resolver = structure_resolver
         self.runtime_coordinator = runtime_coordinator
         self.context_resolver = context_resolver
-        self.knowledge = knowledge
-        self.wiki = wiki
+        self.knowledge_context = knowledge_context
         self.corrections = corrections
         self.entity_grounding = entity_grounding
         self.knowledge_gap_discovery = knowledge_gap_discovery
@@ -569,58 +565,6 @@ class CharacterTurnContextV3Service:
             values.append(f"{payload.author_display_name}: {payload.text}")
         return tuple(values[-30:])
 
-    def _knowledge_hits(
-        self,
-        resolved: ResolvedCharacterTurn,
-    ) -> tuple[tuple[ContextTextHit, ...], tuple[KnowledgeCandidate, ...], int, int]:
-        payload = resolved.payload
-        result = self.knowledge.retrieve_for_turn(
-            owner_id=resolved.deployment.owner_id,
-            connection_id=payload.connection_id,
-            guild_id=payload.guild_id,
-            channel_id=payload.channel_id,
-            thread_id=payload.thread_id,
-            character_card_id=resolved.card.id,
-            query=payload.text,
-            top_k=4,
-        )
-        hits = tuple(
-            ContextTextHit(
-                source="knowledge",
-                ref=item.resource.chunk_id,
-                text=f"{item.resource.document_title}: {item.resource.content}",
-                score=item.score,
-            )
-            for item in result.candidates
-        )
-        return hits, result.candidates, result.eligible_base_count, result.candidate_chunk_count
-
-    def _wiki_hits(self, resolved: ResolvedCharacterTurn) -> tuple[ContextTextHit, ...]:
-        payload = resolved.payload
-
-        def confidence(value: object) -> float:
-            return (
-                float(value)
-                if isinstance(value, (int, float)) and not isinstance(value, bool)
-                else 0.0
-            )
-
-        return tuple(
-            ContextTextHit(
-                source="server_wiki_v3",
-                ref=str(item.get("ref", "")),
-                text=f"{item.get('title', '')}: {item.get('body', '')}",
-                score=confidence(item.get("confidence", 0.0)),
-            )
-            for item in self.wiki.lookup(
-                owner_id=resolved.deployment.owner_id,
-                connection_id=payload.connection_id,
-                guild_id=payload.guild_id,
-                query=payload.text,
-                limit=6,
-            )
-        )
-
     @staticmethod
     def _explicit_existing_entity_reference(text: str, name: str) -> bool:
         """Recognize only an exact reference to an already scoped Entity.
@@ -791,10 +735,14 @@ class CharacterTurnContextV3Service:
             segment, conversation_thread_id = self._resolve_segment(resolved)
             self._ground_existing_entity_references(resolved=resolved, segment=segment)
             shield = self.correction_for_turn(resolved)
-            knowledge_hits, candidates, eligible_count, candidate_count = self._knowledge_hits(
-                resolved
+            knowledge_context = self.knowledge_context.build(
+                platform=deployment.platform,
+                connection_id=payload.connection_id,
+                workspace_id=payload.guild_id,
+                deployment_id=deployment.id,
+                character_card_id=resolved.card.id,
+                query=payload.text,
             )
-            wiki_hits = self._wiki_hits(resolved)
             social_target_type, social_target_key = self._social_target(resolved)
             bundle = self.context_resolver.resolve(
                 owner_id=deployment.owner_id,
@@ -809,8 +757,7 @@ class CharacterTurnContextV3Service:
                 segment_id=segment.id,
                 conversation_thread_id=conversation_thread_id,
                 live_context=self._live_context(payload),
-                knowledge_hits=knowledge_hits,
-                wiki_hits=wiki_hits,
+                knowledge_hits=knowledge_context.prompt_hits(),
                 correction_shield=shield,
                 social_target_type=social_target_type,
                 social_target_key=social_target_key,
@@ -839,7 +786,6 @@ class CharacterTurnContextV3Service:
                     episodes=(),
                     entities=(),
                     knowledge_hits=(),
-                    wiki_hits=(),
                     social_context=(),
                     pending_actions=(),
                     knowledge_gaps=(),
@@ -859,15 +805,20 @@ class CharacterTurnContextV3Service:
                 error_reason=reason,
             )
 
+        query_result = knowledge_context.result
         trace = CharacterContextTraceView(
-            rag_status="completed" if candidates else "skipped",
-            rag_reason="ok" if candidates else "no_relevant_chunks",
+            rag_status="completed" if knowledge_context.hits else "skipped",
+            rag_reason=(
+                "knowledge_fabric_admitted"
+                if knowledge_context.hits
+                else "knowledge_fabric_no_admitted_evidence"
+            ),
             query_chars=len(payload.text),
-            eligible_base_count=eligible_count,
-            candidate_chunk_count=candidate_count,
-            selected_chunk_count=len(candidates),
+            eligible_base_count=(query_result.accessible_corpus_count if query_result else 0),
+            candidate_chunk_count=(len(query_result.hits) if query_result else 0),
+            selected_chunk_count=len(knowledge_context.hits),
             selected_knowledge_tokens=sum(
-                max(1, len(item.resource.content) // 4) for item in candidates
+                max(1, len(item.text_content) // 4) for item in knowledge_context.hits
             ),
             conversation_message_count=min(30, len(payload.recent_messages) + 1),
             conversation_chars=sum(len(item) for item in self._live_context(payload)),
@@ -877,7 +828,7 @@ class CharacterTurnContextV3Service:
             bundle=bundle,
             turn_context=CharacterTurnContext(
                 smart_output=smart_output,
-                knowledge=candidates,
+                knowledge=knowledge_context.hits,
                 trace=trace,
             ),
         )

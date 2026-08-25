@@ -64,7 +64,6 @@ class ContextBundleV3:
     episodes: tuple[ConversationEpisodeV3View, ...]
     entities: tuple[EntityV3View, ...]
     knowledge_hits: tuple[ContextTextHit, ...]
-    wiki_hits: tuple[ContextTextHit, ...]
     social_context: tuple[str, ...]
     pending_actions: tuple[PendingActionV3View, ...]
     knowledge_gaps: tuple[KnowledgeGapView, ...]
@@ -122,11 +121,12 @@ class ContextBundleV3:
                 for item in self.entities
             ]
             sections.append("ENTITIES\n" + "\n".join(lines))
-        hits = (*self.knowledge_hits, *self.wiki_hits)
-        if hits:
+        if self.knowledge_hits:
             sections.append(
                 "KNOWLEDGE EVIDENCE\n"
-                + "\n".join(f"- [{item.source}] {item.text}" for item in hits)
+                + "\n".join(
+                    f"- [{item.source}] {item.text}" for item in self.knowledge_hits
+                )
             )
         if self.social_context:
             sections.append("SOCIAL CONTEXT\n" + "\n".join(self.social_context))
@@ -237,7 +237,6 @@ class ContextResolverV3:
         conversation_thread_id: str = "",
         live_context: tuple[str, ...] = (),
         knowledge_hits: tuple[ContextTextHit, ...] = (),
-        wiki_hits: tuple[ContextTextHit, ...] = (),
         correction_shield: CorrectionShield | None = None,
         social_target_type: SocialTargetType = "actor",
         social_target_key: str = "",
@@ -369,7 +368,6 @@ class ContextResolverV3:
 
         bounded_live = self._bounded_lines(live_context, self.budget.live_chars)
         bounded_knowledge = self._bounded_hits(knowledge_hits, self.budget.knowledge_chars)
-        bounded_wiki = self._bounded_hits(wiki_hits, self.budget.knowledge_chars // 2)
         query_compact = " ".join(query.split())[:4000]
         unresolved_segment = bool(
             segment is not None
@@ -384,7 +382,7 @@ class ContextResolverV3:
         if unresolved_segment:
             sufficiency: SufficiencyState = "unresolved"
             reason = "conversation_membership_unresolved"
-        elif blocking_gap and not (bounded_knowledge or bounded_wiki):
+        elif blocking_gap and not bounded_knowledge:
             sufficiency = "external_lookup_needed"
             reason = "high_importance_entity_knowledge_gap"
         elif not any(
@@ -394,7 +392,6 @@ class ContextResolverV3:
                 episode_values,
                 entities,
                 bounded_knowledge,
-                bounded_wiki,
                 social_context,
                 pending,
             )
@@ -415,7 +412,6 @@ class ContextResolverV3:
             episodes=tuple(episode_values),
             entities=entities,
             knowledge_hits=bounded_knowledge,
-            wiki_hits=bounded_wiki,
             social_context=social_context,
             pending_actions=pending,
             knowledge_gaps=gaps,

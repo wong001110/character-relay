@@ -124,6 +124,27 @@ class KnowledgeFabricRepository:
         with self.database.session() as session:
             return session.get(KnowledgeServerScopeRecord, scope_id)
 
+    def find_server_scope(
+        self,
+        *,
+        platform: str,
+        connection_id: str,
+        workspace_id: str,
+    ) -> KnowledgeServerScopeRecord | None:
+        """Read one existing canonical server scope without creating runtime state."""
+
+        self._require_identifier("platform", platform)
+        self._require_identifier("connection_id", connection_id)
+        self._require_identifier("workspace_id", workspace_id)
+        with self.database.session() as session:
+            return session.scalar(
+                select(KnowledgeServerScopeRecord).where(
+                    KnowledgeServerScopeRecord.platform == platform,
+                    KnowledgeServerScopeRecord.connection_id == connection_id,
+                    KnowledgeServerScopeRecord.workspace_id == workspace_id,
+                )
+            )
+
     def list_server_scopes(self) -> list[KnowledgeServerScopeRecord]:
         with self.database.session() as session:
             return list(
