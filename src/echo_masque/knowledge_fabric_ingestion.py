@@ -30,6 +30,7 @@ class SourceSnapshotIngestionRequest:
     documents: Sequence[CanonicalDocumentInput] = ()
     published_at: datetime | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
+    activate_git_version: bool = False
 
 
 class KnowledgeFabricIngestionService:
@@ -52,6 +53,8 @@ class KnowledgeFabricIngestionService:
     ) -> KnowledgeSourceVersionRecord:
         """Publish a source version only after its private artifact is durable."""
 
+        if request.activate_git_version:
+            self.repository.require_git_source(request.source_id)
         source_hash = sha256(request.artifact_content).hexdigest()
         job = self.repository.get_or_create_ingestion_job(
             source_id=request.source_id,
@@ -61,6 +64,11 @@ class KnowledgeFabricIngestionService:
         if job.source_version_id is not None:
             version = self.repository.get_source_version(job.source_version_id)
             if version is not None:
+                if request.activate_git_version:
+                    return self.repository.activate_git_version_as_current(
+                        source_id=request.source_id,
+                        source_version_id=version.id,
+                    )
                 return version
         try:
             claimed = self.repository.claim_ingestion_job(job.id)
@@ -69,6 +77,11 @@ class KnowledgeFabricIngestionService:
         if claimed.source_version_id is not None:
             version = self.repository.get_source_version(claimed.source_version_id)
             if version is not None:
+                if request.activate_git_version:
+                    return self.repository.activate_git_version_as_current(
+                        source_id=request.source_id,
+                        source_version_id=version.id,
+                    )
                 return version
 
         existing = self.repository.get_source_version_by_key(
@@ -84,6 +97,7 @@ class KnowledgeFabricIngestionService:
             return self.repository.complete_existing_version_job(
                 job_id=claimed.id,
                 source_version_id=existing.id,
+                activate_git_version=request.activate_git_version,
             )
 
         object_key = deterministic_artifact_key(
@@ -114,6 +128,7 @@ class KnowledgeFabricIngestionService:
                 published_at=request.published_at,
                 metadata=request.metadata,
                 documents=request.documents,
+                activate_git_version=request.activate_git_version,
             )
         except Exception:
             self.repository.fail_ingestion_job(job_id=claimed.id, error_code="persistence_failed")

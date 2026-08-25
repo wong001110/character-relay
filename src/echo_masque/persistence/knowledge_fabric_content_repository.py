@@ -9,10 +9,11 @@ from hashlib import sha256
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from echo_masque.knowledge_fabric_git_policy import GIT_SOURCE_TYPE
 from echo_masque.knowledge_fabric_ingestion_policy import (
     JOB_COMPLETED,
     JOB_FAILED,
@@ -253,6 +254,7 @@ class KnowledgeFabricContentRepository:
         *,
         job_id: str,
         source_version_id: str,
+        activate_git_version: bool = False,
     ) -> KnowledgeSourceVersionRecord:
         """Finish a duplicate delivery without mutating its immutable version."""
 
@@ -261,6 +263,11 @@ class KnowledgeFabricContentRepository:
             version = session.get(KnowledgeSourceVersionRecord, source_version_id)
             if version is None:
                 raise KeyError("source_version")
+            if activate_git_version:
+                source = session.get(KnowledgeSourceRecord, version.source_id)
+                if source is None:
+                    raise KeyError("source")
+                self._activate_git_version_as_current(session, source=source, version=version)
             self._complete_job(
                 session,
                 record=record,
@@ -313,6 +320,7 @@ class KnowledgeFabricContentRepository:
         published_at: datetime | None,
         metadata: Mapping[str, object],
         documents: Sequence[CanonicalDocumentInput],
+        activate_git_version: bool = False,
     ) -> KnowledgeSourceVersionRecord:
         """Atomically publish immutable metadata after private artifact upload succeeds."""
 
@@ -322,6 +330,8 @@ class KnowledgeFabricContentRepository:
             source = session.get(KnowledgeSourceRecord, source_id)
             if source is None or job.source_id != source_id:
                 raise KeyError("source")
+            if activate_git_version and source.source_type != GIT_SOURCE_TYPE:
+                raise ValueError("Git activation requires a Git snapshot Source.")
             if job.status != JOB_RUNNING:
                 raise KnowledgeIngestionAlreadyRunning("Knowledge ingestion is not claimed.")
             existing_version = session.scalar(
@@ -335,6 +345,12 @@ class KnowledgeFabricContentRepository:
                     existing_hash=existing_version.source_hash,
                     incoming_hash=source_hash,
                 ):
+                    if activate_git_version:
+                        self._activate_git_version_as_current(
+                            session,
+                            source=source,
+                            version=existing_version,
+                        )
                     self._complete_job(
                         session,
                         record=job,
@@ -412,7 +428,38 @@ class KnowledgeFabricContentRepository:
                         metadata_json=_encode({"source_id": source.id}),
                     )
                 )
+            if activate_git_version:
+                self._activate_git_version_as_current(session, source=source, version=version)
             self._complete_job(session, record=job, source_version_id=version.id, stage="published")
+            session.commit()
+            session.refresh(version)
+            return version
+
+    def require_git_source(self, source_id: str) -> KnowledgeSourceRecord:
+        """Reject an activation request unless the existing Source is the Git-only type."""
+
+        with self.database.session() as session:
+            source = session.get(KnowledgeSourceRecord, source_id)
+            if source is None:
+                raise KeyError("source")
+            if source.source_type != GIT_SOURCE_TYPE:
+                raise ValueError("Git activation requires a Git snapshot Source.")
+            return source
+
+    def activate_git_version_as_current(
+        self,
+        *,
+        source_id: str,
+        source_version_id: str,
+    ) -> KnowledgeSourceVersionRecord:
+        """Reactivate a retained Git commit without deleting its immutable provenance."""
+
+        with self.database.session() as session:
+            source = session.get(KnowledgeSourceRecord, source_id)
+            version = session.get(KnowledgeSourceVersionRecord, source_version_id)
+            if source is None or version is None or version.source_id != source_id:
+                raise KeyError("source_version")
+            self._activate_git_version_as_current(session, source=source, version=version)
             session.commit()
             session.refresh(version)
             return version
@@ -430,6 +477,28 @@ class KnowledgeFabricContentRepository:
                     .order_by(KnowledgeEvidenceUnitRecord.evidence_locator)
                 )
             )
+
+    @staticmethod
+    def _activate_git_version_as_current(
+        session: Session,
+        *,
+        source: KnowledgeSourceRecord,
+        version: KnowledgeSourceVersionRecord,
+    ) -> None:
+        if source.source_type != GIT_SOURCE_TYPE:
+            raise ValueError("Git activation requires a Git snapshot Source.")
+        if version.source_id != source.id:
+            raise KeyError("source_version")
+        session.execute(
+            update(KnowledgeSourceVersionRecord)
+            .where(
+                KnowledgeSourceVersionRecord.source_id == source.id,
+                KnowledgeSourceVersionRecord.id != version.id,
+                KnowledgeSourceVersionRecord.status == "available",
+            )
+            .values(status="superseded")
+        )
+        version.status = "available"
 
     def list_canonical_documents(
         self,
