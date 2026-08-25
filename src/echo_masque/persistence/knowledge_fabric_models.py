@@ -9,7 +9,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from echo_masque.persistence.models import Base, utcnow
@@ -395,6 +405,256 @@ class KnowledgeDependencyInvalidationRecord(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class KnowledgeCanonicalEntityRecord(Base):
+    """One corpus-bound canonical identity, separate from server runtime EntityV3."""
+
+    __tablename__ = "knowledge_canonical_entities"
+    __table_args__ = (
+        UniqueConstraint(
+            "corpus_id",
+            "entity_type",
+            "normalized_name",
+            name="uq_knowledge_canonical_entity_identity",
+        ),
+        Index("ix_knowledge_canonical_entity_corpus_status", "corpus_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    corpus_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_corpora.id"), index=True, nullable=False
+    )
+    entity_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    canonical_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    aliases_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="active", nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class KnowledgeRuntimeEntityResolutionRecord(Base):
+    """Evidence-backed, revisable link from a scoped runtime EntityV3 to a corpus entity."""
+
+    __tablename__ = "knowledge_runtime_entity_resolutions"
+    __table_args__ = (
+        Index(
+            "ix_knowledge_runtime_entity_resolution_runtime_status",
+            "runtime_entity_id",
+            "status",
+            "created_at",
+        ),
+        Index(
+            "ix_knowledge_runtime_entity_resolution_canonical",
+            "canonical_entity_id",
+            "status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    corpus_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_corpora.id"), index=True, nullable=False
+    )
+    # No FK: Intelligence lifecycle deletes scoped EntityV3 rows independently.
+    runtime_entity_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    canonical_entity_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_canonical_entities.id"), index=True, nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(24), default="active", nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    authority_profile: Mapped[str] = mapped_column(String(80), default="standard", nullable=False)
+    supersedes_resolution_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    producer: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    source_model: Mapped[str] = mapped_column(String(240), default="", nullable=False)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class KnowledgeExtractedAssertionRecord(Base):
+    """Evidence-backed corpus interpretation; it is deliberately not a Character Belief."""
+
+    __tablename__ = "knowledge_extracted_assertions"
+    __table_args__ = (
+        Index(
+            "ix_knowledge_extracted_assertion_subject_predicate",
+            "corpus_id",
+            "subject_entity_id",
+            "predicate",
+            "status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    corpus_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_corpora.id"), index=True, nullable=False
+    )
+    subject_entity_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_canonical_entities.id"), index=True, nullable=False
+    )
+    predicate: Mapped[str] = mapped_column(String(240), nullable=False)
+    object_entity_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_canonical_entities.id"), index=True
+    )
+    object_value: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    qualifiers_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    authority_profile: Mapped[str] = mapped_column(String(80), default="standard", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="active", nullable=False)
+    supersedes_assertion_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    producer: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    source_model: Mapped[str] = mapped_column(String(240), default="", nullable=False)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class KnowledgeWorldEventRecord(Base):
+    """Corpus/world event, intentionally separate from ConversationEpisodeV3."""
+
+    __tablename__ = "knowledge_world_events"
+    __table_args__ = (
+        Index("ix_knowledge_world_event_corpus_status", "corpus_id", "status", "valid_from"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    corpus_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_corpora.id"), index=True, nullable=False
+    )
+    event_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    location_entity_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_canonical_entities.id"), index=True
+    )
+    ordering_key: Mapped[str] = mapped_column(String(240), default="", nullable=False)
+    outcome_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    authority_profile: Mapped[str] = mapped_column(String(80), default="standard", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="active", nullable=False)
+    producer: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    source_model: Mapped[str] = mapped_column(String(240), default="", nullable=False)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class KnowledgeWorldEventParticipantRecord(Base):
+    """A canonical entity's evidence-backed role in a corpus/world event."""
+
+    __tablename__ = "knowledge_world_event_participants"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id",
+            "canonical_entity_id",
+            "participant_role",
+            name="uq_knowledge_event_participant",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    event_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_world_events.id"), index=True, nullable=False
+    )
+    canonical_entity_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_canonical_entities.id"), index=True, nullable=False
+    )
+    participant_role: Mapped[str] = mapped_column(String(120), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeEvidenceGraphRelationRecord(Base):
+    """Corpus graph relation without changing server-runtime graph scope."""
+
+    __tablename__ = "knowledge_evidence_graph_relations"
+    __table_args__ = (
+        UniqueConstraint(
+            "corpus_id",
+            "source_ref_type",
+            "source_ref_id",
+            "relation_type",
+            "target_ref_type",
+            "target_ref_id",
+            "status",
+            name="uq_knowledge_evidence_graph_relation",
+        ),
+        Index(
+            "ix_knowledge_evidence_graph_relation_source",
+            "corpus_id",
+            "source_ref_type",
+            "source_ref_id",
+        ),
+        Index(
+            "ix_knowledge_evidence_graph_relation_target",
+            "corpus_id",
+            "target_ref_type",
+            "target_ref_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    corpus_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_corpora.id"), index=True, nullable=False
+    )
+    source_ref_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_ref_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    relation_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    target_ref_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    target_ref_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    authority_profile: Mapped[str] = mapped_column(String(80), default="standard", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="active", nullable=False)
+    producer: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    source_model: Mapped[str] = mapped_column(String(240), default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class KnowledgeInterpretationEvidenceRecord(Base):
+    """Evidence-unit provenance for a Fabric interpretation or graph relation."""
+
+    __tablename__ = "knowledge_interpretation_evidence"
+    __table_args__ = (
+        UniqueConstraint(
+            "interpretation_type",
+            "interpretation_id",
+            "evidence_unit_id",
+            "role",
+            name="uq_knowledge_interpretation_evidence",
+        ),
+        Index(
+            "ix_knowledge_interpretation_evidence_unit",
+            "evidence_unit_id",
+            "interpretation_type",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    corpus_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_corpora.id"), index=True, nullable=False
+    )
+    interpretation_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    interpretation_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    evidence_unit_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_evidence_units.id"), index=True, nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(80), default="support", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class KnowledgeAccessGrantRecord(Base):
     """One enable/disable state for a grantee's access to a corpus."""
 
@@ -462,16 +722,23 @@ __all__ = [
     "KnowledgeAssetReferenceRecord",
     "KnowledgeCanonicalBlockRecord",
     "KnowledgeCanonicalDocumentRecord",
+    "KnowledgeCanonicalEntityRecord",
     "KnowledgeCanonicalSectionRecord",
     "KnowledgeCorpusRecord",
     "KnowledgeDependencyInvalidationRecord",
+    "KnowledgeEvidenceGraphRelationRecord",
     "KnowledgeEvidenceUnitRecord",
+    "KnowledgeExtractedAssertionRecord",
     "KnowledgeIngestionCheckpointRecord",
     "KnowledgeIngestionJobRecord",
+    "KnowledgeInterpretationEvidenceRecord",
     "KnowledgeObjectArtifactRecord",
     "KnowledgeOverlayPolicyRecord",
+    "KnowledgeRuntimeEntityResolutionRecord",
     "KnowledgeServerAdministratorRecord",
     "KnowledgeServerScopeRecord",
     "KnowledgeSourceRecord",
     "KnowledgeSourceVersionRecord",
+    "KnowledgeWorldEventParticipantRecord",
+    "KnowledgeWorldEventRecord",
 ]

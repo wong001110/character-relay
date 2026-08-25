@@ -24,6 +24,7 @@ from echo_masque.persistence.schema_migration_models import (
 from echo_masque.persistence.schema_migrations import (
     DATABASE_FOUNDATION_REVISION,
     KNOWLEDGE_FABRIC_CONTENT_REVISION,
+    KNOWLEDGE_FABRIC_INTERPRETATION_REVISION,
     KNOWLEDGE_FABRIC_SCOPE_REVISION,
 )
 from echo_masque.persistence.sqlite_to_postgres_migration import (
@@ -83,9 +84,15 @@ def test_sqlite_foundation_revision_is_idempotent(tmp_path: Path) -> None:
 
     with database.session() as session:
         record = session.get(DatabaseSchemaMigrationRecord, DATABASE_FOUNDATION_REVISION)
+        interpretation_record = session.get(
+            DatabaseSchemaMigrationRecord,
+            KNOWLEDGE_FABRIC_INTERPRETATION_REVISION,
+        )
 
     assert record is not None
     assert record.database_kind == "sqlite"
+    assert interpretation_record is not None
+    assert interpretation_record.database_kind == "sqlite"
 
 
 def test_sqlite_to_postgres_rejects_non_postgresql_target(tmp_path: Path) -> None:
@@ -253,6 +260,13 @@ def test_postgresql_foundation_when_explicit_test_database_is_available() -> Non
         "knowledge_ingestion_jobs",
         "knowledge_ingestion_checkpoints",
         "knowledge_dependency_invalidations",
+        "knowledge_canonical_entities",
+        "knowledge_runtime_entity_resolutions",
+        "knowledge_extracted_assertions",
+        "knowledge_world_events",
+        "knowledge_world_event_participants",
+        "knowledge_evidence_graph_relations",
+        "knowledge_interpretation_evidence",
         "knowledge_access_grants",
         "knowledge_overlay_policies",
     } <= table_names
@@ -280,6 +294,7 @@ def test_postgresql_foundation_when_explicit_test_database_is_available() -> Non
     with database.session() as session:
         assert session.get(DatabaseSchemaMigrationRecord, KNOWLEDGE_FABRIC_SCOPE_REVISION)
         assert session.get(DatabaseSchemaMigrationRecord, KNOWLEDGE_FABRIC_CONTENT_REVISION)
+        assert session.get(DatabaseSchemaMigrationRecord, KNOWLEDGE_FABRIC_INTERPRETATION_REVISION)
 
     with database.session() as session:
         session.add(_deployment("deployment-a", channel_id="channel-a"))

@@ -74,18 +74,25 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeAssetReferenceRecord,
     KnowledgeCanonicalBlockRecord,
     KnowledgeCanonicalDocumentRecord,
+    KnowledgeCanonicalEntityRecord,
     KnowledgeCanonicalSectionRecord,
     KnowledgeCorpusRecord,
     KnowledgeDependencyInvalidationRecord,
+    KnowledgeEvidenceGraphRelationRecord,
     KnowledgeEvidenceUnitRecord,
+    KnowledgeExtractedAssertionRecord,
     KnowledgeIngestionCheckpointRecord,
     KnowledgeIngestionJobRecord,
+    KnowledgeInterpretationEvidenceRecord,
     KnowledgeObjectArtifactRecord,
     KnowledgeOverlayPolicyRecord,
+    KnowledgeRuntimeEntityResolutionRecord,
     KnowledgeServerAdministratorRecord,
     KnowledgeServerScopeRecord,
     KnowledgeSourceRecord,
     KnowledgeSourceVersionRecord,
+    KnowledgeWorldEventParticipantRecord,
+    KnowledgeWorldEventRecord,
 )
 from echo_masque.persistence.operational_migration_models import (
     OperationalDataMigrationRecord,
@@ -306,6 +313,13 @@ class Database:
             KnowledgeIngestionJobRecord,
             KnowledgeIngestionCheckpointRecord,
             KnowledgeDependencyInvalidationRecord,
+            KnowledgeCanonicalEntityRecord,
+            KnowledgeRuntimeEntityResolutionRecord,
+            KnowledgeExtractedAssertionRecord,
+            KnowledgeWorldEventRecord,
+            KnowledgeWorldEventParticipantRecord,
+            KnowledgeEvidenceGraphRelationRecord,
+            KnowledgeInterpretationEvidenceRecord,
             KnowledgeAccessGrantRecord,
             KnowledgeOverlayPolicyRecord,
         )
@@ -317,12 +331,14 @@ class Database:
         from echo_masque.persistence.schema_migrations import (
             DatabaseFoundationMigration,
             KnowledgeFabricContentMigration,
+            KnowledgeFabricInterpretationMigration,
             KnowledgeFabricScopeMigration,
         )
 
         DatabaseFoundationMigration(self).run()
         KnowledgeFabricScopeMigration(self).run()
         KnowledgeFabricContentMigration(self).run()
+        KnowledgeFabricInterpretationMigration(self).run()
 
         if not allow_incomplete_data_migration:
             self._assert_no_incomplete_data_migration()

@@ -670,8 +670,9 @@ The active development plan owns phase execution. The intended dependency order 
 1. PostgreSQL production foundation and migration proof;
 2. Knowledge Corpus/Source/Access/Policy schema;
 3. canonical content, source versioning, Evidence Units, object-storage contract;
-4. PostgreSQL FTS + pgvector index layer;
-5. Knowledge Query Engine, accessible-space resolution, fusion/rerank/freshness;
+4. corpus-bound canonical entities, assertions/events, and an Evidence Graph bridge;
+5. PostgreSQL FTS + pgvector index layer and Knowledge Query Engine, accessible-space resolution,
+   fusion/rerank/freshness;
 6. Character/Context integration and old RAG/Wiki consumer cutover;
 7. unified Projection Layer;
 8. ingestion adapters, beginning with Git and structured document import before broad generic Web crawling;

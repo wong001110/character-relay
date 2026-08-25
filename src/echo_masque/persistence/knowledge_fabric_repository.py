@@ -18,6 +18,9 @@ from echo_masque.persistence.database import Database
 from echo_masque.persistence.knowledge_fabric_content_repository import (
     KnowledgeFabricContentRepository,
 )
+from echo_masque.persistence.knowledge_fabric_interpretation_repository import (
+    KnowledgeFabricInterpretationRepository,
+)
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeAccessGrantRecord,
     KnowledgeCorpusRecord,
@@ -550,6 +553,7 @@ class KnowledgeFabricRepository:
             self.database,
             object_storage=self.object_storage,
         )
+        interpretation_repository = KnowledgeFabricInterpretationRepository(self.database)
         with self.database.session() as session:
             corpus_ids = [
                 record.id
@@ -564,6 +568,9 @@ class KnowledgeFabricRepository:
                     account_id=user_id,
                 )
             ]
+            interpretation_counts = interpretation_repository.delete_interpretations_for_corpora(
+                corpus_ids
+            )
             content_counts = content_repository.delete_content_for_corpora(corpus_ids)
             source_count = 0
             policy_count = 0
@@ -625,6 +632,7 @@ class KnowledgeFabricRepository:
             )
             session.commit()
         return {
+            **interpretation_counts,
             **content_counts,
             "knowledge_fabric_corpora": corpus_count,
             "knowledge_fabric_sources": source_count,

@@ -1,13 +1,13 @@
 # Active development plan — Knowledge Fabric foundation
 
-Status: **branch-local execution record — Phase 3 complete at the current branch HEAD; next phase is canonical corpus entities/assertions/events**
+Status: **branch-local execution record — Phase 4 complete at the current branch HEAD; next phase is FTS + pgvector indexes and the Knowledge Query Engine**
 
 | Field | Value |
 | --- | --- |
 | Active branch | `codex/knowledge-fabric-foundation` |
 | Starting baseline | `main` at `68169b8d878ef4d8475e1e52c812fffcb19249a4` |
 | Delivery mode | coherent phase batches; at most one implementation commit per phase |
-| Current phase | Phase 4 — canonical corpus entities, assertions/events and Evidence Graph bridge (planned) |
+| Current phase | Phase 5 — FTS + pgvector indexes and Knowledge Query Engine (planned) |
 | Integration owner | main/root coding agent for the active session |
 | Target architecture | `docs/knowledge-fabric-architecture.md` |
 | Blast-radius map | `docs/knowledge-fabric-impact-map.md` |
@@ -398,9 +398,15 @@ without merging imported corpus facts into BeliefV3.
 
 ## Phase 4 — canonical corpus entities, assertions/events and Evidence Graph bridge
 
-Status: **planned**
+Status: **complete — current branch HEAD implementation commit**
 
 Goal: add world/corpus interpretation without abusing server-scoped Entity or Character Belief.
+
+Phase 4 identity decision: the first canonical identity boundary is one `KnowledgeCorpus`, not a
+name-derived cross-corpus global namespace. `(corpus_id, entity_type, normalized_name)` may identify
+one canonical entity and is reusable by many runtime/server entities that resolve into that corpus.
+Cross-corpus/domain identity linking requires a future explicit domain model and evidence-backed
+mapping; Phase 4 must not infer it from equal names.
 
 Primary current sources:
 
@@ -408,6 +414,8 @@ Primary current sources:
 - `src/echo_masque/persistence/entity_evidence_repository.py`;
 - `src/echo_masque/entity_grounding_v3.py`;
 - `src/echo_masque/evidence_graph_v3.py`;
+- `src/echo_masque/persistence/intelligence_v3_lifecycle_repository.py` for owner deletion/claim
+  boundaries;
 - Belief models/repositories for authority-boundary tests.
 
 Required behavior:
@@ -427,6 +435,40 @@ Required gate:
 - evidence dependency/provenance tests.
 
 Commit gate: one canonical-knowledge interpretation commit.
+
+### Phase 4 completion record — 2026-08-25
+
+Commit: `feat: add Knowledge Fabric corpus interpretations` (the current branch implementation
+commit; resolve the final hash with `git log -1 --oneline`).
+
+Evidence: `src/echo_masque/persistence/knowledge_fabric_models.py`,
+`knowledge_fabric_interpretation_repository.py`,
+`knowledge_fabric_interpretation_policy.py`, `knowledge_fabric_repository.py`,
+`intelligence_v3_lifecycle_repository.py`, `database.py`, and `schema_migrations.py`; proof in
+`tests/test_knowledge_fabric_entity_policy.py`, `tests/test_knowledge_fabric_phase4.py`, and
+`tests/test_database_foundation.py`.
+
+Authority and lifecycle: canonical identity is exactly `(corpus_id, entity_type, normalized_name)`.
+Runtime `EntityV3` retains its owner/connection/guild authority and can only resolve through that
+exact scope. Reassignment creates a successor record; rejected and superseded history remains.
+Assertions may conflict, and events, assertions, runtime resolutions, and typed graph relations
+retain Evidence Unit provenance. The Phase 4 repository never writes `BeliefV3` or
+`ConversationEpisodeV3`. User-corpus deletion removes corpus interpretations before source content;
+runtime-owner deletion removes only its resolution mappings before `EntityV3` deletion.
+
+Validation: `python -m ruff check .` and `python -m mypy` passed (354 source files). The focused
+Phase 2–4/Intelligence/lifecycle/database batch passed: 54 passed, 2 expected PostgreSQL skips,
+and 1 existing TestClient deprecation warning. WSL-native `mutmut` ran 7 mutants against
+`knowledge_fabric_interpretation_policy.py`: all 7 killed, with no survivor, equivalent, timeout,
+or tooling classification. A disposable WSL/Docker pgvector PostgreSQL 16 container passed the
+guarded foundation migration test (1 passed, 1 skipped, 7 deselected) and was removed.
+
+Deliberate omissions: no name-derived cross-corpus/global identity, automatic Belief/Episode
+promotion, graph-database dependency, query/index integration, API/Portal surface, or source
+adapter was added. A future explicit domain model must own cross-corpus mappings.
+
+Next action: Phase 5 should implement access-filtered FTS/pgvector/entity/temporal retrieval and
+the single Knowledge Query Engine without changing the Phase 4 authority boundaries.
 
 ## Phase 5 — FTS + pgvector indexes and Knowledge Query Engine
 

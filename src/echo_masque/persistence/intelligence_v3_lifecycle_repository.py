@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import delete, update
+from sqlalchemy import delete, select, update
 
 from echo_masque.persistence.belief_models import (
     BeliefEvidenceDependencyRecord,
@@ -34,6 +34,9 @@ from echo_masque.persistence.entity_evidence_models import (
     EntityV3Record,
     EvidenceEdgeV3Record,
     KnowledgeGapRecord,
+)
+from echo_masque.persistence.knowledge_fabric_interpretation_repository import (
+    KnowledgeFabricInterpretationRepository,
 )
 from echo_masque.persistence.server_knowledge_v3_models import (
     KnowledgeConsolidationCheckpointV3Record,
@@ -107,6 +110,17 @@ class IntelligenceV3LifecycleRepository:
     def delete_owner(self, owner_id: str) -> dict[str, int]:
         counts: dict[str, int] = {}
         with self.database.session() as session:
+            runtime_entity_ids = list(
+                session.scalars(
+                    select(EntityV3Record.id).where(EntityV3Record.owner_id == owner_id)
+                )
+            )
+            counts["knowledge_fabric_runtime_entity_resolutions"] = (
+                KnowledgeFabricInterpretationRepository.delete_runtime_entity_resolutions(
+                    session,
+                    runtime_entity_ids,
+                )
+            )
             for model in _OWNER_MODELS:
                 owner_column = model.owner_id
                 result = session.execute(delete(model).where(owner_column == owner_id))
