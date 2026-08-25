@@ -1127,7 +1127,7 @@ as effective query input.
 
 ```text
 Status: complete — Server Knowledge Fabric Portal batch; Phase 11b/11c remain open
-Commit: pending final diff review
+Commit: `3543dd9` (`feat: add Knowledge Fabric server portal`)
 Changed authority/contracts: the active Deployment Workspace Knowledge page now resolves the
 selected Discord `(connection_id, guild_id)` only to an authorized Fabric server scope, never to
 legacy RAG. It manages effective Corpus visibility, reversible global grant/overlay state,
