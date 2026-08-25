@@ -90,6 +90,10 @@ from echo_masque.persistence.knowledge_fabric_content_repository import (
     KnowledgeIngestionAlreadyRunning,
     KnowledgeSourceVersionConflict,
 )
+from echo_masque.persistence.knowledge_fabric_index_repository import (
+    KnowledgeFabricIndexRepository,
+    KnowledgeIndexCandidate,
+)
 from echo_masque.persistence.knowledge_fabric_interpretation_repository import (
     KnowledgeFabricInterpretationRepository,
     normalize_canonical_entity_name,
@@ -212,8 +216,10 @@ __all__ = [
     "KnowledgeChunkRecord",
     "KnowledgeDocumentRecord",
     "KnowledgeFabricContentRepository",
+    "KnowledgeFabricIndexRepository",
     "KnowledgeFabricInterpretationRepository",
     "KnowledgeFabricRepository",
+    "KnowledgeIndexCandidate",
     "KnowledgeIngestionAlreadyRunning",
     "KnowledgeRepository",
     "KnowledgeRetrievalResult",

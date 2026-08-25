@@ -405,6 +405,72 @@ class KnowledgeDependencyInvalidationRecord(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class KnowledgeEvidenceRetrievalEntryRecord(Base):
+    """Regenerable corpus-filterable sparse retrieval projection for one Evidence Unit."""
+
+    __tablename__ = "knowledge_evidence_retrieval_entries"
+    __table_args__ = (
+        UniqueConstraint(
+            "evidence_unit_id",
+            name="uq_knowledge_evidence_retrieval_entry_evidence",
+        ),
+        Index(
+            "ix_knowledge_evidence_retrieval_entry_corpus_version",
+            "corpus_id",
+            "source_version_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    corpus_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_corpora.id"), index=True, nullable=False
+    )
+    evidence_unit_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_evidence_units.id"), index=True, nullable=False
+    )
+    source_version_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_source_versions.id"), index=True, nullable=False
+    )
+    retrieval_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class KnowledgeEvidenceEmbeddingRecord(Base):
+    """One regenerable dense representation for a retrieval entry and embedding profile."""
+
+    __tablename__ = "knowledge_evidence_embeddings"
+    __table_args__ = (
+        UniqueConstraint(
+            "retrieval_entry_id",
+            "embedding_model",
+            "embedding_dimension",
+            "source_hash",
+            name="uq_knowledge_evidence_embedding_profile",
+        ),
+        Index(
+            "ix_knowledge_evidence_embedding_model_dimension",
+            "embedding_model",
+            "embedding_dimension",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    retrieval_entry_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_evidence_retrieval_entries.id"), index=True, nullable=False
+    )
+    embedding_model: Mapped[str] = mapped_column(String(160), nullable=False)
+    embedding_dimension: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Portable JSON remains the exact-search fallback. PostgreSQL additionally receives a
+    # migration-owned vector column so the ORM schema does not hard-code one model dimension.
+    embedding_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class KnowledgeCanonicalEntityRecord(Base):
     """One corpus-bound canonical identity, separate from server runtime EntityV3."""
 
@@ -726,7 +792,9 @@ __all__ = [
     "KnowledgeCanonicalSectionRecord",
     "KnowledgeCorpusRecord",
     "KnowledgeDependencyInvalidationRecord",
+    "KnowledgeEvidenceEmbeddingRecord",
     "KnowledgeEvidenceGraphRelationRecord",
+    "KnowledgeEvidenceRetrievalEntryRecord",
     "KnowledgeEvidenceUnitRecord",
     "KnowledgeExtractedAssertionRecord",
     "KnowledgeIngestionCheckpointRecord",

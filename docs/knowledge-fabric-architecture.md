@@ -470,6 +470,30 @@ retrieval channels
 answer/evidence mode
 ```
 
+### Phase 5 retrieval contract
+
+The first implementation resolves a server's accessible corpus IDs solely through
+`KnowledgeFabricRepository.list_effective_corpora(server_scope_id)` before any sparse, dense, or
+entity/graph channel runs. An unknown scope creates no state and returns no candidate. All returned
+hits retain Evidence Unit/source-version locator provenance; the engine does not consult legacy RAG
+as a second authority.
+
+PostgreSQL uses `simple` FTS and a cosine HNSW expression index for the existing
+`intfloat/multilingual-e5-small` 384-dimension embedding profile. Other persisted embedding
+profiles remain queryable by exact vector distance until an explicit rebuild/index decision. SQLite
+has a deterministic test fallback rather than a production-scale retrieval claim.
+
+`overview`, `exact`, `relational`, `current`, and `code` are the initial modes. `exact` and `code`
+are sparse-only source-evidence paths; `code` gains symbol/dependency retrieval only with a later
+source adapter. Interpretation validity is half-open (`valid_from <= as_of < valid_to`). Because
+`freshness_policy_json` has no approved schema, `current` reports local evidence with
+`insufficient` freshness and does not call a Web/API fallback.
+
+The target `override` policy remains supported by the architecture, but Phase 5 does not infer a
+record-level shadowing key from names, embeddings, or assertion prose. `deny` remains an access
+exclusion; `augment` and `override` remain recorded provenance/precedence metadata until an
+explicit conflict-resolution contract is implemented.
+
 Examples of modes:
 
 - overview: prefer a current materialized entity/corpus view plus high-value evidence;

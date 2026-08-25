@@ -28,6 +28,9 @@ from echo_masque.knowledge_object_storage import (
     StoredKnowledgeObject,
 )
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.knowledge_fabric_index_repository import (
+    KnowledgeFabricIndexRepository,
+)
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeAssetReferenceRecord,
     KnowledgeCanonicalBlockRecord,
@@ -554,6 +557,15 @@ class KnowledgeFabricContentRepository:
                 if source_ids
                 else []
             )
+            evidence_ids = list(
+                session.scalars(
+                    select(KnowledgeEvidenceUnitRecord.id).where(
+                        KnowledgeEvidenceUnitRecord.source_version_id.in_(version_ids)
+                    )
+                )
+                if version_ids
+                else []
+            )
             document_ids = list(
                 session.scalars(
                     select(KnowledgeCanonicalDocumentRecord.id).where(
@@ -605,6 +617,12 @@ class KnowledgeFabricContentRepository:
                 KnowledgeDependencyInvalidationRecord,
                 KnowledgeDependencyInvalidationRecord.source_version_id,
                 version_ids,
+            )
+            counts.update(
+                KnowledgeFabricIndexRepository.delete_indexes_for_evidence_units(
+                    session,
+                    evidence_ids,
+                )
             )
             counts["knowledge_fabric_evidence_units"] = self._delete_ids(
                 session,
@@ -665,6 +683,8 @@ class KnowledgeFabricContentRepository:
             "knowledge_fabric_ingestion_jobs": 0,
             "knowledge_fabric_ingestion_checkpoints": 0,
             "knowledge_fabric_dependency_invalidations": 0,
+            "knowledge_fabric_evidence_embeddings": 0,
+            "knowledge_fabric_retrieval_entries": 0,
         }
 
     def _create_document_content(

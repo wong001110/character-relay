@@ -24,6 +24,7 @@ from echo_masque.persistence.schema_migration_models import (
 from echo_masque.persistence.schema_migrations import (
     DATABASE_FOUNDATION_REVISION,
     KNOWLEDGE_FABRIC_CONTENT_REVISION,
+    KNOWLEDGE_FABRIC_INDEX_REVISION,
     KNOWLEDGE_FABRIC_INTERPRETATION_REVISION,
     KNOWLEDGE_FABRIC_SCOPE_REVISION,
 )
@@ -88,11 +89,17 @@ def test_sqlite_foundation_revision_is_idempotent(tmp_path: Path) -> None:
             DatabaseSchemaMigrationRecord,
             KNOWLEDGE_FABRIC_INTERPRETATION_REVISION,
         )
+        index_record = session.get(
+            DatabaseSchemaMigrationRecord,
+            KNOWLEDGE_FABRIC_INDEX_REVISION,
+        )
 
     assert record is not None
     assert record.database_kind == "sqlite"
     assert interpretation_record is not None
     assert interpretation_record.database_kind == "sqlite"
+    assert index_record is not None
+    assert index_record.database_kind == "sqlite"
 
 
 def test_sqlite_to_postgres_rejects_non_postgresql_target(tmp_path: Path) -> None:
@@ -245,6 +252,11 @@ def test_postgresql_foundation_when_explicit_test_database_is_available() -> Non
         grant_indexes = {
             index["name"] for index in inspector.get_indexes("knowledge_access_grants")
         }
+        index_names = set(
+            connection.execute(
+                text("SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()")
+            ).scalars()
+        )
     assert {
         "knowledge_server_scopes",
         "knowledge_server_administrators",
@@ -260,6 +272,8 @@ def test_postgresql_foundation_when_explicit_test_database_is_available() -> Non
         "knowledge_ingestion_jobs",
         "knowledge_ingestion_checkpoints",
         "knowledge_dependency_invalidations",
+        "knowledge_evidence_retrieval_entries",
+        "knowledge_evidence_embeddings",
         "knowledge_canonical_entities",
         "knowledge_runtime_entity_resolutions",
         "knowledge_extracted_assertions",
@@ -272,6 +286,8 @@ def test_postgresql_foundation_when_explicit_test_database_is_available() -> Non
     } <= table_names
     assert "ix_knowledge_corpora_owner_scope" in corpus_indexes
     assert "ix_knowledge_grant_grantee_access" in grant_indexes
+    assert "ix_knowledge_evidence_retrieval_entry_fts" in index_names
+    assert "ix_knowledge_evidence_embedding_e5_384_hnsw" in index_names
 
     fabric = KnowledgeFabricRepository(database)
     scope = fabric.ensure_server_scope(
@@ -295,6 +311,7 @@ def test_postgresql_foundation_when_explicit_test_database_is_available() -> Non
         assert session.get(DatabaseSchemaMigrationRecord, KNOWLEDGE_FABRIC_SCOPE_REVISION)
         assert session.get(DatabaseSchemaMigrationRecord, KNOWLEDGE_FABRIC_CONTENT_REVISION)
         assert session.get(DatabaseSchemaMigrationRecord, KNOWLEDGE_FABRIC_INTERPRETATION_REVISION)
+        assert session.get(DatabaseSchemaMigrationRecord, KNOWLEDGE_FABRIC_INDEX_REVISION)
 
     with database.session() as session:
         session.add(_deployment("deployment-a", channel_id="channel-a"))

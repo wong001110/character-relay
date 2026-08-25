@@ -472,9 +472,30 @@ the single Knowledge Query Engine without changing the Phase 4 authority boundar
 
 ## Phase 5 — FTS + pgvector indexes and Knowledge Query Engine
 
-Status: **planned**
+Status: **completed — FTS/pgvector index layer and internal Query Engine committed**
 
 Goal: replace current bounded SQL scan/in-process vector ranking for the new corpus path.
+
+Phase 5 retrieval decisions:
+
+- `KnowledgeFabricRepository.list_effective_corpora(server_scope_id)` is the sole current
+  server/corpus authorization resolver. Its non-empty corpus-id result is an immutable input to
+  every retrieval channel; an unknown scope returns no candidates and Phase 5 never calls the
+  state-creating `ensure_server_scope()` path.
+- Query modes are `overview`, `exact`, `relational`, `current`, and `code`. `exact` returns only
+  source-aligned Evidence Unit provenance. `code` is sparse-only until a source adapter provides
+  symbol/dependency structure.
+- The first sparse baseline uses PostgreSQL's `simple` FTS configuration, with a deterministic
+  portable sparse fallback for SQLite tests. The first ANN index is an HNSW cosine expression index
+  for the existing E5-small/384 profile; a different configured embedding model/dimension remains
+  queryable by exact vector distance but requires an explicit later index/rebuild decision.
+- Temporal validity is half-open: an interpretation is available when `valid_from <= as_of` and
+  `as_of < valid_to` when those endpoints exist. `current` returns local evidence together with
+  `insufficient` freshness because `freshness_policy_json` has no approved schema yet; Phase 5
+  does not invoke Web/API fallback.
+- `deny` remains an authorization exclusion. `augment` and `override` remain provenance/precedence
+  metadata only: no record-level shadowing key exists, so Phase 5 must not infer one from names,
+  embeddings, or assertion prose.
 
 Target components:
 
@@ -510,6 +531,44 @@ Required gate:
 - no cross-server/global metadata leakage.
 
 Commit gate: one query/index engine commit.
+
+### Phase 5 completion record — 2026-08-25
+
+Commit: `feat: add Knowledge Fabric query indexes` (the current branch implementation commit;
+resolve the final hash with `git log -1 --oneline`).
+
+Evidence: `src/echo_masque/knowledge_fabric_query.py`,
+`knowledge_fabric_query_policy.py`, `persistence/knowledge_fabric_index_repository.py`,
+`knowledge_fabric_models.py`, `schema_migrations.py`, `database.py`, and lifecycle cleanup in
+`knowledge_fabric_content_repository.py`; proof in
+`tests/test_knowledge_fabric_phase5.py`, `tests/test_knowledge_fabric_query_policy.py`, and
+`tests/test_database_foundation.py`.
+
+Authority and lifecycle: the Query Engine resolves the effective corpus set before every channel
+and rejects an empty/unknown scope without creating it. FTS, dense, entity/event/graph, and temporal
+evidence all retain Evidence Unit/source-version provenance; RRF only fuses already-authorized
+candidates. The derived retrieval and embedding rows are deleted before Evidence Unit deletion.
+No Character epistemic policy, legacy-RAG fallback, record-level overlay conflict inference,
+source adapter, or Character/context cutover is included.
+
+Validation: `python -m ruff check .` and `python -m mypy` passed (357 source files). The focused
+Phase 2–5/policy/lifecycle/database batch passed: 62 passed, 2 expected PostgreSQL skips, and 1
+existing TestClient deprecation warning; final Query Policy/Phase 5 regression passed: 8 passed,
+1 expected PostgreSQL skip. A disposable WSL/Docker pgvector PostgreSQL 16 container passed both
+guarded foundation migration/index health and live FTS+dense query tests (2 passed), then was
+removed. Scoped WSL `mutmut` generated 53 mutations in Query Policy: 49 killed; four equivalent
+mutants remain only in RRF's output-invariant implementation details (stable insertion mechanism,
+uniform first-occurrence score offset, or uniform score scale), with no surviving behavioral
+authorization, mode, temporal, freshness, or ranking-order mutant.
+
+Deliberate omissions: no approved record-level overlay shadowing key, freshness-policy schema or
+external current-data fallback, reranker threshold, source-code structure adapter, API/Portal
+surface, or Character runtime cutover. A different embedding model/dimension is exact-distance
+queryable but has no ANN index until an explicit profile/rebuild decision.
+
+Next action: Phase 6 should compose the Query Engine into the real Character Context boundary,
+apply Character epistemic policy before prompt injection, and add freshness-authorized external
+evidence without restoring dual RAG/Wiki authority.
 
 ## Phase 6 — Character Context cutover and freshness/external lookup integration
 
