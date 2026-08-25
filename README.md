@@ -47,6 +47,8 @@ Topic authority was removed by the Intelligence Core v3 hard cutover. Do not rei
 
 For a source-to-test map by subsystem, start at [`docs/agent-handoff.md`](docs/agent-handoff.md). The documentation authority index is [`docs/README.md`](docs/README.md).
 
+Future local-device execution, gaming presence, live viewing, plugins/adapters, and optional local/coding-agent integration are planned in [`docs/local-execution-roadmap.md`](docs/local-execution-roadmap.md). The device-side companion repository is [`wong001110/character-relay-local`](https://github.com/wong001110/character-relay-local). This direction is **planned/deferred and not part of the currently implemented runtime**.
+
 ## Local setup
 
 Requirements:
@@ -149,5 +151,6 @@ Generated OpenWiki pages are navigation, not product contracts. Important claims
 - [`docs/developer/README.md`](docs/developer/README.md) — local setup, validation, and evidence-first development
 - [`docs/contracts/README.md`](docs/contracts/README.md) — current product and architecture authority
 - [`docs/history/README.md`](docs/history/README.md) — superseded designs and delivery records
+- [`docs/local-execution-roadmap.md`](docs/local-execution-roadmap.md) — planned/deferred local device execution and embodiment direction
 - [`docs/README.md`](docs/README.md) — complete audience and authority index
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution workflow
