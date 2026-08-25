@@ -44,6 +44,9 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeSourceRecord,
     KnowledgeSourceVersionRecord,
 )
+from echo_masque.persistence.knowledge_fabric_projection_repository import (
+    KnowledgeFabricProjectionRepository,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -391,6 +394,13 @@ class KnowledgeFabricContentRepository:
             )
             session.add(version)
             session.flush()
+            # A newer immutable snapshot supersedes every view derived from an older
+            # version of this Source.  The next reader rebuilds lazily from the new
+            # Evidence rather than treating stale text as an authority.
+            KnowledgeFabricProjectionRepository(self.database).mark_source_projections_stale(
+                session,
+                source_id=source.id,
+            )
             for document_input in documents:
                 self._create_document_content(session, version=version, value=document_input)
             for dependency_type in ("indexes", "projections"):
@@ -617,6 +627,12 @@ class KnowledgeFabricContentRepository:
                 KnowledgeDependencyInvalidationRecord,
                 KnowledgeDependencyInvalidationRecord.source_version_id,
                 version_ids,
+            )
+            counts.update(
+                KnowledgeFabricProjectionRepository.delete_projections_for_corpora(
+                    session,
+                    corpus_ids,
+                )
             )
             counts.update(
                 KnowledgeFabricIndexRepository.delete_indexes_for_evidence_units(

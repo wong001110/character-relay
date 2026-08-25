@@ -103,7 +103,9 @@ class MediaToolRegistry(ServerAwareToolRegistry):
             "conversation.search": (
                 "Search compact past Episode projections in the current Discord location."
             ),
-            "wiki.lookup": "Look up derived knowledge in this current Discord Server only.",
+            "knowledge.search": (
+                "Search Character-admitted Knowledge Fabric evidence in this current server only."
+            ),
         }
         for tool_id in INTERNAL_CONTEXT_TOOL_IDS:
             provider_name = tool_id.replace(".", "_")

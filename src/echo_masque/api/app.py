@@ -226,6 +226,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         fabric_repository=knowledge_fabric_repository,
         index_repository=knowledge_fabric_index_repository,
     )
+    # One fail-closed policy instance gates both automatic turn context and explicit
+    # internal knowledge.search Tool output before either can return to a Character.
+    character_epistemic_policy = DenyAllCharacterEpistemicPolicy()
+    knowledge_context_builder = KnowledgeContextBuilder(
+        fabric_repository=knowledge_fabric_repository,
+        query_engine=knowledge_query_engine,
+        epistemic_policy=character_epistemic_policy,
+    )
     knowledge_fabric_ingestion_service = KnowledgeFabricIngestionService(
         knowledge_fabric_content_repository,
         knowledge_object_storage,
@@ -292,7 +300,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         structure_repository=conversation_structure_repository,
         runtime_repository=conversation_runtime_repository,
         settings=resolved,
-        wiki_lookup_backend=server_wiki_v3_repository.lookup,
+        knowledge_context=knowledge_context_builder,
     )
     tool_registry = MediaToolRegistry(
         browser_runtime=browser_runtime,
@@ -386,11 +394,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         structure_resolver=conversation_structure_resolver,
         runtime_coordinator=conversation_runtime_coordinator,
         context_resolver=context_resolver_v3,
-        knowledge_context=KnowledgeContextBuilder(
-            fabric_repository=knowledge_fabric_repository,
-            query_engine=knowledge_query_engine,
-            epistemic_policy=DenyAllCharacterEpistemicPolicy(),
-        ),
+        knowledge_context=knowledge_context_builder,
         corrections=CurrentTurnBeliefRevisionService(
             repository=belief_repository,
             gateway=planner_utility_gateway,

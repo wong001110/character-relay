@@ -10,7 +10,7 @@ def _proposal(**updates: object) -> TurnDirectorProposal:
         "response_posture": "informed_response",
         "focus_message_ids": ("message-1",),
         "read_requests": (
-            {"tool_id": "wiki.lookup", "query": "release date", "limit": 2},
+            {"tool_id": "knowledge.search", "query": "release date", "limit": 2},
         ),
         "confidence": 0.9,
         "reason_code": "knowledge_gap",
@@ -20,7 +20,7 @@ def _proposal(**updates: object) -> TurnDirectorProposal:
 
 
 def test_turn_director_runtime_rejects_scope_or_posture_changes() -> None:
-    allowed = ("memory.search", "conversation.search", "wiki.lookup")
+    allowed = ("memory.search", "conversation.search", "knowledge.search")
 
     assert DiscordConnectorRuntime._valid_turn_director_proposal(
         _proposal(),
@@ -47,7 +47,7 @@ def test_turn_director_runtime_rejects_scope_or_posture_changes() -> None:
             )
         ),
         selected_message_ids=("message-1", "message-2"),
-        allowed_tools=("wiki.lookup",),
+        allowed_tools=("knowledge.search",),
         response_posture="informed_response",
     )
 

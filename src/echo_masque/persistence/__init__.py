@@ -98,6 +98,11 @@ from echo_masque.persistence.knowledge_fabric_interpretation_repository import (
     KnowledgeFabricInterpretationRepository,
     normalize_canonical_entity_name,
 )
+from echo_masque.persistence.knowledge_fabric_projection_repository import (
+    KnowledgeFabricProjectionRepository,
+    KnowledgeProjectionProvenance,
+    KnowledgeProjectionView,
+)
 from echo_masque.persistence.knowledge_fabric_repository import KnowledgeFabricRepository
 from echo_masque.persistence.knowledge_models import (
     KnowledgeBaseRecord,
@@ -218,9 +223,12 @@ __all__ = [
     "KnowledgeFabricContentRepository",
     "KnowledgeFabricIndexRepository",
     "KnowledgeFabricInterpretationRepository",
+    "KnowledgeFabricProjectionRepository",
     "KnowledgeFabricRepository",
     "KnowledgeIndexCandidate",
     "KnowledgeIngestionAlreadyRunning",
+    "KnowledgeProjectionProvenance",
+    "KnowledgeProjectionView",
     "KnowledgeRepository",
     "KnowledgeRetrievalResult",
     "KnowledgeSourceVersionConflict",

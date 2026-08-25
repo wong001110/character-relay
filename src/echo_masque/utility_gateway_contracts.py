@@ -114,7 +114,7 @@ class TurnDirectorReadRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    tool_id: Literal["memory.search", "conversation.search", "wiki.lookup"]
+    tool_id: Literal["memory.search", "conversation.search", "knowledge.search"]
     query: str = Field(min_length=1, max_length=400)
     limit: int = Field(default=2, ge=1, le=4)
 

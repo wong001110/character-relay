@@ -405,6 +405,81 @@ class KnowledgeDependencyInvalidationRecord(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class KnowledgeProjectionRecord(Base):
+    """A disposable Fabric view with explicit, source-aligned provenance."""
+
+    __tablename__ = "knowledge_projections"
+    __table_args__ = (
+        UniqueConstraint(
+            "corpus_id",
+            "projection_type",
+            "subject_ref_type",
+            "subject_ref_id",
+            name="uq_knowledge_projection_subject",
+        ),
+        Index(
+            "ix_knowledge_projection_corpus_stale",
+            "corpus_id",
+            "stale",
+            "projection_type",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    corpus_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_corpora.id"), index=True, nullable=False
+    )
+    projection_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    subject_ref_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    subject_ref_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    text_content: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    stale: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class KnowledgeProjectionDependencyRecord(Base):
+    """One exact SourceVersion/Evidence dependency behind a derived Projection."""
+
+    __tablename__ = "knowledge_projection_dependencies"
+    __table_args__ = (
+        UniqueConstraint(
+            "projection_id",
+            "source_version_id",
+            "evidence_unit_id",
+            name="uq_knowledge_projection_dependency",
+        ),
+        Index(
+            "ix_knowledge_projection_dependency_version",
+            "source_version_id",
+            "projection_id",
+        ),
+        Index(
+            "ix_knowledge_projection_dependency_evidence",
+            "evidence_unit_id",
+            "projection_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    projection_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_projections.id"), index=True, nullable=False
+    )
+    source_version_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_source_versions.id"), index=True, nullable=False
+    )
+    evidence_unit_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_evidence_units.id"), index=True, nullable=False
+    )
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class KnowledgeEvidenceRetrievalEntryRecord(Base):
     """Regenerable corpus-filterable sparse retrieval projection for one Evidence Unit."""
 
@@ -802,6 +877,8 @@ __all__ = [
     "KnowledgeInterpretationEvidenceRecord",
     "KnowledgeObjectArtifactRecord",
     "KnowledgeOverlayPolicyRecord",
+    "KnowledgeProjectionDependencyRecord",
+    "KnowledgeProjectionRecord",
     "KnowledgeRuntimeEntityResolutionRecord",
     "KnowledgeServerAdministratorRecord",
     "KnowledgeServerScopeRecord",

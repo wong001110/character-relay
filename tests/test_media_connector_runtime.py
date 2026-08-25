@@ -460,7 +460,7 @@ def test_roleplay_does_not_receive_runtime_owned_internal_context_tools() -> Non
 
     class InternalOnlyRegistry:
         def internal_tool_ids(self) -> tuple[str, ...]:
-            return ("memory.search", "conversation.search", "wiki.lookup")
+            return ("memory.search", "conversation.search", "knowledge.search")
 
         def tool_id_for_provider_name(self, _: str) -> None:
             return None

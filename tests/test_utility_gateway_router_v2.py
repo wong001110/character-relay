@@ -170,7 +170,7 @@ class DirectorCaller:
             text=(
                 '{"response_mode":"answer","response_posture":"informed_response",'
                 '"focus_message_ids":["message-1"],"read_requests":['
-                '{"tool_id":"wiki.lookup","query":"release date","limit":2}'
+                '{"tool_id":"knowledge.search","query":"release date","limit":2}'
                 '],"confidence":0.9,"reason_code":"knowledge_gap"}'
             ),
             latency_ms=8,
@@ -222,5 +222,5 @@ def test_turn_director_returns_a_strict_advisory_contract() -> None:
 
     assert isinstance(proposal, TurnDirectorProposal)
     assert proposal.focus_message_ids == ("message-1",)
-    assert proposal.read_requests[0].tool_id == "wiki.lookup"
+    assert proposal.read_requests[0].tool_id == "knowledge.search"
     assert result.route.member_id == "director"

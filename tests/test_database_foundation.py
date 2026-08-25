@@ -26,6 +26,7 @@ from echo_masque.persistence.schema_migrations import (
     KNOWLEDGE_FABRIC_CONTENT_REVISION,
     KNOWLEDGE_FABRIC_INDEX_REVISION,
     KNOWLEDGE_FABRIC_INTERPRETATION_REVISION,
+    KNOWLEDGE_FABRIC_PROJECTION_REVISION,
     KNOWLEDGE_FABRIC_SCOPE_REVISION,
 )
 from echo_masque.persistence.sqlite_to_postgres_migration import (
@@ -272,6 +273,8 @@ def test_postgresql_foundation_when_explicit_test_database_is_available() -> Non
         "knowledge_ingestion_jobs",
         "knowledge_ingestion_checkpoints",
         "knowledge_dependency_invalidations",
+        "knowledge_projections",
+        "knowledge_projection_dependencies",
         "knowledge_evidence_retrieval_entries",
         "knowledge_evidence_embeddings",
         "knowledge_canonical_entities",
@@ -312,6 +315,7 @@ def test_postgresql_foundation_when_explicit_test_database_is_available() -> Non
         assert session.get(DatabaseSchemaMigrationRecord, KNOWLEDGE_FABRIC_CONTENT_REVISION)
         assert session.get(DatabaseSchemaMigrationRecord, KNOWLEDGE_FABRIC_INTERPRETATION_REVISION)
         assert session.get(DatabaseSchemaMigrationRecord, KNOWLEDGE_FABRIC_INDEX_REVISION)
+        assert session.get(DatabaseSchemaMigrationRecord, KNOWLEDGE_FABRIC_PROJECTION_REVISION)
 
     with database.session() as session:
         session.add(_deployment("deployment-a", channel_id="channel-a"))

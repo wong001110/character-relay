@@ -20,6 +20,7 @@ from echo_masque.persistence.knowledge_fabric_repository import KnowledgeFabricR
 
 logger = logging.getLogger(__name__)
 _CHARACTER_CONTEXT_QUERY_LIMIT = 4
+_MAX_KNOWLEDGE_CONTEXT_QUERY_LIMIT = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,9 +80,12 @@ class KnowledgeContextBuilder:
         deployment_id: str,
         character_card_id: str,
         query: str,
+        result_limit: int = _CHARACTER_CONTEXT_QUERY_LIMIT,
     ) -> KnowledgeContext:
         """Return no knowledge on an unknown scope or non-blocking query failure."""
 
+        if result_limit < 1 or result_limit > _MAX_KNOWLEDGE_CONTEXT_QUERY_LIMIT:
+            raise ValueError("Knowledge Context query limit is outside the approved bound.")
         scope = self.fabric_repository.find_server_scope(
             platform=platform,
             connection_id=connection_id,
@@ -95,10 +99,11 @@ class KnowledgeContextBuilder:
                     server_scope_id=scope.id,
                     query=query,
                     mode="overview",
-                    # Preserve the former Character Context top_k=4 bound while Phase 6 has no
-                    # approved query-budget configuration contract.
-                    candidate_limit=_CHARACTER_CONTEXT_QUERY_LIMIT,
-                    result_limit=_CHARACTER_CONTEXT_QUERY_LIMIT,
+                    # Character turns preserve the former top_k=4 default.  The internal
+                    # knowledge.search Tool may request a smaller/bounded result within its
+                    # already-approved contract.
+                    candidate_limit=result_limit,
+                    result_limit=result_limit,
                 )
             )
         except Exception as exc:
