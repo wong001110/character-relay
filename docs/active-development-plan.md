@@ -620,7 +620,7 @@ Commit gate: one real-runtime Knowledge cutover commit.
 
 ### Phase 6 completion record — 2026-08-25
 
-Commit: `cdcf0e7 feat: cut Character context over to Knowledge Fabric`.
+Implementation commit: `a16f78d feat: cut Character context over to Knowledge Fabric`.
 
 Evidence: `src/echo_masque/knowledge_fabric_context.py`,
 `knowledge_fabric_epistemic_policy.py`, `character_turn_context_v3.py`,
