@@ -1176,7 +1176,7 @@ embedding-runtime contracts exist.
 
 ```text
 Status: complete — authorized query and global-source health inspection; 11b-2/11c remain open
-Commit: pending final diff review
+Commit: `e393f66` (`feat: add Knowledge Fabric inspection APIs`)
 Changed authority/contracts: `POST /server-scopes/{scope_id}/query-inspector` first resolves the
 existing server scope through `_scope_for_actor`, then delegates to the one existing
 `KnowledgeQueryEngine` with its established four-result bounded request. It writes only a
