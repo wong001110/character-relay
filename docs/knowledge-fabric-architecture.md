@@ -565,6 +565,28 @@ Projection requirements:
 
 Existing Wiki persistence can be migrated/reused only if it conforms to this contract. Do not preserve the word “Wiki” as a runtime boundary merely for compatibility.
 
+### Phase 7 delivered boundary
+
+`KnowledgeProjection` is an additive Fabric-derived cache with an explicit corpus, typed subject,
+source hash, stale state, and derived text. `KnowledgeProjectionDependency` records the exact
+SourceVersion, Evidence Unit, source hash, and Evidence content hash used to materialize it. The
+first implementation is a deterministic source overview: it is rebuilt lazily from source Evidence
+when absent or stale, and a newly published SourceVersion invalidates views derived from any older
+version of the same Source. Projection dependencies are deleted before their Evidence lifecycle
+rows, so a Projection never becomes stranded provenance.
+
+The current check is intentionally narrow: a view is reusable only when its `source_hash` equals
+the newest SourceVersion hash and it is not marked stale. Exact-detail, quotation, and provenance
+queries continue to return raw Evidence through `KnowledgeQueryEngine`; no Projection can satisfy
+those modes on its own.
+
+The Character-facing internal tool is `knowledge.search`, not a Server Wiki lookup. It preserves
+the bounded `query`/`limit` contract and goes through the same fail-closed `KnowledgeContextBuilder`
+and Character epistemic policy as normal turn context. Thus it returns no evidence for an unknown
+scope, unavailable query, or denied Character, and it sends no raw evidence locator to the model.
+Legacy Wiki persistence/API/Portal code remains an explicitly deferred Phase 11 compatibility
+surface, not a backend for this tool.
+
 ## Character runtime integration
 
 `CharacterTurnContextV3Service` must eventually depend on one `KnowledgeQueryEngine`, not separately on raw RAG and Server Wiki repositories.

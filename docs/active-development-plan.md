@@ -1,13 +1,13 @@
 # Active development plan — Knowledge Fabric foundation
 
-Status: **branch-local execution record — Phases 1–6 are complete; next phase is Projection and internal-tool cutover**
+Status: **branch-local execution record — Phases 1–7 are complete; next phase is first Source adapters**
 
 | Field | Value |
 | --- | --- |
 | Active branch | `codex/knowledge-fabric-foundation` |
 | Starting baseline | `main` at `68169b8d878ef4d8475e1e52c812fffcb19249a4` |
 | Delivery mode | coherent phase batches; at most one implementation commit per phase |
-| Current phase | Phase 7 — Projection Layer and internal tool cutover (planned) |
+| Current phase | Phase 8 — first Source adapters: Git and uploaded documents (planned) |
 | Integration owner | main/root coding agent for the active session |
 | Target architecture | `docs/knowledge-fabric-architecture.md` |
 | Blast-radius map | `docs/knowledge-fabric-impact-map.md` |
@@ -665,7 +665,7 @@ exact/source-evidence queries separate from derived Projections.
 
 ## Phase 7 — Projection Layer and internal tool cutover
 
-Status: **planned**
+Status: **complete — Fabric source overview Projection and Character internal-tool cutover delivered; Wiki compatibility deletion remains deferred to Phase 11**
 
 Goal: retire Wiki as a separate runtime universe.
 
@@ -700,6 +700,50 @@ Required gate:
 - static/reference proof that Character runtime no longer depends on Wiki repository abstractions.
 
 Commit gate: one projection/tool cutover commit.
+
+### Phase 7 delivery record
+
+Evidence map: `knowledge_fabric_models.py`, `knowledge_fabric_content_repository.py`,
+`knowledge_fabric_projection_repository.py`, `knowledge_fabric_projection_policy.py`,
+`knowledge_fabric_context.py`, `internal_context.py`, the Internal Context tool registry/contracts,
+and the Phase 3/5/6/7 tests. `Corpus → Source → SourceVersion → EvidenceUnit` remains the only
+knowledge authority; Projection text is derived-only and cannot satisfy exact/source Evidence
+queries. Server scope authorization still occurs inside `KnowledgeQueryEngine`, and Character
+epistemic admission still fails closed before a Tool result can return to the model.
+
+Implemented: additive `KnowledgeProjection` and explicit `KnowledgeProjectionDependency` records
+store corpus, typed subject, derived text, source hash, stale state, SourceVersion/Evidence IDs,
+and evidence content hash. The first deterministic materialization is a lazily rebuilt source
+overview; publishing a new snapshot marks views derived from any older version of that Source
+stale, and account/corpus deletion removes dependency rows before Evidence rows. The pure
+Projection-current policy requires an identical source hash and `stale == false`.
+
+The Character-facing internal Tool is now `knowledge.search`, retaining only its existing bounded
+`query` and `limit` input. It invokes the shared `KnowledgeContextBuilder`, so unknown scope,
+query failure, and epistemic denial return no Fabric evidence; admitted results stay explicitly
+untrusted and omit raw evidence locators. `memory.search` and `conversation.search` remain
+separate. The old Server Wiki lookup is not composed into Character/internal-tool runtime.
+
+Compatibility decision: Phase 7 does **not** delete legacy KB Wiki/Server Wiki persistence,
+`/api/knowledge`, or Portal consumers. Those are Phase 11 compatibility consumers, and the plan's
+earlier Phase 7/11 sequencing constraint takes precedence over a premature deletion claim. They
+are no longer a Character-facing Fabric search authority.
+
+Validation: `python -m ruff check src tests` passed; `python -m mypy` passed 361 source files; the
+affected Phase 3–7 regression batch passed **60 passed, 3 expected PostgreSQL skips**. In an
+isolated WSL Ubuntu cache, `mutmut run --max-children 4` against
+`knowledge_fabric_projection_policy.py` generated 3 mutants and killed all 3 (0 survived,
+timeouts, or equivalents).
+
+Commit: `0ba2d6d` (`feat: add Fabric Projections and knowledge search`).
+
+Deliberate omissions: no Fabric Projection query channel or projection-only exact answer; no
+invented entity/event/timeline builder; no Portal/API compatibility rename; no persisted Character
+epistemic policy; and no Source Adapter, freshness, or external lookup behavior.
+
+Next action: Phase 8 should introduce deterministic-first Git/manual-import/structured-document
+Source Adapters without broad crawling, while preserving the existing private R2-default S3
+compatible object-storage boundary.
 
 ## Phase 8 — first Source adapters: Git and uploaded documents
 

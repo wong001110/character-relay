@@ -31,7 +31,7 @@ Derived/behavioral loops remain separate:
 
 ```text
 Behavior State → Discovery
-Belief / Entity / Knowledge Documents → Wiki Projection
+Belief / Entity / Knowledge Evidence → derived Projection Layer
 Media Observation → Entity Association
 External Search → turn-local evidence
 ```
@@ -42,7 +42,7 @@ External Search → turn-local evidence
 2. Conversation Thread is a short/medium-lived conversation track, not durable knowledge and not a replacement Topic authority.
 3. Episode answers “what happened”; it is a durable projection over raw evidence and conversation structure.
 4. Belief answers “what is currently believed”; beliefs are revisable, disputable, supersedable, and evidence-backed.
-5. Wiki is a derived readable projection. Wiki text never outranks its source evidence.
+5. Projections are derived readable caches. Projection text never outranks its source evidence.
 6. Evidence Graph records typed relations and provenance; it must not become an independent duplicate truth store.
 7. Relationship and Impression belong to Social Intelligence, not factual Memory.
 8. Behavior State contains decaying behavioral signals such as interest, salience, expertise, stance, conversation ownership, and participation fatigue. It does not own Relationship truth.
@@ -273,7 +273,7 @@ Media identity relations such as `Media DEPICTS Entity` are evidence graph inter
 
 ## Context Resolver
 
-Replace scattered internal Memory/Topic/Conversation/Wiki/Knowledge routing decisions with a unified Context Resolver. It receives the selected Character/Segment/Thread/speaker/entity/media/social context and returns a bounded ContextBundle containing live context, belief hits, episode hits, entity context, knowledge hits, wiki hits, social context, and a knowledge sufficiency state.
+Replace scattered internal Memory/Topic/Conversation/Wiki/Knowledge routing decisions with a unified Context Resolver. It receives the selected Character/Segment/Thread/speaker/entity/media/social context and returns a bounded ContextBundle containing live context, belief hits, episode hits, entity context, knowledge hits, social context, and a knowledge sufficiency state. Character-facing Knowledge now enters through the Fabric Query/Context boundary rather than a separate Wiki-hit channel.
 
 Sufficiency states:
 
@@ -326,9 +326,9 @@ Deployment Discovery remains autonomous curiosity/content discovery. It is not a
 
 Existing Web/Image Search tools serve current-turn epistemic need when Context Resolver reports insufficient internal knowledge and the required external Tool is available.
 
-## Wiki
+## Projection Layer and Wiki compatibility
 
-Wiki is a materialized readable projection. Preserve the rule that raw Knowledge documents remain authority for KB-derived Wiki content. Replace Topic-driven Server Wiki pages with Entity/Concept/Project/Event knowledge views derived from validated Beliefs, Episodes, Entities, and Knowledge documents. Remove `page_key=topic:*` and `source_topic_ids`.
+Fabric Projections are materialized readable caches with explicit SourceVersion/Evidence dependencies, source hashes, and stale invalidation. Preserve the rule that raw Knowledge documents remain authority for any derived view. Phase 7 moves the Character-facing internal tool to `knowledge.search` through the fail-closed Fabric Context boundary; it must not use Server Wiki lookup. Existing Wiki tables/API/Portal surfaces remain a Phase 11 compatibility migration, not a parallel Character knowledge authority. Replace Topic-driven Server Wiki pages with Entity/Concept/Project/Event knowledge views derived from validated Beliefs, Episodes, Entities, and Knowledge documents. Remove `page_key=topic:*` and `source_topic_ids`.
 
 ## Hard cutover and old data
 

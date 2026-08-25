@@ -26,7 +26,7 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
 - Connector: Node/discord.js under `connectors/discord/`.
 - Persistence: SQLAlchemy; the Phase 1 PostgreSQL + pgvector foundation is implemented,
   while SQLite remains a development/test and temporary production-migration source.
-- Knowledge Fabric Phase 6 is in progress on the active branch. Phase 5 adds
+- Knowledge Fabric Phase 7 is complete on the active branch. Phase 5 adds
   source-aligned FTS/dense/entity-graph retrieval over derived index records and one internal
   `KnowledgeQueryEngine`. `list_effective_corpora()` is the sole server/corpus authorization
   resolver and is applied before each channel ranks. PostgreSQL uses `simple` FTS plus a
@@ -37,6 +37,11 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   prompt injection, and uses a fail-closed Character epistemic boundary. Its default admits no
   corpus Evidence until Phase 10's persisted authored policy exists; queries remain non-blocking.
   Live external fallback remains Phase 9 because no source/tool/evidence contract authorizes it.
+  Phase 7 adds a Fabric-only, regenerable source-overview Projection with explicit
+  SourceVersion/Evidence dependencies, invalidation on a new source snapshot, lazy deterministic
+  rebuild, and dependency-first lifecycle deletion. The Character-internal `knowledge.search` Tool
+  now shares the same fail-closed Knowledge Context gate; it no longer calls Server Wiki lookup.
+  Legacy Wiki tables/API/Portal are deferred compatibility only until the Phase 11 cutover.
   Phase 4's corpus-bound canonical entities,
   evidence-backed runtime-resolution history, conflicting assertions, world events, typed Evidence
   Graph relations, and lifecycle cleanup remain unchanged. Canonical identity is
