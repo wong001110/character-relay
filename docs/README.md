@@ -12,6 +12,7 @@ Choose the path that matches what you are trying to do:
 | Designing or reviewing an evaluation | [Evaluation path](#evaluation-and-calibration) |
 | An AI coding agent taking over work | repository `AGENTS.md`, then [agent map](agent-map.md), [AI agent workflow](ai-agent-development-workflow.md), and [agent handoff](agent-handoff.md) |
 | Looking for current authority | [Canonical contracts](contracts/README.md) |
+| Planning future local device execution | [Local execution and embodiment roadmap](local-execution-roadmap.md) — planned/deferred, not implementation proof |
 | Investigating why an old design exists | [Historical/reference index](history/README.md) |
 
 ## Product support snapshot
@@ -30,6 +31,7 @@ Intelligence Core v3 is the current intelligence authority. Topic fallback, Topi
 - [Portal development and mock UI review](portal-development.md)
 - [Intelligence repair scope](intelligence-repair-scope.md)
 - [Repository architecture](architecture.md)
+- [Planned local execution and embodiment](local-execution-roadmap.md) — future Character Relay Local / device / live-view direction; not implemented
 - [Turn Director and focused Roleplay implementation record](turn-director-prompt-implementation.md) — verify branch/commit status before treating it as merged behavior
 - [Current branch execution ledger](active-development-plan.md) — use only when its recorded branch matches the checkout
 
