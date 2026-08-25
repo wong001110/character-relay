@@ -395,6 +395,33 @@ Evidence. This does not define a public upload endpoint, arbitrary local-file ac
 store, OCR worker, or Credential Vault mapping. Those surfaces require their own authority and
 lifecycle contracts.
 
+### Phase 8b Git snapshot boundary
+
+The initial Git adapter is likewise library-only. An already-authorized acquisition boundary supplies
+one immutable `git_snapshot` Source, complete commit/tree identity, and in-memory repository-relative
+file bytes. The adapter neither invokes Git nor reads a local checkout, performs network requests,
+accepts a token, or writes an object directly; the existing Phase 3 ingestion service remains the
+only private R2/S3 publication authority. A future acquisition worker must separately define public
+HTTPS, Credential Vault, repository access, and Git diff selection. It may use no-change and
+changed-commit outcomes from this adapter, but cannot infer any broader access from it.
+
+Only full compatible SHA-1/SHA-256 commit and tree identities are accepted. The sanitized artifact
+contains the accepted UTF-8 repository text plus immutable commit/tree identity, not excluded file
+bytes. Paths with traversal, absolute/separator abuse, controls, `.git`, `.env*`, common
+credential/private-key names or suffixes, and approved dependency/build/cache directories are
+discarded before an artifact, document, Evidence Unit, job metadata, or error can contain them.
+Binary/undecodable files remain a later asset-ingestion concern. Python source preserves top-level
+AST classes/functions and imports with source lines; other text currently preserves a whole-file
+block. This is deterministic structure, not an LLM code summary.
+
+Git current-version visibility is explicit: publishing or deduplicating a Git snapshot atomically
+marks other currently available Versions of the same Source `superseded`, while retaining their
+artifacts, canonical content, Evidence, and derived index rows for audit and future reactivation.
+Query providers already require `available` Evidence and Source Versions, so a current-code query
+cannot select a superseded Git revision. Re-seeing a retained immutable commit reactivates it and
+supersedes the formerly current Git Version. This transition is unavailable to generic/manual/
+document Sources, whose historical visibility behavior remains unchanged.
+
 ### Websites
 
 Generic websites use canonical URL detection, main-content extraction, sitemap/link discovery, deduplication, and conditional requests where available. Specialized adapters should preserve revision/category/navigation/thread semantics instead of scraping rendered text only.

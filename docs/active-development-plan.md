@@ -830,18 +830,40 @@ decision before code; it must not silently make current-code queries return obso
 
 ## Phase 8b — Git repository Source adapter
 
-Status: **planned — follow Phase 8a**
+Status: **complete (2026-08-25)**
 
 Goal: add a deterministic Git/GitHub adapter without expanding the document upload or credential
 surface.
 
+Phase 8b decisions (2026-08-25): the first adapter remains library-only. A trusted acquisition
+boundary supplies an immutable commit/tree/file snapshot; this phase adds no subprocess Git client,
+network request, public upload route, local-path reader, or private-Git Credential Vault mapping.
+Its source type is `git_snapshot`. A successful Git snapshot activation keeps immutable prior
+Versions, artifacts, Evidence, and derived index rows, but atomically changes other currently
+available Versions of the same Git Source to `superseded`; query channels already exclude a
+non-available Version. Re-seeing a previously superseded commit reactivates it and supersedes the
+other available Version. Generic/manual/document Source Versions retain their existing history
+behavior. This status transition must occur in the publication/deduplication transaction, never as
+a post-publication cleanup.
+
+The deliberately approved initial deny policy rejects an empty, absolute, traversal, or
+separator-normalized unsafe path; `.git` content; `.env` files; common private-key/credential
+filenames and key-store suffixes; and dependency/build/cache directories (`node_modules`, `vendor`,
+`.venv`, `venv`, `__pycache__`, `dist`, `build`, `.cache`, `.pytest_cache`, `.mypy_cache`). Denied
+bytes do not enter the stored sanitized Git snapshot, canonical documents, Evidence, job metadata,
+or errors. Binary/undecodable files are not raw child assets in this phase; they remain a later
+asset-ingestion concern.
+
 Git requirements:
 
-- immutable commit/tree identity and diff-driven incremental sync;
+- immutable commit/tree identity plus deterministic no-change/changed-commit behavior; the
+  authorized Git diff/acquisition driver is explicitly deferred to the Phase 9 external-source
+  boundary rather than inferred by this library-only compiler;
 - explicit ignore/deny secret, dependency, build, and cache policy;
 - source-code AST/symbol/import/dependency extraction where practical;
-- a safe acquisition boundary with public-HTTPS policy or an explicitly authorized future credential
-  reference; no token in Source locator/profile metadata;
+- no acquisition surface in this compiler; a future public-HTTPS policy or explicitly authorized
+  Credential Vault reference must be approved before a driver is added, and no token may enter a
+  Source locator/profile metadata;
 - explicit source-version retention/visibility semantics before an incremental sync claims that an
   obsolete revision cannot be returned by a current-code query;
 - no requirement to LLM-summarize every code file.
@@ -856,6 +878,47 @@ Required gate:
 
 Commit gate: one Phase 8b Git adapter implementation commit after the acquisition and retention
 contract is documented from repository evidence.
+
+### Phase 8b delivery record (2026-08-25)
+
+Implementation: `KnowledgeFabricGitAdapter` accepts only a trusted immutable repository snapshot
+(`source_id`, commit/tree identity, optional parent identity, and in-memory path/bytes entries) and
+deterministically compiles it into the existing `SourceSnapshotIngestionRequest`. It has no Git CLI,
+network, local-path, credential, or object-storage authority. The sanitized artifact includes only
+accepted UTF-8 text files and the commit/tree identity, so a changed commit remains a distinct
+immutable artifact even when a file body is unchanged. Python files retain top-level AST
+class/function sections and blocks plus deterministic imports; other accepted text files retain a
+file block. A no-change delivery has a stable retry key and reuses the existing source version.
+
+The pure `knowledge_fabric_git_policy.py` permits only full, compatible SHA-1 or SHA-256
+commit/tree identities and safe repository-relative paths. It rejects traversal, separator abuse,
+control characters, `.git`, `.env*`, credential/key names and suffixes, and the approved
+dependency/build/cache directories. The adapter omits denied and undecodable bytes before artifact,
+document, Evidence, or job creation. `activate_git_version` is restricted to `git_snapshot`
+Sources before any private upload. On a changed Git snapshot, publication atomically marks the
+other available version(s) for that same Source `superseded`; retained artifacts, Evidence, and
+derived index entries remain intact. Re-delivering a retained commit reactivates it in the same
+dedupe path and supersedes the former current version. Generic manual/document history behavior is
+unchanged.
+
+Validation: the Phase 3/5/6/7/8a/8b regression batch passed **33 tests with 3 expected PostgreSQL
+skips**; `python -m ruff check src tests` passed, and `python -m mypy` passed 365 source files.
+WSL-native mutmut ran against `knowledge_fabric_git_policy.py` after clearing its generated cache:
+**77/77 killed, 0 survived, timeout, or equivalent**. The generated `mutants/` cache was removed
+after recording the result.
+
+Commit: `60a8f39` (`feat: add deterministic Fabric Git snapshots`).
+
+Deliberate omissions: this boundary does not acquire a Git repository, invoke a Git client, read a
+local checkout, make public-HTTPS requests, implement a credential-vault reference, or determine a
+Git diff itself. A future authorized acquisition/sync worker must obtain the immutable tree and
+use Git revision/diff data to decide when to submit it. This phase deliberately provides the
+deterministic no-change/retry and changed-commit retention semantics that worker needs, without
+expanding its authority. It also does not ingest binary child assets, summarize code with an LLM,
+or alter R2's private-by-default/S3-compatible storage contract.
+
+Next action: Phase 9 must define the external acquisition/freshness boundary before adding any
+website, Wiki, API, or feed client.
 
 ## Phase 9 — Website/Wiki/API/feed adapters and adaptive freshness
 

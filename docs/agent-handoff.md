@@ -46,8 +46,15 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   manual text, Markdown, OOXML DOCX, and digital PDF bytes become existing immutable snapshot,
   canonical structure, and Evidence records through the Phase 3 service. It neither exposes an
   upload/local-path/network surface nor owns R2/S3 publication. Textless PDFs fail as a typed
-  OCR-required outcome; no fabricated text is persisted. Git acquisition, deny policy, credentials,
-  and source-version visibility are the next, separately planned Phase 8b boundary.
+  OCR-required outcome; no fabricated text is persisted. Phase 8b adds the similarly library-only
+  `git_snapshot` compiler: a trusted caller supplies immutable commit/tree/file bytes; a pure
+  policy excludes unsafe paths, secret/key material, dependency/build/cache paths, and undecodable
+  bytes before any R2 artifact or Evidence exists. It neither invokes Git nor reads a local path,
+  makes network calls, or accepts credentials. The existing ingestion service alone publishes the
+  private R2/S3-compatible artifact. New Git commits atomically supersede the prior available
+  version for the same Source without deleting its provenance/index rows; a retained commit can be
+  reactivated. Generic Source history remains unchanged. External Git/website acquisition and
+  freshness authority are Phase 9 work.
   Phase 4's corpus-bound canonical entities,
   evidence-backed runtime-resolution history, conflicting assertions, world events, typed Evidence
   Graph relations, and lifecycle cleanup remain unchanged. Canonical identity is
@@ -57,7 +64,7 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   canonical Server tuple `(platform, connection_id, workspace_id)` and explicit
   `KnowledgeServerAdministrator` membership remain unchanged. Only authenticated Super Admin can
   bootstrap/manage membership; owner-scoped Discord profiles and user-to-connection access grants
-  are not substitutes. Resume from the Phase 6 record in `docs/active-development-plan.md`.
+  are not substitutes. Resume from the Phase 9 record in `docs/active-development-plan.md`.
 - Production topology: PostgreSQL + pgvector is the target. While SQLite remains in use,
   keep one app replica and one persistent `/data` Volume.
 - Application configuration prefix: `CHARACTER_RELAY_*`.
