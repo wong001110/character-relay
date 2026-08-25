@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from echo_masque.persistence.models import Base, utcnow
@@ -108,6 +108,293 @@ class KnowledgeSourceRecord(Base):
     )
 
 
+class KnowledgeObjectArtifactRecord(Base):
+    """A private R2/S3 object reference; raw bytes never become a public database field."""
+
+    __tablename__ = "knowledge_object_artifacts"
+    __table_args__ = (
+        UniqueConstraint(
+            "storage_provider",
+            "bucket",
+            "object_key",
+            name="uq_knowledge_object_artifact_location",
+        ),
+        Index("ix_knowledge_object_artifact_source", "source_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    corpus_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_corpora.id"), index=True, nullable=False
+    )
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_sources.id"), index=True, nullable=False
+    )
+    storage_provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    bucket: Mapped[str] = mapped_column(String(255), nullable=False)
+    object_key: Mapped[str] = mapped_column(String(1024), nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    state: Mapped[str] = mapped_column(String(24), default="stored", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeSourceVersionRecord(Base):
+    """One immutable source snapshot anchored to a private original artifact."""
+
+    __tablename__ = "knowledge_source_versions"
+    __table_args__ = (
+        UniqueConstraint("source_id", "version_key", name="uq_knowledge_source_version_key"),
+        UniqueConstraint("source_id", "source_hash", name="uq_knowledge_source_version_hash"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_sources.id"), index=True, nullable=False
+    )
+    version_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    artifact_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_object_artifacts.id"), index=True, nullable=False
+    )
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="available", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeCanonicalDocumentRecord(Base):
+    """Structured source-version content, distinct from a regenerable retrieval chunk."""
+
+    __tablename__ = "knowledge_canonical_documents"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_version_id",
+            "canonical_locator",
+            name="uq_knowledge_canonical_document_locator",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_version_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_source_versions.id"), index=True, nullable=False
+    )
+    canonical_locator: Mapped[str] = mapped_column(String(1000), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    language: Mapped[str | None] = mapped_column(String(32))
+    mime_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeCanonicalSectionRecord(Base):
+    """Hierarchical canonical document structure with durable source coordinates."""
+
+    __tablename__ = "knowledge_canonical_sections"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id",
+            "structural_path",
+            name="uq_knowledge_canonical_section_path",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_canonical_documents.id"), index=True, nullable=False
+    )
+    parent_section_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_canonical_sections.id"), index=True
+    )
+    structural_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    heading: Mapped[str] = mapped_column(String(1000), default="", nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    coordinates_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeCanonicalBlockRecord(Base):
+    """One bounded structured textual unit; index chunks may later reference many blocks."""
+
+    __tablename__ = "knowledge_canonical_blocks"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id",
+            "structural_path",
+            name="uq_knowledge_canonical_block_path",
+        ),
+        Index("ix_knowledge_canonical_block_section", "section_id", "ordinal"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_canonical_documents.id"), index=True, nullable=False
+    )
+    section_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_canonical_sections.id"), index=True
+    )
+    structural_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    block_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    text_content: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    coordinates_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeAssetReferenceRecord(Base):
+    """A binary/image/table asset referenced privately from canonical structure."""
+
+    __tablename__ = "knowledge_asset_references"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id",
+            "structural_path",
+            name="uq_knowledge_asset_reference_path",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_canonical_documents.id"), index=True, nullable=False
+    )
+    block_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_canonical_blocks.id"), index=True
+    )
+    artifact_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_object_artifacts.id"), index=True, nullable=False
+    )
+    asset_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    structural_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    coordinates_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeEvidenceUnitRecord(Base):
+    """A bounded, source-addressable evidence target, never a durable chunk identity."""
+
+    __tablename__ = "knowledge_evidence_units"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_version_id",
+            "evidence_locator",
+            name="uq_knowledge_evidence_unit_locator",
+        ),
+        Index("ix_knowledge_evidence_unit_document", "document_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_version_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_source_versions.id"), index=True, nullable=False
+    )
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_canonical_documents.id"), index=True, nullable=False
+    )
+    block_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_canonical_blocks.id"), index=True
+    )
+    asset_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_asset_references.id"), index=True
+    )
+    evidence_locator: Mapped[str] = mapped_column(String(1200), nullable=False)
+    evidence_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    text_content: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    coordinates_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    authority_profile: Mapped[str] = mapped_column(String(80), default="standard", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="available", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeIngestionJobRecord(Base):
+    """Restart-safe background ingest work; no Character reply owns this state."""
+
+    __tablename__ = "knowledge_ingestion_jobs"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_id",
+            "job_type",
+            "idempotency_key",
+            name="uq_knowledge_ingestion_job_idempotency",
+        ),
+        Index("ix_knowledge_ingestion_job_status", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    corpus_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_corpora.id"), index=True, nullable=False
+    )
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_sources.id"), index=True, nullable=False
+    )
+    job_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_source_versions.id"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(24), default="queued", nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    current_stage: Mapped[str | None] = mapped_column(String(80))
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class KnowledgeIngestionCheckpointRecord(Base):
+    """Safe checkpoint metadata for one stage of a restartable ingestion job."""
+
+    __tablename__ = "knowledge_ingestion_checkpoints"
+    __table_args__ = (
+        UniqueConstraint(
+            "job_id",
+            "stage",
+            name="uq_knowledge_ingestion_checkpoint_stage",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_ingestion_jobs.id"), index=True, nullable=False
+    )
+    stage: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class KnowledgeDependencyInvalidationRecord(Base):
+    """Pending downstream work when an immutable version changes corpus evidence."""
+
+    __tablename__ = "knowledge_dependency_invalidations"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_version_id",
+            "dependency_type",
+            name="uq_knowledge_dependency_invalidation",
+        ),
+        Index("ix_knowledge_dependency_invalidation_status", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_version_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_source_versions.id"), index=True, nullable=False
+    )
+    dependency_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class KnowledgeAccessGrantRecord(Base):
     """One enable/disable state for a grantee's access to a corpus."""
 
@@ -172,9 +459,19 @@ class KnowledgeOverlayPolicyRecord(Base):
 
 __all__ = [
     "KnowledgeAccessGrantRecord",
+    "KnowledgeAssetReferenceRecord",
+    "KnowledgeCanonicalBlockRecord",
+    "KnowledgeCanonicalDocumentRecord",
+    "KnowledgeCanonicalSectionRecord",
     "KnowledgeCorpusRecord",
+    "KnowledgeDependencyInvalidationRecord",
+    "KnowledgeEvidenceUnitRecord",
+    "KnowledgeIngestionCheckpointRecord",
+    "KnowledgeIngestionJobRecord",
+    "KnowledgeObjectArtifactRecord",
     "KnowledgeOverlayPolicyRecord",
     "KnowledgeServerAdministratorRecord",
     "KnowledgeServerScopeRecord",
     "KnowledgeSourceRecord",
+    "KnowledgeSourceVersionRecord",
 ]

@@ -26,11 +26,13 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
 - Connector: Node/discord.js under `connectors/discord/`.
 - Persistence: SQLAlchemy; the Phase 1 PostgreSQL + pgvector foundation is implemented,
   while SQLite remains a development/test and temporary production-migration source.
-- Knowledge Fabric Phase 2 is complete on the active branch with the approved canonical Server tuple
-  `(platform, connection_id, workspace_id)` and explicit `KnowledgeServerAdministrator`
-  membership. Only authenticated Super Admin can bootstrap/manage membership; current
-  owner-scoped Discord profiles and user-to-connection access grants are not substitutes. Resume
-  Phase 3 only after reading the Phase 2 completion record in `docs/active-development-plan.md`.
+- Knowledge Fabric Phase 3 is complete at the current branch HEAD on the active branch. It adds immutable source
+  versions, canonical documents/sections/blocks/assets, Evidence Units, ingestion jobs/checkpoints,
+  invalidation records, and private Cloudflare R2/S3-compatible artifact storage. Phase 2's
+  canonical Server tuple `(platform, connection_id, workspace_id)` and explicit
+  `KnowledgeServerAdministrator` membership remain unchanged. Only authenticated Super Admin can
+  bootstrap/manage membership; owner-scoped Discord profiles and user-to-connection access grants
+  are not substitutes. Resume from the Phase 3 record in `docs/active-development-plan.md`.
 - Production topology: PostgreSQL + pgvector is the target. While SQLite remains in use,
   keep one app replica and one persistent `/data` Volume.
 - Application configuration prefix: `CHARACTER_RELAY_*`.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from sqlalchemy import delete, select, update
@@ -14,6 +15,9 @@ from echo_masque.knowledge_fabric_policy import (
     is_user_owned_by,
 )
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.knowledge_fabric_content_repository import (
+    KnowledgeFabricContentRepository,
+)
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeAccessGrantRecord,
     KnowledgeCorpusRecord,
@@ -53,11 +57,21 @@ class EffectiveKnowledgeCorpus:
     overlay_mode: str
 
 
+if TYPE_CHECKING:
+    from echo_masque.knowledge_object_storage import KnowledgeObjectStorage
+
+
 class KnowledgeFabricRepository:
     """Keep canonical server membership and corpus access in one explicit boundary."""
 
-    def __init__(self, database: Database) -> None:
+    def __init__(
+        self,
+        database: Database,
+        *,
+        object_storage: KnowledgeObjectStorage | None = None,
+    ) -> None:
         self.database = database
+        self.object_storage = object_storage
 
     def ensure_server_scope(
         self,
@@ -532,6 +546,10 @@ class KnowledgeFabricRepository:
     def delete_owner(self, user_id: str) -> dict[str, int]:
         """Delete only user-owned Fabric records and explicit user memberships/grants."""
 
+        content_repository = KnowledgeFabricContentRepository(
+            self.database,
+            object_storage=self.object_storage,
+        )
         with self.database.session() as session:
             corpus_ids = [
                 record.id
@@ -546,6 +564,7 @@ class KnowledgeFabricRepository:
                     account_id=user_id,
                 )
             ]
+            content_counts = content_repository.delete_content_for_corpora(corpus_ids)
             source_count = 0
             policy_count = 0
             corpus_grant_count = 0
@@ -606,6 +625,7 @@ class KnowledgeFabricRepository:
             )
             session.commit()
         return {
+            **content_counts,
             "knowledge_fabric_corpora": corpus_count,
             "knowledge_fabric_sources": source_count,
             "knowledge_fabric_corpus_grants": corpus_grant_count,

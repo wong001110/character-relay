@@ -79,7 +79,9 @@ from echo_masque.intelligence_v3_projection import ProjectionConversationRuntime
 from echo_masque.internal_context import InternalContextService
 from echo_masque.judge_evaluation import JudgeEvaluationService
 from echo_masque.knowledge_consolidation_v3 import KnowledgeConsolidationV3Service
+from echo_masque.knowledge_fabric_ingestion import KnowledgeFabricIngestionService
 from echo_masque.knowledge_gap_discovery_v3 import KnowledgeGapDiscoveryService
+from echo_masque.knowledge_object_storage import object_storage_from_settings
 from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
 from echo_masque.live_media_scoped import KeyGroupScopedLiveMediaContextService
 from echo_masque.media_tools import MediaToolRegistry
@@ -122,6 +124,9 @@ from echo_masque.persistence.conversation_structure_repository import (
     ConversationStructureRepository,
 )
 from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository
+from echo_masque.persistence.knowledge_fabric_content_repository import (
+    KnowledgeFabricContentRepository,
+)
 from echo_masque.persistence.server_knowledge_v3_repository import (
     KnowledgeConsolidationCheckpointV3Repository,
     ServerWikiV3Repository,
@@ -203,7 +208,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved,
     )
     knowledge_repository = KnowledgeRepository(database)
-    knowledge_fabric_repository = KnowledgeFabricRepository(database)
+    knowledge_object_storage = object_storage_from_settings(resolved)
+    knowledge_fabric_repository = KnowledgeFabricRepository(
+        database,
+        object_storage=knowledge_object_storage,
+    )
+    knowledge_fabric_content_repository = KnowledgeFabricContentRepository(
+        database,
+        object_storage=knowledge_object_storage,
+    )
+    knowledge_fabric_ingestion_service = KnowledgeFabricIngestionService(
+        knowledge_fabric_content_repository,
+        knowledge_object_storage,
+        object_key_prefix=resolved.knowledge_object_storage_prefix,
+    )
 
     # Intelligence Core v3 runtime authorities.
     belief_repository = BeliefRepository(database)
@@ -438,6 +456,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "Recovered %s interrupted Experiment Matrices as paused.",
             recovered_matrices,
         )
+    recovered_knowledge_ingestion_jobs = (
+        knowledge_fabric_ingestion_service.recover_interrupted_jobs()
+    )
+    if recovered_knowledge_ingestion_jobs:
+        logger.warning(
+            "Requeued %s interrupted Knowledge Fabric ingestion jobs.",
+            recovered_knowledge_ingestion_jobs,
+        )
     repository.seed_demo_targets()
     repository.remove_demo_character_cards()
     knowledge_consolidation_v3_service = KnowledgeConsolidationV3Service(
@@ -544,6 +570,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.semantic_participation_service = semantic_participation_service
     app.state.knowledge_repository = knowledge_repository
     app.state.knowledge_fabric_repository = knowledge_fabric_repository
+    app.state.knowledge_object_storage = knowledge_object_storage
+    app.state.knowledge_fabric_content_repository = knowledge_fabric_content_repository
+    app.state.knowledge_fabric_ingestion_service = knowledge_fabric_ingestion_service
     app.state.entity_evidence_repository = entity_evidence_repository
     app.state.knowledge_gap_discovery_service = knowledge_gap_discovery_service
     app.state.context_resolver_v3 = context_resolver_v3

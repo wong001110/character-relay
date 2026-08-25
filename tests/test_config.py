@@ -1,6 +1,13 @@
 from typing import Any
 
+import pytest
+from pydantic import ValidationError
+
 from echo_masque.config import Settings
+from echo_masque.knowledge_object_storage import (
+    ObjectStorageUnavailable,
+    object_storage_from_settings,
+)
 
 
 def test_default_settings_require_no_credentials() -> None:
@@ -50,3 +57,28 @@ def test_discord_tool_token_uses_connector_env_name(monkeypatch: Any) -> None:
 
     assert settings.discord_tool_bot_token is not None
     assert settings.discord_tool_bot_token.get_secret_value() == "shared-discord-token"
+
+
+def test_knowledge_object_storage_defaults_to_unconfigured_private_r2_boundary() -> None:
+    storage = object_storage_from_settings(Settings(environment="test"))
+
+    with pytest.raises(ObjectStorageUnavailable, match="not configured"):
+        storage.put_private(
+            object_key="knowledge-fabric/source/aa/hash",
+            content=b"source",
+            content_type="text/plain",
+            metadata={},
+        )
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://account.r2.cloudflarestorage.com",
+        "https://key:secret@account.r2.cloudflarestorage.com",
+        "https://account.r2.cloudflarestorage.com?token=secret",
+    ],
+)
+def test_knowledge_object_storage_endpoint_rejects_credentials_and_non_https(endpoint: str) -> None:
+    with pytest.raises(ValidationError, match="credential-free HTTPS"):
+        Settings(environment="test", knowledge_object_storage_endpoint=endpoint)

@@ -134,6 +134,27 @@ CHARACTER_RELAY_PUBLIC_DEMO_ENABLED=true
 
 Do not define `PORT`. Keep passwords, Fernet keys, provider keys, Bot tokens, and connector secrets outside Git.
 
+### Knowledge Fabric private artifact storage
+
+Phase 3 uses a private Cloudflare R2 bucket for original Knowledge Fabric source artifacts. The
+application uses the S3-compatible API only; AWS S3 is an explicit supported alternative, not a
+public download path. Configure the bucket and credentials only in the service environment:
+
+```text
+CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_PROVIDER=cloudflare_r2
+CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_BUCKET=<private-bucket-name>
+CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_ACCESS_KEY_ID=<R2 access key ID>
+CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_SECRET_ACCESS_KEY=<R2 secret access key>
+CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_PREFIX=knowledge-fabric
+```
+
+For AWS S3, set `..._PROVIDER=aws_s3`, the private bucket, access key and secret, and a required
+`CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_REGION`; an S3-compatible private endpoint is optional.
+Do not put these values in Portal settings, source-adapter credentials, exports, traces, logs, or
+fixtures. The application stores only provider, bucket, object key, hash, size, and content type;
+it does not generate public object URLs or ACLs.
+
 ## 5. Bootstrap and authenticate Admin access
 
 Configure the Bootstrap Admin email/password together and deploy. Sign in through the normal authentication flow; Admin routes, Storage & Backup, probes, and runtime administration use the authenticated HttpOnly Session and server-side role checks.

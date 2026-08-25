@@ -414,6 +414,16 @@ Do not introduce Qdrant/Milvus/etc. in the first cutover unless measured scale r
 
 Object storage (S3/R2-compatible) owns original and large artifacts such as PDF/DOCX snapshots, source archives, images, and other binary assets. The database stores object references and hashes rather than large source blobs.
 
+### Phase 3 object-storage decision
+
+Cloudflare R2 is the production object-storage provider. Knowledge Fabric uses R2 through its
+S3-compatible protocol with private-by-default objects, allowing a future explicitly configured
+AWS S3 deployment without changing the persistence or caller contract. The R2 endpoint, bucket,
+access-key ID, and secret access key are deployment-only server settings; they are never stored in
+Source fields, returned by an API, or copied into audit/log/trace metadata. Source-specific
+third-party credentials remain separately scoped Credential Vault records when the corresponding
+adapters are introduced.
+
 ## PostgreSQL cutover contract
 
 PostgreSQL migration occurs before large Knowledge Fabric ingestion so the new schema is not designed twice around SQLite limitations.

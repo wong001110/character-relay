@@ -1,6 +1,6 @@
 # Mutation Testing
 
-Status: **required quality practice for protected decision logic; Knowledge Fabric Phase 2 adds its first targeted authorization/lifecycle scope**
+Status: **required quality practice for protected decision logic; Knowledge Fabric Phase 3 adds a targeted ingestion idempotency/lifecycle scope**
 
 Mutation testing evaluates whether tests detect a small semantic change in production code. It
 does not replace ordinary unit, integration, migration, authorization, or live-deployment tests.
@@ -31,7 +31,7 @@ would reject a changed behavior.
 
 | Surface | Runner | Initial bounded scope | Where to run |
 | --- | --- | --- | --- |
-| Python | `mutmut` with pytest (`tests/test_knowledge_fabric_policy.py`) | `echo_masque.knowledge_fabric_policy` | Ubuntu CI or an installed WSL distribution |
+| Python | `mutmut` with pytest (`tests/test_knowledge_fabric_ingestion_policy.py`) | `echo_masque.knowledge_fabric_ingestion_policy` | Ubuntu CI or an installed WSL distribution |
 | Portal | StrykerJS with Vitest and TypeScript checking | `web/src/portalEnvironment.ts` | Node 22+ |
 | Discord Connector | StrykerJS with Vitest and TypeScript checking | `connectors/discord/src/audiencePreflight.ts` | Node 24.17+ |
 
@@ -73,8 +73,13 @@ that the mutant was killed.
   grant-before-access, overlay precedence, and user-only lifecycle/claim rules. Repository/API
   integration remains covered by the Phase 2 regression suite; mutation results apply only to
   this deterministic policy module.
-- Phases 3–6: version/job idempotency, canonical/runtime-entity resolution, authorization-before-
-  ranking, epistemic filtering, and Character-context injection receive targeted mutation scopes.
+- Phase 3: `knowledge_fabric_ingestion_policy.py` supplies the focused mutable boundary for
+  terminal job status, running-job claim/requeue decisions, source-version hash equality, and
+  deterministic content-addressed artifact keys. Persistence and private S3/R2 operations remain
+  covered by the Phase 3 integration suite; mutation results apply only to this deterministic
+  ingestion policy module.
+- Phases 4–6: canonical/runtime-entity resolution, authorization-before-ranking, epistemic
+  filtering, and Character-context injection receive targeted mutation scopes.
 - Phases 7–11: Projection invalidation, source/adaptor secret exclusion, Character policy, and
   privileged Portal/Connector decisions receive targeted mutation scopes as those consumers move.
 

@@ -82,6 +82,14 @@ from echo_masque.persistence.key_group_repository import (
     KeyGroupRepository,
     ResolvedKeyGroup,
 )
+from echo_masque.persistence.knowledge_fabric_content_repository import (
+    CanonicalBlockInput,
+    CanonicalDocumentInput,
+    CanonicalSectionInput,
+    KnowledgeFabricContentRepository,
+    KnowledgeIngestionAlreadyRunning,
+    KnowledgeSourceVersionConflict,
+)
 from echo_masque.persistence.knowledge_fabric_repository import KnowledgeFabricRepository
 from echo_masque.persistence.knowledge_models import (
     KnowledgeBaseRecord,
@@ -149,6 +157,9 @@ __all__ = [
     "CalibrationConflict",
     "CalibrationDatasetRecord",
     "CalibrationRepository",
+    "CanonicalBlockInput",
+    "CanonicalDocumentInput",
+    "CanonicalSectionInput",
     "CharacterDeploymentRecord",
     "CharacterKeyGroupAssignmentRecord",
     "CharacterSemanticProfileRecord",
@@ -196,9 +207,12 @@ __all__ = [
     "KnowledgeBaseRecord",
     "KnowledgeChunkRecord",
     "KnowledgeDocumentRecord",
+    "KnowledgeFabricContentRepository",
     "KnowledgeFabricRepository",
+    "KnowledgeIngestionAlreadyRunning",
     "KnowledgeRepository",
     "KnowledgeRetrievalResult",
+    "KnowledgeSourceVersionConflict",
     "MatrixRepository",
     "MediaAnalysisRecord",
     "MediaAnalysisRepository",

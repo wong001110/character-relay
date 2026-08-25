@@ -16,7 +16,7 @@ by a coherent phase—do not regenerate unrelated documentation.
 | Utility / Turn Director | `utility_gateway_*.py`, `connector_runtime.py` | `test_utility_gateway_*.py`, `test_turn_director_runtime.py` | `docs/turn-director-prompt-implementation.md` |
 | Social intelligence | `social_intelligence_v3.py`, `social_event_runtime.py` | `test_social_event_runtime_v3.py` | Intelligence v3 contract |
 | Media and tools | `media_*`, `tool_runtime.py`, `internal_context.py` | `test_media_*.py`, `test_tool_runtime.py` | media/tool contracts named in `docs/agent-handoff.md` |
-| Knowledge Fabric scope/access | `persistence/knowledge_fabric_*`, `knowledge_fabric_policy.py`, `api/routes/knowledge_fabric.py` | `tests/test_knowledge_fabric_phase2.py` | `docs/knowledge-fabric-architecture.md`, active Phase 2 plan |
+| Knowledge Fabric scope/content/ingestion | `persistence/knowledge_fabric_*`, `knowledge_fabric_policy.py`, `knowledge_fabric_ingestion*.py`, `knowledge_object_storage.py`, `api/routes/knowledge_fabric.py` | `tests/test_knowledge_fabric_phase2.py`, `tests/test_knowledge_fabric_phase3.py`, `tests/test_knowledge_fabric_ingestion_policy.py` | `docs/knowledge-fabric-architecture.md`, active Phase 3 plan |
 | Knowledge, RAG, Wiki | `knowledge_*`, `character_turn_context_v3.py` | knowledge/context tests | `docs/context-rag-v1.md` |
 | Observability | `providers/trace.py`, `runtime_trace.py` | `test_provider_trace*.py`, runtime trace tests | `docs/provider-tracing.md` |
 | Evaluation / calibration | evaluation services and `api/routes/` | `test_phase14.py`, `test_phase16_*.py` | `docs/phase-14-experiment-matrix.md`, `docs/phase-16-authoring.md` |

@@ -1,13 +1,13 @@
 # Active development plan — Knowledge Fabric foundation
 
-Status: **branch-local execution record — Phase 0 complete when this planning commit is at HEAD; next phase is PostgreSQL foundation**
+Status: **branch-local execution record — Phase 3 complete at the current branch HEAD; next phase is canonical corpus entities/assertions/events**
 
 | Field | Value |
 | --- | --- |
 | Active branch | `codex/knowledge-fabric-foundation` |
 | Starting baseline | `main` at `68169b8d878ef4d8475e1e52c812fffcb19249a4` |
 | Delivery mode | coherent phase batches; at most one implementation commit per phase |
-| Current phase | Phase 3 — Canonical content, source versions, Evidence Units and object storage (planned) |
+| Current phase | Phase 4 — canonical corpus entities, assertions/events and Evidence Graph bridge (planned) |
 | Integration owner | main/root coding agent for the active session |
 | Target architecture | `docs/knowledge-fabric-architecture.md` |
 | Blast-radius map | `docs/knowledge-fabric-impact-map.md` |
@@ -306,7 +306,7 @@ content, Evidence Unit, artifact, or ingestion-job persistence.
 
 ## Phase 3 — canonical content, source versioning, Evidence Units and object storage
 
-Status: **planned**
+Status: **complete — current branch HEAD implementation commit**
 
 Goal: make source artifacts/versioned structure/evidence the durable imported-knowledge foundation.
 
@@ -331,6 +331,15 @@ Required behavior:
 - dependency invalidation hooks for later indexes/projections;
 - no mandatory LLM call to import a source.
 
+Approved Phase 3 storage decision (2026-08-25): Cloudflare R2 is the production object store.
+The persistence boundary uses the S3-compatible protocol so a future AWS S3 deployment can be
+configured explicitly without changing Knowledge records or callers. The service-level R2 endpoint,
+bucket, access-key ID, and secret access key are deployment-only configuration; secret values are
+server-side `SecretStr` settings and never Source fields, API responses, audit metadata, logs, or
+traces. Per-Source credentials (for private Git/API/Web adapters) remain an explicit later
+Credential Vault concern rather than being reused as R2 infrastructure credentials. Objects are
+private by default and database records store only provider/bucket/key/hash/size/content metadata.
+
 Required gate:
 
 - version/diff/idempotency tests;
@@ -340,6 +349,52 @@ Required gate:
 - lifecycle deletion tests.
 
 Commit gate: one canonical-content/evidence foundation commit.
+
+Sequencing findings to resolve in their owning phases: Phase 6 requires a Character epistemic gate
+before prompt injection even though the detailed Character policy phase is currently Phase 10; do
+not introduce a permissive interim fallback. Phase 7 may not delete Wiki compatibility until every
+runtime, API, and Portal consumer has migrated, so its deletion boundary must be aligned with the
+Phase 11 Portal cutover before either phase claims completion.
+
+Phase 3 completion record:
+
+```text
+Status: complete — current branch HEAD implementation commit
+Commit: `feat: add Knowledge Fabric ingestion foundation` (resolve final hash with `git log -1 --oneline`)
+Changed authority/contracts: immutable Source Versions, canonical documents/sections/blocks/assets,
+Evidence Units, source-version job/checkpoint/invalidation state, and private content-addressed
+artifact records now exist. Cloudflare R2 is the production private object-storage provider through
+an S3-compatible boundary; AWS S3 is an explicit deployment alternative. No Source credential,
+public object URL/ACL, LLM dependency, Character Belief authority, or synchronous Character reply
+path was added.
+Key files: src/echo_masque/knowledge_fabric_ingestion.py;
+src/echo_masque/knowledge_fabric_ingestion_policy.py;
+src/echo_masque/knowledge_object_storage.py;
+src/echo_masque/persistence/knowledge_fabric_content_repository.py;
+src/echo_masque/persistence/knowledge_fabric_models.py;
+src/echo_masque/persistence/schema_migrations.py;
+tests/test_knowledge_fabric_phase3.py;
+tests/test_knowledge_fabric_ingestion_policy.py
+Validation: python -m ruff check . and python -m mypy passed (352 source files). Focused
+Python regression batch passed: 69 passed, 2 expected PostgreSQL skips, 1 existing TestClient
+deprecation warning. WSL-native mutmut scope ran 24 mutants: 20 killed, 0 timeout/tooling failures,
+4 equivalent survivors. Real WSL Docker pgvector PostgreSQL 16 passed the guarded foundation and
+SQLite-to-PostgreSQL migration tests: 2 passed, 7 deselected (6.31s); its named disposable
+container was removed.
+Mutation equivalence: deterministic_artifact_key mutants 11, 12, 17, and 19 alter only private
+ValueError message capitalization/prefix text. Callers receive no message as a persisted/API
+contract and behavior tests prove the exception class and safe error code boundary; they are
+recorded equivalently rather than made brittle string contracts. Mutant 3 (incorrectly stripping
+valid prefix content) was killed by a behavior-level prefix-preservation assertion.
+Migration/data action: new idempotent knowledge-fabric-content-v1 revision creates the content/job
+tables for SQLite/PostgreSQL. Existing source data is not imported or converted in this phase.
+Known deviations: real Cloudflare credentials/bucket access is deliberately not exercised locally;
+the S3-compatible client contract, private/no-ACL behavior, unavailable-storage failure, and
+lifecycle cleanup are covered without deployment secrets. Source adapters and their Vault-backed
+credentials remain later phases.
+Next action: begin Phase 4 canonical corpus entities/assertions/events and the Evidence Graph bridge
+without merging imported corpus facts into BeliefV3.
+```
 
 ## Phase 4 — canonical corpus entities, assertions/events and Evidence Graph bridge
 
@@ -691,7 +746,8 @@ If you are an AI Coding Agent arriving on this branch now:
 - do not merge imported world facts into `BeliefV3`;
 - do not duplicate global corpus records per Server.
 
-Start with **Phase 1 PostgreSQL production foundation**, preserve current runtime behavior, and only move to Corpus/Source schema after the database gate passes.
+Resume at the recorded current phase after verifying the branch and completion records. Do not
+restart completed foundation phases or infer that an uncommitted phase record is already on `main`.
 
 ### 2026-08-25 Phase 1 mutation-testing foundation update
 

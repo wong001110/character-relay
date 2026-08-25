@@ -71,11 +71,21 @@ from echo_masque.persistence.intelligence_v3_migration_models import (
 )
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeAccessGrantRecord,
+    KnowledgeAssetReferenceRecord,
+    KnowledgeCanonicalBlockRecord,
+    KnowledgeCanonicalDocumentRecord,
+    KnowledgeCanonicalSectionRecord,
     KnowledgeCorpusRecord,
+    KnowledgeDependencyInvalidationRecord,
+    KnowledgeEvidenceUnitRecord,
+    KnowledgeIngestionCheckpointRecord,
+    KnowledgeIngestionJobRecord,
+    KnowledgeObjectArtifactRecord,
     KnowledgeOverlayPolicyRecord,
     KnowledgeServerAdministratorRecord,
     KnowledgeServerScopeRecord,
     KnowledgeSourceRecord,
+    KnowledgeSourceVersionRecord,
 )
 from echo_masque.persistence.operational_migration_models import (
     OperationalDataMigrationRecord,
@@ -286,6 +296,16 @@ class Database:
             KnowledgeServerAdministratorRecord,
             KnowledgeCorpusRecord,
             KnowledgeSourceRecord,
+            KnowledgeObjectArtifactRecord,
+            KnowledgeSourceVersionRecord,
+            KnowledgeCanonicalDocumentRecord,
+            KnowledgeCanonicalSectionRecord,
+            KnowledgeCanonicalBlockRecord,
+            KnowledgeAssetReferenceRecord,
+            KnowledgeEvidenceUnitRecord,
+            KnowledgeIngestionJobRecord,
+            KnowledgeIngestionCheckpointRecord,
+            KnowledgeDependencyInvalidationRecord,
             KnowledgeAccessGrantRecord,
             KnowledgeOverlayPolicyRecord,
         )
@@ -296,11 +316,13 @@ class Database:
         # pgvector without creating Knowledge Fabric semantics during this phase.
         from echo_masque.persistence.schema_migrations import (
             DatabaseFoundationMigration,
+            KnowledgeFabricContentMigration,
             KnowledgeFabricScopeMigration,
         )
 
         DatabaseFoundationMigration(self).run()
         KnowledgeFabricScopeMigration(self).run()
+        KnowledgeFabricContentMigration(self).run()
 
         if not allow_incomplete_data_migration:
             self._assert_no_incomplete_data_migration()
