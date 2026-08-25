@@ -1,13 +1,13 @@
 # Active development plan — Knowledge Fabric foundation
 
-Status: **branch-local execution record — Phases 1–8b and 9 are complete; Phase 10 remains**
+Status: **branch-local execution record — Phases 1–10 are complete; Phase 11 remains**
 
 | Field | Value |
 | --- | --- |
 | Active branch | `codex/knowledge-fabric-foundation` |
 | Starting baseline | `main` at `68169b8d878ef4d8475e1e52c812fffcb19249a4` |
 | Delivery mode | coherent phase batches; at most one implementation commit per phase |
-| Current phase | Phase 10 — persisted Character corpus policy (planned) |
+| Current phase | Phase 11 — Portal/Admin operations and final cutover (planned) |
 | Integration owner | main/root coding agent for the active session |
 | Target architecture | `docs/knowledge-fabric-architecture.md` |
 | Blast-radius map | `docs/knowledge-fabric-impact-map.md` |
@@ -1008,7 +1008,7 @@ authority, and the remaining full Phase 9 gate.
 
 ## Phase 10 — Character epistemic policy
 
-Status: **planned**
+Status: **complete — corpus-level implementation committed; deferred schemas remain unapproved**
 
 Goal: prevent “server can access corpus” from becoming “every Character knows the corpus.”
 
@@ -1034,6 +1034,14 @@ Required gate:
 - targeted mutation scope for Character corpus/domain allow/deny and authored override decisions.
 
 Commit gate: one epistemic-policy commit.
+
+### 2026-08-26 Phase 10 completion gate
+
+    Commit: 718326e (feat: add Character corpus epistemic policy)
+    Changed authority/contracts: an additive, server-scope-bound `(deployment, Character card, corpus)` policy persists `allow` or `deny`; no policy denies by default and deny wins. Authoring verifies the current deployment/card belongs to the target scope and corpus is already server-authorized. Query authorization remains before ranking; this policy is only the shared final prompt/internal-tool admission gate. Super Admin or explicit scope administrators author through the audited API.
+    Validation: focused persistence/API policy tests passed; existing epistemic, turn-context, internal-tool, Phase 2 and database batches were run as the coherent gate. Ruff, MyPy (377 files), and diff check passed. WSL-native mutmut: 3 killed / 0 survived / 0 timeout.
+    Deliberate omissions: no invented domain, timeline, spoiler, perspective, or known-entity schema; authority profiles do not become domains by inference.
+    Next action: Phase 11 Portal/Admin operational surfaces, lifecycle/audit hardening, and final compatibility cleanup.
 
 ## Phase 11 — Portal/Admin operations, lifecycle hardening, scale and cleanup
 

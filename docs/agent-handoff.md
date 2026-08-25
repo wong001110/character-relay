@@ -65,8 +65,9 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   links. Phase 9b-2 adds source-local Atom current-entry pointers: unchanged entry Evidence stays
   reusable, changed/removed entries invalidate only their derived indexes, and current candidates/
   projections fail closed to that map while preserving historical SourceVersion provenance. A
-  format-only feed snapshot creates no derived invalidation. Phase 10 persisted Character policy
-  remains.
+  format-only feed snapshot creates no derived invalidation. Phase 10 adds persisted scoped
+  Character corpus allow/deny: missing policy denies, deny wins, and server authorization still
+  happens before retrieval. Resume from Phase 11 in `docs/active-development-plan.md`.
   Phase 4's corpus-bound canonical entities,
   evidence-backed runtime-resolution history, conflicting assertions, world events, typed Evidence
   Graph relations, and lifecycle cleanup remain unchanged. Canonical identity is
