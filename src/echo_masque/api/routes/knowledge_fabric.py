@@ -13,6 +13,8 @@ from echo_masque.api.dependencies import (
 )
 from echo_masque.api.knowledge_fabric_schemas import (
     KnowledgeAccessGrantView,
+    KnowledgeCharacterCorpusPolicyUpdate,
+    KnowledgeCharacterCorpusPolicyView,
     KnowledgeCorpusCreate,
     KnowledgeCorpusView,
     KnowledgeExternalSourceScheduleUpdate,
@@ -423,6 +425,63 @@ def set_server_overlay_policy(
         metadata={"server_scope_id": scope.id, "corpus_id": corpus_id, "mode": record.mode},
     )
     return KnowledgeOverlayPolicyView.from_record(record)
+
+
+@router.get(
+    "/server-scopes/{scope_id}/character-corpus-policies",
+    response_model=list[KnowledgeCharacterCorpusPolicyView],
+)
+def list_character_corpus_policies(
+    scope_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+) -> list[KnowledgeCharacterCorpusPolicyView]:
+    scope = _scope_for_actor(request, scope_id=scope_id, user=user)
+    return [
+        KnowledgeCharacterCorpusPolicyView.from_record(record)
+        for record in _fabric(request).list_character_corpus_policies(scope.id)
+    ]
+
+
+@router.put(
+    "/server-scopes/{scope_id}/deployments/{deployment_id}/corpora/{corpus_id}/epistemic-policy",
+    response_model=KnowledgeCharacterCorpusPolicyView,
+)
+def set_character_corpus_policy(
+    scope_id: str,
+    deployment_id: str,
+    corpus_id: str,
+    payload: KnowledgeCharacterCorpusPolicyUpdate,
+    request: Request,
+    user: CurrentUserDependency,
+) -> KnowledgeCharacterCorpusPolicyView:
+    scope = _scope_for_actor(request, scope_id=scope_id, user=user)
+    try:
+        record = _fabric(request).set_character_corpus_policy(
+            server_scope_id=scope.id,
+            deployment_id=deployment_id,
+            corpus_id=corpus_id,
+            effect=payload.effect,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if record is None:
+        raise HTTPException(status_code=404, detail="Character Deployment not found.")
+    _audit(
+        request,
+        actor_user_id=user.id,
+        action="knowledge_fabric.character_corpus_policy_updated",
+        resource_type="knowledge_character_corpus_policy",
+        resource_id=record.id,
+        metadata={
+            "server_scope_id": scope.id,
+            "deployment_id": record.deployment_id,
+            "character_card_id": record.character_card_id,
+            "corpus_id": record.corpus_id,
+            "effect": record.effect,
+        },
+    )
+    return KnowledgeCharacterCorpusPolicyView.from_record(record)
 
 
 @router.post(

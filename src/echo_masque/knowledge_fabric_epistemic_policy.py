@@ -1,7 +1,7 @@
 """Fail-closed Character epistemic admission for Knowledge Fabric evidence.
 
-Phase 6 establishes the runtime boundary only.  Phase 10 owns the persisted authored
-allow/deny, timeline, spoiler, and perspective policy that will implement this protocol.
+Phase 6 establishes the runtime boundary. Phase 10 supplies persisted authored corpus admission;
+timeline, spoiler, perspective, and domain schemas remain separately unapproved.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from echo_masque.knowledge_fabric_query import KnowledgeQueryHit
+from echo_masque.persistence.knowledge_fabric_repository import KnowledgeFabricRepository
 
 
 class CharacterEpistemicPolicy(Protocol):
@@ -39,6 +40,28 @@ class DenyAllCharacterEpistemicPolicy:
         return False
 
 
+class PersistedCharacterEpistemicPolicy:
+    """Use only explicit, server-scope-bound authored corpus decisions."""
+
+    def __init__(self, repository: KnowledgeFabricRepository) -> None:
+        self.repository = repository
+
+    def allows(
+        self,
+        *,
+        deployment_id: str,
+        character_card_id: str,
+        corpus_id: str,
+        authority_profile: str,
+    ) -> bool:
+        del authority_profile
+        return self.repository.character_corpus_is_admitted(
+            deployment_id=deployment_id,
+            character_card_id=character_card_id,
+            corpus_id=corpus_id,
+        )
+
+
 def evidence_may_enter_character_context(
     *,
     policy: CharacterEpistemicPolicy,
@@ -62,5 +85,6 @@ def evidence_may_enter_character_context(
 __all__ = [
     "CharacterEpistemicPolicy",
     "DenyAllCharacterEpistemicPolicy",
+    "PersistedCharacterEpistemicPolicy",
     "evidence_may_enter_character_context",
 ]

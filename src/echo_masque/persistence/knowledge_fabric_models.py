@@ -938,6 +938,44 @@ class KnowledgeOverlayPolicyRecord(Base):
     )
 
 
+class KnowledgeCharacterCorpusPolicyRecord(Base):
+    """An authored Character admission decision after server/corpus authorization."""
+
+    __tablename__ = "knowledge_character_corpus_policies"
+    __table_args__ = (
+        UniqueConstraint(
+            "server_scope_id",
+            "deployment_id",
+            "character_card_id",
+            "corpus_id",
+            name="uq_knowledge_character_corpus_policy",
+        ),
+        Index(
+            "ix_knowledge_character_corpus_policy_lookup",
+            "deployment_id",
+            "character_card_id",
+            "corpus_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    server_scope_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_server_scopes.id"), index=True, nullable=False
+    )
+    # Deployment/Card lifecycle is independently owned by Runtime, so authoring validates their
+    # current scope rather than introducing a cross-domain delete dependency.
+    deployment_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    character_card_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    corpus_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_corpora.id"), index=True, nullable=False
+    )
+    effect: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 __all__ = [
     "KnowledgeAccessGrantRecord",
     "KnowledgeAssetReferenceRecord",

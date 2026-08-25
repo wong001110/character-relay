@@ -82,7 +82,7 @@ from echo_masque.judge_evaluation import JudgeEvaluationService
 from echo_masque.knowledge_consolidation_v3 import KnowledgeConsolidationV3Service
 from echo_masque.knowledge_fabric_atom_sync import KnowledgeFabricAtomSyncService
 from echo_masque.knowledge_fabric_context import KnowledgeContextBuilder
-from echo_masque.knowledge_fabric_epistemic_policy import DenyAllCharacterEpistemicPolicy
+from echo_masque.knowledge_fabric_epistemic_policy import PersistedCharacterEpistemicPolicy
 from echo_masque.knowledge_fabric_external_policy import (
     ATOM_PUBLIC_HTTPS_SOURCE_TYPE,
     WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE,
@@ -248,7 +248,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     # One fail-closed policy instance gates both automatic turn context and explicit
     # internal knowledge.search Tool output before either can return to a Character.
-    character_epistemic_policy = DenyAllCharacterEpistemicPolicy()
+    character_epistemic_policy = PersistedCharacterEpistemicPolicy(knowledge_fabric_repository)
     knowledge_context_builder = KnowledgeContextBuilder(
         fabric_repository=knowledge_fabric_repository,
         query_engine=knowledge_query_engine,

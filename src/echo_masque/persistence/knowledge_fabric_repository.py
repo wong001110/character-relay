@@ -9,12 +9,17 @@ from uuid import uuid4
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
+from echo_masque.knowledge_fabric_character_policy import (
+    CHARACTER_CORPUS_EFFECTS,
+    character_corpus_is_admitted,
+)
 from echo_masque.knowledge_fabric_policy import (
     is_local_user_owned,
     is_user_grant_for_account,
     is_user_owned_by,
 )
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.knowledge_fabric_content_repository import (
     KnowledgeFabricContentRepository,
 )
@@ -23,9 +28,10 @@ from echo_masque.persistence.knowledge_fabric_interpretation_repository import (
 )
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeAccessGrantRecord,
+    KnowledgeCharacterCorpusPolicyRecord,
     KnowledgeCorpusRecord,
-    KnowledgeExternalSourceSyncStateRecord,
     KnowledgeExternalSourceScheduleRecord,
+    KnowledgeExternalSourceSyncStateRecord,
     KnowledgeOverlayPolicyRecord,
     KnowledgeServerAdministratorRecord,
     KnowledgeServerScopeRecord,
@@ -469,6 +475,114 @@ class KnowledgeFabricRepository:
                 )
             )
 
+    def set_character_corpus_policy(
+        self,
+        *,
+        server_scope_id: str,
+        deployment_id: str,
+        corpus_id: str,
+        effect: str,
+    ) -> KnowledgeCharacterCorpusPolicyRecord | None:
+        """Author one explicit corpus decision only for its current deployment/server identity."""
+
+        if effect not in CHARACTER_CORPUS_EFFECTS:
+            raise ValueError("Unknown Character corpus policy effect.")
+        if not self.is_corpus_effectively_available(
+            server_scope_id=server_scope_id,
+            corpus_id=corpus_id,
+        ):
+            raise ValueError("Knowledge Corpus is not available to this server scope.")
+        with self.database.session() as session:
+            scope = session.get(KnowledgeServerScopeRecord, server_scope_id)
+            deployment = session.get(CharacterDeploymentRecord, deployment_id)
+            if scope is None or deployment is None:
+                return None
+            if (
+                deployment.platform != scope.platform
+                or deployment.connection_id != scope.connection_id
+                or deployment.workspace_id != scope.workspace_id
+            ):
+                return None
+            existing = session.scalar(
+                select(KnowledgeCharacterCorpusPolicyRecord).where(
+                    KnowledgeCharacterCorpusPolicyRecord.server_scope_id == server_scope_id,
+                    KnowledgeCharacterCorpusPolicyRecord.deployment_id == deployment_id,
+                    KnowledgeCharacterCorpusPolicyRecord.character_card_id
+                    == deployment.character_card_id,
+                    KnowledgeCharacterCorpusPolicyRecord.corpus_id == corpus_id,
+                )
+            )
+            if existing is None:
+                existing = KnowledgeCharacterCorpusPolicyRecord(
+                    id=str(uuid4()),
+                    server_scope_id=server_scope_id,
+                    deployment_id=deployment_id,
+                    character_card_id=deployment.character_card_id,
+                    corpus_id=corpus_id,
+                    effect=effect,
+                )
+                session.add(existing)
+            else:
+                existing.effect = effect
+            session.commit()
+            session.refresh(existing)
+            return existing
+
+    def list_character_corpus_policies(
+        self,
+        server_scope_id: str,
+    ) -> list[KnowledgeCharacterCorpusPolicyRecord]:
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(KnowledgeCharacterCorpusPolicyRecord)
+                    .where(KnowledgeCharacterCorpusPolicyRecord.server_scope_id == server_scope_id)
+                    .order_by(
+                        KnowledgeCharacterCorpusPolicyRecord.deployment_id,
+                        KnowledgeCharacterCorpusPolicyRecord.character_card_id,
+                        KnowledgeCharacterCorpusPolicyRecord.corpus_id,
+                    )
+                )
+            )
+
+    def character_corpus_is_admitted(
+        self,
+        *,
+        deployment_id: str,
+        character_card_id: str,
+        corpus_id: str,
+    ) -> bool:
+        """Read one bounded explicit decision; absent/mismatched state denies by default."""
+
+        with self.database.session() as session:
+            effects = frozenset(
+                session.scalars(
+                    select(KnowledgeCharacterCorpusPolicyRecord.effect)
+                    .join(
+                        KnowledgeServerScopeRecord,
+                        KnowledgeServerScopeRecord.id
+                        == KnowledgeCharacterCorpusPolicyRecord.server_scope_id,
+                    )
+                    .join(
+                        CharacterDeploymentRecord,
+                        CharacterDeploymentRecord.id
+                        == KnowledgeCharacterCorpusPolicyRecord.deployment_id,
+                    )
+                    .where(
+                        KnowledgeCharacterCorpusPolicyRecord.deployment_id == deployment_id,
+                        KnowledgeCharacterCorpusPolicyRecord.character_card_id == character_card_id,
+                        KnowledgeCharacterCorpusPolicyRecord.corpus_id == corpus_id,
+                        CharacterDeploymentRecord.character_card_id == character_card_id,
+                        CharacterDeploymentRecord.platform == KnowledgeServerScopeRecord.platform,
+                        CharacterDeploymentRecord.connection_id
+                        == KnowledgeServerScopeRecord.connection_id,
+                        CharacterDeploymentRecord.workspace_id
+                        == KnowledgeServerScopeRecord.workspace_id,
+                    )
+                )
+            )
+        return character_corpus_is_admitted(effects)
+
     def list_effective_corpora(self, server_scope_id: str) -> list[EffectiveKnowledgeCorpus]:
         """Return only access-authorized corpora before any future retrieval/ranking."""
 
@@ -597,6 +711,7 @@ class KnowledgeFabricRepository:
             content_counts = content_repository.delete_content_for_corpora(corpus_ids)
             source_count = 0
             policy_count = 0
+            character_policy_count = 0
             corpus_grant_count = 0
             corpus_count = 0
             external_sync_state_count = 0
@@ -633,6 +748,13 @@ class KnowledgeFabricRepository:
                     session.execute(
                         delete(KnowledgeOverlayPolicyRecord).where(
                             KnowledgeOverlayPolicyRecord.corpus_id.in_(corpus_ids)
+                        )
+                    )
+                )
+                character_policy_count = self._rowcount(
+                    session.execute(
+                        delete(KnowledgeCharacterCorpusPolicyRecord).where(
+                            KnowledgeCharacterCorpusPolicyRecord.corpus_id.in_(corpus_ids)
                         )
                     )
                 )
@@ -687,6 +809,7 @@ class KnowledgeFabricRepository:
             "knowledge_fabric_sources": source_count,
             "knowledge_fabric_corpus_grants": corpus_grant_count,
             "knowledge_fabric_overlay_policies": policy_count,
+            "knowledge_fabric_character_corpus_policies": character_policy_count,
             "knowledge_fabric_server_administrators": member_count,
             "knowledge_fabric_user_grants": user_grant_count,
         }

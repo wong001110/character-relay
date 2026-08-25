@@ -71,6 +71,7 @@ from echo_masque.persistence.intelligence_v3_migration_models import (
 )
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeAccessGrantRecord,
+    KnowledgeCharacterCorpusPolicyRecord,
     KnowledgeAssetReferenceRecord,
     KnowledgeCanonicalBlockRecord,
     KnowledgeCanonicalDocumentRecord,
@@ -337,6 +338,7 @@ class Database:
             KnowledgeEvidenceGraphRelationRecord,
             KnowledgeInterpretationEvidenceRecord,
             KnowledgeAccessGrantRecord,
+            KnowledgeCharacterCorpusPolicyRecord,
             KnowledgeOverlayPolicyRecord,
         )
         Base.metadata.create_all(self.engine)
@@ -347,6 +349,7 @@ class Database:
         from echo_masque.persistence.schema_migrations import (
             DatabaseFoundationMigration,
             KnowledgeFabricContentMigration,
+            KnowledgeFabricCharacterPolicyMigration,
             KnowledgeFabricCurrentEntryMigration,
             KnowledgeFabricExternalScheduleMigration,
             KnowledgeFabricIndexMigration,
@@ -359,6 +362,7 @@ class Database:
         DatabaseFoundationMigration(self).run()
         KnowledgeFabricScopeMigration(self).run()
         KnowledgeFabricContentMigration(self).run()
+        KnowledgeFabricCharacterPolicyMigration(self).run()
         KnowledgeFabricCurrentEntryMigration(self).run()
         KnowledgeFabricInterpretationMigration(self).run()
         KnowledgeFabricIndexMigration(self).run()

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeAccessGrantRecord,
+    KnowledgeCharacterCorpusPolicyRecord,
     KnowledgeCorpusRecord,
     KnowledgeExternalSourceScheduleRecord,
     KnowledgeOverlayPolicyRecord,
@@ -146,6 +147,31 @@ class KnowledgeOverlayPolicyView(BaseModel):
         )
 
 
+class KnowledgeCharacterCorpusPolicyUpdate(BaseModel):
+    effect: str = Field(min_length=1, max_length=16)
+
+
+class KnowledgeCharacterCorpusPolicyView(BaseModel):
+    deployment_id: str
+    character_card_id: str
+    corpus_id: str
+    effect: str
+    updated_at: datetime
+
+    @classmethod
+    def from_record(
+        cls,
+        record: KnowledgeCharacterCorpusPolicyRecord,
+    ) -> KnowledgeCharacterCorpusPolicyView:
+        return cls(
+            deployment_id=record.deployment_id,
+            character_card_id=record.character_card_id,
+            corpus_id=record.corpus_id,
+            effect=record.effect,
+            updated_at=record.updated_at,
+        )
+
+
 class KnowledgeSourceCreate(BaseModel):
     source_type: str = Field(min_length=1, max_length=40)
     locator: str = Field(min_length=1, max_length=1000)
@@ -245,6 +271,8 @@ def _decode_profile(value: str) -> dict[str, str]:
 
 __all__ = [
     "KnowledgeAccessGrantView",
+    "KnowledgeCharacterCorpusPolicyUpdate",
+    "KnowledgeCharacterCorpusPolicyView",
     "KnowledgeCorpusCreate",
     "KnowledgeCorpusView",
     "KnowledgeExternalSourceScheduleUpdate",
