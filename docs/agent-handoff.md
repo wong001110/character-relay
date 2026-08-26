@@ -41,7 +41,10 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   SourceVersion/Evidence dependencies, invalidation on a new source snapshot, lazy deterministic
   rebuild, and dependency-first lifecycle deletion. The Character-internal `knowledge.search` Tool
   now shares the same fail-closed Knowledge Context gate; it no longer calls Server Wiki lookup.
-  Legacy Wiki tables/API/Portal are deferred compatibility only until the Phase 11 cutover.
+  Phase 11c directly retired the legacy Knowledge Base/RAG/KB Wiki and Server Wiki V3 without
+  migration or archive. `knowledge-fabric-hard-cutover-v1` is a one-way, metadata-only ledger:
+  it removes the six retired tables and only old `knowledge-chunk` semantic vectors, while Fabric
+  and non-Knowledge vector consumers remain intact.
   Phase 8a adds a library-only deterministic adapter for an already-authorized Fabric Source:
   manual text, Markdown, OOXML DOCX, and digital PDF bytes become existing immutable snapshot,
   canonical structure, and Evidence records through the Phase 3 service. It neither exposes an
@@ -80,8 +83,8 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   Deployment Knowledge page exposes the same scoped Query Inspector to an already-authorized
   Server administrator. Phase 11b-2 now consumes derived invalidations with a durable worker and
   exposes only a Super-Admin source-specific retry for terminal failures; it never returns lease,
-  artifact, credential, or generic invalidation metadata. Phase 11c remains open; resume from the
-  Phase 11 record in `docs/active-development-plan.md` before removing compatibility code.
+  artifact, credential, or generic invalidation metadata. Phase 11c-2 completed the direct
+  retirement; resume from the current Phase 11 record before adding any new Knowledge surface.
   Phase 4's corpus-bound canonical entities,
   evidence-backed runtime-resolution history, conflicting assertions, world events, typed Evidence
   Graph relations, and lifecycle cleanup remain unchanged. Canonical identity is
@@ -129,7 +132,7 @@ For an applicable active plan, use one integration owner: sub-agents may researc
 | Context/participation | `context_resolver_v3.py`, `participation_planner_v3.py` | context/planner/participation tests | `docs/intelligence-core-v3-architecture.md` |
 | Character/Social Turn | `src/echo_masque/orchestration/`, conversation runtime | character/social graph tests | `docs/langgraph-roadmap.md` |
 | Media | `media_*`, `planner_media.py`, `conversation_media.py`, generated-media modules | `tests/test_media_*.py`, planner/generated-media tests | media contracts/roadmaps |
-| Knowledge/RAG/Wiki | `knowledge_*`, `character_turn_context_v3.py`, `character_turn_context_types.py`, `persistence/knowledge_fabric_*`, `api/routes/knowledge_fabric.py`, `web/src/KnowledgeFabricPanel.tsx`, `web/src/knowledgeFabricApi.ts` | knowledge/context RAG tests, `tests/test_knowledge_fabric_phase2.py`, `web/src/knowledgeFabricApi.test.ts`, `web/src/KnowledgeFabricPanel.test.ts` | `docs/knowledge-fabric-architecture.md`, active Phase 11 plan |
+| Knowledge Fabric | `knowledge_fabric_*`, `character_turn_context_v3.py`, `character_turn_context_types.py`, `persistence/knowledge_fabric_*`, `api/routes/knowledge_fabric.py`, `web/src/KnowledgeFabricPanel.tsx`, `web/src/knowledgeFabricApi.ts` | Fabric/cutover tests, `tests/test_knowledge_fabric_phase2.py`, `web/src/knowledgeFabricApi.test.ts`, `web/src/KnowledgeFabricPanel.test.ts` | `docs/knowledge-fabric-architecture.md`, active Phase 11 plan |
 | Tools/scheduler | `tool_runtime.py`, `tool_external.py`, scheduler/condition-watch modules | tool/watch/scheduler tests | tool-calling docs |
 | Observability | `runtime_trace.py`, provider trace modules/routes | runtime/provider trace tests | `docs/provider-tracing.md` |
 | Evaluation lab | scenario/test-pack/run/matrix/authoring/calibration modules and routes | Phase 13–16 tests | Phase 14/16 docs |

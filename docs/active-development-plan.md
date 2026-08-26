@@ -1128,9 +1128,11 @@ as effective query input.
 1. **11c-1 — non-destructive scale and database proof.** Add bounded synthetic-corpus isolation
    coverage and run the guarded PostgreSQL/pgvector bootstrap/query suite against a dedicated
    database. This batch does not retire APIs, tables, data, or Intelligence projections.
-2. **11c-2 — explicit compatibility cutover.** After a documented legacy-data disposition and a
-   Server Wiki V3 projection decision, remove or archive only consumers covered by static proof,
-   then run the remaining lifecycle, Portal, Connector, mutation, documentation, and security gates.
+2. **11c-2 — explicit compatibility cutover.** The product owner approved direct retirement on
+   2026-08-26: old Knowledge Base data, old RAG API/Portal surfaces, and Server Wiki V3 are
+   deleted without migration or archive; Knowledge Fabric starts empty. Remove only consumers
+   covered by static proof, make the database deletion restart-safe and auditable, then run the
+   remaining lifecycle, Portal, Connector, mutation, documentation, and security gates.
 
 ### Phase 11b execution detail
 
@@ -1279,7 +1281,7 @@ PostgreSQL, Connector, and documentation gates.
 ### 2026-08-26 Phase 11c preliminary consumer proof
 
 ```text
-Status: in progress — static map complete; migration/projection decisions are required before deletion
+Status: in progress — static map complete; direct-retirement decision recorded and 11c-2 implementation underway
 Evidence: `web/src/KnowledgeBasePanel.tsx` and `web/src/knowledgeApi.ts` have no active Portal
 importer; the Deployment Workspace uses `KnowledgeFabricPanel`. Conversely, `/api/knowledge`,
 `KnowledgeRepository`, its lifecycle cleanup, and its legacy tables remain live through
@@ -1318,8 +1320,38 @@ Validation: focused Phase 5/query/worker/API suite, changed-test Ruff, strict My
 and diff check passed. A disposable WSL Docker pgvector PostgreSQL 16 container ran the guarded
 Foundation and Phase 5 suites against the dedicated destructive `echo_masque_test` database: all
 passed. The container auto-removed. WSL's mounted-workspace pytest cache warning was non-fatal.
-Next action: 11c-2 remains gated on the legacy Knowledge Base data and Server Wiki V3 decisions;
-add only non-destructive lifecycle/recovery proof until they are recorded.
+Next action: complete 11c-2’s direct-retirement validation: old table/vector removal, API/Portal
+absence, lifecycle isolation, PostgreSQL replay, mutation evidence, and final documentation.
+```
+
+### 2026-08-26 Phase 11c-2 completion gate
+
+```text
+Status: complete — explicit direct-retirement cutover
+Commit: `df64ee8` (`feat: retire legacy knowledge and server wiki`)
+Decision/evidence: the product owner explicitly retired old Knowledge Base data, legacy RAG/API/
+Portal, and Server Wiki V3 without migration or archive. Static consumer proof showed no active
+Portal importer for the old panel/client and that Character/internal Knowledge reads already use
+the Fabric Query/Context boundary. `knowledge_retrieval.py` and shared semantic vectors remain
+because Fabric and other runtimes use them.
+Implementation: the one-way `knowledge-fabric-hard-cutover-v1` ledger deletes only semantic-vector
+rows in the old `knowledge-chunk` namespace, drops the six retired tables in foreign-key-safe
+order, records metadata-only counts/tables, and retries after a failed attempt. Fresh schemas no
+longer register the retired ORM models. SQLite-to-PostgreSQL copy rejects an uncut legacy source.
+Old Knowledge routes, Portal components, lifecycle ownership, Server Wiki consolidation endpoint,
+and LLM Wiki Utility capability were removed; Fabric remains the sole Knowledge surface.
+Validation: focused Fabric/cutover/lifecycle/Public Demo suite passed; changed Ruff and strict MyPy
+passed (372 source files); `git diff --check` passed. Portal typecheck, 22-file/66-test Vitest,
+and production build passed. Connector typecheck, 17-file/95-test Vitest, and build passed.
+Disposable WSL Docker pgvector PostgreSQL passed the cutover plus database-foundation suite; its
+container auto-removed. The mounted-workspace pytest-cache warning and WSL systemd-user-session
+warning were non-fatal. WSL mutmut ran 98 mutants: 93 killed and five previously reviewed
+equivalents in query fusion/retry; the new cutover policy had no survivor, timeout, or tooling
+classification. Portal/Connector mutation scopes were unchanged by this implementation.
+Deliberate omission: Connector `rag_*` observability labels remain a telemetry vocabulary only;
+they do not read or expose retired Knowledge Base/Server Wiki data. No historical data was copied.
+Next action: continue any remaining Phase 11 final product/security review from current source and
+the plan; do not recreate compatibility authority.
 ```
 
 ## Known implementation decisions that still require evidence in a phase
