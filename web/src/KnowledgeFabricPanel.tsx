@@ -19,6 +19,7 @@ import {
   type KnowledgeFabricCorpus,
   type KnowledgeFabricGlobalCorpusAccess,
   type KnowledgeFabricOverlayMode,
+  type KnowledgeFabricQueryInspectorResult,
   type KnowledgeFabricScope,
   type KnowledgeFabricSource
 } from "./knowledgeFabricApi";
@@ -65,6 +66,9 @@ export function KnowledgeFabricPanel({ profile, deployments, demoMode, zh }: Pro
   const [description, setDescription] = useState("");
   const [sourceType, setSourceType] = useState("");
   const [sourceLocator, setSourceLocator] = useState("");
+  const [inspectionQuery, setInspectionQuery] = useState("");
+  const [inspectionMode, setInspectionMode] = useState("overview");
+  const [inspection, setInspection] = useState<KnowledgeFabricQueryInspectorResult | null>(null);
   const loadVersion = useRef(0);
 
   const currentProfileKey = profileKey(profile);
@@ -242,6 +246,19 @@ export function KnowledgeFabricPanel({ profile, deployments, demoMode, zh }: Pro
         ),
         next
       ]);
+    });
+  }
+
+  async function inspectQuery(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeScope) return;
+    await run(async () => {
+      setInspection(
+        await knowledgeFabricApi.inspectQuery(activeScope.id, {
+          query: inspectionQuery,
+          mode: inspectionMode
+        })
+      );
     });
   }
 
@@ -483,6 +500,67 @@ export function KnowledgeFabricPanel({ profile, deployments, demoMode, zh }: Pro
           )}
         </section>
       )}
+
+      <section className="knowledge-document-panel">
+        <div className="panel-heading-row">
+          <div>
+            <StickyLabel variant="memory">INSPECTOR</StickyLabel>
+            <strong>{zh ? "Scoped Query Inspector" : "Scoped Query Inspector"}</strong>
+            <small>
+              {zh
+                ? "检索仅使用此 Server 已获授权的 Corpus；不会创建第二条查询路径。"
+                : "Retrieval uses only this Server's authorized Corpora and never creates another query path."}
+            </small>
+          </div>
+        </div>
+        <form className="knowledge-create-form" onSubmit={inspectQuery}>
+          <FormField label={zh ? "Query" : "Query"} required>
+            <Textarea
+              required
+              rows={3}
+              value={inspectionQuery}
+              onChange={(event) => setInspectionQuery(event.currentTarget.value)}
+            />
+          </FormField>
+          <FormField label={zh ? "Mode" : "Mode"}>
+            <Select
+              value={inspectionMode}
+              onChange={(event) => setInspectionMode(event.currentTarget.value)}
+              disabled={working}
+            >
+              <option value="overview">Overview</option>
+              <option value="exact">Exact</option>
+              <option value="relational">Relational</option>
+              <option value="current">Current</option>
+              <option value="code">Code</option>
+            </Select>
+          </FormField>
+          <Button variant="secondary" disabled={working}>
+            {zh ? "Inspect" : "Inspect"}
+          </Button>
+        </form>
+        {inspection && (
+          <div className="knowledge-document-list">
+            <small>
+              {inspection.mode} · {inspection.accessible_corpus_count}{" "}
+              {zh ? "个可访问 Corpus" : "accessible Corpora"} · {inspection.freshness_status}
+            </small>
+            {inspection.hits.map((hit) => (
+              <article className="knowledge-document-card" key={hit.evidence_unit_id}>
+                <div>
+                  <strong>{hit.document_title}</strong>
+                  <small>{hit.authority_profile} · {hit.channels.join(", ") || "no channel"}</small>
+                  <small>{hit.evidence_unit_id} · {hit.source_version_id}</small>
+                  <p>{hit.text_content}</p>
+                </div>
+              </article>
+            ))}
+            {inspection.hits.length === 0 && (
+              <EmptyState title={zh ? "没有匹配 Evidence" : "No matching Evidence"} />
+            )}
+          </div>
+        )}
+      </section>
 
       <section className="knowledge-document-panel">
         <div className="panel-heading-row">

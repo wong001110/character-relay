@@ -67,6 +67,56 @@ export interface KnowledgeFabricSourceCreate {
   authority_profile: string;
 }
 
+export interface KnowledgeFabricExternalSourceSchedule {
+  source_id: string;
+  enabled: boolean;
+  interval_seconds: number;
+  next_run_at: string | null;
+  last_error_code: string | null;
+  updated_at: string;
+}
+
+export interface KnowledgeFabricExternalSourceSyncState {
+  source_id: string;
+  last_outcome: string;
+  last_error_code: string | null;
+  updated_at: string;
+}
+
+/** Safe operational state only: it intentionally has no locator, profiles, or artifacts. */
+export interface KnowledgeFabricOperationalSource {
+  id: string;
+  corpus_id: string;
+  source_type: string;
+  authority_profile: string;
+  enabled: boolean;
+  status: string;
+  last_checked_at: string | null;
+  last_changed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  external_sync: KnowledgeFabricExternalSourceSyncState | null;
+  external_schedule: KnowledgeFabricExternalSourceSchedule | null;
+}
+
+export interface KnowledgeFabricQueryInspectorHit {
+  evidence_unit_id: string;
+  corpus_id: string;
+  source_version_id: string;
+  evidence_locator: string;
+  document_title: string;
+  text_content: string;
+  authority_profile: string;
+  channels: string[];
+}
+
+export interface KnowledgeFabricQueryInspectorResult {
+  mode: string;
+  accessible_corpus_count: number;
+  freshness_status: string;
+  hits: KnowledgeFabricQueryInspectorHit[];
+}
+
 async function errorMessage(response: Response): Promise<string> {
   const raw = await response.text();
   try {
@@ -94,6 +144,37 @@ function scopePath(scopeId: string): string {
 
 export const knowledgeFabricApi = {
   listScopes: () => request<KnowledgeFabricScope[]>("/server-scopes"),
+  listGlobalCorpora: () => request<KnowledgeFabricCorpus[]>("/admin/corpora"),
+  createGlobalCorpus: (payload: {
+    name: string;
+    description: string;
+    default_authority_profile: string;
+  }) => request<KnowledgeFabricCorpus>("/admin/corpora", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }),
+  listGlobalOperationalSources: (corpusId: string) =>
+    request<KnowledgeFabricOperationalSource[]>(
+      `/admin/corpora/${encodeURIComponent(corpusId)}/operational-sources`
+    ),
+  createGlobalSource: (corpusId: string, payload: KnowledgeFabricSourceCreate) =>
+    request<KnowledgeFabricSource>(`/admin/corpora/${encodeURIComponent(corpusId)}/sources`, {
+      method: "POST",
+      body: JSON.stringify({
+        ...payload,
+        parser_profile: {},
+        sync_policy: {},
+        freshness_policy: {}
+      })
+    }),
+  configureExternalSourceSchedule: (
+    sourceId: string,
+    payload: { enabled: boolean; interval_seconds: number }
+  ) =>
+    request<KnowledgeFabricExternalSourceSchedule>(
+      `/admin/sources/${encodeURIComponent(sourceId)}/external-sync-schedule`,
+      { method: "PUT", body: JSON.stringify(payload) }
+    ),
   listCorpora: (scopeId: string) =>
     request<KnowledgeFabricCorpus[]>(`${scopePath(scopeId)}/corpora`),
   listAvailableGlobal: (scopeId: string) =>
@@ -141,6 +222,14 @@ export const knowledgeFabricApi = {
     request<KnowledgeFabricCharacterCorpusPolicy[]>(
       `${scopePath(scopeId)}/character-corpus-policies`
     ),
+  inspectQuery: (
+    scopeId: string,
+    payload: { query: string; mode: string; as_of?: string }
+  ) =>
+    request<KnowledgeFabricQueryInspectorResult>(`${scopePath(scopeId)}/query-inspector`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   setCharacterPolicy: (
     scopeId: string,
     deploymentId: string,

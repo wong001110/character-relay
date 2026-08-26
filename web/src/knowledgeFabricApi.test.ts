@@ -186,6 +186,99 @@ describe("Knowledge Fabric Portal API", () => {
     );
   });
 
+  it("uses the Super Admin Global Library, redacted health, and durable schedule endpoints", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response([]))
+      .mockResolvedValueOnce(response({}))
+      .mockResolvedValueOnce(response({}))
+      .mockResolvedValueOnce(response([]))
+      .mockResolvedValueOnce(response({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await knowledgeFabricApi.listGlobalCorpora();
+    await knowledgeFabricApi.createGlobalCorpus({
+      name: "World notes",
+      description: "Approved world evidence",
+      default_authority_profile: "standard"
+    });
+    await knowledgeFabricApi.createGlobalSource("corpus/a", {
+      source_type: "website",
+      locator: "https://example.test/reference",
+      authority_profile: "standard"
+    });
+    await knowledgeFabricApi.listGlobalOperationalSources("corpus/a");
+    await knowledgeFabricApi.configureExternalSourceSchedule("source/a", {
+      enabled: true,
+      interval_seconds: 900
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/knowledge-fabric/admin/corpora",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/knowledge-fabric/admin/corpora",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          name: "World notes",
+          description: "Approved world evidence",
+          default_authority_profile: "standard"
+        })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/knowledge-fabric/admin/corpora/corpus%2Fa/sources",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          source_type: "website",
+          locator: "https://example.test/reference",
+          authority_profile: "standard",
+          parser_profile: {},
+          sync_policy: {},
+          freshness_policy: {}
+        })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/knowledge-fabric/admin/corpora/corpus%2Fa/operational-sources",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      "/api/knowledge-fabric/admin/sources/source%2Fa/external-sync-schedule",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ enabled: true, interval_seconds: 900 })
+      })
+    );
+  });
+
+  it("keeps Query Inspector scoped to the authorized server route", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ hits: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await knowledgeFabricApi.inspectQuery("scope/a", {
+      query: "What changed?",
+      mode: "overview"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/knowledge-fabric/server-scopes/scope%2Fa/query-inspector",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({ query: "What changed?", mode: "overview" })
+      })
+    );
+  });
+
   it("keeps grant and overlay writes distinct", async () => {
     const fetchMock = vi
       .fn()
