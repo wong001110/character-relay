@@ -91,6 +91,7 @@ from echo_masque.knowledge_fabric_external_sync_scheduler import (
     KnowledgeFabricExternalSyncScheduler,
 )
 from echo_masque.knowledge_fabric_ingestion import KnowledgeFabricIngestionService
+from echo_masque.knowledge_fabric_invalidation_worker import KnowledgeFabricInvalidationWorker
 from echo_masque.knowledge_fabric_pinned_fetcher import (
     AsyncioPinnedHttpsDialTransport,
     PinnedPublicHttpsFetcher,
@@ -150,6 +151,12 @@ from echo_masque.persistence.knowledge_fabric_external_schedule_repository impor
 )
 from echo_masque.persistence.knowledge_fabric_external_sync_repository import (
     KnowledgeFabricExternalSyncRepository,
+)
+from echo_masque.persistence.knowledge_fabric_invalidation_repository import (
+    KnowledgeFabricInvalidationRepository,
+)
+from echo_masque.persistence.knowledge_fabric_projection_repository import (
+    KnowledgeFabricProjectionRepository,
 )
 from echo_masque.persistence.server_knowledge_v3_repository import (
     KnowledgeConsolidationCheckpointV3Repository,
@@ -242,6 +249,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         object_storage=knowledge_object_storage,
     )
     knowledge_fabric_index_repository = KnowledgeFabricIndexRepository(database)
+    knowledge_fabric_invalidation_repository = KnowledgeFabricInvalidationRepository(database)
+    knowledge_fabric_projection_repository = KnowledgeFabricProjectionRepository(database)
     knowledge_query_engine = KnowledgeQueryEngine(
         fabric_repository=knowledge_fabric_repository,
         index_repository=knowledge_fabric_index_repository,
@@ -287,6 +296,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE: website_sync_service.sync,
             ATOM_PUBLIC_HTTPS_SOURCE_TYPE: atom_sync_service.sync,
         },
+    )
+    knowledge_fabric_invalidation_worker = KnowledgeFabricInvalidationWorker(
+        invalidations=knowledge_fabric_invalidation_repository,
+        indexes=knowledge_fabric_index_repository,
+        projections=knowledge_fabric_projection_repository,
     )
 
     # Intelligence Core v3 runtime authorities.
@@ -586,9 +600,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await scheduled_reminder_delivery.start()
         await condition_watch_service.start()
         await external_sync_scheduler.start()
+        await knowledge_fabric_invalidation_worker.start()
         try:
             yield
         finally:
+            await knowledge_fabric_invalidation_worker.stop()
             await condition_watch_service.stop()
             await external_sync_scheduler.stop()
             await scheduled_reminder_delivery.stop()
@@ -638,6 +654,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.knowledge_repository = knowledge_repository
     app.state.knowledge_fabric_repository = knowledge_fabric_repository
     app.state.knowledge_fabric_index_repository = knowledge_fabric_index_repository
+    app.state.knowledge_fabric_invalidation_repository = knowledge_fabric_invalidation_repository
+    app.state.knowledge_fabric_projection_repository = knowledge_fabric_projection_repository
     app.state.knowledge_query_engine = knowledge_query_engine
     app.state.knowledge_object_storage = knowledge_object_storage
     app.state.knowledge_fabric_content_repository = knowledge_fabric_content_repository
@@ -645,6 +663,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.knowledge_fabric_external_schedule_repository = external_schedule_repository
     app.state.knowledge_fabric_external_sync_repository = external_sync_repository
     app.state.knowledge_fabric_external_sync_scheduler = external_sync_scheduler
+    app.state.knowledge_fabric_invalidation_worker = knowledge_fabric_invalidation_worker
     app.state.entity_evidence_repository = entity_evidence_repository
     app.state.knowledge_gap_discovery_service = knowledge_gap_discovery_service
     app.state.context_resolver_v3 = context_resolver_v3

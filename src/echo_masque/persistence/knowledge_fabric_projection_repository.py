@@ -175,6 +175,21 @@ class KnowledgeFabricProjectionRepository:
             session.refresh(projection)
             return self._view(session, projection)
 
+    def rebuild_existing_source_overview(
+        self,
+        *,
+        source_version_id: str,
+    ) -> KnowledgeProjectionView | None:
+        """Refresh an existing overview without creating a new view in a worker."""
+
+        with self.database.session() as session:
+            source_version = session.get(KnowledgeSourceVersionRecord, source_version_id)
+            if source_version is None:
+                raise KeyError("source_version")
+            if self._find_source_overview(session, source_id=source_version.source_id) is None:
+                return None
+        return self.rebuild_source_overview(source_version_id=source_version_id)
+
     def mark_source_projections_stale(self, session: Session, *, source_id: str) -> int:
         """Invalidate every derived view depending on any historical version of one Source."""
 

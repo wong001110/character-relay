@@ -150,6 +150,13 @@ export function KnowledgeFabricAdministrationPanel() {
     });
   }
 
+  function retryDerivedWork(source: KnowledgeFabricOperationalSource) {
+    void run(async () => {
+      await knowledgeFabricApi.retryFailedDerivedWork(source.id);
+      if (selectedCorpus) await refreshSources(selectedCorpus.id);
+    });
+  }
+
   return (
     <div className="settings-panel-stack" data-testid="knowledge-fabric-administration">
       <section className="settings-paper-card">
@@ -275,10 +282,25 @@ export function KnowledgeFabricAdministrationPanel() {
                         ? `enabled / ${source.external_schedule.interval_seconds}s`
                         : "disabled"}
                     </small>
+                    <small>
+                      Derived work: {source.derived_work.pending} pending · {source.derived_work.running} running · {source.derived_work.failed} failed
+                    </small>
                   </div>
-                  <StatusIndicator tone={source.status === "available" ? "success" : "warning"}>
-                    {source.status}
-                  </StatusIndicator>
+                  <div className="knowledge-card-actions">
+                    <StatusIndicator tone={source.status === "available" ? "success" : "warning"}>
+                      {source.status}
+                    </StatusIndicator>
+                    {source.derived_work.failed > 0 && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={working}
+                        onClick={() => retryDerivedWork(source)}
+                      >
+                        Retry derived work
+                      </Button>
+                    )}
+                  </div>
                 </article>
               ))}
               {!loading && sources.length === 0 && (

@@ -42,6 +42,11 @@ def test_temporal_interpretations_use_half_open_validity_interval() -> None:
     )
     assert not interpretation_is_available_as_of(
         valid_from=start,
+        valid_to=end,
+        as_of=end,
+    )
+    assert not interpretation_is_available_as_of(
+        valid_from=start,
         valid_to=None,
         as_of=datetime(2025, 12, 31, 19, tzinfo=UTC),
     )
@@ -69,6 +74,11 @@ def test_temporal_interpretations_use_half_open_validity_interval() -> None:
         valid_from=start,
         valid_to=end,
         as_of=None,
+    )
+    assert interpretation_is_available_as_of(
+        valid_from=None,
+        valid_to=None,
+        as_of=start,
     )
 
 

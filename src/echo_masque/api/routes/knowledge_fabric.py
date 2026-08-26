@@ -17,6 +17,7 @@ from echo_masque.api.knowledge_fabric_schemas import (
     KnowledgeCharacterCorpusPolicyView,
     KnowledgeCorpusCreate,
     KnowledgeCorpusView,
+    KnowledgeDerivedWorkSummaryView,
     KnowledgeExternalSourceScheduleUpdate,
     KnowledgeExternalSourceScheduleView,
     KnowledgeGrantUpdate,
@@ -39,11 +40,17 @@ from echo_masque.knowledge_fabric_policy import (
 )
 from echo_masque.knowledge_fabric_query import KnowledgeQueryEngine, KnowledgeQueryRequest
 from echo_masque.persistence import AuthRepository
+from echo_masque.persistence.knowledge_fabric_content_repository import (
+    KnowledgeFabricContentRepository,
+)
 from echo_masque.persistence.knowledge_fabric_external_schedule_repository import (
     KnowledgeFabricExternalScheduleRepository,
 )
 from echo_masque.persistence.knowledge_fabric_external_sync_repository import (
     KnowledgeFabricExternalSyncRepository,
+)
+from echo_masque.persistence.knowledge_fabric_invalidation_repository import (
+    KnowledgeFabricInvalidationRepository,
 )
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeCorpusRecord,
@@ -81,6 +88,20 @@ def _external_sync(request: Request) -> KnowledgeFabricExternalSyncRepository:
     return cast(
         KnowledgeFabricExternalSyncRepository,
         request.app.state.knowledge_fabric_external_sync_repository,
+    )
+
+
+def _content(request: Request) -> KnowledgeFabricContentRepository:
+    return cast(
+        KnowledgeFabricContentRepository,
+        request.app.state.knowledge_fabric_content_repository,
+    )
+
+
+def _derived_work(request: Request) -> KnowledgeFabricInvalidationRepository:
+    return cast(
+        KnowledgeFabricInvalidationRepository,
+        request.app.state.knowledge_fabric_invalidation_repository,
     )
 
 
@@ -344,14 +365,53 @@ def list_global_corpus_operational_sources(
         record.source_id: record
         for record in _external_sync(request).list_states_for_source_ids(source_ids)
     }
+    derived_work = _derived_work(request).summary_for_source_ids(source_ids)
     return [
         KnowledgeSourceOperationalView.from_record(
             source,
             external_sync=sync_states.get(source.id),
             external_schedule=schedules.get(source.id),
+            derived_work=KnowledgeDerivedWorkSummaryView(
+                pending=derived_work[source.id].pending,
+                running=derived_work[source.id].running,
+                failed=derived_work[source.id].failed,
+            ),
         )
         for source in sources
     ]
+
+
+@router.post(
+    "/admin/sources/{source_id}/derived-work/retry",
+    response_model=KnowledgeDerivedWorkSummaryView,
+)
+def retry_failed_source_derived_work(
+    source_id: str,
+    request: Request,
+    user: SuperAdminUserDependency,
+) -> KnowledgeDerivedWorkSummaryView:
+    """Requeue terminal failures; acquisition and publication stay worker-owned."""
+
+    _require_global_manager(request, user)
+    source = _content(request).get_source(source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Knowledge Source not found.")
+    _global_corpus_or_404(request, source.corpus_id)
+    requeued = _derived_work(request).retry_failed_for_source(source_id)
+    _audit(
+        request,
+        actor_user_id=user.id,
+        action="knowledge_fabric.derived_work_retry_requested",
+        resource_type="knowledge_source",
+        resource_id=source_id,
+        metadata={"requeued_count": requeued},
+    )
+    summary = _derived_work(request).summary_for_source_ids((source_id,))[source_id]
+    return KnowledgeDerivedWorkSummaryView(
+        pending=summary.pending,
+        running=summary.running,
+        failed=summary.failed,
+    )
 
 
 @router.post(

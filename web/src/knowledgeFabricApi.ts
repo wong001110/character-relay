@@ -83,6 +83,12 @@ export interface KnowledgeFabricExternalSourceSyncState {
   updated_at: string;
 }
 
+export interface KnowledgeFabricDerivedWorkSummary {
+  pending: number;
+  running: number;
+  failed: number;
+}
+
 /** Safe operational state only: it intentionally has no locator, profiles, or artifacts. */
 export interface KnowledgeFabricOperationalSource {
   id: string;
@@ -97,6 +103,7 @@ export interface KnowledgeFabricOperationalSource {
   updated_at: string;
   external_sync: KnowledgeFabricExternalSourceSyncState | null;
   external_schedule: KnowledgeFabricExternalSourceSchedule | null;
+  derived_work: KnowledgeFabricDerivedWorkSummary;
 }
 
 export interface KnowledgeFabricQueryInspectorHit {
@@ -174,6 +181,11 @@ export const knowledgeFabricApi = {
     request<KnowledgeFabricExternalSourceSchedule>(
       `/admin/sources/${encodeURIComponent(sourceId)}/external-sync-schedule`,
       { method: "PUT", body: JSON.stringify(payload) }
+    ),
+  retryFailedDerivedWork: (sourceId: string) =>
+    request<KnowledgeFabricDerivedWorkSummary>(
+      `/admin/sources/${encodeURIComponent(sourceId)}/derived-work/retry`,
+      { method: "POST" }
     ),
   listCorpora: (scopeId: string) =>
     request<KnowledgeFabricCorpus[]>(`${scopePath(scopeId)}/corpora`),

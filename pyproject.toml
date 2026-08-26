@@ -53,10 +53,12 @@ testpaths = ["tests"]
 source_paths = ["src/"]
 only_mutate = [
     "src/echo_masque/knowledge_fabric_character_policy.py",
+    "src/echo_masque/knowledge_fabric_invalidation_policy.py",
     "src/echo_masque/knowledge_fabric_query_policy.py",
 ]
 pytest_add_cli_args_test_selection = [
     "tests/test_knowledge_fabric_character_policy.py",
+    "tests/test_knowledge_fabric_invalidation_policy.py",
     "tests/test_knowledge_fabric_query_policy.py",
 ]
 

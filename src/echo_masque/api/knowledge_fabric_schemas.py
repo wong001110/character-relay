@@ -285,6 +285,14 @@ class KnowledgeExternalSourceSyncStateView(BaseModel):
         )
 
 
+class KnowledgeDerivedWorkSummaryView(BaseModel):
+    """Redacted aggregate only; invalidation IDs, leases, errors, and metadata stay internal."""
+
+    pending: int
+    running: int
+    failed: int
+
+
 class KnowledgeSourceOperationalView(BaseModel):
     """Operator-safe Source status; profiles, locators, artifacts, and metadata stay private."""
 
@@ -300,6 +308,7 @@ class KnowledgeSourceOperationalView(BaseModel):
     updated_at: datetime
     external_sync: KnowledgeExternalSourceSyncStateView | None
     external_schedule: KnowledgeExternalSourceScheduleView | None
+    derived_work: KnowledgeDerivedWorkSummaryView
 
     @classmethod
     def from_record(
@@ -308,6 +317,7 @@ class KnowledgeSourceOperationalView(BaseModel):
         *,
         external_sync: KnowledgeExternalSourceSyncStateRecord | None,
         external_schedule: KnowledgeExternalSourceScheduleRecord | None,
+        derived_work: KnowledgeDerivedWorkSummaryView,
     ) -> KnowledgeSourceOperationalView:
         return cls(
             id=record.id,
@@ -330,6 +340,7 @@ class KnowledgeSourceOperationalView(BaseModel):
                 if external_schedule is not None
                 else None
             ),
+            derived_work=derived_work,
         )
 
 
@@ -410,6 +421,7 @@ __all__ = [
     "KnowledgeCharacterCorpusPolicyView",
     "KnowledgeCorpusCreate",
     "KnowledgeCorpusView",
+    "KnowledgeDerivedWorkSummaryView",
     "KnowledgeExternalSourceScheduleUpdate",
     "KnowledgeExternalSourceScheduleView",
     "KnowledgeExternalSourceSyncStateView",

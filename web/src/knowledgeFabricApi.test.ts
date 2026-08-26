@@ -193,7 +193,8 @@ describe("Knowledge Fabric Portal API", () => {
       .mockResolvedValueOnce(response({}))
       .mockResolvedValueOnce(response({}))
       .mockResolvedValueOnce(response([]))
-      .mockResolvedValueOnce(response({}));
+      .mockResolvedValueOnce(response({}))
+      .mockResolvedValueOnce(response({ pending: 1, running: 0, failed: 2 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await knowledgeFabricApi.listGlobalCorpora();
@@ -212,6 +213,7 @@ describe("Knowledge Fabric Portal API", () => {
       enabled: true,
       interval_seconds: 900
     });
+    await knowledgeFabricApi.retryFailedDerivedWork("source/a");
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -257,6 +259,11 @@ describe("Knowledge Fabric Portal API", () => {
         method: "PUT",
         body: JSON.stringify({ enabled: true, interval_seconds: 900 })
       })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      "/api/knowledge-fabric/admin/sources/source%2Fa/derived-work/retry",
+      expect.objectContaining({ method: "POST", credentials: "include" })
     );
   });
 

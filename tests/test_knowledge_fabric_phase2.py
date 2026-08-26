@@ -377,6 +377,12 @@ def test_source_privacy_audit_and_public_demo_boundary(tmp_path: Path) -> None:
         ).status_code
         == 404
     )
+    assert (
+        demo.post(
+            f"/api/knowledge-fabric/admin/sources/{source.json()['id']}/derived-work/retry"
+        ).status_code
+        == 403
+    )
 
 
 def test_lifecycle_keeps_system_and_server_scope_data_but_removes_user_membership(
@@ -494,12 +500,29 @@ def test_super_admin_operational_source_view_is_redacted_and_source_backed(tmp_p
     assert operational["external_schedule"]["enabled"] is True
     assert operational["external_schedule"]["interval_seconds"] == 900
     assert operational["external_schedule"]["last_error_code"] is None
+    assert operational["derived_work"] == {"pending": 0, "running": 0, "failed": 0}
     assert "locator" not in operational
     assert "access_profile" not in operational
     assert (
         ordinary.get(
             f"/api/knowledge-fabric/admin/corpora/{corpus['id']}/operational-sources"
         ).status_code
+        == 403
+    )
+    retry = admin.post(f"/api/knowledge-fabric/admin/sources/{source_id}/derived-work/retry")
+    assert retry.status_code == 200, retry.text
+    assert retry.json() == {"pending": 0, "running": 0, "failed": 0}
+    with app.state.database.session() as session:
+        retry_event = session.scalar(
+            select(AuditEventRecord).where(
+                AuditEventRecord.action == "knowledge_fabric.derived_work_retry_requested"
+            )
+        )
+    assert retry_event is not None
+    assert retry_event.resource_id == source_id
+    assert retry_event.metadata_json == '{"requeued_count":0}'
+    assert (
+        ordinary.post(f"/api/knowledge-fabric/admin/sources/{source_id}/derived-work/retry").status_code
         == 403
     )
 
