@@ -322,8 +322,16 @@ describe("Knowledge Fabric Portal API", () => {
   it("surfaces the API detail instead of accepting a failed management action", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ detail: "Not authorized." }, 404)));
 
+    await expect(knowledgeFabricApi.listAvailableGlobal("unknown")).rejects.toMatchObject({
+      message: "Not authorized."
+    });
+  });
+
+  it("preserves a JSON error body whose detail is not a user-facing string", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ detail: { code: "denied" } }, 403)));
+
     await expect(knowledgeFabricApi.listAvailableGlobal("unknown")).rejects.toThrow(
-      "Not authorized."
+      '{"detail":{"code":"denied"}}'
     );
   });
 

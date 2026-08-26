@@ -32,7 +32,7 @@ Token-usage fields such as input/output token counts are metrics, not credential
 ## Scope and derived data
 
 - Owner, Discord Server, channel/thread, deployment, Character, and relationship scope must not widen by inference.
-- Derived Wiki/Graph/summary/index data may stay at the source scope or become narrower, never automatically wider.
+- Derived Fabric Projection/Graph/summary/index data may stay at the source scope or become narrower, never automatically wider.
 - Raw messages, media references, completed Tool results, and external results are provenance evidence; derived state cannot silently replace or rewrite them.
 - Planner-only media information is not Character-visible perception.
 
@@ -46,11 +46,11 @@ Token-usage fields such as input/output token counts are metrics, not credential
 
 ## Data retention and storage
 
-SQLite stores account/product state, messages/evidence, traces, and evaluation records. Operators must control access, retention, backups, and deletion for any personal or confidential content.
+PostgreSQL stores production account/product state, messages/evidence, traces, and evaluation records. Operators must control access, retention, backups, and deletion for any personal or confidential content; SQLite is a local development/test or migration source.
 
-Discord temporary debug-capture payloads do not enter SQLite. Audit records retain only capture action metadata such as actor, Server/session identifiers, expiry, and counts; they do not retain captured content.
+Discord temporary debug-capture payloads do not enter persistent storage. Audit records retain only capture action metadata such as actor, Server/session identifiers, expiry, and counts; they do not retain captured content.
 
-The supported Railway topology is one replica with a persistent Volume mounted at `/data`. Confirm persistence using `storage_instance_id` and a cross-redeploy Probe; a correct-looking path alone is not proof of durability.
+The production topology uses managed PostgreSQL + pgvector. Confirm persistence through the database health/migration checks; a correct-looking connection string alone is not proof of durability.
 
 ## Production checklist
 
@@ -59,7 +59,7 @@ The supported Railway topology is one replica with a persistent Volume mounted a
 - keep public registration and legacy local identity disabled unless explicitly required;
 - keep credentials and encryption keys outside Git;
 - retain at least one old Fernet key until stored credentials have been rotated and verified;
-- use one replica while SQLite remains the database;
+- do not make SQLite a production Fabric authority;
 - back up and test restore procedures;
 - run live account isolation, credential rotation, redaction, Demo read-only, and deployment smoke checks after security/runtime changes.
 

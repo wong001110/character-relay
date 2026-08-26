@@ -1,13 +1,13 @@
 # Active development plan — Knowledge Fabric foundation
 
-Status: **branch-local execution record — Phases 1–10 are complete; Phase 11 remains**
+Status: **branch-local execution record — Phases 1–11 are complete**
 
 | Field | Value |
 | --- | --- |
 | Active branch | `codex/knowledge-fabric-foundation` |
 | Starting baseline | `main` at `68169b8d878ef4d8475e1e52c812fffcb19249a4` |
 | Delivery mode | coherent phase batches; at most one implementation commit per phase |
-| Current phase | Phase 11 — Portal/Admin operations and final cutover (planned) |
+| Current phase | Phase 11 — complete |
 | Integration owner | main/root coding agent for the active session |
 | Target architecture | `docs/knowledge-fabric-architecture.md` |
 | Blast-radius map | `docs/knowledge-fabric-impact-map.md` |
@@ -1281,6 +1281,8 @@ PostgreSQL, Connector, and documentation gates.
 ### 2026-08-26 Phase 11c preliminary consumer proof
 
 ```text
+Superseded: the product owner subsequently selected direct retirement, completed in Phase 11c-2.
+Do not apply this preliminary compatibility/no-delete analysis as current execution guidance.
 Status: in progress — static map complete; direct-retirement decision recorded and 11c-2 implementation underway
 Evidence: `web/src/KnowledgeBasePanel.tsx` and `web/src/knowledgeApi.ts` have no active Portal
 importer; the Deployment Workspace uses `KnowledgeFabricPanel`. Conversely, `/api/knowledge`,
@@ -1352,6 +1354,38 @@ Deliberate omission: Connector `rag_*` observability labels remain a telemetry v
 they do not read or expose retired Knowledge Base/Server Wiki data. No historical data was copied.
 Next action: continue any remaining Phase 11 final product/security review from current source and
 the plan; do not recreate compatibility authority.
+```
+
+### 2026-08-26 Phase 11 final completion gate
+
+```text
+Status: complete — product-owner direct retirement, startup safety, PostgreSQL application proof,
+documentation/security synchronization, and final validation complete
+Implementation commits: `df64ee8` (`feat: retire legacy knowledge and server wiki`), with the
+preceding Phase 11a/11b/11c records above. Final documentation/handoff synchronization is included
+with this completion record.
+Evidence: `knowledge_fabric_hard_cutover.py`, its metadata-only ledger model and policy,
+`Database.initialize()`, the Fabric router/application composition, Portal Fabric API, and
+`tests/test_knowledge_fabric_hard_cutover.py` / `tests/test_knowledge_fabric_phase2.py`.
+Product data action: normal startup was run against the explicitly named local `echo_masque.db`.
+It removed the six retired tables, retained no `knowledge-chunk` vectors, and persisted exactly
+one `knowledge-fabric-hard-cutover-v1` ledger row with `status=completed`, `attempt_count=1`.
+Startup proof: fresh normal startup is one-time; injected failed retirement retries on restart;
+concurrent normal startup performs retirement once; retired `/api/knowledge/bases` is 404 and old
+application-state repositories/services are absent.
+Validation: local `python -m pytest -q` exited 0. Focused PostgreSQL app/cutover/lifecycle/Public
+Demo batch ran in a disposable WSL/Docker pgvector PostgreSQL 16 database: 15 passed; the
+container was removed. Targeted Ruff for changed tests and `python -m mypy src` passed (372 source
+files). Repository-wide Ruff still reports only two pre-existing E501 lines in
+`tests/test_knowledge_fabric_external_schedule.py`, outside this batch. Portal `npm run typecheck`,
+`npm test` (22 files, 67 tests), and `npm run build` passed; the known >500 kB bundle warning is
+unchanged. Portal Stryker killed 66/66 mutants with 0 survivors/timeouts/no-coverage; it exits
+non-zero only because Windows denies `taskkill` for Stryker checker cleanup after the report is
+written. The existing Connector audience-preflight mutation scope is N/A to the direct-cutover
+batch because no Connector runtime contract changed.
+Next action: do not recreate Knowledge Base/RAG/KB Wiki/Server Wiki v3 compatibility, import, or
+archive authority. Future Knowledge work begins from the Fabric contracts and this completion
+record.
 ```
 
 ## Known implementation decisions that still require evidence in a phase

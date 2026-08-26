@@ -26,7 +26,7 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
 - Connector: Node/discord.js under `connectors/discord/`.
 - Persistence: SQLAlchemy; the Phase 1 PostgreSQL + pgvector foundation is implemented,
   while SQLite remains a development/test and temporary production-migration source.
-- Knowledge Fabric Phase 7 is complete on the active branch. Phase 5 adds
+- Knowledge Fabric Phases 1–11c are complete on the active branch. Phase 5 adds
   source-aligned FTS/dense/entity-graph retrieval over derived index records and one internal
   `KnowledgeQueryEngine`. `list_effective_corpora()` is the sole server/corpus authorization
   resolver and is applied before each channel ranks. PostgreSQL uses `simple` FTS plus a
@@ -94,7 +94,7 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   canonical Server tuple `(platform, connection_id, workspace_id)` and explicit
   `KnowledgeServerAdministrator` membership remain unchanged. Only authenticated Super Admin can
   bootstrap/manage membership; owner-scoped Discord profiles and user-to-connection access grants
-  are not substitutes. Resume from the Phase 10 record in `docs/active-development-plan.md`.
+  are not substitutes. Resume from the current Phase 11 record in `docs/active-development-plan.md`.
 - Production topology: PostgreSQL + pgvector is the target. While SQLite remains in use,
   keep one app replica and one persistent `/data` Volume.
 - Application configuration prefix: `CHARACTER_RELAY_*`.
@@ -147,7 +147,7 @@ Search before relying on a glob or a historical filename; the table identifies o
 - Raw messages/media/tool results/external results remain provenance evidence.
 - Conversation Threads structure conversation; they are not durable knowledge authority.
 - Episodes describe what happened; Beliefs describe revisable current belief.
-- Wiki is a derived readable projection and cannot outrank source evidence.
+- Fabric Projections are derived readable caches and cannot outrank source evidence.
 - Relationship/Impression are social intelligence, not factual memory.
 - Planner-only media knowledge cannot silently become Character perception.
 - `unresolved` is a valid outcome; do not force low-confidence identity or membership.

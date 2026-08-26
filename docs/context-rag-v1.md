@@ -1,6 +1,6 @@
 # Context Layer + RAG V1
 
-Status: **current RAG storage/scope reference; context composition updated for Intelligence Core v3**
+Status: **retired historical RAG V1 reference — removed by Knowledge Fabric Phase 11c; do not implement or reintroduce**
 
 Context Layer + RAG V1 adds bounded, scoped knowledge retrieval to deployed Character Relay turns without changing Smart Participation, Smart Output, or Discord execution authority.
 

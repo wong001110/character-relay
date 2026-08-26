@@ -1,10 +1,13 @@
 from datetime import UTC, datetime
+from os import environ
 from pathlib import Path
 
+import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import inspect, select
+from sqlalchemy.engine import make_url
 
 from echo_masque.api import create_app
 from echo_masque.config import Settings
@@ -53,6 +56,18 @@ def settings(path: Path, *, public_demo_enabled: bool = False) -> Settings:
     )
 
 
+def _destructive_postgres_test_url() -> str:
+    postgres_url = environ.get("ECHO_MASQUE_TEST_POSTGRES_URL")
+    if not postgres_url:
+        pytest.skip("ECHO_MASQUE_TEST_POSTGRES_URL is not configured")
+    parsed = make_url(postgres_url)
+    if parsed.get_backend_name() != "postgresql" or parsed.database != "echo_masque_test":
+        pytest.fail("PostgreSQL Fabric tests only reset echo_masque_test.")
+    if environ.get("ECHO_MASQUE_ALLOW_DESTRUCTIVE_POSTGRES_TESTS") != "yes":
+        pytest.fail("Set ECHO_MASQUE_ALLOW_DESTRUCTIVE_POSTGRES_TESTS=yes.")
+    return postgres_url
+
+
 def login(client: TestClient, email: str) -> None:
     response = client.post("/api/auth/login", json={"email": email, "password": PASSWORD})
     assert response.status_code == 200, response.text
@@ -69,6 +84,45 @@ def register(client: TestClient, email: str) -> str:
     )
     assert response.status_code == 201, response.text
     return str(response.json()["user"]["id"])
+
+
+def test_retired_knowledge_routes_and_runtime_state_are_absent(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "retired-knowledge.db"))
+    client = TestClient(app)
+
+    assert client.get("/api/knowledge/bases").status_code == 404
+    assert not hasattr(app.state, "knowledge_repository")
+    assert not hasattr(app.state, "server_wiki_v3_repository")
+    assert not hasattr(app.state, "knowledge_checkpoint_v3_repository")
+    assert not hasattr(app.state, "knowledge_consolidation_v3_service")
+
+
+def test_postgresql_app_uses_fabric_and_has_no_legacy_knowledge_surface() -> None:
+    database_url = _destructive_postgres_test_url()
+    database = Database(database_url)
+    with database.engine.begin() as connection:
+        connection.exec_driver_sql("DROP SCHEMA public CASCADE")
+        connection.exec_driver_sql("CREATE SCHEMA public")
+    app = create_app(
+        Settings(
+            environment="test",
+            database_url=database_url,
+            legacy_local_user_enabled=False,
+            public_registration_enabled=True,
+            bootstrap_admin_email=SUPER_EMAIL,
+            bootstrap_admin_password=SecretStr(PASSWORD),
+            credential_encryption_keys=SecretStr(Fernet.generate_key().decode("ascii")),
+            request_limit_per_minute=1000,
+        )
+    )
+    client = TestClient(app)
+    login(client, SUPER_EMAIL)
+
+    scope = bootstrap_scope(client, workspace_id="postgres-guild")
+    assert scope["workspace_id"] == "postgres-guild"
+    assert client.get("/api/knowledge/bases").status_code == 404
+    assert not hasattr(app.state, "knowledge_repository")
+    assert not hasattr(app.state, "server_wiki_v3_repository")
 
 
 def bootstrap_scope(admin: TestClient, *, workspace_id: str = "guild-a") -> dict[str, object]:

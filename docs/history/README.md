@@ -10,6 +10,7 @@ These files explain past decisions, staged delivery, experiments, or superseded 
 - `conversation-intelligence-v4-roadmap.md`
 - `product-roadmap-rag-and-smart-participation.md`
 - `smart-participation-v3.md`
+- `context-rag-v1.md` (retired by the [Knowledge Fabric contract](../knowledge-fabric-architecture.md))
 
 When these conflict with the [Intelligence Core v3 contract](../intelligence-core-v3-architecture.md), v3 and current source/tests win. Do not restore Topic authority or fallback from historical documents.
 

@@ -6,7 +6,7 @@ This section is for the person running Character Relay and its Discord Connector
 
 1. Review the [security and privacy boundary](../security.md).
 2. Deploy the API/Portal using the [Railway guide](../railway-deployment.md).
-3. Keep SQLite on exactly one application replica with a persistent `/data` Volume; follow [storage safety](../storage-safety.md).
+3. Run Knowledge Fabric on PostgreSQL + pgvector; SQLite is only a local development/test or migration source. Follow [storage safety](../storage-safety.md).
 4. Configure and deploy the Discord worker using the [Discord setup guide](../user/discord-setup.md) and [Connector reference](../../connectors/discord/README.md).
 5. Run the [manual validation checklist](../manual-validation.md).
 

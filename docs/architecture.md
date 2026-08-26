@@ -20,7 +20,7 @@ Python runtime
   -> domain services and runtime authority
   -> provider and external capability adapters
   -> SQLAlchemy persistence
-  -> SQLite (/data in the supported Railway deployment)
+  -> PostgreSQL + pgvector for the Knowledge Fabric production contract (SQLite remains a dev/test or migration source)
 ```
 
 The Portal is a client, not an authority boundary. Authentication, ownership, Demo read-only enforcement, quotas, credentials, deployment scope, tool authorization, and delivery decisions remain server-side.
@@ -57,7 +57,7 @@ raw evidence
   -> Character / Tool runtime
 ```
 
-Threads are conversation structure, Episodes are durable projections of what happened, Beliefs are revisable interpretations, and Wiki is a derived readable projection. Raw evidence remains provenance truth.
+Threads are conversation structure, Episodes are durable projections of what happened, Beliefs are revisable interpretations, and Fabric Projections are derived readable caches. Raw evidence remains provenance truth.
 
 The v3 hard cutover removed Topic authority. Topic fallback, Topic lifecycle authority, Topic-scoped durable memory, `topic_id` continuation authority, Topic Wiki identity, and Topic-driven Discovery are forbidden. The complete contract is `docs/intelligence-core-v3-architecture.md`.
 
@@ -77,7 +77,7 @@ The v3 hard cutover removed Topic authority. Topic fallback, Topic lifecycle aut
 | Belief/entity/evidence | v3 belief/evidence modules and matching persistence |
 | Context and participation | `context_resolver_v3.py`, `participation_planner_v3.py` |
 | Media perception/delivery | media, planner-media, conversation-media, generated-media modules |
-| Knowledge/RAG/Wiki | knowledge modules, `character_turn_context_v3.py`, `character_turn_context_types.py`, matching persistence |
+| Knowledge Fabric | `knowledge_fabric_*`, `character_turn_context_v3.py`, `character_turn_context_types.py`, Fabric persistence/routes/Portal panels |
 | Tools/scheduling | tool runtime/external modules, scheduler and condition-watch modules |
 | Observability | runtime/provider trace modules, repositories, and Admin routes |
 | Evaluation/authoring/calibration | scenario, run, matrix, authoring, calibration modules/routes |
@@ -92,10 +92,10 @@ Persistence models/repositories live under `src/echo_masque/persistence/`. Do no
 2. Credentials are encrypted or environment-resolved and never serialized into product records, exports, traces, reports, or docs.
 3. Owner/server/character visibility may stay the same or become narrower; it must not become wider by inference.
 4. Raw messages, raw media references, completed tool results, and external source results are provenance evidence.
-5. Derived graph, Wiki, summaries, embeddings, and indexes never outrank their source evidence.
+5. Derived graph, Fabric Projections, summaries, embeddings, and indexes never outrank their source evidence.
 6. Observability failure is diagnostic and must not break a Character request.
 7. Public Demo mutation denial is server-owned; UI disabling is only an additional affordance.
-8. SQLite production deployment remains one replica with a mounted `/data` Volume.
+8. PostgreSQL + pgvector is the production contract for Fabric; SQLite is not a parallel Knowledge authority.
 
 ## UI architecture
 

@@ -328,7 +328,7 @@ Existing Web/Image Search tools serve current-turn epistemic need when Context R
 
 ## Projection Layer and Wiki compatibility
 
-Fabric Projections are materialized readable caches with explicit SourceVersion/Evidence dependencies, source hashes, and stale invalidation. Preserve the rule that raw Knowledge documents remain authority for any derived view. Phase 7 moves the Character-facing internal tool to `knowledge.search` through the fail-closed Fabric Context boundary; it must not use Server Wiki lookup. Existing Wiki tables/API/Portal surfaces remain a Phase 11 compatibility migration, not a parallel Character knowledge authority. Replace Topic-driven Server Wiki pages with Entity/Concept/Project/Event knowledge views derived from validated Beliefs, Episodes, Entities, and Knowledge documents. Remove `page_key=topic:*` and `source_topic_ids`.
+Fabric Projections are materialized readable caches with explicit SourceVersion/Evidence dependencies, source hashes, and stale invalidation. Preserve the rule that raw Knowledge documents remain authority for any derived view. The Character-facing internal tool is `knowledge.search` through the fail-closed Fabric Context boundary; it never uses Server Wiki lookup. Phase 11c directly retired the old Wiki tables/API/Portal surfaces with no migration or archive path. Entity/Concept/Project/Event views, when needed, are Fabric Projections derived from validated evidence rather than Server Wiki pages. Remove `page_key=topic:*` and `source_topic_ids`.
 
 ## Hard cutover and old data
 

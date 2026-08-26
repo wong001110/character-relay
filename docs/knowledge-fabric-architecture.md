@@ -1,6 +1,6 @@
 # Knowledge Fabric Architecture Contract
 
-Status: **approved target architecture for `codex/knowledge-fabric-foundation`; implementation is pending and must proceed phase-by-phase**
+Status: **implemented architecture contract for `codex/knowledge-fabric-foundation`; Phases 1–11c are delivered, with current validation recorded in the active plan**
 
 Baseline: `main` at `68169b8d878ef4d8475e1e52c812fffcb19249a4`.
 
@@ -651,7 +651,8 @@ Projection requirements:
 - safely deletable and regenerable;
 - never used as the sole evidence for exact-detail/quote/provenance queries.
 
-Existing Wiki persistence can be migrated/reused only if it conforms to this contract. Do not preserve the word “Wiki” as a runtime boundary merely for compatibility.
+The retired Knowledge Base/KB Wiki/Server Wiki v3 stores must not be restored, migrated, or reused.
+New readable views are Fabric Projections only; “Wiki” is not a runtime compatibility boundary.
 
 ### Phase 7 delivered boundary
 
@@ -672,12 +673,13 @@ The Character-facing internal tool is `knowledge.search`, not a Server Wiki look
 the bounded `query`/`limit` contract and goes through the same fail-closed `KnowledgeContextBuilder`
 and Character epistemic policy as normal turn context. Thus it returns no evidence for an unknown
 scope, unavailable query, or denied Character, and it sends no raw evidence locator to the model.
-Legacy Wiki persistence/API/Portal code remains an explicitly deferred Phase 11 compatibility
-surface, not a backend for this tool.
+The legacy Wiki persistence/API/Portal compatibility surface was directly retired in Phase 11c;
+it is not a backend for this tool and has no migration or archive path.
 
 ## Character runtime integration
 
-`CharacterTurnContextV3Service` must eventually depend on one `KnowledgeQueryEngine`, not separately on raw RAG and Server Wiki repositories.
+`CharacterTurnContextV3Service` depends on one `KnowledgeQueryEngine`, not separately on raw RAG
+or Server Wiki repositories.
 
 Target integration:
 
@@ -749,7 +751,8 @@ The implementation target replaces `wiki.lookup` as the conceptual runtime tool 
 
 ## Account and ownership lifecycle
 
-Current account deletion/local-workspace claim code explicitly owns current Knowledge/Wiki rows. New corpus/source/access/object ownership must participate in the same lifecycle.
+Account deletion/local-workspace claim code owns current Fabric corpus/source/access/object rows.
+The one-way cutover ledger owns retirement of the deleted legacy tables and vectors.
 
 Deletion/claim policy must distinguish:
 
@@ -764,7 +767,8 @@ Derived indexes/projections must never survive as cross-owner data leaks after s
 
 ## Portal/Admin target
 
-The current document-CRUD panel is replaced by a Corpus/Source-first management experience.
+The direct document-CRUD panel was removed in the hard cutover. The current management surface is
+Corpus/Source-first.
 
 Super Admin target surface:
 
@@ -794,7 +798,7 @@ Public Demo must hide or hard-disable writes and private/global administration.
 
 ## Explicit compatibility/deprecation rules
 
-The following are current implementation concepts, not long-term architecture contracts:
+The following are retired pre-Fabric concepts, not implementation or compatibility contracts:
 
 - `KnowledgeBaseRecord` as the primary corpus abstraction;
 - manually pasted plain-text-only Knowledge Documents as the primary ingestion experience;
@@ -806,7 +810,8 @@ The following are current implementation concepts, not long-term architecture co
 - `wiki.lookup` as a permanent Character tool name;
 - SQLite as the intended production database for the new large-corpus system.
 
-Do not add new functionality to these concepts solely to make the transition easier. Either adapt them temporarily behind the new boundary or remove them when the consuming phase cuts over.
+Phase 11c removed these concepts directly. Do not reintroduce them, including as an import,
+archive, or fallback path.
 
 ## Explicit non-goals
 
@@ -832,10 +837,11 @@ The active development plan owns phase execution. The intended dependency order 
 4. corpus-bound canonical entities, assertions/events, and an Evidence Graph bridge;
 5. PostgreSQL FTS + pgvector index layer and Knowledge Query Engine, accessible-space resolution,
    fusion/rerank/freshness;
-6. Character/Context integration and old RAG/Wiki consumer cutover;
+6. Character/Context integration;
 7. unified Projection Layer;
 8. ingestion adapters, beginning with Git and structured document import before broad generic Web crawling;
 9. Character epistemic timeline/spoiler/perspective controls;
-10. Portal/Admin operational UX, lifecycle hardening, observability and scale validation.
+10. Portal/Admin operational UX, lifecycle hardening, observability and scale validation;
+11. direct retirement of the old RAG/Wiki data, APIs, runtime state, and Portal surfaces.
 
 A phase may refine field names or split repositories, but it must not violate the authority, access, epistemic, provenance, and derived-projection rules in this contract without first updating this contract and the active plan.

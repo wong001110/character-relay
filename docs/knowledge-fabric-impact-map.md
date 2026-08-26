@@ -1,14 +1,17 @@
 # Knowledge Fabric implementation impact map
 
-Status: **branch execution map for `codex/knowledge-fabric-foundation`; not a claim that the target architecture is already implemented**
+Status: **historical execution map for `codex/knowledge-fabric-foundation`; Phase 11c directly retired the pre-Fabric Knowledge Base/RAG/KB Wiki/Server Wiki v3 surfaces**
 
 Use this file with `docs/knowledge-fabric-architecture.md`, `docs/active-development-plan.md`, `docs/intelligence-core-v3-architecture.md`, `AGENTS.md`, and the source/tests named below.
 
-This map exists so an AI Coding Agent can see the full blast radius before editing. It is intentionally broader than the first implementation phase.
+This map preserves the pre-cutover blast-radius analysis. Source/tests and
+`docs/agent-map.md` are the current navigation authority. References below to old routes,
+repositories, tables, imports, migration, reuse, or archive are historical only and must not be
+implemented or restored: the product owner selected a direct empty-Fabric cutover.
 
-## Current baseline that must be understood first
+## Historical baseline examined before the cutover
 
-Current Knowledge is still split across several paths:
+Before Phase 11c, Knowledge was split across several paths:
 
 ```text
 Manual Knowledge Base / RAG
@@ -30,16 +33,18 @@ Character turn
     └ ContextResolverV3 merges both into KNOWLEDGE EVIDENCE
 ```
 
-The target removes the conceptual duplication without collapsing authority domains that v3 deliberately separated.
+The implemented Fabric removes that conceptual duplication without collapsing authority domains
+that v3 deliberately separated. `knowledge_fabric_hard_cutover.py` and its tests record the
+one-way deletion of the former tables and `knowledge-chunk` vectors.
 
 ## Impact summary
 
 | Area | Impact | Target action |
 | --- | --- | --- |
 | Database/runtime storage | very high | PostgreSQL production foundation; remove SQLite-only production assumptions after migration |
-| Knowledge Base/RAG V1 | very high | replace as primary architecture; migrate useful authored text into Source/Corpus model |
-| KB-derived Knowledge Wiki | very high | fold into derived Projection Layer |
-| Server Wiki v3 | high | generalize into Projection Layer; stop treating Wiki as Character-facing storage boundary |
+| Knowledge Base/RAG V1 | retired | directly removed in Phase 11c; no migration/archive/import path |
+| KB-derived Knowledge Wiki | retired | directly removed in Phase 11c; Fabric Projections replace derived views |
+| Server Wiki v3 | retired | directly removed in Phase 11c; no Character-facing Wiki boundary |
 | Context Resolver | high | consume one bounded KnowledgeContext instead of separate knowledge/wiki universes |
 | CharacterTurnContextV3 | high | depend on KnowledgeQueryEngine rather than raw Knowledge + Wiki repositories |
 | Entity/Evidence Graph | high | add corpus canonical identity and cross-scope evidence semantics while preserving runtime provisional entities |

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from os import environ
+from pathlib import Path
+from threading import Lock
 
 import pytest
 from sqlalchemy import inspect, select
@@ -127,6 +130,94 @@ def test_hard_cutover_drops_legacy_tables_and_only_legacy_vectors() -> None:
         replay = session.scalar(select(KnowledgeFabricHardCutoverMigrationRecord))
     assert replay is not None
     assert replay.attempt_count == 1
+
+
+def _ledger(database: Database) -> KnowledgeFabricHardCutoverMigrationRecord:
+    with database.session() as session:
+        record = session.get(
+            KnowledgeFabricHardCutoverMigrationRecord,
+            KNOWLEDGE_FABRIC_HARD_CUTOVER_ID,
+        )
+    assert record is not None
+    return record
+
+
+def test_normal_startup_records_completed_fabric_cutover_once(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'fresh-fabric-cutover.db'}"
+    database = Database(url)
+    database.initialize()
+
+    first = _ledger(database)
+    assert first.status == "completed"
+    assert first.attempt_count == 1
+
+    restarted = Database(url)
+    restarted.initialize()
+    assert _ledger(restarted).attempt_count == 1
+
+
+def test_normal_startup_retries_a_failed_fabric_cutover(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url = f"sqlite:///{tmp_path / 'retry-fabric-cutover.db'}"
+    database = Database(url)
+    database.initialize(run_legacy_migrations=False)
+    _legacy_fixture(database)
+    original = KnowledgeFabricHardCutoverMigration._retire_legacy_storage
+
+    def interrupt(_: KnowledgeFabricHardCutoverMigration) -> tuple[dict[str, int], tuple[str, ...]]:
+        raise RuntimeError("injected interruption")
+
+    monkeypatch.setattr(KnowledgeFabricHardCutoverMigration, "_retire_legacy_storage", interrupt)
+    with pytest.raises(RuntimeError, match="injected interruption"):
+        database.initialize()
+
+    interrupted = _ledger(database)
+    assert interrupted.status == "failed"
+    assert interrupted.attempt_count == 1
+    assert set(inspect(database.engine).get_table_names()).intersection(
+        LEGACY_KNOWLEDGE_TABLES_TO_DROP
+    )
+
+    monkeypatch.setattr(
+        KnowledgeFabricHardCutoverMigration, "_retire_legacy_storage", original
+    )
+    restarted = Database(url)
+    restarted.initialize()
+    completed = _ledger(restarted)
+    assert completed.status == "completed"
+    assert completed.attempt_count == 2
+    assert not set(inspect(restarted.engine).get_table_names()).intersection(
+        LEGACY_KNOWLEDGE_TABLES_TO_DROP
+    )
+
+
+def test_concurrent_normal_startup_runs_fabric_cutover_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url = f"sqlite:///{tmp_path / 'concurrent-fabric-cutover.db'}"
+    seed = Database(url)
+    seed.initialize(run_legacy_migrations=False)
+    calls = 0
+    calls_lock = Lock()
+    original = KnowledgeFabricHardCutoverMigration._retire_legacy_storage
+
+    def count_runs(
+        migration: KnowledgeFabricHardCutoverMigration,
+    ) -> tuple[dict[str, int], tuple[str, ...]]:
+        nonlocal calls
+        with calls_lock:
+            calls += 1
+        return original(migration)
+
+    monkeypatch.setattr(KnowledgeFabricHardCutoverMigration, "_retire_legacy_storage", count_runs)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(Database(url).initialize) for _ in range(2)]
+        for future in futures:
+            future.result()
+
+    assert calls == 1
+    assert _ledger(Database(url)).attempt_count == 1
 
 
 def test_postgresql_copy_preflight_rejects_uncut_legacy_knowledge_tables() -> None:
