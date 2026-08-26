@@ -74,8 +74,12 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   indexing; Public Demo remains server-enforced read-only. Phase 11b-1 adds a scope-authorized
   Query Inspector over the existing Engine and a Super-Admin-only redacted global-source health
   view. It returns no profiles, locators, artifacts, validators, leases, or generic metadata, and
-  has no retry/rebuild/publish action. Phase 11b-2/11c remain open; resume from the Phase 11 record
-  in `docs/active-development-plan.md`.
+  has no retry/rebuild/publish action. Phase 11b Portal makes those existing read/write contracts
+  usable: a Super Admin-only Settings subtab manages global Corpora, registers HTTP(S) Sources,
+  renders only the redacted health model, and configures the existing durable schedule; the
+  Deployment Knowledge page exposes the same scoped Query Inspector to an already-authorized
+  Server administrator. It does not expose worker-only operational controls. Phase 11b-2/11c
+  remain open; resume from the Phase 11 record in `docs/active-development-plan.md`.
   Phase 4's corpus-bound canonical entities,
   evidence-backed runtime-resolution history, conflicting assertions, world events, typed Evidence
   Graph relations, and lifecycle cleanup remain unchanged. Canonical identity is

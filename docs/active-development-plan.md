@@ -1196,6 +1196,40 @@ Next action: build the Super Admin Portal surface over these read models, then i
 worker-backed actions with lifecycle/idempotency evidence.
 ```
 
+### 2026-08-26 Phase 11b Portal completion gate
+
+```text
+Status: complete — Global Library / inspection Portal surface; 11b-2/11c remain open
+Commit: `fc90c2f` (`feat: add Knowledge Fabric admin portal`)
+Changed authority/contracts: the existing Super Admin Settings surface now hosts a Knowledge Fabric
+subtab that lists/creates system-global Corpora, registers an HTTP(S) Source, renders only the
+redacted operational Source model, and configures the existing durable external-sync schedule.
+The active Deployment Knowledge page now exposes its already-authorized scoped Query Inspector
+through the one existing Query Engine. Client routing does not broaden authority: the parent
+Settings workspace remains Super Admin-only, scope tuple matching remains exact, and the server
+continues to enforce every request. Health UI does not type, read, or render a locator, profile,
+artifact, validator, lease, or credential; the Source locator remains a short-lived registration
+form input for the trusted Super Admin route only.
+Evidence: `web/src/KnowledgeFabricAdministrationPanel.tsx`,
+`web/src/AdministrationSettingsPanel.tsx`, `web/src/KnowledgeFabricPanel.tsx`,
+`web/src/knowledgeFabricApi.ts`, and `web/src/knowledgeFabricApi.test.ts`; backend contracts are
+the Phase 11b-1 route/schema records in `src/echo_masque/api/routes/knowledge_fabric.py` and
+`src/echo_masque/api/knowledge_fabric_schemas.py`.
+Validation: Portal `npm run typecheck`, `npm test`, and `npm run build` passed; the final clean
+Vitest run was 22 files / 66 tests. `npm run test:mutation` generated its report with 62 killed,
+1 reviewed equivalent non-JSON-error-catch mutant, 35 TypeScript checker rejections, and no
+timeout/no-coverage mutant. Windows exited 1 only after report generation because Stryker's
+`taskkill` cleanup was access-denied; the exact `.stryker-tmp` sandbox was removed and the clean
+Vitest run above confirmed no generated tests remained. Vite retains its pre-existing >500 kB
+chunk warning.
+Deliberate omissions: no retry/rebuild/publish/availability action, no raw artifact or generic
+job/checkpoint metadata, no embedding-runtime claim, and no new API or worker. Those require the
+11b-2 worker/invalidation ownership, idempotency, audit, and failure-path proof.
+Next action: map the existing ingestion/invalidation/job lifecycle and implement only a
+source-backed worker action with its durable idempotency and cleanup proof; then continue 11c
+compatibility removal and final scale/security gates.
+```
+
 ## Known implementation decisions that still require evidence in a phase
 
 The architecture is approved, but these implementation details are intentionally not invented in Phase 0:
