@@ -18,13 +18,18 @@ def test_non_production_sqlite_does_not_require_a_mount(tmp_path: Path) -> None:
     assert status.mount_path is None
 
 
-def test_postgresql_storage_health_does_not_disclose_a_local_database_path() -> None:
-    status = inspect_storage(
-        Settings(
-            environment="production",
-            database_url="postgresql+psycopg://user:password@example.test:5432/echo_masque",
-        )
-    )
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        "postgresql+psycopg://user:password@example.test:5432/echo_masque",
+        "postgresql://user:password@example.test:5432/echo_masque",
+        "postgres://user:password@example.test:5432/echo_masque",
+    ],
+)
+def test_postgresql_storage_health_does_not_disclose_a_local_database_path(
+    database_url: str,
+) -> None:
+    status = inspect_storage(Settings(environment="production", database_url=database_url))
 
     assert status.database_kind == "postgresql"
     assert status.database_path is None

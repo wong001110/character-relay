@@ -9,6 +9,7 @@ from pathlib import Path
 from sqlalchemy.engine import make_url
 
 from echo_masque.config import Settings
+from echo_masque.persistence.database import normalize_postgresql_driver_url
 
 MountChecker = Callable[[Path], bool]
 
@@ -46,7 +47,7 @@ def inspect_storage(
     """Inspect storage and reject unsupported production database topologies."""
 
     del mount_checker
-    parsed = make_url(settings.database_url)
+    parsed = make_url(normalize_postgresql_driver_url(settings.database_url))
     database_kind = parsed.get_backend_name()
     database_path = _database_path(parsed.database) if database_kind == "sqlite" else None
     if settings.environment == "production" and database_kind != "postgresql":
