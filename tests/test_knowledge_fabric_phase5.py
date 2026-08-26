@@ -432,6 +432,77 @@ def test_index_lifecycle_deletes_derived_entries_before_user_corpus_evidence(
         assert session.get(KnowledgeEvidenceEmbeddingRecord, embedding.id) is None
 
 
+def test_synthetic_large_corpus_query_is_bounded_and_server_isolated(tmp_path: Path) -> None:
+    _, fabric, content, indexes, storage, first_scope_id, second_scope_id, global_evidence = _seed(
+        tmp_path
+    )
+    global_corpus_id = indexes.upsert_retrieval_entry(global_evidence).corpus_id
+    source = fabric.create_source(
+        corpus_id=global_corpus_id,
+        source_type="manual_text",
+        locator="https://example.test/synthetic-large-corpus",
+        access_profile_json="{}",
+        parser_profile_json="{}",
+        sync_policy_json="{}",
+        freshness_policy_json="{}",
+        authority_profile="standard",
+    )
+    blocks = tuple(
+        CanonicalBlockInput(
+            structural_path=f"paragraph:{ordinal}",
+            block_type="paragraph",
+            ordinal=ordinal,
+            text_content=f"Synthetic corpus evidence {ordinal}: bounded-sentinel.",
+        )
+        for ordinal in range(128)
+    )
+    version = KnowledgeFabricIngestionService(
+        content,
+        storage,
+        object_key_prefix="knowledge-fabric",
+    ).ingest_snapshot(
+        SourceSnapshotIngestionRequest(
+            source_id=source.id,
+            version_key="synthetic-large",
+            idempotency_key="delivery-synthetic-large",
+            artifact_content=b"synthetic large corpus fixture",
+            artifact_content_type="text/plain",
+            documents=(
+                CanonicalDocumentInput(
+                    canonical_locator=source.locator,
+                    title="Synthetic large corpus",
+                    mime_type="text/plain",
+                    blocks=blocks,
+                ),
+            ),
+        )
+    )
+    for evidence in content.list_evidence_units(version.id):
+        indexes.upsert_retrieval_entry(evidence.id)
+
+    engine = KnowledgeQueryEngine(fabric_repository=fabric, index_repository=indexes)
+    permitted = engine.query(
+        KnowledgeQueryRequest(
+            server_scope_id=first_scope_id,
+            query="bounded-sentinel",
+            mode="overview",
+            candidate_limit=6,
+            result_limit=4,
+        )
+    )
+    assert len(permitted.hits) == 4
+    assert {hit.corpus_id for hit in permitted.hits} == {global_corpus_id}
+    assert engine.query(
+        KnowledgeQueryRequest(
+            server_scope_id=second_scope_id,
+            query="bounded-sentinel",
+            mode="overview",
+            candidate_limit=6,
+            result_limit=4,
+        )
+    ).hits == ()
+
+
 def test_postgresql_fts_and_dense_channels_when_explicit_test_database_is_available() -> None:
     postgres_url = _destructive_postgres_test_url()
     database = Database(postgres_url)
