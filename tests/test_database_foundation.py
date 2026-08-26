@@ -1,4 +1,5 @@
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from os import environ
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from echo_masque.persistence.schema_migrations import (
     KNOWLEDGE_FABRIC_CONTENT_REVISION,
     KNOWLEDGE_FABRIC_INDEX_REVISION,
     KNOWLEDGE_FABRIC_INTERPRETATION_REVISION,
+    KNOWLEDGE_FABRIC_OBJECT_LIFECYCLE_REVISION,
     KNOWLEDGE_FABRIC_PROJECTION_REVISION,
     KNOWLEDGE_FABRIC_SCOPE_REVISION,
 )
@@ -94,6 +96,10 @@ def test_sqlite_foundation_revision_is_idempotent(tmp_path: Path) -> None:
             DatabaseSchemaMigrationRecord,
             KNOWLEDGE_FABRIC_INDEX_REVISION,
         )
+        object_lifecycle_record = session.get(
+            DatabaseSchemaMigrationRecord,
+            KNOWLEDGE_FABRIC_OBJECT_LIFECYCLE_REVISION,
+        )
 
     assert record is not None
     assert record.database_kind == "sqlite"
@@ -101,6 +107,8 @@ def test_sqlite_foundation_revision_is_idempotent(tmp_path: Path) -> None:
     assert interpretation_record.database_kind == "sqlite"
     assert index_record is not None
     assert index_record.database_kind == "sqlite"
+    assert object_lifecycle_record is not None
+    assert object_lifecycle_record.database_kind == "sqlite"
 
 
 def test_sqlite_to_postgres_rejects_non_postgresql_target(tmp_path: Path) -> None:
@@ -332,6 +340,24 @@ def test_postgresql_foundation_when_explicit_test_database_is_available() -> Non
         session.delete(deployment)
         session.commit()
         assert session.get(DeploymentPresenceRecord, "deployment-a") is None
+
+
+def test_postgresql_concurrent_schema_bootstrap_is_serialized() -> None:
+    """Fresh replicas must not race ORM DDL before the migration locks exist."""
+
+    postgres_url = _destructive_postgres_test_url()
+    reset = Database(postgres_url)
+    with reset.engine.begin() as connection:
+        connection.exec_driver_sql("DROP SCHEMA public CASCADE")
+        connection.exec_driver_sql("CREATE SCHEMA public")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(Database(postgres_url).initialize) for _ in range(2)]
+        for future in futures:
+            future.result()
+
+    with Database(postgres_url).session() as session:
+        assert session.get(DatabaseSchemaMigrationRecord, DATABASE_FOUNDATION_REVISION) is not None
 
 
 def test_sqlite_to_postgres_migration_when_explicit_test_database_is_available(

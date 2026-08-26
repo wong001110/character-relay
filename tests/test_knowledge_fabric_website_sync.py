@@ -34,8 +34,14 @@ from echo_masque.persistence.database import Database
 from echo_masque.persistence.knowledge_fabric_content_repository import (
     KnowledgeFabricContentRepository,
 )
+from echo_masque.persistence.knowledge_fabric_external_schedule_repository import (
+    KnowledgeFabricExternalScheduleRepository,
+)
 from echo_masque.persistence.knowledge_fabric_external_sync_repository import (
     KnowledgeFabricExternalSyncRepository,
+)
+from echo_masque.persistence.knowledge_fabric_index_repository import (
+    KnowledgeFabricIndexRepository,
 )
 from echo_masque.persistence.knowledge_fabric_repository import KnowledgeFabricRepository
 from echo_masque.persistence.schema_migration_models import DatabaseSchemaMigrationRecord
@@ -287,6 +293,20 @@ def test_website_sync_publishes_changed_content_and_handles_conditional_no_chang
     versions = content.list_source_versions(source_id)
     assert len(versions) == 2
     assert all(content.list_evidence_units(version.id) for version in versions)
+    index = KnowledgeFabricIndexRepository(database)
+    for version in versions:
+        index.rebuild_entries_for_source_version(version.id)
+    source = content.get_source(source_id)
+    assert source is not None
+    candidates = index.search_sparse(
+        authorized_corpus_ids=frozenset({source.corpus_id}),
+        query="version",
+        candidate_limit=10,
+    )
+    version_by_id = {version.id: version for version in versions}
+    assert [
+        (version_by_id[item.source_version_id].status, item.text_content) for item in candidates
+    ] == [("available", "Second version.")]
     with database.session() as session:
         assert session.get(DatabaseSchemaMigrationRecord, KNOWLEDGE_FABRIC_EXTERNAL_SYNC_REVISION)
 
@@ -375,3 +395,77 @@ def test_website_sync_rejects_unsafe_validator_before_publishing_content(tmp_pat
             match=r"^Website response validator is invalid\.$",
         ):
             normalized_website_validator(invalid)
+
+
+def test_website_sync_claim_never_fetches_or_persists_after_its_schedule_lease_is_revoked(
+    tmp_path: Path,
+) -> None:
+    fetcher = QueueFetcher(
+        [
+            WebsiteFetchResponse(
+                200,
+                b"<html><body><main><p>Must not publish.</p></main></body></html>",
+                {"content-type": "text/html"},
+            )
+        ]
+    )
+    storage, content, sync, service, source_id, database = _service(tmp_path, fetcher)
+    schedules = KnowledgeFabricExternalScheduleRepository(database)
+    now = datetime(2026, 8, 26, tzinfo=UTC)
+    schedules.configure(source_id=source_id, enabled=True, interval_seconds=900, now=now)
+    claim = schedules.claim_due(limit=1, now=now)[0]
+    schedules.configure(source_id=source_id, enabled=False, interval_seconds=900, now=now)
+
+    result = asyncio.run(
+        service.sync(
+            source_id,
+            checked_at=now,
+            external_schedule_lease_token=claim.lease_token,
+        )
+    )
+
+    assert result.outcome == "stale"
+    assert fetcher.calls == []
+    assert storage.put_calls == 0
+    assert content.list_source_versions(source_id) == []
+    assert sync.get_state(source_id) is None
+
+
+def test_website_sync_rechecks_its_claim_after_fetch_before_starting_ingestion(
+    tmp_path: Path,
+) -> None:
+    initial_fetcher = QueueFetcher([])
+    storage, content, sync, service, source_id, database = _service(tmp_path, initial_fetcher)
+    schedules = KnowledgeFabricExternalScheduleRepository(database)
+    now = datetime(2026, 8, 26, tzinfo=UTC)
+    schedules.configure(source_id=source_id, enabled=True, interval_seconds=900, now=now)
+    claim = schedules.claim_due(limit=1, now=now)[0]
+
+    class _RevokingFetcher:
+        async def fetch(self, *, url: str, headers: Mapping[str, str]) -> WebsiteFetchResponse:
+            del url, headers
+            schedules.configure(
+                source_id=source_id,
+                enabled=False,
+                interval_seconds=900,
+                now=now,
+            )
+            return WebsiteFetchResponse(
+                200,
+                b"<html><body><main><p>Must not publish.</p></main></body></html>",
+                {"content-type": "text/html"},
+            )
+
+    service.fetcher = _RevokingFetcher()
+    result = asyncio.run(
+        service.sync(
+            source_id,
+            checked_at=now,
+            external_schedule_lease_token=claim.lease_token,
+        )
+    )
+
+    assert result.outcome == "stale"
+    assert storage.put_calls == 0
+    assert content.list_source_versions(source_id) == []
+    assert sync.get_state(source_id) is None

@@ -115,7 +115,7 @@ class KnowledgeFabricInvalidationRepository:
         at = _utc(now or datetime.now(UTC))
         with self.database.session() as session:
             record = session.get(KnowledgeDependencyInvalidationRecord, claim.invalidation_id)
-            if record is None or not _claim_is_current(record, claim):
+            if record is None or not _claim_is_current(record, claim, now=at):
                 return False
             metadata = _decode(record.metadata_json)
             state = _worker_state(metadata)
@@ -124,6 +124,29 @@ class KnowledgeFabricInvalidationRepository:
             record.metadata_json = _encode(metadata)
             record.status = INVALIDATION_COMPLETED
             record.processed_at = at
+            session.commit()
+            return True
+
+    def renew_claim(
+        self,
+        *,
+        claim: KnowledgeDerivedWorkClaim,
+        lease_seconds: int = 120,
+        now: datetime | None = None,
+    ) -> bool:
+        """Extend only a still-current lease while synchronous derived work is rebuilding."""
+
+        at = _utc(now or datetime.now(UTC))
+        lease_until = at + timedelta(seconds=max(30, lease_seconds))
+        with self.database.session() as session:
+            record = session.get(KnowledgeDependencyInvalidationRecord, claim.invalidation_id)
+            if record is None or not _claim_is_current(record, claim, now=at):
+                return False
+            metadata = _decode(record.metadata_json)
+            state = _worker_state(metadata)
+            state["lease_expires_at"] = lease_until.isoformat()
+            metadata[_WORKER_STATE_KEY] = state
+            record.metadata_json = _encode(metadata)
             session.commit()
             return True
 
@@ -139,7 +162,7 @@ class KnowledgeFabricInvalidationRepository:
         at = _utc(now or datetime.now(UTC))
         with self.database.session() as session:
             record = session.get(KnowledgeDependencyInvalidationRecord, claim.invalidation_id)
-            if record is None or not _claim_is_current(record, claim):
+            if record is None or not _claim_is_current(record, claim, now=at):
                 return False
             metadata = _decode(record.metadata_json)
             state = _worker_state(metadata)
@@ -264,10 +287,17 @@ class KnowledgeFabricInvalidationRepository:
 def _claim_is_current(
     record: KnowledgeDependencyInvalidationRecord | None,
     claim: KnowledgeDerivedWorkClaim,
+    *,
+    now: datetime,
 ) -> bool:
     if record is None or record.status != INVALIDATION_RUNNING:
         return False
-    return _worker_state(_decode(record.metadata_json)).get("lease_token") == claim.lease_token
+    state = _worker_state(_decode(record.metadata_json))
+    return (
+        state.get("lease_token") == claim.lease_token
+        and (lease_expires_at := _parse_time(state.get("lease_expires_at"))) is not None
+        and lease_expires_at > now
+    )
 
 
 def _worker_state(metadata: dict[str, object]) -> dict[str, object]:

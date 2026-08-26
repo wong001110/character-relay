@@ -300,11 +300,22 @@ describe("Knowledge Fabric Portal API", () => {
         })
       )
       .mockResolvedValueOnce(
+        response({
+          corpus_id: "corpus-a",
+          grantee_type: "server_scope",
+          grantee_id: "scope-a",
+          enabled: false,
+          access_mode: "read",
+          updated_at: "2026-08-26T00:00:00Z"
+        })
+      )
+      .mockResolvedValueOnce(
         response({ corpus_id: "corpus-a", mode: "deny", updated_at: "2026-08-26T00:00:00Z" })
       );
     vi.stubGlobal("fetch", fetchMock);
 
     await knowledgeFabricApi.grantGlobal("scope-a", "corpus-a", true);
+    await knowledgeFabricApi.grantGlobal("scope-a", "corpus-a", false);
     await knowledgeFabricApi.setOverlay("scope-a", "corpus-a", "deny");
 
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -314,6 +325,11 @@ describe("Knowledge Fabric Portal API", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
+      "/api/knowledge-fabric/server-scopes/scope-a/global-corpora/corpus-a/grant",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ enabled: false }) })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
       "/api/knowledge-fabric/server-scopes/scope-a/global-corpora/corpus-a/overlay",
       expect.objectContaining({ method: "PUT", body: JSON.stringify({ mode: "deny" }) })
     );

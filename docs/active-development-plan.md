@@ -1,13 +1,13 @@
 # Active development plan — Knowledge Fabric foundation
 
-Status: **branch-local execution record — Phases 1–11 are complete**
+Status: **branch-local execution record — Phases 1–12 are complete**
 
 | Field | Value |
 | --- | --- |
 | Active branch | `codex/knowledge-fabric-foundation` |
 | Starting baseline | `main` at `68169b8d878ef4d8475e1e52c812fffcb19249a4` |
 | Delivery mode | coherent phase batches; at most one implementation commit per phase |
-| Current phase | Phase 11 — complete |
+| Current phase | Phase 12 — Knowledge Fabric remediation complete |
 | Integration owner | main/root coding agent for the active session |
 | Target architecture | `docs/knowledge-fabric-architecture.md` |
 | Blast-radius map | `docs/knowledge-fabric-impact-map.md` |
@@ -1045,7 +1045,7 @@ Commit gate: one epistemic-policy commit.
 
 ## Phase 11 — Portal/Admin operations, lifecycle hardening, scale and cleanup
 
-Status: **in progress — split into non-overlapping Portal and final-cutover batches**
+Status: **complete — Portal/Admin, lifecycle, scale, and direct-retirement batches are delivered**
 
 Goal: expose the new architecture coherently and remove dead old product surfaces.
 
@@ -1386,6 +1386,19 @@ batch because no Connector runtime contract changed.
 Next action: do not recreate Knowledge Base/RAG/KB Wiki/Server Wiki v3 compatibility, import, or
 archive authority. Future Knowledge work begins from the Fabric contracts and this completion
 record.
+```
+
+## Phase 12 — Knowledge Fabric remediation
+
+```text
+Status: complete — security, lifecycle, worker-concurrency, production-storage, and deployment-review remediation
+Commit: current Phase 12 remediation commit (resolve its final hash with `git log -1 --oneline`)
+Changed authority/contracts: credential-like Source profiles and percent-decoded credential-bearing locator fragments are rejected before persistence. Variable Source evidence is structurally isolated as JSON and never truncates an unclosed trust boundary. Website snapshots supersede earlier available Website Versions atomically while retaining immutable provenance. Artifact upload failures and account deletion use a durable deletion outbox; publication accepts an external-schedule lease only when its exact token remains unexpired. Invalidation and external-sync workers claim incrementally, renew leases, reject late results, and offload blocking work. Global grant revocation is now available in the Portal. Production starts only with PostgreSQL + pgvector; SQLite is limited to development/test and offline migration source use.
+Evidence: `knowledge_fabric_context.py`, `context_resolver_v3.py`, `api/knowledge_fabric_schemas.py`, `knowledge_fabric_ingestion.py`, `knowledge_fabric_website_sync.py`, `knowledge_fabric_atom_sync.py`, `knowledge_fabric_external_sync_scheduler.py`, `knowledge_fabric_invalidation_worker.py`, the affected Fabric persistence repositories/models/migrations, `persistence/storage.py`, `Dockerfile`, `.github/workflows/ci.yml`, and Portal grant policy/API tests.
+Validation: focused remediation batch passed 79 tests with 6 explicit PostgreSQL skips. Repository `python -m ruff check .`, `python -m mypy src`, and the final Python suite passed: 831 passed, 6 skipped, 7 existing warnings (1238.12s). Portal typecheck, Vitest (68 tests), and production build passed. A disposable WSL/Docker pgvector PostgreSQL 16 container passed the five revised CI foundation/cutover/app/retrieval tests; after lock review, the final dedicated-connection concurrency test passed again. WSL-native mutmut completed 98 mutants: 93 killed and 5 previously reviewed equivalents; the four rank-fusion changes preserve insertion/tie ordering or apply the same order-preserving transformation to every candidate, while retry-delay mutant 15 changes a loop cap from nine to ten but both paths clamp to 21,600 seconds. Portal Stryker killed 67 mutants with no runtime survivor; 37 TypeScript-checker rejections are tooling/compile results. It exits non-zero only after report creation because Windows denies its `taskkill` cleanup. `git diff --check` passed at final review.
+Migration/data action: additive object-deletion outbox metadata/migration; no historical Source Version is rewritten or deleted. Existing Website Sources become superseded on their next trusted snapshot. Production operators must configure PostgreSQL before deploying this commit; no database is automatically migrated or switched.
+Known deviations: the local Docker Engine is reachable only through WSL. Its direct Windows-mounted build context hits an xattr permission failure on an ignored pytest temporary directory, so local image startup could not be repeated; the revised PostgreSQL image flow is covered by the CI workflow. Portal has unit proof of the boolean reversal policy and request payloads, but no DOM click harness because the project deliberately has no DOM renderer/testing dependency.
+Next action: use this record as the new Fabric baseline; preserve fail-closed access, private artifacts, and PostgreSQL-only production storage in subsequent work.
 ```
 
 ## Known implementation decisions that still require evidence in a phase

@@ -24,7 +24,9 @@ from echo_masque.persistence.knowledge_fabric_content_repository import (
     CanonicalBlockInput,
     CanonicalDocumentInput,
     CanonicalSectionInput,
+    KnowledgeExternalScheduleClaimLost,
     KnowledgeFabricContentRepository,
+    KnowledgeIngestionAlreadyRunning,
     KnowledgeSourceVersionConflict,
 )
 from echo_masque.persistence.knowledge_fabric_models import (
@@ -296,6 +298,97 @@ def test_restart_recovery_requeues_running_job_without_duplicate_version(tmp_pat
     }
 
 
+def test_ingestion_claim_allows_only_one_active_attempt(tmp_path: Path) -> None:
+    storage = FakeObjectStorage(objects={})
+    _, _, content, _, source_id = _service(tmp_path, storage)
+    job = content.get_or_create_ingestion_job(
+        source_id=source_id,
+        job_type="source_snapshot",
+        idempotency_key="claim-once",
+    )
+
+    claimed = content.claim_ingestion_job(job.id)
+
+    assert claimed.status == "running"
+    assert claimed.attempt_count == 1
+    with pytest.raises(KnowledgeIngestionAlreadyRunning):
+        content.claim_ingestion_job(job.id)
+
+
+def test_stale_external_schedule_claim_cannot_publish_a_private_snapshot(tmp_path: Path) -> None:
+    storage = FakeObjectStorage(objects={})
+    database, _fabric, content, service, source_id = _service(tmp_path, storage)
+    with database.session() as session:
+        session.add(
+            KnowledgeExternalSourceScheduleRecord(
+                source_id=source_id,
+                enabled=True,
+                lease_token="expired-claim",
+                lease_expires_at=datetime(2026, 8, 25, tzinfo=UTC),
+            )
+        )
+        session.commit()
+
+    with pytest.raises(KnowledgeExternalScheduleClaimLost):
+        service.ingest_snapshot(
+            replace(
+                _request(source_id),
+                idempotency_key="expired-claim",
+                external_schedule_lease_token="expired-claim",
+            )
+        )
+
+    assert content.list_source_versions(source_id) == []
+    assert storage.objects == {}
+    failed = content.get_or_create_ingestion_job(
+        source_id=source_id,
+        job_type="source_snapshot",
+        idempotency_key="expired-claim",
+    )
+    assert failed.error_code == "schedule_claim_lost"
+
+
+def test_failed_publish_keeps_a_durable_private_object_deletion_tombstone(tmp_path: Path) -> None:
+    storage = FakeObjectStorage(objects={})
+    _database, _fabric, content, service, source_id = _service(tmp_path, storage)
+    storage.fail_delete = True
+    malformed = CanonicalDocumentInput(
+        canonical_locator="https://docs.example.test/bad",
+        title="Bad",
+        mime_type="text/plain",
+        sections=(
+            CanonicalSectionInput(
+                structural_path="child",
+                heading="Child",
+                ordinal=0,
+                parent_path="missing",
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="parent must precede"):
+        service.ingest_snapshot(
+            replace(
+                _request(source_id),
+                version_key="bad-revision",
+                idempotency_key="bad-delivery",
+                documents=(malformed,),
+            )
+        )
+
+    assert content.list_source_versions(source_id) == []
+    assert len(storage.objects) == 1
+    pending = content.list_pending_object_deletions()
+    assert len(pending) == 1
+    assert (pending[0].attempt_count, pending[0].error_code) == (1, "object_storage_failed")
+
+    storage.fail_delete = False
+    service.recover_interrupted_jobs()
+
+    assert storage.objects == {}
+    assert content.list_pending_object_deletions() == []
+
+
 def test_account_deletion_removes_private_object_and_all_derived_content(tmp_path: Path) -> None:
     storage = FakeObjectStorage(objects={})
     database, fabric, content, service, source_id = _service(tmp_path, storage)
@@ -358,6 +451,50 @@ def test_account_deletion_removes_private_object_and_all_derived_content(tmp_pat
         )
         assert session.get(KnowledgeExternalSourceSyncStateRecord, source_id) is None
         assert session.get(KnowledgeExternalSourceScheduleRecord, source_id) is None
+
+
+def test_account_deletion_removes_database_access_before_retrying_private_object_cleanup(
+    tmp_path: Path,
+) -> None:
+    storage = FakeObjectStorage(objects={})
+    database, fabric, content, service, source_id = _service(tmp_path, storage)
+    with database.session() as session:
+        session.add(
+            KnowledgeCorpusRecord(
+                id="user-corpus",
+                name="User corpus",
+                owner_type="user",
+                owner_id="user-1",
+                visibility="private",
+                default_authority_profile="standard",
+                status="active",
+            )
+        )
+        source = session.get(KnowledgeSourceRecord, source_id)
+        assert source is not None
+        source.corpus_id = "user-corpus"
+        session.commit()
+    version = service.ingest_snapshot(_request(source_id))
+    artifact = content.get_artifact(version.artifact_id)
+    assert artifact is not None
+    storage.fail_delete = True
+
+    counts = fabric.delete_owner("user-1")
+
+    assert counts["knowledge_fabric_object_deletions_pending"] == 1
+    assert artifact.object_key in storage.objects
+    with database.session() as session:
+        assert session.get(KnowledgeObjectArtifactRecord, artifact.id) is None
+        assert session.get(KnowledgeCorpusRecord, "user-corpus") is None
+        assert session.get(KnowledgeSourceRecord, source_id) is None
+    pending = content.list_pending_object_deletions()
+    assert len(pending) == 1
+    assert pending[0].error_code == "object_storage_failed"
+
+    storage.fail_delete = False
+    assert content.process_pending_object_deletions() == 1
+    assert artifact.object_key not in storage.objects
+    assert content.list_pending_object_deletions() == []
 
 
 def test_s3_compatible_storage_stays_private_and_reuses_matching_content() -> None:

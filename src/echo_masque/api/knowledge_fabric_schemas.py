@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
-from urllib.parse import urlsplit
+from itertools import pairwise
+from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -20,6 +22,79 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeServerScopeRecord,
     KnowledgeSourceRecord,
 )
+
+_CREDENTIAL_PROFILE_WORDS = frozenset(
+    {
+        "authorization",
+        "auth",
+        "bearer",
+        "cookie",
+        "credential",
+        "password",
+        "secret",
+        "token",
+    }
+)
+_CREDENTIAL_PROFILE_WORD_PAIRS = frozenset(
+    {
+        ("access", "key"),
+        ("api", "key"),
+        ("client", "key"),
+        ("private", "key"),
+    }
+)
+_CREDENTIAL_PROFILE_COMPACT_NAMES = frozenset(
+    {
+        "accesskey",
+        "accesstoken",
+        "apikey",
+        "authorization",
+        "auth",
+        "bearer",
+        "clientkey",
+        "clientsecret",
+        "cookie",
+        "credential",
+        "password",
+        "privatekey",
+        "secret",
+        "token",
+    }
+)
+
+
+def _credential_profile_key(value: str) -> bool:
+    """Return whether a profile key denotes credential-bearing configuration."""
+
+    normalized = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", value).casefold()
+    words = tuple(word for word in re.split(r"[^a-z0-9]+", normalized) if word)
+    if "".join(words) in _CREDENTIAL_PROFILE_COMPACT_NAMES:
+        return True
+    if _CREDENTIAL_PROFILE_WORDS.intersection(words):
+        return True
+    return any(pair in _CREDENTIAL_PROFILE_WORD_PAIRS for pair in pairwise(words))
+
+
+def _fragment_contains_credential(fragment: str) -> bool:
+    """Reject query-shaped fragments that carry credential material, not normal anchors."""
+
+    decoded = unquote(fragment)
+    for component in re.split(r"[&;]", decoded):
+        key, separator, value = component.partition("=")
+        if separator and value.strip() and _credential_profile_key(key):
+            return True
+    return False
+
+
+def _profile_value_contains_credential(value: str) -> bool:
+    """Catch credential values disguised behind an otherwise innocuous profile key."""
+
+    parsed = urlsplit(value)
+    if parsed.username or parsed.password:
+        return True
+    if _fragment_contains_credential(value):
+        return True
+    return bool(re.match(r"^\s*(?:basic|bearer)\s+\S+", value, flags=re.IGNORECASE))
 
 
 class KnowledgeServerScopeCreate(BaseModel):
@@ -197,13 +272,17 @@ class KnowledgeSourceCreate(BaseModel):
             raise ValueError("Source locator must be an absolute HTTP(S) URL.")
         if parsed.username or parsed.password or parsed.query:
             raise ValueError("Source locator must not contain credentials or query parameters.")
+        if _fragment_contains_credential(parsed.fragment):
+            raise ValueError("Source locator fragment must not contain credentials.")
         return value
 
     @field_validator("parser_profile", "sync_policy", "freshness_policy")
     @classmethod
     def profiles_have_no_secret_keys(cls, value: dict[str, str]) -> dict[str, str]:
-        forbidden = {"api_key", "credential", "password", "secret", "token"}
-        if any(key.casefold() in forbidden for key in value):
+        if any(
+            _credential_profile_key(key) or _profile_value_contains_credential(profile_value)
+            for key, profile_value in value.items()
+        ):
             raise ValueError("Source profiles must not contain credentials or secrets.")
         return value
 

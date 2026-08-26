@@ -458,42 +458,54 @@ class KnowledgeFabricInterpretationRepository:
         if not corpus_ids:
             return self.empty_interpretation_counts()
         with self.database.session() as session:
-            event_ids = list(
-                session.scalars(
-                    select(KnowledgeWorldEventRecord.id).where(
-                        KnowledgeWorldEventRecord.corpus_id.in_(corpus_ids)
-                    )
-                )
-            )
-            counts = self.empty_interpretation_counts()
-            counts["knowledge_fabric_interpretation_evidence"] = self._delete_corpus_rows(
-                session, KnowledgeInterpretationEvidenceRecord, corpus_ids
-            )
-            counts["knowledge_fabric_evidence_graph_relations"] = self._delete_corpus_rows(
-                session, KnowledgeEvidenceGraphRelationRecord, corpus_ids
-            )
-            if event_ids:
-                counts["knowledge_fabric_world_event_participants"] = self._rowcount(
-                    session.execute(
-                        delete(KnowledgeWorldEventParticipantRecord).where(
-                            KnowledgeWorldEventParticipantRecord.event_id.in_(event_ids)
-                        )
-                    )
-                )
-            counts["knowledge_fabric_extracted_assertions"] = self._delete_corpus_rows(
-                session, KnowledgeExtractedAssertionRecord, corpus_ids
-            )
-            counts["knowledge_fabric_world_events"] = self._delete_corpus_rows(
-                session, KnowledgeWorldEventRecord, corpus_ids
-            )
-            counts["knowledge_fabric_runtime_entity_resolutions"] = self._delete_corpus_rows(
-                session, KnowledgeRuntimeEntityResolutionRecord, corpus_ids
-            )
-            counts["knowledge_fabric_canonical_entities"] = self._delete_corpus_rows(
-                session, KnowledgeCanonicalEntityRecord, corpus_ids
-            )
+            counts = self.delete_interpretations_for_corpora_in_session(session, corpus_ids)
             session.commit()
             return counts
+
+    def delete_interpretations_for_corpora_in_session(
+        self,
+        session: Session,
+        corpus_ids: Sequence[str],
+    ) -> dict[str, int]:
+        """Stage corpus interpretation deletion in the caller's lifecycle transaction."""
+
+        if not corpus_ids:
+            return self.empty_interpretation_counts()
+        event_ids = list(
+            session.scalars(
+                select(KnowledgeWorldEventRecord.id).where(
+                    KnowledgeWorldEventRecord.corpus_id.in_(corpus_ids)
+                )
+            )
+        )
+        counts = self.empty_interpretation_counts()
+        counts["knowledge_fabric_interpretation_evidence"] = self._delete_corpus_rows(
+            session, KnowledgeInterpretationEvidenceRecord, corpus_ids
+        )
+        counts["knowledge_fabric_evidence_graph_relations"] = self._delete_corpus_rows(
+            session, KnowledgeEvidenceGraphRelationRecord, corpus_ids
+        )
+        if event_ids:
+            counts["knowledge_fabric_world_event_participants"] = self._rowcount(
+                session.execute(
+                    delete(KnowledgeWorldEventParticipantRecord).where(
+                        KnowledgeWorldEventParticipantRecord.event_id.in_(event_ids)
+                    )
+                )
+            )
+        counts["knowledge_fabric_extracted_assertions"] = self._delete_corpus_rows(
+            session, KnowledgeExtractedAssertionRecord, corpus_ids
+        )
+        counts["knowledge_fabric_world_events"] = self._delete_corpus_rows(
+            session, KnowledgeWorldEventRecord, corpus_ids
+        )
+        counts["knowledge_fabric_runtime_entity_resolutions"] = self._delete_corpus_rows(
+            session, KnowledgeRuntimeEntityResolutionRecord, corpus_ids
+        )
+        counts["knowledge_fabric_canonical_entities"] = self._delete_corpus_rows(
+            session, KnowledgeCanonicalEntityRecord, corpus_ids
+        )
+        return counts
 
     @staticmethod
     def delete_runtime_entity_resolutions(

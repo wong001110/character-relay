@@ -17,20 +17,22 @@ from echo_masque.knowledge_fabric_current_entry_policy import (
     current_evidence_must_be_invalidated,
     may_reuse_current_evidence,
 )
-from echo_masque.knowledge_fabric_external_policy import ATOM_PUBLIC_HTTPS_SOURCE_TYPE
+from echo_masque.knowledge_fabric_external_policy import (
+    ATOM_PUBLIC_HTTPS_SOURCE_TYPE,
+    WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE,
+)
 from echo_masque.knowledge_fabric_git_policy import GIT_SOURCE_TYPE
 from echo_masque.knowledge_fabric_ingestion_policy import (
     JOB_COMPLETED,
     JOB_FAILED,
     JOB_QUEUED,
     JOB_RUNNING,
-    may_claim_ingestion_job,
     may_requeue_ingestion_job,
     source_version_hash_matches,
 )
 from echo_masque.knowledge_object_storage import (
     KnowledgeObjectStorage,
-    ObjectStorageUnavailable,
+    ObjectStorageError,
     StoredKnowledgeObject,
 )
 from echo_masque.persistence.database import Database
@@ -44,9 +46,11 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeCanonicalSectionRecord,
     KnowledgeDependencyInvalidationRecord,
     KnowledgeEvidenceUnitRecord,
+    KnowledgeExternalSourceScheduleRecord,
     KnowledgeIngestionCheckpointRecord,
     KnowledgeIngestionJobRecord,
     KnowledgeObjectArtifactRecord,
+    KnowledgeObjectDeletionRecord,
     KnowledgeSourceCurrentEntryRecord,
     KnowledgeSourceRecord,
     KnowledgeSourceVersionRecord,
@@ -65,6 +69,10 @@ class KnowledgeSourceVersionConflict(ValueError):
 
 class KnowledgeIngestionAlreadyRunning(RuntimeError):
     """Duplicate delivery must wait for recovery instead of publishing twice."""
+
+
+class KnowledgeExternalScheduleClaimLost(RuntimeError):
+    """A scheduled external sync lost its durable lease before publication."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,16 +222,29 @@ class KnowledgeFabricContentRepository:
         """Atomically enter a new attempt or return a completed idempotent job."""
 
         with self.database.session() as session:
-            record = self._require_job(session, job_id)
-            if record.status == JOB_COMPLETED:
-                return record
-            if not may_claim_ingestion_job(record.status):
+            now = datetime.now(UTC)
+            claim_result = session.execute(
+                update(KnowledgeIngestionJobRecord)
+                .where(
+                    KnowledgeIngestionJobRecord.id == job_id,
+                    KnowledgeIngestionJobRecord.status.in_((JOB_QUEUED, JOB_FAILED)),
+                )
+                .values(
+                    status=JOB_RUNNING,
+                    attempt_count=KnowledgeIngestionJobRecord.attempt_count + 1,
+                    current_stage="acquiring",
+                    error_code=None,
+                    started_at=now,
+                    updated_at=now,
+                )
+            )
+            if self._rowcount(claim_result) == 0:
+                record = self._require_job(session, job_id)
+                if record.status == JOB_COMPLETED:
+                    return record
                 raise KnowledgeIngestionAlreadyRunning("Knowledge ingestion is already running.")
-            record.status = JOB_RUNNING
-            record.attempt_count += 1
-            record.current_stage = "acquiring"
-            record.error_code = None
-            record.started_at = datetime.now(UTC)
+            session.flush()
+            record = self._require_job(session, job_id)
             self._upsert_checkpoint(
                 session,
                 job_id=record.id,
@@ -277,11 +298,13 @@ class KnowledgeFabricContentRepository:
             version = session.get(KnowledgeSourceVersionRecord, source_version_id)
             if version is None:
                 raise KeyError("source_version")
+            source = session.get(KnowledgeSourceRecord, version.source_id)
+            if source is None:
+                raise KeyError("source")
             if activate_git_version:
-                source = session.get(KnowledgeSourceRecord, version.source_id)
-                if source is None:
-                    raise KeyError("source")
                 self._activate_git_version_as_current(session, source=source, version=version)
+            elif source.source_type == WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE:
+                self._activate_website_version_as_current(session, source=source, version=version)
             self._complete_job(
                 session,
                 record=record,
@@ -335,6 +358,7 @@ class KnowledgeFabricContentRepository:
         metadata: Mapping[str, object],
         documents: Sequence[CanonicalDocumentInput],
         activate_git_version: bool = False,
+        external_schedule_lease_token: str | None = None,
     ) -> KnowledgeSourceVersionRecord:
         """Atomically publish immutable metadata after private artifact upload succeeds."""
 
@@ -344,6 +368,11 @@ class KnowledgeFabricContentRepository:
             source = session.get(KnowledgeSourceRecord, source_id)
             if source is None or job.source_id != source_id:
                 raise KeyError("source")
+            self._require_current_external_schedule_claim(
+                session,
+                source_id=source_id,
+                lease_token=external_schedule_lease_token,
+            )
             if activate_git_version and source.source_type != GIT_SOURCE_TYPE:
                 raise ValueError("Git activation requires a Git snapshot Source.")
             if job.status != JOB_RUNNING:
@@ -365,6 +394,18 @@ class KnowledgeFabricContentRepository:
                             source=source,
                             version=existing_version,
                         )
+                    elif source.source_type == WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE:
+                        self._activate_website_version_as_current(
+                            session,
+                            source=source,
+                            version=existing_version,
+                        )
+                    artifact_record = session.get(
+                        KnowledgeObjectArtifactRecord,
+                        existing_version.artifact_id,
+                    )
+                    if artifact_record is not None:
+                        artifact_record.state = "stored"
                     self._complete_job(
                         session,
                         record=job,
@@ -382,35 +423,11 @@ class KnowledgeFabricContentRepository:
                     "Knowledge artifact hash does not match source content."
                 )
 
-            artifact_record = session.scalar(
-                select(KnowledgeObjectArtifactRecord).where(
-                    KnowledgeObjectArtifactRecord.storage_provider == artifact.provider,
-                    KnowledgeObjectArtifactRecord.bucket == artifact.bucket,
-                    KnowledgeObjectArtifactRecord.object_key == artifact.object_key,
-                )
+            artifact_record = self._ensure_artifact_record(
+                session,
+                source=source,
+                artifact=artifact,
             )
-            if artifact_record is None:
-                artifact_record = KnowledgeObjectArtifactRecord(
-                    id=str(uuid4()),
-                    corpus_id=source.corpus_id,
-                    source_id=source.id,
-                    storage_provider=artifact.provider,
-                    bucket=artifact.bucket,
-                    object_key=artifact.object_key,
-                    content_sha256=artifact.content_sha256,
-                    byte_size=artifact.byte_size,
-                    content_type=artifact.content_type,
-                )
-                session.add(artifact_record)
-                session.flush()
-            elif (
-                artifact_record.content_sha256 != artifact.content_sha256
-                or artifact_record.byte_size != artifact.byte_size
-                or artifact_record.content_type != artifact.content_type
-            ):
-                raise KnowledgeSourceVersionConflict(
-                    "Knowledge artifact metadata conflicts with storage."
-                )
 
             version = KnowledgeSourceVersionRecord(
                 id=str(uuid4()),
@@ -431,6 +448,8 @@ class KnowledgeFabricContentRepository:
                 source=source,
                 version=version,
             )
+            if source.source_type == WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE:
+                self._activate_website_version_as_current(session, source=source, version=version)
             has_material_change = (
                 source.source_type != ATOM_PUBLIC_HTTPS_SOURCE_TYPE
                 or entry_refresh.has_material_change
@@ -461,6 +480,7 @@ class KnowledgeFabricContentRepository:
                     )
             if activate_git_version:
                 self._activate_git_version_as_current(session, source=source, version=version)
+            artifact_record.state = "stored"
             self._complete_job(session, record=job, source_version_id=version.id, stage="published")
             session.commit()
             session.refresh(version)
@@ -495,9 +515,139 @@ class KnowledgeFabricContentRepository:
             session.refresh(version)
             return version
 
+    def activate_source_version_as_current(
+        self,
+        *,
+        source_id: str,
+        source_version_id: str,
+    ) -> KnowledgeSourceVersionRecord:
+        """Reactivate a retained current-snapshot version when its adapter supports it."""
+
+        with self.database.session() as session:
+            source = session.get(KnowledgeSourceRecord, source_id)
+            version = session.get(KnowledgeSourceVersionRecord, source_version_id)
+            if source is None or version is None or version.source_id != source_id:
+                raise KeyError("source_version")
+            if source.source_type == GIT_SOURCE_TYPE:
+                self._activate_git_version_as_current(session, source=source, version=version)
+            elif source.source_type == WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE:
+                self._activate_website_version_as_current(session, source=source, version=version)
+            session.commit()
+            session.refresh(version)
+            return version
+
     def get_artifact(self, artifact_id: str) -> KnowledgeObjectArtifactRecord | None:
         with self.database.session() as session:
             return session.get(KnowledgeObjectArtifactRecord, artifact_id)
+
+    def register_uploaded_artifact(
+        self,
+        *,
+        source_id: str,
+        artifact: StoredKnowledgeObject,
+    ) -> KnowledgeObjectArtifactRecord:
+        """Durably track an uploaded private object before source-version publication.
+
+        This small pre-publication record lets a failed database publish create a durable deletion
+        intent instead of losing the only reference to an uploaded R2/S3 object.
+        """
+
+        with self.database.session() as session:
+            source = session.get(KnowledgeSourceRecord, source_id)
+            if source is None:
+                raise KeyError("source")
+            record = self._ensure_artifact_record(session, source=source, artifact=artifact)
+            if record.state != "stored":
+                record.state = "pending_publication"
+            session.commit()
+            session.refresh(record)
+            return record
+
+    def discard_unpublished_artifact(self, artifact: StoredKnowledgeObject) -> None:
+        """Enqueue safe compensating deletion only when no immutable Version references it."""
+
+        with self.database.session() as session:
+            record = session.scalar(
+                select(KnowledgeObjectArtifactRecord).where(
+                    KnowledgeObjectArtifactRecord.storage_provider == artifact.provider,
+                    KnowledgeObjectArtifactRecord.bucket == artifact.bucket,
+                    KnowledgeObjectArtifactRecord.object_key == artifact.object_key,
+                )
+            )
+            if record is None:
+                return
+            referenced = session.scalar(
+                select(KnowledgeSourceVersionRecord.id).where(
+                    KnowledgeSourceVersionRecord.artifact_id == record.id
+                )
+            )
+            if referenced is not None:
+                return
+            self._enqueue_object_deletion(session, record)
+            session.delete(record)
+            session.commit()
+        self.process_pending_object_deletions()
+
+    def list_pending_object_deletions(self) -> list[KnowledgeObjectDeletionRecord]:
+        """Expose only durable cleanup metadata for lifecycle verification and recovery."""
+
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(KnowledgeObjectDeletionRecord)
+                    .where(KnowledgeObjectDeletionRecord.status == "pending")
+                    .order_by(
+                        KnowledgeObjectDeletionRecord.created_at,
+                        KnowledgeObjectDeletionRecord.id,
+                    )
+                )
+            )
+
+    def process_pending_object_deletions(self, *, limit: int = 100) -> int:
+        """Delete private objects after their relational references were committed away.
+
+        A storage failure is intentionally retained as a bounded retryable tombstone rather than
+        surfacing source/provider detail or restoring access to deleted user content.
+        """
+
+        if limit <= 0 or self.object_storage is None:
+            return 0
+        with self.database.session() as session:
+            pending_ids = list(
+                session.scalars(
+                    select(KnowledgeObjectDeletionRecord.id)
+                    .where(KnowledgeObjectDeletionRecord.status == "pending")
+                    .order_by(
+                        KnowledgeObjectDeletionRecord.created_at,
+                        KnowledgeObjectDeletionRecord.id,
+                    )
+                    .limit(limit)
+                )
+            )
+        deleted_count = 0
+        for deletion_id in pending_ids:
+            with self.database.session() as session:
+                record = session.get(KnowledgeObjectDeletionRecord, deletion_id)
+                if record is None or record.status != "pending":
+                    continue
+                object_key = record.object_key
+            try:
+                self.object_storage.delete_private(object_key=object_key)
+            except ObjectStorageError:
+                with self.database.session() as session:
+                    record = session.get(KnowledgeObjectDeletionRecord, deletion_id)
+                    if record is not None and record.status == "pending":
+                        record.attempt_count += 1
+                        record.error_code = "object_storage_failed"
+                        session.commit()
+                continue
+            with self.database.session() as session:
+                record = session.get(KnowledgeObjectDeletionRecord, deletion_id)
+                if record is not None and record.status == "pending":
+                    session.delete(record)
+                    session.commit()
+                    deleted_count += 1
+        return deleted_count
 
     def list_evidence_units(self, source_version_id: str) -> list[KnowledgeEvidenceUnitRecord]:
         with self.database.session() as session:
@@ -518,6 +668,30 @@ class KnowledgeFabricContentRepository:
     ) -> None:
         if source.source_type != GIT_SOURCE_TYPE:
             raise ValueError("Git activation requires a Git snapshot Source.")
+        if version.source_id != source.id:
+            raise KeyError("source_version")
+        session.execute(
+            update(KnowledgeSourceVersionRecord)
+            .where(
+                KnowledgeSourceVersionRecord.source_id == source.id,
+                KnowledgeSourceVersionRecord.id != version.id,
+                KnowledgeSourceVersionRecord.status == "available",
+            )
+            .values(status="superseded")
+        )
+        version.status = "available"
+
+    @staticmethod
+    def _activate_website_version_as_current(
+        session: Session,
+        *,
+        source: KnowledgeSourceRecord,
+        version: KnowledgeSourceVersionRecord,
+    ) -> None:
+        """Expose only the latest retained snapshot for a mutable Website Source."""
+
+        if source.source_type != WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE:
+            raise ValueError("Website activation requires a public HTTPS Website Source.")
         if version.source_id != source.id:
             raise KeyError("source_version")
         session.execute(
@@ -631,165 +805,174 @@ class KnowledgeFabricContentRepository:
             )
 
     def delete_content_for_corpora(self, corpus_ids: Sequence[str]) -> dict[str, int]:
-        """Delete derived descendants only after private artifact deletion succeeds."""
+        """Delete content metadata transactionally, then process private-object cleanup intents."""
 
         if not corpus_ids:
             return self.empty_content_counts()
         with self.database.session() as session:
-            source_ids = list(
-                session.scalars(
-                    select(KnowledgeSourceRecord.id).where(
-                        KnowledgeSourceRecord.corpus_id.in_(corpus_ids)
-                    )
-                )
-            )
-            artifacts = list(
-                session.scalars(
-                    select(KnowledgeObjectArtifactRecord).where(
-                        KnowledgeObjectArtifactRecord.corpus_id.in_(corpus_ids)
-                    )
-                )
-            )
-            if artifacts and self.object_storage is None:
-                raise ObjectStorageUnavailable(
-                    "Knowledge object storage is unavailable for lifecycle cleanup."
-                )
-            if self.object_storage is not None:
-                for artifact in artifacts:
-                    self.object_storage.delete_private(object_key=artifact.object_key)
-
-            version_ids = list(
-                session.scalars(
-                    select(KnowledgeSourceVersionRecord.id).where(
-                        KnowledgeSourceVersionRecord.source_id.in_(source_ids)
-                    )
-                )
-                if source_ids
-                else []
-            )
-            evidence_ids = list(
-                session.scalars(
-                    select(KnowledgeEvidenceUnitRecord.id).where(
-                        KnowledgeEvidenceUnitRecord.source_version_id.in_(version_ids)
-                    )
-                )
-                if version_ids
-                else []
-            )
-            document_ids = list(
-                session.scalars(
-                    select(KnowledgeCanonicalDocumentRecord.id).where(
-                        KnowledgeCanonicalDocumentRecord.source_version_id.in_(version_ids)
-                    )
-                )
-                if version_ids
-                else []
-            )
-            section_ids = list(
-                session.scalars(
-                    select(KnowledgeCanonicalSectionRecord.id).where(
-                        KnowledgeCanonicalSectionRecord.document_id.in_(document_ids)
-                    )
-                )
-                if document_ids
-                else []
-            )
-            block_ids = list(
-                session.scalars(
-                    select(KnowledgeCanonicalBlockRecord.id).where(
-                        KnowledgeCanonicalBlockRecord.document_id.in_(document_ids)
-                    )
-                )
-                if document_ids
-                else []
-            )
-            job_ids = list(
-                session.scalars(
-                    select(KnowledgeIngestionJobRecord.id).where(
-                        KnowledgeIngestionJobRecord.source_id.in_(source_ids)
-                    )
-                )
-                if source_ids
-                else []
-            )
-            counts = self.empty_content_counts()
-            counts["knowledge_fabric_ingestion_checkpoints"] = self._delete_ids(
-                session,
-                KnowledgeIngestionCheckpointRecord,
-                KnowledgeIngestionCheckpointRecord.job_id,
-                job_ids,
-            )
-            counts["knowledge_fabric_ingestion_jobs"] = self._delete_ids(
-                session, KnowledgeIngestionJobRecord, KnowledgeIngestionJobRecord.id, job_ids
-            )
-            counts["knowledge_fabric_dependency_invalidations"] = self._delete_ids(
-                session,
-                KnowledgeDependencyInvalidationRecord,
-                KnowledgeDependencyInvalidationRecord.source_version_id,
-                version_ids,
-            )
-            counts.update(
-                KnowledgeFabricProjectionRepository.delete_projections_for_corpora(
-                    session,
-                    corpus_ids,
-                )
-            )
-            counts.update(
-                KnowledgeFabricIndexRepository.delete_indexes_for_evidence_units(
-                    session,
-                    evidence_ids,
-                )
-            )
-            counts["knowledge_fabric_source_current_entries"] = self._delete_ids(
-                session,
-                KnowledgeSourceCurrentEntryRecord,
-                KnowledgeSourceCurrentEntryRecord.source_id,
-                source_ids,
-            )
-            counts["knowledge_fabric_evidence_units"] = self._delete_ids(
-                session,
-                KnowledgeEvidenceUnitRecord,
-                KnowledgeEvidenceUnitRecord.source_version_id,
-                version_ids,
-            )
-            counts["knowledge_fabric_asset_references"] = self._delete_ids(
-                session,
-                KnowledgeAssetReferenceRecord,
-                KnowledgeAssetReferenceRecord.document_id,
-                document_ids,
-            )
-            counts["knowledge_fabric_canonical_blocks"] = self._delete_ids(
-                session,
-                KnowledgeCanonicalBlockRecord,
-                KnowledgeCanonicalBlockRecord.id,
-                block_ids,
-            )
-            counts["knowledge_fabric_canonical_sections"] = self._delete_ids(
-                session,
-                KnowledgeCanonicalSectionRecord,
-                KnowledgeCanonicalSectionRecord.id,
-                section_ids,
-            )
-            counts["knowledge_fabric_canonical_documents"] = self._delete_ids(
-                session,
-                KnowledgeCanonicalDocumentRecord,
-                KnowledgeCanonicalDocumentRecord.id,
-                document_ids,
-            )
-            counts["knowledge_fabric_source_versions"] = self._delete_ids(
-                session,
-                KnowledgeSourceVersionRecord,
-                KnowledgeSourceVersionRecord.id,
-                version_ids,
-            )
-            artifact_ids = [artifact.id for artifact in artifacts]
-            counts["knowledge_fabric_object_artifacts"] = self._delete_ids(
-                session,
-                KnowledgeObjectArtifactRecord,
-                KnowledgeObjectArtifactRecord.id,
-                artifact_ids,
-            )
+            counts = self.delete_content_for_corpora_in_session(session, corpus_ids)
             session.commit()
+        self.process_pending_object_deletions()
+        return counts
+
+    def delete_content_for_corpora_in_session(
+        self,
+        session: Session,
+        corpus_ids: Sequence[str],
+    ) -> dict[str, int]:
+        """Stage descendant deletion and private-object outbox rows in a caller transaction."""
+
+        if not corpus_ids:
+            return self.empty_content_counts()
+        source_ids = list(
+            session.scalars(
+                select(KnowledgeSourceRecord.id).where(
+                    KnowledgeSourceRecord.corpus_id.in_(corpus_ids)
+                )
+            )
+        )
+        artifacts = list(
+            session.scalars(
+                select(KnowledgeObjectArtifactRecord).where(
+                    KnowledgeObjectArtifactRecord.corpus_id.in_(corpus_ids)
+                )
+            )
+        )
+
+        version_ids = list(
+            session.scalars(
+                select(KnowledgeSourceVersionRecord.id).where(
+                    KnowledgeSourceVersionRecord.source_id.in_(source_ids)
+                )
+            )
+            if source_ids
+            else []
+        )
+        evidence_ids = list(
+            session.scalars(
+                select(KnowledgeEvidenceUnitRecord.id).where(
+                    KnowledgeEvidenceUnitRecord.source_version_id.in_(version_ids)
+                )
+            )
+            if version_ids
+            else []
+        )
+        document_ids = list(
+            session.scalars(
+                select(KnowledgeCanonicalDocumentRecord.id).where(
+                    KnowledgeCanonicalDocumentRecord.source_version_id.in_(version_ids)
+                )
+            )
+            if version_ids
+            else []
+        )
+        section_ids = list(
+            session.scalars(
+                select(KnowledgeCanonicalSectionRecord.id).where(
+                    KnowledgeCanonicalSectionRecord.document_id.in_(document_ids)
+                )
+            )
+            if document_ids
+            else []
+        )
+        block_ids = list(
+            session.scalars(
+                select(KnowledgeCanonicalBlockRecord.id).where(
+                    KnowledgeCanonicalBlockRecord.document_id.in_(document_ids)
+                )
+            )
+            if document_ids
+            else []
+        )
+        job_ids = list(
+            session.scalars(
+                select(KnowledgeIngestionJobRecord.id).where(
+                    KnowledgeIngestionJobRecord.source_id.in_(source_ids)
+                )
+            )
+            if source_ids
+            else []
+        )
+        counts = self.empty_content_counts()
+        for artifact in artifacts:
+            self._enqueue_object_deletion(session, artifact)
+        counts["knowledge_fabric_object_deletions_pending"] = len(artifacts)
+        counts["knowledge_fabric_ingestion_checkpoints"] = self._delete_ids(
+            session,
+            KnowledgeIngestionCheckpointRecord,
+            KnowledgeIngestionCheckpointRecord.job_id,
+            job_ids,
+        )
+        counts["knowledge_fabric_ingestion_jobs"] = self._delete_ids(
+            session, KnowledgeIngestionJobRecord, KnowledgeIngestionJobRecord.id, job_ids
+        )
+        counts["knowledge_fabric_dependency_invalidations"] = self._delete_ids(
+            session,
+            KnowledgeDependencyInvalidationRecord,
+            KnowledgeDependencyInvalidationRecord.source_version_id,
+            version_ids,
+        )
+        counts.update(
+            KnowledgeFabricProjectionRepository.delete_projections_for_corpora(
+                session,
+                corpus_ids,
+            )
+        )
+        counts.update(
+            KnowledgeFabricIndexRepository.delete_indexes_for_evidence_units(
+                session,
+                evidence_ids,
+            )
+        )
+        counts["knowledge_fabric_source_current_entries"] = self._delete_ids(
+            session,
+            KnowledgeSourceCurrentEntryRecord,
+            KnowledgeSourceCurrentEntryRecord.source_id,
+            source_ids,
+        )
+        counts["knowledge_fabric_evidence_units"] = self._delete_ids(
+            session,
+            KnowledgeEvidenceUnitRecord,
+            KnowledgeEvidenceUnitRecord.source_version_id,
+            version_ids,
+        )
+        counts["knowledge_fabric_asset_references"] = self._delete_ids(
+            session,
+            KnowledgeAssetReferenceRecord,
+            KnowledgeAssetReferenceRecord.document_id,
+            document_ids,
+        )
+        counts["knowledge_fabric_canonical_blocks"] = self._delete_ids(
+            session,
+            KnowledgeCanonicalBlockRecord,
+            KnowledgeCanonicalBlockRecord.id,
+            block_ids,
+        )
+        counts["knowledge_fabric_canonical_sections"] = self._delete_ids(
+            session,
+            KnowledgeCanonicalSectionRecord,
+            KnowledgeCanonicalSectionRecord.id,
+            section_ids,
+        )
+        counts["knowledge_fabric_canonical_documents"] = self._delete_ids(
+            session,
+            KnowledgeCanonicalDocumentRecord,
+            KnowledgeCanonicalDocumentRecord.id,
+            document_ids,
+        )
+        counts["knowledge_fabric_source_versions"] = self._delete_ids(
+            session,
+            KnowledgeSourceVersionRecord,
+            KnowledgeSourceVersionRecord.id,
+            version_ids,
+        )
+        artifact_ids = [artifact.id for artifact in artifacts]
+        counts["knowledge_fabric_object_artifacts"] = self._delete_ids(
+            session,
+            KnowledgeObjectArtifactRecord,
+            KnowledgeObjectArtifactRecord.id,
+            artifact_ids,
+        )
         return counts
 
     def _refresh_current_atom_entries(
@@ -902,6 +1085,7 @@ class KnowledgeFabricContentRepository:
             "knowledge_fabric_asset_references": 0,
             "knowledge_fabric_evidence_units": 0,
             "knowledge_fabric_object_artifacts": 0,
+            "knowledge_fabric_object_deletions_pending": 0,
             "knowledge_fabric_ingestion_jobs": 0,
             "knowledge_fabric_ingestion_checkpoints": 0,
             "knowledge_fabric_dependency_invalidations": 0,
@@ -994,6 +1178,101 @@ class KnowledgeFabricContentRepository:
         return int(getattr(result, "rowcount", 0) or 0)
 
     @staticmethod
+    def _rowcount(result: object) -> int:
+        return int(getattr(result, "rowcount", 0) or 0)
+
+    @staticmethod
+    def _ensure_artifact_record(
+        session: Session,
+        *,
+        source: KnowledgeSourceRecord,
+        artifact: StoredKnowledgeObject,
+    ) -> KnowledgeObjectArtifactRecord:
+        record = session.scalar(
+            select(KnowledgeObjectArtifactRecord).where(
+                KnowledgeObjectArtifactRecord.storage_provider == artifact.provider,
+                KnowledgeObjectArtifactRecord.bucket == artifact.bucket,
+                KnowledgeObjectArtifactRecord.object_key == artifact.object_key,
+            )
+        )
+        if record is None:
+            record = KnowledgeObjectArtifactRecord(
+                id=str(uuid4()),
+                corpus_id=source.corpus_id,
+                source_id=source.id,
+                storage_provider=artifact.provider,
+                bucket=artifact.bucket,
+                object_key=artifact.object_key,
+                content_sha256=artifact.content_sha256,
+                byte_size=artifact.byte_size,
+                content_type=artifact.content_type,
+                state="pending_publication",
+            )
+            session.add(record)
+            session.flush()
+            return record
+        if (
+            record.corpus_id != source.corpus_id
+            or record.source_id != source.id
+            or record.content_sha256 != artifact.content_sha256
+            or record.byte_size != artifact.byte_size
+            or record.content_type != artifact.content_type
+        ):
+            raise KnowledgeSourceVersionConflict(
+                "Knowledge artifact metadata conflicts with storage."
+            )
+        return record
+
+    @staticmethod
+    def _enqueue_object_deletion(
+        session: Session,
+        artifact: KnowledgeObjectArtifactRecord,
+    ) -> None:
+        existing = session.scalar(
+            select(KnowledgeObjectDeletionRecord).where(
+                KnowledgeObjectDeletionRecord.storage_provider == artifact.storage_provider,
+                KnowledgeObjectDeletionRecord.bucket == artifact.bucket,
+                KnowledgeObjectDeletionRecord.object_key == artifact.object_key,
+            )
+        )
+        if existing is not None:
+            return
+        session.add(
+            KnowledgeObjectDeletionRecord(
+                id=str(uuid4()),
+                storage_provider=artifact.storage_provider,
+                bucket=artifact.bucket,
+                object_key=artifact.object_key,
+                status="pending",
+            )
+        )
+
+    @staticmethod
+    def _require_current_external_schedule_claim(
+        session: Session,
+        *,
+        source_id: str,
+        lease_token: str | None,
+    ) -> None:
+        if lease_token is None:
+            return
+        if not lease_token.strip():
+            raise KnowledgeExternalScheduleClaimLost(
+                "Knowledge external schedule claim is invalid."
+            )
+        claim = session.scalar(
+            select(KnowledgeExternalSourceScheduleRecord)
+            .where(
+                KnowledgeExternalSourceScheduleRecord.source_id == source_id,
+                KnowledgeExternalSourceScheduleRecord.lease_token == lease_token,
+                KnowledgeExternalSourceScheduleRecord.lease_expires_at > datetime.now(UTC),
+            )
+            .with_for_update()
+        )
+        if claim is None:
+            raise KnowledgeExternalScheduleClaimLost("Knowledge external schedule claim is stale.")
+
+    @staticmethod
     def _require_identifier(field_name: str, value: str) -> None:
         if not value.strip():
             raise ValueError(f"{field_name} is required.")
@@ -1076,6 +1355,7 @@ __all__ = [
     "CanonicalBlockInput",
     "CanonicalDocumentInput",
     "CanonicalSectionInput",
+    "KnowledgeExternalScheduleClaimLost",
     "KnowledgeFabricContentRepository",
     "KnowledgeIngestionAlreadyRunning",
     "KnowledgeSourceVersionConflict",

@@ -23,6 +23,7 @@ import {
   type KnowledgeFabricScope,
   type KnowledgeFabricSource
 } from "./knowledgeFabricApi";
+import { nextGlobalCorpusGrantEnabled } from "./knowledgeFabricPanelPolicy";
 
 interface Props {
   profile: DiscordServerProfile | undefined;
@@ -177,10 +178,14 @@ export function KnowledgeFabricPanel({ profile, deployments, demoMode, zh }: Pro
     }
   }
 
-  async function grant(corpus: KnowledgeFabricCorpus) {
+  async function setGlobalGrant(corpus: KnowledgeFabricCorpus, currentlyEnabled: boolean) {
     if (!activeScope) return;
     await run(async () => {
-      await knowledgeFabricApi.grantGlobal(activeScope.id, corpus.id, true);
+      await knowledgeFabricApi.grantGlobal(
+        activeScope.id,
+        corpus.id,
+        nextGlobalCorpusGrantEnabled(currentlyEnabled)
+      );
       await load();
     });
   }
@@ -370,12 +375,13 @@ export function KnowledgeFabricPanel({ profile, deployments, demoMode, zh }: Pro
                 {!demoMode && (
                   <div className="knowledge-card-actions">
                     <Button
+                      type="button"
                       size="sm"
-                      variant="secondary"
-                      disabled={working || enabled}
-                      onClick={() => void grant(corpus)}
+                      variant={enabled ? "danger" : "secondary"}
+                      disabled={working}
+                      onClick={() => void setGlobalGrant(corpus, enabled)}
                     >
-                      {enabled ? (zh ? "已授权" : "Granted") : zh ? "授权" : "Grant"}
+                      {enabled ? (zh ? "撤销授权" : "Revoke") : zh ? "授权" : "Grant"}
                     </Button>
                     {enabled && (
                       <Select

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from threading import Lock
 
-from sqlalchemy import inspect, text
+from sqlalchemy import Connection, inspect, text
 
 from echo_masque.knowledge_fabric_hard_cutover_policy import (
     LEGACY_KNOWLEDGE_TABLES_TO_DROP,
@@ -30,7 +31,7 @@ class KnowledgeFabricHardCutoverMigration:
         self.database = database
 
     def run(self) -> None:
-        with _RUN_LOCK:
+        with _RUN_LOCK, self._postgresql_cutover_lock():
             if not self._claim_run():
                 return
             try:
@@ -39,6 +40,12 @@ class KnowledgeFabricHardCutoverMigration:
                 self._fail_run(error)
                 raise
             self._complete_run(counts, retired_tables)
+
+    def _postgresql_cutover_lock(self) -> AbstractContextManager[None]:
+        """Hold one session-level lock across the ledger and irreversible DDL."""
+        if self.database.engine.dialect.name != "postgresql":
+            return _NoopContextManager()
+        return _PostgresqlCutoverLock(self.database.engine.connect())
 
     def _claim_run(self) -> bool:
         now = datetime.now(UTC)
@@ -71,11 +78,6 @@ class KnowledgeFabricHardCutoverMigration:
 
     def _retire_legacy_storage(self) -> tuple[dict[str, int], tuple[str, ...]]:
         with self.database.engine.begin() as connection:
-            if self.database.engine.dialect.name == "postgresql":
-                connection.execute(
-                    text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
-                    {"key": KNOWLEDGE_FABRIC_HARD_CUTOVER_ID},
-                )
             existing = set(inspect(connection).get_table_names())
             counts: dict[str, int] = {}
             if has_legacy_knowledge_vectors(existing):
@@ -118,6 +120,35 @@ class KnowledgeFabricHardCutoverMigration:
             record.last_error = type(error).__name__[:120]
             record.updated_at = datetime.now(UTC)
             session.commit()
+
+
+class _NoopContextManager(AbstractContextManager[None]):
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+
+class _PostgresqlCutoverLock(AbstractContextManager[None]):
+    def __init__(self, connection: Connection) -> None:
+        self.connection = connection
+
+    def __enter__(self) -> None:
+        self.connection.execute(
+            text("SELECT pg_advisory_lock(hashtext(:key))"),
+            {"key": KNOWLEDGE_FABRIC_HARD_CUTOVER_ID},
+        )
+        return None
+
+    def __exit__(self, *_: object) -> None:
+        try:
+            self.connection.execute(
+                text("SELECT pg_advisory_unlock(hashtext(:key))"),
+                {"key": KNOWLEDGE_FABRIC_HARD_CUTOVER_ID},
+            )
+        finally:
+            self.connection.close()
 
 
 __all__ = [

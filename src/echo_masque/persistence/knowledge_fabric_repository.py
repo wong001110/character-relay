@@ -421,7 +421,23 @@ class KnowledgeFabricRepository:
                 session.add(existing)
             else:
                 existing.enabled = enabled
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError:
+                # A second replica may create this exact grant between the read and insert.
+                # Re-read only that unique record, then apply this request's reversible state.
+                session.rollback()
+                existing = session.scalar(
+                    select(KnowledgeAccessGrantRecord).where(
+                        KnowledgeAccessGrantRecord.corpus_id == corpus_id,
+                        KnowledgeAccessGrantRecord.grantee_type == GRANTEE_SERVER,
+                        KnowledgeAccessGrantRecord.grantee_id == server_scope_id,
+                    )
+                )
+                if existing is None:
+                    raise
+                existing.enabled = enabled
+                session.commit()
             session.refresh(existing)
             return existing
 
@@ -508,7 +524,20 @@ class KnowledgeFabricRepository:
                 session.add(existing)
             else:
                 existing.mode = mode
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                existing = session.scalar(
+                    select(KnowledgeOverlayPolicyRecord).where(
+                        KnowledgeOverlayPolicyRecord.server_scope_id == server_scope_id,
+                        KnowledgeOverlayPolicyRecord.corpus_id == corpus_id,
+                    )
+                )
+                if existing is None:
+                    raise
+                existing.mode = mode
+                session.commit()
             session.refresh(existing)
             return existing
 
@@ -554,12 +583,13 @@ class KnowledgeFabricRepository:
                 or deployment.workspace_id != scope.workspace_id
             ):
                 return None
+            character_card_id = deployment.character_card_id
             existing = session.scalar(
                 select(KnowledgeCharacterCorpusPolicyRecord).where(
                     KnowledgeCharacterCorpusPolicyRecord.server_scope_id == server_scope_id,
                     KnowledgeCharacterCorpusPolicyRecord.deployment_id == deployment_id,
                     KnowledgeCharacterCorpusPolicyRecord.character_card_id
-                    == deployment.character_card_id,
+                    == character_card_id,
                     KnowledgeCharacterCorpusPolicyRecord.corpus_id == corpus_id,
                 )
             )
@@ -568,14 +598,30 @@ class KnowledgeFabricRepository:
                     id=str(uuid4()),
                     server_scope_id=server_scope_id,
                     deployment_id=deployment_id,
-                    character_card_id=deployment.character_card_id,
+                    character_card_id=character_card_id,
                     corpus_id=corpus_id,
                     effect=effect,
                 )
                 session.add(existing)
             else:
                 existing.effect = effect
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                existing = session.scalar(
+                    select(KnowledgeCharacterCorpusPolicyRecord).where(
+                        KnowledgeCharacterCorpusPolicyRecord.server_scope_id == server_scope_id,
+                        KnowledgeCharacterCorpusPolicyRecord.deployment_id == deployment_id,
+                        KnowledgeCharacterCorpusPolicyRecord.character_card_id
+                        == character_card_id,
+                        KnowledgeCharacterCorpusPolicyRecord.corpus_id == corpus_id,
+                    )
+                )
+                if existing is None:
+                    raise
+                existing.effect = effect
+                session.commit()
             session.refresh(existing)
             return existing
 
@@ -756,10 +802,16 @@ class KnowledgeFabricRepository:
                     account_id=user_id,
                 )
             ]
-            interpretation_counts = interpretation_repository.delete_interpretations_for_corpora(
-                corpus_ids
+            interpretation_counts = (
+                interpretation_repository.delete_interpretations_for_corpora_in_session(
+                session,
+                corpus_ids,
+                )
             )
-            content_counts = content_repository.delete_content_for_corpora(corpus_ids)
+            content_counts = content_repository.delete_content_for_corpora_in_session(
+                session,
+                corpus_ids,
+            )
             source_count = 0
             policy_count = 0
             character_policy_count = 0
@@ -851,6 +903,7 @@ class KnowledgeFabricRepository:
                 else None
             )
             session.commit()
+        content_repository.process_pending_object_deletions()
         return {
             **interpretation_counts,
             **content_counts,

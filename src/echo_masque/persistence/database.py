@@ -1,14 +1,16 @@
 """Database engine, schema initialization, and persistent storage identity."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlite3 import Connection as SQLiteConnection
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Connection, Engine, create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import ConnectionPoolEntry, StaticPool
+from sqlalchemy.pool import ConnectionPoolEntry, NullPool, StaticPool
 
 from echo_masque.persistence.belief_models import (
     BeliefEvidenceDependencyRecord,
@@ -93,6 +95,7 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeIngestionCheckpointRecord,
     KnowledgeIngestionJobRecord,
     KnowledgeInterpretationEvidenceRecord,
+    KnowledgeObjectDeletionRecord,
     KnowledgeObjectArtifactRecord,
     KnowledgeOverlayPolicyRecord,
     KnowledgeProjectionDependencyRecord,
@@ -241,6 +244,7 @@ def _enable_sqlite_foreign_keys(
 
 class Database:
     def __init__(self, url: str) -> None:
+        self._url = url
         kwargs: dict[str, object] = {}
         if url.startswith("sqlite"):
             kwargs["connect_args"] = {"check_same_thread": False}
@@ -256,6 +260,20 @@ class Database:
         *,
         run_legacy_migrations: bool = True,
         allow_incomplete_data_migration: bool = False,
+    ) -> None:
+        """Initialize schema and data migrations without cross-replica races."""
+
+        with self._postgresql_initialize_lock():
+            self._initialize_unlocked(
+                run_legacy_migrations=run_legacy_migrations,
+                allow_incomplete_data_migration=allow_incomplete_data_migration,
+            )
+
+    def _initialize_unlocked(
+        self,
+        *,
+        run_legacy_migrations: bool,
+        allow_incomplete_data_migration: bool,
     ) -> None:
         # Explicitly touch authority/runtime model classes so schema creation is deterministic.
         _ = (
@@ -313,6 +331,7 @@ class Database:
             KnowledgeExternalSourceScheduleRecord,
             KnowledgeExternalHostRateRecord,
             KnowledgeObjectArtifactRecord,
+            KnowledgeObjectDeletionRecord,
             KnowledgeSourceVersionRecord,
             KnowledgeCanonicalDocumentRecord,
             KnowledgeCanonicalSectionRecord,
@@ -337,7 +356,7 @@ class Database:
             KnowledgeCharacterCorpusPolicyRecord,
             KnowledgeOverlayPolicyRecord,
         )
-        Base.metadata.create_all(self.engine)
+        self._create_schema_metadata()
 
         # The foundation runner owns PostgreSQL extension/bootstrap revisions.  It
         # deliberately precedes product migrations so later revisions can depend on
@@ -350,6 +369,7 @@ class Database:
             KnowledgeFabricExternalScheduleMigration,
             KnowledgeFabricIndexMigration,
             KnowledgeFabricInterpretationMigration,
+            KnowledgeFabricObjectLifecycleMigration,
             KnowledgeFabricProjectionMigration,
             KnowledgeFabricExternalSyncMigration,
             KnowledgeFabricScopeMigration,
@@ -358,6 +378,7 @@ class Database:
         DatabaseFoundationMigration(self).run()
         KnowledgeFabricScopeMigration(self).run()
         KnowledgeFabricContentMigration(self).run()
+        KnowledgeFabricObjectLifecycleMigration(self).run()
         KnowledgeFabricCharacterPolicyMigration(self).run()
         KnowledgeFabricCurrentEntryMigration(self).run()
         KnowledgeFabricInterpretationMigration(self).run()
@@ -403,6 +424,48 @@ class Database:
         self._ensure_postgresql_deployment_runtime_invariants()
         self._ensure_sqlite_message_relation_author_snapshots()
 
+    @contextmanager
+    def _postgresql_initialize_lock(self) -> Iterator[None]:
+        """Keep every bootstrap/migration ledger operation serial across replicas."""
+
+        if self.engine.dialect.name != "postgresql":
+            yield
+            return
+        # A session advisory lock survives commit.  Give it a dedicated NullPool
+        # connection so normal initialization can use even a one-connection app
+        # pool, and commit immediately so a long migration is not idle in a
+        # transaction while it owns the lock.
+        lock_engine = create_engine(self._url, poolclass=NullPool)
+        try:
+            with lock_engine.connect() as connection:
+                connection.execute(
+                    text("SELECT pg_advisory_lock(hashtext(:key))"),
+                    {"key": "database-initialize-v1"},
+                )
+                connection.commit()
+                try:
+                    yield
+                finally:
+                    connection.execute(
+                        text("SELECT pg_advisory_unlock(hashtext(:key))"),
+                        {"key": "database-initialize-v1"},
+                    )
+                    connection.commit()
+        finally:
+            lock_engine.dispose()
+
+    def _create_schema_metadata(self) -> None:
+        """Serialize first-bootstrap ORM DDL across PostgreSQL application replicas."""
+        if self.engine.dialect.name != "postgresql":
+            Base.metadata.create_all(self.engine)
+            return
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+                {"key": "database-schema-bootstrap-v1"},
+            )
+            Base.metadata.create_all(connection)
+
     def _assert_no_incomplete_data_migration(self) -> None:
         """Fail closed rather than serving a target while its one-time copy is incomplete."""
 
@@ -439,13 +502,20 @@ class Database:
 
         if self.engine.dialect.name != "postgresql":
             return
-        duplicates = self.inspect_deployment_server_duplicates()
-        if duplicates:
-            raise RuntimeError(
-                "PostgreSQL deployment migration found duplicate Discord server deployments; "
-                "repair them explicitly before enabling the server-wide unique constraint."
-            )
         with self.engine.begin() as connection:
+            # `CREATE INDEX IF NOT EXISTS` can still deadlock when two replicas race
+            # to insert the same catalog record.  Keep the duplicate inspection and
+            # all runtime DDL behind one transaction-scoped bootstrap lock.
+            connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+                {"key": "postgresql-deployment-runtime-invariants-v1"},
+            )
+            duplicates = self._deployment_server_duplicates(connection)
+            if duplicates:
+                raise RuntimeError(
+                    "PostgreSQL deployment migration found duplicate Discord server deployments; "
+                    "repair them explicitly before enabling the server-wide unique constraint."
+                )
             connection.exec_driver_sql(_POSTGRES_DEPLOYMENT_SERVER_UNIQUE_INDEX)
             connection.exec_driver_sql(_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_FUNCTION)
             connection.exec_driver_sql(_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_TRIGGER_DROP)
@@ -474,6 +544,13 @@ class Database:
                     )
 
     def inspect_deployment_server_duplicates(self) -> tuple[DeploymentServerDuplicate, ...]:
+        with self.engine.connect() as connection:
+            return self._deployment_server_duplicates(connection)
+
+    @staticmethod
+    def _deployment_server_duplicates(
+        connection: Connection,
+    ) -> tuple[DeploymentServerDuplicate, ...]:
         query = """
         SELECT owner_id, connection_id, workspace_id, character_card_id, COUNT(*)
         FROM character_deployments
@@ -482,8 +559,7 @@ class Database:
         HAVING COUNT(*) > 1
         ORDER BY owner_id, connection_id, workspace_id, character_card_id
         """
-        with self.engine.connect() as connection:
-            rows = connection.exec_driver_sql(query).all()
+        rows = connection.exec_driver_sql(query).all()
         return tuple(
             DeploymentServerDuplicate(
                 owner_id=str(row[0]),

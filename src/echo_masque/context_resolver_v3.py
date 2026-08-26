@@ -216,7 +216,10 @@ class ContextResolverV3:
             compact = " ".join(item.text.split())
             if not compact or remaining <= 0:
                 continue
-            compact = compact[:remaining]
+            # Knowledge evidence has a closing trust boundary. Omitting an oversized hit is
+            # fail-closed; truncating it could remove that boundary while leaving its data.
+            if len(compact) > remaining:
+                continue
             result.append(ContextTextHit(item.source, item.ref, compact, item.score))
             remaining -= len(compact)
         return tuple(result)

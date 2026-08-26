@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, text
+from sqlalchemy.orm import Session
 
 from echo_masque.knowledge_fabric_external_policy import (
     ATOM_PUBLIC_HTTPS_SOURCE_TYPE,
@@ -112,23 +113,26 @@ class KnowledgeFabricExternalScheduleRepository:
                     KnowledgeExternalSourceScheduleRecord.enabled.is_(True),
                     KnowledgeExternalSourceScheduleRecord.next_run_at.is_not(None),
                     KnowledgeExternalSourceScheduleRecord.next_run_at <= at,
+                    or_(
+                        KnowledgeExternalSourceScheduleRecord.lease_expires_at.is_(None),
+                        KnowledgeExternalSourceScheduleRecord.lease_expires_at <= at,
+                    ),
                 )
                 .order_by(
                     KnowledgeExternalSourceScheduleRecord.next_run_at,
                     KnowledgeExternalSourceScheduleRecord.source_id,
                 )
-                .limit(capped_limit)
+                # Inspect enough due Sources to skip a cooling hostname without starving an
+                # independent host behind it. `capped_limit` remains the number of leases we
+                # return, not the number of candidate rows we inspect.
+                .limit(50)
             )
             if self.database.engine.dialect.name == "postgresql":
                 statement = statement.with_for_update(skip_locked=True)
             claimed: list[ExternalSourceScheduleClaim] = []
             for schedule, source in session.execute(statement):
-                if (
-                    schedule.lease_expires_at is not None
-                    and _utc(schedule.lease_expires_at) > at
-                ):
-                    continue
                 hostname = _approved_source_hostname(source)
+                self._lock_host_rate(session, hostname)
                 host_rate = session.get(KnowledgeExternalHostRateRecord, hostname)
                 if host_rate is not None and _utc(host_rate.next_allowed_at) > at:
                     schedule.next_run_at = host_rate.next_allowed_at
@@ -153,8 +157,43 @@ class KnowledgeFabricExternalScheduleRepository:
                         lease_token=token,
                     )
                 )
+                if len(claimed) >= capped_limit:
+                    break
             session.commit()
             return claimed
+
+    def claim_is_current(
+        self,
+        *,
+        claim: ExternalSourceScheduleClaim,
+        now: datetime | None = None,
+    ) -> bool:
+        """Confirm that a worker still owns an enabled, unexpired Source lease."""
+
+        at = _utc(now or datetime.now(UTC))
+        with self.database.session() as session:
+            schedule = session.get(KnowledgeExternalSourceScheduleRecord, claim.source_id)
+            return _claim_is_current(schedule=schedule, claim=claim, now=at)
+
+    def renew_claim(
+        self,
+        *,
+        claim: ExternalSourceScheduleClaim,
+        lease_seconds: int = 120,
+        now: datetime | None = None,
+    ) -> bool:
+        """Extend only a still-current lease so slow approved work cannot be reclaimed."""
+
+        at = _utc(now or datetime.now(UTC))
+        lease_until = at + timedelta(seconds=max(30, lease_seconds))
+        with self.database.session() as session:
+            schedule = session.get(KnowledgeExternalSourceScheduleRecord, claim.source_id)
+            if not _claim_is_current(schedule=schedule, claim=claim, now=at):
+                return False
+            assert schedule is not None
+            schedule.lease_expires_at = lease_until
+            session.commit()
+            return True
 
     def mark_result(
         self,
@@ -170,8 +209,9 @@ class KnowledgeFabricExternalScheduleRepository:
         safe_error = _safe_error_code(error_code)
         with self.database.session() as session:
             schedule = session.get(KnowledgeExternalSourceScheduleRecord, claim.source_id)
-            if schedule is None or schedule.lease_token != claim.lease_token:
+            if not _claim_is_current(schedule=schedule, claim=claim, now=at):
                 return False
+            assert schedule is not None
             schedule.lease_token = ""
             schedule.lease_expires_at = None
             if succeeded:
@@ -209,6 +249,18 @@ class KnowledgeFabricExternalScheduleRepository:
             session.commit()
         return recovered
 
+    def _lock_host_rate(self, session: Session, hostname: str) -> None:
+        """Serialize PostgreSQL workers before they inspect/update one host cooldown row."""
+
+        if self.database.engine.dialect.name == "postgresql":
+            # A host can have no row yet, so locking an existing row alone is insufficient.
+            # This transaction-scoped advisory lock covers both create and update races without
+            # widening the lock beyond this normalized hostname.
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:hostname))"),
+                {"hostname": hostname},
+            )
+
 
 def _approved_source_hostname(source: KnowledgeSourceRecord | None) -> str:
     if source is None:
@@ -238,6 +290,17 @@ def _safe_error_code(value: str | None) -> str | None:
     if not candidate or len(candidate) > 80 or not candidate.replace("_", "").isalnum():
         raise ValueError("External sync error code is invalid.")
     return candidate
+
+
+def _claim_is_current(
+    *,
+    schedule: KnowledgeExternalSourceScheduleRecord | None,
+    claim: ExternalSourceScheduleClaim,
+    now: datetime,
+) -> bool:
+    if schedule is None or not schedule.enabled or schedule.lease_token != claim.lease_token:
+        return False
+    return schedule.lease_expires_at is not None and _utc(schedule.lease_expires_at) > now
 
 
 def _utc(value: datetime) -> datetime:

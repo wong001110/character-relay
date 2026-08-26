@@ -285,8 +285,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     external_sync_scheduler = KnowledgeFabricExternalSyncScheduler(
         schedule_repository=external_schedule_repository,
         sync_by_source_type={
-            WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE: website_sync_service.sync,
-            ATOM_PUBLIC_HTTPS_SOURCE_TYPE: atom_sync_service.sync,
+            WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE: website_sync_service.sync_claim,
+            ATOM_PUBLIC_HTTPS_SOURCE_TYPE: atom_sync_service.sync_claim,
         },
     )
     knowledge_fabric_invalidation_worker = KnowledgeFabricInvalidationWorker(

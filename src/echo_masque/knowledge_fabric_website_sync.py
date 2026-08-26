@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -21,6 +22,12 @@ from echo_masque.knowledge_fabric_website_adapter import (
     WebsiteResponseRejected,
 )
 from echo_masque.network_safety import PublicUrlGuard, PublicUrlRejected
+from echo_masque.persistence.knowledge_fabric_content_repository import (
+    KnowledgeExternalScheduleClaimLost,
+)
+from echo_masque.persistence.knowledge_fabric_external_schedule_repository import (
+    ExternalSourceScheduleClaim,
+)
 from echo_masque.persistence.knowledge_fabric_external_sync_repository import (
     KnowledgeFabricExternalSyncRepository,
 )
@@ -71,11 +78,18 @@ class KnowledgeFabricWebsiteSyncService:
         source_id: str,
         *,
         checked_at: datetime | None = None,
+        external_schedule_lease_token: str | None = None,
     ) -> WebsiteSyncResult:
         """Fetch exactly one registered locator and publish only a valid changed response."""
 
         now = checked_at or datetime.now(UTC)
-        source = self.sync_repository.require_website_source(source_id)
+        if not await self._schedule_claim_is_current(
+            source_id=source_id,
+            lease_token=external_schedule_lease_token,
+            checked_at=now,
+        ):
+            return WebsiteSyncResult(outcome="stale")
+        source = await asyncio.to_thread(self.sync_repository.require_website_source, source_id)
         try:
             locator = canonical_public_https_locator(source.locator)
             if locator != source.locator:
@@ -83,9 +97,14 @@ class KnowledgeFabricWebsiteSyncService:
             if self.url_guard is not None:
                 await self.url_guard.validate(locator)
         except (PublicUrlRejected, WebsiteSourceRejected):
-            return self._failure(source_id=source_id, error_code="source_rejected", checked_at=now)
+            return await self._failure(
+                source_id=source_id,
+                error_code="source_rejected",
+                checked_at=now,
+                external_schedule_lease_token=external_schedule_lease_token,
+            )
 
-        state = self.sync_repository.get_state(source_id)
+        state = await asyncio.to_thread(self.sync_repository.get_state, source_id)
         try:
             response = await self.fetcher.fetch(
                 url=locator,
@@ -95,7 +114,12 @@ class KnowledgeFabricWebsiteSyncService:
                 ),
             )
         except Exception:
-            return self._failure(source_id=source_id, error_code="fetch_failed", checked_at=now)
+            return await self._failure(
+                source_id=source_id,
+                error_code="fetch_failed",
+                checked_at=now,
+                external_schedule_lease_token=external_schedule_lease_token,
+            )
 
         content_type = response.headers.get("content-type", "")
         error_code = website_response_error_code(
@@ -104,19 +128,29 @@ class KnowledgeFabricWebsiteSyncService:
             content_size=len(response.content),
         )
         if error_code == "not_modified":
-            self.sync_repository.record_outcome(
+            recorded = await asyncio.to_thread(
+                self.sync_repository.record_outcome,
                 source_id=source_id,
                 outcome="not_modified",
                 checked_at=now,
+                schedule_lease_token=external_schedule_lease_token,
             )
+            if recorded is None:
+                return WebsiteSyncResult(outcome="stale")
             return WebsiteSyncResult(outcome="not_modified")
         if error_code is not None:
-            return self._failure(source_id=source_id, error_code=error_code, checked_at=now)
+            return await self._failure(
+                source_id=source_id,
+                error_code=error_code,
+                checked_at=now,
+                external_schedule_lease_token=external_schedule_lease_token,
+            )
 
         try:
             etag = normalized_website_validator(response.headers.get("etag"))
             last_modified = normalized_website_validator(response.headers.get("last-modified"))
-            snapshot = self.adapter.build_snapshot(
+            snapshot = await asyncio.to_thread(
+                self.adapter.build_snapshot,
                 WebsiteResponseInput(
                     source_id=source_id,
                     locator=locator,
@@ -126,43 +160,97 @@ class KnowledgeFabricWebsiteSyncService:
                 )
             )
         except WebsiteSourceRejected:
-            return self._failure(
+            return await self._failure(
                 source_id=source_id,
                 error_code="validator_rejected",
                 checked_at=now,
+                external_schedule_lease_token=external_schedule_lease_token,
             )
         except WebsiteResponseRejected:
-            return self._failure(source_id=source_id, error_code="invalid_encoding", checked_at=now)
-        existing = self.ingestion_service.repository.get_source_version_by_key(
+            return await self._failure(
+                source_id=source_id,
+                error_code="invalid_encoding",
+                checked_at=now,
+                external_schedule_lease_token=external_schedule_lease_token,
+            )
+        if not await self._schedule_claim_is_current(
+            source_id=source_id,
+            lease_token=external_schedule_lease_token,
+            checked_at=now,
+        ):
+            return WebsiteSyncResult(outcome="stale")
+        existing = await asyncio.to_thread(
+            self.ingestion_service.repository.get_source_version_by_key,
             source_id=source_id,
             version_key=snapshot.version_key,
         )
-        version = self.ingestion_service.ingest_snapshot(snapshot)
+        if external_schedule_lease_token is not None:
+            snapshot = replace(
+                snapshot,
+                external_schedule_lease_token=external_schedule_lease_token,
+            )
+        try:
+            version = await asyncio.to_thread(self.ingestion_service.ingest_snapshot, snapshot)
+        except KnowledgeExternalScheduleClaimLost:
+            return WebsiteSyncResult(outcome="stale")
         outcome = "unchanged" if existing is not None else "changed"
-        self.sync_repository.record_outcome(
+        recorded = await asyncio.to_thread(
+            self.sync_repository.record_outcome,
             source_id=source_id,
             outcome=outcome,
             etag=etag,
             last_modified=last_modified,
             changed=outcome == "changed",
             checked_at=now,
+            schedule_lease_token=external_schedule_lease_token,
         )
+        if recorded is None:
+            return WebsiteSyncResult(outcome="stale")
         return WebsiteSyncResult(outcome=outcome, source_version_id=version.id)
 
-    def _failure(
+    async def sync_claim(self, claim: ExternalSourceScheduleClaim) -> WebsiteSyncResult:
+        """Synchronize one Scheduler-owned Source without exposing its lease outside the worker."""
+
+        return await self.sync(
+            claim.source_id,
+            external_schedule_lease_token=claim.lease_token,
+        )
+
+    async def _failure(
         self,
         *,
         source_id: str,
         error_code: str,
         checked_at: datetime,
+        external_schedule_lease_token: str | None,
     ) -> WebsiteSyncResult:
-        self.sync_repository.record_outcome(
+        recorded = await asyncio.to_thread(
+            self.sync_repository.record_outcome,
             source_id=source_id,
             outcome="failed",
             error_code=error_code,
             checked_at=checked_at,
+            schedule_lease_token=external_schedule_lease_token,
         )
+        if recorded is None:
+            return WebsiteSyncResult(outcome="stale")
         return WebsiteSyncResult(outcome="failed", error_code=error_code)
+
+    async def _schedule_claim_is_current(
+        self,
+        *,
+        source_id: str,
+        lease_token: str | None,
+        checked_at: datetime,
+    ) -> bool:
+        if lease_token is None:
+            return True
+        return await asyncio.to_thread(
+            self.sync_repository.schedule_claim_is_current,
+            source_id=source_id,
+            lease_token=lease_token,
+            now=checked_at,
+        )
 
 
 __all__ = [

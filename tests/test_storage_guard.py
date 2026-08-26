@@ -32,32 +32,19 @@ def test_postgresql_storage_health_does_not_disclose_a_local_database_path() -> 
     assert status.mount_ready is True
 
 
-def test_production_sqlite_must_be_under_data() -> None:
-    with pytest.raises(UnsafeProductionStorageError, match="must be under /data"):
+def test_production_rejects_sqlite_even_when_a_persistent_mount_is_available() -> None:
+    with pytest.raises(UnsafeProductionStorageError, match="requires PostgreSQL \+ pgvector"):
         inspect_storage(
-            Settings(environment="production", database_url="sqlite:////app/echo_masque.db"),
+            Settings(environment="production", database_url="sqlite:////data/echo_masque.db"),
             mount_checker=lambda _: True,
         )
 
 
-def test_production_rejects_image_local_data_directory() -> None:
-    with pytest.raises(UnsafeProductionStorageError, match="not a mounted persistent volume"):
+def test_production_rejects_a_non_postgresql_database() -> None:
+    with pytest.raises(UnsafeProductionStorageError, match="requires PostgreSQL \+ pgvector"):
         inspect_storage(
-            Settings(environment="production", database_url="sqlite:////data/echo_masque.db"),
-            mount_checker=lambda _: False,
+            Settings(environment="production", database_url="mysql+pymysql://user:password@db/test")
         )
-
-
-def test_production_accepts_a_real_data_mount() -> None:
-    status = inspect_storage(
-        Settings(environment="production", database_url="sqlite:////data/echo_masque.db"),
-        mount_checker=lambda path: path == Path("/data"),
-    )
-
-    assert status.database_path == "/data/echo_masque.db"
-    assert status.persistent_required is True
-    assert status.mount_path == "/data"
-    assert status.mount_ready is True
 
 
 def test_health_storage_identity_survives_application_restart(tmp_path: Path) -> None:

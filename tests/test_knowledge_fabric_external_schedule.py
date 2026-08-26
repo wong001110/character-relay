@@ -15,7 +15,9 @@ from echo_masque.persistence.schema_migration_models import DatabaseSchemaMigrat
 from echo_masque.persistence.schema_migrations import KNOWLEDGE_FABRIC_EXTERNAL_SCHEDULE_REVISION
 
 
-def _repository(tmp_path: Path) -> tuple[KnowledgeFabricRepository, KnowledgeFabricExternalScheduleRepository]:
+def _repository(
+    tmp_path: Path,
+) -> tuple[KnowledgeFabricRepository, KnowledgeFabricExternalScheduleRepository]:
     database = Database(f"sqlite:///{tmp_path / 'external-schedule.db'}")
     database.initialize()
     fabric = KnowledgeFabricRepository(database)
@@ -112,7 +114,9 @@ def test_external_schedule_leases_once_per_host_and_retries_without_raw_errors(
         )
 
 
-def test_external_schedule_recovers_expired_lease_and_records_schema_revision(tmp_path: Path) -> None:
+def test_external_schedule_recovers_expired_lease_and_records_schema_revision(
+    tmp_path: Path,
+) -> None:
     fabric, schedules = _repository(tmp_path)
     source = fabric.list_sources(fabric.list_system_global_corpora()[0].id)[0]
     now = datetime(2026, 8, 26, tzinfo=UTC)
@@ -129,3 +133,50 @@ def test_external_schedule_recovers_expired_lease_and_records_schema_revision(tm
             KNOWLEDGE_FABRIC_EXTERNAL_SCHEDULE_REVISION,
         )
     assert claim.source_id == source.id
+
+
+def test_external_schedule_excludes_active_leases_and_rejects_late_results(tmp_path: Path) -> None:
+    fabric, schedules = _repository(tmp_path)
+    corpus = fabric.list_system_global_corpora()[0]
+    fabric.create_source(
+        corpus_id=corpus.id,
+        source_type=WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE,
+        locator="https://other.test/three",
+        access_profile_json="{}",
+        parser_profile_json="{}",
+        sync_policy_json="{}",
+        freshness_policy_json="{}",
+        authority_profile="standard",
+    )
+    now = datetime(2026, 8, 26, tzinfo=UTC)
+    for source in fabric.list_sources(corpus.id):
+        schedules.configure(source_id=source.id, enabled=True, interval_seconds=900, now=now)
+
+    first = schedules.claim_due(limit=1, lease_seconds=30, now=now)[0]
+    second = schedules.claim_due(limit=1, now=now + timedelta(seconds=1))[0]
+
+    assert second.hostname != first.hostname
+    assert not schedules.mark_result(
+        claim=first,
+        succeeded=True,
+        now=now + timedelta(seconds=31),
+    )
+    replacement = schedules.claim_due(limit=1, now=now + timedelta(seconds=61))[0]
+    assert replacement.source_id == first.source_id
+    assert replacement.lease_token != first.lease_token
+
+
+def test_external_schedule_renewal_keeps_a_current_lease_owned(tmp_path: Path) -> None:
+    fabric, schedules = _repository(tmp_path)
+    source = fabric.list_sources(fabric.list_system_global_corpora()[0].id)[0]
+    now = datetime(2026, 8, 26, tzinfo=UTC)
+    schedules.configure(source_id=source.id, enabled=True, interval_seconds=900, now=now)
+    claim = schedules.claim_due(limit=1, lease_seconds=30, now=now)[0]
+
+    assert schedules.renew_claim(
+        claim=claim,
+        lease_seconds=30,
+        now=now + timedelta(seconds=29),
+    )
+    assert schedules.claim_is_current(claim=claim, now=now + timedelta(seconds=31))
+    assert schedules.mark_result(claim=claim, succeeded=True, now=now + timedelta(seconds=31))

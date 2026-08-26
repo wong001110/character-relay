@@ -199,6 +199,38 @@ class KnowledgeObjectArtifactRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class KnowledgeObjectDeletionRecord(Base):
+    """Durable private-object cleanup intent, independent of deleted Fabric provenance rows.
+
+    Object storage cannot join the relational transaction.  This outbox lets lifecycle deletion
+    commit the access/provenance removal first, then retry private-object deletion safely after
+    the record that referenced it no longer exists.
+    """
+
+    __tablename__ = "knowledge_object_deletions"
+    __table_args__ = (
+        UniqueConstraint(
+            "storage_provider",
+            "bucket",
+            "object_key",
+            name="uq_knowledge_object_deletion_location",
+        ),
+        Index("ix_knowledge_object_deletion_status", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    storage_provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    bucket: Mapped[str] = mapped_column(String(255), nullable=False)
+    object_key: Mapped[str] = mapped_column(String(1024), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class KnowledgeSourceVersionRecord(Base):
     """One immutable source snapshot anchored to a private original artifact."""
 

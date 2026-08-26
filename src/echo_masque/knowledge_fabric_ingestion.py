@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from hashlib import sha256
@@ -11,6 +12,7 @@ from echo_masque.knowledge_fabric_ingestion_policy import deterministic_artifact
 from echo_masque.knowledge_object_storage import KnowledgeObjectStorage, ObjectStorageError
 from echo_masque.persistence.knowledge_fabric_content_repository import (
     CanonicalDocumentInput,
+    KnowledgeExternalScheduleClaimLost,
     KnowledgeFabricContentRepository,
     KnowledgeIngestionAlreadyRunning,
     KnowledgeSourceVersionConflict,
@@ -31,6 +33,7 @@ class SourceSnapshotIngestionRequest:
     published_at: datetime | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
     activate_git_version: bool = False
+    external_schedule_lease_token: str | None = None
 
 
 class KnowledgeFabricIngestionService:
@@ -64,12 +67,10 @@ class KnowledgeFabricIngestionService:
         if job.source_version_id is not None:
             version = self.repository.get_source_version(job.source_version_id)
             if version is not None:
-                if request.activate_git_version:
-                    return self.repository.activate_git_version_as_current(
-                        source_id=request.source_id,
-                        source_version_id=version.id,
-                    )
-                return version
+                return self.repository.activate_source_version_as_current(
+                    source_id=request.source_id,
+                    source_version_id=version.id,
+                )
         try:
             claimed = self.repository.claim_ingestion_job(job.id)
         except KnowledgeIngestionAlreadyRunning:
@@ -77,12 +78,10 @@ class KnowledgeFabricIngestionService:
         if claimed.source_version_id is not None:
             version = self.repository.get_source_version(claimed.source_version_id)
             if version is not None:
-                if request.activate_git_version:
-                    return self.repository.activate_git_version_as_current(
-                        source_id=request.source_id,
-                        source_version_id=version.id,
-                    )
-                return version
+                return self.repository.activate_source_version_as_current(
+                    source_id=request.source_id,
+                    source_version_id=version.id,
+                )
 
         existing = self.repository.get_source_version_by_key(
             source_id=request.source_id,
@@ -119,6 +118,19 @@ class KnowledgeFabricIngestionService:
             )
             raise
         try:
+            self.repository.register_uploaded_artifact(
+                source_id=request.source_id,
+                artifact=artifact,
+            )
+        except Exception:
+            with suppress(ObjectStorageError):
+                self.object_storage.delete_private(object_key=artifact.object_key)
+            self.repository.fail_ingestion_job(
+                job_id=claimed.id,
+                error_code="persistence_failed",
+            )
+            raise
+        try:
             return self.repository.publish_source_snapshot(
                 job_id=claimed.id,
                 source_id=request.source_id,
@@ -129,14 +141,24 @@ class KnowledgeFabricIngestionService:
                 metadata=request.metadata,
                 documents=request.documents,
                 activate_git_version=request.activate_git_version,
+                external_schedule_lease_token=request.external_schedule_lease_token,
             )
+        except KnowledgeExternalScheduleClaimLost:
+            self.repository.discard_unpublished_artifact(artifact)
+            self.repository.fail_ingestion_job(
+                job_id=claimed.id,
+                error_code="schedule_claim_lost",
+            )
+            raise
         except Exception:
+            self.repository.discard_unpublished_artifact(artifact)
             self.repository.fail_ingestion_job(job_id=claimed.id, error_code="persistence_failed")
             raise
 
     def recover_interrupted_jobs(self) -> int:
         """Call on a worker restart before accepting another snapshot delivery."""
 
+        self.repository.process_pending_object_deletions()
         return self.repository.requeue_interrupted_ingestion_jobs()
 
 

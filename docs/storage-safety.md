@@ -22,12 +22,11 @@ delete or mutate the original source. The target's `running`/`failed` migration 
 blocks normal startup until the operator completes the copy or uses a fresh target.
 See `docs/railway-deployment.md` for the exact migration sequence.
 
-## Temporary SQLite migration source
+## SQLite migration source
 
-Until a deployment finishes the PostgreSQL migration, it may use SQLite as a
-temporary source. A database path that looks correct is not enough:
-`/data/echo_masque.db` is persistent only when `/data` is an actual Railway Volume
-mount in the active Production environment.
+SQLite can be retained as an offline input to `scripts/migrate_sqlite_to_postgres.py`,
+but it is not a running production authority. Production startup rejects every SQLite
+URL before opening the database.
 
 ## Why data disappeared
 
@@ -40,50 +39,11 @@ card-stable-ann
 card-fragile-ann
 ```
 
-## Environment-scoped Railway Volume
-
-Railway Volumes are scoped to an environment. A Volume visible elsewhere in the project does not protect the public Production deployment.
-
-Verify all of the following in Railway:
-
-1. Select the environment that owns `https://echo-masque-production.up.railway.app`.
-2. Confirm the environment is **Production**.
-3. Open the exact `echo-masque` service that owns that public domain.
-4. Confirm a Volume is attached to that service in the same environment.
-5. Confirm the mount path is exactly:
-
-```text
-/data
-```
-
-6. Confirm the service variable is exactly:
-
-```text
-CHARACTER_RELAY_DATABASE_URL=sqlite:////data/echo_masque.db
-RAILWAY_RUN_UID=0
-```
-
-Railway mounts the Volume as `root`. The root image's entrypoint uses this platform override only to repair `/data` ownership, then drops to the non-root `character-relay` user (UID `10001`) before starting Uvicorn. Ordinary Docker/Compose runs do not need `RAILWAY_RUN_UID`.
-
-7. Keep one replica while using SQLite.
-
 ## Fail-closed startup guard
 
-Production startup now requires all of the following:
-
-- backend is SQLite;
-- database file resolves under `/data`;
-- `/data` is a real filesystem mount point;
-- the database can initialize;
-- a persistent Storage Instance ID can be read or created.
-
-When `/data` is only the image-local directory created by the Dockerfile, startup raises:
-
-```text
-Unsafe production storage: /data exists but is not a mounted persistent volume.
-```
-
-The deployment must not become healthy. This prevents Railway from silently replacing a working deployment with a new empty SQLite database.
+Production startup rejects SQLite with a safe error before opening the database. This
+prevents a Knowledge Fabric deployment from silently treating a local or mounted file
+as a parallel production authority.
 
 ## Health verification
 
@@ -131,11 +91,7 @@ prevents a later restart from repeating the migration; a failed or interrupted e
 the next startup using the migration's deterministic, repeat-safe projections. The ledger records
 only state and a safe exception type, never raw data or exception messages.
 
-The supported SQLite topology remains **one application replica**. Startup uses an in-process
-single-runner guard together with the persistent ledger; it is not a distributed lock and must not
-be used to justify running multiple SQLite-backed replicas.
-
-Before upgrading, take the Workspace export and preserve the SQLite Volume. SQLite foreign-key
-checks are enabled on every connection. A legacy-table rebuild is followed by `foreign_key_check`;
-if it reports an existing orphan, startup fails rather than marking the cutover complete. Repair or
-restore the database from the preserved Volume/backup before retrying the upgrade.
+Before migration, take the Workspace export and preserve the SQLite file/Volume. SQLite
+foreign-key checks are enabled on every connection. A legacy-table rebuild is followed by
+`foreign_key_check`; if it reports an existing orphan, repair or restore the source before retrying
+the offline migration.

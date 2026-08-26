@@ -12,6 +12,7 @@ from echo_masque.knowledge_fabric_external_policy import (
 )
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.knowledge_fabric_models import (
+    KnowledgeExternalSourceScheduleRecord,
     KnowledgeExternalSourceSyncStateRecord,
     KnowledgeSourceRecord,
 )
@@ -63,6 +64,20 @@ class KnowledgeFabricExternalSyncRepository:
                 )
             )
 
+    def schedule_claim_is_current(
+        self,
+        *,
+        source_id: str,
+        lease_token: str,
+        now: datetime | None = None,
+    ) -> bool:
+        """Check the scheduler fence before a worker can publish or expose a sync result."""
+
+        at = _utc(now or datetime.now(UTC))
+        with self.database.session() as session:
+            schedule = session.get(KnowledgeExternalSourceScheduleRecord, source_id)
+            return _schedule_claim_is_current(schedule=schedule, lease_token=lease_token, now=at)
+
     def record_outcome(
         self,
         *,
@@ -73,8 +88,9 @@ class KnowledgeFabricExternalSyncRepository:
         last_modified: str | None = None,
         changed: bool = False,
         checked_at: datetime | None = None,
+        schedule_lease_token: str | None = None,
         allowed_source_types: frozenset[str] = frozenset({WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE}),
-    ) -> KnowledgeExternalSourceSyncStateRecord:
+    ) -> KnowledgeExternalSourceSyncStateRecord | None:
         """Atomically update a Source's visible timestamps and its derived validator state."""
 
         if outcome not in {"changed", "failed", "not_modified", "unchanged"}:
@@ -99,6 +115,14 @@ class KnowledgeFabricExternalSyncRepository:
                 raise KeyError("source")
             if source.source_type not in allowed_source_types:
                 raise ValueError("External Website sync requires a public HTTPS Website Source.")
+            if schedule_lease_token is not None:
+                schedule = session.get(KnowledgeExternalSourceScheduleRecord, source_id)
+                if not _schedule_claim_is_current(
+                    schedule=schedule,
+                    lease_token=schedule_lease_token,
+                    now=_utc(now),
+                ):
+                    return None
             state = session.get(KnowledgeExternalSourceSyncStateRecord, source_id)
             if state is None:
                 state = KnowledgeExternalSourceSyncStateRecord(source_id=source_id)
@@ -119,6 +143,23 @@ class KnowledgeFabricExternalSyncRepository:
             session.commit()
             session.refresh(state)
             return state
+
+
+def _schedule_claim_is_current(
+    *,
+    schedule: KnowledgeExternalSourceScheduleRecord | None,
+    lease_token: str,
+    now: datetime,
+) -> bool:
+    if not lease_token or schedule is None or not schedule.enabled:
+        return False
+    if schedule.lease_token != lease_token or schedule.lease_expires_at is None:
+        return False
+    return _utc(schedule.lease_expires_at) > now
+
+
+def _utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 __all__ = ["KnowledgeFabricExternalSyncRepository"]

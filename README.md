@@ -110,23 +110,22 @@ CI is the complete merge gate; select targeted tests while iterating, then run t
 
 ## Production deployment
 
-The supported Railway shape is one application replica using the root `Dockerfile`, with a persistent Volume mounted at `/data`. SQLite requires the single-replica boundary.
+Knowledge Fabric production requires PostgreSQL with pgvector. SQLite is supported only for local development, tests, and as an offline migration source; an application configured with production SQLite fails closed before startup.
 
 Application settings use only the `CHARACTER_RELAY_*` prefix. A minimal production configuration includes:
 
 ```text
 CHARACTER_RELAY_ENVIRONMENT=production
-CHARACTER_RELAY_DATABASE_URL=sqlite:////data/echo_masque.db
+CHARACTER_RELAY_DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>:5432/<database>
 CHARACTER_RELAY_LEGACY_LOCAL_USER_ENABLED=false
 CHARACTER_RELAY_PUBLIC_REGISTRATION_ENABLED=false
 CHARACTER_RELAY_BOOTSTRAP_ADMIN_EMAIL=<admin email>
 CHARACTER_RELAY_BOOTSTRAP_ADMIN_PASSWORD=<long unique password>
 CHARACTER_RELAY_CREDENTIAL_ENCRYPTION_KEYS=<Fernet key>
 CHARACTER_RELAY_CONNECTOR_SHARED_SECRET=<long random secret>
-RAILWAY_RUN_UID=0
 ```
 
-Railway needs `RAILWAY_RUN_UID=0` because its Volume is mounted as root; the image entrypoint repairs `/data` ownership and drops to UID `10001` before Uvicorn starts. Keep credentials and encryption material outside Git. The shared Public Demo is intentionally read-only; server-side mutation checks remain authoritative even when a client is incorrect.
+Keep credentials and encryption material outside Git. The shared Public Demo is intentionally read-only; server-side mutation checks remain authoritative even when a client is incorrect.
 
 See [`docs/railway-deployment.md`](docs/railway-deployment.md) and [`docs/security.md`](docs/security.md) before production changes.
 

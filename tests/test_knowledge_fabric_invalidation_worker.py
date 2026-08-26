@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
+from time import sleep
 
 from echo_masque.knowledge_fabric_ingestion import (
     KnowledgeFabricIngestionService,
@@ -126,10 +127,12 @@ def test_worker_rebuilds_indexes_and_existing_projection_for_a_new_snapshot(tmp_
     projections = KnowledgeFabricProjectionRepository(database)
     projections.get_source_overview(source_id)
 
-    assert asyncio.run(worker.run_once()) == 2
+    assert asyncio.run(worker.run_once()) == 1
+    assert asyncio.run(worker.run_once()) == 1
     second = ingest.ingest_snapshot(_request(source_id, "two", "second evidence"))
 
-    assert asyncio.run(worker.run_once()) == 2
+    assert asyncio.run(worker.run_once()) == 1
+    assert asyncio.run(worker.run_once()) == 1
     indexes = KnowledgeFabricIndexRepository(database).rebuild_entries_for_source_version(second.id)
     assert [entry.retrieval_text for entry in indexes] == ["second evidence"]
     projection = projections.get_source_overview(source_id)
@@ -170,3 +173,46 @@ def test_failed_work_retries_with_a_lease_then_requires_explicit_source_retry(
         assert failed is not None and failed.status == "pending"
     assert invalidations.recover_expired(now=now) == 0
     assert version.source_id == source_id
+
+
+def test_expired_derived_work_claim_cannot_complete_or_fail_and_can_be_reclaimed(
+    tmp_path: Path,
+) -> None:
+    _database, ingest, invalidations, _worker_instance, source_id = _worker(tmp_path)
+    ingest.ingest_snapshot(_request(source_id, "one", "evidence"))
+    now = datetime(2026, 8, 26, tzinfo=UTC)
+
+    claim = invalidations.claim_due(limit=1, lease_seconds=30, now=now)[0]
+
+    assert not invalidations.complete(claim=claim, now=now + timedelta(seconds=31))
+    assert not invalidations.fail(
+        claim=claim,
+        error_code="derived_work_failed",
+        now=now + timedelta(seconds=31),
+    )
+    replacement = invalidations.claim_due(limit=1, now=now + timedelta(seconds=31))[0]
+    assert replacement.invalidation_id == claim.invalidation_id
+    assert replacement.lease_token != claim.lease_token
+
+
+class _SlowInvalidations:
+    def claim_due(self, *, limit: int, lease_seconds: int) -> list[object]:
+        del limit, lease_seconds
+        sleep(0.05)
+        return []
+
+
+def test_worker_moves_blocking_claim_work_off_the_event_loop() -> None:
+    worker = KnowledgeFabricInvalidationWorker(
+        invalidations=_SlowInvalidations(),  # type: ignore[arg-type]
+        indexes=object(),  # type: ignore[arg-type]
+        projections=object(),  # type: ignore[arg-type]
+    )
+
+    async def run() -> None:
+        task = asyncio.create_task(worker.run_once())
+        await asyncio.sleep(0)
+        assert not task.done()
+        assert await task == 0
+
+    asyncio.run(run())

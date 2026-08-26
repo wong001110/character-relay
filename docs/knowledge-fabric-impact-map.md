@@ -41,7 +41,7 @@ one-way deletion of the former tables and `knowledge-chunk` vectors.
 
 | Area | Impact | Target action |
 | --- | --- | --- |
-| Database/runtime storage | very high | PostgreSQL production foundation; remove SQLite-only production assumptions after migration |
+| Database/runtime storage | very high | PostgreSQL + pgvector is required in production; SQLite is development/test or an offline migration source only |
 | Knowledge Base/RAG V1 | retired | directly removed in Phase 11c; no migration/archive/import path |
 | KB-derived Knowledge Wiki | retired | directly removed in Phase 11c; Fabric Projections replace derived views |
 | Server Wiki v3 | retired | directly removed in Phase 11c; no Character-facing Wiki boundary |

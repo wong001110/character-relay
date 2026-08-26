@@ -8,7 +8,7 @@ Configure these Railway variables before enabling the account UI:
 
 ```text
 CHARACTER_RELAY_ENVIRONMENT=production
-CHARACTER_RELAY_DATABASE_URL=sqlite:////data/echo_masque.db
+CHARACTER_RELAY_DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>:5432/<database>
 CHARACTER_RELAY_LEGACY_LOCAL_USER_ENABLED=false
 CHARACTER_RELAY_PUBLIC_REGISTRATION_ENABLED=false
 CHARACTER_RELAY_BOOTSTRAP_ADMIN_EMAIL=<admin email>
@@ -46,7 +46,7 @@ The legacy `CHARACTER_RELAY_ADMIN_TOKEN`, Adaptive key, and Judge key settings r
 
 ## Backup-first migration
 
-Stop writes or place the service in a maintenance window. Run:
+For a legacy SQLite source, stop writes or place the legacy service in a maintenance window. Run this offline migration helper against the retained source file:
 
 ```bash
 python scripts/phase15_migrate.py \

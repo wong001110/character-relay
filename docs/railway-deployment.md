@@ -4,24 +4,20 @@ Status: **supported production deployment guide**
 
 Character Relay deploys as one Docker service. The root image builds the React Portal, and FastAPI serves both the Portal and `/api/*` from the same public domain.
 
-> Knowledge Fabric Phase 1 adds the supported PostgreSQL + pgvector foundation and an
-> explicit SQLite-to-PostgreSQL migration tool. Existing SQLite deployments remain
-> supported only while they are migrated; new production Knowledge Fabric work must
-> use PostgreSQL with the `vector` extension. Do not point two application replicas
-> at SQLite during this transition.
+> Knowledge Fabric production requires PostgreSQL with the `vector` extension. SQLite
+> remains an offline migration source only; the application rejects it when
+> `CHARACTER_RELAY_ENVIRONMENT=production`.
 
 ```text
 Railway domain
   -> FastAPI/Uvicorn + built Portal
   -> PostgreSQL + pgvector (target production topology)
-  -> SQLite at /data/echo_masque.db (temporary migration source only)
+  <- SQLite offline migration source (never a running production authority)
 
 Discord Gateway
   -> separately deployed connectors/discord worker
   -> authenticated connector API
 ```
-
-Keep exactly one application replica while SQLite is the production database.
 
 ## 1. Create the application service
 
@@ -87,19 +83,6 @@ CHARACTER_RELAY_DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>:5432/
 Never commit the URL or expose it through Portal configuration, health output,
 traces, exports, or logs.
 
-## 3. Temporary SQLite storage during migration
-
-Attach one Volume to the application service in the same Railway environment that owns the public domain:
-
-```text
-Mount path: /data
-Database URL: sqlite:////data/echo_masque.db
-```
-
-A Volume in another environment/service does not protect Production. Attaching a new Volume also does not recover an older ephemeral database.
-
-Production startup fails closed when SQLite is not under a mounted `/data` path. Keep one replica; do not share this SQLite topology across replicas.
-
 ## 4. Configure application settings
 
 The runtime reads `CHARACTER_RELAY_*` application variables. Earlier product-prefix runtime variables are ignored.
@@ -116,14 +99,7 @@ CHARACTER_RELAY_BOOTSTRAP_ADMIN_EMAIL=<admin email>
 CHARACTER_RELAY_BOOTSTRAP_ADMIN_PASSWORD=<long unique password>
 CHARACTER_RELAY_CREDENTIAL_ENCRYPTION_KEYS=<primary Fernet key>[,<older key>...]
 CHARACTER_RELAY_CONNECTOR_SHARED_SECRET=<long random connector secret>
-RAILWAY_RUN_UID=0
 ```
-
-`RAILWAY_RUN_UID=0` is needed only while the service mounts the temporary SQLite
-Volume. It allows the entrypoint to repair ownership only under `/data`, then it
-immediately drops to the image user `character-relay` (UID `10001`) before starting
-Uvicorn. Do not set it for an ordinary PostgreSQL deployment with no `/data` mount.
-See Railway's [Volume permissions documentation](https://docs.railway.com/volumes#permissions).
 
 Optional operational settings include:
 
@@ -213,7 +189,7 @@ Interpretation:
 
 - same ID and retained Probe: the deployment reused the database;
 - different/missing ID or Probe: stop and investigate the environment/service/Volume attachment;
-- startup failure: restore the required `/data` mount before retrying.
+- startup failure: investigate PostgreSQL connectivity, pgvector provisioning, and the deployment configuration before retrying.
 
 ## 10. Back up and restore
 
@@ -229,10 +205,7 @@ Before exposing a new release:
 - verify Vault readiness/rotation and recursive redaction;
 - run Python, Portal, Connector, Docker, Railway, and task-relevant live checks;
 - confirm Public Demo reconciliation/status when enabled;
-- verify PostgreSQL backup/restore and pgvector extension availability; if still in the
-  temporary SQLite migration topology, verify one replica and `/data` persistence;
-- if using the temporary SQLite Volume, confirm Railway has `RAILWAY_RUN_UID=0` and
-  the running Uvicorn process has dropped to UID `10001`;
+- verify PostgreSQL backup/restore and pgvector extension availability;
 - review artifacts/job summaries without copying secret values.
 
 See `docs/storage-safety.md`, `docs/phase-15-security.md`, `docs/security.md`, and `docs/manual-validation.md`.
