@@ -1123,6 +1123,15 @@ the final integration and review.
 No batch may introduce a second retrieval authority, expose credentials, or use a denied Corpus
 as effective query input.
 
+### Phase 11c execution detail
+
+1. **11c-1 — non-destructive scale and database proof.** Add bounded synthetic-corpus isolation
+   coverage and run the guarded PostgreSQL/pgvector bootstrap/query suite against a dedicated
+   database. This batch does not retire APIs, tables, data, or Intelligence projections.
+2. **11c-2 — explicit compatibility cutover.** After a documented legacy-data disposition and a
+   Server Wiki V3 projection decision, remove or archive only consumers covered by static proof,
+   then run the remaining lifecycle, Portal, Connector, mutation, documentation, and security gates.
+
 ### Phase 11b execution detail
 
 11b is split into read-only inspection before operator mutations because no invalidation consumer
@@ -1294,6 +1303,23 @@ through an administrator-owned mapping, retained as an archive, or deliberately 
 Server Wiki V3 stays as an Intelligence-derived projection or is replaced by an approved Fabric
 projection contract. Until then, proceed only with non-destructive lifecycle/scale/PostgreSQL and
 security proof. Preserve `web/vite.config.ts` as user-owned unrelated work.
+```
+
+### 2026-08-26 Phase 11c-1 completion gate
+
+```text
+Status: complete — non-destructive synthetic scale/isolation and PostgreSQL/pgvector proof
+Commit: `99cb691` (`test: cover bounded Fabric scale isolation`)
+Evidence: `tests/test_knowledge_fabric_phase5.py` creates 128 canonical Evidence blocks in a
+granted global Corpus, proves query admission remains corpus-authorized, returns the requested four
+results from at most six candidates, and returns no result to an ungranted server. It deliberately
+does not invent a latency SLO.
+Validation: focused Phase 5/query/worker/API suite, changed-test Ruff, strict MyPy (380 files),
+and diff check passed. A disposable WSL Docker pgvector PostgreSQL 16 container ran the guarded
+Foundation and Phase 5 suites against the dedicated destructive `echo_masque_test` database: all
+passed. The container auto-removed. WSL's mounted-workspace pytest cache warning was non-fatal.
+Next action: 11c-2 remains gated on the legacy Knowledge Base data and Server Wiki V3 decisions;
+add only non-destructive lifecycle/recovery proof until they are recorded.
 ```
 
 ## Known implementation decisions that still require evidence in a phase
