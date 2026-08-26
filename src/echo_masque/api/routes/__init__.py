@@ -36,7 +36,6 @@ from echo_masque.api.routes.intelligence_product_completion import (
 )
 from echo_masque.api.routes.interactions import router as interactions_router
 from echo_masque.api.routes.key_group_scout import router as key_group_scout_router
-from echo_masque.api.routes.knowledge import router as knowledge_router
 from echo_masque.api.routes.knowledge_fabric import router as knowledge_fabric_router
 from echo_masque.api.routes.matrices import router as matrices_router
 from echo_masque.api.routes.planner_media import router as planner_media_router
@@ -89,7 +88,6 @@ __all__ = [
     "health_router",
     "interactions_router",
     "knowledge_fabric_router",
-    "knowledge_router",
     "matrices_router",
     "prompt_inspector_router",
     "provider_traces_router",

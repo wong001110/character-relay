@@ -2,15 +2,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 from cryptography.fernet import Fernet
-from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import select
 
-from echo_masque.api import create_app
 from echo_masque.api.smart_participation_v3_schemas import (
     SmartParticipationBurstMessage,
     SmartParticipationMediaDescriptor,
@@ -23,7 +20,6 @@ from echo_masque.conversation_structure_resolver import ConversationStructureRes
 from echo_masque.entity_grounding_v3 import EntityGroundingService
 from echo_masque.evidence_graph_v3 import EvidenceGraphService
 from echo_masque.intelligence_v3_projection import ProjectionConversationRuntimeCoordinator
-from echo_masque.knowledge_consolidation_v3 import KnowledgeConsolidationV3Service
 from echo_masque.persistence import Database
 from echo_masque.persistence.belief_models import BeliefV3Record
 from echo_masque.persistence.belief_repository import BeliefRepository
@@ -35,17 +31,11 @@ from echo_masque.persistence.conversation_runtime_repository import (
 from echo_masque.persistence.conversation_structure_repository import (
     ConversationStructureRepository,
 )
-from echo_masque.persistence.deployment_models import DiscordServerProfileRecord
 from echo_masque.persistence.entity_evidence_models import EvidenceEdgeV3Record
 from echo_masque.persistence.entity_evidence_repository import (
     EntityEvidenceRepository,
     EvidenceEdgeV3View,
 )
-from echo_masque.persistence.server_knowledge_v3_repository import (
-    KnowledgeConsolidationCheckpointV3Repository,
-    ServerWikiV3Repository,
-)
-from echo_masque.utility_gateway_contracts import UtilityGatewayUnavailable
 
 
 def _database() -> Database:
@@ -312,94 +302,6 @@ def test_entity_without_explicit_evidence_remains_unresolved() -> None:
     ) == ()
 
 
-class _UnavailableConsolidationGateway:
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def invoke(self, *args: object, **kwargs: object) -> object:
-        del args, kwargs
-        self.calls += 1
-        raise UtilityGatewayUnavailable("unavailable")
-
-
-def test_consolidation_checkpoint_reuses_completed_source_and_enforces_scope() -> None:
-    database = _database()
-    entities = EntityEvidenceRepository(database)
-    entity = entities.ensure_entity(
-        owner_id="owner-1",
-        connection_id="connection-1",
-        guild_id="guild-1",
-        name="Ann",
-        entity_type="person",
-        source_refs=("message:message-1",),
-    )
-    BeliefRepository(database).create(
-        owner_id="owner-1",
-        character_card_id="card-1",
-        connection_id="connection-1",
-        guild_id="guild-1",
-        subject_entity_id=entity.id,
-        subject_ref=f"entity:{entity.id}",
-        predicate="role",
-        value_text="Moderator",
-        scope="server",
-        authority_class="conversation",
-        authority_score=0.7,
-        origin="explicit_user_statement",
-        confidence=0.9,
-        importance=0.6,
-        status="active",
-        evidence_refs=("message:message-1",),
-    )
-    gateway = _UnavailableConsolidationGateway()
-    service = KnowledgeConsolidationV3Service(
-        wiki=ServerWikiV3Repository(database),
-        checkpoints=KnowledgeConsolidationCheckpointV3Repository(database),
-        gateway=gateway,  # type: ignore[arg-type]
-    )
-
-    first = service.consolidate_entity(
-        owner_id="owner-1",
-        connection_id="connection-1",
-        guild_id="guild-1",
-        entity_id=entity.id,
-    )
-    replay = service.consolidate_entity(
-        owner_id="owner-1",
-        connection_id="connection-1",
-        guild_id="guild-1",
-        entity_id=entity.id,
-    )
-
-    assert first.utility_status == "utility_unavailable"
-    assert replay.wiki_page_id == first.wiki_page_id
-    assert gateway.calls == 1
-    with pytest.raises(KeyError, match="Entity not found"):
-        service.consolidate_entity(
-            owner_id="owner-1",
-            connection_id="connection-1",
-            guild_id="guild-2",
-            entity_id=entity.id,
-        )
-
-    entities.ensure_entity(
-        owner_id="owner-1",
-        connection_id="connection-1",
-        guild_id="guild-1",
-        name="Ann",
-        entity_type="person",
-        metadata={"role": "moderator"},
-    )
-    changed = service.consolidate_entity(
-        owner_id="owner-1",
-        connection_id="connection-1",
-        guild_id="guild-1",
-        entity_id=entity.id,
-    )
-    assert changed.wiki_page_id == first.wiki_page_id
-    assert gateway.calls == 2
-
-
 def test_projection_coordinator_replay_preserves_edge_ids_and_isolates_one_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -439,76 +341,3 @@ def test_projection_coordinator_replay_preserves_edge_ids_and_isolates_one_failu
             sorted(item.id for item in session.scalars(select(EvidenceEdgeV3Record)))
         )
     assert replay_ids == first_ids
-
-
-def test_owner_server_profile_consolidation_endpoint_enforces_owner_and_server_scope(
-    tmp_path: Path,
-) -> None:
-    app = create_app(_api_settings(tmp_path / "phase4-consolidation-api.db"))
-    client = TestClient(app)
-    login = client.post(
-        "/api/auth/login",
-        json={
-            "email": "phase4-admin@example.com",
-            "password": "Phase4Admin2026!",
-        },
-    )
-    assert login.status_code == 200, login.text
-    owner_id = str(client.get("/api/auth/me").json()["id"])
-    database = app.state.database
-    profile_id = str(uuid4())
-    other_owner_profile_id = str(uuid4())
-    with database.session() as session:
-        session.add(
-            DiscordServerProfileRecord(
-                id=profile_id,
-                owner_id=owner_id,
-                connection_id="connection-1",
-                name="Phase 4 Server",
-                guild_id="guild-1",
-                guild_name="Phase 4 Guild",
-            )
-        )
-        session.add(
-            DiscordServerProfileRecord(
-                id=other_owner_profile_id,
-                owner_id="other-owner",
-                connection_id="connection-1",
-                name="Other Server",
-                guild_id="guild-1",
-                guild_name="Other Guild",
-            )
-        )
-        session.commit()
-    entity = EntityEvidenceRepository(database).ensure_entity(
-        owner_id=owner_id,
-        connection_id="connection-1",
-        guild_id="guild-1",
-        name="Explicit Entity",
-        entity_type="concept",
-        source_refs=("message:phase4",),
-    )
-
-    response = client.post(
-        f"/api/server-profiles/{profile_id}/knowledge-consolidation/entities/{entity.id}"
-    )
-    assert response.status_code == 200, response.text
-    assert response.json()["source_ref"] == entity.id
-
-    wrong_owner = client.post(
-        f"/api/server-profiles/{other_owner_profile_id}/knowledge-consolidation/entities/{entity.id}"
-    )
-    assert wrong_owner.status_code == 404
-
-    other_guild_entity = EntityEvidenceRepository(database).ensure_entity(
-        owner_id=owner_id,
-        connection_id="connection-1",
-        guild_id="guild-2",
-        name="Other Guild Entity",
-        entity_type="concept",
-        source_refs=("message:other-guild",),
-    )
-    wrong_server = client.post(
-        f"/api/server-profiles/{profile_id}/knowledge-consolidation/entities/{other_guild_entity.id}"
-    )
-    assert wrong_server.status_code == 404

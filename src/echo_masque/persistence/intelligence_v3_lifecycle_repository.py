@@ -38,10 +38,6 @@ from echo_masque.persistence.entity_evidence_models import (
 from echo_masque.persistence.knowledge_fabric_interpretation_repository import (
     KnowledgeFabricInterpretationRepository,
 )
-from echo_masque.persistence.server_knowledge_v3_models import (
-    KnowledgeConsolidationCheckpointV3Record,
-    ServerWikiPageV3Record,
-)
 from echo_masque.persistence.social_intelligence_models import (
     ImpressionV3Record,
     SocialEventV3Record,
@@ -63,8 +59,6 @@ _OWNER_MODELS: Sequence[type[Any]] = (
     KnowledgeGapRecord,
     EvidenceEdgeV3Record,
     EntityV3Record,
-    KnowledgeConsolidationCheckpointV3Record,
-    ServerWikiPageV3Record,
     DeploymentRelationshipEventRecord,
     CharacterPersonImpressionRecord,
     DeploymentRelationshipStateRecord,
@@ -87,8 +81,6 @@ _TABLE_KEYS: dict[type[Any], str] = {
     KnowledgeGapRecord: "knowledge_gaps_v3",
     EvidenceEdgeV3Record: "evidence_edges_v3",
     EntityV3Record: "entities_v3",
-    KnowledgeConsolidationCheckpointV3Record: "knowledge_consolidation_checkpoints_v3",
-    ServerWikiPageV3Record: "server_wiki_pages_v3",
     DeploymentRelationshipEventRecord: "deployment_relationship_events",
     CharacterPersonImpressionRecord: "character_person_impressions",
     DeploymentRelationshipStateRecord: "deployment_relationship_states",

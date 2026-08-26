@@ -30,7 +30,6 @@ from echo_masque.api.routes import (
     health_router,
     interactions_router,
     knowledge_fabric_router,
-    knowledge_router,
     matrices_router,
     prompt_inspector_router,
     provider_traces_router,
@@ -79,7 +78,6 @@ from echo_masque.image_creation_runtime import ImageCreationRuntimeService
 from echo_masque.intelligence_v3_projection import ProjectionConversationRuntimeCoordinator
 from echo_masque.internal_context import InternalContextService
 from echo_masque.judge_evaluation import JudgeEvaluationService
-from echo_masque.knowledge_consolidation_v3 import KnowledgeConsolidationV3Service
 from echo_masque.knowledge_fabric_atom_sync import KnowledgeFabricAtomSyncService
 from echo_masque.knowledge_fabric_context import KnowledgeContextBuilder
 from echo_masque.knowledge_fabric_epistemic_policy import PersistedCharacterEpistemicPolicy
@@ -126,7 +124,6 @@ from echo_masque.persistence import (
     KeyGroupRepository,
     KnowledgeFabricIndexRepository,
     KnowledgeFabricRepository,
-    KnowledgeRepository,
     MatrixRepository,
     MediaAnalysisRepository,
     ProviderTraceRepository,
@@ -157,10 +154,6 @@ from echo_masque.persistence.knowledge_fabric_invalidation_repository import (
 )
 from echo_masque.persistence.knowledge_fabric_projection_repository import (
     KnowledgeFabricProjectionRepository,
-)
-from echo_masque.persistence.server_knowledge_v3_repository import (
-    KnowledgeConsolidationCheckpointV3Repository,
-    ServerWikiV3Repository,
 )
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.planner_media import PlannerMediaDescriptorService
@@ -238,7 +231,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         smart_participation_repository,
         resolved,
     )
-    knowledge_repository = KnowledgeRepository(database)
     knowledge_object_storage = object_storage_from_settings(resolved)
     knowledge_fabric_repository = KnowledgeFabricRepository(
         database,
@@ -307,8 +299,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     belief_repository = BeliefRepository(database)
     conversation_structure_repository = ConversationStructureRepository(database)
     conversation_runtime_repository = ConversationRuntimeRepository(database)
-    server_wiki_v3_repository = ServerWikiV3Repository(database)
-    knowledge_checkpoint_v3_repository = KnowledgeConsolidationCheckpointV3Repository(database)
 
     if bootstrap_admin is not None:
         centralized = DiscordInventoryService(database).centralize(bootstrap_admin.id)
@@ -521,7 +511,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         interaction_repository,
         expression_repository,
         smart_participation_repository,
-        knowledge_repository,
         knowledge_fabric_repository,
         deployment_tool_repository,
         scheduled_reminder_repository,
@@ -545,11 +534,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     repository.seed_demo_targets()
     repository.remove_demo_character_cards()
-    knowledge_consolidation_v3_service = KnowledgeConsolidationV3Service(
-        wiki=server_wiki_v3_repository,
-        checkpoints=knowledge_checkpoint_v3_repository,
-        gateway=planner_utility_gateway,
-    )
     planner_media_service = PlannerMediaDescriptorService(
         media=EnhancedLiveMediaContextService.from_service(
             live_media_service,
@@ -651,7 +635,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.expression_repository = expression_repository
     app.state.smart_participation_repository = smart_participation_repository
     app.state.semantic_participation_service = semantic_participation_service
-    app.state.knowledge_repository = knowledge_repository
     app.state.knowledge_fabric_repository = knowledge_fabric_repository
     app.state.knowledge_fabric_index_repository = knowledge_fabric_index_repository
     app.state.knowledge_fabric_invalidation_repository = knowledge_fabric_invalidation_repository
@@ -682,9 +665,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.belief_repository = belief_repository
     app.state.conversation_structure_repository = conversation_structure_repository
     app.state.conversation_runtime_repository = conversation_runtime_repository
-    app.state.server_wiki_v3_repository = server_wiki_v3_repository
-    app.state.knowledge_checkpoint_v3_repository = knowledge_checkpoint_v3_repository
-    app.state.knowledge_consolidation_v3_service = knowledge_consolidation_v3_service
     app.state.internal_context_service = internal_context_service
     app.state.planner_media_service = planner_media_service
     app.state.discord_connector_runtime = discord_connector_runtime
@@ -732,7 +712,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(discord_identities_router)
     app.include_router(interactions_router)
     app.include_router(smart_participation_router)
-    app.include_router(knowledge_router)
     app.include_router(knowledge_fabric_router)
     app.include_router(connectors_router)
     app.include_router(prompt_inspector_router)

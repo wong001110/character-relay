@@ -8,7 +8,6 @@ from echo_masque.admin_runtime import (
     UtilityProviderMember,
 )
 from echo_masque.persistence import Database
-from echo_masque.persistence.wiki_aware_knowledge_repository import WikiAwareKnowledgeRepository
 from echo_masque.utility_gateway_contracts import RagUtilityDecision, UtilityRoute
 from echo_masque.utility_gateway_router import UtilityCallReply, UtilityGatewayRouter
 
@@ -73,26 +72,6 @@ class MalformedThenValidCaller:
 
 def credentials(_: str) -> FakeCredential:
     return FakeCredential()
-
-
-def test_wiki_overview_language_matrix_and_detail_guard() -> None:
-    overview_queries = (
-        "Give me an overview of the launch notes",
-        "帮我总结一下发布说明",
-        "幫我總結一下發布說明",
-        "Beri saya ringkasan nota pelancaran",
-        "Terangkan gambaran keseluruhan projek ini",
-        "Can you summary 一下这个计划?",
-    )
-    detail_queries = (
-        "Give me the exact source for the launch date",
-        "给我这个日期的原文出处",
-        "給我這個日期的原文出處",
-        "Beri saya sumber tepat untuk tarikh pelancaran",
-    )
-
-    assert all(WikiAwareKnowledgeRepository._overview_intent(query) for query in overview_queries)
-    assert not any(WikiAwareKnowledgeRepository._overview_intent(query) for query in detail_queries)
 
 
 def test_malformed_structured_output_falls_through_to_next_free_provider() -> None:

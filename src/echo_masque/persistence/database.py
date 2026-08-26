@@ -69,6 +69,9 @@ from echo_masque.persistence.models import Base, StorageMetadataRecord
 from echo_masque.persistence.intelligence_v3_migration_models import (
     IntelligenceV3HardCutoverMigrationRecord,
 )
+from echo_masque.persistence.knowledge_fabric_hard_cutover_models import (
+    KnowledgeFabricHardCutoverMigrationRecord,
+)
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeAccessGrantRecord,
     KnowledgeCharacterCorpusPolicyRecord,
@@ -110,10 +113,6 @@ from echo_masque.persistence.schema_migration_models import (
     DatabaseDataMigrationRecord,
     DatabaseSchemaMigrationRecord,
 )
-from echo_masque.persistence.server_knowledge_v3_models import (
-    KnowledgeConsolidationCheckpointV3Record,
-    ServerWikiPageV3Record,
-)
 from echo_masque.persistence.smart_participation_state_models import (
     SmartParticipationDeploymentStateRecord,
     SmartParticipationScopeStateRecord,
@@ -123,7 +122,6 @@ from echo_masque.persistence.social_intelligence_models import (
     SocialEventV3Record,
 )
 from echo_masque.persistence.utility_gateway_models import UtilityProviderQuotaRecord
-from echo_masque.persistence.wiki_page_models import WikiPageRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,7 +259,6 @@ class Database:
     ) -> None:
         # Explicitly touch authority/runtime model classes so schema creation is deterministic.
         _ = (
-            WikiPageRecord,
             ConversationThreadRecord,
             ConversationSegmentV3Record,
             ThreadMembershipRecord,
@@ -277,8 +274,6 @@ class Database:
             BeliefRevisionEventRecord,
             SocialEventV3Record,
             ImpressionV3Record,
-            ServerWikiPageV3Record,
-            KnowledgeConsolidationCheckpointV3Record,
             CharacterRelationshipPriorRecord,
             DeploymentRelationshipStateRecord,
             DeploymentRelationshipEventRecord,
@@ -305,6 +300,7 @@ class Database:
             DeploymentDiscoverySharePolicyRecord,
             DeploymentDiscoveryShareRecord,
             IntelligenceV3HardCutoverMigrationRecord,
+            KnowledgeFabricHardCutoverMigrationRecord,
             OperationalDataMigrationRecord,
             DatabaseSchemaMigrationRecord,
             DatabaseDataMigrationRecord,
@@ -388,6 +384,15 @@ class Database:
         )
 
         IntelligenceV3HardCutoverMigration(self).run()
+
+        # The explicit product cutover retires the old pasted Knowledge Base and derived
+        # Server Wiki stores.  It must run only on normal application startup, never while
+        # preparing an empty SQLite-to-PostgreSQL target.
+        from echo_masque.persistence.knowledge_fabric_hard_cutover import (
+            KnowledgeFabricHardCutoverMigration,
+        )
+
+        KnowledgeFabricHardCutoverMigration(self).run()
 
         from echo_masque.persistence.discord_event_privacy_migration import (
             DiscordEventPrivacyMigration,

@@ -22,6 +22,13 @@ from echo_masque.persistence.intelligence_v3_migration import (
 from echo_masque.persistence.intelligence_v3_migration_models import (
     IntelligenceV3HardCutoverMigrationRecord,
 )
+from echo_masque.persistence.knowledge_fabric_hard_cutover import (
+    KNOWLEDGE_FABRIC_HARD_CUTOVER_ID,
+    LEGACY_KNOWLEDGE_TABLES_TO_DROP,
+)
+from echo_masque.persistence.knowledge_fabric_hard_cutover_models import (
+    KnowledgeFabricHardCutoverMigrationRecord,
+)
 from echo_masque.persistence.models import Base
 from echo_masque.persistence.schema_migration_models import DatabaseDataMigrationRecord
 
@@ -152,6 +159,7 @@ def _assert_source_schema_is_current(database: Database) -> None:
         )
 
     _assert_source_intelligence_cutover_is_complete(database, existing_tables)
+    _assert_source_knowledge_fabric_cutover_is_complete(database, existing_tables)
     _assert_source_legacy_tables_are_empty(database, existing_tables)
 
 
@@ -167,6 +175,34 @@ def _assert_source_intelligence_cutover_is_complete(
             "The SQLite source Intelligence v3 hard-cutover is not completed. "
             "Repair or finish it on a verified source copy before PostgreSQL migration."
         )
+
+
+def _assert_source_knowledge_fabric_cutover_is_complete(
+    database: Database, existing_tables: set[str]
+) -> None:
+    legacy_tables = set(LEGACY_KNOWLEDGE_TABLES_TO_DROP).intersection(existing_tables)
+    if not legacy_tables:
+        return
+    if "knowledge_fabric_hard_cutover_migrations" not in existing_tables:
+        raise SQLiteToPostgresMigrationError(
+            "The SQLite source still contains retired Knowledge Base or Server Wiki tables. "
+            "Run the Knowledge Fabric hard cutover on a verified source copy before migration."
+        )
+    with database.session() as session:
+        record = session.get(
+            KnowledgeFabricHardCutoverMigrationRecord,
+            KNOWLEDGE_FABRIC_HARD_CUTOVER_ID,
+        )
+    if record is None or record.status != "completed":
+        raise SQLiteToPostgresMigrationError(
+            "The SQLite source Knowledge Fabric hard cutover is not completed. "
+            "Repair or finish it on a verified source copy before PostgreSQL migration."
+        )
+    raise SQLiteToPostgresMigrationError(
+        "The SQLite source still contains retired Knowledge Base or Server Wiki tables after "
+        "its completed Knowledge Fabric hard cutover: "
+        + ", ".join(sorted(legacy_tables))
+    )
 
 
 def _assert_source_legacy_tables_are_empty(database: Database, existing_tables: set[str]) -> None:

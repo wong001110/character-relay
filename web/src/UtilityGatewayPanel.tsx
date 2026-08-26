@@ -15,7 +15,6 @@ export type UtilityProviderId =
 export type UtilityCapability =
   | "semantic_judge"
   | "memory_intelligence"
-  | "knowledge_wiki"
   | "tool_continuation"
   | "context_compiler"
   | "media_understanding"
@@ -112,7 +111,6 @@ const providers: Array<{
 const capabilityLabels: Record<UtilityCapability, string> = {
   semantic_judge: "Semantic Judge",
   memory_intelligence: "Memory",
-  knowledge_wiki: "LLM Wiki",
   tool_continuation: "Tool Continuation",
   context_compiler: "Context Compiler",
   media_understanding: "Media Understanding",
@@ -122,7 +120,6 @@ const capabilityLabels: Record<UtilityCapability, string> = {
 const capabilityIcons: Record<UtilityCapability, string> = {
   semantic_judge: "⚖",
   memory_intelligence: "✦",
-  knowledge_wiki: "▤",
   tool_continuation: "⌁",
   context_compiler: "</>",
   media_understanding: "▧",

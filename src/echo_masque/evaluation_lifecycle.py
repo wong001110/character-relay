@@ -18,7 +18,6 @@ from echo_masque.persistence import (
     ExpressionRepository,
     GeneratedMediaArtifactRepository,
     InteractionRepository,
-    KnowledgeRepository,
     ScheduledReminderRepository,
     SmartParticipationRepository,
 )
@@ -27,7 +26,6 @@ from echo_masque.persistence.intelligence_v3_lifecycle_repository import (
     IntelligenceV3LifecycleRepository,
 )
 from echo_masque.persistence.knowledge_fabric_repository import KnowledgeFabricRepository
-from echo_masque.persistence.wiki_page_repository import WikiPageRepository
 
 
 class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleService):
@@ -45,14 +43,12 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         interaction_repository: InteractionRepository | None = None,
         expression_repository: ExpressionRepository | None = None,
         smart_participation_repository: SmartParticipationRepository | None = None,
-        knowledge_repository: KnowledgeRepository | None = None,
         knowledge_fabric_repository: KnowledgeFabricRepository | None = None,
         deployment_tool_repository: DeploymentToolRepository | None = None,
         scheduled_reminder_repository: ScheduledReminderRepository | None = None,
         condition_watch_repository: ConditionWatchRepository | None = None,
         conversation_media_repository: ConversationMediaReferenceRepository | None = None,
         generated_media_repository: GeneratedMediaArtifactRepository | None = None,
-        wiki_page_repository: WikiPageRepository | None = None,
         intelligence_v3_repository: IntelligenceV3LifecycleRepository | None = None,
     ) -> None:
         super().__init__(
@@ -80,11 +76,9 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         self.smart_participation_repository = (
             smart_participation_repository or SmartParticipationRepository(database)
         )
-        self.knowledge_repository = knowledge_repository or KnowledgeRepository(database)
         self.knowledge_fabric_repository = knowledge_fabric_repository or KnowledgeFabricRepository(
             database
         )
-        self.wiki_page_repository = wiki_page_repository or WikiPageRepository(database)
         self.conversation_media_repository = (
             conversation_media_repository or ConversationMediaReferenceRepository(database)
         )
@@ -110,9 +104,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         interaction_counts = self.interaction_repository.delete_owner(user_id)
         expression_counts = self.expression_repository.delete_owner(user_id)
         smart_counts = self.smart_participation_repository.delete_owner(user_id)
-        knowledge_counts = self.knowledge_repository.delete_owner(user_id)
         knowledge_fabric_counts = self.knowledge_fabric_repository.delete_owner(user_id)
-        self.wiki_page_repository.delete_owner(user_id)
         identity_counts = self.discord_identity_repository.delete_owner(user_id)
         reminder_count = self.scheduled_reminder_repository.delete_owner(user_id)
         watch_count = self.condition_watch_repository.delete_owner(user_id)
@@ -133,7 +125,6 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             **interaction_counts,
             **expression_counts,
             **smart_counts,
-            **knowledge_counts,
             **knowledge_fabric_counts,
             **identity_counts,
             **episodic_sql_counts,
@@ -190,15 +181,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "local-user",
             actor_user_id,
         )
-        knowledge_counts = self.knowledge_repository.claim_owner(
-            "local-user",
-            actor_user_id,
-        )
         knowledge_fabric_counts = self.knowledge_fabric_repository.claim_owner(
-            "local-user",
-            actor_user_id,
-        )
-        self.wiki_page_repository.claim_owner(
             "local-user",
             actor_user_id,
         )
@@ -232,7 +215,6 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             **interaction_counts,
             **expression_counts,
             **smart_counts,
-            **knowledge_counts,
             **knowledge_fabric_counts,
             **intelligence_v3_counts,
         }
@@ -264,14 +246,6 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
                 resource_type="workspace",
                 resource_id=actor_user_id,
                 metadata=cast(dict[str, object], identity_counts),
-            )
-        if sum(knowledge_counts.values()) > 0:
-            self.auth_repository.audit(
-                actor_user_id=actor_user_id,
-                action="workspace.knowledge_local_claimed",
-                resource_type="workspace",
-                resource_id=actor_user_id,
-                metadata=cast(dict[str, object], knowledge_counts),
             )
         if sum(knowledge_fabric_counts.values()) > 0:
             self.auth_repository.audit(
