@@ -1,569 +1,1523 @@
-# Active development plan — v3 observability and documentation cutover
+# Active development plan — Knowledge Fabric foundation
 
-Status: **branch-local execution record — Phases 0–8 complete; ready for PR/live validation**
+Status: **branch-local execution record — Phases 1–12 are complete**
 
 | Field | Value |
 | --- | --- |
-| Active branch | `codex/v3-observability-docs-cutover` |
-| Starting baseline | `main` at `5f710b3fd381ba219fc1e31a5d567b96e7c15815` |
+| Active branch | `codex/knowledge-fabric-foundation` |
+| Starting baseline | `main` at `68169b8d878ef4d8475e1e52c812fffcb19249a4` |
 | Delivery mode | coherent phase batches; at most one implementation commit per phase |
-| OpenWiki state | generation brief exists; `openwiki/quickstart.md` has not been generated |
-| Current phase | Complete — automated branch gate passed; live checks remain |
-| Integration owner | the main/root coding agent for the active session |
+| Current phase | Phase 13 — Railway PostgreSQL cutover readiness |
+| Integration owner | main/root coding agent for the active session |
+| Target architecture | `docs/knowledge-fabric-architecture.md` |
+| Blast-radius map | `docs/knowledge-fabric-impact-map.md` |
 
-This file lets a development agent continue the active branch without relying on chat history. It records branch execution, not merged product truth. Source, tests, schemas/migrations, and the canonical contracts linked below remain authoritative.
+This file is the takeover ledger for the branch. It records approved target direction and execution order so a coding agent does not need chat history. Current source/tests remain authority for behavior that has not yet been cut over. The target contract becomes runtime truth only as each phase passes its gate.
 
 ## Approved outcome
 
-The current branch has approval to deliver these connected changes in larger phases:
+The branch is approved to move Character Relay from the current manual/server-oriented RAG model toward a source-driven Knowledge Fabric with these properties:
 
-1. Replace ordinary Discord event-log message previews with structured, redacted diagnostic metadata.
-2. Add Option B temporary raw debug capture: explicitly enabled, server-scoped, access-controlled, time-limited, separately retained, and failure-isolated. Keep a storage/codec boundary that can later support Option C, a separately encrypted debug archive, without committing to that archive now.
-3. Complete the Intelligence Core v3 runtime cutover so the Character turn consumes v3 context/planning authority instead of retaining the old generation path or a Topic/local semantic fallback.
-4. Remove verified obsolete compatibility code, flags, unreachable UI, stale tests/configuration, and unsupported product surfaces rather than preserving unused behavior.
-5. Improve manual documentation for users, operators, and developers, while treating OpenWiki as a generated agent-orientation layer rather than canonical documentation.
-6. Address directly related runtime safety findings that are required for reliable cutover: Discord ingress idempotency/retry behavior, SQLite foreign-key enforcement, controlled migration execution, and failure isolation where confirmed by source/tests.
+1. PostgreSQL becomes the formal production relational database before large Knowledge Fabric ingestion is introduced; pgvector is the first dense index implementation.
+2. Knowledge is organized as Corpus + Source + immutable Source Version + canonical structured content + Evidence, not as durable fixed-size chunks.
+3. System-global/world corpora are stored once and can be granted to servers. V1 Global Library management is Super Admin-controlled.
+4. Server-local knowledge remains available as a private server-owned corpus/overlay. Servers may inherit, augment, override, or deny inherited/global knowledge without mutating it.
+5. Server authorization and Character epistemic access are separate. A server being allowed to use a corpus does not make every Character omniscient.
+6. Canonical corpus entities are distinct from current server-scoped provisional/runtime Entities, with revisable resolution links between them.
+7. Imported world/corpus knowledge does not get copied wholesale into `BeliefV3`; Character Belief remains a separate Intelligence v3 authority.
+8. Retrieval becomes multi-index: PostgreSQL FTS/sparse + pgvector ANN + canonical entity/relation + temporal/freshness evidence, fused/reranked behind one Knowledge Query Engine.
+9. Existing KB Wiki and Server Wiki concepts are reduced to one derived Projection Layer. Projection text never outranks raw evidence.
+10. Ingestion is deterministic-first and LLM-last. LLM enrichment is selective/lazy and never becomes the only retained representation of a source.
+11. Git/code, uploaded documents (PDF/DOCX/etc.), Wiki, ordinary websites, APIs/datasets, feeds/forums, and later local sync are Source Adapter families behind one canonical ingestion contract.
+12. Stable knowledge is synchronized; volatile/current knowledge can escalate to live Web/API evidence when local evidence is stale or missing.
+13. Bulk ingestion/index/sync/projection work runs as background jobs and never blocks the normal Character reply path.
+14. Portal/Admin changes move from pasted Document CRUD toward Corpus/Source/Sync/Access/Policy/Evidence/Query operational surfaces.
 
-## Explicitly out of scope
+## Explicitly out of scope for the foundation phases
 
-- Building the full Option C external/separate encrypted archive in this branch. This branch only preserves its extension seam.
-- Reintroducing Topic authority, Topic fallback, shadow-mode authority, or compatibility UI.
-- Treating Telegram or WhatsApp as supported production connectors without an implemented, tested runtime.
-- A broad visual redesign unrelated to removing unreachable/unsupported surfaces and making documentation/navigation clearer.
-- Hand-writing generated OpenWiki pages or treating branch-local OpenWiki output as the merged baseline.
-- Inventing new metrics, API fields, retention values, database behavior, or authority rules without source and contract evidence.
+- Keeping SQLite as a second long-term production authority merely for compatibility.
+- Adding Qdrant/Milvus/Pinecone before pgvector scale limitations are measured.
+- Introducing Neo4j or another graph database simply because the model has graph semantics.
+- Sending every chunk/section through an LLM.
+- Treating every Web search result as permanent Knowledge.
+- Replacing Social Intelligence relationships with imported/canon relationship claims.
+- Replacing Conversation Episodes with imported world Events.
+- Letting Smart Participation execute full Knowledge retrieval for every candidate Character.
+- Reintroducing Topic authority, Topic fallback, shadow authority, or deprecated compatibility UI.
+- Making source credentials/object-storage artifacts public or exposing them through ordinary traces.
+- Building the Local Sync Agent before the remote Source/import/permission security contract is stable.
 
-## Source-of-truth and evidence map
+## Required reading before edits
 
-Every implementing agent must re-open the exact files it changes; this map is orientation, not permission to infer missing behavior.
+Read in this order:
 
-### Canonical/manual contracts
+1. `AGENTS.md`
+2. `docs/ai-agent-development-workflow.md`
+3. this file
+4. `docs/knowledge-fabric-architecture.md`
+5. `docs/knowledge-fabric-impact-map.md`
+6. `docs/agent-map.md`
+7. `docs/agent-handoff.md`
+8. `docs/intelligence-core-v3-architecture.md`
+9. source/tests for the active phase
 
-- `AGENTS.md`
-- `docs/ai-agent-development-workflow.md`
-- `docs/agent-handoff.md`
-- `docs/README.md`
-- `docs/intelligence-core-v3-architecture.md`
-- `docs/security.md`
-- `docs/provider-tracing.md`
-- `docs/discord-server-workspace.md`
-- `openwiki/INSTRUCTIONS.md` for generation rules only
+`docs/context-rag-v1.md` is useful as a current/baseline product description but contains stale sparse-only statements relative to current hybrid source. Source/tests win.
 
-### Initial implementation map
+## Current source evidence behind the plan
 
-| Area | Sources to verify | Proof to locate/update |
-| --- | --- | --- |
-| Discord structured events | `connectors/discord/src/behaviorDecisionTrace.ts`, `src/echo_masque/api/connector_schemas.py`, `src/echo_masque/api/routes/connectors.py`, `src/echo_masque/persistence/deployment_repository.py`, relevant deployment models | Connector event tests and `tests/test_discord_event_logs.py` or current equivalent |
-| Temporary raw capture | Discord message ingress route/schema, deployment/server ownership repositories, auth/admin boundaries, proposed in-memory capture service/store/codec, `src/echo_masque/security/redact.py` | route, authorization, TTL/capacity, scope, restart semantics, audit, and failure-isolation tests |
-| Intelligence v3 turn integration | `src/echo_masque/context_resolver_v3.py`, `src/echo_masque/connector_runtime.py`, `src/echo_masque/api/app.py`, `src/echo_masque/api/routes/smart_participation_vnext.py`, `connectors/discord/src/relayClient.ts` | context resolver, planner, connector runtime, Character turn, and API/Connector contract tests |
-| Runtime/storage safety | Discord relay retry/ingress code, operation claim/idempotency persistence, `src/echo_masque/persistence/database.py`, migration code, deployment catalog synchronization | duplicate-delivery, retry classification, foreign-key, migration, and per-guild failure tests |
-| Obsolete content | `src/echo_masque/config.py`, compatibility schemas/routes, `pyproject.toml`, Connector semantic/planner fallbacks, `web/src/App.tsx`, `web/src/main.tsx`, Deployment Center platform UI, candidate unreferenced modules | import/reference search plus Python, Portal, and Connector tests/builds |
-| Documentation | `docs/README.md`, user/operator/developer guides, subsystem contracts, `openwiki/INSTRUCTIONS.md`, `.openwikiignore` when added | link/search review and generated-output review only after OpenWiki is intentionally run |
+The branch plan was grounded against current `main`, including:
 
-## Invariants for every phase
+- `src/echo_masque/persistence/knowledge_repository.py`: plain-text document limit, deterministic chunking, current hybrid sparse+dense in-process retrieval and semantic vector persistence;
+- `src/echo_masque/api/routes/knowledge.py`: current Knowledge Base/document CRUD and retrieval playground API;
+- `web/src/KnowledgeBasePanel.tsx`: current Server/account-global/channel Knowledge Base UI and pasted plain-text document flow;
+- `src/echo_masque/character_turn_context_v3.py`: Character turn currently receives `KnowledgeRepository` plus `ServerWikiV3Repository`;
+- `src/echo_masque/context_resolver_v3.py`: separate `knowledge_hits`/`wiki_hits` are already merged into one `KNOWLEDGE EVIDENCE` prompt section;
+- `src/echo_masque/internal_context.py`: current internal tools include `memory.search`, `conversation.search`, and `wiki.lookup`;
+- `src/echo_masque/knowledge_consolidation_v3.py`: Entity/Belief/Episode/Evidence -> derived Server Wiki consolidation;
+- `src/echo_masque/knowledge_gap_discovery_v3.py`: Discovery candidates remain non-authoritative until accepted as evidence;
+- `src/echo_masque/persistence/entity_evidence_models.py`: current canonical/provisional runtime Entity storage is server-scoped;
+- `src/echo_masque/persistence/belief_models.py`: current Belief is Character/server scoped with authority/revision/evidence/temporal semantics;
+- `src/echo_masque/persistence/database.py`: SQLite-specific startup, triggers, PRAGMA and repair behavior;
+- `src/echo_masque/config.py`: SQLite default database URL and current semantic model settings;
+- `pyproject.toml`: no PostgreSQL driver/pgvector dependency yet;
+- `src/echo_masque/evaluation_lifecycle.py`: account deletion/local claim explicitly owns current Knowledge/Wiki/Intelligence data;
+- `src/echo_masque/api/routes/admin.py`: current authenticated Admin/runtime/credential boundaries to reuse rather than inventing a weaker global-corpus admin path.
 
-- Raw messages, media references, completed Tool results, and external results remain provenance evidence, but private raw text must not leak into ordinary diagnostic events, process logs, docs, exports, or generated wiki.
-- Debug capture is off unless explicitly enabled, remains server-scoped and access-controlled, expires automatically, and cannot make message handling fail.
-- Owner, Discord Server, channel/thread, deployment, Character, credential, and relationship scope never widens by inference.
-- Runtime owns identity, permission, lifecycle, safety, and side effects.
-- Intelligence v3 hard cutover does not restore Topic authority, Topic fallback, Topic-scoped Memory/Wiki, or local Connector semantic authority.
-- Conversation Thread, Episode, Belief, Evidence Graph, Social State, Context Resolver, and Participation Planner retain the authority boundaries in `docs/intelligence-core-v3-architecture.md`.
-- `unresolved` and safe silence/downgrade remain valid outcomes; provider or observability failure is not behavioral evidence.
-- Credentials and authorization headers never enter captures, traces, fixtures, docs, or OpenWiki output.
-- Public Demo remains server-enforced read-only.
-- OpenWiki is disposable generated orientation. Product decisions live in manual canonical contracts.
+## Cross-phase invariants
+
+- Raw source artifacts, Evidence Units, raw messages, media refs, completed Tool results and external results remain provenance evidence; model prose is never silently promoted to source truth.
+- `ExtractedAssertion` is not another Belief store. Corpus state and Character Belief remain different authority domains.
+- Global/shared corpus records are never copied per Server simply to grant access.
+- Corpus authorization is enforced before inaccessible candidates can affect ranking/results/metadata leakage.
+- Server overlay precedence never destructively edits the inherited/global corpus.
+- Character epistemic filtering is separate from Server access grants.
+- Runtime provisional Entity and corpus Canonical Entity remain separate identities with evidence-backed resolution.
+- Wiki/projection/summary material is derived, versioned/staleness-aware, and rebuildable.
+- Exact quote/source/provenance queries route to raw/source-aligned evidence, not summary-only content.
+- Imported content is untrusted data and cannot override Runtime/system/Character authority through prompt injection.
+- Discovery candidate retrieval remains non-authoritative.
+- Social Relationship/Impression remains in Social Intelligence.
+- Conversation Thread/Episode meanings from Intelligence v3 remain unchanged.
+- Media perception/identity epistemic boundaries remain unchanged.
+- Smart Participation remains bounded and does not fan out expensive Knowledge Query Engine work per candidate.
+- Bulk Knowledge work runs outside the synchronous Character reply critical path.
+- Public Demo remains server-enforced read-only and isolated from private/global admin data.
+- Credentials, private raw source content and object-store secrets do not enter ordinary logs/traces/docs/fixtures.
+- No Topic fallback or dual old/new authority may be added to make a phase easier.
+- Mutation reports are evidence about the configured code scope only; a surviving mutant is not
+  silently ignored, and an equivalent/timeout/tooling classification is recorded with its phase.
 
 ## Working and commit protocol
 
 For every phase:
 
-1. The main agent records the phase evidence map and assigns non-overlapping work.
-2. Sub-agents may research, verify, run tests, or edit their assigned files; they do not commit shared-tree work.
-3. Integrate related source, schema, test, and documentation changes into one coherent batch.
-4. Use focused reproduction/checks when needed, but do not run the full suite after every small edit.
-5. At the phase gate, run the listed complete validation, inspect the combined diff for unrelated changes and secret/raw-content leakage, and repair failures.
-6. Create at most one implementation commit for the phase after the gate passes. Do not create checkpoint or test-fix commits.
-7. Update this file with status, commands/results, commit hash, deviations, and the next concrete action.
+1. Re-open exact source/contracts/tests named for the phase and record any differences from this plan.
+2. Map ownership and migration before changing shared persistence/contracts.
+3. Let sub-agents research/test/edit non-overlapping scopes; the main agent owns cross-subsystem authority, combined diff and commit.
+4. Integrate schema/source/tests/docs for one coherent phase before broad validation.
+5. Run focused checks during development, then the complete phase gate once the batch is coherent.
+6. Inspect combined diff for unrelated changes, secret/raw-content leakage, unsafe fallback and compatibility duplication.
+7. Create at most one implementation commit for the phase after the gate passes.
+8. Update this file with status, validation, deviations, commit/ref and the next concrete action.
 
-Sub-agent model preference for this branch:
+Allowed phase states: `planned`, `in progress`, `blocked`, `complete`.
 
-- use `gpt-5.6-terra` for scoped multi-file editing, contract alignment, and implementation work that requires stronger judgment;
-- use `gpt-5.6-luna` for repository research, reference checks, test execution, static verification, and concise evidence summaries;
-- keep architecture authority, combined-diff review, phase gates, and commits with the main integration agent;
-- do not interrupt an already-running coherent task only to change its model.
+## Phase 0 — target architecture and blast-radius contract
 
-Allowed phase states are `planned`, `in progress`, `blocked`, and `complete`. A later phase may be researched in parallel, but implementation should not cross an unresolved authority/schema decision from the current phase.
-
-## Phase 0 — branch contract and grounded design
-
-Status: **complete**
+Status: **complete when the branch HEAD contains this file plus the architecture/impact documents**
 
 Scope:
 
-- establish this active plan and persistent Agent takeover behavior;
-- verify branch/base, dirty-tree ownership, canonical contracts, source owners, and existing tests;
-- turn Option B, v3 cutover, cleanup, and docs goals into implementation decisions without inventing contracts;
-- identify schema/migration and authorization impacts before edits.
+- create `codex/knowledge-fabric-foundation` from current merged `main`;
+- record the long-term architecture without optimizing around RAG V1 compatibility;
+- identify every current subsystem that will be touched or must remain isolated;
+- decide the high-level database/index/storage/access/epistemic direction before implementation starts.
 
-Grounded decisions:
+Decisions locked by this phase:
 
-- Option B captures the validated Character Relay runtime-ingress payload, not the complete Discord Gateway event. The capture point is the Python `/api/connectors/discord/messages` path so no second raw-content transport is added.
-- Option B raw payloads stay in a bounded single-process in-memory store. They do not enter SQLite, WAL, backups, account exports, ordinary Discord events, Provider Trace, or OpenWiki. Restart clears all sessions and records.
-- A store/codec protocol separates ingress and authorization from storage. Option B uses an in-memory store and JSON codec; future Option C may supply a dedicated encrypted archive/key without changing callers. Credential Vault is not reused because its durable credential lifecycle is a different contract.
-- Raw-capture start, stop, record detail view, and clear are Bootstrap Super Admin-only and audited without payload content. Capture is disabled by default and precisely scoped by connection and guild after deployment/profile validation.
-- The proposed Option B product bounds are explicit TTL choices of 15, 60, or 1440 minutes, at most 100 records and 10 MiB per session, FIFO eviction with an exposed eviction count, and one active session per server. Phase 1 tests may tighten these values before they become API contract, but must not leave them implicit.
-- Ordinary Discord events remove `trigger_preview` and other nested content-bearing fields. They retain identifiers, reason codes, counts, booleans, timing, and selection metadata. Message-body fingerprints are not added because short messages may be dictionary-recovered.
-- Intelligence v3 cutover is split into participation contract, Character Turn context, and projection lifecycle phases. The old `ContextOrchestrator` is not deleted until every real Character Turn consumes v3 context and end-to-end proof exists.
-- Explicit mention/reply currently bypasses v3 resolution; Smart Participation returns Segment/Thread/reply-target data that the Connector currently drops; Connector V4/shadow/local fallback fields conflict with the hard-cutover contract. These are Phase 2 contract issues, not Phase 1 logging work.
-- Entity Grounding, Evidence Graph, Knowledge Gap Discovery, Episodic SQL RAG, and Knowledge Consolidation files are not proof of production integration. Phase 4 must either wire them with scoped idempotent lifecycle tests or remove orphan composition; it must not document them as live merely because modules exist.
+- PostgreSQL before large-corpus schema;
+- pgvector first dense index;
+- object storage for large original artifacts;
+- Corpus/Source/SourceVersion/Evidence as core imported-knowledge model;
+- system-global corpus + grant, server-local corpus + overlay, Character epistemic policy;
+- canonical corpus Entity separate from runtime/server Entity;
+- corpus knowledge separate from Character Belief;
+- Projection Layer replaces Wiki-shaped runtime concepts;
+- KnowledgeQueryEngine becomes Character-turn integration boundary;
+- deterministic-first/LLM-last ingestion;
+- source-driven incremental sync and background jobs.
 
 Validation gate:
 
-- documentation diff/read-through;
-- path/link/reference search for every file named as current authority;
-- `git diff --check` and `git status --short`;
-- no full product test suite for this documentation/design phase.
+- branch/base verification;
+- manual read-through against current Intelligence v3 authority contract;
+- current source evidence map review;
+- no product tests required because this phase changes planning/docs only.
 
-Commit gate: one consolidated branch-foundation/documentation commit only after the plan and design evidence are internally consistent.
+Phase 0 commit: **the branch HEAD containing this plan**.
 
-Validation result: all named evidence paths exist; the combined workflow/plan diff passed `git diff --check`; product tests were intentionally not run because Phase 0 changes only development workflow and branch-local documentation.
+Next action: Phase 1 PostgreSQL production foundation. Do not begin Source adapters first.
 
-Next takeover action: implement the in-memory Option B batch without intermediate commits, then run the Phase 1 Python/Connector/Portal gate once for the combined change.
+## Phase 1 — PostgreSQL production foundation
 
-## Phase 1 — Discord observability Option B
+Status: **complete — commit pending final diff review**
 
-Status: **complete**
+Goal: move the existing application runtime onto a sound PostgreSQL production foundation without yet changing Character Knowledge semantics.
 
-Scope:
+Primary sources:
 
-- remove raw `trigger_preview`-style content from ordinary Discord decision events;
-- retain useful structured fields such as event/decision type, identifiers, reason codes, bounded counts/timings, correlation/operation IDs, and booleans; do not add a recoverable message-body fingerprint;
-- add explicitly enabled server-scoped temporary capture with TTL and capacity bounds, Bootstrap Super Admin viewing/clearing authorization, payload-free audit events, and in-memory retention separate from normal event logs;
-- centralize capture storage/encoding behind an interface that can later use a separate Option C encrypted archive/key without changing ingress or authorization callers;
-- make capture write/prune/view failures non-blocking to Discord message processing.
+- `src/echo_masque/config.py`;
+- `src/echo_masque/persistence/database.py`;
+- persistence models and migration modules;
+- `pyproject.toml`;
+- deployment/storage health/config/docs;
+- account/runtime/deployment tests that rely on SQLite-specific behavior.
 
-Required gate:
+Required work:
 
-- relevant Python lint/type checks and focused API/repository/security tests;
-- Connector typecheck and complete Connector tests/build when Connector code changes;
-- authorization, disabled-by-default, scope isolation, TTL/pruning, restart/stop semantics, capacity eviction, deduplication, audit, no-store response headers, and failure-isolation coverage;
-- diff inspection confirming ordinary event records contain no raw message preview.
+- add supported PostgreSQL driver/config;
+- establish migration mechanism appropriate for PostgreSQL + future pgvector/index DDL;
+- port current SQLite-only deployment invariants/foreign-key/cascade behavior;
+- define/test migration of current SQLite production data to PostgreSQL;
+- add `pgvector` extension availability/bootstrap without making Knowledge semantics depend on it yet;
+- update production deployment/storage documentation/config;
+- prove all current non-Knowledge Intelligence/Discord/Social/Media functionality still behaves correctly.
+- establish the bounded Python/Portal/Connector mutation runners and scheduled/manual CI baseline
+  without changing Knowledge behavior or adding a repository-wide score threshold.
 
-Commit gate: one Option B implementation commit after all Phase 1 checks pass.
+Hard questions to resolve before commit:
 
-Delivered contract:
-
-- ordinary Discord events and process/heartbeat errors now contain structured diagnostics only; nested snake_case/camelCase content fields and raw exception messages are removed at both Connector and persistence boundaries;
-- Option B is a Super Admin-only, connection+guild-scoped, explicitly started process-memory capture for actual direct and Social Turn generation ingress, with durable replay excluded;
-- TTL choices are 15/60/1440 minutes; limits are 100 records/10 MiB per session, 500 records/50 MiB globally, and 500 retained session summaries; FIFO eviction, deduplication, replacement, stop, expiry, restart, audit rollback, and failure isolation are covered;
-- raw detail is fetched only on explicit reveal with `Cache-Control: no-store`; start/stop/reveal/clear audits contain identifiers and counts only;
-- the store/codec Protocol is the Option C extension seam; no durable/encrypted archive was implemented in this phase.
-
-Validation result:
-
-- Python changed-file Ruff passed; strict mypy passed for 5 touched source files; focused capture/event-log pytest passed with `11 passed` and one existing Starlette/httpx deprecation warning;
-- Discord Connector typecheck and production build passed; complete Vitest passed with `26 files, 131 tests`;
-- Portal typecheck and production build passed; complete Vitest passed with `12 files, 36 tests`; Vite retained the existing large-chunk advisory;
-- combined and staged diff/static review found no production `trigger_preview`, raw exception-message logging, raw SQLite/WAL capture, secret-like additions, unrelated build artifacts, or whitespace errors.
-
-## Phase 2 — Intelligence v3 participation contract hard cutover
-
-Status: **complete**
-
-Scope:
-
-- align Connector types with the actual v3 `/api/smart-participation/resolve` response, including authoritative speaker plan, reply targets, Segment/Thread identity, grounding, and sufficiency;
-- remove `DiscordV4Participation*`, `/semantic-score` fallback, shadow parity/conversation-planner fields, and local semantic speaker fallback;
-- make Smart Participation resolver failure fail-silent with structured diagnostics instead of restoring Connector semantic authority;
-- retain explicit mention/reply, security, scope, cooldown/rate-limit, and delivery hard gates because they are deterministic Runtime evidence rather than competing intelligence authority;
-- delete the v4 schema bridge and dead v4/planner settings only after all callers/tests use the v3 contract.
+- exact migration tool/process for existing `create_all` + app-managed migration history;
+- local developer/test database policy;
+- how Railway production obtains PostgreSQL and runs migration safely;
+- whether SQLite remains supported only for isolated tests/dev or is removed entirely after cutover.
 
 Required gate:
 
-- Python `/resolve` API integration and v3 schema/planner tests;
-- Connector participation contract tests, typecheck, complete tests, and build;
-- Python Ruff and strict mypy for the touched batch;
-- hard-cutover reference/static guards covering Connector source as well as Python.
+- fresh PostgreSQL DB bootstrap;
+- migration rehearsal from representative existing SQLite fixture/data;
+- restart/idempotency checks;
+- current full Python test suite or justified complete server/runtime gate on PostgreSQL;
+- Ruff + strict mypy;
+- deployment/storage health checks;
+- the configured Python/Portal/Connector mutation-runner smoke scopes on their supported
+  platforms, with reports recorded as non-blocking Phase 1 baselines;
+- no Knowledge behavior changes in this phase.
 
-Commit gate: one participation-contract cutover commit. Do not mix Character prompt/context replacement into this phase.
+Commit gate: one database-foundation commit.
 
-Delivered result:
+## Phase 2 — Corpus, Source, Access Grant and overlay policy schema
 
-- Connector ordinary-message selection now accepts only a runtime-validated, authoritative Conversation Intelligence v3 plan; malformed/failed/empty responses remain silent and never call the retired semantic fallback;
-- Segment/Thread, reply-target, grounding, sufficiency, plan reason, and guidance provenance are decoded and retained for the Phase 3 Character-turn handoff;
-- explicit audience plus deterministic scope, profile, cooldown/rate, and delivery gates remain intact and fail closed;
-- Python filters candidates against the actual Discord destination, returns authoritative empty plans for every resolver input-stage failure, and isolates reply-target persistence failure;
-- the v4 schema bridge, unused Conversation Planner implementation/settings, Connector shadow/parity/local semantic/follow-up authority, and their obsolete tests/config were deleted.
+Status: **complete — implementation and Phase 2 gate passed; one phase commit pending final review**
 
-## Phase 3 — ContextResolverV3 for every Character Turn
+Goal: establish the scope/authorization model before importing large content.
 
-Status: **complete**
+Approved Phase 2 authority decision (2026-08-25): canonical Server scope is the durable tuple
+`(platform, connection_id, workspace_id)`. `KnowledgeServerAdministrator` is the sole
+server-local administrator membership, and only an authenticated Super Admin may bootstrap a
+scope or manage that membership. Do not infer Knowledge Fabric authorization from Discord roles,
+Discord catalog/profile rows, join-code access, or owner-scoped Server Profiles. Scope or corpus
+visibility must be non-enumerating for unauthorized accounts; Public Demo receives no Fabric read
+or administration access.
 
-Scope:
+Lifecycle decision: deleting or removing a Server Administrator revokes that membership only. It
+does not delete the durable scope, server-local corpus, global grant, or another member. Connector
+deprovision is a future explicit, audited operation; catalog synchronization must not silently
+delete canonical Fabric scope data.
 
-- introduce one app-level v3 turn service (or an equivalent grounded composition) used by mention, reply, Smart Participation, and Social continuation;
-- reuse a Segment already resolved for the message or observe explicit turns once in Python, then run the runtime coordinator and current-turn correction before model generation;
-- supply bounded Knowledge/Wiki/Belief/Episode/Entity/Social/Pending Action evidence through one `ContextBundleV3` and inject its prompt sections into the real provider request;
-- remove duplicate Knowledge/recall/social context injection only after the replacement path is proven; do not create a third parallel context layer;
-- preserve empty-bundle/unresolved/fail-silent behavior without falling back to Topic or local semantic authority.
-
-Required gate:
-
-- explicit mention and reply v3 context tests;
-- Smart resolve plus `/messages` Segment reuse and no-duplicate observation tests;
-- correction shield before provider call and scoped Belief/Episode/Social/Knowledge tests;
-- proof that `ContextBundleV3.prompt_sections()` reaches the provider request;
-- resolver failure tests showing empty/unresolved/silent behavior with no old-authority fallback;
-- Python Ruff, strict mypy, and affected v3/Character-turn tests.
-
-Commit gate: one Character Turn context cutover commit after the old generation authority has no live consumer.
-
-Delivered result:
-
-- one app-level `CharacterTurnContextV3Service` now serves mention, reply, Smart Participation, sequential Character turns, and Social-turn Character execution;
-- authoritative v3 reply decisions reuse their persisted Segment, while explicit turns resolve and observe the current message once; a stale persisted Thread hint cannot override current Segment membership;
-- the real provider prompt now receives bounded v3 live context, Beliefs, perceived Episodes, Entities, Knowledge, Server Wiki, Social state, Pending Actions, correction shield, and server-local time;
-- current-turn correction extraction is shared between `/resolve` and generation with a durable revision-event guard, and its Utility usage remains observable;
-- context assembly failure terminates the graph as structured safe silence before provider execution, with no old ContextOrchestrator, CharacterRecall, Topic, or Connector semantic fallback;
-- Media handling, sleeping/presence wake-up, Smart Output authorization, Tool execution, and deterministic Runtime gates remain in their existing owners.
-
-Validation result:
-
-- changed-file Ruff passed and strict mypy passed for 10 source/test files;
-- 51 focused context, participation, Character/Social graph, media, routing, and provider-prompt tests passed;
-- independent Luna review added explicit-turn observe-once, correction reuse, provider prompt handoff, server-time context, and no-provider-on-context-failure proof;
-- combined Phase 3 diff review found no old prompt fallback, duplicate recall/social injection, scope widening, raw-message logging, or unrelated behavior rewrite.
-
-## Phase 4 — Intelligence v3 projection and lifecycle completion
-
-Status: **complete**
-
-Scope:
-
-- connect Conversation Runtime observation to required Entity/Evidence/Episode/Knowledge Gap projections with explicit source and scope boundaries;
-- make replay of the same message, Segment, Episode, edge, or index idempotent;
-- allow Entity grounding only from explicit evidence and keep Knowledge Gap discovery as candidate state until accepted evidence resolves it;
-- give Knowledge Consolidation an explicit checkpoint/manual lifecycle or remove orphan app composition rather than representing it as active;
-- add direct tests for Context Resolver, Entity Grounding, Evidence Graph, Knowledge Gap, Episode indexing, consolidation lifecycle, replay, and owner/server isolation.
-
-Required gate:
-
-- focused v3 repository/service/lifecycle tests plus replay and scope tests;
-- Python Ruff, strict mypy, and the complete Python suite at the phase gate;
-- diff review for duplicate derived rows, incorrect scope, raw-content snapshots, and orphan composition.
-
-Commit gate: one v3 projection/lifecycle commit.
-
-Delivered result:
-
-- Conversation Runtime now projects scoped relation, membership, and Episode evidence through one
-  best-effort coordinator; individual derived-edge failures do not fail message observation.
-- Edge, Episode, membership, and consolidation replay is deterministic and idempotent; rejected or
-  superseded evidence is not silently reactivated.
-- Entity grounding requires explicit evidence, Knowledge Gaps remain scoped candidate state, and
-  the owner-authenticated server-profile endpoint provides an explicit manual consolidation
-  checkpoint lifecycle.
-
-Validation result: changed-file Ruff and strict mypy passed; 14 focused projection, conversation
-structure, and no-Topic-authority tests passed; replay, failure isolation, endpoint ownership, and
-wrong-guild isolation were independently verified. The integrated full Python suite remains a
-Phase 6/8 gate rather than an extra commit boundary.
-
-## Phase 5 — runtime and persistence reliability
-
-Status: **complete**
-
-Scope:
-
-- prevent generic retries from duplicating non-idempotent Discord message/tool/provider work by adding or reusing a grounded ingress operation contract;
-- enable and test SQLite foreign-key enforcement only after auditing existing manual deletion/trigger paths;
-- replace unconditional startup hard-cutover migration with a recorded, repeat-safe version ledger and test fresh, legacy, interrupted, and restarted paths;
-- isolate per-guild catalog synchronization failures so one guild does not block unrelated deployments;
-- include Option B/v3 lifecycle cleanup where durable metadata exists, without persisting Option B raw payloads.
-
-Required gate:
-
-- duplicate-ingress/retry, operation claim, foreign-key, startup migration, and catalog failure-isolation tests;
-- fresh-database and representative existing-database upgrade tests;
-- Python Ruff, strict mypy, and affected persistence/API suites;
-- Connector typecheck, complete tests, and build;
-- explicit storage-safety, backup, recovery, and upgrade-path review.
-
-Commit gate: one reliability/migration commit. If the upgrade design cannot be safely bounded, split it to a dedicated branch instead of partially landing it here.
-
-Delivered result:
-
-- ordinary Discord Character ingress uses a Runtime-derived operation/step identity and durable
-  generation replay plus delivery claim/ack/uncertain semantics; caller IDs and message text are
-  excluded from identity, unknown restart outcomes do not re-run Character generation, and durable
-  error persistence/HTTP responses contain classifications rather than raw upstream text;
-- Connector generation retries are conservative while explicit durable claim/ack calls remain
-  retryable, and normal Discord sends are claimed before the platform side effect;
-- every SQLite connection enables foreign keys, audited Character deletion paths remove dependent
-  Key Group rows, and the v3 hard cutover uses a repeat-safe persistent ledger with a one-replica
-  startup guard and post-rebuild foreign-key checks;
-- Discord catalog sync partitions visible, successful, and failed Guilds so one failure preserves
-  its prior catalog, partial media failure preserves prior inventory, and catalog failure cannot
-  block deployment refresh.
-
-Validation result: changed-file Ruff and strict mypy passed for 17 source/test files; the affected
-durability, API, migration, storage, account, catalog, Option B, and no-Topic suites passed; Discord
-Connector typecheck, all 94 tests, and production build passed. Independent review regressions for
-restart uncertainty, concurrent claim, safe errors, excluded-channel silence, and catalog partition
-validation were repaired before commit.
-
-## Phase 6 — obsolete-code and unsupported-surface removal
-
-Status: **complete**
-
-Scope:
-
-- delete only code proven unused by import/reference search plus tests/builds;
-- remove obsolete compatibility settings/routes/tests after Phases 2–4 migrate their consumers;
-- remove unreachable hidden-lab/admin UI imports and candidate orphan modules only after verifying runtime and dynamic imports;
-- remove or hide unsupported Telegram/WhatsApp creation surfaces while Discord remains the implemented production connector;
-- preserve user-authored Smart Participation profile match data even if misleading `topics` naming is later migrated; it is not Conversation Topic authority;
-- preserve raw evidence and supported user data; schema/data deletion requires an explicit reviewed migration.
-
-Required gate:
-
-- repository-wide reference search for each deletion;
-- Python Ruff, strict mypy, and full Python test suite;
-- Portal typecheck, complete tests, and production build;
-- Connector typecheck, complete tests, and production build;
-- diff review for accidental feature, authority, or data removal.
-
-Commit gate: one consolidated cleanup commit after all three project surfaces pass.
-
-Delivered result:
-
-- the production-unused ContextOrchestrator/CharacterRecall/legacy routing, continuation, semantic
-  signal, Utility RAG guard, and unused Smart Participation outcome chains were removed after live
-  v3 trace/context types moved to `character_turn_context_types.py`;
-- Connector-only legacy Turn Intelligence telemetry and health fields with no v3 producer were
-  removed while current context/RAG diagnostics remain;
-- Portal and backend creation paths are Discord-only; legacy WhatsApp/Telegram records retain their
-  schema union and read/delete compatibility, with no data migration or deletion;
-- enabling SQLite foreign keys exposed historical parent/child fixture ordering and Target deletion
-  behavior. Fixtures now insert parents explicitly, and deleting owner access preserves the hidden
-  Target row required by historical Trial Runs rather than deleting history or leaving an orphan.
-
-Validation result: repository-wide deleted-reference search returned no source/test consumers;
-Python Ruff passed, strict mypy passed for 338 source files, and all 624 tests passed; Portal
-typecheck, 38 tests, and production build passed; Discord Connector typecheck, 91 tests, and build
-passed. Warnings remain limited to existing dependency/collection notices, one fixture serializer
-warning, and Vite's existing large-chunk advisory.
-
-## Phase 7 — user-friendly docs and OpenWiki readiness
-
-Status: **complete**
-
-Scope:
-
-- organize manual documentation by user, operator, developer, canonical contract, and historical/reference audience;
-- make Discord setup/debugging, deployment, security/retention, Intelligence v3 ownership, development, testing, and release entry points easy to find;
-- keep stable links or explicit redirects/index mapping when reorganizing existing canonical paths;
-- add `.openwikiignore` and refine generation instructions; do not hand-write `openwiki/quickstart.md`;
-- run OpenWiki only when explicitly authorized/configured, label branch-local output, and review it for hallucinations, scope widening, obsolete Topic claims, sensitive data, and broken source links.
-
-Required gate:
-
-- docs link/path/reference review and `git diff --check`;
-- verify current settings/commands against source, package files, and workflows;
-- relevant docs-facing UI/build checks if navigation code changes;
-- OpenWiki generated-diff review only if generation is intentionally performed.
-
-Commit gate: one consolidated documentation/readiness commit. Prefer a separate post-merge OpenWiki refresh from updated `main` for generated pages.
-
-Delivered result:
-
-- the documentation front door now routes users, operators, developers, AI agents, contract readers,
-  and historical researchers to short audience-specific indexes without moving canonical files or
-  breaking their stable paths;
-- a first-reply Discord guide and a structured-events-first/Option-B-second debugging guide provide
-  executable setup, privacy, retention, and incident steps; the Connector reference now uses the
-  source-backed API secret name and documents every current Turn Collector setting;
-- stale current-document references to deleted context owners were replaced with the v3 context
-  service/types, and control-plane/Smart Participation material that could imply old authority is
-  explicitly labelled historical;
-- `.openwikiignore` excludes secrets, databases, dependencies, caches, logs, and builds while keeping
-  source/tests/docs visible; `openwiki/INSTRUCTIONS.md` records the official code-mode refresh cycle.
-  No generated `quickstart.md` was hand-written and OpenWiki was not run because its CLI is not
-  installed in this workspace.
-
-Validation result: all 69 root/Connector/docs Markdown files passed a local-link target scan with
-zero broken paths; current settings and commands were checked against Python/Connector config and
-both package manifests; repository search found no deleted owner/config names in current docs outside
-the intentionally historical branch ledger; `git diff --check` passed. No UI navigation code changed,
-so no extra docs-facing build was required before the integrated Phase 8 gate.
-
-## Phase 8 — integrated release and handoff gate
-
-Status: **complete**
-
-Scope:
-
-- review all phase commits and the full branch diff against the starting baseline;
-- reconcile canonical docs, source/types, migrations, and tests;
-- run the complete supported Python, Portal, and Discord Connector validations once for the integrated branch;
-- record remaining live deployment/manual checks without fabricating results;
-- prepare the PR evidence map, intentional deviations, upgrade/rollback notes, and OpenWiki refresh follow-up.
-
-Required gate:
+Target contracts:
 
 ```text
-Python: Ruff + strict mypy + complete pytest
-Portal: typecheck + complete tests + production build
-Discord Connector: typecheck + complete tests + production build
-Repository: git diff --check + secret/raw-content review + migration/upgrade review
+KnowledgeCorpus
+KnowledgeSource
+KnowledgeAccessGrant
+KnowledgeOverlayPolicy
 ```
 
-Commit gate: no routine implementation commit is expected. If the integrated gate finds a real cross-phase defect, assign it to the owning phase, fix and validate it as one coherent final repair batch, and document why the phase gate missed it before committing.
+Required behavior:
 
-Integrated repair:
+- owner types support future system/user/organization/server semantics;
+- v1 system-global management is Super Admin-only;
+- server-local corpus is server-owned/private;
+- server grant enables/disables global/shared corpus without data copy;
+- inherit/augment/override/deny policy is explicit and auditable;
+- unauthorized server cannot infer corpus/source existence through query/admin APIs;
+- lifecycle deletion/claim semantics are defined now, not postponed.
 
-- branch review found that pre-Option-B `discord_connector_events` rows could still contain and
-  expose old message previews. A new repeat-safe `discord-event-privacy-v1` operational migration
-  now normalizes the event message, recursively sanitizes stored details, clears untrusted legacy
-  Discord operational error strings, and records completed/failed/retried state in a dedicated
-  ledger. The API applies the same sanitizer on read as defense in depth;
-- Runtime/provider failures stored on Deployments now retain only a bounded error type/reason code,
-  not exception text;
-- the unconsumed `/semantic-score` compatibility route, Utility participation Tie-break/Turn
-  Intelligence chain, shadow trace fields, and retired Behavior Notebook candidate/E5 event panel
-  were removed. Semantic Character profiles and v3 participation scoring remain live;
-- final docs corrections distinguish Super Admin Connection creation from regular-user Server
-  claiming, point structured events to Deployment Center, and keep `.env.example` visible to
-  OpenWiki while excluding actual environment files.
+Likely sources:
 
-Integrated validation result:
+- new persistence modules/migrations;
+- `src/echo_masque/api/routes/admin.py` and admin dependencies;
+- new Knowledge API schemas/routes;
+- server access/ownership repositories;
+- `src/echo_masque/evaluation_lifecycle.py`;
+- Portal API/admin/server-access code.
+
+Required gate:
+
+- owner/server isolation tests;
+- Super Admin authorization/audit tests;
+- grant enable/disable tests;
+- overlay precedence contract tests;
+- account deletion/claim tests;
+- Public Demo write/isolation tests;
+- targeted mutation scope for grants, overlay precedence, Super Admin, lifecycle, and Public Demo
+  decisions; resolve or classify every survivor;
+- PostgreSQL migration/idempotency checks.
+
+Commit gate: one scope/access schema commit.
+
+### Phase 2 completion record — 2026-08-25
+
+Evidence: `src/echo_masque/persistence/knowledge_fabric_models.py`,
+`knowledge_fabric_repository.py`, `knowledge_fabric_policy.py`,
+`src/echo_masque/api/routes/knowledge_fabric.py`,
+`src/echo_masque/evaluation_lifecycle.py`, `src/echo_masque/persistence/database.py`, and
+`src/echo_masque/persistence/schema_migrations.py`; canonical authority contract in
+`docs/knowledge-fabric-architecture.md`; proof in `tests/test_knowledge_fabric_policy.py`,
+`tests/test_knowledge_fabric_phase2.py`, and `tests/test_database_foundation.py`.
+
+Changed authority: `KnowledgeServerScope(platform, connection_id, workspace_id)` and explicit
+`KnowledgeServerAdministrator` membership are independent of Discord catalog/profile/join-code
+state. Only authenticated Super Admin manages membership and system-global corpus/source state.
+Server-local corpora are private to the canonical scope. Global data is granted by reference, never
+copied. Public Demo is denied/non-enumerating at the Fabric read boundary as well as by its write
+middleware. Account delete/claim only affects explicit user-owned/grantee rows and preserves
+system/server data.
+
+Validation: focused Phase 2/security/lifecycle suite passed —
+`python -m pytest tests/test_knowledge_fabric_policy.py tests/test_knowledge_fabric_phase2.py tests/test_database_foundation.py tests/test_phase15_account_lifecycle.py tests/test_account_admin_scoping.py tests/test_public_demo.py tests/test_server_access_repository.py tests/test_superadmin_server_claims.py tests/test_knowledge_api.py`
+(53 passed, 2 explicit PostgreSQL tests skipped when no URL was configured); full Ruff and strict
+Mypy passed. Disposable WSL/Docker pgvector PostgreSQL 16 passed both guarded foundation tests
+(fresh schema/restart plus SQLite-to-PostgreSQL copy, idempotent rerun, and changed-source
+protection). Windows mutmut was unsupported, so the configured scope ran in an isolated WSL copy;
+`mutmut results` was empty after the run (no survivors, timeout, or unclassified result).
+
+Deliberate omissions: this phase stores source registration metadata only; it does not import
+content, versions, artifacts, credentials, indexes, query results, Character epistemic policy, or
+Portal surfaces. User/organization/shared schema values are reserved but have no V1 grant path.
+`augment`/`override` are explicit precedence modes; linking a local evidence corpus and resolving
+conflicting evidence is Phase 3+ Query Engine work. Connector deprovision remains an explicit
+future audited lifecycle operation, never a catalog-sync side effect.
+
+Commit: pending the single Phase 2 final diff review. Next concrete action: Phase 3, choose and
+document the object-storage provider/credential boundary before adding Source Version, canonical
+content, Evidence Unit, artifact, or ingestion-job persistence.
+
+## Phase 3 — canonical content, source versioning, Evidence Units and object storage
+
+Status: **complete — current branch HEAD implementation commit**
+
+Goal: make source artifacts/versioned structure/evidence the durable imported-knowledge foundation.
+
+Target contracts:
 
 ```text
-Python: Ruff passed; strict mypy passed for 339 source files; 622 pytest tests passed
-Portal: typecheck passed; 13 files / 38 tests passed; production build passed
-Discord Connector: typecheck passed; 17 files / 91 tests passed; production build passed
-Repository: Markdown local-link scan passed; git diff check, secret-pattern review,
-            raw-content boundary review, and migration/upgrade review passed
+KnowledgeSourceVersion
+CanonicalDocument
+Section / Block / Asset
+KnowledgeEvidenceUnit
+KnowledgeIngestionJob / Checkpoint
+ObjectArtifactReference
 ```
 
-Existing non-blocking warnings are the Starlette/httpx deprecation, pytest collection notices,
-one Pydantic fixture serializer warning, and Vite's large-chunk advisory.
+Required behavior:
 
-Intentional follow-up: the persisted/API field named `semantic_thread_id` currently carries the v3
-`conversation_thread_id`. It executes no Topic or shadow authority, but renaming it requires an
-explicit compatibility/data-contract migration and is not hidden inside this release cleanup.
-Generated OpenWiki output remains absent because the CLI is not installed; refresh it from updated
-`main` in a dedicated docs branch.
+- immutable/source-versioned snapshots;
+- canonical locator/hash/version metadata;
+- structured document coordinates/provenance;
+- large binary/original artifacts in private S3/R2-compatible object storage;
+- restart-safe/idempotent background job state;
+- dependency invalidation hooks for later indexes/projections;
+- no mandatory LLM call to import a source.
 
-Required live checks remain the real Discord Option B workflow, a representative production-copy
-SQLite upgrade plus backup/restore rehearsal, and Railway single-replica/Volume persistence. There
-is no application-level downgrade migration; rollback to an older release requires restoring the
-pre-upgrade SQLite backup/Volume snapshot.
+Approved Phase 3 storage decision (2026-08-25): Cloudflare R2 is the production object store.
+The persistence boundary uses the S3-compatible protocol so a future AWS S3 deployment can be
+configured explicitly without changing Knowledge records or callers. The service-level R2 endpoint,
+bucket, access-key ID, and secret access key are deployment-only configuration; secret values are
+server-side `SecretStr` settings and never Source fields, API responses, audit metadata, logs, or
+traces. Per-Source credentials (for private Git/API/Web adapters) remain an explicit later
+Credential Vault concern rather than being reused as R2 infrastructure credentials. Objects are
+private by default and database records store only provider/bucket/key/hash/size/content metadata.
 
-## Phase ledger
+Required gate:
 
-| Phase | Status | Validation evidence | Commit | Next action |
-| --- | --- | --- | --- | --- |
-| 0. Contract/design | complete | branch/base, contracts, source paths, Option B boundary, v3 call graph, and combined doc diff verified; no product tests by design | `3a26bea` | Phase 1 started |
-| 1. Discord Option B | complete | Python Ruff/mypy + 11 focused tests; Connector typecheck + 131 tests + build; Portal typecheck + 36 tests + build; privacy/static review | `f18ba86` | Phase 2 ready |
-| 2. v3 participation contract | complete | changed-file Ruff passed; strict mypy passed for 6 files; 28 focused Python tests passed; Connector typecheck + 90 tests + build passed; Luna authority/scope review and static hard-cutover guards passed | `113ed69` | Phase 3 ready |
-| 3. v3 Character Turn context | complete | Ruff + strict mypy passed for 10 files; 51 focused tests passed; Luna provider/failure/reuse review passed | `2e9889f` | Phase 4 started |
-| 4. v3 projection lifecycle | complete | Ruff/mypy; 14 focused lifecycle/structure/no-Topic tests; Luna replay, scope, endpoint and failure-isolation review | `0cadcc0` | Phase 5 completed |
-| 5. Reliability/storage | complete | Ruff/mypy; affected Python durability/storage/API suites; Connector typecheck + 94 tests + build; independent restart/concurrency/privacy review | `86f6970` | Phase 6 started |
-| 6. Cleanup | complete | deleted-reference audit; Ruff/mypy + 624 Python tests; Portal 38 tests/build; Connector 91 tests/build | `7315910` | Phase 7 started |
-| 7. Docs/OpenWiki readiness | complete | 69 Markdown files / 0 broken local links; settings/commands/source audit; deleted-owner search; diff check | `5b8c74c` | Phase 8 started |
-| 8. Integrated gate | complete | Ruff/mypy + 622 Python tests; Portal 38 tests/build; Connector 91 tests/build; link/secret/raw/migration/diff review | final repair/handoff commit; resolve from Git history | open PR, perform live checks, then post-merge OpenWiki refresh |
+- version/diff/idempotency tests;
+- object storage failure/cleanup/access tests;
+- duplicate job delivery/restart tests;
+- secret/private locator redaction tests;
+- lifecycle deletion tests.
 
-## Handoff update template
+Commit gate: one canonical-content/evidence foundation commit.
 
-Before yielding this branch, replace the relevant ledger row and append a concise entry here:
+Sequencing findings to resolve in their owning phases: Phase 6 requires a Character epistemic gate
+before prompt injection even though the detailed Character policy phase is currently Phase 10; do
+not introduce a permissive interim fallback. Phase 7 may not delete Wiki compatibility until every
+runtime, API, and Portal consumer has migrated, so its deletion boundary must be aligned with the
+Phase 11 Portal cutover before either phase claims completion.
+
+Phase 3 completion record:
 
 ```text
-Date/time zone:
-Agent/session:
-Phase and status:
-Evidence/contracts read:
-Files/change surface:
-Validation commands and exact result:
-Commit hash (only after gate):
-Intentional deviations:
-Unresolved risks/conflicts:
-Next concrete action:
+Status: complete — current branch HEAD implementation commit
+Commit: `feat: add Knowledge Fabric ingestion foundation` (resolve final hash with `git log -1 --oneline`)
+Changed authority/contracts: immutable Source Versions, canonical documents/sections/blocks/assets,
+Evidence Units, source-version job/checkpoint/invalidation state, and private content-addressed
+artifact records now exist. Cloudflare R2 is the production private object-storage provider through
+an S3-compatible boundary; AWS S3 is an explicit deployment alternative. No Source credential,
+public object URL/ACL, LLM dependency, Character Belief authority, or synchronous Character reply
+path was added.
+Key files: src/echo_masque/knowledge_fabric_ingestion.py;
+src/echo_masque/knowledge_fabric_ingestion_policy.py;
+src/echo_masque/knowledge_object_storage.py;
+src/echo_masque/persistence/knowledge_fabric_content_repository.py;
+src/echo_masque/persistence/knowledge_fabric_models.py;
+src/echo_masque/persistence/schema_migrations.py;
+tests/test_knowledge_fabric_phase3.py;
+tests/test_knowledge_fabric_ingestion_policy.py
+Validation: python -m ruff check . and python -m mypy passed (352 source files). Focused
+Python regression batch passed: 69 passed, 2 expected PostgreSQL skips, 1 existing TestClient
+deprecation warning. WSL-native mutmut scope ran 24 mutants: 20 killed, 0 timeout/tooling failures,
+4 equivalent survivors. Real WSL Docker pgvector PostgreSQL 16 passed the guarded foundation and
+SQLite-to-PostgreSQL migration tests: 2 passed, 7 deselected (6.31s); its named disposable
+container was removed.
+Mutation equivalence: deterministic_artifact_key mutants 11, 12, 17, and 19 alter only private
+ValueError message capitalization/prefix text. Callers receive no message as a persisted/API
+contract and behavior tests prove the exception class and safe error code boundary; they are
+recorded equivalently rather than made brittle string contracts. Mutant 3 (incorrectly stripping
+valid prefix content) was killed by a behavior-level prefix-preservation assertion.
+Migration/data action: new idempotent knowledge-fabric-content-v1 revision creates the content/job
+tables for SQLite/PostgreSQL. Existing source data is not imported or converted in this phase.
+Known deviations: real Cloudflare credentials/bucket access is deliberately not exercised locally;
+the S3-compatible client contract, private/no-ACL behavior, unavailable-storage failure, and
+lifecycle cleanup are covered without deployment secrets. Source adapters and their Vault-backed
+credentials remain later phases.
+Next action: begin Phase 4 canonical corpus entities/assertions/events and the Evidence Graph bridge
+without merging imported corpus facts into BeliefV3.
 ```
 
-Do not include credentials, raw Discord content, private traces, or secret-derived values in the handoff.
+## Phase 4 — canonical corpus entities, assertions/events and Evidence Graph bridge
 
-### 2026-08-23 workflow handoff update
+Status: **complete — current branch HEAD implementation commit**
+
+Goal: add world/corpus interpretation without abusing server-scoped Entity or Character Belief.
+
+Phase 4 identity decision: the first canonical identity boundary is one `KnowledgeCorpus`, not a
+name-derived cross-corpus global namespace. `(corpus_id, entity_type, normalized_name)` may identify
+one canonical entity and is reusable by many runtime/server entities that resolve into that corpus.
+Cross-corpus/domain identity linking requires a future explicit domain model and evidence-backed
+mapping; Phase 4 must not infer it from equal names.
+
+Primary current sources:
+
+- `src/echo_masque/persistence/entity_evidence_models.py`;
+- `src/echo_masque/persistence/entity_evidence_repository.py`;
+- `src/echo_masque/entity_grounding_v3.py`;
+- `src/echo_masque/evidence_graph_v3.py`;
+- `src/echo_masque/persistence/intelligence_v3_lifecycle_repository.py` for owner deletion/claim
+  boundaries;
+- Belief models/repositories for authority-boundary tests.
+
+Required behavior:
+
+- Canonical Knowledge Entity is corpus/domain scoped;
+- runtime/server Entity can resolve to canonical entity with revisable evidence;
+- `ExtractedAssertion` and world Event reference Evidence Units and carry confidence/authority/temporal state;
+- assertion/event interpretation does not become Character Belief automatically;
+- imported evidence can participate in Evidence Graph relations without duplicating truth.
+
+Required gate:
+
+- same canonical entity reused across multiple server contexts;
+- provisional runtime Entity can resolve/reject/reassign canonical relation;
+- assertion conflicts remain representable without destructive overwrite;
+- no automatic world assertion -> Belief promotion;
+- evidence dependency/provenance tests.
+
+Commit gate: one canonical-knowledge interpretation commit.
+
+### Phase 4 completion record — 2026-08-25
+
+Commit: `feat: add Knowledge Fabric corpus interpretations` (the current branch implementation
+commit; resolve the final hash with `git log -1 --oneline`).
+
+Evidence: `src/echo_masque/persistence/knowledge_fabric_models.py`,
+`knowledge_fabric_interpretation_repository.py`,
+`knowledge_fabric_interpretation_policy.py`, `knowledge_fabric_repository.py`,
+`intelligence_v3_lifecycle_repository.py`, `database.py`, and `schema_migrations.py`; proof in
+`tests/test_knowledge_fabric_entity_policy.py`, `tests/test_knowledge_fabric_phase4.py`, and
+`tests/test_database_foundation.py`.
+
+Authority and lifecycle: canonical identity is exactly `(corpus_id, entity_type, normalized_name)`.
+Runtime `EntityV3` retains its owner/connection/guild authority and can only resolve through that
+exact scope. Reassignment creates a successor record; rejected and superseded history remains.
+Assertions may conflict, and events, assertions, runtime resolutions, and typed graph relations
+retain Evidence Unit provenance. The Phase 4 repository never writes `BeliefV3` or
+`ConversationEpisodeV3`. User-corpus deletion removes corpus interpretations before source content;
+runtime-owner deletion removes only its resolution mappings before `EntityV3` deletion.
+
+Validation: `python -m ruff check .` and `python -m mypy` passed (354 source files). The focused
+Phase 2–4/Intelligence/lifecycle/database batch passed: 54 passed, 2 expected PostgreSQL skips,
+and 1 existing TestClient deprecation warning. WSL-native `mutmut` ran 7 mutants against
+`knowledge_fabric_interpretation_policy.py`: all 7 killed, with no survivor, equivalent, timeout,
+or tooling classification. A disposable WSL/Docker pgvector PostgreSQL 16 container passed the
+guarded foundation migration test (1 passed, 1 skipped, 7 deselected) and was removed.
+
+Deliberate omissions: no name-derived cross-corpus/global identity, automatic Belief/Episode
+promotion, graph-database dependency, query/index integration, API/Portal surface, or source
+adapter was added. A future explicit domain model must own cross-corpus mappings.
+
+Next action: Phase 5 should implement access-filtered FTS/pgvector/entity/temporal retrieval and
+the single Knowledge Query Engine without changing the Phase 4 authority boundaries.
+
+## Phase 5 — FTS + pgvector indexes and Knowledge Query Engine
+
+Status: **completed — FTS/pgvector index layer and internal Query Engine committed**
+
+Goal: replace current bounded SQL scan/in-process vector ranking for the new corpus path.
+
+Phase 5 retrieval decisions:
+
+- `KnowledgeFabricRepository.list_effective_corpora(server_scope_id)` is the sole current
+  server/corpus authorization resolver. Its non-empty corpus-id result is an immutable input to
+  every retrieval channel; an unknown scope returns no candidates and Phase 5 never calls the
+  state-creating `ensure_server_scope()` path.
+- Query modes are `overview`, `exact`, `relational`, `current`, and `code`. `exact` returns only
+  source-aligned Evidence Unit provenance. `code` is sparse-only until a source adapter provides
+  symbol/dependency structure.
+- The first sparse baseline uses PostgreSQL's `simple` FTS configuration, with a deterministic
+  portable sparse fallback for SQLite tests. The first ANN index is an HNSW cosine expression index
+  for the existing E5-small/384 profile; a different configured embedding model/dimension remains
+  queryable by exact vector distance but requires an explicit later index/rebuild decision.
+- Temporal validity is half-open: an interpretation is available when `valid_from <= as_of` and
+  `as_of < valid_to` when those endpoints exist. `current` returns local evidence together with
+  `insufficient` freshness because `freshness_policy_json` has no approved schema yet; Phase 5
+  does not invoke Web/API fallback.
+- `deny` remains an authorization exclusion. `augment` and `override` remain provenance/precedence
+  metadata only: no record-level shadowing key exists, so Phase 5 must not infer one from names,
+  embeddings, or assertion prose.
+
+Target components:
 
 ```text
-Date/time zone: 2026-08-23, Asia/Kuala_Lumpur
-Agent/session: /root/workflow_handoff sub-agent
-Phase and status: Phase 0 in progress
-Evidence/contracts read: AGENTS.md; docs/ai-agent-development-workflow.md; docs/agent-handoff.md; docs/README.md; openwiki/INSTRUCTIONS.md; docs/intelligence-core-v3-architecture.md; docs/provider-tracing.md; docs/security.md; docs/discord-server-workspace.md
-Files/change surface: AGENTS.md; docs/ai-agent-development-workflow.md; docs/agent-handoff.md; docs/README.md; docs/active-development-plan.md
-Validation commands and exact result: current branch/base confirmed; every named initial implementation path exists; git diff --check passed for tracked changes; active-plan trailing-whitespace scan pending final integration; no product tests run by design
-Commit hash (only after gate): none; sub-agent did not commit
-Intentional deviations: OpenWiki quickstart was not read because it does not exist; no generated OpenWiki page was hand-written
-Unresolved risks/conflicts: product code is unchanged; Phase 1 API/UI wording must clearly say runtime-ingress capture rather than complete Discord Gateway capture
-Next concrete action: main agent reviews and integrates this documentation batch, reruns the Phase 0 documentation gate, creates the single Phase 0 commit, then starts Phase 1
+KnowledgeIndexProvider
+Sparse/FTS retrieval
+pgvector ANN retrieval
+Entity/graph retrieval
+Temporal/freshness filtering
+QueryPlanner
+Candidate fusion/RRF
+Reranker/diversifier
+EvidencePacker
+KnowledgeQueryEngine
 ```
 
-### 2026-08-23 Phase 1 handoff update
+Required behavior:
+
+- authorized corpus/server policy filtering is part of candidate retrieval;
+- query modes support overview/exact/relational/current/code-like use cases without leaking backend details;
+- exact quote/source query prefers raw/source-aligned evidence;
+- current/fresh query can report stale/local insufficiency for later external lookup;
+- current legacy RAG remains only for consumers not yet cut over, never mixed as a second authority inside the new engine.
+
+Required gate:
+
+- FTS/dense/entity/temporal channel tests;
+- hybrid fusion/rerank quality fixtures;
+- permission-filter-before-ranking tests;
+- large-corpus synthetic performance/bounds test;
+- pgvector index plan/health check;
+- targeted mutation scope for authorization-before-ranking, freshness, and query-mode decisions;
+- no cross-server/global metadata leakage.
+
+Commit gate: one query/index engine commit.
+
+### Phase 5 completion record — 2026-08-25
+
+Commit: `feat: add Knowledge Fabric query indexes` (the current branch implementation commit;
+resolve the final hash with `git log -1 --oneline`).
+
+Evidence: `src/echo_masque/knowledge_fabric_query.py`,
+`knowledge_fabric_query_policy.py`, `persistence/knowledge_fabric_index_repository.py`,
+`knowledge_fabric_models.py`, `schema_migrations.py`, `database.py`, and lifecycle cleanup in
+`knowledge_fabric_content_repository.py`; proof in
+`tests/test_knowledge_fabric_phase5.py`, `tests/test_knowledge_fabric_query_policy.py`, and
+`tests/test_database_foundation.py`.
+
+Authority and lifecycle: the Query Engine resolves the effective corpus set before every channel
+and rejects an empty/unknown scope without creating it. FTS, dense, entity/event/graph, and temporal
+evidence all retain Evidence Unit/source-version provenance; RRF only fuses already-authorized
+candidates. The derived retrieval and embedding rows are deleted before Evidence Unit deletion.
+No Character epistemic policy, legacy-RAG fallback, record-level overlay conflict inference,
+source adapter, or Character/context cutover is included.
+
+Validation: `python -m ruff check .` and `python -m mypy` passed (357 source files). The focused
+Phase 2–5/policy/lifecycle/database batch passed: 62 passed, 2 expected PostgreSQL skips, and 1
+existing TestClient deprecation warning; final Query Policy/Phase 5 regression passed: 8 passed,
+1 expected PostgreSQL skip. A disposable WSL/Docker pgvector PostgreSQL 16 container passed both
+guarded foundation migration/index health and live FTS+dense query tests (2 passed), then was
+removed. Scoped WSL `mutmut` generated 53 mutations in Query Policy: 49 killed; four equivalent
+mutants remain only in RRF's output-invariant implementation details (stable insertion mechanism,
+uniform first-occurrence score offset, or uniform score scale), with no surviving behavioral
+authorization, mode, temporal, freshness, or ranking-order mutant.
+
+Deliberate omissions: no approved record-level overlay shadowing key, freshness-policy schema or
+external current-data fallback, reranker threshold, source-code structure adapter, API/Portal
+surface, or Character runtime cutover. A different embedding model/dimension is exact-distance
+queryable but has no ANN index until an explicit profile/rebuild decision.
+
+Next action: Phase 6 should compose the Query Engine into the real Character Context boundary,
+apply a fail-closed Character epistemic gate before prompt injection, and remove the duplicate
+legacy RAG/Wiki prompt path. External current-data fallback stays deferred until its authority
+contract is approved.
+
+## Phase 6 — Character Context cutover and freshness/external lookup integration
+
+Status: **completed — Fabric Character Context cutover committed**
+
+Goal: make the real Character turn consume the new KnowledgeQueryEngine/KnowledgeContext.
+
+Primary current sources:
+
+- `src/echo_masque/character_turn_context_v3.py`;
+- `src/echo_masque/context_resolver_v3.py`;
+- `src/echo_masque/connector_runtime.py`;
+- `src/echo_masque/api/app.py`;
+- `src/echo_masque/knowledge_gap_discovery_v3.py`;
+- external Tool/browser/search routing;
+- Character-turn/context tests.
+
+Required behavior:
+
+- app composes one KnowledgeQueryEngine;
+- CharacterTurnContext no longer depends conceptually on separate RAG + Server Wiki stores;
+- Context Resolver receives normalized KnowledgeContext/evidence and applies its budget;
+- server access + overlay + Character epistemic policy gate happens before prompt injection;
+- current-data Web/API fallback is deliberately deferred: `freshness_policy_json` has no approved
+  schema, Query requests do not carry Character/deployment/tool authority, and no typed
+  turn-local external-evidence contract exists. Phase 9 owns that adapter/freshness work;
+- Discovery candidate remains non-authoritative;
+- query engine failure keeps normal Character availability where knowledge grounding is non-blocking.
+
+Performance invariant:
+
+- full KnowledgeQueryEngine retrieval runs after Character/turn selection, not for every Smart Participation candidate.
+
+Required gate:
+
+- mention/reply/Smart/Social Character-turn tests;
+- KnowledgeContext reaches provider prompt with provenance/uncertainty safety;
+- unauthorized/epistemically denied facts do not reach prompt;
+- `current` remains local-only and reports its existing freshness insufficiency without invoking
+  Discovery, Browser, or Tool Runtime;
+- no duplicate old RAG/Wiki injection;
+- no Topic/legacy fallback;
+- targeted mutation scope for epistemic denial, prompt-injection boundary, and Smart Participation
+  admission/performance decisions;
+- latency/budget guard for Smart Participation and Character turn.
+
+Commit gate: one real-runtime Knowledge cutover commit.
+
+### Phase 6 completion record — 2026-08-25
+
+Implementation commit: `a16f78d feat: cut Character context over to Knowledge Fabric`.
+
+Evidence: `src/echo_masque/knowledge_fabric_context.py`,
+`knowledge_fabric_epistemic_policy.py`, `character_turn_context_v3.py`,
+`context_resolver_v3.py`, `persistence/knowledge_fabric_repository.py`, `api/app.py`, and
+`api/routes/smart_participation_vnext.py`; proof in
+`tests/test_character_turn_context_v3.py` and
+`tests/test_knowledge_fabric_epistemic_policy.py`.
+
+Authority and runtime: the app composes one `KnowledgeQueryEngine` and the Character path looks up
+only an existing `(platform, connection_id, guild_id)` Fabric Scope before it queries. It neither
+creates a Scope nor runs the query while Smart Participation is evaluating candidates. The old RAG
+and Server Wiki prompt paths are removed from the direct Character and candidate-context routes.
+Fabric hits cross a fail-closed `CharacterEpistemicPolicy` boundary before the one normalized,
+bounded Context section; the default policy denies every hit until Phase 10 supplies persisted
+authored policy. Query and policy failure both fail closed without silencing the selected Character
+turn. Prompt evidence is untrusted, instruction-delimited, provenance-labelled, and excludes raw
+source locators from prompts and ordinary trace.
+
+Freshness reconciliation: Phase 6 does not call Discovery, Browser, or Tool Runtime to answer a
+current query. There is no approved freshness schema/threshold, importance signal, source match,
+deployment tool authority, consent, or typed turn-local external-evidence contract. Discovery
+remains candidate-only; Phase 9 owns adapters/adaptive freshness through the existing Tool Runtime
+authority boundary.
+
+Validation: `python -m ruff check .` passed. `python -m mypy` passed 359 source files. The final
+affected regression batch passed: 47 passed, 1 expected PostgreSQL skip, and 2 existing third-party
+warnings (Starlette TestClient deprecation and a Pydantic serializer warning). A prior broader
+Phase 2–6/context batch passed 61 passed, 1 expected PostgreSQL skip, with the same two warnings.
+The focused new Fabric/epistemic batch passed 8 tests. In an isolated WSL Ubuntu copy, `mutmut run`
+against `knowledge_fabric_epistemic_policy.py` generated 11 mutants and killed all 11; no mutants
+survived or were classified equivalent.
+
+Deliberate omissions: no persisted Character epistemic allow/deny, timeline, spoiler, perspective,
+or authored override policy (Phase 10); therefore the production default intentionally injects no
+Fabric Evidence. No Web/API freshness fallback, Source Adapter, external-result persistence,
+Projection/internal-tool migration, Portal surface, source-code adapter, or record-level overlay
+shadowing inference is added.
+
+Next action: Phase 7 should replace the remaining Wiki runtime/tool boundary with regenerable
+provenance-aware Knowledge Projections without bypassing the Phase 6 Character Context, and keep
+exact/source-evidence queries separate from derived Projections.
+
+## Phase 7 — Projection Layer and internal tool cutover
+
+Status: **complete — Fabric source overview Projection and Character internal-tool cutover delivered; Wiki compatibility deletion remains deferred to Phase 11**
+
+Goal: retire Wiki as a separate runtime universe.
+
+Primary current sources:
+
+- `src/echo_masque/knowledge_wiki.py`;
+- `src/echo_masque/persistence/wiki_aware_knowledge_repository.py`;
+- current Wiki models/repositories;
+- `src/echo_masque/knowledge_consolidation_v3.py`;
+- Server Wiki models/repository;
+- `src/echo_masque/internal_context.py`;
+- Wiki/Knowledge tests.
+
+Required behavior:
+
+- one Projection abstraction with dependency/source hashes/staleness/provenance;
+- entity/corpus/project/concept/event/timeline/relationship/source views as needed;
+- lazy rebuild where useful;
+- `wiki.lookup` becomes provider-neutral `knowledge.search`;
+- `memory.search` and `conversation.search` remain separate;
+- exact/evidence query cannot be satisfied solely by a projection.
+
+Cutover/deletion requirement:
+
+Only after every runtime/API/Portal consumer moves may KB Wiki/Server Wiki compatibility classes/tables be removed or migrated. Do not leave a shadow Wiki authority after the phase is complete.
+
+Required gate:
+
+- projection stale/invalidation/rebuild tests;
+- source/provenance tests;
+- internal `knowledge.search` contract tests;
+- static/reference proof that Character runtime no longer depends on Wiki repository abstractions.
+
+Commit gate: one projection/tool cutover commit.
+
+### Phase 7 delivery record
+
+Evidence map: `knowledge_fabric_models.py`, `knowledge_fabric_content_repository.py`,
+`knowledge_fabric_projection_repository.py`, `knowledge_fabric_projection_policy.py`,
+`knowledge_fabric_context.py`, `internal_context.py`, the Internal Context tool registry/contracts,
+and the Phase 3/5/6/7 tests. `Corpus → Source → SourceVersion → EvidenceUnit` remains the only
+knowledge authority; Projection text is derived-only and cannot satisfy exact/source Evidence
+queries. Server scope authorization still occurs inside `KnowledgeQueryEngine`, and Character
+epistemic admission still fails closed before a Tool result can return to the model.
+
+Implemented: additive `KnowledgeProjection` and explicit `KnowledgeProjectionDependency` records
+store corpus, typed subject, derived text, source hash, stale state, SourceVersion/Evidence IDs,
+and evidence content hash. The first deterministic materialization is a lazily rebuilt source
+overview; publishing a new snapshot marks views derived from any older version of that Source
+stale, and account/corpus deletion removes dependency rows before Evidence rows. The pure
+Projection-current policy requires an identical source hash and `stale == false`.
+
+The Character-facing internal Tool is now `knowledge.search`, retaining only its existing bounded
+`query` and `limit` input. It invokes the shared `KnowledgeContextBuilder`, so unknown scope,
+query failure, and epistemic denial return no Fabric evidence; admitted results stay explicitly
+untrusted and omit raw evidence locators. `memory.search` and `conversation.search` remain
+separate. The old Server Wiki lookup is not composed into Character/internal-tool runtime.
+
+Compatibility decision: Phase 7 does **not** delete legacy KB Wiki/Server Wiki persistence,
+`/api/knowledge`, or Portal consumers. Those are Phase 11 compatibility consumers, and the plan's
+earlier Phase 7/11 sequencing constraint takes precedence over a premature deletion claim. They
+are no longer a Character-facing Fabric search authority.
+
+Validation: `python -m ruff check src tests` passed; `python -m mypy` passed 361 source files; the
+affected Phase 3–7 regression batch passed **60 passed, 3 expected PostgreSQL skips**. In an
+isolated WSL Ubuntu cache, `mutmut run --max-children 4` against
+`knowledge_fabric_projection_policy.py` generated 3 mutants and killed all 3 (0 survived,
+timeouts, or equivalents).
+
+Commit: `0ba2d6d` (`feat: add Fabric Projections and knowledge search`).
+
+Deliberate omissions: no Fabric Projection query channel or projection-only exact answer; no
+invented entity/event/timeline builder; no Portal/API compatibility rename; no persisted Character
+epistemic policy; and no Source Adapter, freshness, or external lookup behavior.
+
+Next action: Phase 8 should introduce deterministic-first Git/manual-import/structured-document
+Source Adapters without broad crawling, while preserving the existing private R2-default S3
+compatible object-storage boundary.
+
+## Phase 8a — uploaded document and manual-text adapters
+
+Status: **complete — deterministic manual/uploaded document adapter delivered; Git remains Phase 8b**
+
+Goal: prove the existing immutable snapshot ingestion contract with caller-supplied, already
+authorized manual text and uploaded documents before broad Web crawling.
+
+Split decision (2026-08-25): Git requires a separate acquisition, ignore/deny, commit/tree/diff,
+and version-visibility decision. The current Fabric has no Git credential-reference contract or
+upload/sync endpoint, while document compilation can safely remain a deterministic library that
+accepts already-authorized bytes and emits `SourceSnapshotIngestionRequest`. Keeping them together
+would either invent an external acquisition/credential surface or hide a second lifecycle decision
+inside a document parser. Phase 8a uses the existing private R2-default, S3-compatible artifact
+boundary; Phase 8b owns Git after its explicit acquisition/retention contract is grounded.
+
+Included order:
+
+- manual text (including a manual import only for an explicitly selected Fabric Source, never an
+  inferred legacy-RAG scope mapping);
+- Markdown/text;
+- DOCX structured parser;
+- PDF layout-text parser with a typed `requires_ocr` outcome when no reliable text layer exists;
+- structural headings/paragraphs/lists/tables/links/images/page/section provenance where the
+  source format exposes it.
+
+Authority and omission boundary:
+
+- This is an adapter/library boundary, not a new public upload API or an arbitrary local-path
+  reader. Existing Source registration remains the authorization boundary.
+- It does not create object-store credentials, public object URLs, OCR, document vision, embedded
+  child-asset storage, or automatic migration of legacy RAG bases. Raw bytes remain the one private
+  source artifact, and unavailable scanned documents are not published as fabricated text.
+
+Document requirements:
+
+- preserve headings/paragraphs/lists/tables/links/images/page/section provenance;
+- store structured table + retrieval representation where parser structure exposes it;
+- keep raw artifact in object storage;
+- LLM enrichment selective/lazy only.
+
+Required gate:
+
+- fixture-based Markdown, DOCX, and digital/scanned-PDF branch tests;
+- source-version/evidence/provenance and private raw-artifact tests;
+- ingestion job retry/idempotency regression;
+- targeted mutation test for the pure document-type/scanned-content decision scope.
+
+Commit gate: one Phase 8a document/manual adapter implementation commit.
+
+### Phase 8a delivery record
+
+Evidence map: `knowledge_fabric_ingestion.py`, `knowledge_object_storage.py`,
+`knowledge_fabric_content_repository.py`, `knowledge_fabric_document_adapter.py`,
+`knowledge_fabric_document_policy.py`, `tests/test_knowledge_fabric_document_adapter.py`, and
+the Phase 3 content/storage lifecycle tests. The current Source registration APIs remain evidence
+that a caller must select an existing authorized Fabric Source; they do not authorize an upload API.
+
+Implementation: `KnowledgeFabricDocumentAdapter` is a deterministic library-only compiler for
+already-authorized manual UTF-8 text, Markdown, OOXML DOCX, and text-layer PDF bytes. It produces
+the existing immutable `SourceSnapshotIngestionRequest`; `KnowledgeFabricIngestionService` retains
+sole object-storage/job/publication authority. Markdown preserves heading hierarchy, paragraphs,
+lists, tables, inline links, and line coordinates. DOCX preserves heading/list/table/hyperlink/image
+relationship provenance using only its standard OOXML package. Digital PDFs preserve page and text
+layer provenance; a textless PDF raises typed `DocumentRequiresOcr` and cannot publish fabricated
+Evidence. Filename/type/OCR decisions are explicit pure policy and no arbitrary metadata field can
+carry credentials into a SourceVersion.
+
+Validation: `python -m ruff check src tests` passed; `python -m mypy` passed 363 source files; the
+combined Phase 3/5/6/7/8a regression batch passed **42 passed, 3 expected PostgreSQL skips**.
+WSL-native Mutmut, after deleting its generated cache to invalidate older results, generated 48
+mutants in `knowledge_fabric_document_policy.py` and killed all 48 (0 survived, timeout, or
+equivalent).
+
+Commit: `daf7a40` (`feat: add deterministic Fabric document adapters`).
+
+Deliberate omissions: no public upload endpoint, arbitrary local-path reader, network acquisition,
+Git client, private-Git credential contract, legacy RAG base-to-corpus inference, OCR/document
+vision worker, embedded child-asset storage, or LLM enrichment. The private Cloudflare R2-default,
+S3-compatible boundary and Phase 3 owner lifecycle stay unchanged.
+
+Next action: Phase 8b needs an explicit Git acquisition, deny/ignore, and source-version retention
+decision before code; it must not silently make current-code queries return obsolete Git revisions.
+
+## Phase 8b — Git repository Source adapter
+
+Status: **complete (2026-08-25)**
+
+Goal: add a deterministic Git/GitHub adapter without expanding the document upload or credential
+surface.
+
+Phase 8b decisions (2026-08-25): the first adapter remains library-only. A trusted acquisition
+boundary supplies an immutable commit/tree/file snapshot; this phase adds no subprocess Git client,
+network request, public upload route, local-path reader, or private-Git Credential Vault mapping.
+Its source type is `git_snapshot`. A successful Git snapshot activation keeps immutable prior
+Versions, artifacts, Evidence, and derived index rows, but atomically changes other currently
+available Versions of the same Git Source to `superseded`; query channels already exclude a
+non-available Version. Re-seeing a previously superseded commit reactivates it and supersedes the
+other available Version. Generic/manual/document Source Versions retain their existing history
+behavior. This status transition must occur in the publication/deduplication transaction, never as
+a post-publication cleanup.
+
+The deliberately approved initial deny policy rejects an empty, absolute, traversal, or
+separator-normalized unsafe path; `.git` content; `.env` files; common private-key/credential
+filenames and key-store suffixes; and dependency/build/cache directories (`node_modules`, `vendor`,
+`.venv`, `venv`, `__pycache__`, `dist`, `build`, `.cache`, `.pytest_cache`, `.mypy_cache`). Denied
+bytes do not enter the stored sanitized Git snapshot, canonical documents, Evidence, job metadata,
+or errors. Binary/undecodable files are not raw child assets in this phase; they remain a later
+asset-ingestion concern.
+
+Git requirements:
+
+- immutable commit/tree identity plus deterministic no-change/changed-commit behavior; the
+  authorized Git diff/acquisition driver is explicitly deferred to the Phase 9 external-source
+  boundary rather than inferred by this library-only compiler;
+- explicit ignore/deny secret, dependency, build, and cache policy;
+- source-code AST/symbol/import/dependency extraction where practical;
+- no acquisition surface in this compiler; a future public-HTTPS policy or explicitly authorized
+  Credential Vault reference must be approved before a driver is added, and no token may enter a
+  Source locator/profile metadata;
+- explicit source-version retention/visibility semantics before an incremental sync claims that an
+  obsolete revision cannot be returned by a current-code query;
+- no requirement to LLM-summarize every code file.
+
+Required gate:
+
+- deterministic tree/commit fixture tests including no-change and changed-commit behavior;
+- secret-exclusion proof that bytes do not reach artifacts, documents, Evidence, job metadata, or
+  errors;
+- source-version/query-visibility decision tests;
+- ingestion retry/idempotency tests and targeted mutation testing of the pure allow/deny policy.
+
+Commit gate: one Phase 8b Git adapter implementation commit after the acquisition and retention
+contract is documented from repository evidence.
+
+### Phase 8b delivery record (2026-08-25)
+
+Implementation: `KnowledgeFabricGitAdapter` accepts only a trusted immutable repository snapshot
+(`source_id`, commit/tree identity, optional parent identity, and in-memory path/bytes entries) and
+deterministically compiles it into the existing `SourceSnapshotIngestionRequest`. It has no Git CLI,
+network, local-path, credential, or object-storage authority. The sanitized artifact includes only
+accepted UTF-8 text files and the commit/tree identity, so a changed commit remains a distinct
+immutable artifact even when a file body is unchanged. Python files retain top-level AST
+class/function sections and blocks plus deterministic imports; other accepted text files retain a
+file block. A no-change delivery has a stable retry key and reuses the existing source version.
+
+The pure `knowledge_fabric_git_policy.py` permits only full, compatible SHA-1 or SHA-256
+commit/tree identities and safe repository-relative paths. It rejects traversal, separator abuse,
+control characters, `.git`, `.env*`, credential/key names and suffixes, and the approved
+dependency/build/cache directories. The adapter omits denied and undecodable bytes before artifact,
+document, Evidence, or job creation. `activate_git_version` is restricted to `git_snapshot`
+Sources before any private upload. On a changed Git snapshot, publication atomically marks the
+other available version(s) for that same Source `superseded`; retained artifacts, Evidence, and
+derived index entries remain intact. Re-delivering a retained commit reactivates it in the same
+dedupe path and supersedes the former current version. Generic manual/document history behavior is
+unchanged.
+
+Validation: the Phase 3/5/6/7/8a/8b regression batch passed **33 tests with 3 expected PostgreSQL
+skips**; `python -m ruff check src tests` passed, and `python -m mypy` passed 365 source files.
+WSL-native mutmut ran against `knowledge_fabric_git_policy.py` after clearing its generated cache:
+**77/77 killed, 0 survived, timeout, or equivalent**. The generated `mutants/` cache was removed
+after recording the result.
+
+Commit: `60a8f39` (`feat: add deterministic Fabric Git snapshots`).
+
+Deliberate omissions: this boundary does not acquire a Git repository, invoke a Git client, read a
+local checkout, make public-HTTPS requests, implement a credential-vault reference, or determine a
+Git diff itself. A future authorized acquisition/sync worker must obtain the immutable tree and
+use Git revision/diff data to decide when to submit it. This phase deliberately provides the
+deterministic no-change/retry and changed-commit retention semantics that worker needs, without
+expanding its authority. It also does not ingest binary child assets, summarize code with an LLM,
+or alter R2's private-by-default/S3-compatible storage contract.
+
+Next action: Phase 9 must define the external acquisition/freshness boundary before adding any
+website, Wiki, API, or feed client.
+
+## Phase 9 — Website/Wiki/API/feed adapters and adaptive freshness
+
+Status: **complete — Phase 9 is complete; Phase 10 is next (2026-08-26)**
+
+Goal: support external continuously maintained sources without making Wiki the architecture.
+
+Required behavior:
+
+- Generic Website Adapter: canonical URL, main content, sitemap/link discovery, dedup, hash/change signals;
+- specialized adapters preserve source-native structure for MediaWiki/docs/feed/forum/API systems;
+- adaptive sync uses Git revision/API revision/Wiki revision/ETag/Last-Modified/hash where available;
+- source-specific authority/freshness profiles;
+- normal network/safety/credentials restrictions;
+- no broad crawl of arbitrary websites merely because a Character asked a question.
+
+Required gate:
+
+- generic + at least one specialized adapter fixture/integration test;
+- conditional/no-change sync proof;
+- changed-section-only invalidation proof;
+- source authority/freshness routing tests;
+- network/auth failure handling.
+
+Commit gate: one external Source adapter/freshness commit or explicitly split coherent sub-phases after plan update.
+
+### Phase 9a — Public-HTTPS Website response sync boundary
+
+Decision: Phase 9a is deliberately worker/library-only. It will add one registered
+`website_public_https` Source contract for a configured, exact public HTTPS page, a deterministic
+HTML/text response compiler, conditional validator state, and changed/no-change outcome handling.
+It will not expose a sync HTTP route, scheduler, Portal control, Character live lookup, source
+credential, redirect following, discovery/crawl/sitemap traversal, browser rendering, feed/API/Wiki
+client, or default outbound HTTP client. The worker must inject an approved fetcher. This preserves
+the existing `PublicUrlGuard` as a preflight policy without treating a preflight DNS lookup as
+authorization for a new unpinned production egress client; an approved worker transport/DNS
+binding policy is a separate Phase 9b decision.
+
+The first source locator is canonical public HTTPS only: no userinfo, query, fragment, alternate
+port, or redirect. The fetch request may send only stored ETag/Last-Modified validators from a
+one-per-Source derived sync-state record. It accepts bounded `text/html`, `text/plain`, and
+`text/markdown` response bytes; a 304 creates no artifact/version, while a changed valid 200 flows
+through the existing private R2/S3 immutable snapshot service. A same-content 200 reuses the
+existing version/job and records a no-change check. HTTP/network/content rejections record only a
+bounded outcome/error code and no raw response/provider detail. Existing `last_checked_at` and
+`last_changed_at` become the source-visible timestamps; the new state stores only validators and
+safe outcome data, never configuration JSON or a credential.
+
+Phase 9a gate: deterministic generic Website fixtures for HTML/text structure; mocked changed 200,
+conditional 304, same-content 200, rejected URL/redirect/content, and network/auth failure
+outcomes; source timestamp/state and private artifact proof; targeted mutation testing of the pure
+external-response/validator policy. Phase 9b will add an approved egress transport plus a
+source-native specialized adapter (MediaWiki, feed, docs, forum, or API), explicit scheduling/rate
+authority, and the remaining full Phase 9 gate.
+
+### 2026-08-26 Phase 9a completion gate
+
+    Status: complete — Phase 9a implementation is committed; Phase 9 remains open only for Phase 9b
+    Commit: 1cd5fd6 (feat: add bounded Fabric Website source sync)
+    Changed authority/contracts: one exact public-HTTPS Website Source can be synchronized only by an injected, separately approved worker fetcher. It has no default egress client, public API, scheduler, crawl, redirect, credential, browser, or Character-live-lookup authority. A one-per-Source derived state stores only bounded ETag/Last-Modified validators and safe outcomes; malformed validators fail before private artifact or Source Version publication. User-owned Source deletion removes that derived state in the existing lifecycle transaction.
+    Key files: src/echo_masque/knowledge_fabric_external_policy.py; src/echo_masque/knowledge_fabric_website_adapter.py; src/echo_masque/knowledge_fabric_website_sync.py; src/echo_masque/persistence/knowledge_fabric_external_sync_repository.py; src/echo_masque/persistence/knowledge_fabric_models.py; src/echo_masque/persistence/knowledge_fabric_repository.py; src/echo_masque/persistence/schema_migrations.py; tests/test_knowledge_fabric_website_sync.py; tests/test_knowledge_fabric_phase3.py
+    Validation: python -m pytest tests/test_knowledge_fabric_website_sync.py tests/test_knowledge_fabric_git_adapter.py tests/test_knowledge_fabric_document_adapter.py tests/test_knowledge_fabric_phase3.py tests/test_knowledge_fabric_phase5.py tests/test_database_foundation.py passed: 30 passed, 3 expected PostgreSQL skips (88.85s). python -m ruff check src tests and python -m mypy src passed (369 source files); git diff --check passed. Focused WSL mutmut scope completed: 117 killed / 3 equivalent / 0 timeout, no unclassified survivor. Equivalent IDs: canonical locator mutation 33 changes rstrip(".") to rstrip("XX.XX"); urllib's hostname accessor lowercases ASCII host text before this operation, so added uppercase X is unreachable while both strip trailing dots. Response-policy mutations 29 and 32 change split(";", maxsplit=1)[0] to split(";", )[0] and split(";", maxsplit=2)[0]; each returns the same first semicolon-delimited segment for every string.
+    Migration/data action: additive knowledge_external_source_sync_states schema plus revision ledger; existing Sources begin with no derived state and require no backfill.
+    Known deviations: Cloudflare R2 remains the configured default private artifact provider; AWS S3 remains only the existing explicit S3-compatible deployment alternative. The WSL systemd user-session warning is non-fatal. The generated mutants/ cache was removed after result recording.
+    Next action: define an approved pinned egress transport and one source-native specialized adapter/scheduling authority for Phase 9b.
+
+### 2026-08-26 Phase 9b / Phase 10 decision record
+
+    Status: product decisions confirmed by the user on 2026-08-26. Phase 9b is complete; Phase 10 remains unimplemented.
+    Evidence: src/echo_masque/network_safety.py validates a public URL but returns no resolved address for a caller to dial. Existing Tool Runtime clients resolve again, can carry a different scope/credential/redirect contract, and are not an approved Fabric worker transport. KnowledgeSource.sync_policy_json/freshness_policy_json have no schedule/rate semantics. Source snapshot publication invalidates the whole source projection/index set, so current code cannot prove entry/section-only invalidation. Phase 10 still installs DenyAllCharacterEpistemicPolicy, has no persisted Character policy, and has no existing corpus/evidence domain field.
+    Confirmed decisions: only Super Admin may enable autonomous sync; schedules default disabled, require 15 minutes or more, use a 60-second global hostname cooldown and durable lease/retry state; Atom 1.0 is the first specialized source; `defusedxml` is required; Atom entry links remain provenance only and are never followed. Phase 10 remains corpus-level default-deny with allow/deny and deny precedence; authored override stays corpus-level and is writable only by Super Admin or an explicit Server Administrator. Timeline, spoiler, perspective and domain taxonomy remain unapproved.
+    Recommended next split after approval: Phase 9b-1 implements a literal-IP/pinned-DNS public HTTPS worker transport, Atom 1.0 adapter, bounded durable schedule/lease state, and no link crawling; Phase 9b-2 defines entry/section identity and selective invalidation. Phase 10 then implements default-deny, scope-bound corpus allow/deny with the selected override/write semantics, preserving query authorization-before-ranking and the shared turn/tool fail-closed gate.
+    Phase 9b-1 implementation: `PinnedPublicHttpsFetcher` resolves once, rejects any non-global DNS candidate, dials one literal address while retaining the registered hostname for TLS SNI/certificate validation and HTTP Host, and rejects redirects/proxies/credentials/oversize responses. A durable default-disabled schedule/lease table and Super-Admin-only schedule API own egress consent; the application worker starts only this bounded scheduler. Atom source snapshots are DTD/entity-free `defusedxml` parses and retain only feed-entry evidence plus safe provenance links. User-owned lifecycle deletion removes derived schedule state. Focused proof: pinned transport (15 tests), Atom adapter (5 tests), schedule/migration (3 tests), Phase 3 lifecycle (6 tests), Website sync (5 tests); Ruff and MyPy pass; application composition creates successfully. Mutation proof ran in a disposable WSL-native copy because mutmut cache writes on `/mnt/d` stall in the Windows 9p client: 36 mutants, 34 killed, 2 equivalent, no timeout/no-test/interrupted result. Equivalent mutations 29 and 32 change `split(";", maxsplit=1)[0]` to zero/two max-splits; element zero is the same pre-semicolon value for every string.
+    Commit: 5848fcc (feat: add pinned Atom source synchronization)
+    Deliberate omissions: no Tool Runtime/browser/Jina transport, proxy, redirect, credential mapping, manual sync trigger, crawl, Atom entry-link fetch, domain taxonomy, timeline/spoiler policy, or invented override semantic.
+
+### 2026-08-26 Phase 9b-2 completion gate
+
+    Status: complete — selective Atom entry invalidation is implemented; Phase 10 is now next.
+    Changed authority/contracts: `knowledge_source_current_entries` is a derived source-local map from stable Atom entry locator to its current retained Evidence. It retains immutable source/document/Evidence history, reuses unchanged entry Evidence, remaps only new/materially changed entries (including title or safe-link provenance changes), and marks removed entries unavailable. Candidate retrieval and Atom source-overview rebuilds select only available mapped Evidence; retained projection dependencies retain their own source-version/hash. A reordered or raw-format-only Atom snapshot advances observation but creates neither index/projection invalidations nor a source-overview rebuild. Generic sources keep whole-source invalidation.
+    Key files: src/echo_masque/knowledge_fabric_current_entry_policy.py; src/echo_masque/knowledge_fabric_atom_adapter.py; src/echo_masque/persistence/knowledge_fabric_content_repository.py; src/echo_masque/persistence/knowledge_fabric_index_repository.py; src/echo_masque/persistence/knowledge_fabric_projection_repository.py; src/echo_masque/persistence/knowledge_fabric_models.py; src/echo_masque/persistence/schema_migrations.py; tests/test_knowledge_fabric_atom_current_entries.py; tests/test_knowledge_fabric_current_entry_policy.py
+    Validation: focused Atom/current-entry/projection/Phase 3/Phase 5/database batch passed before final review; targeted current-entry regression passed after lifecycle coverage was added. Ruff, strict MyPy (376 source files), and git diff --check passed. The tracked WSL runner `scripts/run_mutmut_wsl.sh` was syntax-checked and ran the configured current-entry policy scope from a disposable WSL-native copy: 12 killed / 0 survived / 0 timeout / 0 tooling failures. The non-fatal WSL systemd user-session warning remains unrelated to mutation execution.
+    Migration/data action: additive `knowledge_source_current_entries` table and migration ledger; no backfill is inferred for pre-map Atom Evidence, so Atom candidates fail closed until the next trusted Atom snapshot creates pointers.
+    Commit: 5186862 (feat: add selective Atom entry invalidation)
+    Deliberate omissions: no generic section-diff protocol, source-link crawling, alteration of immutable historical records, new egress authority, or Phase 10 Character policy.
+    Next action: implement Phase 10 corpus-level default-deny Character policy with explicit allow/deny precedence and preserve authorization-before-ranking.
+
+## Phase 10 — Character epistemic policy
+
+Status: **complete — corpus-level implementation committed; deferred schemas remain unapproved**
+
+Goal: prevent “server can access corpus” from becoming “every Character knows the corpus.”
+
+Minimum contract:
+
+- corpus/domain allow/deny per Character/deployment policy;
+- explicit authored overrides;
+- clean extension for timeline/story position, spoiler level, perspective and known entities.
+
+Recommended advanced behavior:
+
+- timeline/story validity filtering;
+- spoiler thresholds;
+- role/perspective restrictions;
+- explainable denial reason in safe trace metadata.
+
+Required gate:
+
+- same Server/corpus with two Characters receiving different knowledge access;
+- spoiler/timeline regression fixtures when implemented;
+- no denied content in prompt/trace/query inspector available to unauthorized Character context;
+- explicit owner/admin policy update tests.
+- targeted mutation scope for Character corpus/domain allow/deny and authored override decisions.
+
+Commit gate: one epistemic-policy commit.
+
+### 2026-08-26 Phase 10 completion gate
+
+    Commit: 718326e (feat: add Character corpus epistemic policy)
+    Changed authority/contracts: an additive, server-scope-bound `(deployment, Character card, corpus)` policy persists `allow` or `deny`; no policy denies by default and deny wins. Authoring verifies the current deployment/card belongs to the target scope and corpus is already server-authorized. Query authorization remains before ranking; this policy is only the shared final prompt/internal-tool admission gate. Super Admin or explicit scope administrators author through the audited API.
+    Validation: focused persistence/API policy tests passed; existing epistemic, turn-context, internal-tool, Phase 2 and database batches were run as the coherent gate. Ruff, MyPy (377 files), and diff check passed. WSL-native mutmut: 3 killed / 0 survived / 0 timeout.
+    Deliberate omissions: no invented domain, timeline, spoiler, perspective, or known-entity schema; authority profiles do not become domains by inference.
+    Next action: Phase 11 Portal/Admin operational surfaces, lifecycle/audit hardening, and final compatibility cleanup.
+
+## Phase 11 — Portal/Admin operations, lifecycle hardening, scale and cleanup
+
+Status: **complete — Portal/Admin, lifecycle, scale, and direct-retirement batches are delivered**
+
+Goal: expose the new architecture coherently and remove dead old product surfaces.
+
+Primary current Portal sources:
+
+- `web/src/KnowledgeBasePanel.tsx`;
+- `web/src/knowledgeApi.ts`;
+- `web/src/DeploymentCenter.tsx`;
+- `web/src/ServerAccessSettingsPanel.tsx`;
+- `web/src/serverAccessApi.ts`;
+- `web/src/AdministrationSettingsPanel.tsx`;
+- `web/src/AdminSettings.tsx`;
+- relevant routing/styles/tests.
+
+Target surfaces:
+
+Super Admin:
+- Global Knowledge Library;
+- Corpus/Source management;
+- sync/index/job health;
+- authority/freshness/source credential linkage;
+- retry/rebuild/publish/availability controls;
+- evidence/query inspector.
+
+Server:
+- available global/shared corpus grants;
+- server-local corpus/sources;
+- overlay policy;
+- Character epistemic settings;
+- scoped Query/Evidence Inspector.
+
+Operational work:
+
+- account deletion/local claim/object artifact cleanup finalized;
+- observability/job/index health finalized;
+- current RAG V1 docs/API/UI removed or clearly archived after proven migration;
+- Wiki compatibility removed after reference proof;
+- deployment/security/operator docs updated;
+- OpenWiki regenerated only after manual/source contracts are accepted.
+
+Required gate:
+
+- Portal typecheck/tests/build;
+- API authorization/Public Demo tests;
+- lifecycle tests;
+- full Python relevant/full suite on PostgreSQL;
+- Connector tests/build if runtime contract changed;
+- static/reference scan for dead RAG/Wiki/SQLite production authority;
+- targeted Portal/Connector mutation scopes for privileged management and scoped inspection paths;
+- synthetic large-corpus performance and isolation test;
+- final docs/link/security review.
+
+Commit gate: one final product/cutover cleanup commit, or split Portal and cleanup only after updating this plan with non-overlapping gates.
+
+### Phase 11 execution split
+
+The scope is intentionally split so the new Server Portal can be reviewed without burying
+legacy deletion and lifecycle proof in the same diff. The main agent remains responsible for
+the final integration and review.
+
+1. **11a — Server Knowledge Fabric Portal.** Replace the active Deployment Workspace Knowledge
+   page's RAG V1 entry with scope-bound Fabric management: effective Corpora, reversible global
+   grants/overlays, server-local Corpus/Source registration, and Character allow/deny policy.
+   Gate: targeted Fabric authorization/Public Demo regression, Portal typecheck/Vitest/build,
+   changed-source Ruff/strict MyPy, and scoped management-request tests. It deliberately does
+   not delete compatibility code or claim Super Admin operational completion.
+2. **11b — Super Admin and operational inspection.** Add only source-backed management,
+   sync/index/job health, retry/rebuild/publish controls, and Evidence/Query inspection that
+   existing Runtime contracts can support. Gate: API authorization/lifecycle/observability proof,
+   Portal verification, and a targeted privileged-management mutation scope.
+3. **11c — Compatibility and final cutover.** Remove or archive old RAG/Wiki consumers only after
+   static reference proof and replacement-surface validation; finish lifecycle, scale,
+   PostgreSQL, documentation, Connector, mutation, and security gates listed above.
+
+No batch may introduce a second retrieval authority, expose credentials, or use a denied Corpus
+as effective query input.
+
+### Phase 11c execution detail
+
+1. **11c-1 — non-destructive scale and database proof.** Add bounded synthetic-corpus isolation
+   coverage and run the guarded PostgreSQL/pgvector bootstrap/query suite against a dedicated
+   database. This batch does not retire APIs, tables, data, or Intelligence projections.
+2. **11c-2 — explicit compatibility cutover.** The product owner approved direct retirement on
+   2026-08-26: old Knowledge Base data, old RAG API/Portal surfaces, and Server Wiki V3 are
+   deleted without migration or archive; Knowledge Fabric starts empty. Remove only consumers
+   covered by static proof, make the database deletion restart-safe and auditable, then run the
+   remaining lifecycle, Portal, Connector, mutation, documentation, and security gates.
+
+### Phase 11b execution detail
+
+11b is split into read-only inspection before operator mutations because no invalidation consumer
+or configured embedding Runtime currently authorizes a rebuild/retry/publish promise.
+
+1. **11b-1 — Authorized query and source-health inspection.** Add an administrator-scoped Query
+   Inspector that delegates to the existing `KnowledgeQueryEngine`, and a Super-Admin-only,
+   redacted global-source operational view assembled only from persisted Source/schedule/sync
+   state. Its gate is Phase 2/5/schedule authorization proof, source-health privacy proof,
+   Portal/API type and test verification, and a targeted query-authorization mutation scope.
+2. **11b-2 — Operator actions only when executable.** Add retry/rebuild/publish or availability
+   controls only alongside a source-backed worker/invalidation consumer and its lifecycle,
+   idempotency, audit, and failure-path proof. It must not expose lease tokens, validator values,
+   generic metadata, credentials, or raw artifacts.
+
+### 2026-08-26 Phase 11a completion gate
 
 ```text
-Date/time zone: 2026-08-23, Asia/Kuala_Lumpur
-Agent/session: /root with backend, Connector, Portal, Luna audit, and Terra safe-error sub-agents
-Phase and status: Phase 1 complete; Phase 2 ready to start
-Evidence/contracts read: AGENTS.md; docs/ai-agent-development-workflow.md; docs/agent-handoff.md; docs/README.md; docs/security.md; docs/provider-tracing.md; docs/discord-server-workspace.md; docs/intelligence-core-v3-architecture.md; openwiki/INSTRUCTIONS.md; current API schemas/routes/repositories, Connector routing/reporter/types, Portal Behavior Notebook, and related tests
-Files/change surface: Discord Connector structured events/process diagnostics; Python in-memory capture store/admin API/ingress hooks/persistence sanitizer; Behavior Notebook capture UI/API; security/operator/manual docs and this execution record
-Validation commands and exact result: changed-file Ruff passed; strict mypy 5 source files passed; focused pytest 11 passed with one existing dependency warning; Connector typecheck/build passed and complete Vitest 26 files/131 tests passed; Portal typecheck/build passed and complete Vitest 12 files/36 tests passed; staged diff/privacy/secret/whitespace scans passed
-Commit hash (only after gate): phase commit; resolve from Git history
-Intentional deviations: Option C archive remains an interface seam only; OpenWiki generation was not run; complete Python suite is deferred to the v3 lifecycle/cleanup/integrated gates defined above
-Unresolved risks/conflicts: Character-count fields represent their named ingress/decision text and may differ for burst composition; no raw-content risk results. Production multi-replica capture remains out of scope for memory-only Option B
-Next concrete action: begin Phase 2 by reconciling the actual `/api/smart-participation/resolve` response with Connector consumers, then remove v4/shadow/local semantic authority as one tested batch
+Status: complete — Server Knowledge Fabric Portal batch; Phase 11b/11c remain open
+Commit: `3543dd9` (`feat: add Knowledge Fabric server portal`)
+Changed authority/contracts: the active Deployment Workspace Knowledge page now resolves the
+selected Discord `(connection_id, guild_id)` only to an authorized Fabric server scope, never to
+legacy RAG. It manages effective Corpus visibility, reversible global grant/overlay state,
+server-local Corpus/HTTP(S) Source registration, and persisted Character allow/deny policy.
+The added access-state read model lists only active global Corpus IDs plus server-local grant and
+overlay state; a denied Corpus remains unavailable to retrieval but visible to its authorized
+administrator so it can be restored. Public Demo remains server-side denied and client-side
+read-only. Source registration does not claim a source is published, synced, or indexed.
+Key files: web/src/KnowledgeFabricPanel.tsx; web/src/knowledgeFabricApi.ts;
+web/src/DeploymentCenter.tsx; web/src/knowledgeFabricApi.test.ts;
+src/echo_masque/api/routes/knowledge_fabric.py;
+src/echo_masque/persistence/knowledge_fabric_repository.py;
+tests/test_knowledge_fabric_phase2.py
+Validation: targeted Python authorization/Public Demo regression — 8 passed; changed-source
+Ruff and strict MyPy (377 files) passed; Portal typecheck passed; Portal Vitest 22 files / 64
+tests passed; production Vite build passed. Portal Stryker mutated portalEnvironment and
+knowledgeFabricApi: 59 killed, 1 equivalent survivor, 34 TypeScript checker rejections, no
+timeout/runtime/no-coverage result. The equivalent survivor is the comment-only body of the
+non-JSON error catch: replacing it with an empty block preserves the same raw-body/fallback
+return path for every input. Windows left completed Stryker sandboxes; their reports were read and
+the exact generated sandboxes were removed before the final Portal test run.
+Known deviation: `python -m ruff check src tests` still reports two pre-existing E501 lines in
+tests/test_knowledge_fabric_external_schedule.py, outside this batch. The full Phase 11 gate and
+its PostgreSQL/scale/lifecycle evidence remain for 11c.
+Next action: Phase 11b must add only source-backed, redacted Super Admin and scoped query/evidence
+read models. Do not expose rebuild/retry/publish controls until the invalidation worker and
+embedding-runtime contracts exist.
 ```
 
-### 2026-08-23 Phase 2 handoff update
+### 2026-08-26 Phase 11b-1 completion gate
 
 ```text
-Date/time zone: 2026-08-23, Asia/Kuala_Lumpur
-Agent/session: /root with Terra Python/Connector implementation agents and Luna deletion/authority reviews
-Phase and status: Phase 2 complete; Phase 3 ready to start
-Evidence/contracts read: AGENTS.md; docs/ai-agent-development-workflow.md; docs/agent-handoff.md; docs/README.md; docs/intelligence-core-v3-architecture.md; openwiki/INSTRUCTIONS.md; v3 request/response schemas; Discord routing/runtime gates; deployment scope repository; focused tests
-Files/change surface: Discord v3 resolve client/runtime validation and authoritative routing; Python resolve failure/scope boundary; dead v4/Conversation Planner/shadow/local semantic code and obsolete tests/config; canonical ownership maps and this execution record
-Validation commands and exact result: changed-file Ruff passed; strict mypy 6 files passed; focused pytest 28 passed with one existing dependency warning; Connector typecheck passed and complete Vitest 17 files/90 tests passed; production build passed; hard-cutover/static/diff review passed
-Commit hash (only after gate): phase commit; resolve from Git history
-Intentional deviations: independent Portal/API semantic-profile inspection remains because it is not a Connector fallback; full Segment/Thread/reply-target injection into Character provider payload is assigned to Phase 3
-Unresolved risks/conflicts: docs/smart-participation-v3.md remains a clearly marked historical implementation note pending Phase 7 documentation reorganization
-Next concrete action: trace mention/reply/Smart/Social paths into the Character provider request, then implement one app-level v3 turn context composition with Segment reuse and no duplicate observation
+Status: complete — authorized query and global-source health inspection; 11b-2/11c remain open
+Commit: `e393f66` (`feat: add Knowledge Fabric inspection APIs`)
+Changed authority/contracts: `POST /server-scopes/{scope_id}/query-inspector` first resolves the
+existing server scope through `_scope_for_actor`, then delegates to the one existing
+`KnowledgeQueryEngine` with its established four-result bounded request. It writes only a
+query-free audit summary. `GET /admin/corpora/{corpus_id}/operational-sources` is Super-Admin-only
+and returns a redacted persisted Source/schedule/sync-state view; locators, profiles, artifacts,
+validators, leases, generic metadata, and credentials remain private.
+Validation: `pytest` Phase 2/5/external-schedule/query-policy batch: 13 passed, 1 PostgreSQL-only
+skip; changed-source Ruff and strict MyPy (377 files) passed. WSL-native mutmut: 52 killed,
+4 reviewed equivalent survivors, 0 timeout/no-coverage/compile results. The retained equivalents
+are all in rank fusion: replacing first-seen values with identical values still uses Python's
+insertion ordering, and adding the same constant/positive multiplier to every candidate score
+preserves the ordered evidence IDs. The request-none and rank-offset behavioral mutations are
+killed by explicit tests. The nonfatal WSL systemd user-session warning persists.
+Deliberate omissions: no source/job/checkpoint/invalidation metadata, no raw artifacts, no dense
+embedding claim, and no retry/rebuild/publish action. Those require 11b-2 worker ownership proof.
+Next action: build the Super Admin Portal surface over these read models, then implement only
+worker-backed actions with lifecycle/idempotency evidence.
 ```
 
-### 2026-08-23 Phase 3 handoff update
+### 2026-08-26 Phase 11b Portal completion gate
 
 ```text
-Date/time zone: 2026-08-23, Asia/Kuala_Lumpur
-Agent/session: /root with Terra implementation tracing and Luna test/review support
-Phase and status: Phase 3 complete; Phase 4 in progress
-Evidence/contracts read: AGENTS.md; docs/ai-agent-development-workflow.md; docs/agent-handoff.md; docs/README.md; docs/intelligence-core-v3-architecture.md; openwiki/INSTRUCTIONS.md; Connector ingress; Character/Social graphs; v3 context/structure/runtime repositories; Knowledge/Wiki/Belief/Social sources and focused tests
-Files/change surface: app-level v3 Character-turn context service; ContextResolver perceived-Episode/social/time inputs; runtime/provider prompt handoff; graph fail-silent branch; shared correction path; removal of duplicate CharacterRecall/social prompt injection; focused tests and this execution record
-Validation commands and exact result: changed-file Ruff passed; strict mypy passed for 10 files; 51 focused pytest cases passed with existing dependency/fixture warnings only; diff and authority review passed
-Commit hash (only after gate): phase commit; resolve from Git history
-Intentional deviations: compatibility trace/Smart Output data classes remain temporarily in context_layer.py, but ContextOrchestrator itself has no production composition or prompt authority; cleanup is assigned to Phase 6
-Unresolved risks/conflicts: Phase 4 must make derived projections replay-safe and either give Knowledge Consolidation an explicit lifecycle or remove its orphan app composition
-Next concrete action: integrate Terra's evidence/Episode replay changes, add projection coordinator/lifecycle tests, then settle the consolidation trigger before the Phase 4 full Python gate
+Status: complete — Global Library / inspection Portal surface; 11b-2/11c remain open
+Commit: `fc90c2f` (`feat: add Knowledge Fabric admin portal`)
+Changed authority/contracts: the existing Super Admin Settings surface now hosts a Knowledge Fabric
+subtab that lists/creates system-global Corpora, registers an HTTP(S) Source, renders only the
+redacted operational Source model, and configures the existing durable external-sync schedule.
+The active Deployment Knowledge page now exposes its already-authorized scoped Query Inspector
+through the one existing Query Engine. Client routing does not broaden authority: the parent
+Settings workspace remains Super Admin-only, scope tuple matching remains exact, and the server
+continues to enforce every request. Health UI does not type, read, or render a locator, profile,
+artifact, validator, lease, or credential; the Source locator remains a short-lived registration
+form input for the trusted Super Admin route only.
+Evidence: `web/src/KnowledgeFabricAdministrationPanel.tsx`,
+`web/src/AdministrationSettingsPanel.tsx`, `web/src/KnowledgeFabricPanel.tsx`,
+`web/src/knowledgeFabricApi.ts`, and `web/src/knowledgeFabricApi.test.ts`; backend contracts are
+the Phase 11b-1 route/schema records in `src/echo_masque/api/routes/knowledge_fabric.py` and
+`src/echo_masque/api/knowledge_fabric_schemas.py`.
+Validation: Portal `npm run typecheck`, `npm test`, and `npm run build` passed; the final clean
+Vitest run was 22 files / 66 tests. `npm run test:mutation` generated its report with 62 killed,
+1 reviewed equivalent non-JSON-error-catch mutant, 35 TypeScript checker rejections, and no
+timeout/no-coverage mutant. Windows exited 1 only after report generation because Stryker's
+`taskkill` cleanup was access-denied; the exact `.stryker-tmp` sandbox was removed and the clean
+Vitest run above confirmed no generated tests remained. Vite retains its pre-existing >500 kB
+chunk warning.
+Deliberate omissions: no retry/rebuild/publish/availability action, no raw artifact or generic
+job/checkpoint metadata, no embedding-runtime claim, and no new API or worker. Those require the
+11b-2 worker/invalidation ownership, idempotency, audit, and failure-path proof.
+Next action: map the existing ingestion/invalidation/job lifecycle and implement only a
+source-backed worker action with its durable idempotency and cleanup proof; then continue 11c
+compatibility removal and final scale/security gates.
 ```
 
-### 2026-08-23 Phase 8 handoff update
+### 2026-08-26 Phase 11b-2 completion gate
 
 ```text
-Date/time zone: 2026-08-23, Asia/Kuala_Lumpur
-Agent/session: /root with Terra branch/privacy audit and Luna Portal/Connector gates
-Phase and status: Phases 0–8 complete; automated branch gate passed; ready for PR and live validation
-Evidence/contracts read: AGENTS.md; AI workflow/handoff/docs indexes; active plan; v3 architecture; security/debug/storage/Railway contracts; current source/types/tests; official OpenWiki repository/CLI/quickstart documentation
-Files/change surface: Phase commits listed in the ledger plus final legacy Discord privacy migration/read guard, safe Runtime error classification, retired semantic-score/Tie-break/Turn Intelligence and Behavior Notebook selection removal, final docs corrections
-Validation commands and exact result: Python Ruff passed; strict mypy 339 source files passed; complete pytest 622 passed with 7 existing warnings; Portal typecheck + 13 files/38 tests + build passed with existing Vite chunk advisory; Connector typecheck + 17 files/91 tests + build passed; 69 Markdown files/0 broken local links; final diff/secret/raw-content/migration review passed
-Commit hash (only after gate): final repair/handoff commit; resolve from Git history
-Intentional deviations: OpenWiki generation not run because CLI is not installed; semantic_thread_id rename deferred to explicit compatibility/data-contract migration because the current field stores v3 conversation_thread_id without Topic/shadow authority
-Unresolved risks/conflicts: live Discord/Railway behavior and representative production-copy upgrade/restore are not fabricated by local tests; older-version rollback requires restoring a pre-upgrade SQLite backup or Volume snapshot
-Next concrete action: review/open the PR, back up a representative database, perform the listed live checks, merge, then refresh generated OpenWiki from updated main in a dedicated docs branch
+Status: complete — durable derived-work consumer and source-specific failure retry; 11c remains open
+Commit: `ff235b8` (`feat: add derived work invalidation worker`)
+Changed authority/contracts: publication invalidations for `indexes` and `projections` now have
+one durable claim/lease/retry consumer. The worker rebuilds source-version index entries and only
+refreshes an already-materialized Source Overview; it never acquires, publishes, exposes, or
+creates a product Source view. Claim state (attempt count, safe error code, retry schedule, and
+lease) stays in internal invalidation metadata and is not returned by the API. Automatic failure
+retry is bounded to three attempts, then only a Super Admin can requeue terminal failures for one
+existing global Source through the audited endpoint. The redacted health model exposes counts only.
+Evidence: `knowledge_fabric_invalidation_policy.py`, `knowledge_fabric_invalidation_worker.py`,
+`persistence/knowledge_fabric_invalidation_repository.py`,
+`persistence/knowledge_fabric_projection_repository.py`, `api/app.py`,
+`api/routes/knowledge_fabric.py`, `api/knowledge_fabric_schemas.py`, and the matching Portal API/
+administration panel files. Proof: `test_knowledge_fabric_invalidation_policy.py`,
+`test_knowledge_fabric_invalidation_worker.py`, and `test_knowledge_fabric_phase2.py`.
+Validation: focused worker/API/projection/sync regression passed; changed-source Ruff and strict
+MyPy (380 source files) passed. Portal typecheck, 22-file/66-test Vitest, and production Vite
+build passed. WSL-native mutmut: 88 killed, five reviewed equivalent survivors, zero timeout or
+tooling failure. Four fusion survivors either retain dictionary insertion tie order or apply the
+same order-preserving score transformation to every candidate; retry-delay mutant 15 changes the
+bounded loop cap from nine to ten, but both paths always clamp to 21,600 seconds. Portal Stryker:
+65 killed, one reviewed equivalent non-JSON error-catch mutant, 36 TypeScript checker rejections,
+and no timeout/no-coverage result. Windows Stryker exits after report generation because its
+`taskkill` cleanup is access-denied; its exact `.stryker-tmp` sandbox was removed and a clean
+Vitest run passed.
+Deliberate omissions: no generic rebuild, publish, availability, embedding, credential, raw
+artifact, lease, validator, or job/checkpoint operator surface. These remain outside proven
+Runtime contracts. The full PostgreSQL/scale/lifecycle/security and compatibility cutover gate is
+reserved for 11c.
+Next action: perform the 11c static consumer map before deleting legacy RAG/Wiki code; retain only
+explicit compatibility required by currently proven callers, then complete final lifecycle, scale,
+PostgreSQL, Connector, and documentation gates.
+```
+
+### 2026-08-26 Phase 11c preliminary consumer proof
+
+```text
+Superseded: the product owner subsequently selected direct retirement, completed in Phase 11c-2.
+Do not apply this preliminary compatibility/no-delete analysis as current execution guidance.
+Status: in progress — static map complete; direct-retirement decision recorded and 11c-2 implementation underway
+Evidence: `web/src/KnowledgeBasePanel.tsx` and `web/src/knowledgeApi.ts` have no active Portal
+importer; the Deployment Workspace uses `KnowledgeFabricPanel`. Conversely, `/api/knowledge`,
+`KnowledgeRepository`, its lifecycle cleanup, and its legacy tables remain live through
+`api/app.py`, `api/routes/knowledge.py`, `evaluation_lifecycle.py`, and their tests. No old
+Knowledge Base-to-Fabric Corpus/Server scope mapping exists, and the architecture forbids inferring
+one. The old Portal client/panel may be removed only together with the explicitly decided legacy
+API/data disposition and its regression tests.
+
+`ServerWikiV3Repository` is not a Character retrieval authority: Character context and the
+internal `knowledge.search` tool already use the Fabric query/context boundary. It nevertheless
+remains an active Intelligence v3 entity/Belief/Episode consolidation writer and owner-triggered
+endpoint. Fabric presently has only a Source Overview projection, not a replacement for that
+server-scoped entity projection. Do not delete or rename it merely because it contains “Wiki”.
+
+The Discord Connector does not consume legacy Knowledge API/Wiki data, but its telemetry still
+uses `rag_*` and `knowledge_base_id` compatibility fields. `knowledge_retrieval.py` and
+`semantic_vector_repository.py` also have Fabric/non-RAG consumers and are not deletion targets.
+
+Required authority decisions before cutover: (1) legacy Knowledge Base data is explicitly migrated
+through an administrator-owned mapping, retained as an archive, or deliberately retired; and (2)
+Server Wiki V3 stays as an Intelligence-derived projection or is replaced by an approved Fabric
+projection contract. Until then, proceed only with non-destructive lifecycle/scale/PostgreSQL and
+security proof. Preserve `web/vite.config.ts` as user-owned unrelated work.
+```
+
+### 2026-08-26 Phase 11c-1 completion gate
+
+```text
+Status: complete — non-destructive synthetic scale/isolation and PostgreSQL/pgvector proof
+Commit: `99cb691` (`test: cover bounded Fabric scale isolation`)
+Evidence: `tests/test_knowledge_fabric_phase5.py` creates 128 canonical Evidence blocks in a
+granted global Corpus, proves query admission remains corpus-authorized, returns the requested four
+results from at most six candidates, and returns no result to an ungranted server. It deliberately
+does not invent a latency SLO.
+Validation: focused Phase 5/query/worker/API suite, changed-test Ruff, strict MyPy (380 files),
+and diff check passed. A disposable WSL Docker pgvector PostgreSQL 16 container ran the guarded
+Foundation and Phase 5 suites against the dedicated destructive `echo_masque_test` database: all
+passed. The container auto-removed. WSL's mounted-workspace pytest cache warning was non-fatal.
+Next action: complete 11c-2’s direct-retirement validation: old table/vector removal, API/Portal
+absence, lifecycle isolation, PostgreSQL replay, mutation evidence, and final documentation.
+```
+
+### 2026-08-26 Phase 11c-2 completion gate
+
+```text
+Status: complete — explicit direct-retirement cutover
+Commit: `df64ee8` (`feat: retire legacy knowledge and server wiki`)
+Decision/evidence: the product owner explicitly retired old Knowledge Base data, legacy RAG/API/
+Portal, and Server Wiki V3 without migration or archive. Static consumer proof showed no active
+Portal importer for the old panel/client and that Character/internal Knowledge reads already use
+the Fabric Query/Context boundary. `knowledge_retrieval.py` and shared semantic vectors remain
+because Fabric and other runtimes use them.
+Implementation: the one-way `knowledge-fabric-hard-cutover-v1` ledger deletes only semantic-vector
+rows in the old `knowledge-chunk` namespace, drops the six retired tables in foreign-key-safe
+order, records metadata-only counts/tables, and retries after a failed attempt. Fresh schemas no
+longer register the retired ORM models. SQLite-to-PostgreSQL copy rejects an uncut legacy source.
+Old Knowledge routes, Portal components, lifecycle ownership, Server Wiki consolidation endpoint,
+and LLM Wiki Utility capability were removed; Fabric remains the sole Knowledge surface.
+Validation: focused Fabric/cutover/lifecycle/Public Demo suite passed; changed Ruff and strict MyPy
+passed (372 source files); `git diff --check` passed. Portal typecheck, 22-file/66-test Vitest,
+and production build passed. Connector typecheck, 17-file/95-test Vitest, and build passed.
+Disposable WSL Docker pgvector PostgreSQL passed the cutover plus database-foundation suite; its
+container auto-removed. The mounted-workspace pytest-cache warning and WSL systemd-user-session
+warning were non-fatal. WSL mutmut ran 98 mutants: 93 killed and five previously reviewed
+equivalents in query fusion/retry; the new cutover policy had no survivor, timeout, or tooling
+classification. Portal/Connector mutation scopes were unchanged by this implementation.
+Deliberate omission: Connector `rag_*` observability labels remain a telemetry vocabulary only;
+they do not read or expose retired Knowledge Base/Server Wiki data. No historical data was copied.
+Next action: continue any remaining Phase 11 final product/security review from current source and
+the plan; do not recreate compatibility authority.
+```
+
+### 2026-08-26 Phase 11 final completion gate
+
+```text
+Status: complete — product-owner direct retirement, startup safety, PostgreSQL application proof,
+documentation/security synchronization, and final validation complete
+Implementation commits: `df64ee8` (`feat: retire legacy knowledge and server wiki`), with the
+preceding Phase 11a/11b/11c records above. Final documentation/handoff synchronization is included
+with this completion record.
+Evidence: `knowledge_fabric_hard_cutover.py`, its metadata-only ledger model and policy,
+`Database.initialize()`, the Fabric router/application composition, Portal Fabric API, and
+`tests/test_knowledge_fabric_hard_cutover.py` / `tests/test_knowledge_fabric_phase2.py`.
+Product data action: normal startup was run against the explicitly named local `echo_masque.db`.
+It removed the six retired tables, retained no `knowledge-chunk` vectors, and persisted exactly
+one `knowledge-fabric-hard-cutover-v1` ledger row with `status=completed`, `attempt_count=1`.
+Startup proof: fresh normal startup is one-time; injected failed retirement retries on restart;
+concurrent normal startup performs retirement once; retired `/api/knowledge/bases` is 404 and old
+application-state repositories/services are absent.
+Validation: local `python -m pytest -q` exited 0. Focused PostgreSQL app/cutover/lifecycle/Public
+Demo batch ran in a disposable WSL/Docker pgvector PostgreSQL 16 database: 15 passed; the
+container was removed. Targeted Ruff for changed tests and `python -m mypy src` passed (372 source
+files). Repository-wide Ruff still reports only two pre-existing E501 lines in
+`tests/test_knowledge_fabric_external_schedule.py`, outside this batch. Portal `npm run typecheck`,
+`npm test` (22 files, 67 tests), and `npm run build` passed; the known >500 kB bundle warning is
+unchanged. Portal Stryker killed 66/66 mutants with 0 survivors/timeouts/no-coverage; it exits
+non-zero only because Windows denies `taskkill` for Stryker checker cleanup after the report is
+written. The existing Connector audience-preflight mutation scope is N/A to the direct-cutover
+batch because no Connector runtime contract changed.
+Next action: do not recreate Knowledge Base/RAG/KB Wiki/Server Wiki v3 compatibility, import, or
+archive authority. Future Knowledge work begins from the Fabric contracts and this completion
+record.
+```
+
+## Phase 12 — Knowledge Fabric remediation
+
+```text
+Status: complete — security, lifecycle, worker-concurrency, production-storage, and deployment-review remediation
+Commit: current Phase 12 remediation commit (resolve its final hash with `git log -1 --oneline`)
+Changed authority/contracts: credential-like Source profiles and percent-decoded credential-bearing locator fragments are rejected before persistence. Variable Source evidence is structurally isolated as JSON and never truncates an unclosed trust boundary. Website snapshots supersede earlier available Website Versions atomically while retaining immutable provenance. Artifact upload failures and account deletion use a durable deletion outbox; publication accepts an external-schedule lease only when its exact token remains unexpired. Invalidation and external-sync workers claim incrementally, renew leases, reject late results, and offload blocking work. Global grant revocation is now available in the Portal. Production starts only with PostgreSQL + pgvector; SQLite is limited to development/test and offline migration source use.
+Evidence: `knowledge_fabric_context.py`, `context_resolver_v3.py`, `api/knowledge_fabric_schemas.py`, `knowledge_fabric_ingestion.py`, `knowledge_fabric_website_sync.py`, `knowledge_fabric_atom_sync.py`, `knowledge_fabric_external_sync_scheduler.py`, `knowledge_fabric_invalidation_worker.py`, the affected Fabric persistence repositories/models/migrations, `persistence/storage.py`, `Dockerfile`, `.github/workflows/ci.yml`, and Portal grant policy/API tests.
+Validation: focused remediation batch passed 79 tests with 6 explicit PostgreSQL skips. Repository `python -m ruff check .`, `python -m mypy src`, and the final Python suite passed: 831 passed, 6 skipped, 7 existing warnings (1238.12s). Portal typecheck, Vitest (68 tests), and production build passed. A disposable WSL/Docker pgvector PostgreSQL 16 container passed the five revised CI foundation/cutover/app/retrieval tests; after lock review, the final dedicated-connection concurrency test passed again. WSL-native mutmut completed 98 mutants: 93 killed and 5 previously reviewed equivalents; the four rank-fusion changes preserve insertion/tie ordering or apply the same order-preserving transformation to every candidate, while retry-delay mutant 15 changes a loop cap from nine to ten but both paths clamp to 21,600 seconds. Portal Stryker killed 67 mutants with no runtime survivor; 37 TypeScript-checker rejections are tooling/compile results. It exits non-zero only after report creation because Windows denies its `taskkill` cleanup. `git diff --check` passed at final review.
+Migration/data action: additive object-deletion outbox metadata/migration; no historical Source Version is rewritten or deleted. Existing Website Sources become superseded on their next trusted snapshot. Production operators must configure PostgreSQL before deploying this commit; no database is automatically migrated or switched.
+Known deviations: the local Docker Engine is reachable only through WSL. Its direct Windows-mounted build context hits an xattr permission failure on an ignored pytest temporary directory, so local image startup could not be repeated; the revised PostgreSQL image flow is covered by the CI workflow. Portal has unit proof of the boolean reversal policy and request payloads, but no DOM click harness because the project deliberately has no DOM renderer/testing dependency.
+Next action: use this record as the new Fabric baseline; preserve fail-closed access, private artifacts, and PostgreSQL-only production storage in subsequent work.
+```
+
+## Phase 13 — Railway PostgreSQL cutover readiness
+
+```text
+Status: in progress — URL compatibility repair, source hard-cutover, and live pgvector copy complete; final branch validation and squash integration remain
+Scope: accept Railway's standard private PostgreSQL URL with the installed psycopg 3 driver in both normal runtime and the offline migration entry point. Document the fail-closed upgrade of a separate old-SQLite working copy before the empty pgvector target copy.
+Evidence: src/echo_masque/persistence/database.py; src/echo_masque/persistence/sqlite_to_postgres_migration.py; tests/test_database_foundation.py; docs/railway-deployment.md; docs/storage-safety.md; local verified source backup preflight.
+Invariants: never print a connection URL; do not start an application against the target before copy completion; preserve the verified SQLite backup and original Volume; never upgrade or hard-cutover the retained source directly; old Knowledge Base/Server Wiki data is retired only in the isolated working copy under the prior product-owner authorization.
+Validation: Python URL-normalization test coverage includes Railway's `postgres://` and `postgresql://` spellings in both runtime and migration paths (`14 passed, 3 skipped` in the focused database/migration scope); `ruff`, targeted `mypy`, and diff checks pass. The previous Phase 12 full Python gate recorded `831 passed, 6 skipped`; Portal (`46 files / 136 tests`) and Discord Connector (`34 files / 190 tests`) typecheck, test, and build gates pass after the Phase 13 change. The configured Python mutation scope does not cover this new URL-normalization helper, so no unrelated mutation scope was run.
+Source and live migration: the verified SQLite backup was not current Fabric schema and contained retired knowledge_documents/knowledge_chunks data. A byte-identical isolated working copy passed integrity and foreign-key checks after current Database.initialize() performed the authorized hard cutover; the retained backup and original Volume were not changed. Railway pgvector was confirmed empty before copy. The migration completed with pgvector `vector` extension installed and a completed `sqlite-to-postgresql-v1` ledger. All 149 ORM tables match the working-copy row counts; the target-only database_data_migrations row is the expected completion ledger.
+Commit: current branch HEAD (`fix: accept Railway postgres URLs`); one Phase 13 implementation commit plus a documentation handoff update. Final delivery remains one squash commit on `main`.
+Next action: run final cross-project validation in a clean integration worktree, squash the branch onto freshly fetched origin/main without the user-owned web/vite.config.ts change, push main, then deploy main to the already-migrated pgvector target and verify health/persistence.
+```
+
+## Known implementation decisions that still require evidence in a phase
+
+The architecture is approved, but these implementation details are intentionally not invented in Phase 0:
+
+- exact PostgreSQL migration framework/tool;
+- exact SQL schema/table/class names;
+- exact pgvector index type and tuning parameters (HNSW/IVFFlat/etc. must be measured);
+- exact sparse retrieval configuration/tokenization for multilingual corpora;
+- exact background job framework/process topology;
+- exact S3/R2 provider and deployment credentials contract;
+- exact reranker model/algorithm and thresholds;
+- exact LLM enrichment model/prompt/budget;
+- exact Web crawler limits/robots/network policy additions;
+- exact Local Sync Agent protocol;
+- exact timeline/spoiler schema.
+
+Resolve each in its owning phase from source constraints/tests/measurements. Do not ask for user input on routine implementation details unless the choice materially changes product/security/cost/authority.
+
+## Handoff template for every completed phase
+
+Record under the phase before handing off:
+
+```text
+Status: complete
+Commit: <sha>
+Changed authority/contracts: <short statement>
+Key files: <paths>
+Validation: <commands + results>
+Migration/data action: <none or exact action>
+Known deviations: <none or explicit>
+Next action: <one concrete phase/action>
+```
+
+## Immediate takeover instruction
+
+If you are an AI Coding Agent arriving on this branch now:
+
+- do not implement a Furina/Genshin-specific schema;
+- do not start with a Wiki scraper;
+- do not add PDF upload directly to legacy Knowledge Base CRUD;
+- do not bolt pgvector onto `KnowledgeChunkRecord` and call the architecture complete;
+- do not merge imported world facts into `BeliefV3`;
+- do not duplicate global corpus records per Server.
+
+Resume at the recorded current phase after verifying the branch and completion records. Do not
+restart completed foundation phases or infer that an uncommitted phase record is already on `main`.
+
+### 2026-08-25 Phase 1 mutation-testing foundation update
+
+```text
+Status: in progress
+Commit: none; Phase 1 remains open and permits only one final database-foundation commit
+Changed authority/contracts: mutation testing is required for configured protected decision scopes; it complements, not replaces, ordinary tests and migration/authorization proof
+Key files: docs/mutation-testing.md; AGENTS.md; docs/ai-agent-development-workflow.md; docs/agent-handoff.md; docs/agent-map.md; docs/developer/README.md; pyproject.toml; web/stryker.config.json; connectors/discord/stryker.config.json; .github/workflows/mutation.yml
+Validation: python -m ruff check . passed; python -m pytest tests/test_config.py passed (5); Portal typecheck + Vitest passed (20 files/55 tests); Connector typecheck + Vitest passed (17 files/91 tests); Portal Stryker baseline produced 9 killed / 3 survived / 5 compile-error mutants; Connector Stryker baseline produced 15 killed / 7 survived / 16 compile-error mutants; package/config JSON parse and git diff --check passed
+Migration/data action: none
+Known deviations: mutmut is installed/configured but native Windows explicitly requires WSL; local WSL enumeration is access-denied, so the Python mutant run remains for the Ubuntu scheduled/manual workflow. Stryker results are non-blocking Phase 1 baselines; their survivors and compile errors are recorded for classification before the relevant protected scope becomes a gate. Windows terminal process tracking left generated Stryker sandboxes/reports, which were removed after the completed reports were inspected.
+Next action: continue the Phase 1 PostgreSQL source/migration/deployment audit; use Linux CI or an available WSL environment to record the initial Python mutmut report before the Phase 1 database gate.
+```
+
+### 2026-08-25 Phase 1 PostgreSQL implementation update
+
+```text
+Status: in progress
+Commit: none; Phase 1 remains open and permits only one final database-foundation commit
+Changed authority/contracts: PostgreSQL is now a first-class database backend with a persistent foundation revision, pgvector extension bootstrap, PostgreSQL equivalents of the Discord server uniqueness/runtime-cleanup invariants, and an explicit SQLite-to-empty-PostgreSQL copy ledger. SQLite remains supported only for dev/test and as a retained migration source until an operator completes the documented cutover.
+Key files: src/echo_masque/persistence/database.py; src/echo_masque/persistence/schema_migration_models.py; src/echo_masque/persistence/schema_migrations.py; src/echo_masque/persistence/sqlite_to_postgres_migration.py; scripts/migrate_sqlite_to_postgres.py; tests/test_database_foundation.py; tests/test_storage_guard.py; .github/workflows/ci.yml; docs/railway-deployment.md; docs/storage-safety.md
+Validation: focused SQLite regression passed — python -m pytest tests/test_database_foundation.py tests/test_deployment_server_invariant.py tests/test_storage_guard.py tests/test_phase15_migration.py (10 passed, 2 PostgreSQL integration tests skipped because no explicit local disposable PostgreSQL URL); ruff and strict mypy passed for changed persistence modules; CI YAML parsed; git diff --check passed. The new CI postgres-foundation job provisions the official pgvector PostgreSQL 16 image and runs the fresh-bootstrap, unique/cleanup, SQLite-copy, and idempotency integration tests.
+Migration/data action: migrate_sqlite_to_postgres first creates a unique, consistent SQLite backup-API snapshot (including committed WAL content), fingerprints snapshot bytes, and copies only that snapshot. It requires a current completed Intelligence cutover with no non-empty legacy tables, takes a PostgreSQL advisory lock around a strict empty-target/unknown-object preflight, preserves IDs/sequences, and records success/failure without deleting or mutating the original source.
+Known deviations: local Docker is unavailable, so the PostgreSQL-only two-test gate is configured in CI but not locally executed. The source migration tool intentionally fails stale SQLite schemas instead of performing source-side repair during a cross-database cutover.
+Next action: review the combined Phase 1 diff and run the complete local Python/Portal/Connector validation gates; after the PostgreSQL CI evidence is available, make the single Phase 1 commit and begin Phase 2 Corpus/Source/access work.
+```
+
+### 2026-08-25 Phase 1 mutation baseline classification update
+
+```text
+Status: in progress
+Commit: none; this evidence remains part of the single Phase 1 commit
+Scope/results: Portal web/src/portalEnvironment.ts — 12 killed, 0 survived, 5 TypeScript-checker tooling/compile rejections (IDs 0, 5, 6, 10, 11). Discord Connector connectors/discord/src/audiencePreflight.ts — 22 killed, 0 survived, 0 timeout, 16 TypeScript-checker tooling/compile rejections (IDs 1-5, 9-11, 13, 17, 18, 22, 23, 25, 26, 37). No equivalent mutants or unclassified survivors remain in the configured Portal/Connector baseline scopes.
+Evidence changes: Portal import-time environment/default-path tests now prove mock/live `isMockPortal`; Connector collaborator-boundary/default-alias/empty-short-circuit/smart-scoring tests now prove preflight decisions. The scheduled/manual workflow uploads HTML reports for both JavaScript scopes.
+Platform result: both local Windows Stryker runs fully generated reports but exited 1 only after completion because worker cleanup's `taskkill` was access-denied. Elevated WSL inspection showed no installed Linux distribution. Ubuntu CI is therefore the supported passing platform for all three mutation runners; native Windows reports are diagnostic only.
+Known deviation: the Python mutmut command is configured with `only_mutate = ["src/echo_masque/config.py"]` and runs in Ubuntu CI, but has not been executed locally because this machine has no WSL distro. Its initial CI report must be recorded before Phase 1 is declared complete.
+Next action: obtain the scheduled/manual Ubuntu mutation workflow evidence, then run the full local validation/diff review and make the Phase 1 commit.
+```
+
+### 2026-08-25 Phase 1 final local validation update
+
+```text
+Status: in progress
+Commit: none; the final Phase 1 commit remains intentionally pending the Linux-only Python mutation evidence
+Validation: Python full gate — python -m pytest -x --junitxml <temporary path> passed: 696 passed, 2 skipped, 7 existing warnings, 0 failures, 0 errors (819.61s); temporary JUnit evidence was deleted after inspection. Changed persistence Ruff + strict mypy passed. Real disposable PostgreSQL 17 + psycopg verification passed: complete ORM schema, Discord partial unique index, runtime cleanup trigger, SQLite snapshot copy, serial reset, idempotent rerun, and changed-source refusal. pgvector extension bootstrap is exercised by the committed CI service definition because the local PostgreSQL install lacks pgvector. Portal full gate passed: typecheck, 20 files/56 tests, production build. Connector full gate passed: typecheck, 17 files/95 tests, build. CI/mutation workflow YAML and pyproject TOML parse; git diff --check passed.
+Mutation classification: Portal 12 killed/0 survived/5 tooling-compile; Connector 22 killed/0 survived/16 tooling-compile. Python mutmut is configured to mutate only config.py, but cannot run locally: elevated WSL status succeeds yet reports no installed distribution. Native Windows mutmut is unsupported; native Windows Stryker is diagnostic only because post-report worker cleanup is access-denied.
+Known deviations: no Linux distribution, Docker engine, or local pgvector is installed. No production database has been migrated or switched; the tool/docs provide a deliberate operator-controlled cutover only. Phase 2 reconnaissance found an unresolved product-authority decision: current source lacks a stable Server principal and a Server Admin predicate, so server-owned corpus/overlay authorization cannot safely be inferred from owner-scoped Discord profile IDs.
+Next action: with explicit authority, install an Ubuntu WSL distribution and run `mutmut run` + `mutmut export-cicd-stats`; otherwise obtain the manual/scheduled Ubuntu workflow report after the Phase 1 commit. Resolve the canonical Server principal/Server Admin authorization decision before implementing Phase 2 schema/API work.
+```
+
+### 2026-08-25 Phase 1 completion gate
+
+```text
+Status: complete — one final database-foundation commit is pending the final diff review
+Commit: pending; this completion record is included in the single Phase 1 implementation commit
+Changed authority/contracts: PostgreSQL + pgvector is production-capable while SQLite remains development/test and a deliberately operator-controlled migration source. A running/failed SQLite-copy ledger blocks ordinary target startup; only the migration tool can bypass it. No Character Knowledge semantic authority changed.
+Validation: Python full gate — 699 passed, 2 skipped, 7 existing warnings, 0 failures/errors (803.73s); changed persistence Ruff + strict mypy passed. Focused database/config regression — 13 passed, 2 explicit PostgreSQL tests skipped without a test URL. Real WSL/Docker pgvector PostgreSQL 16.15 — the two explicit foundation integration tests passed (2 passed in 8.10s), exercising CREATE EXTENSION vector, Discord unique deployment constraint, runtime cleanup trigger, SQLite-to-PostgreSQL copy, idempotent rerun, and changed-source refusal. The destructive test guard rejects both a missing opt-in and any database name other than the dedicated `echo_masque_test` before connecting/resetting. Portal — typecheck, 20 files/56 tests, production build passed. Connector — typecheck, 17 files/95 tests, build passed. Mutation baselines: Python mutmut (WSL-native temporary copy) 1 killed/0 survived/0 timeout; Portal 12 killed/0 survived/5 TypeScript checker rejections; Connector 22 killed/0 survived/16 TypeScript checker rejections. No equivalent or unclassified survivor remains. YAML/TOML parse and git diff --check passed.
+Mutation platform note: WSL can run the command, but the Windows-mounted workspace denies pytest cache writes; the supported local invocation copies the current worktree to a disposable WSL-native directory. The WSL systemd user-session warning is non-fatal. Native Windows Stryker remains diagnostic only because post-report worker cleanup is access-denied.
+Deliberate omissions: no production database was migrated or switched; the migration tool remains operator-invoked. No Phase 2 schema/API/runtime behavior was added.
+Next action: make the single Phase 1 commit, then resolve the durable canonical Server identity and Server Admin predicate before beginning Phase 2. Existing user-owned profiles and connection-scoped access grants must not be reused by inference.
 ```

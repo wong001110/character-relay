@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parsePortalDataMode, shouldRenderSystemIntelligenceDock } from "./portalEnvironment";
 import {
@@ -12,6 +12,11 @@ import {
 } from "./portalRoutes";
 
 describe("Portal route and data-mode foundation", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
   it("uses live data unless mock mode is explicitly selected", () => {
     expect(parsePortalDataMode(undefined)).toBe("live");
     expect(parsePortalDataMode("production")).toBe("live");
@@ -22,6 +27,22 @@ describe("Portal route and data-mode foundation", () => {
     expect(shouldRenderSystemIntelligenceDock(true, false)).toBe(false);
     expect(shouldRenderSystemIntelligenceDock(false, true)).toBe(false);
     expect(shouldRenderSystemIntelligenceDock(false, false)).toBe(true);
+  });
+
+  it("derives the import-time mock flag and default dock behavior from the environment", async () => {
+    vi.stubEnv("VITE_PORTAL_DATA_MODE", "mock");
+    vi.resetModules();
+    const mockEnvironment = await import("./portalEnvironment");
+
+    expect(mockEnvironment.isMockPortal).toBe(true);
+    expect(mockEnvironment.shouldRenderSystemIntelligenceDock(false)).toBe(false);
+
+    vi.stubEnv("VITE_PORTAL_DATA_MODE", "live");
+    vi.resetModules();
+    const liveEnvironment = await import("./portalEnvironment");
+
+    expect(liveEnvironment.isMockPortal).toBe(false);
+    expect(liveEnvironment.shouldRenderSystemIntelligenceDock(false)).toBe(true);
   });
 
   it("normalizes only the trailing slash for direct route matching", () => {

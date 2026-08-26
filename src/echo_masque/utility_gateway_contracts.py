@@ -114,7 +114,7 @@ class TurnDirectorReadRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    tool_id: Literal["memory.search", "conversation.search", "wiki.lookup"]
+    tool_id: Literal["memory.search", "conversation.search", "knowledge.search"]
     query: str = Field(min_length=1, max_length=400)
     limit: int = Field(default=2, ge=1, le=4)
 
@@ -154,15 +154,6 @@ class SummaryUtilityResult(BaseModel):
     summary: str = Field(min_length=1, max_length=4000)
     open_loops: tuple[str, ...] = ()
     keywords: tuple[str, ...] = ()
-
-
-class WikiUtilityResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    title: str = Field(min_length=1, max_length=240)
-    body: str = Field(min_length=1, max_length=12000)
-    keywords: tuple[str, ...] = ()
-    confidence: float = Field(default=0.7, ge=0.0, le=1.0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,5 +199,4 @@ __all__ = [
     "UtilityQuotaDimension",
     "UtilityRoute",
     "UtilityTier",
-    "WikiUtilityResult",
 ]

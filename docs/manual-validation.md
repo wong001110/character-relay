@@ -76,9 +76,8 @@ These checks supplement automated CI. Do not use production credentials in scree
 
 ## Railway storage and deployment
 
-- [ ] Confirm the Production environment owns the public domain, exact service, and Volume mounted at `/data`.
-- [ ] Confirm `CHARACTER_RELAY_DATABASE_URL=sqlite:////data/echo_masque.db` and exactly one replica while using SQLite.
-- [ ] Confirm Railway sets `RAILWAY_RUN_UID=0`, then verify Uvicorn runs as the image user UID `10001` after startup ownership repair.
+- [ ] Confirm the Production environment owns the public domain and exact service.
+- [ ] Confirm `CHARACTER_RELAY_DATABASE_URL` is a managed PostgreSQL URL and pgvector is available; production SQLite must fail closed.
 - [ ] Record `/health` storage metadata and `storage_instance_id`, create a Persistence Probe, redeploy, and confirm the same ID and Probe remain.
 - [ ] Back up the secret-free Workspace before infrastructure or migration changes; test restore in a disposable environment.
 - [ ] Run Railway smoke and the relevant live security/release acceptance workflows after deployment.

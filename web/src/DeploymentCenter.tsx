@@ -30,7 +30,7 @@ import { PaperDrawer, PaperModal } from "./NotebookUI";
 import { Pagination } from "./Pagination";
 import { useI18n } from "./i18n";
 import { InteractionSessionsPanel } from "./InteractionSessionsPanel";
-import { KnowledgeBasePanel } from "./KnowledgeBasePanel";
+import { KnowledgeFabricPanel } from "./KnowledgeFabricPanel";
 import { SmartParticipationStudio } from "./SmartParticipationStudio";
 import { serverRuntimeApi } from "./serverRuntimeApi";
 import {
@@ -1870,10 +1870,9 @@ export function DeploymentCenter({
           )}
 
           {serverNotebookTab === "knowledge" && (
-            <KnowledgeBasePanel
+            <KnowledgeFabricPanel
               profile={selectedWorkspaceProfile}
-              catalog={selectedWorkspaceCatalog}
-              cards={cards}
+              deployments={deployments}
               demoMode={demoMode}
               zh={zh}
             />

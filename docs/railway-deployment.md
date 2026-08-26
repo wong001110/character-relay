@@ -4,17 +4,20 @@ Status: **supported production deployment guide**
 
 Character Relay deploys as one Docker service. The root image builds the React Portal, and FastAPI serves both the Portal and `/api/*` from the same public domain.
 
+> Knowledge Fabric production requires PostgreSQL with the `vector` extension. SQLite
+> remains an offline migration source only; the application rejects it when
+> `CHARACTER_RELAY_ENVIRONMENT=production`.
+
 ```text
 Railway domain
   -> FastAPI/Uvicorn + built Portal
-  -> SQLite at /data/echo_masque.db
+  -> PostgreSQL + pgvector (target production topology)
+  <- SQLite offline migration source (never a running production authority)
 
 Discord Gateway
   -> separately deployed connectors/discord worker
   -> authenticated connector API
 ```
-
-Keep exactly one application replica while SQLite is the production database.
 
 ## 1. Create the application service
 
@@ -25,28 +28,76 @@ Keep exactly one application replica while SQLite is the production database.
 
 Railway supplies `PORT`. The configured health endpoint is `/health`.
 
-## 2. Attach persistent storage
+## 2. Provision PostgreSQL + pgvector and migrate safely
 
-Attach one Volume to the application service in the same Railway environment that owns the public domain:
+Create an empty PostgreSQL database whose operator permits:
 
-```text
-Mount path: /data
-Database URL: sqlite:////data/echo_masque.db
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-A Volume in another environment/service does not protect Production. Attaching a new Volume also does not recover an older ephemeral database.
+The application performs that idempotent bootstrap at startup and records the
+`database-foundation-v1` revision. Treat a failure as a database provisioning
+problem; do not remove the extension requirement or fall back silently to a
+different vector backend.
 
-Production startup fails closed when SQLite is not under a mounted `/data` path. Keep one replica; do not share this SQLite topology across replicas.
+For an existing SQLite deployment:
 
-## 3. Configure application settings
+1. Export the normal secret-free Workspace archive and retain the original Railway
+   Volume as a rollback source.
+2. Stop writes to the SQLite service, keep the PostgreSQL application service stopped, and make a database-volume backup.
+3. From a trusted one-off environment that can read the SQLite file and connect to
+   the empty PostgreSQL database, run:
+
+   ```bash
+   python scripts/migrate_sqlite_to_postgres.py \
+     --source-url sqlite:////data/echo_masque.db \
+     --target-url 'postgresql+psycopg://<user>:<password>@<host>:5432/<database>'
+   ```
+
+   Railway's `${{pgvector.DATABASE_URL_PRIVATE}}` reference is accepted directly;
+   the application and migration tool select the installed psycopg 3 driver without
+   printing the secret or requiring a manually rewritten URL. The tool creates a
+   unique, SQLite-native consistent snapshot (including committed
+   WAL content) and copies only that snapshot. It fingerprints the snapshot,
+   refuses a non-empty or unexpectedly populated PostgreSQL target, preserves source
+   IDs/sequences, records a completed ledger, and never deletes or mutates the
+   original SQLite source. It requires the source to already have the current,
+   completed Intelligence schema with no legacy tables containing data; update a
+   verified source copy before running the cross-database transfer. For a pre-Fabric
+   source, run current `Database.initialize()` only against that working copy first:
+   its approved hard cutover retires old Knowledge Base/Server Wiki tables, never the
+   retained source backup or original Volume.
+   While its ledger is `running` or `failed`, normal application startup against the
+   PostgreSQL target fails closed; do not use the target for other application work
+   during the copy.
+4. Start one application instance against the PostgreSQL URL only after the tool
+   reports `completed`, check `/health`, and
+   verify sign-in, a persisted Probe, and the copied Workspace data before switching
+   the public service variable.
+5. Keep the SQLite Volume until the PostgreSQL backup/restore and application
+   acceptance checks have succeeded. A completed copy is idempotent only for that
+   same source/target ledger; use a fresh target for another import.
+
+The Docker image's SQLite default remains for local compatibility during this
+branch. On Railway, explicitly override it with the PostgreSQL connection URL:
+
+```text
+CHARACTER_RELAY_DATABASE_URL=${{pgvector.DATABASE_URL_PRIVATE}}
+```
+
+Never commit the URL or expose it through Portal configuration, health output,
+traces, exports, or logs.
+
+## 4. Configure application settings
 
 The runtime reads `CHARACTER_RELAY_*` application variables. Earlier product-prefix runtime variables are ignored.
 
-Required production shape:
+Required PostgreSQL production shape:
 
 ```text
 CHARACTER_RELAY_ENVIRONMENT=production
-CHARACTER_RELAY_DATABASE_URL=sqlite:////data/echo_masque.db
+CHARACTER_RELAY_DATABASE_URL=${{pgvector.DATABASE_URL_PRIVATE}}
 CHARACTER_RELAY_AUTH_COOKIE_SECURE=true
 CHARACTER_RELAY_LEGACY_LOCAL_USER_ENABLED=false
 CHARACTER_RELAY_PUBLIC_REGISTRATION_ENABLED=false
@@ -54,10 +105,7 @@ CHARACTER_RELAY_BOOTSTRAP_ADMIN_EMAIL=<admin email>
 CHARACTER_RELAY_BOOTSTRAP_ADMIN_PASSWORD=<long unique password>
 CHARACTER_RELAY_CREDENTIAL_ENCRYPTION_KEYS=<primary Fernet key>[,<older key>...]
 CHARACTER_RELAY_CONNECTOR_SHARED_SECRET=<long random connector secret>
-RAILWAY_RUN_UID=0
 ```
-
-Railway mounts Volumes as `root`. `RAILWAY_RUN_UID=0` allows the image entrypoint to repair ownership only under `/data`; it then immediately drops to the image user `character-relay` (UID `10001`) before starting Uvicorn. Do not set this variable for ordinary Docker/Compose runs, where the image already starts non-root. See Railway's [Volume permissions documentation](https://docs.railway.com/volumes#permissions).
 
 Optional operational settings include:
 
@@ -68,7 +116,28 @@ CHARACTER_RELAY_PUBLIC_DEMO_ENABLED=true
 
 Do not define `PORT`. Keep passwords, Fernet keys, provider keys, Bot tokens, and connector secrets outside Git.
 
-## 4. Bootstrap and authenticate Admin access
+### Knowledge Fabric private artifact storage
+
+Phase 3 uses a private Cloudflare R2 bucket for original Knowledge Fabric source artifacts. The
+application uses the S3-compatible API only; AWS S3 is an explicit supported alternative, not a
+public download path. Configure the bucket and credentials only in the service environment:
+
+```text
+CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_PROVIDER=cloudflare_r2
+CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_BUCKET=<private-bucket-name>
+CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_ACCESS_KEY_ID=<R2 access key ID>
+CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_SECRET_ACCESS_KEY=<R2 secret access key>
+CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_PREFIX=knowledge-fabric
+```
+
+For AWS S3, set `..._PROVIDER=aws_s3`, the private bucket, access key and secret, and a required
+`CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_REGION`; an S3-compatible private endpoint is optional.
+Do not put these values in Portal settings, source-adapter credentials, exports, traces, logs, or
+fixtures. The application stores only provider, bucket, object key, hash, size, and content type;
+it does not generate public object URLs or ACLs.
+
+## 5. Bootstrap and authenticate Admin access
 
 Configure the Bootstrap Admin email/password together and deploy. Sign in through the normal authentication flow; Admin routes, Storage & Backup, probes, and runtime administration use the authenticated HttpOnly Session and server-side role checks.
 
@@ -80,7 +149,7 @@ After the first successful sign-in:
 2. keep the bootstrap credential unique and managed only through the deployment environment;
 3. use invitations instead of enabling public registration unless open signup is an explicit product decision.
 
-## 5. Configure provider credentials
+## 6. Configure provider credentials
 
 Configure non-secret Provider/Base URL/Model/Prompt options through the appropriate Portal settings. Save persistent credentials through the encrypted Credential Vault.
 
@@ -94,13 +163,13 @@ CHARACTER_RELAY_AUTHORING_API_KEY=<limited provider key>
 
 Character provider credentials are owner-scoped Vault records. API responses and exports expose status/source metadata only. Prefer separate, revocable, spending-limited keys for production and Demo workloads.
 
-## 6. Deploy the Discord Connector
+## 7. Deploy the Discord Connector
 
 Deploy `connectors/discord/Dockerfile` as a separate worker/service and follow `connectors/discord/README.md`.
 
 The Connector and application must share the same long random connector secret. Keep the Discord Bot token and connector secret only in their service environments; never place them in Portal configuration, logs, docs, or artifacts.
 
-## 7. Validate availability
+## 8. Validate availability
 
 Run the credential-free smoke against the deployed application:
 
@@ -112,7 +181,7 @@ Then run the relevant GitHub Actions smoke/live acceptance workflows. Live workf
 
 Credential-free smoke proves availability, not persistence, account isolation, provider readiness, Connector delivery, or Demo reconciliation.
 
-## 8. Verify storage across a redeploy
+## 9. Verify storage across a redeploy
 
 Before deployment, record the non-secret storage metadata from `/health`, including `storage_instance_id`.
 
@@ -126,15 +195,15 @@ Interpretation:
 
 - same ID and retained Probe: the deployment reused the database;
 - different/missing ID or Probe: stop and investigate the environment/service/Volume attachment;
-- startup failure: restore the required `/data` mount before retrying.
+- startup failure: investigate PostgreSQL connectivity, pgvector provisioning, and the deployment configuration before retrying.
 
-## 9. Back up and restore
+## 10. Back up and restore
 
 Export a secret-free account/workspace archive before migrations or infrastructure changes. Exports intentionally omit raw/encrypted credentials, Sessions, password hashes, invitation codes, Bot tokens, and connector secrets.
 
 Test imports in a disposable environment. Use Replace mode only with a verified separate backup and the exact intended owner scope.
 
-## 10. Release acceptance
+## 11. Release acceptance
 
 Before exposing a new release:
 
@@ -142,8 +211,7 @@ Before exposing a new release:
 - verify Vault readiness/rotation and recursive redaction;
 - run Python, Portal, Connector, Docker, Railway, and task-relevant live checks;
 - confirm Public Demo reconciliation/status when enabled;
-- verify one replica and `/data` persistence;
-- confirm Railway has `RAILWAY_RUN_UID=0` and the running Uvicorn process has dropped to UID `10001`;
+- verify PostgreSQL backup/restore and pgvector extension availability;
 - review artifacts/job summaries without copying secret values.
 
 See `docs/storage-safety.md`, `docs/phase-15-security.md`, `docs/security.md`, and `docs/manual-validation.md`.

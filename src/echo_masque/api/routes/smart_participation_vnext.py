@@ -29,7 +29,7 @@ from echo_masque.api.smart_participation_vnext_schemas import (
 )
 from echo_masque.character_turn_context_v3 import CharacterTurnContextV3Service
 from echo_masque.config import Settings
-from echo_masque.context_resolver_v3 import ContextBundleV3, ContextResolverV3, ContextTextHit
+from echo_masque.context_resolver_v3 import ContextBundleV3, ContextResolverV3
 from echo_masque.conversation_runtime import ConversationRuntimeCoordinator
 from echo_masque.conversation_structure_resolver import ConversationStructureResolver
 from echo_masque.participation_planner_v3 import ParticipationPlannerV3
@@ -40,7 +40,6 @@ from echo_masque.persistence.conversation_structure_repository import (
     ConversationStructureRepository,
 )
 from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository
-from echo_masque.persistence.server_knowledge_v3_repository import ServerWikiV3Repository
 from echo_masque.persistence.smart_participation_state_models import (
     SmartParticipationReplyDecisionRecord,
 )
@@ -427,41 +426,6 @@ def _current_segment_id(
     return str(getattr(segments[-1], "id", "")) if segments else ""
 
 
-def _numeric_confidence(value: object) -> float:
-    if isinstance(value, bool):
-        return 0.0
-    if isinstance(value, (int, float)):
-        return float(value)
-    return 0.0
-
-
-def _wiki_hits(
-    *,
-    request: Request,
-    owner_id: str,
-    payload: SmartParticipationResolveRequest,
-) -> tuple[ContextTextHit, ...]:
-    query = _current_text(payload)
-    if not query.strip():
-        return ()
-    values = ServerWikiV3Repository(_database(request)).lookup(
-        owner_id=owner_id,
-        connection_id=payload.connection_id,
-        guild_id=payload.guild_id,
-        query=query,
-        limit=6,
-    )
-    return tuple(
-        ContextTextHit(
-            source="server_wiki_v3",
-            ref=str(item.get("ref", "")),
-            text=f"{item.get('title', '')}: {item.get('body', '')}",
-            score=_numeric_confidence(item.get("confidence", 0.0)),
-        )
-        for item in values
-    )
-
-
 @router.post("/resolve", response_model=SmartParticipationResolveVNextView)
 def resolve_smart_participation_vnext(
     payload: SmartParticipationResolveRequest,
@@ -531,7 +495,6 @@ def resolve_smart_participation_vnext(
     current_segment_id = _current_segment_id(payload, tuple(result.segments))
     contexts: dict[str, ContextBundleV3] = {}
     try:
-        wiki_hits = _wiki_hits(request=request, owner_id=owner_id, payload=payload)
         resolver = _context_resolver(request)
         for deployment in records:
             contexts[deployment.id] = resolver.resolve(
@@ -546,7 +509,6 @@ def resolve_smart_participation_vnext(
                 actor_id=payload.author_id,
                 segment_id=current_segment_id,
                 live_context=_live_context(payload),
-                wiki_hits=wiki_hits,
                 correction_shield=correction_shields.get(deployment.id),
             )
     except Exception:

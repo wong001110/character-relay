@@ -36,7 +36,6 @@ from echo_masque.utility_gateway_contracts import (
     UtilityProviderSnapshot,
     UtilityQuotaDimension,
     UtilityRoute,
-    WikiUtilityResult,
 )
 from echo_masque.utility_structured_output import exact_json_contract
 
@@ -701,24 +700,6 @@ class UtilityGatewayRouter:
             estimated_cost_usd=0.004,
             max_output_tokens=500,
         )
-
-    def wiki_page(
-        self,
-        *,
-        prompt: str,
-    ) -> tuple[WikiUtilityResult, UtilityInferenceResult]:
-        return self.invoke(
-            "knowledge_wiki",
-            WikiUtilityResult,
-            system_prompt=(
-                "Create or update one compact derived Wiki page only from supplied source "
-                "text. Do not invent evidence. Return strict JSON."
-            ),
-            user_prompt=prompt[:14000],
-            estimated_cost_usd=0.006,
-            max_output_tokens=900,
-        )
-
 
 __all__ = [
     "UtilityCallFailed",

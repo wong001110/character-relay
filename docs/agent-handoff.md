@@ -24,8 +24,83 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
 - API/runtime: FastAPI + Python under `src/echo_masque/`.
 - Portal: React/Vite under `web/src/`.
 - Connector: Node/discord.js under `connectors/discord/`.
-- Persistence: SQLAlchemy with SQLite in the supported Railway deployment.
-- Production topology: one app replica and one persistent `/data` Volume while SQLite remains in use.
+- Persistence: SQLAlchemy; PostgreSQL + pgvector is required in production. SQLite remains a
+  development/test or offline migration source only.
+- Knowledge Fabric Phases 1–11c are complete on the active branch. Phase 5 adds
+  source-aligned FTS/dense/entity-graph retrieval over derived index records and one internal
+  `KnowledgeQueryEngine`. `list_effective_corpora()` is the sole server/corpus authorization
+  resolver and is applied before each channel ranks. PostgreSQL uses `simple` FTS plus a
+  pgvector HNSW index for the E5-small/384 profile; SQLite retains a deterministic test fallback.
+  `current` reports local freshness as `insufficient` until an approved freshness schema and
+  authorized live lookup are introduced. Phase 6 composes that engine only after a Character turn
+  is selected, resolves an existing scope without creating one, removes legacy RAG/Server Wiki
+  prompt injection, and uses a fail-closed Character epistemic boundary. Its default admits no
+  corpus Evidence until Phase 10's persisted authored policy exists; queries remain non-blocking.
+  Live external fallback remains Phase 9 because no source/tool/evidence contract authorizes it.
+  Phase 7 adds a Fabric-only, regenerable source-overview Projection with explicit
+  SourceVersion/Evidence dependencies, invalidation on a new source snapshot, lazy deterministic
+  rebuild, and dependency-first lifecycle deletion. The Character-internal `knowledge.search` Tool
+  now shares the same fail-closed Knowledge Context gate; it no longer calls Server Wiki lookup.
+  Phase 11c directly retired the legacy Knowledge Base/RAG/KB Wiki and Server Wiki V3 without
+  migration or archive. `knowledge-fabric-hard-cutover-v1` is a one-way, metadata-only ledger:
+  it removes the six retired tables and only old `knowledge-chunk` semantic vectors, while Fabric
+  and non-Knowledge vector consumers remain intact.
+  Phase 8a adds a library-only deterministic adapter for an already-authorized Fabric Source:
+  manual text, Markdown, OOXML DOCX, and digital PDF bytes become existing immutable snapshot,
+  canonical structure, and Evidence records through the Phase 3 service. It neither exposes an
+  upload/local-path/network surface nor owns R2/S3 publication. Textless PDFs fail as a typed
+  OCR-required outcome; no fabricated text is persisted. Phase 8b adds the similarly library-only
+  `git_snapshot` compiler: a trusted caller supplies immutable commit/tree/file bytes; a pure
+  policy excludes unsafe paths, secret/key material, dependency/build/cache paths, and undecodable
+  bytes before any R2 artifact or Evidence exists. It neither invokes Git nor reads a local path,
+  makes network calls, or accepts credentials. The existing ingestion service alone publishes the
+  private R2/S3-compatible artifact. New Git commits atomically supersede the prior available
+  version for the same Source without deleting its provenance/index rows; a retained commit can be
+  reactivated. Generic Source history remains unchanged. Phase 9a now provides a worker/library-only
+  public-HTTPS response boundary: an injected approved fetcher may supply one canonical public
+  page; the deterministic adapter stores only bounded conditional validators and safe outcomes,
+  rejects redirects/content/network failures without raw detail, and publishes changed valid
+  responses through the existing private Cloudflare R2-default/S3-compatible service. It supplies
+  no default egress client, public route, scheduler, crawl, credential, or Character live lookup.
+  Phase 9b-1 adds the opt-in pinned-DNS/literal-IP worker transport, Atom 1.0 adapter, durable
+  schedule lease/rate state, and Super-Admin schedule control. It resolves once and fails closed
+  for any non-global candidate, dials no proxy/redirect/credential path, and never follows Atom
+  links. Phase 9b-2 adds source-local Atom current-entry pointers: unchanged entry Evidence stays
+  reusable, changed/removed entries invalidate only their derived indexes, and current candidates/
+  projections fail closed to that map while preserving historical SourceVersion provenance. A
+  format-only feed snapshot creates no derived invalidation. Phase 10 adds persisted scoped
+  Character corpus allow/deny: missing policy denies, deny wins, and server authorization still
+  happens before retrieval. Phase 11a makes the active Deployment Workspace Knowledge page use
+  the Fabric surface for an authorized Discord server scope: effective Corpus visibility,
+  reversible global grants/overlays, server-local Corpus/HTTP(S) Source registration, and
+  Character policy. The page neither exposes Source credentials nor claims publication, sync, or
+  indexing; Public Demo remains server-enforced read-only. Phase 11b-1 adds a scope-authorized
+  Query Inspector over the existing Engine and a Super-Admin-only redacted global-source health
+  view. It returns no profiles, locators, artifacts, validators, leases, or generic metadata, and
+  has no retry/rebuild/publish action. Phase 11b Portal makes those existing read/write contracts
+  usable: a Super Admin-only Settings subtab manages global Corpora, registers HTTP(S) Sources,
+  renders only the redacted health model, and configures the existing durable schedule; the
+  Deployment Knowledge page exposes the same scoped Query Inspector to an already-authorized
+  Server administrator. Phase 11b-2 now consumes derived invalidations with a durable worker and
+  exposes only a Super-Admin source-specific retry for terminal failures; it never returns lease,
+  artifact, credential, or generic invalidation metadata. Phase 11c-2 completed the direct
+  retirement. Phase 12 remediation rejects credential-like Source inputs, isolates untrusted
+  evidence structurally, atomically supersedes Website snapshots, makes artifact/account cleanup
+  durable, fences schedule leases, keeps workers event-loop-safe, permits global-grant revocation,
+  and requires PostgreSQL + pgvector in production. Resume from the current Phase 12 record
+  before adding any new Knowledge surface.
+  Phase 4's corpus-bound canonical entities,
+  evidence-backed runtime-resolution history, conflicting assertions, world events, typed Evidence
+  Graph relations, and lifecycle cleanup remain unchanged. Canonical identity is
+  `(corpus_id, entity_type, normalized_name)`; matching names never infer cross-corpus identity.
+  Phase 3's immutable source versions, canonical content/Evidence, and private Cloudflare
+  R2/S3-compatible artifact storage remain unchanged. Phase 2's
+  canonical Server tuple `(platform, connection_id, workspace_id)` and explicit
+  `KnowledgeServerAdministrator` membership remain unchanged. Only authenticated Super Admin can
+  bootstrap/manage membership; owner-scoped Discord profiles and user-to-connection access grants
+  are not substitutes. Resume from the current Phase 12 record in `docs/active-development-plan.md`.
+- Production topology: PostgreSQL + pgvector is the target. While SQLite remains in use,
+  keep one app replica and one persistent `/data` Volume.
 - Application configuration prefix: `CHARACTER_RELAY_*`.
 - Intelligence authority: Intelligence Core v3. Topic authority and Topic fallback are forbidden.
 - Public Demo: shared, server-enforced read-only workspace; do not weaken mutation boundaries in the client or API.
@@ -61,7 +136,7 @@ For an applicable active plan, use one integration owner: sub-agents may researc
 | Context/participation | `context_resolver_v3.py`, `participation_planner_v3.py` | context/planner/participation tests | `docs/intelligence-core-v3-architecture.md` |
 | Character/Social Turn | `src/echo_masque/orchestration/`, conversation runtime | character/social graph tests | `docs/langgraph-roadmap.md` |
 | Media | `media_*`, `planner_media.py`, `conversation_media.py`, generated-media modules | `tests/test_media_*.py`, planner/generated-media tests | media contracts/roadmaps |
-| Knowledge/RAG/Wiki | `knowledge_*`, `character_turn_context_v3.py`, `character_turn_context_types.py`, related persistence | knowledge/context RAG tests | `docs/context-rag-v1.md` |
+| Knowledge Fabric | `knowledge_fabric_*`, `character_turn_context_v3.py`, `character_turn_context_types.py`, `persistence/knowledge_fabric_*`, `api/routes/knowledge_fabric.py`, `web/src/KnowledgeFabricPanel.tsx`, `web/src/knowledgeFabricApi.ts` | Fabric/cutover tests, `tests/test_knowledge_fabric_phase2.py`, `web/src/knowledgeFabricApi.test.ts`, `web/src/KnowledgeFabricPanel.test.ts` | `docs/knowledge-fabric-architecture.md`, active Phase 11 plan |
 | Tools/scheduler | `tool_runtime.py`, `tool_external.py`, scheduler/condition-watch modules | tool/watch/scheduler tests | tool-calling docs |
 | Observability | `runtime_trace.py`, provider trace modules/routes | runtime/provider trace tests | `docs/provider-tracing.md` |
 | Evaluation lab | scenario/test-pack/run/matrix/authoring/calibration modules and routes | Phase 13–16 tests | Phase 14/16 docs |
@@ -76,7 +151,7 @@ Search before relying on a glob or a historical filename; the table identifies o
 - Raw messages/media/tool results/external results remain provenance evidence.
 - Conversation Threads structure conversation; they are not durable knowledge authority.
 - Episodes describe what happened; Beliefs describe revisable current belief.
-- Wiki is a derived readable projection and cannot outrank source evidence.
+- Fabric Projections are derived readable caches and cannot outrank source evidence.
 - Relationship/Impression are social intelligence, not factual memory.
 - Planner-only media knowledge cannot silently become Character perception.
 - `unresolved` is a valid outcome; do not force low-confidence identity or membership.
@@ -105,6 +180,22 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+For changed protected decision logic, also run the configured bounded mutation scope and record
+its result or the reason it does not yet apply:
+
+```bash
+# Python (Ubuntu CI or an installed WSL distribution)
+mutmut run
+mutmut export-cicd-stats
+
+# Portal / Discord Connector
+cd web && npm run test:mutation
+cd connectors/discord && npm run test:mutation
+```
+
+See `docs/mutation-testing.md` for the initial scopes, survivor classification, and cadence. Do
+not make a full-repository mutation run a routine per-edit check.
 
 Use the root Docker/CI workflows for deployment validation. Live acceptance needs real deployment authority and secrets; never substitute invented local values.
 

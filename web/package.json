@@ -9,7 +9,8 @@
     "build": "tsc -b && vite build",
     "build:mock": "tsc -b && vite build --mode mock",
     "typecheck": "tsc -b --pretty false",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:mutation": "stryker run"
   },
   "dependencies": {
     "react": "19.1.0",
@@ -19,6 +20,9 @@
   "devDependencies": {
     "@types/react": "19.1.8",
     "@types/react-dom": "19.1.6",
+    "@stryker-mutator/core": "10.0.0",
+    "@stryker-mutator/typescript-checker": "10.0.0",
+    "@stryker-mutator/vitest-runner": "10.0.0",
     "@vitejs/plugin-react": "4.6.0",
     "typescript": "5.8.3",
     "vite": "7.3.6",

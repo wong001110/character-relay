@@ -1,5 +1,6 @@
 """FastAPI application factory."""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -28,7 +29,7 @@ from echo_masque.api.routes import (
     evaluations_router,
     health_router,
     interactions_router,
-    knowledge_router,
+    knowledge_fabric_router,
     matrices_router,
     prompt_inspector_router,
     provider_traces_router,
@@ -77,8 +78,26 @@ from echo_masque.image_creation_runtime import ImageCreationRuntimeService
 from echo_masque.intelligence_v3_projection import ProjectionConversationRuntimeCoordinator
 from echo_masque.internal_context import InternalContextService
 from echo_masque.judge_evaluation import JudgeEvaluationService
-from echo_masque.knowledge_consolidation_v3 import KnowledgeConsolidationV3Service
+from echo_masque.knowledge_fabric_atom_sync import KnowledgeFabricAtomSyncService
+from echo_masque.knowledge_fabric_context import KnowledgeContextBuilder
+from echo_masque.knowledge_fabric_epistemic_policy import PersistedCharacterEpistemicPolicy
+from echo_masque.knowledge_fabric_external_policy import (
+    ATOM_PUBLIC_HTTPS_SOURCE_TYPE,
+    WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE,
+)
+from echo_masque.knowledge_fabric_external_sync_scheduler import (
+    KnowledgeFabricExternalSyncScheduler,
+)
+from echo_masque.knowledge_fabric_ingestion import KnowledgeFabricIngestionService
+from echo_masque.knowledge_fabric_invalidation_worker import KnowledgeFabricInvalidationWorker
+from echo_masque.knowledge_fabric_pinned_fetcher import (
+    AsyncioPinnedHttpsDialTransport,
+    PinnedPublicHttpsFetcher,
+)
+from echo_masque.knowledge_fabric_query import KnowledgeQueryEngine
+from echo_masque.knowledge_fabric_website_sync import KnowledgeFabricWebsiteSyncService
 from echo_masque.knowledge_gap_discovery_v3 import KnowledgeGapDiscoveryService
+from echo_masque.knowledge_object_storage import object_storage_from_settings
 from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
 from echo_masque.live_media_scoped import KeyGroupScopedLiveMediaContextService
 from echo_masque.media_tools import MediaToolRegistry
@@ -103,7 +122,8 @@ from echo_masque.persistence import (
     GeneratedMediaArtifactRepository,
     InteractionRepository,
     KeyGroupRepository,
-    KnowledgeRepository,
+    KnowledgeFabricIndexRepository,
+    KnowledgeFabricRepository,
     MatrixRepository,
     MediaAnalysisRepository,
     ProviderTraceRepository,
@@ -120,9 +140,20 @@ from echo_masque.persistence.conversation_structure_repository import (
     ConversationStructureRepository,
 )
 from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository
-from echo_masque.persistence.server_knowledge_v3_repository import (
-    KnowledgeConsolidationCheckpointV3Repository,
-    ServerWikiV3Repository,
+from echo_masque.persistence.knowledge_fabric_content_repository import (
+    KnowledgeFabricContentRepository,
+)
+from echo_masque.persistence.knowledge_fabric_external_schedule_repository import (
+    KnowledgeFabricExternalScheduleRepository,
+)
+from echo_masque.persistence.knowledge_fabric_external_sync_repository import (
+    KnowledgeFabricExternalSyncRepository,
+)
+from echo_masque.persistence.knowledge_fabric_invalidation_repository import (
+    KnowledgeFabricInvalidationRepository,
+)
+from echo_masque.persistence.knowledge_fabric_projection_repository import (
+    KnowledgeFabricProjectionRepository,
 )
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.planner_media import PlannerMediaDescriptorService
@@ -200,14 +231,74 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         smart_participation_repository,
         resolved,
     )
-    knowledge_repository = KnowledgeRepository(database)
+    knowledge_object_storage = object_storage_from_settings(resolved)
+    knowledge_fabric_repository = KnowledgeFabricRepository(
+        database,
+        object_storage=knowledge_object_storage,
+    )
+    knowledge_fabric_content_repository = KnowledgeFabricContentRepository(
+        database,
+        object_storage=knowledge_object_storage,
+    )
+    knowledge_fabric_index_repository = KnowledgeFabricIndexRepository(database)
+    knowledge_fabric_invalidation_repository = KnowledgeFabricInvalidationRepository(database)
+    knowledge_fabric_projection_repository = KnowledgeFabricProjectionRepository(database)
+    knowledge_query_engine = KnowledgeQueryEngine(
+        fabric_repository=knowledge_fabric_repository,
+        index_repository=knowledge_fabric_index_repository,
+    )
+    # One fail-closed policy instance gates both automatic turn context and explicit
+    # internal knowledge.search Tool output before either can return to a Character.
+    character_epistemic_policy = PersistedCharacterEpistemicPolicy(knowledge_fabric_repository)
+    knowledge_context_builder = KnowledgeContextBuilder(
+        fabric_repository=knowledge_fabric_repository,
+        query_engine=knowledge_query_engine,
+        epistemic_policy=character_epistemic_policy,
+    )
+    knowledge_fabric_ingestion_service = KnowledgeFabricIngestionService(
+        knowledge_fabric_content_repository,
+        knowledge_object_storage,
+        object_key_prefix=resolved.knowledge_object_storage_prefix,
+    )
+    external_sync_repository = KnowledgeFabricExternalSyncRepository(database)
+    external_schedule_repository = KnowledgeFabricExternalScheduleRepository(database)
+
+    async def resolve_public_host(hostname: str) -> tuple[str, ...]:
+        loop = asyncio.get_running_loop()
+        records = await loop.getaddrinfo(hostname, 443, type=0)
+        return tuple(dict.fromkeys(str(record[4][0]) for record in records))
+
+    pinned_fetcher = PinnedPublicHttpsFetcher(
+        resolver=resolve_public_host,
+        dial_transport=AsyncioPinnedHttpsDialTransport(timeout_seconds=15),
+    )
+    website_sync_service = KnowledgeFabricWebsiteSyncService(
+        sync_repository=external_sync_repository,
+        ingestion_service=knowledge_fabric_ingestion_service,
+        fetcher=pinned_fetcher,
+    )
+    atom_sync_service = KnowledgeFabricAtomSyncService(
+        sync_repository=external_sync_repository,
+        ingestion_service=knowledge_fabric_ingestion_service,
+        fetcher=pinned_fetcher,
+    )
+    external_sync_scheduler = KnowledgeFabricExternalSyncScheduler(
+        schedule_repository=external_schedule_repository,
+        sync_by_source_type={
+            WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE: website_sync_service.sync_claim,
+            ATOM_PUBLIC_HTTPS_SOURCE_TYPE: atom_sync_service.sync_claim,
+        },
+    )
+    knowledge_fabric_invalidation_worker = KnowledgeFabricInvalidationWorker(
+        invalidations=knowledge_fabric_invalidation_repository,
+        indexes=knowledge_fabric_index_repository,
+        projections=knowledge_fabric_projection_repository,
+    )
 
     # Intelligence Core v3 runtime authorities.
     belief_repository = BeliefRepository(database)
     conversation_structure_repository = ConversationStructureRepository(database)
     conversation_runtime_repository = ConversationRuntimeRepository(database)
-    server_wiki_v3_repository = ServerWikiV3Repository(database)
-    knowledge_checkpoint_v3_repository = KnowledgeConsolidationCheckpointV3Repository(database)
 
     if bootstrap_admin is not None:
         centralized = DiscordInventoryService(database).centralize(bootstrap_admin.id)
@@ -262,7 +353,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         structure_repository=conversation_structure_repository,
         runtime_repository=conversation_runtime_repository,
         settings=resolved,
-        wiki_lookup_backend=server_wiki_v3_repository.lookup,
+        knowledge_context=knowledge_context_builder,
     )
     tool_registry = MediaToolRegistry(
         browser_runtime=browser_runtime,
@@ -356,8 +447,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         structure_resolver=conversation_structure_resolver,
         runtime_coordinator=conversation_runtime_coordinator,
         context_resolver=context_resolver_v3,
-        knowledge=knowledge_repository,
-        wiki=server_wiki_v3_repository,
+        knowledge_context=knowledge_context_builder,
         corrections=CurrentTurnBeliefRevisionService(
             repository=belief_repository,
             gateway=planner_utility_gateway,
@@ -421,7 +511,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         interaction_repository,
         expression_repository,
         smart_participation_repository,
-        knowledge_repository,
+        knowledge_fabric_repository,
         deployment_tool_repository,
         scheduled_reminder_repository,
         condition_watch_repository,
@@ -434,13 +524,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "Recovered %s interrupted Experiment Matrices as paused.",
             recovered_matrices,
         )
+    recovered_knowledge_ingestion_jobs = (
+        knowledge_fabric_ingestion_service.recover_interrupted_jobs()
+    )
+    if recovered_knowledge_ingestion_jobs:
+        logger.warning(
+            "Requeued %s interrupted Knowledge Fabric ingestion jobs.",
+            recovered_knowledge_ingestion_jobs,
+        )
     repository.seed_demo_targets()
     repository.remove_demo_character_cards()
-    knowledge_consolidation_v3_service = KnowledgeConsolidationV3Service(
-        wiki=server_wiki_v3_repository,
-        checkpoints=knowledge_checkpoint_v3_repository,
-        gateway=planner_utility_gateway,
-    )
     planner_media_service = PlannerMediaDescriptorService(
         media=EnhancedLiveMediaContextService.from_service(
             live_media_service,
@@ -490,10 +583,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await browser_runtime.start()
         await scheduled_reminder_delivery.start()
         await condition_watch_service.start()
+        await external_sync_scheduler.start()
+        await knowledge_fabric_invalidation_worker.start()
         try:
             yield
         finally:
+            await knowledge_fabric_invalidation_worker.stop()
             await condition_watch_service.stop()
+            await external_sync_scheduler.stop()
             await scheduled_reminder_delivery.stop()
             await browser_runtime.stop()
 
@@ -538,7 +635,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.expression_repository = expression_repository
     app.state.smart_participation_repository = smart_participation_repository
     app.state.semantic_participation_service = semantic_participation_service
-    app.state.knowledge_repository = knowledge_repository
+    app.state.knowledge_fabric_repository = knowledge_fabric_repository
+    app.state.knowledge_fabric_index_repository = knowledge_fabric_index_repository
+    app.state.knowledge_fabric_invalidation_repository = knowledge_fabric_invalidation_repository
+    app.state.knowledge_fabric_projection_repository = knowledge_fabric_projection_repository
+    app.state.knowledge_query_engine = knowledge_query_engine
+    app.state.knowledge_object_storage = knowledge_object_storage
+    app.state.knowledge_fabric_content_repository = knowledge_fabric_content_repository
+    app.state.knowledge_fabric_ingestion_service = knowledge_fabric_ingestion_service
+    app.state.knowledge_fabric_external_schedule_repository = external_schedule_repository
+    app.state.knowledge_fabric_external_sync_repository = external_sync_repository
+    app.state.knowledge_fabric_external_sync_scheduler = external_sync_scheduler
+    app.state.knowledge_fabric_invalidation_worker = knowledge_fabric_invalidation_worker
     app.state.entity_evidence_repository = entity_evidence_repository
     app.state.knowledge_gap_discovery_service = knowledge_gap_discovery_service
     app.state.context_resolver_v3 = context_resolver_v3
@@ -557,9 +665,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.belief_repository = belief_repository
     app.state.conversation_structure_repository = conversation_structure_repository
     app.state.conversation_runtime_repository = conversation_runtime_repository
-    app.state.server_wiki_v3_repository = server_wiki_v3_repository
-    app.state.knowledge_checkpoint_v3_repository = knowledge_checkpoint_v3_repository
-    app.state.knowledge_consolidation_v3_service = knowledge_consolidation_v3_service
     app.state.internal_context_service = internal_context_service
     app.state.planner_media_service = planner_media_service
     app.state.discord_connector_runtime = discord_connector_runtime
@@ -607,7 +712,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(discord_identities_router)
     app.include_router(interactions_router)
     app.include_router(smart_participation_router)
-    app.include_router(knowledge_router)
+    app.include_router(knowledge_fabric_router)
     app.include_router(connectors_router)
     app.include_router(prompt_inspector_router)
     app.include_router(targets_router)

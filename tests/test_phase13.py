@@ -225,7 +225,7 @@ def test_production_app_rejects_non_persistent_sqlite(tmp_path: Path) -> None:
 
     with pytest.raises(
         UnsafeProductionStorageError,
-        match="must be under /data",
+        match="requires PostgreSQL \+ pgvector",
     ):
         create_app(configured)
 

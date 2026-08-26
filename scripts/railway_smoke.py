@@ -77,14 +77,16 @@ def validate_storage_health(health: dict[str, Any], *, required: bool) -> str:
     if not isinstance(instance_id, str) or not instance_id:
         raise RuntimeError(f"Storage identity was missing: {storage}")
     if health.get("environment") == "production":
-        if storage.get("persistent_required") is not True:
-            raise RuntimeError(f"Production did not require persistent storage: {storage}")
+        if storage.get("database_kind") != "postgresql":
+            raise RuntimeError(f"Production database was not PostgreSQL: {storage}")
+        if storage.get("database_path") is not None:
+            raise RuntimeError(f"Production exposed a local database path: {storage}")
+        if storage.get("persistent_required") is not False:
+            raise RuntimeError(
+                f"Production reported an unsupported local-storage requirement: {storage}"
+            )
         if storage.get("mount_ready") is not True:
-            raise RuntimeError(f"Production /data mount was not ready: {storage}")
-        if storage.get("mount_path") != "/data":
-            raise RuntimeError(f"Production mount path was unexpected: {storage}")
-        if storage.get("database_path") != "/data/echo_masque.db":
-            raise RuntimeError(f"Production database path was unexpected: {storage}")
+            raise RuntimeError(f"Production persistence readiness was not verified: {storage}")
     return instance_id
 
 

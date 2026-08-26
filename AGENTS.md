@@ -32,6 +32,7 @@ When `docs/active-development-plan.md` names the current branch, it is the branc
 
 - Work in coherent phase-sized batches. Do not commit or run the full validation suite after every small file edit.
 - Run focused checks after a coherent implementation batch and the phase's relevant complete checks before its commit gate.
+- For changed security, authorization, ownership, lifecycle, or other protected decision logic, run the applicable targeted mutation-test scope when one is configured. Treat surviving mutants as missing behavioral proof until they are killed or recorded as equivalent with evidence.
 - Create at most one implementation commit per phase. Fix validation failures before that commit instead of producing checkpoint/fixup commits.
 - Sub-agents may perform bounded research, verification, testing, or editing tasks. The main agent owns scope, evidence reconciliation, shared-tree integration, diff review, validation decisions, and the phase commit.
 - Sub-agents do not independently commit shared work unless the active plan explicitly delegates a separate branch and commit boundary.

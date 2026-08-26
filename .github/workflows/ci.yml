@@ -59,6 +59,42 @@ jobs:
           name: pytest-${{ matrix.python-version }}
           path: pytest-report.txt
 
+  postgres-foundation:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg16-trixie
+        env:
+          POSTGRES_DB: echo_masque_test
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d echo_masque_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      ECHO_MASQUE_ALLOW_DESTRUCTIVE_POSTGRES_TESTS: "yes"
+      ECHO_MASQUE_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/echo_masque_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - name: PostgreSQL Knowledge Fabric bootstrap, cutover, API, and retrieval contracts
+        run: >-
+          python -m pytest
+          tests/test_database_foundation.py::test_postgresql_foundation_when_explicit_test_database_is_available
+          tests/test_database_foundation.py::test_postgresql_concurrent_schema_bootstrap_is_serialized
+          tests/test_knowledge_fabric_hard_cutover.py::test_hard_cutover_removes_legacy_storage_on_disposable_postgresql
+          tests/test_knowledge_fabric_phase2.py::test_postgresql_app_uses_fabric_and_has_no_legacy_knowledge_surface
+          tests/test_knowledge_fabric_phase5.py::test_postgresql_fts_and_dense_channels_when_explicit_test_database_is_available
+
   web:
     runs-on: ubuntu-latest
     defaults:
@@ -105,7 +141,26 @@ jobs:
           python-version: "3.12"
       - name: Build production image
         run: docker build --tag echo-masque:ci .
-      - name: Reject production container without persistent volume
+      - name: Start disposable PostgreSQL for production-image validation
+        run: |
+          docker network create echo-masque-ci-network
+          docker run --detach \
+            --name echo-masque-ci-postgres \
+            --network echo-masque-ci-network \
+            --network-alias postgres \
+            --env POSTGRES_DB=echo_masque_test \
+            --env POSTGRES_PASSWORD=postgres \
+            --env POSTGRES_USER=postgres \
+            pgvector/pgvector:0.8.6-pg16-trixie
+          for attempt in {1..60}; do
+            if docker exec echo-masque-ci-postgres pg_isready -U postgres -d echo_masque_test; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs echo-masque-ci-postgres
+          exit 1
+      - name: Reject production container without PostgreSQL configuration
         run: |
           set +e
           docker run --name echo-masque-ci-unsafe --env PORT=8001 echo-masque:ci \
@@ -114,19 +169,19 @@ jobs:
           set -e
           cat unsafe-storage.log
           if [ "$status" -eq 0 ]; then
-            echo "Production container unexpectedly started without a /data mount."
+            echo "Production container unexpectedly started without PostgreSQL configuration."
             exit 1
           fi
-          grep --fixed-strings "Unsafe production storage" unsafe-storage.log
+          grep --fixed-strings "requires PostgreSQL + pgvector" unsafe-storage.log
           docker rm echo-masque-ci-unsafe
-      - name: Start container with persistent volume
+      - name: Start container with PostgreSQL
         run: |
-          docker volume create echo-masque-ci-data
           docker run --detach \
             --name echo-masque-ci \
             --publish 8000:8000 \
             --env PORT=8000 \
-            --volume echo-masque-ci-data:/data \
+            --env CHARACTER_RELAY_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/echo_masque_test \
+            --network echo-masque-ci-network \
             echo-masque:ci
       - name: Wait for healthcheck
         run: |
@@ -151,7 +206,8 @@ jobs:
             --name echo-masque-ci \
             --publish 8000:8000 \
             --env PORT=8000 \
-            --volume echo-masque-ci-data:/data \
+            --env CHARACTER_RELAY_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/echo_masque_test \
+            --network echo-masque-ci-network \
             echo-masque:ci
           for attempt in {1..60}; do
             if curl --fail --silent http://127.0.0.1:8000/health > health-after.json; then
@@ -163,41 +219,15 @@ jobs:
           test "$before" = "$after"
       - name: Run container smoke test
         run: python scripts/railway_smoke.py http://127.0.0.1:8000 --require-storage
-      - name: Verify Railway root-volume handoff
-        run: |
-          docker volume create echo-masque-ci-railway-data
-          docker run --rm \
-            --user 0 \
-            --entrypoint sh \
-            --volume echo-masque-ci-railway-data:/data \
-            echo-masque:ci \
-            -c 'chown root:root /data && chmod 0755 /data && touch /data/legacy.db && chmod 0644 /data/legacy.db'
-          docker run --detach \
-            --name echo-masque-ci-railway \
-            --user 0 \
-            --publish 8002:8002 \
-            --env PORT=8002 \
-            --env RAILWAY_RUN_UID=0 \
-            --volume echo-masque-ci-railway-data:/data \
-            echo-masque:ci
-          for attempt in {1..60}; do
-            if curl --fail --silent http://127.0.0.1:8002/health > railway-health.json; then
-              break
-            fi
-            sleep 2
-          done
-          curl --fail --silent http://127.0.0.1:8002/health
-          test "$(docker exec --user 0 echo-masque-ci-railway awk '/^Uid:/{print $2}' /proc/1/status)" = "10001"
-          docker exec --user character-relay echo-masque-ci-railway test -w /data
-          docker exec --user character-relay echo-masque-ci-railway test -w /data/legacy.db
       - name: Show container logs
         if: always()
-        run: docker logs echo-masque-ci || true
-      - name: Remove container and volume
+        run: |
+          docker logs echo-masque-ci || true
+          docker logs echo-masque-ci-postgres || true
+      - name: Remove production-image test resources
         if: always()
         run: |
           docker rm --force echo-masque-ci || true
           docker rm --force echo-masque-ci-unsafe || true
-          docker rm --force echo-masque-ci-railway || true
-          docker volume rm echo-masque-ci-data || true
-          docker volume rm echo-masque-ci-railway-data || true
+          docker rm --force echo-masque-ci-postgres || true
+          docker network rm echo-masque-ci-network || true

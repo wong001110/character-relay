@@ -82,15 +82,28 @@ from echo_masque.persistence.key_group_repository import (
     KeyGroupRepository,
     ResolvedKeyGroup,
 )
-from echo_masque.persistence.knowledge_models import (
-    KnowledgeBaseRecord,
-    KnowledgeChunkRecord,
-    KnowledgeDocumentRecord,
+from echo_masque.persistence.knowledge_fabric_content_repository import (
+    CanonicalBlockInput,
+    CanonicalDocumentInput,
+    CanonicalSectionInput,
+    KnowledgeFabricContentRepository,
+    KnowledgeIngestionAlreadyRunning,
+    KnowledgeSourceVersionConflict,
 )
-from echo_masque.persistence.knowledge_repository import (
-    KnowledgeRepository as BaseKnowledgeRepository,
+from echo_masque.persistence.knowledge_fabric_index_repository import (
+    KnowledgeFabricIndexRepository,
+    KnowledgeIndexCandidate,
 )
-from echo_masque.persistence.knowledge_repository import KnowledgeRetrievalResult
+from echo_masque.persistence.knowledge_fabric_interpretation_repository import (
+    KnowledgeFabricInterpretationRepository,
+    normalize_canonical_entity_name,
+)
+from echo_masque.persistence.knowledge_fabric_projection_repository import (
+    KnowledgeFabricProjectionRepository,
+    KnowledgeProjectionProvenance,
+    KnowledgeProjectionView,
+)
+from echo_masque.persistence.knowledge_fabric_repository import KnowledgeFabricRepository
 from echo_masque.persistence.matrix_repository import MatrixRepository
 from echo_masque.persistence.media_models import MediaAnalysisRecord
 from echo_masque.persistence.media_repository import MediaAnalysisRepository
@@ -128,11 +141,9 @@ from echo_masque.persistence.trial_request import (
     decode_trial_request,
     encode_trial_request,
 )
-from echo_masque.persistence.wiki_aware_knowledge_repository import WikiAwareKnowledgeRepository
 from echo_masque.persistence.workspace_repository import WorkspaceRepository
 
 CalibrationRepository = PortableCalibrationRepository
-KnowledgeRepository = WikiAwareKnowledgeRepository
 
 __all__ = [
     "AuthRepository",
@@ -143,11 +154,13 @@ __all__ = [
     "AuthoringTestPackDraftItemRecord",
     "AuthoringTestPackDraftRecord",
     "BaseCalibrationRepository",
-    "BaseKnowledgeRepository",
     "CalibrationCaseRecord",
     "CalibrationConflict",
     "CalibrationDatasetRecord",
     "CalibrationRepository",
+    "CanonicalBlockInput",
+    "CanonicalDocumentInput",
+    "CanonicalSectionInput",
     "CharacterDeploymentRecord",
     "CharacterKeyGroupAssignmentRecord",
     "CharacterSemanticProfileRecord",
@@ -192,11 +205,16 @@ __all__ = [
     "JudgePredictionRecord",
     "KeyGroupCapability",
     "KeyGroupRepository",
-    "KnowledgeBaseRecord",
-    "KnowledgeChunkRecord",
-    "KnowledgeDocumentRecord",
-    "KnowledgeRepository",
-    "KnowledgeRetrievalResult",
+    "KnowledgeFabricContentRepository",
+    "KnowledgeFabricIndexRepository",
+    "KnowledgeFabricInterpretationRepository",
+    "KnowledgeFabricProjectionRepository",
+    "KnowledgeFabricRepository",
+    "KnowledgeIndexCandidate",
+    "KnowledgeIngestionAlreadyRunning",
+    "KnowledgeProjectionProvenance",
+    "KnowledgeProjectionView",
+    "KnowledgeSourceVersionConflict",
     "MatrixRepository",
     "MediaAnalysisRecord",
     "MediaAnalysisRepository",
@@ -223,10 +241,10 @@ __all__ = [
     "TargetAccessRepository",
     "TrialRequestMetadata",
     "UnsafeProductionStorageError",
-    "WikiAwareKnowledgeRepository",
     "WorkspaceRepository",
     "decode_trial_metadata",
     "decode_trial_request",
     "encode_trial_request",
     "inspect_storage",
+    "normalize_canonical_entity_name",
 ]

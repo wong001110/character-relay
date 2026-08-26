@@ -10,6 +10,7 @@ import {
 } from "./api";
 import { FunctionalIcon } from "./components/ui";
 import { deploymentApi, type PlatformConnection } from "./deploymentApi";
+import { KnowledgeFabricAdministrationPanel } from "./KnowledgeFabricAdministrationPanel";
 import { NotebookField, NotebookInput, NotebookSelect } from "./NotebookUI";
 import { Pagination } from "./Pagination";
 import {
@@ -17,7 +18,7 @@ import {
   type AdminServerAccess
 } from "./serverAccessApi";
 
-type AdminTab = "users" | "servers" | "connector";
+type AdminTab = "users" | "servers" | "connector" | "knowledge";
 
 interface Props {
   user: AuthUser;
@@ -373,6 +374,13 @@ export function AdministrationSettingsPanel({ user }: Props) {
           onClick={() => setTab("connector")}
         >
           <FunctionalIcon name="provider" size={15} /> Discord Connector
+        </button>
+        <button
+          type="button"
+          className={tab === "knowledge" ? "is-active" : ""}
+          onClick={() => setTab("knowledge")}
+        >
+          <FunctionalIcon name="memory" size={15} /> Knowledge Fabric
         </button>
       </nav>
 
@@ -762,6 +770,8 @@ export function AdministrationSettingsPanel({ user }: Props) {
           </aside>
         </div>
       )}
+
+      {tab === "knowledge" && <KnowledgeFabricAdministrationPanel />}
     </div>
   );
 }

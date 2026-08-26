@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   resolveExplicitAudiencePreflight,
   semanticScoringRequired
 } from "./audiencePreflight.js";
+import type { AudienceResolution } from "./routing.js";
 import type { DiscordDeployment } from "./types.js";
 
 function deployment(name: string): DiscordDeployment {
@@ -38,6 +39,11 @@ function deployment(name: string): DiscordDeployment {
 }
 
 describe("explicit audience preflight", () => {
+  afterEach(() => {
+    vi.doUnmock("./routing.js");
+    vi.resetModules();
+  });
+
   it("resolves a named Character before semantic scoring", () => {
     const ann = deployment("Ann");
     const ning = deployment("Ning");
@@ -88,5 +94,71 @@ describe("explicit audience preflight", () => {
 
     expect(result?.deployments[0]).toBe(ann);
     expect(result?.deployments[0]?.participation_mode).toBe("smart");
+  });
+
+  it("passes smart candidates to routing as mention-only without changing other candidates", async () => {
+    const smart = deployment("Ann");
+    const mentionOnly = { ...deployment("Ning"), participation_mode: "mention_only" as const };
+    const resolveAudience = vi.fn<
+      (
+        candidates: DiscordDeployment[],
+        text: string,
+        replyDeploymentId: string | null,
+        groupAliases: string[]
+      ) => AudienceResolution
+    >(() => ({ deployments: [smart], reason: "selected_alias", text: "hello", options: [] }));
+    vi.doMock("./routing.js", async () => {
+      const actual = await vi.importActual<typeof import("./routing.js")>("./routing.js");
+      return { ...actual, resolveAudience };
+    });
+    const { resolveExplicitAudiencePreflight: resolveWithSpy } = await import("./audiencePreflight.js");
+
+    const result = resolveWithSpy([smart, mentionOnly], "Ann, hello");
+
+    expect(result?.deployments).toEqual([smart]);
+    const routedCandidates = resolveAudience.mock.calls[0]?.[0];
+    expect(routedCandidates).toHaveLength(2);
+    expect(routedCandidates?.[0]).toMatchObject({
+      deployment_id: smart.deployment_id,
+      participation_mode: "mention_only"
+    });
+    expect(routedCandidates?.[0]).not.toBe(smart);
+    expect(routedCandidates?.[1]).toBe(mentionOnly);
+  });
+
+  it("does not invent a group alias when callers use the default aliases", () => {
+    const result = resolveExplicitAudiencePreflight(
+      [deployment("Ann")],
+      "Stryker was here, hello"
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("short-circuits an empty candidate list before routing", async () => {
+    const resolveAudience = vi.fn<
+      (
+        candidates: DiscordDeployment[],
+        text: string,
+        replyDeploymentId: string | null,
+        groupAliases: string[]
+      ) => AudienceResolution
+    >();
+    vi.doMock("./routing.js", async () => {
+      const actual = await vi.importActual<typeof import("./routing.js")>("./routing.js");
+      return { ...actual, resolveAudience };
+    });
+    const { resolveExplicitAudiencePreflight: resolveWithSpy } = await import("./audiencePreflight.js");
+
+    expect(resolveWithSpy([], "Ann, hello")).toBeNull();
+    expect(resolveAudience).not.toHaveBeenCalled();
+  });
+
+  it("requires semantic scoring only when no explicit route leaves a smart candidate", () => {
+    const smart = deployment("Ann");
+    const mentionOnly = { ...deployment("Ning"), participation_mode: "mention_only" as const };
+
+    expect(semanticScoringRequired([smart, mentionOnly], null)).toBe(true);
+    expect(semanticScoringRequired([mentionOnly], null)).toBe(false);
   });
 });

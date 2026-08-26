@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from typing import Protocol
 
 from pydantic import BaseModel, Field
 
 from echo_masque.config import Settings, get_settings
 from echo_masque.expression_retrieval import semantic_tokens
+from echo_masque.knowledge_fabric_context import KnowledgeContextBuilder
 from echo_masque.persistence.belief_repository import BeliefRepository
 from echo_masque.persistence.conversation_runtime_repository import (
     ConversationEpisodeV3View,
@@ -34,25 +34,13 @@ _INTERNAL_EPISODE_NAMESPACE = "internal-episode-v3"
 INTERNAL_CONTEXT_TOOL_IDS = (
     "memory.search",
     "conversation.search",
-    "wiki.lookup",
+    "knowledge.search",
 )
 
 
 class InternalSearchInput(BaseModel):
     query: str = Field(min_length=1, max_length=800)
     limit: int = Field(default=5, ge=1, le=8)
-
-
-class WikiLookupBackend(Protocol):
-    def __call__(
-        self,
-        *,
-        owner_id: str,
-        connection_id: str,
-        guild_id: str,
-        query: str,
-        limit: int,
-    ) -> tuple[dict[str, object], ...] | list[dict[str, object]]: ...
 
 
 def _cosine(left: list[float], right: list[float]) -> float:
@@ -85,7 +73,7 @@ class InternalContextService:
     runtime_repository: ConversationRuntimeRepository
     settings: Settings | None = None
     encoder: SemanticEncoder | None = None
-    wiki_lookup_backend: WikiLookupBackend | None = None
+    knowledge_context: KnowledgeContextBuilder | None = None
 
     def __post_init__(self) -> None:
         self.settings = self.settings or get_settings()
@@ -348,34 +336,48 @@ class InternalContextService:
             ensure_ascii=False,
         )
 
-    def wiki_lookup(self, arguments: dict[str, object], context: ToolExecutionContext) -> str:
+    def knowledge_search(self, arguments: dict[str, object], context: ToolExecutionContext) -> str:
+        """Return only Character-admitted, locator-free Fabric Evidence to the model."""
+
         payload = InternalSearchInput.model_validate(arguments)
-        if self.wiki_lookup_backend is None:
+        if self.knowledge_context is None:
             return json.dumps(
                 {
                     "ok": True,
                     "available": False,
-                    "scope": "current_discord_server",
-                    "pages": [],
+                    "scope": "current_knowledge_fabric_server",
+                    "results": [],
                 },
                 ensure_ascii=False,
             )
-        pages = list(
-            self.wiki_lookup_backend(
-                owner_id=context.owner_id,
-                connection_id=context.connection_id,
-                guild_id=context.guild_id,
-                query=payload.query,
-                limit=payload.limit,
-            )
+        knowledge = self.knowledge_context.build(
+            platform=context.platform,
+            connection_id=context.connection_id,
+            workspace_id=context.guild_id,
+            deployment_id=context.deployment_id,
+            character_card_id=context.character_card_id,
+            query=payload.query,
+            result_limit=payload.limit,
         )
+        prompt_hits = knowledge.prompt_hits()
+        results = [
+            {
+                "ref": prompt_hit.ref,
+                "title": hit.document_title,
+                "source_version_id": hit.source_version_id,
+                "authority": hit.authority_profile,
+                "channels": list(hit.channels),
+                "content": prompt_hit.text,
+            }
+            for hit, prompt_hit in zip(knowledge.hits, prompt_hits, strict=True)
+        ]
         return json.dumps(
             {
                 "ok": True,
-                "available": True,
-                "scope": "current_discord_server",
-                "count": len(pages),
-                "pages": pages,
+                "available": knowledge.result is not None,
+                "scope": "current_knowledge_fabric_server",
+                "count": len(results),
+                "results": results,
             },
             ensure_ascii=False,
         )
@@ -390,8 +392,8 @@ class InternalContextService:
             return self.memory_search(arguments, context)
         if tool_id == "conversation.search":
             return self.conversation_search(arguments, context)
-        if tool_id == "wiki.lookup":
-            return self.wiki_lookup(arguments, context)
+        if tool_id == "knowledge.search":
+            return self.knowledge_search(arguments, context)
         raise ValueError("Unknown Internal Context Tool.")
 
 
@@ -419,6 +421,5 @@ __all__ = [
     "INTERNAL_CONTEXT_TOOL_IDS",
     "InternalContextService",
     "InternalSearchInput",
-    "WikiLookupBackend",
     "internal_context_tool_schemas",
 ]

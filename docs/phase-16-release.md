@@ -60,7 +60,7 @@ Application settings use the `CHARACTER_RELAY_` environment prefix.
 | `CHARACTER_RELAY_MAX_TEMPLATE_INSTANTIATIONS_PER_DAY` | 100 | Template and Share Bundle import operations per account per day |
 | `CHARACTER_RELAY_MAX_SHARED_ASSETS_PER_BUNDLE` | 200 | Maximum expanded Scenario + Test Pack assets in one bundle |
 
-Quota counters are stored in the existing persistent security bucket table. They survive application restarts and Railway redeployments when the SQLite volume is mounted correctly.
+Quota counters are stored in the existing persistent security bucket table. They survive application restarts and Railway redeployments through the managed PostgreSQL production database.
 
 ## Upgrade and migration
 
@@ -68,11 +68,9 @@ Phase 16 uses migration-safe table creation through the existing database initia
 
 Before deployment:
 
-1. Preserve the Railway Volume mounted at `/data`.
-2. Preserve `CHARACTER_RELAY_DATABASE_URL=sqlite:////data/echo_masque.db`.
-3. Preserve the Credential Vault encryption keys.
-4. Keep exactly one replica while SQLite remains the production database.
-5. Back up the account Workspace, Authoring, and Calibration archives before destructive infrastructure changes.
+1. Verify PostgreSQL backup/restore and pgvector availability.
+2. Preserve the Credential Vault encryption keys.
+3. Back up the account Workspace, Authoring, and Calibration archives before destructive infrastructure changes.
 
 After deployment:
 

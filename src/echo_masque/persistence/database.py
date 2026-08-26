@@ -1,14 +1,16 @@
 """Database engine, schema initialization, and persistent storage identity."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlite3 import Connection as SQLiteConnection
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Connection, Engine, create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import ConnectionPoolEntry, StaticPool
+from sqlalchemy.pool import ConnectionPoolEntry, NullPool, StaticPool
 
 from echo_masque.persistence.belief_models import (
     BeliefEvidenceDependencyRecord,
@@ -69,12 +71,50 @@ from echo_masque.persistence.models import Base, StorageMetadataRecord
 from echo_masque.persistence.intelligence_v3_migration_models import (
     IntelligenceV3HardCutoverMigrationRecord,
 )
+from echo_masque.persistence.knowledge_fabric_hard_cutover_models import (
+    KnowledgeFabricHardCutoverMigrationRecord,
+)
+from echo_masque.persistence.knowledge_fabric_models import (
+    KnowledgeAccessGrantRecord,
+    KnowledgeCharacterCorpusPolicyRecord,
+    KnowledgeAssetReferenceRecord,
+    KnowledgeCanonicalBlockRecord,
+    KnowledgeCanonicalDocumentRecord,
+    KnowledgeCanonicalEntityRecord,
+    KnowledgeCanonicalSectionRecord,
+    KnowledgeCorpusRecord,
+    KnowledgeDependencyInvalidationRecord,
+    KnowledgeEvidenceEmbeddingRecord,
+    KnowledgeEvidenceGraphRelationRecord,
+    KnowledgeEvidenceRetrievalEntryRecord,
+    KnowledgeEvidenceUnitRecord,
+    KnowledgeExternalHostRateRecord,
+    KnowledgeExternalSourceScheduleRecord,
+    KnowledgeExternalSourceSyncStateRecord,
+    KnowledgeExtractedAssertionRecord,
+    KnowledgeIngestionCheckpointRecord,
+    KnowledgeIngestionJobRecord,
+    KnowledgeInterpretationEvidenceRecord,
+    KnowledgeObjectDeletionRecord,
+    KnowledgeObjectArtifactRecord,
+    KnowledgeOverlayPolicyRecord,
+    KnowledgeProjectionDependencyRecord,
+    KnowledgeProjectionRecord,
+    KnowledgeRuntimeEntityResolutionRecord,
+    KnowledgeServerAdministratorRecord,
+    KnowledgeServerScopeRecord,
+    KnowledgeSourceRecord,
+    KnowledgeSourceCurrentEntryRecord,
+    KnowledgeSourceVersionRecord,
+    KnowledgeWorldEventParticipantRecord,
+    KnowledgeWorldEventRecord,
+)
 from echo_masque.persistence.operational_migration_models import (
     OperationalDataMigrationRecord,
 )
-from echo_masque.persistence.server_knowledge_v3_models import (
-    KnowledgeConsolidationCheckpointV3Record,
-    ServerWikiPageV3Record,
+from echo_masque.persistence.schema_migration_models import (
+    DatabaseDataMigrationRecord,
+    DatabaseSchemaMigrationRecord,
 )
 from echo_masque.persistence.smart_participation_state_models import (
     SmartParticipationDeploymentStateRecord,
@@ -85,7 +125,6 @@ from echo_masque.persistence.social_intelligence_models import (
     SocialEventV3Record,
 )
 from echo_masque.persistence.utility_gateway_models import UtilityProviderQuotaRecord
-from echo_masque.persistence.wiki_page_models import WikiPageRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +195,40 @@ BEGIN
 END;
 """
 
+_POSTGRES_DEPLOYMENT_SERVER_UNIQUE_INDEX = """
+CREATE UNIQUE INDEX IF NOT EXISTS uq_character_deployment_discord_server
+ON character_deployments (owner_id, connection_id, workspace_id, character_card_id)
+WHERE platform = 'discord' AND workspace_id <> ''
+"""
+
+_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_FUNCTION = """
+CREATE OR REPLACE FUNCTION cr_delete_deployment_runtime() RETURNS trigger AS $$
+BEGIN
+    DELETE FROM deployment_presence WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_presence_notices WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_presence_rhythms WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_activity_session_items WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_activity_sessions WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_discovery_profiles WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_discovery_exposures WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_discovery_decisions WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_discovery_share_policies WHERE deployment_id = OLD.id;
+    DELETE FROM deployment_discovery_shares WHERE deployment_id = OLD.id;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql
+"""
+
+_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_TRIGGER_DROP = """
+DROP TRIGGER IF EXISTS cr_delete_deployment_runtime ON character_deployments
+"""
+
+_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_TRIGGER_CREATE = """
+CREATE TRIGGER cr_delete_deployment_runtime
+AFTER DELETE ON character_deployments
+FOR EACH ROW EXECUTE FUNCTION cr_delete_deployment_runtime()
+"""
+
 
 def _enable_sqlite_foreign_keys(
     dbapi_connection: SQLiteConnection, _: ConnectionPoolEntry
@@ -169,22 +242,51 @@ def _enable_sqlite_foreign_keys(
         cursor.close()
 
 
+def normalize_postgresql_driver_url(url: str) -> str:
+    """Select psycopg 3 for ordinary PostgreSQL URLs without exposing the URL."""
+
+    if url.startswith("postgresql://"):
+        return f"postgresql+psycopg://{url.removeprefix('postgresql://')}"
+    if url.startswith("postgres://"):
+        return f"postgresql+psycopg://{url.removeprefix('postgres://')}"
+    return url
+
+
 class Database:
     def __init__(self, url: str) -> None:
+        self._url = normalize_postgresql_driver_url(url)
         kwargs: dict[str, object] = {}
-        if url.startswith("sqlite"):
+        if self._url.startswith("sqlite"):
             kwargs["connect_args"] = {"check_same_thread": False}
-        if url in {"sqlite://", "sqlite:///:memory:"}:
+        if self._url in {"sqlite://", "sqlite:///:memory:"}:
             kwargs["poolclass"] = StaticPool
-        self.engine: Engine = create_engine(url, **kwargs)
+        self.engine: Engine = create_engine(self._url, **kwargs)
         if self.engine.dialect.name == "sqlite":
             event.listen(self.engine, "connect", _enable_sqlite_foreign_keys)
         self.session_factory = sessionmaker(self.engine, expire_on_commit=False)
 
-    def initialize(self) -> None:
+    def initialize(
+        self,
+        *,
+        run_legacy_migrations: bool = True,
+        allow_incomplete_data_migration: bool = False,
+    ) -> None:
+        """Initialize schema and data migrations without cross-replica races."""
+
+        with self._postgresql_initialize_lock():
+            self._initialize_unlocked(
+                run_legacy_migrations=run_legacy_migrations,
+                allow_incomplete_data_migration=allow_incomplete_data_migration,
+            )
+
+    def _initialize_unlocked(
+        self,
+        *,
+        run_legacy_migrations: bool,
+        allow_incomplete_data_migration: bool,
+    ) -> None:
         # Explicitly touch authority/runtime model classes so schema creation is deterministic.
         _ = (
-            WikiPageRecord,
             ConversationThreadRecord,
             ConversationSegmentV3Record,
             ThreadMembershipRecord,
@@ -200,8 +302,6 @@ class Database:
             BeliefRevisionEventRecord,
             SocialEventV3Record,
             ImpressionV3Record,
-            ServerWikiPageV3Record,
-            KnowledgeConsolidationCheckpointV3Record,
             CharacterRelationshipPriorRecord,
             DeploymentRelationshipStateRecord,
             DeploymentRelationshipEventRecord,
@@ -228,9 +328,83 @@ class Database:
             DeploymentDiscoverySharePolicyRecord,
             DeploymentDiscoveryShareRecord,
             IntelligenceV3HardCutoverMigrationRecord,
+            KnowledgeFabricHardCutoverMigrationRecord,
             OperationalDataMigrationRecord,
+            DatabaseSchemaMigrationRecord,
+            DatabaseDataMigrationRecord,
+            KnowledgeServerScopeRecord,
+            KnowledgeServerAdministratorRecord,
+            KnowledgeCorpusRecord,
+            KnowledgeSourceRecord,
+            KnowledgeSourceCurrentEntryRecord,
+            KnowledgeExternalSourceSyncStateRecord,
+            KnowledgeExternalSourceScheduleRecord,
+            KnowledgeExternalHostRateRecord,
+            KnowledgeObjectArtifactRecord,
+            KnowledgeObjectDeletionRecord,
+            KnowledgeSourceVersionRecord,
+            KnowledgeCanonicalDocumentRecord,
+            KnowledgeCanonicalSectionRecord,
+            KnowledgeCanonicalBlockRecord,
+            KnowledgeAssetReferenceRecord,
+            KnowledgeEvidenceUnitRecord,
+            KnowledgeIngestionJobRecord,
+            KnowledgeIngestionCheckpointRecord,
+            KnowledgeDependencyInvalidationRecord,
+            KnowledgeProjectionRecord,
+            KnowledgeProjectionDependencyRecord,
+            KnowledgeEvidenceRetrievalEntryRecord,
+            KnowledgeEvidenceEmbeddingRecord,
+            KnowledgeCanonicalEntityRecord,
+            KnowledgeRuntimeEntityResolutionRecord,
+            KnowledgeExtractedAssertionRecord,
+            KnowledgeWorldEventRecord,
+            KnowledgeWorldEventParticipantRecord,
+            KnowledgeEvidenceGraphRelationRecord,
+            KnowledgeInterpretationEvidenceRecord,
+            KnowledgeAccessGrantRecord,
+            KnowledgeCharacterCorpusPolicyRecord,
+            KnowledgeOverlayPolicyRecord,
         )
-        Base.metadata.create_all(self.engine)
+        self._create_schema_metadata()
+
+        # The foundation runner owns PostgreSQL extension/bootstrap revisions.  It
+        # deliberately precedes product migrations so later revisions can depend on
+        # pgvector without creating Knowledge Fabric semantics during this phase.
+        from echo_masque.persistence.schema_migrations import (
+            DatabaseFoundationMigration,
+            KnowledgeFabricContentMigration,
+            KnowledgeFabricCharacterPolicyMigration,
+            KnowledgeFabricCurrentEntryMigration,
+            KnowledgeFabricExternalScheduleMigration,
+            KnowledgeFabricIndexMigration,
+            KnowledgeFabricInterpretationMigration,
+            KnowledgeFabricObjectLifecycleMigration,
+            KnowledgeFabricProjectionMigration,
+            KnowledgeFabricExternalSyncMigration,
+            KnowledgeFabricScopeMigration,
+        )
+
+        DatabaseFoundationMigration(self).run()
+        KnowledgeFabricScopeMigration(self).run()
+        KnowledgeFabricContentMigration(self).run()
+        KnowledgeFabricObjectLifecycleMigration(self).run()
+        KnowledgeFabricCharacterPolicyMigration(self).run()
+        KnowledgeFabricCurrentEntryMigration(self).run()
+        KnowledgeFabricInterpretationMigration(self).run()
+        KnowledgeFabricIndexMigration(self).run()
+        KnowledgeFabricProjectionMigration(self).run()
+        KnowledgeFabricExternalSyncMigration(self).run()
+        KnowledgeFabricExternalScheduleMigration(self).run()
+
+        if not allow_incomplete_data_migration:
+            self._assert_no_incomplete_data_migration()
+
+        if not run_legacy_migrations:
+            self._ensure_sqlite_deployment_runtime_invariants()
+            self._ensure_postgresql_deployment_runtime_invariants()
+            self._ensure_sqlite_message_relation_author_snapshots()
+            return
 
         # Existing installations may still contain old Topic/Memory/Episode tables.  The raw
         # hard-cutover migration preserves useful durable evidence into v3 stores, deliberately
@@ -242,13 +416,76 @@ class Database:
 
         IntelligenceV3HardCutoverMigration(self).run()
 
+        # The explicit product cutover retires the old pasted Knowledge Base and derived
+        # Server Wiki stores.  It must run only on normal application startup, never while
+        # preparing an empty SQLite-to-PostgreSQL target.
+        from echo_masque.persistence.knowledge_fabric_hard_cutover import (
+            KnowledgeFabricHardCutoverMigration,
+        )
+
+        KnowledgeFabricHardCutoverMigration(self).run()
+
         from echo_masque.persistence.discord_event_privacy_migration import (
             DiscordEventPrivacyMigration,
         )
 
         DiscordEventPrivacyMigration(self).run()
         self._ensure_sqlite_deployment_runtime_invariants()
+        self._ensure_postgresql_deployment_runtime_invariants()
         self._ensure_sqlite_message_relation_author_snapshots()
+
+    @contextmanager
+    def _postgresql_initialize_lock(self) -> Iterator[None]:
+        """Keep every bootstrap/migration ledger operation serial across replicas."""
+
+        if self.engine.dialect.name != "postgresql":
+            yield
+            return
+        # A session advisory lock survives commit.  Give it a dedicated NullPool
+        # connection so normal initialization can use even a one-connection app
+        # pool, and commit immediately so a long migration is not idle in a
+        # transaction while it owns the lock.
+        lock_engine = create_engine(self._url, poolclass=NullPool)
+        try:
+            with lock_engine.connect() as connection:
+                connection.execute(
+                    text("SELECT pg_advisory_lock(hashtext(:key))"),
+                    {"key": "database-initialize-v1"},
+                )
+                connection.commit()
+                try:
+                    yield
+                finally:
+                    connection.execute(
+                        text("SELECT pg_advisory_unlock(hashtext(:key))"),
+                        {"key": "database-initialize-v1"},
+                    )
+                    connection.commit()
+        finally:
+            lock_engine.dispose()
+
+    def _create_schema_metadata(self) -> None:
+        """Serialize first-bootstrap ORM DDL across PostgreSQL application replicas."""
+        if self.engine.dialect.name != "postgresql":
+            Base.metadata.create_all(self.engine)
+            return
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+                {"key": "database-schema-bootstrap-v1"},
+            )
+            Base.metadata.create_all(connection)
+
+    def _assert_no_incomplete_data_migration(self) -> None:
+        """Fail closed rather than serving a target while its one-time copy is incomplete."""
+
+        with self.session() as session:
+            record = session.get(DatabaseDataMigrationRecord, "sqlite-to-postgresql-v1")
+        if record is not None and record.status != "completed":
+            raise RuntimeError(
+                "Database startup is blocked because the SQLite-to-PostgreSQL migration is "
+                f"{record.status!r}; finish it or use a fresh target database."
+            )
 
     def _ensure_sqlite_deployment_runtime_invariants(self) -> None:
         if self.engine.dialect.name != "sqlite":
@@ -269,6 +506,30 @@ class Database:
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_SERVER_UPDATE_TRIGGER)
             connection.exec_driver_sql("DROP TRIGGER IF EXISTS cr_delete_deployment_presence")
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_PRESENCE_DELETE_TRIGGER)
+
+    def _ensure_postgresql_deployment_runtime_invariants(self) -> None:
+        """Port the deployed SQLite identity and cleanup guarantees to PostgreSQL."""
+
+        if self.engine.dialect.name != "postgresql":
+            return
+        with self.engine.begin() as connection:
+            # `CREATE INDEX IF NOT EXISTS` can still deadlock when two replicas race
+            # to insert the same catalog record.  Keep the duplicate inspection and
+            # all runtime DDL behind one transaction-scoped bootstrap lock.
+            connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+                {"key": "postgresql-deployment-runtime-invariants-v1"},
+            )
+            duplicates = self._deployment_server_duplicates(connection)
+            if duplicates:
+                raise RuntimeError(
+                    "PostgreSQL deployment migration found duplicate Discord server deployments; "
+                    "repair them explicitly before enabling the server-wide unique constraint."
+                )
+            connection.exec_driver_sql(_POSTGRES_DEPLOYMENT_SERVER_UNIQUE_INDEX)
+            connection.exec_driver_sql(_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_FUNCTION)
+            connection.exec_driver_sql(_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_TRIGGER_DROP)
+            connection.exec_driver_sql(_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_TRIGGER_CREATE)
 
     def _ensure_sqlite_message_relation_author_snapshots(self) -> None:
         """Add non-content author snapshots to pre-existing Conversation v3 relation tables."""
@@ -293,8 +554,13 @@ class Database:
                     )
 
     def inspect_deployment_server_duplicates(self) -> tuple[DeploymentServerDuplicate, ...]:
-        if self.engine.dialect.name != "sqlite":
-            return ()
+        with self.engine.connect() as connection:
+            return self._deployment_server_duplicates(connection)
+
+    @staticmethod
+    def _deployment_server_duplicates(
+        connection: Connection,
+    ) -> tuple[DeploymentServerDuplicate, ...]:
         query = """
         SELECT owner_id, connection_id, workspace_id, character_card_id, COUNT(*)
         FROM character_deployments
@@ -303,8 +569,7 @@ class Database:
         HAVING COUNT(*) > 1
         ORDER BY owner_id, connection_id, workspace_id, character_card_id
         """
-        with self.engine.connect() as connection:
-            rows = connection.exec_driver_sql(query).all()
+        rows = connection.exec_driver_sql(query).all()
         return tuple(
             DeploymentServerDuplicate(
                 owner_id=str(row[0]),

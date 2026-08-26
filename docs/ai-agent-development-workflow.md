@@ -112,6 +112,16 @@ Long-lived or cross-cutting branches use `docs/active-development-plan.md` as a 
 
 Read-only investigation may happen throughout a phase. A targeted test may be run earlier when needed to reproduce a defect or protect a risky migration, but routine micro-validation should not replace the batch cadence.
 
+### Mutation testing
+
+Mutation testing is additional evidence that a test suite detects semantic changes; ordinary
+coverage only proves execution. For changed protected decision logic, consult
+`docs/mutation-testing.md`, run the configured bounded scope where available, and investigate
+surviving mutants as missing behavioral proof. Do not substitute a repository-wide percentage for
+phase-specific evidence: equivalent mutants, timeouts, and tool/compile failures need explicit
+classification. Full mutation runs belong in the scheduled/manual workflow or a focused phase
+gate, not the ordinary push/PR test matrix.
+
 ### Sub-agent delegation
 
 The main agent may delegate bounded, independently reviewable work such as research, source mapping, verification, test execution, or edits in an explicitly assigned file set. Delegation does not transfer integration authority.

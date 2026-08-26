@@ -2,14 +2,16 @@
 
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from echo_masque import __version__
 
 LangGraphMode = Literal["off", "condition_watch", "character_turn", "social_turn"]
 LangGraphWorkflow = Literal["condition_watch", "character_turn", "social_turn"]
+KnowledgeObjectStorageProvider = Literal["cloudflare_r2", "aws_s3"]
 _LANGGRAPH_MODE_RANK: dict[str, int] = {
     "off": 0,
     "condition_watch": 1,
@@ -48,6 +50,17 @@ class Settings(BaseSettings):
     media_semantic_recall_enabled: bool = True
     expression_semantic_retrieval_enabled: bool = True
     semantic_participation_enabled: bool = False
+
+    # Cloudflare R2 is the production default.  The service talks only through the
+    # private S3-compatible API so an explicitly configured AWS S3 deployment can
+    # use the same boundary later.  None means ingestion fails cleanly when invoked.
+    knowledge_object_storage_provider: KnowledgeObjectStorageProvider = "cloudflare_r2"
+    knowledge_object_storage_endpoint: str | None = None
+    knowledge_object_storage_bucket: str | None = None
+    knowledge_object_storage_region: str | None = None
+    knowledge_object_storage_access_key_id: SecretStr | None = None
+    knowledge_object_storage_secret_access_key: SecretStr | None = None
+    knowledge_object_storage_prefix: str = "knowledge-fabric"
 
     # Public Character Discovery source configuration. YouTube works without a credential via
     # metadata-only yt-dlp search; an optional Data API key upgrades acquisition to the official
@@ -135,6 +148,32 @@ class Settings(BaseSettings):
     max_evaluation_cases_per_day: int = 1000
     max_template_instantiations_per_day: int = 100
     max_shared_assets_per_bundle: int = 200
+
+    @field_validator("knowledge_object_storage_endpoint")
+    @classmethod
+    def object_storage_endpoint_is_private_s3_api(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "https"
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "Knowledge object-storage endpoint must be a credential-free HTTPS URL."
+            )
+        return value.rstrip("/")
+
+    @field_validator("knowledge_object_storage_bucket", "knowledge_object_storage_prefix")
+    @classmethod
+    def object_storage_names_are_not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("Knowledge object-storage names must not be blank.")
+        return value
 
     def langgraph_allows(self, workflow: LangGraphWorkflow) -> bool:
         """Return whether the cumulative rollout mode includes a workflow."""
