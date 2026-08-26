@@ -1267,6 +1267,35 @@ explicit compatibility required by currently proven callers, then complete final
 PostgreSQL, Connector, and documentation gates.
 ```
 
+### 2026-08-26 Phase 11c preliminary consumer proof
+
+```text
+Status: in progress — static map complete; migration/projection decisions are required before deletion
+Evidence: `web/src/KnowledgeBasePanel.tsx` and `web/src/knowledgeApi.ts` have no active Portal
+importer; the Deployment Workspace uses `KnowledgeFabricPanel`. Conversely, `/api/knowledge`,
+`KnowledgeRepository`, its lifecycle cleanup, and its legacy tables remain live through
+`api/app.py`, `api/routes/knowledge.py`, `evaluation_lifecycle.py`, and their tests. No old
+Knowledge Base-to-Fabric Corpus/Server scope mapping exists, and the architecture forbids inferring
+one. The old Portal client/panel may be removed only together with the explicitly decided legacy
+API/data disposition and its regression tests.
+
+`ServerWikiV3Repository` is not a Character retrieval authority: Character context and the
+internal `knowledge.search` tool already use the Fabric query/context boundary. It nevertheless
+remains an active Intelligence v3 entity/Belief/Episode consolidation writer and owner-triggered
+endpoint. Fabric presently has only a Source Overview projection, not a replacement for that
+server-scoped entity projection. Do not delete or rename it merely because it contains “Wiki”.
+
+The Discord Connector does not consume legacy Knowledge API/Wiki data, but its telemetry still
+uses `rag_*` and `knowledge_base_id` compatibility fields. `knowledge_retrieval.py` and
+`semantic_vector_repository.py` also have Fabric/non-RAG consumers and are not deletion targets.
+
+Required authority decisions before cutover: (1) legacy Knowledge Base data is explicitly migrated
+through an administrator-owned mapping, retained as an archive, or deliberately retired; and (2)
+Server Wiki V3 stays as an Intelligence-derived projection or is replaced by an approved Fabric
+projection contract. Until then, proceed only with non-destructive lifecycle/scale/PostgreSQL and
+security proof. Preserve `web/vite.config.ts` as user-owned unrelated work.
+```
+
 ## Known implementation decisions that still require evidence in a phase
 
 The architecture is approved, but these implementation details are intentionally not invented in Phase 0:
