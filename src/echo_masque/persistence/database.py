@@ -242,15 +242,23 @@ def _enable_sqlite_foreign_keys(
         cursor.close()
 
 
+def normalize_postgresql_driver_url(url: str) -> str:
+    """Select psycopg 3 for ordinary PostgreSQL URLs without exposing the URL."""
+
+    if url.startswith("postgresql://"):
+        return f"postgresql+psycopg://{url.removeprefix('postgresql://')}"
+    return url
+
+
 class Database:
     def __init__(self, url: str) -> None:
-        self._url = url
+        self._url = normalize_postgresql_driver_url(url)
         kwargs: dict[str, object] = {}
-        if url.startswith("sqlite"):
+        if self._url.startswith("sqlite"):
             kwargs["connect_args"] = {"check_same_thread": False}
-        if url in {"sqlite://", "sqlite:///:memory:"}:
+        if self._url in {"sqlite://", "sqlite:///:memory:"}:
             kwargs["poolclass"] = StaticPool
-        self.engine: Engine = create_engine(url, **kwargs)
+        self.engine: Engine = create_engine(self._url, **kwargs)
         if self.engine.dialect.name == "sqlite":
             event.listen(self.engine, "connect", _enable_sqlite_foreign_keys)
         self.session_factory = sessionmaker(self.engine, expire_on_commit=False)

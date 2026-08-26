@@ -1401,6 +1401,19 @@ Known deviations: the local Docker Engine is reachable only through WSL. Its dir
 Next action: use this record as the new Fabric baseline; preserve fail-closed access, private artifacts, and PostgreSQL-only production storage in subsequent work.
 ```
 
+## Phase 13 — Railway PostgreSQL cutover readiness
+
+```text
+Status: in progress — URL compatibility repair and source preflight complete; live migration remains operator-controlled
+Scope: accept Railway's standard private PostgreSQL URL with the installed psycopg 3 driver in both normal runtime and the offline migration entry point. Document the fail-closed upgrade of a separate old-SQLite working copy before the empty pgvector target copy.
+Evidence: src/echo_masque/persistence/database.py; src/echo_masque/persistence/sqlite_to_postgres_migration.py; tests/test_database_foundation.py; docs/railway-deployment.md; docs/storage-safety.md; local verified source backup preflight.
+Invariants: never print a connection URL; do not start an application against the target before copy completion; preserve the verified SQLite backup and original Volume; never upgrade or hard-cutover the retained source directly; old Knowledge Base/Server Wiki data is retired only in the isolated working copy under the prior product-owner authorization.
+Validation: python -m pytest tests/test_database_foundation.py tests/test_storage_guard.py (14 passed, 3 explicit PostgreSQL skips); ruff on the two persistence modules and foundation test passed; mypy on the two persistence modules passed; git diff --check passed. The configured Python mutation scope does not cover this new URL-normalization helper, so no unrelated mutation scope was run.
+Source preflight: the verified SQLite backup is not current Fabric schema and contains retired knowledge_documents/knowledge_chunks data. The migration tool rejected it before target initialization. The next operation must create an isolated working copy, run current Database.initialize() on that copy to perform the authorized hard cutover, then preflight and migrate only that copy from a Railway-internal one-off runner.
+Commit: current branch HEAD (`fix: support Railway PostgreSQL URLs`); one Phase 13 implementation commit.
+Next action: apply the requested pgvector Region/CPU change after explicit action-time confirmation, then deploy this repair and perform the one-off working-copy upgrade/migration only after pgvector emptiness/extension and application-stop gates are proven.
+```
+
 ## Known implementation decisions that still require evidence in a phase
 
 The architecture is approved, but these implementation details are intentionally not invented in Phase 0:

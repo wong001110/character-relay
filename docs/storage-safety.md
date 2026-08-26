@@ -20,6 +20,12 @@ instance connected to that target. It creates a separate consistent SQLite snaps
 for the transfer, will not merge data into a populated/unknown target, and will not
 delete or mutate the original source. The target's `running`/`failed` migration ledger
 blocks normal startup until the operator completes the copy or uses a fresh target.
+If source preflight reports an old Knowledge Base/Server Wiki schema, upgrade only a
+separate working copy with the current `Database.initialize()` first; the authorized
+hard cutover retires those legacy tables. Keep the verified source backup and original
+Volume unchanged. A Railway `DATABASE_URL_PRIVATE` reference may be used directly;
+runtime and migration normalize its standard PostgreSQL scheme to the installed psycopg
+3 driver without logging the URL.
 See `docs/railway-deployment.md` for the exact migration sequence.
 
 ## SQLite migration source

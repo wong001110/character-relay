@@ -14,7 +14,7 @@ from sqlalchemy import Integer, func, inspect, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
-from echo_masque.persistence.database import Database
+from echo_masque.persistence.database import Database, normalize_postgresql_driver_url
 from echo_masque.persistence.intelligence_v3_migration import (
     _LEGACY_TABLES_TO_DROP,
     _MIGRATION_LEDGER_ID,
@@ -57,6 +57,7 @@ def migrate_sqlite_to_postgres(
     """
 
     source = make_url(source_url)
+    target_url = normalize_postgresql_driver_url(target_url)
     target = make_url(target_url)
     if source.get_backend_name() != "sqlite":
         raise SQLiteToPostgresMigrationError("The source database must be SQLite.")

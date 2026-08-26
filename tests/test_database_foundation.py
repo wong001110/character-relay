@@ -2,13 +2,15 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from os import environ
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
-from echo_masque.persistence.database import Database
+import echo_masque.persistence.sqlite_to_postgres_migration as sqlite_to_postgres_migration
+from echo_masque.persistence.database import Database, normalize_postgresql_driver_url
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
 )
@@ -79,6 +81,67 @@ def _destructive_postgres_test_url() -> str:
             "Set ECHO_MASQUE_ALLOW_DESTRUCTIVE_POSTGRES_TESTS=yes to reset the test schema."
         )
     return postgres_url
+
+
+def test_standard_postgresql_url_uses_installed_psycopg3_driver() -> None:
+    standard_url = "postgresql://user:password@example.test:5432/character_relay"
+
+    assert normalize_postgresql_driver_url(standard_url) == (
+        "postgresql+psycopg://user:password@example.test:5432/character_relay"
+    )
+    assert normalize_postgresql_driver_url(
+        "postgresql+psycopg://user:password@example.test:5432/character_relay"
+    ).startswith("postgresql+psycopg://")
+    assert normalize_postgresql_driver_url("sqlite:///local.db") == "sqlite:///local.db"
+
+    database = Database(standard_url)
+    try:
+        assert database.engine.url.drivername == "postgresql+psycopg"
+    finally:
+        database.engine.dispose()
+
+
+def test_migration_accepts_standard_postgresql_target_url(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_path = tmp_path / "current-source.db"
+    source_database = Database(f"sqlite:///{source_path}")
+    source_database.initialize()
+    source_database.engine.dispose()
+    target_urls: list[str] = []
+
+    class TargetDatabase:
+        engine = SimpleNamespace(dispose=lambda: None)
+
+        def initialize(self, **_: object) -> None:
+            pass
+
+    def database_factory(url: str) -> Database | TargetDatabase:
+        if url.startswith("sqlite:///"):
+            return Database(url)
+        target_urls.append(url)
+        return TargetDatabase()
+
+    monkeypatch.setattr(sqlite_to_postgres_migration, "Database", database_factory)
+    monkeypatch.setattr(
+        sqlite_to_postgres_migration,
+        "_backup_sqlite_source",
+        lambda *_: source_path,
+    )
+    monkeypatch.setattr(sqlite_to_postgres_migration, "_source_fingerprint", lambda _: "sha")
+    monkeypatch.setattr(
+        sqlite_to_postgres_migration, "_prepare_target_migration", lambda *_: {}
+    )
+
+    result = migrate_sqlite_to_postgres(
+        f"sqlite:///{source_path}",
+        "postgresql://user:password@example.test:5432/character_relay",
+    )
+
+    assert result["status"] == "already_completed"
+    assert target_urls == [
+        "postgresql+psycopg://user:password@example.test:5432/character_relay"
+    ]
 
 
 def test_sqlite_foundation_revision_is_idempotent(tmp_path: Path) -> None:

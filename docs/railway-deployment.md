@@ -55,13 +55,19 @@ For an existing SQLite deployment:
      --target-url 'postgresql+psycopg://<user>:<password>@<host>:5432/<database>'
    ```
 
-   The tool creates a unique, SQLite-native consistent snapshot (including committed
+   Railway's `${{pgvector.DATABASE_URL_PRIVATE}}` reference is accepted directly;
+   the application and migration tool select the installed psycopg 3 driver without
+   printing the secret or requiring a manually rewritten URL. The tool creates a
+   unique, SQLite-native consistent snapshot (including committed
    WAL content) and copies only that snapshot. It fingerprints the snapshot,
    refuses a non-empty or unexpectedly populated PostgreSQL target, preserves source
    IDs/sequences, records a completed ledger, and never deletes or mutates the
    original SQLite source. It requires the source to already have the current,
    completed Intelligence schema with no legacy tables containing data; update a
-   verified source copy before running the cross-database transfer.
+   verified source copy before running the cross-database transfer. For a pre-Fabric
+   source, run current `Database.initialize()` only against that working copy first:
+   its approved hard cutover retires old Knowledge Base/Server Wiki tables, never the
+   retained source backup or original Volume.
    While its ledger is `running` or `failed`, normal application startup against the
    PostgreSQL target fails closed; do not use the target for other application work
    during the copy.
@@ -77,7 +83,7 @@ The Docker image's SQLite default remains for local compatibility during this
 branch. On Railway, explicitly override it with the PostgreSQL connection URL:
 
 ```text
-CHARACTER_RELAY_DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>:5432/<database>
+CHARACTER_RELAY_DATABASE_URL=${{pgvector.DATABASE_URL_PRIVATE}}
 ```
 
 Never commit the URL or expose it through Portal configuration, health output,
@@ -91,7 +97,7 @@ Required PostgreSQL production shape:
 
 ```text
 CHARACTER_RELAY_ENVIRONMENT=production
-CHARACTER_RELAY_DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>:5432/<database>
+CHARACTER_RELAY_DATABASE_URL=${{pgvector.DATABASE_URL_PRIVATE}}
 CHARACTER_RELAY_AUTH_COOKIE_SECURE=true
 CHARACTER_RELAY_LEGACY_LOCAL_USER_ENABLED=false
 CHARACTER_RELAY_PUBLIC_REGISTRATION_ENABLED=false
