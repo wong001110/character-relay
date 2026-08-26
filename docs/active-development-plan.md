@@ -1230,6 +1230,43 @@ source-backed worker action with its durable idempotency and cleanup proof; then
 compatibility removal and final scale/security gates.
 ```
 
+### 2026-08-26 Phase 11b-2 completion gate
+
+```text
+Status: complete — durable derived-work consumer and source-specific failure retry; 11c remains open
+Commit: `ff235b8` (`feat: add derived work invalidation worker`)
+Changed authority/contracts: publication invalidations for `indexes` and `projections` now have
+one durable claim/lease/retry consumer. The worker rebuilds source-version index entries and only
+refreshes an already-materialized Source Overview; it never acquires, publishes, exposes, or
+creates a product Source view. Claim state (attempt count, safe error code, retry schedule, and
+lease) stays in internal invalidation metadata and is not returned by the API. Automatic failure
+retry is bounded to three attempts, then only a Super Admin can requeue terminal failures for one
+existing global Source through the audited endpoint. The redacted health model exposes counts only.
+Evidence: `knowledge_fabric_invalidation_policy.py`, `knowledge_fabric_invalidation_worker.py`,
+`persistence/knowledge_fabric_invalidation_repository.py`,
+`persistence/knowledge_fabric_projection_repository.py`, `api/app.py`,
+`api/routes/knowledge_fabric.py`, `api/knowledge_fabric_schemas.py`, and the matching Portal API/
+administration panel files. Proof: `test_knowledge_fabric_invalidation_policy.py`,
+`test_knowledge_fabric_invalidation_worker.py`, and `test_knowledge_fabric_phase2.py`.
+Validation: focused worker/API/projection/sync regression passed; changed-source Ruff and strict
+MyPy (380 source files) passed. Portal typecheck, 22-file/66-test Vitest, and production Vite
+build passed. WSL-native mutmut: 88 killed, five reviewed equivalent survivors, zero timeout or
+tooling failure. Four fusion survivors either retain dictionary insertion tie order or apply the
+same order-preserving score transformation to every candidate; retry-delay mutant 15 changes the
+bounded loop cap from nine to ten, but both paths always clamp to 21,600 seconds. Portal Stryker:
+65 killed, one reviewed equivalent non-JSON error-catch mutant, 36 TypeScript checker rejections,
+and no timeout/no-coverage result. Windows Stryker exits after report generation because its
+`taskkill` cleanup is access-denied; its exact `.stryker-tmp` sandbox was removed and a clean
+Vitest run passed.
+Deliberate omissions: no generic rebuild, publish, availability, embedding, credential, raw
+artifact, lease, validator, or job/checkpoint operator surface. These remain outside proven
+Runtime contracts. The full PostgreSQL/scale/lifecycle/security and compatibility cutover gate is
+reserved for 11c.
+Next action: perform the 11c static consumer map before deleting legacy RAG/Wiki code; retain only
+explicit compatibility required by currently proven callers, then complete final lifecycle, scale,
+PostgreSQL, Connector, and documentation gates.
+```
+
 ## Known implementation decisions that still require evidence in a phase
 
 The architecture is approved, but these implementation details are intentionally not invented in Phase 0:

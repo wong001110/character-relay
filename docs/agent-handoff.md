@@ -78,8 +78,10 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
   usable: a Super Admin-only Settings subtab manages global Corpora, registers HTTP(S) Sources,
   renders only the redacted health model, and configures the existing durable schedule; the
   Deployment Knowledge page exposes the same scoped Query Inspector to an already-authorized
-  Server administrator. It does not expose worker-only operational controls. Phase 11b-2/11c
-  remain open; resume from the Phase 11 record in `docs/active-development-plan.md`.
+  Server administrator. Phase 11b-2 now consumes derived invalidations with a durable worker and
+  exposes only a Super-Admin source-specific retry for terminal failures; it never returns lease,
+  artifact, credential, or generic invalidation metadata. Phase 11c remains open; resume from the
+  Phase 11 record in `docs/active-development-plan.md` before removing compatibility code.
   Phase 4's corpus-bound canonical entities,
   evidence-backed runtime-resolution history, conflicting assertions, world events, typed Evidence
   Graph relations, and lifecycle cleanup remain unchanged. Canonical identity is

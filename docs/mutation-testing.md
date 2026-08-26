@@ -1,6 +1,6 @@
 # Mutation Testing
 
-Status: **required quality practice for protected decision logic; Knowledge Fabric Phase 4 adds a targeted canonical-interpretation lifecycle scope**
+Status: **required quality practice for protected decision logic; Knowledge Fabric Phase 11b-2 adds a targeted derived-work lifecycle scope**
 
 Mutation testing evaluates whether tests detect a small semantic change in production code. It
 does not replace ordinary unit, integration, migration, authorization, or live-deployment tests.
@@ -31,7 +31,7 @@ would reject a changed behavior.
 
 | Surface | Runner | Initial bounded scope | Where to run |
 | --- | --- | --- | --- |
-| Python | `mutmut` with pytest (`test_knowledge_fabric_character_policy.py`, `test_knowledge_fabric_query_policy.py`) | `echo_masque.knowledge_fabric_character_policy`, `echo_masque.knowledge_fabric_query_policy` | Ubuntu CI or an installed WSL distribution |
+| Python | `mutmut` with pytest (character/query/invalidation policy tests) | Character, Query, and `echo_masque.knowledge_fabric_invalidation_policy` | Ubuntu CI or an installed WSL distribution |
 | Portal | StrykerJS with Vitest and TypeScript checking | `web/src/portalEnvironment.ts`, `web/src/knowledgeFabricApi.ts` | Node 22+ |
 | Discord Connector | StrykerJS with Vitest and TypeScript checking | `connectors/discord/src/audiencePreflight.ts` | Node 24.17+ |
 
@@ -98,6 +98,8 @@ that exact printed directory manually. Normal runs must leave this variable unse
   receive targeted mutation scopes.
 - Phases 7–11: Projection invalidation, source/adaptor secret exclusion, Character policy, and
   privileged Portal/Connector decisions receive targeted mutation scopes as those consumers move.
+  Phase 11b-2 includes `knowledge_fabric_invalidation_policy.py` for claim eligibility and bounded
+  retry lifecycle decisions; its persistence worker remains covered by its regression tests.
 
 The active plan records each command, result, accepted equivalent mutant, deliberate exclusion,
 and remaining scope. It must not claim a mutation score for code that was not actually mutated.
