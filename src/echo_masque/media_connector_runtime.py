@@ -26,6 +26,10 @@ from echo_masque.connector_runtime import (
 from echo_masque.conversation_media import ConversationMediaReferenceService
 from echo_masque.discord_event_safety import safe_runtime_error_classification
 from echo_masque.domain import TargetResponse
+from echo_masque.knowledge_fabric_visual_identity import (
+    KnowledgeFabricVisualIdentityResolver,
+    VisualIdentityResolution,
+)
 from echo_masque.live_media import (
     LiveMediaContext,
     LiveMediaContextService,
@@ -41,6 +45,7 @@ from echo_masque.media_attention import (
 )
 from echo_masque.media_dependency import resolve_media_dependency
 from echo_masque.providers import ProviderError
+from echo_masque.providers.openai_multimodal import OpenAICompatibleMultimodalProvider
 from echo_masque.providers.trace import provider_trace_scope
 from echo_masque.targets import PromptModelTarget, PromptModelToolTurn
 
@@ -191,6 +196,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         live_media_service: LiveMediaContextService | None = None,
         media_attention_decider: Any | None = None,
         conversation_media_service: ConversationMediaReferenceService | None = None,
+        visual_identity_resolver: KnowledgeFabricVisualIdentityResolver | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -206,6 +212,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
         else:
             self.live_media_service = live_media_service
         self.conversation_media_service = conversation_media_service
+        self.visual_identity_resolver = visual_identity_resolver
         self._media_turn_results: dict[tuple[str, str, str], tuple[float, LiveMediaResult]] = {}
         self._media_epistemic_states: dict[
             tuple[str, str], tuple[float, MediaEpistemicSnapshot]
@@ -602,6 +609,7 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
 
         if passive_contexts:
             self._inject_guidance(prepared, _passive_image_guidance(passive_contexts))
+            await self._inject_visual_identity_guidance(prepared, passive_contexts)
 
         if not has_shared_content(active_payload):
             state: MediaEpistemicState = "perceived" if passive_contexts else "unavailable"
@@ -728,6 +736,115 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
                     media_result_reason=passive_reason,
                 ),
             )
+
+    async def _inject_visual_identity_guidance(
+        self,
+        prepared: PreparedCharacterTurn,
+        contexts: tuple[LiveMediaContext, ...],
+    ) -> None:
+        resolver = self.visual_identity_resolver
+        deployment = prepared.resolved.deployment
+        if resolver is None or not deployment.workspace_id:
+            return
+        scope = resolver.fabric.find_server_scope(
+            platform=deployment.platform,
+            connection_id=deployment.connection_id,
+            workspace_id=deployment.workspace_id,
+        )
+        if scope is None:
+            return
+        resolution = resolver.resolve(
+            deployment_id=deployment.id,
+            character_card_id=prepared.resolved.card.id,
+            server_scope_id=scope.id,
+            image_source_keys=tuple(item.source_key for item in contexts if item.kind == "image"),
+            caption=prepared.resolved.payload.text,
+        )
+        if resolution.status == "unresolved":
+            resolution = await self._resolve_pairwise_visual_identity(
+                prepared,
+                resolver=resolver,
+                server_scope_id=scope.id,
+                contexts=contexts,
+            )
+        if resolution.status == "exact_reference":
+            lines = (
+                "Approved visual identity reference:",
+                (
+                    "Runtime matched this exact approved reference image to "
+                    f"{resolution.canonical_name}. "
+                    "Do not claim that similar-looking images are the same."
+                ),
+            )
+        elif resolution.status == "captioned_reference":
+            lines = (
+                "Captioned character reference:",
+                (
+                    f"The message explicitly captions an image as {resolution.canonical_name}. "
+                    "This is author-provided text context, not visual similarity recognition."
+                ),
+            )
+        elif resolution.status == "pairwise_reference":
+            lines = (
+                "Approved fictional-character visual reference:",
+                (
+                    "Runtime compared this image against explicitly approved private reference "
+                    f"art and found strong support for {resolution.canonical_name}. "
+                    "Do not extend this result to lookalikes, real people, or unapproved images."
+                ),
+            )
+        else:
+            return
+        self._inject_guidance(prepared, lines)
+
+    async def _resolve_pairwise_visual_identity(
+        self,
+        prepared: PreparedCharacterTurn,
+        *,
+        resolver: KnowledgeFabricVisualIdentityResolver,
+        server_scope_id: str,
+        contexts: tuple[LiveMediaContext, ...],
+    ) -> VisualIdentityResolution:
+        """Run no external comparison unless both a live key group and a cached image exist."""
+
+        service = self.live_media_service
+        if service is None:
+            return VisualIdentityResolution(status="unresolved")
+        asset_getter = getattr(service, "resolved_image_asset", None)
+        credential_resolver = getattr(service, "credential_resolver", None)
+        provider_factory = getattr(service, "provider_factory", None)
+        if not (
+            callable(asset_getter)
+            and credential_resolver is not None
+            and callable(provider_factory)
+        ):
+            return VisualIdentityResolution(status="unresolved")
+        deployment = prepared.resolved.deployment
+        credential = credential_resolver.resolve(
+            owner_id=deployment.owner_id,
+            character_card_id=prepared.resolved.card.id,
+            capability="media",
+        )
+        if credential is None:
+            return VisualIdentityResolution(status="unresolved")
+        provider = provider_factory(credential)
+        if not isinstance(provider, OpenAICompatibleMultimodalProvider):
+            return VisualIdentityResolution(status="unresolved")
+        for context in contexts:
+            if context.kind != "image":
+                continue
+            asset = asset_getter(context.source_key)
+            source_uri = getattr(asset, "source_uri", "")
+            if not isinstance(source_uri, str) or not source_uri:
+                continue
+            return await resolver.resolve_pairwise(
+                deployment_id=deployment.id,
+                character_card_id=prepared.resolved.card.id,
+                server_scope_id=server_scope_id,
+                candidate_uri=source_uri,
+                provider=provider,
+            )
+        return VisualIdentityResolution(status="unresolved")
 
     def _apply_media_inspection_result(
         self,
@@ -921,6 +1038,9 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
             "Character media perception for this turn:",
             "Character media perception:",
             "Remembered media perception from this conversation:",
+            "Approved visual identity reference:",
+            "Captioned character reference:",
+            "Approved fictional-character visual reference:",
         )
         first_line = guidance[0]
         if first_line in prepared.prompt:

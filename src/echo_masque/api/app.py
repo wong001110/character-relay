@@ -83,6 +83,7 @@ from echo_masque.knowledge_fabric_context import KnowledgeContextBuilder
 from echo_masque.knowledge_fabric_epistemic_policy import PersistedCharacterEpistemicPolicy
 from echo_masque.knowledge_fabric_external_policy import (
     ATOM_PUBLIC_HTTPS_SOURCE_TYPE,
+    WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE,
     WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE,
 )
 from echo_masque.knowledge_fabric_external_sync_scheduler import (
@@ -95,6 +96,10 @@ from echo_masque.knowledge_fabric_pinned_fetcher import (
     PinnedPublicHttpsFetcher,
 )
 from echo_masque.knowledge_fabric_query import KnowledgeQueryEngine
+from echo_masque.knowledge_fabric_visual_identity import KnowledgeFabricVisualIdentityResolver
+from echo_masque.knowledge_fabric_website_collection_sync import (
+    KnowledgeFabricWebsiteCollectionSyncService,
+)
 from echo_masque.knowledge_fabric_website_sync import KnowledgeFabricWebsiteSyncService
 from echo_masque.knowledge_gap_discovery_v3 import KnowledgeGapDiscoveryService
 from echo_masque.knowledge_object_storage import object_storage_from_settings
@@ -149,11 +154,20 @@ from echo_masque.persistence.knowledge_fabric_external_schedule_repository impor
 from echo_masque.persistence.knowledge_fabric_external_sync_repository import (
     KnowledgeFabricExternalSyncRepository,
 )
+from echo_masque.persistence.knowledge_fabric_interpretation_repository import (
+    KnowledgeFabricInterpretationRepository,
+)
 from echo_masque.persistence.knowledge_fabric_invalidation_repository import (
     KnowledgeFabricInvalidationRepository,
 )
 from echo_masque.persistence.knowledge_fabric_projection_repository import (
     KnowledgeFabricProjectionRepository,
+)
+from echo_masque.persistence.knowledge_fabric_site_collection_repository import (
+    KnowledgeFabricSiteCollectionRepository,
+)
+from echo_masque.persistence.knowledge_fabric_visual_reference_repository import (
+    KnowledgeFabricVisualReferenceRepository,
 )
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.planner_media import PlannerMediaDescriptorService
@@ -240,6 +254,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         database,
         object_storage=knowledge_object_storage,
     )
+    knowledge_fabric_interpretation_repository = KnowledgeFabricInterpretationRepository(database)
     knowledge_fabric_index_repository = KnowledgeFabricIndexRepository(database)
     knowledge_fabric_invalidation_repository = KnowledgeFabricInvalidationRepository(database)
     knowledge_fabric_projection_repository = KnowledgeFabricProjectionRepository(database)
@@ -282,11 +297,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ingestion_service=knowledge_fabric_ingestion_service,
         fetcher=pinned_fetcher,
     )
+    website_collection_sync_service = KnowledgeFabricWebsiteCollectionSyncService(
+        sync_repository=external_sync_repository,
+        collection_repository=KnowledgeFabricSiteCollectionRepository(database),
+        ingestion_service=knowledge_fabric_ingestion_service,
+        fetcher=pinned_fetcher,
+    )
     external_sync_scheduler = KnowledgeFabricExternalSyncScheduler(
         schedule_repository=external_schedule_repository,
         sync_by_source_type={
             WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE: website_sync_service.sync_claim,
             ATOM_PUBLIC_HTTPS_SOURCE_TYPE: atom_sync_service.sync_claim,
+            WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE: website_collection_sync_service.sync_claim,
         },
     )
     knowledge_fabric_invalidation_worker = KnowledgeFabricInvalidationWorker(
@@ -455,6 +477,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         entity_grounding=EntityGroundingService(entity_evidence_repository),
         knowledge_gap_discovery=knowledge_gap_discovery_service,
     )
+    knowledge_fabric_visual_reference_repository = KnowledgeFabricVisualReferenceRepository(
+        database
+    )
     discord_connector_runtime = RecallAwareMediaDiscordConnectorRuntime(
         repository,
         deployment_repository,
@@ -465,6 +490,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         turn_director_gateway=planner_utility_gateway,
         live_media_service=live_media_service,
         conversation_media_service=conversation_media_service,
+        visual_identity_resolver=KnowledgeFabricVisualIdentityResolver(
+            fabric=knowledge_fabric_repository,
+            references=knowledge_fabric_visual_reference_repository,
+            object_storage=knowledge_object_storage,
+        ),
     )
     character_turn_graph_runner = (
         CharacterTurnGraphRunner(
@@ -642,11 +672,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.knowledge_query_engine = knowledge_query_engine
     app.state.knowledge_object_storage = knowledge_object_storage
     app.state.knowledge_fabric_content_repository = knowledge_fabric_content_repository
+    app.state.knowledge_fabric_interpretation_repository = (
+        knowledge_fabric_interpretation_repository
+    )
     app.state.knowledge_fabric_ingestion_service = knowledge_fabric_ingestion_service
     app.state.knowledge_fabric_external_schedule_repository = external_schedule_repository
     app.state.knowledge_fabric_external_sync_repository = external_sync_repository
     app.state.knowledge_fabric_external_sync_scheduler = external_sync_scheduler
     app.state.knowledge_fabric_invalidation_worker = knowledge_fabric_invalidation_worker
+    app.state.knowledge_fabric_visual_reference_repository = (
+        knowledge_fabric_visual_reference_repository
+    )
     app.state.entity_evidence_repository = entity_evidence_repository
     app.state.knowledge_gap_discovery_service = knowledge_gap_discovery_service
     app.state.context_resolver_v3 = context_resolver_v3
@@ -725,6 +761,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     web_dist = Path("web/dist")
     if web_dist.exists():
+
         @app.get("/characters", include_in_schema=False)
         @app.get("/characters/", include_in_schema=False)
         @app.get("/characters/new", include_in_schema=False)

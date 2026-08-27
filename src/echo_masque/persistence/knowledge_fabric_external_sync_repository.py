@@ -104,6 +104,9 @@ class KnowledgeFabricExternalSyncRepository:
             "invalid_feed",
             "invalid_encoding",
             "redirect_refused",
+            "collection_rejected",
+            "discovery_rejected",
+            "page_failed",
             "source_rejected",
             "validator_rejected",
         }:

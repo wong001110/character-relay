@@ -13,6 +13,7 @@ from uuid import uuid4
 from sqlalchemy import bindparam, delete, exists, or_, select, text
 from sqlalchemy.orm import Session
 
+from echo_masque.knowledge_fabric_external_policy import source_uses_current_entries
 from echo_masque.knowledge_fabric_query_policy import interpretation_is_available_as_of
 from echo_masque.knowledge_retrieval import KnowledgeResource, score_sparse_knowledge_resources
 from echo_masque.persistence.database import Database
@@ -73,7 +74,7 @@ class KnowledgeFabricIndexRepository:
             statement = select(KnowledgeEvidenceUnitRecord.id).where(
                 KnowledgeEvidenceUnitRecord.source_version_id == source_version_id
             )
-            if source.source_type == "atom_public_https":
+            if source_uses_current_entries(source.source_type):
                 statement = statement.join(
                     KnowledgeSourceCurrentEntryRecord,
                     KnowledgeSourceCurrentEntryRecord.current_evidence_unit_id
@@ -425,7 +426,8 @@ class KnowledgeFabricIndexRepository:
             "WHERE entry.corpus_id IN :corpus_ids "
             "AND evidence.status = 'available' AND version.status = 'available' "
             "AND source.enabled IS TRUE "
-            "AND (source.source_type <> 'atom_public_https' OR EXISTS ("
+            "AND (source.source_type NOT IN ("
+            "'atom_public_https', 'website_collection_public_https') OR EXISTS ("
             "SELECT 1 FROM knowledge_source_current_entries AS current_entry "
             "WHERE current_entry.source_id = source.id "
             "AND current_entry.current_evidence_unit_id = evidence.id "
@@ -475,7 +477,8 @@ class KnowledgeFabricIndexRepository:
             "AND embedding.embedding IS NOT NULL "
             "AND evidence.status = 'available' AND version.status = 'available' "
             "AND source.enabled IS TRUE "
-            "AND (source.source_type <> 'atom_public_https' OR EXISTS ("
+            "AND (source.source_type NOT IN ("
+            "'atom_public_https', 'website_collection_public_https') OR EXISTS ("
             "SELECT 1 FROM knowledge_source_current_entries AS current_entry "
             "WHERE current_entry.source_id = source.id "
             "AND current_entry.current_evidence_unit_id = evidence.id "
@@ -558,7 +561,7 @@ class KnowledgeFabricIndexRepository:
 
     @staticmethod
     def _candidate_select() -> Any:
-        current_atom_evidence = exists(
+        current_entry_evidence = exists(
             select(KnowledgeSourceCurrentEntryRecord.id).where(
                 KnowledgeSourceCurrentEntryRecord.source_id == KnowledgeSourceRecord.id,
                 KnowledgeSourceCurrentEntryRecord.current_evidence_unit_id
@@ -597,8 +600,10 @@ class KnowledgeFabricIndexRepository:
                 KnowledgeSourceVersionRecord.status == "available",
                 KnowledgeSourceRecord.enabled.is_(True),
                 or_(
-                    KnowledgeSourceRecord.source_type != "atom_public_https",
-                    current_atom_evidence,
+                    ~KnowledgeSourceRecord.source_type.in_(
+                        ("atom_public_https", "website_collection_public_https")
+                    ),
+                    current_entry_evidence,
                 ),
             )
         )

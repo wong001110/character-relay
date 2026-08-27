@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from echo_masque.knowledge_fabric_external_policy import WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE
+from echo_masque.knowledge_fabric_external_policy import (
+    WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE,
+    WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE,
+)
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.knowledge_fabric_external_schedule_repository import (
     KnowledgeFabricExternalScheduleRepository,
@@ -60,6 +63,33 @@ def test_external_schedule_is_default_disabled_and_requires_a_canonical_supporte
     assert schedules.claim_due(now=now) == []
     with pytest.raises(ValueError, match="approved range"):
         schedules.configure(source_id=source.id, enabled=True, interval_seconds=899, now=now)
+
+
+def test_external_schedule_accepts_the_default_disabled_site_collection_source(
+    tmp_path: Path,
+) -> None:
+    fabric, schedules = _repository(tmp_path)
+    corpus = fabric.list_system_global_corpora()[0]
+    source = fabric.create_source(
+        corpus_id=corpus.id,
+        source_type=WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE,
+        locator="https://collection.test/wiki",
+        access_profile_json="{}",
+        parser_profile_json="{}",
+        sync_policy_json="{}",
+        freshness_policy_json="{}",
+        authority_profile="standard",
+    )
+
+    configured = schedules.configure(
+        source_id=source.id,
+        enabled=False,
+        interval_seconds=900,
+        now=datetime(2026, 8, 26, tzinfo=UTC),
+    )
+
+    assert configured.enabled is False
+    assert configured.next_run_at is None
 
 
 def test_external_schedule_leases_once_per_host_and_retries_without_raw_errors(

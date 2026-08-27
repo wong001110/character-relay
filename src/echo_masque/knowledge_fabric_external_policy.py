@@ -6,10 +6,20 @@ from hashlib import sha256
 from urllib.parse import urlsplit, urlunsplit
 
 WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE = "website_public_https"
+WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE = "website_collection_public_https"
 ATOM_PUBLIC_HTTPS_SOURCE_TYPE = "atom_public_https"
 _MAX_WEBSITE_RESPONSE_BYTES = 1_048_576
 _MAX_WEBSITE_VALIDATOR_CHARACTERS = 512
 _ALLOWED_CONTENT_TYPES = frozenset({"text/html", "text/markdown", "text/plain"})
+
+
+def source_uses_current_entries(source_type: str) -> bool:
+    """Whether a source exposes a stable per-document current view rather than one snapshot."""
+
+    return source_type in {
+        ATOM_PUBLIC_HTTPS_SOURCE_TYPE,
+        WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE,
+    }
 
 
 class WebsiteSourceRejected(ValueError):
@@ -102,11 +112,13 @@ def website_response_idempotency_key(*, source_id: str, content: bytes) -> str:
 
 __all__ = [
     "ATOM_PUBLIC_HTTPS_SOURCE_TYPE",
+    "WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE",
     "WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE",
     "WebsiteSourceRejected",
     "canonical_public_https_locator",
     "conditional_request_headers",
     "normalized_website_validator",
+    "source_uses_current_entries",
     "website_response_error_code",
     "website_response_idempotency_key",
     "website_response_version_key",

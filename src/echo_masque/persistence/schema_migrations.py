@@ -29,6 +29,8 @@ KNOWLEDGE_FABRIC_PROJECTION_REVISION = "knowledge-fabric-projection-v1"
 KNOWLEDGE_FABRIC_EXTERNAL_SYNC_REVISION = "knowledge-fabric-external-sync-v1"
 KNOWLEDGE_FABRIC_EXTERNAL_SCHEDULE_REVISION = "knowledge-fabric-external-schedule-v1"
 KNOWLEDGE_FABRIC_CURRENT_ENTRY_REVISION = "knowledge-fabric-current-entry-v1"
+KNOWLEDGE_FABRIC_SITE_COLLECTION_STATE_REVISION = "knowledge-fabric-site-collection-state-v1"
+KNOWLEDGE_FABRIC_VISUAL_REFERENCE_REVISION = "knowledge-fabric-visual-reference-v1"
 KNOWLEDGE_FABRIC_CHARACTER_POLICY_REVISION = "knowledge-fabric-character-policy-v1"
 KNOWLEDGE_FABRIC_OBJECT_LIFECYCLE_REVISION = "knowledge-fabric-object-lifecycle-v1"
 
@@ -527,6 +529,110 @@ class KnowledgeFabricCurrentEntryMigration:
             )
 
 
+class KnowledgeFabricSiteCollectionStateMigration:
+    """Record additive Site Collection page-state schema after ORM bootstrap."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def run(self) -> None:
+        dialect = self.database.engine.dialect.name
+        if dialect == "postgresql":
+            with self.database.engine.begin() as connection:
+                connection.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+                    {"key": KNOWLEDGE_FABRIC_SITE_COLLECTION_STATE_REVISION},
+                )
+                self._record(connection, database_kind="postgresql")
+            return
+        with self.database.session() as session:
+            if (
+                session.get(
+                    DatabaseSchemaMigrationRecord,
+                    KNOWLEDGE_FABRIC_SITE_COLLECTION_STATE_REVISION,
+                )
+                is None
+            ):
+                session.add(
+                    DatabaseSchemaMigrationRecord(
+                        revision=KNOWLEDGE_FABRIC_SITE_COLLECTION_STATE_REVISION,
+                        database_kind=dialect,
+                    )
+                )
+                session.commit()
+
+    @staticmethod
+    def _record(connection: Connection, *, database_kind: str) -> None:
+        applied = connection.execute(
+            text("SELECT 1 FROM database_schema_migrations WHERE revision = :revision"),
+            {"revision": KNOWLEDGE_FABRIC_SITE_COLLECTION_STATE_REVISION},
+        ).scalar_one_or_none()
+        if applied is None:
+            connection.execute(
+                text(
+                    "INSERT INTO database_schema_migrations "
+                    "(revision, database_kind, applied_at) "
+                    "VALUES (:revision, :database_kind, :applied_at)"
+                ),
+                {
+                    "revision": KNOWLEDGE_FABRIC_SITE_COLLECTION_STATE_REVISION,
+                    "database_kind": database_kind,
+                    "applied_at": datetime.now(UTC),
+                },
+            )
+
+
+class KnowledgeFabricVisualReferenceMigration:
+    """Record additive corpus-bound visual-reference schema after ORM bootstrap."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def run(self) -> None:
+        dialect = self.database.engine.dialect.name
+        if dialect == "postgresql":
+            with self.database.engine.begin() as connection:
+                connection.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+                    {"key": KNOWLEDGE_FABRIC_VISUAL_REFERENCE_REVISION},
+                )
+                self._record(connection, database_kind="postgresql")
+            return
+        with self.database.session() as session:
+            record = session.get(
+                DatabaseSchemaMigrationRecord,
+                KNOWLEDGE_FABRIC_VISUAL_REFERENCE_REVISION,
+            )
+            if record is None:
+                session.add(
+                    DatabaseSchemaMigrationRecord(
+                        revision=KNOWLEDGE_FABRIC_VISUAL_REFERENCE_REVISION,
+                        database_kind=dialect,
+                    )
+                )
+                session.commit()
+
+    @staticmethod
+    def _record(connection: Connection, *, database_kind: str) -> None:
+        applied = connection.execute(
+            text("SELECT 1 FROM database_schema_migrations WHERE revision = :revision"),
+            {"revision": KNOWLEDGE_FABRIC_VISUAL_REFERENCE_REVISION},
+        ).scalar_one_or_none()
+        if applied is None:
+            connection.execute(
+                text(
+                    "INSERT INTO database_schema_migrations "
+                    "(revision, database_kind, applied_at) "
+                    "VALUES (:revision, :database_kind, :applied_at)"
+                ),
+                {
+                    "revision": KNOWLEDGE_FABRIC_VISUAL_REFERENCE_REVISION,
+                    "database_kind": database_kind,
+                    "applied_at": datetime.now(UTC),
+                },
+            )
+
+
 class KnowledgeFabricCharacterPolicyMigration:
     """Record additive Phase 10 Character corpus policy schema after ORM bootstrap."""
 
@@ -645,6 +751,8 @@ __all__ = [
     "KNOWLEDGE_FABRIC_OBJECT_LIFECYCLE_REVISION",
     "KNOWLEDGE_FABRIC_PROJECTION_REVISION",
     "KNOWLEDGE_FABRIC_SCOPE_REVISION",
+    "KNOWLEDGE_FABRIC_SITE_COLLECTION_STATE_REVISION",
+    "KNOWLEDGE_FABRIC_VISUAL_REFERENCE_REVISION",
     "DatabaseFoundationMigration",
     "KnowledgeFabricCharacterPolicyMigration",
     "KnowledgeFabricContentMigration",
@@ -656,4 +764,6 @@ __all__ = [
     "KnowledgeFabricObjectLifecycleMigration",
     "KnowledgeFabricProjectionMigration",
     "KnowledgeFabricScopeMigration",
+    "KnowledgeFabricSiteCollectionStateMigration",
+    "KnowledgeFabricVisualReferenceMigration",
 ]

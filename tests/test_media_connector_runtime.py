@@ -3,13 +3,17 @@ import json
 from types import SimpleNamespace
 from typing import Any, cast
 
+from pydantic import SecretStr
+
 from echo_masque.api.connector_schemas import (
     DiscordAttachmentContent,
     DiscordEmbedContent,
     DiscordInboundMessage,
 )
+from echo_masque.knowledge_fabric_visual_identity import VisualIdentityResolution
 from echo_masque.live_media import LiveMediaContext, LiveMediaResult
 from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
+from echo_masque.media_runtime import MediaAsset
 from echo_masque.media_tools import MediaToolRegistry
 from echo_masque.providers import (
     ChatMessage,
@@ -19,6 +23,7 @@ from echo_masque.providers import (
     ProviderCompletion,
 )
 from echo_masque.providers.errors import ProviderTimeoutError
+from echo_masque.providers.openai_multimodal import OpenAICompatibleMultimodalProvider
 from echo_masque.targets import PromptModelConfig, PromptModelTarget
 from echo_masque.tool_runtime import ToolExecutionContext
 
@@ -64,6 +69,43 @@ class FakeConversationMediaService:
         payload = values.get("payload")
         if isinstance(payload, DiscordInboundMessage):
             self.remembered_message_ids.append(payload.message_id)
+
+
+class PairwiseLiveMediaService(FakeLiveMediaService):
+    def __init__(self, result: LiveMediaResult) -> None:
+        super().__init__(result)
+        self.credential_resolver = SimpleNamespace(resolve=lambda **_: object())
+        self.provider_factory = lambda _: OpenAICompatibleMultimodalProvider(
+            provider_id="custom",
+            api_key=SecretStr("test-key"),
+            model="test-vision",
+            base_url="https://provider.example.test/v1",
+        )
+
+    def resolved_image_asset(self, source_key: str) -> MediaAsset | None:
+        if source_key != "sha256:image-1":
+            return None
+        return MediaAsset(
+            media_key=source_key,
+            media_type="image",
+            source_uri="https://cdn.discord.test/current.png",
+        )
+
+
+class PairwiseVisualResolver:
+    def __init__(self) -> None:
+        self.fabric = SimpleNamespace(find_server_scope=lambda **_: SimpleNamespace(id="scope-1"))
+        self.pairwise_calls = 0
+
+    def resolve(self, **_: object) -> VisualIdentityResolution:
+        return VisualIdentityResolution(status="unresolved")
+
+    async def resolve_pairwise(self, **values: object) -> VisualIdentityResolution:
+        self.pairwise_calls += 1
+        assert values["candidate_uri"] == "https://cdn.discord.test/current.png"
+        return VisualIdentityResolution(
+            status="pairwise_reference", canonical_name="Amber", corpus_id="corpus-1"
+        )
 
 
 class FakeDeploymentRepository:
@@ -367,6 +409,49 @@ def test_multiple_image_attachments_remain_passive_as_one_media_batch() -> None:
 
     asyncio.run(runtime._ensure_media_context(cast(Any, prepared)))
     assert "1 of 3 visible image attachments" in prepared.prompt
+
+
+def test_pairwise_fictional_reference_is_injected_only_after_passive_perception() -> None:
+    service = PairwiseLiveMediaService(
+        LiveMediaResult(
+            status="completed",
+            reason="ok",
+            contexts=(
+                LiveMediaContext(
+                    source_key="sha256:image-1",
+                    kind="image",
+                    label="current.png",
+                    summary="A fictional character illustration.",
+                ),
+            ),
+        )
+    )
+    resolver = PairwiseVisualResolver()
+    runtime = runtime_for(service)
+    runtime.visual_identity_resolver = cast(Any, resolver)
+    prepared = prepared_turn(prompt_target(SkipMediaProvider()))
+    prepared.resolved.deployment.workspace_id = "guild-1"
+    prepared.resolved.deployment.platform = "discord"
+    prepared.resolved.deployment.connection_id = "connection-1"
+    prepared.resolved.payload = prepared.resolved.payload.model_copy(
+        update={
+            "text": "看这个",
+            "attachments": [
+                DiscordAttachmentContent(
+                    attachment_id="image-1",
+                    url="https://cdn.discord.test/current.png",
+                    filename="current.png",
+                    content_type="image/png",
+                )
+            ],
+        }
+    )
+
+    asyncio.run(runtime._ensure_media_context(cast(Any, prepared)))
+
+    assert resolver.pairwise_calls == 1
+    assert "Approved fictional-character visual reference:" in prepared.prompt
+    assert "strong support for Amber" in prepared.prompt
 
 
 def test_preview_does_not_hide_inspection_for_another_unpreviewed_media_item() -> None:

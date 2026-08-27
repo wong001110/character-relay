@@ -205,3 +205,57 @@ def test_multimodal_provider_uses_local_keyframes_instead_of_platform_video_url(
     ]
     assert not any(item.get("type") == "video_url" for item in content)
     assert result.summary == "Sampled frames show a cooking demonstration."
+
+
+def test_multimodal_provider_compares_anonymous_reference_images() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {"matched_reference_index": 1, "confidence": 0.98}
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    provider = OpenAICompatibleMultimodalProvider(
+        provider_id="openrouter",
+        api_key=SecretStr("or-key"),
+        model="vision-model",
+        base_url="https://openrouter.ai/api/v1",
+        transport=httpx.MockTransport(handler),
+    )
+    result = asyncio.run(
+        provider.compare_fictional_character_images(
+            candidate_uri="https://cdn.example.test/current.png",
+            reference_uris=(
+                "data:image/png;base64,UkVGMA==",
+                "data:image/png;base64,UkVGMQ==",
+            ),
+        )
+    )
+
+    assert result.matched_reference_index == 1
+    assert result.confidence == 0.98
+    body = captured["body"]
+    assert isinstance(body, dict)
+    messages = body["messages"]
+    assert isinstance(messages, list)
+    assert "fictional-character reference art" in messages[0]["content"]
+    content = messages[1]["content"]
+    assert isinstance(content, list)
+    assert content[1:] == [
+        {"type": "image_url", "image_url": {"url": "https://cdn.example.test/current.png"}},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,UkVGMA=="}},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,UkVGMQ=="}},
+    ]
+    assert "Amber" not in json.dumps(body)

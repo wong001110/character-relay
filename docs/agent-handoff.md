@@ -120,6 +120,16 @@ Branch/PR status and live deployment health are intentionally not frozen here. C
 
 Do not turn the plan into a second architecture contract. When implementation changes authority or product behavior, update the relevant canonical document and point the plan to it.
 
+### Site Collection / visual identity branch
+
+`codex/site-collection-visual-identity` starts from deployed `origin/main` `b30ddc3`. Its first
+two coherent Site Collection phases are recorded in `docs/site-collection-visual-identity-plan.md`:
+the default-disabled pinned-transport root/link fallback, followed by bounded same-origin sitemap
+discovery, per-page validators, discovery generations, and delta current-entry publication. It
+does not revise the paused Global Library UI, recursively crawl HTML, fetch images, or perform
+visual identity recognition. Continue with the corpus-bound visual-reference phase; do not modify
+the user's dirty local `main` worktree.
+
 For an applicable active plan, use one integration owner: sub-agents may research, verify, test, or edit assigned non-overlapping files, while the main agent reviews the combined diff, resolves evidence conflicts, runs the phase gate, and creates at most one implementation commit for the phase. Do not create checkpoint commits or rerun the full suite after every small change.
 
 ## Module, source, and proof map

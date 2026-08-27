@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 from sqlalchemy import delete, select, update
@@ -18,8 +18,8 @@ from echo_masque.knowledge_fabric_current_entry_policy import (
     may_reuse_current_evidence,
 )
 from echo_masque.knowledge_fabric_external_policy import (
-    ATOM_PUBLIC_HTTPS_SOURCE_TYPE,
     WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE,
+    source_uses_current_entries,
 )
 from echo_masque.knowledge_fabric_git_policy import GIT_SOURCE_TYPE
 from echo_masque.knowledge_fabric_ingestion_policy import (
@@ -76,8 +76,22 @@ class KnowledgeExternalScheduleClaimLost(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class KnowledgeImageAssetCandidate:
+    """An administrator-facing image provenance tuple with storage details omitted."""
+
+    source_id: str
+    source_version_id: str
+    document_id: str
+    document_locator: str
+    asset_id: str
+    evidence_unit_id: str
+    asset_type: str
+    caption: str
+
+
+@dataclass(frozen=True, slots=True)
 class _CurrentEntryRefresh:
-    """The derived work caused by one immutable Atom snapshot."""
+    """The derived work caused by one immutable multi-entry snapshot."""
 
     changed_evidence_ids: tuple[str, ...]
     has_material_change: bool
@@ -117,6 +131,26 @@ class CanonicalDocumentInput:
     metadata: Mapping[str, object] = field(default_factory=dict)
     sections: Sequence[CanonicalSectionInput] = ()
     blocks: Sequence[CanonicalBlockInput] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PublishedKnowledgeAssetInput:
+    """One already-private binary asset attached to canonical source structure.
+
+    The ingestion service owns uploading ``artifact``.  This repository only links that
+    immutable object to one document/block and creates a source-addressable Evidence Unit
+    in the same source-version transaction.
+    """
+
+    document_locator: str
+    structural_path: str
+    asset_type: str
+    artifact: StoredKnowledgeObject
+    evidence_locator: str
+    evidence_type: str = "asset"
+    text_content: str = ""
+    block_structural_path: str | None = None
+    coordinates: Mapping[str, object] = field(default_factory=dict)
 
 
 class KnowledgeFabricContentRepository:
@@ -357,8 +391,11 @@ class KnowledgeFabricContentRepository:
         published_at: datetime | None,
         metadata: Mapping[str, object],
         documents: Sequence[CanonicalDocumentInput],
+        assets: Sequence[PublishedKnowledgeAssetInput] = (),
         activate_git_version: bool = False,
         external_schedule_lease_token: str | None = None,
+        current_entry_mode: Literal["automatic", "full", "delta"] = "automatic",
+        removed_entry_locators: Sequence[str] = (),
     ) -> KnowledgeSourceVersionRecord:
         """Atomically publish immutable metadata after private artifact upload succeeds."""
 
@@ -441,21 +478,39 @@ class KnowledgeFabricContentRepository:
             )
             session.add(version)
             session.flush()
+            documents_by_locator: dict[
+                str, tuple[KnowledgeCanonicalDocumentRecord, dict[str, str]]
+            ] = {}
             for document_input in documents:
-                self._create_document_content(session, version=version, value=document_input)
-            entry_refresh = self._refresh_current_atom_entries(
+                document, block_ids = self._create_document_content(
+                    session,
+                    version=version,
+                    value=document_input,
+                )
+                documents_by_locator[document.canonical_locator] = (document, block_ids)
+            for asset_input in assets:
+                self._create_asset_content(
+                    session,
+                    source=source,
+                    version=version,
+                    documents_by_locator=documents_by_locator,
+                    value=asset_input,
+                )
+            entry_refresh = self._refresh_current_entries(
                 session,
                 source=source,
                 version=version,
+                mode=current_entry_mode,
+                removed_entry_locators=removed_entry_locators,
             )
             if source.source_type == WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE:
                 self._activate_website_version_as_current(session, source=source, version=version)
             has_material_change = (
-                source.source_type != ATOM_PUBLIC_HTTPS_SOURCE_TYPE
+                not source_uses_current_entries(source.source_type)
                 or entry_refresh.has_material_change
             )
             if has_material_change:
-                # Generic Sources invalidate the whole source snapshot.  Atom Sources do so
+                # Generic Sources invalidate the whole source snapshot.  Multi-entry Sources do so
                 # only when the stable entry map changed; reorder-only/raw-format snapshots
                 # leave derived current views usable.
                 KnowledgeFabricProjectionRepository(self.database).mark_source_projections_stale(
@@ -975,17 +1030,25 @@ class KnowledgeFabricContentRepository:
         )
         return counts
 
-    def _refresh_current_atom_entries(
+    def _refresh_current_entries(
         self,
         session: Session,
         *,
         source: KnowledgeSourceRecord,
         version: KnowledgeSourceVersionRecord,
+        mode: Literal["automatic", "full", "delta"],
+        removed_entry_locators: Sequence[str],
     ) -> _CurrentEntryRefresh:
-        """Advance only changed Atom entry pointers; preserved entry evidence stays reusable."""
+        """Advance only changed stable entry pointers; preserved evidence stays reusable."""
 
-        if source.source_type != ATOM_PUBLIC_HTTPS_SOURCE_TYPE:
+        if mode not in {"automatic", "full", "delta"}:
+            raise ValueError("Current-entry mode is invalid.")
+        if not source_uses_current_entries(source.source_type):
+            if mode != "automatic" or removed_entry_locators:
+                raise ValueError("Current-entry mode requires a multi-entry Source.")
             return _CurrentEntryRefresh((), True)
+        if mode == "automatic":
+            mode = "full"
         incoming = list(
             session.execute(
                 select(
@@ -997,6 +1060,7 @@ class KnowledgeFabricContentRepository:
                     KnowledgeEvidenceUnitRecord.document_id == KnowledgeCanonicalDocumentRecord.id,
                 )
                 .where(KnowledgeCanonicalDocumentRecord.source_version_id == version.id)
+                .where(KnowledgeEvidenceUnitRecord.asset_id.is_(None))
                 .order_by(
                     KnowledgeCanonicalDocumentRecord.canonical_locator,
                     KnowledgeEvidenceUnitRecord.id,
@@ -1010,7 +1074,7 @@ class KnowledgeFabricContentRepository:
             locator = document.canonical_locator
             if locator in by_locator:
                 raise KnowledgeSourceVersionConflict(
-                    "Atom entry identity must map to one Evidence Unit."
+                    "Current entry identity must map to one Evidence Unit."
                 )
             by_locator[locator] = (document, evidence)
         existing = {
@@ -1024,7 +1088,7 @@ class KnowledgeFabricContentRepository:
         obsolete_evidence_ids: list[str] = []
         changed_evidence_ids: list[str] = []
         for locator, (document, evidence) in by_locator.items():
-            entry_sha256 = _atom_entry_material_hash(document, evidence)
+            entry_sha256 = _current_entry_material_hash(document, evidence)
             current = existing.pop(locator, None)
             if current is not None and may_reuse_current_evidence(
                 current_status=current.status,
@@ -1053,7 +1117,12 @@ class KnowledgeFabricContentRepository:
             current.entry_sha256 = entry_sha256
             current.status = "available"
             changed_evidence_ids.append(evidence.id)
-        for current in existing.values():
+        stale_entries = existing.values() if mode == "full" else (
+            existing[locator]
+            for locator in sorted(set(removed_entry_locators))
+            if locator in existing
+        )
+        for current in stale_entries:
             if current_evidence_must_be_invalidated(
                 status=current.status,
                 evidence_unit_id=current.current_evidence_unit_id,
@@ -1100,7 +1169,7 @@ class KnowledgeFabricContentRepository:
         *,
         version: KnowledgeSourceVersionRecord,
         value: CanonicalDocumentInput,
-    ) -> None:
+    ) -> tuple[KnowledgeCanonicalDocumentRecord, dict[str, str]]:
         self._require_identifier("canonical_locator", value.canonical_locator)
         self._require_identifier("mime_type", value.mime_type)
         document = KnowledgeCanonicalDocumentRecord(
@@ -1134,6 +1203,7 @@ class KnowledgeFabricContentRepository:
             session.add(section_record)
             section_ids[section.structural_path] = section_record.id
         session.flush()
+        block_ids: dict[str, str] = {}
         for block in value.blocks:
             self._require_identifier("block structural_path", block.structural_path)
             self._require_identifier("block_type", block.block_type)
@@ -1156,6 +1226,7 @@ class KnowledgeFabricContentRepository:
             )
             session.add(block_record)
             session.flush()
+            block_ids[block.structural_path] = block_record.id
             session.add(
                 KnowledgeEvidenceUnitRecord(
                     id=str(uuid4()),
@@ -1169,6 +1240,140 @@ class KnowledgeFabricContentRepository:
                     coordinates_json=_encode(block.coordinates),
                 )
             )
+        return document, block_ids
+
+    def list_image_asset_candidates(
+        self,
+        corpus_id: str,
+        *,
+        limit: int = 100,
+    ) -> list[KnowledgeImageAssetCandidate]:
+        """List image/evidence pairs that a global administrator may approve.
+
+        Object keys, hashes, and bytes intentionally stay inside the private storage boundary.
+        A candidate remains tied to its immutable source version; this is an approval inventory,
+        not a claim that every historical asset is current character truth.
+        """
+
+        if limit < 1 or limit > 500:
+            raise ValueError("Image candidate limit must be between 1 and 500.")
+        with self.database.session() as session:
+            rows = session.execute(
+                select(
+                    KnowledgeSourceRecord.id,
+                    KnowledgeSourceVersionRecord.id,
+                    KnowledgeCanonicalDocumentRecord.id,
+                    KnowledgeCanonicalDocumentRecord.canonical_locator,
+                    KnowledgeAssetReferenceRecord.id,
+                    KnowledgeEvidenceUnitRecord.id,
+                    KnowledgeAssetReferenceRecord.asset_type,
+                    KnowledgeEvidenceUnitRecord.text_content,
+                )
+                .join(
+                    KnowledgeCanonicalDocumentRecord,
+                    KnowledgeCanonicalDocumentRecord.id
+                    == KnowledgeAssetReferenceRecord.document_id,
+                )
+                .join(
+                    KnowledgeEvidenceUnitRecord,
+                    KnowledgeEvidenceUnitRecord.asset_id == KnowledgeAssetReferenceRecord.id,
+                )
+                .join(
+                    KnowledgeSourceVersionRecord,
+                    KnowledgeSourceVersionRecord.id
+                    == KnowledgeCanonicalDocumentRecord.source_version_id,
+                )
+                .join(
+                    KnowledgeSourceRecord,
+                    KnowledgeSourceRecord.id == KnowledgeSourceVersionRecord.source_id,
+                )
+                .where(
+                    KnowledgeSourceRecord.corpus_id == corpus_id,
+                    KnowledgeAssetReferenceRecord.asset_type == "image",
+                )
+                .order_by(
+                    KnowledgeSourceVersionRecord.published_at.desc(),
+                    KnowledgeCanonicalDocumentRecord.canonical_locator,
+                    KnowledgeAssetReferenceRecord.structural_path,
+                )
+                .limit(limit)
+            ).all()
+        return [
+            KnowledgeImageAssetCandidate(
+                source_id=source_id,
+                source_version_id=source_version_id,
+                document_id=document_id,
+                document_locator=document_locator,
+                asset_id=asset_id,
+                evidence_unit_id=evidence_unit_id,
+                asset_type=asset_type,
+                caption=caption,
+            )
+            for (
+                source_id,
+                source_version_id,
+                document_id,
+                document_locator,
+                asset_id,
+                evidence_unit_id,
+                asset_type,
+                caption,
+            ) in rows
+        ]
+
+    def _create_asset_content(
+        self,
+        session: Session,
+        *,
+        source: KnowledgeSourceRecord,
+        version: KnowledgeSourceVersionRecord,
+        documents_by_locator: Mapping[
+            str, tuple[KnowledgeCanonicalDocumentRecord, Mapping[str, str]]
+        ],
+        value: PublishedKnowledgeAssetInput,
+    ) -> None:
+        """Create a private asset reference and its asset-specific Evidence Unit together."""
+
+        self._require_identifier("asset document locator", value.document_locator)
+        self._require_identifier("asset structural_path", value.structural_path)
+        self._require_identifier("asset_type", value.asset_type)
+        self._require_identifier("asset evidence locator", value.evidence_locator)
+        self._require_identifier("asset evidence_type", value.evidence_type)
+        document_and_blocks = documents_by_locator.get(value.document_locator)
+        if document_and_blocks is None:
+            raise ValueError("Knowledge asset document must be in the source snapshot.")
+        document, block_ids = document_and_blocks
+        block_id = None
+        if value.block_structural_path is not None:
+            block_id = block_ids.get(value.block_structural_path)
+            if block_id is None:
+                raise ValueError("Knowledge asset block must be in the asset document.")
+        artifact = self._ensure_artifact_record(session, source=source, artifact=value.artifact)
+        asset = KnowledgeAssetReferenceRecord(
+            id=str(uuid4()),
+            document_id=document.id,
+            block_id=block_id,
+            artifact_id=artifact.id,
+            asset_type=value.asset_type,
+            structural_path=value.structural_path,
+            coordinates_json=_encode(value.coordinates),
+        )
+        session.add(asset)
+        session.flush()
+        session.add(
+            KnowledgeEvidenceUnitRecord(
+                id=str(uuid4()),
+                source_version_id=version.id,
+                document_id=document.id,
+                block_id=block_id,
+                asset_id=asset.id,
+                evidence_locator=value.evidence_locator,
+                evidence_type=value.evidence_type,
+                content_sha256=value.artifact.content_sha256,
+                text_content=value.text_content,
+                coordinates_json=_encode(value.coordinates),
+            )
+        )
 
     @staticmethod
     def _delete_ids(session: Session, model: Any, column: Any, values: Sequence[str]) -> int:
@@ -1341,11 +1546,11 @@ def _encode(value: Mapping[str, object]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def _atom_entry_material_hash(
+def _current_entry_material_hash(
     document: KnowledgeCanonicalDocumentRecord,
     evidence: KnowledgeEvidenceUnitRecord,
 ) -> str:
-    """Fingerprint every Atom field retained in current retrieval/projection output."""
+    """Fingerprint every field retained in current retrieval/projection output."""
 
     retained_fields = (evidence.content_sha256, document.title, document.metadata_json)
     return sha256("\x1f".join(retained_fields).encode("utf-8")).hexdigest()
@@ -1357,6 +1562,8 @@ __all__ = [
     "CanonicalSectionInput",
     "KnowledgeExternalScheduleClaimLost",
     "KnowledgeFabricContentRepository",
+    "KnowledgeImageAssetCandidate",
     "KnowledgeIngestionAlreadyRunning",
     "KnowledgeSourceVersionConflict",
+    "PublishedKnowledgeAssetInput",
 ]

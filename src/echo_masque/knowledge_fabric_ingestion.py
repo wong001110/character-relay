@@ -7,17 +7,43 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from hashlib import sha256
+from typing import Literal
 
 from echo_masque.knowledge_fabric_ingestion_policy import deterministic_artifact_key
-from echo_masque.knowledge_object_storage import KnowledgeObjectStorage, ObjectStorageError
+from echo_masque.knowledge_object_storage import (
+    KnowledgeObjectStorage,
+    ObjectStorageError,
+    StoredKnowledgeObject,
+)
 from echo_masque.persistence.knowledge_fabric_content_repository import (
     CanonicalDocumentInput,
     KnowledgeExternalScheduleClaimLost,
     KnowledgeFabricContentRepository,
     KnowledgeIngestionAlreadyRunning,
     KnowledgeSourceVersionConflict,
+    PublishedKnowledgeAssetInput,
 )
 from echo_masque.persistence.knowledge_fabric_models import KnowledgeSourceVersionRecord
+
+
+@dataclass(frozen=True, slots=True)
+class SourceSnapshotAssetInput:
+    """An adapter-provided binary child asset for one canonical document.
+
+    Bytes are accepted only at the ingestion boundary and are published to private object
+    storage before the asset/document/Evidence records are atomically linked.
+    """
+
+    document_locator: str
+    structural_path: str
+    asset_type: str
+    artifact_content: bytes
+    artifact_content_type: str
+    evidence_locator: str
+    evidence_type: str = "asset"
+    text_content: str = ""
+    block_structural_path: str | None = None
+    coordinates: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,10 +56,13 @@ class SourceSnapshotIngestionRequest:
     artifact_content: bytes
     artifact_content_type: str
     documents: Sequence[CanonicalDocumentInput] = ()
+    assets: Sequence[SourceSnapshotAssetInput] = ()
     published_at: datetime | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
     activate_git_version: bool = False
     external_schedule_lease_token: str | None = None
+    current_entry_mode: Literal["automatic", "full", "delta"] = "automatic"
+    removed_entry_locators: Sequence[str] = ()
 
 
 class KnowledgeFabricIngestionService:
@@ -104,6 +133,8 @@ class KnowledgeFabricIngestionService:
             source_id=request.source_id,
             content_sha256=source_hash,
         )
+        uploaded_artifacts: list[StoredKnowledgeObject] = []
+        registered_artifact_keys: set[str] = set()
         try:
             artifact = self.object_storage.put_private(
                 object_key=object_key,
@@ -111,20 +142,63 @@ class KnowledgeFabricIngestionService:
                 content_type=request.artifact_content_type,
                 metadata={"source-id": request.source_id},
             )
+            uploaded_artifacts.append(artifact)
+            self.repository.register_uploaded_artifact(
+                source_id=request.source_id,
+                artifact=artifact,
+            )
+            registered_artifact_keys.add(artifact.object_key)
+            published_assets: list[PublishedKnowledgeAssetInput] = []
+            for asset_input in request.assets:
+                asset_hash = sha256(asset_input.artifact_content).hexdigest()
+                asset_key = deterministic_artifact_key(
+                    prefix=f"{self.object_key_prefix}/assets",
+                    source_id=request.source_id,
+                    content_sha256=asset_hash,
+                )
+                stored_asset = self.object_storage.put_private(
+                    object_key=asset_key,
+                    content=asset_input.artifact_content,
+                    content_type=asset_input.artifact_content_type,
+                    metadata={
+                        "source-id": request.source_id,
+                        "asset-type": asset_input.asset_type,
+                    },
+                )
+                uploaded_artifacts.append(stored_asset)
+                self.repository.register_uploaded_artifact(
+                    source_id=request.source_id,
+                    artifact=stored_asset,
+                )
+                registered_artifact_keys.add(stored_asset.object_key)
+                published_assets.append(
+                    PublishedKnowledgeAssetInput(
+                        document_locator=asset_input.document_locator,
+                        structural_path=asset_input.structural_path,
+                        asset_type=asset_input.asset_type,
+                        artifact=stored_asset,
+                        evidence_locator=asset_input.evidence_locator,
+                        evidence_type=asset_input.evidence_type,
+                        text_content=asset_input.text_content,
+                        block_structural_path=asset_input.block_structural_path,
+                        coordinates=asset_input.coordinates,
+                    )
+                )
         except ObjectStorageError:
+            self._discard_failed_uploads(
+                uploaded_artifacts,
+                registered_artifact_keys,
+            )
             self.repository.fail_ingestion_job(
                 job_id=claimed.id,
                 error_code="object_storage_failed",
             )
             raise
-        try:
-            self.repository.register_uploaded_artifact(
-                source_id=request.source_id,
-                artifact=artifact,
-            )
         except Exception:
-            with suppress(ObjectStorageError):
-                self.object_storage.delete_private(object_key=artifact.object_key)
+            self._discard_failed_uploads(
+                uploaded_artifacts,
+                registered_artifact_keys,
+            )
             self.repository.fail_ingestion_job(
                 job_id=claimed.id,
                 error_code="persistence_failed",
@@ -140,20 +214,46 @@ class KnowledgeFabricIngestionService:
                 published_at=request.published_at,
                 metadata=request.metadata,
                 documents=request.documents,
+                assets=published_assets,
                 activate_git_version=request.activate_git_version,
                 external_schedule_lease_token=request.external_schedule_lease_token,
+                current_entry_mode=request.current_entry_mode,
+                removed_entry_locators=request.removed_entry_locators,
             )
         except KnowledgeExternalScheduleClaimLost:
-            self.repository.discard_unpublished_artifact(artifact)
+            self._discard_failed_uploads(
+                uploaded_artifacts,
+                registered_artifact_keys,
+            )
             self.repository.fail_ingestion_job(
                 job_id=claimed.id,
                 error_code="schedule_claim_lost",
             )
             raise
         except Exception:
-            self.repository.discard_unpublished_artifact(artifact)
-            self.repository.fail_ingestion_job(job_id=claimed.id, error_code="persistence_failed")
+            self._discard_failed_uploads(
+                uploaded_artifacts,
+                registered_artifact_keys,
+            )
+            self.repository.fail_ingestion_job(
+                job_id=claimed.id,
+                error_code="persistence_failed",
+            )
             raise
+
+    def _discard_failed_uploads(
+        self,
+        artifacts: Sequence[StoredKnowledgeObject],
+        registered_artifact_keys: set[str],
+    ) -> None:
+        """Compensate every child upload without deleting an already-published object."""
+
+        for artifact in reversed(artifacts):
+            if artifact.object_key in registered_artifact_keys:
+                self.repository.discard_unpublished_artifact(artifact)
+                continue
+            with suppress(ObjectStorageError):
+                self.object_storage.delete_private(object_key=artifact.object_key)
 
     def recover_interrupted_jobs(self) -> int:
         """Call on a worker restart before accepting another snapshot delivery."""
@@ -162,4 +262,8 @@ class KnowledgeFabricIngestionService:
         return self.repository.requeue_interrupted_ingestion_jobs()
 
 
-__all__ = ["KnowledgeFabricIngestionService", "SourceSnapshotIngestionRequest"]
+__all__ = [
+    "KnowledgeFabricIngestionService",
+    "SourceSnapshotAssetInput",
+    "SourceSnapshotIngestionRequest",
+]

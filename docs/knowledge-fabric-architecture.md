@@ -476,6 +476,58 @@ snapshot advances map observation but creates no index/projection invalidation a
 the existing projection. This is Atom-specific; generic Source snapshots retain whole-source
 invalidation semantics.
 
+### Phase 9c Site Collection boundary
+
+`website_collection_public_https` is a separate, opt-in Source type for a bounded public site
+collection. Its configured root is an exact canonical public HTTPS URL. A scheduled worker uses
+the existing pinned transport and first attempts the same-origin conventional sitemap. It accepts
+bounded `urlset` and nested `sitemapindex` manifests only after DTD/entity rejection, type/size
+checks, canonical URL validation, and same-origin admission. A missing root sitemap falls back to
+at most 50 direct HTML links; it never recursively crawls HTML, follows a cross-origin URL, invokes
+a browser, or accepts credentials.
+
+The private immutable artifact contains the approved raw page bytes. Each page creates exactly one
+canonical document/Evidence Unit, whose canonical page locator is also a stable current-entry key.
+Per-page discovery provenance, ETag/Last-Modified validators, content digest, and an incrementing
+discovery generation are derived state, never raw content. Changed pages publish delta snapshots;
+page `304` responses preserve their current Evidence without a new Source Version. Only a fully
+parsed manifest plus successful page pass may mark entries absent from that generation as removed,
+so a failed/partial run cannot retract prior evidence. Indexes and source-overview projections read
+only available current entries.
+
+The sitemap cap is 20 XML documents and 1,000 page locators. Robots/terms enforcement,
+MediaWiki/Docusaurus/GitBook source-native adapters, visual matching, and license workflows
+remain explicit later phases rather than implicit crawler authority.
+
+### Corpus visual references
+
+An approved `CanonicalVisualReference` is corpus-bound and links one canonical entity to the
+specific Evidence Unit and private Asset that justify the reference. It is revocable and never
+reuses a server-scoped runtime `EntityV3` as a global identity catalogue. Discord runtime can name
+an identity only after the server has access to the corpus and the Character has explicit corpus
+admission. The current resolver confirms an exact private-asset SHA-256 match, or preserves an
+author's explicit caption as text context; it returns unresolved for lookalikes and has no
+face/character-similarity claim by default. Pairwise matching is enabled only for a
+`fictional_character` entity when a Super Admin separately marks the approved reference for
+external comparison. The Runtime sends a current Discord image plus at most five approved private
+reference images to that Character's already configured Media Understanding provider. Canonical
+names remain local: the model receives positional images only and returns an index plus confidence;
+provider failure, malformed output, unsupported capability, an out-of-range index, or confidence
+below 0.96 resolves as unknown. This flow is never used for real-person identification.
+
+Site Collection may acquire a bounded page-local raster asset only through the worker's pinned,
+same-origin transport. The generic adapter accepts explicit `img[src]` only, rejects query-bearing,
+credential-bearing, SVG and non-raster content, validates both content type and magic bytes, and
+stores the admitted bytes as a separate private content-addressed artifact. It creates Asset and
+asset-Evidence provenance atomically with the Source Version, without treating a remote image URL
+as permanent Knowledge or an automatic character identity.
+
+Global administrators can list this provenance-safe image candidate inventory, create/list a
+corpus-local canonical entity, and then approve/revoke the visual reference. These administrative
+responses contain the page/document, Asset and Evidence identities plus retained caption only;
+they never disclose private object keys, artifact hashes, or bytes. The portal redesign and an
+image preview/dedicated approval UI remain separate product work.
+
 ### Private/local content
 
 Cloud Character Relay cannot directly read an arbitrary local path. Support either explicit upload/import or a future Local Sync Agent that watches allowed paths and transmits only approved changed content. Local sync must support `.gitignore`-style exclusion and deny common secret paths/material such as `.env`, private keys, credential files, dependency/build/cache directories by default.

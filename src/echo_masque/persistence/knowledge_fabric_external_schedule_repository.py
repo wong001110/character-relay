@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from echo_masque.knowledge_fabric_external_policy import (
     ATOM_PUBLIC_HTTPS_SOURCE_TYPE,
+    WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE,
     WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE,
     canonical_public_https_locator,
 )
@@ -267,6 +268,7 @@ def _approved_source_hostname(source: KnowledgeSourceRecord | None) -> str:
         raise KeyError("source")
     if source.source_type not in {
         WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE,
+        WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE,
         ATOM_PUBLIC_HTTPS_SOURCE_TYPE,
     }:
         raise ValueError("External schedule requires a supported public HTTPS Source.")

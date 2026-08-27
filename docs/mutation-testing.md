@@ -31,7 +31,7 @@ would reject a changed behavior.
 
 | Surface | Runner | Initial bounded scope | Where to run |
 | --- | --- | --- | --- |
-| Python | `mutmut` with pytest (character/query/invalidation policy tests) | Character, Query, and `echo_masque.knowledge_fabric_invalidation_policy` | Ubuntu CI or an installed WSL distribution |
+| Python | `mutmut` with pytest (character/query/invalidation/visual-reference policy tests) | Character, Query, `echo_masque.knowledge_fabric_invalidation_policy`, and `echo_masque.knowledge_fabric_visual_reference_policy` | Ubuntu CI or an installed WSL distribution |
 | Portal | StrykerJS with Vitest and TypeScript checking | `web/src/portalEnvironment.ts`, `web/src/knowledgeFabricApi.ts` | Node 22+ |
 | Discord Connector | StrykerJS with Vitest and TypeScript checking | `connectors/discord/src/audiencePreflight.ts` | Node 24.17+ |
 
@@ -71,6 +71,9 @@ temporary copy, then returns the underlying `mutmut run` status. Do not apply a 
 behavioral tests, then re-run the same bounded scope. A timeout or compile failure is not evidence
 that the mutant was killed.
 
+`scripts/run_mutmut_wsl.sh` is a Bash file and is pinned to LF checkout in `.gitattributes`; do
+not convert it to CRLF, because Bash cannot parse CRLF shell syntax under WSL.
+
 For survivor investigation only, set `MUTMUT_KEEP_WORKDIR=1`. The wrapper prints the exact
 WSL-native temporary directory instead of removing it; inspect it with `mutmut show`, then remove
 that exact printed directory manually. Normal runs must leave this variable unset.
@@ -100,6 +103,10 @@ that exact printed directory manually. Normal runs must leave this variable unse
   privileged Portal/Connector decisions receive targeted mutation scopes as those consumers move.
   Phase 11b-2 includes `knowledge_fabric_invalidation_policy.py` for claim eligibility and bounded
   retry lifecycle decisions; its persistence worker remains covered by its regression tests.
+- Site Collection visual-reference comparison uses
+  `knowledge_fabric_visual_reference_policy.py` for the deterministic fictional-character opt-in,
+  in-range result, and confidence-threshold boundary. Private asset reads, object storage, and
+  provider calls remain integration-tested rather than mutation-scored.
 
 The active plan records each command, result, accepted equivalent mutant, deliberate exclusion,
 and remaining scope. It must not claim a mutation score for code that was not actually mutated.

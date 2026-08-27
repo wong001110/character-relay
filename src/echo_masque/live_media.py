@@ -286,6 +286,19 @@ class LiveMediaContextService:
             self._services[key] = service
         return await service.analyze(asset)
 
+    def resolved_image_asset(self, source_key: str) -> MediaAsset | None:
+        """Return a just-resolved image only to the Runtime's bounded comparison path."""
+
+        now = monotonic()
+        for cached in self._source_cache.values():
+            if (
+                cached.expires_at > now
+                and cached.asset.media_type == "image"
+                and cached.asset.media_key == source_key
+            ):
+                return cached.asset
+        return None
+
     def _attachment_cache_key(self, payload: DiscordInboundMessage) -> str:
         channel_id = payload.thread_id or payload.channel_id
         return f"{payload.connection_id}:{channel_id}:{payload.message_id}"

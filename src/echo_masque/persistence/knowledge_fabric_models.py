@@ -155,6 +155,49 @@ class KnowledgeExternalSourceScheduleRecord(Base):
     )
 
 
+class KnowledgeExternalSourceCollectionStateRecord(Base):
+    """Derived discovery generation for one public Site Collection Source."""
+
+    __tablename__ = "knowledge_external_source_collection_states"
+
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_sources.id"), primary_key=True
+    )
+    discovery_generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class KnowledgeExternalSourcePageStateRecord(Base):
+    """Per-page conditional fetch/discovery state; never stores raw page content."""
+
+    __tablename__ = "knowledge_external_source_page_states"
+    __table_args__ = (
+        UniqueConstraint("source_id", "locator", name="uq_knowledge_external_source_page"),
+        Index("ix_knowledge_external_source_page_generation", "source_id", "last_seen_generation"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_sources.id"), index=True, nullable=False
+    )
+    locator: Mapped[str] = mapped_column(String(1000), nullable=False)
+    discovery_kind: Mapped[str] = mapped_column(String(40), default="sitemap", nullable=False)
+    discovered_from_locator: Mapped[str] = mapped_column(String(1000), default="", nullable=False)
+    last_seen_generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    etag: Mapped[str | None] = mapped_column(String(512))
+    last_modified: Mapped[str | None] = mapped_column(String(512))
+    content_sha256: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(24), default="available", nullable=False)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(String(80))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class KnowledgeExternalHostRateRecord(Base):
     """One global host cooldown across all opt-in external Source schedules."""
 
@@ -688,6 +731,42 @@ class KnowledgeCanonicalEntityRecord(Base):
     )
 
 
+class KnowledgeCanonicalVisualReferenceRecord(Base):
+    """One approved, corpus-bound visual reference for a canonical entity."""
+
+    __tablename__ = "knowledge_canonical_visual_references"
+    __table_args__ = (
+        UniqueConstraint(
+            "canonical_entity_id",
+            "evidence_unit_id",
+            "asset_id",
+            name="uq_knowledge_canonical_visual_reference_provenance",
+        ),
+        Index("ix_knowledge_canonical_visual_reference_corpus_status", "corpus_id", "status"),
+        Index("ix_knowledge_canonical_visual_reference_asset_status", "asset_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    corpus_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_corpora.id"), index=True, nullable=False
+    )
+    canonical_entity_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_canonical_entities.id"), index=True, nullable=False
+    )
+    evidence_unit_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_evidence_units.id"), index=True, nullable=False
+    )
+    asset_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_asset_references.id"), index=True, nullable=False
+    )
+    descriptor_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="active", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class KnowledgeRuntimeEntityResolutionRecord(Base):
     """Evidence-backed, revisable link from a scoped runtime EntityV3 to a corpus entity."""
 
@@ -1015,6 +1094,7 @@ __all__ = [
     "KnowledgeCanonicalDocumentRecord",
     "KnowledgeCanonicalEntityRecord",
     "KnowledgeCanonicalSectionRecord",
+    "KnowledgeCanonicalVisualReferenceRecord",
     "KnowledgeCorpusRecord",
     "KnowledgeDependencyInvalidationRecord",
     "KnowledgeEvidenceEmbeddingRecord",

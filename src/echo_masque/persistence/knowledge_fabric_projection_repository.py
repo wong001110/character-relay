@@ -9,6 +9,7 @@ from uuid import uuid4
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
+from echo_masque.knowledge_fabric_external_policy import source_uses_current_entries
 from echo_masque.knowledge_fabric_projection_policy import source_projection_is_current
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.knowledge_fabric_models import (
@@ -83,7 +84,7 @@ class KnowledgeFabricProjectionRepository:
             if projection is not None and (
                 projection_is_current
                 or (
-                    source.source_type == "atom_public_https"
+                    source_uses_current_entries(source.source_type)
                     and not projection.stale
                 )
             ):
@@ -120,7 +121,7 @@ class KnowledgeFabricProjectionRepository:
                     KnowledgeEvidenceUnitRecord.id,
                 )
             )
-            if source.source_type == "atom_public_https":
+            if source_uses_current_entries(source.source_type):
                 evidence_statement = evidence_statement.join(
                     KnowledgeSourceCurrentEntryRecord,
                     KnowledgeSourceCurrentEntryRecord.current_evidence_unit_id

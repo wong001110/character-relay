@@ -81,6 +81,7 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeCanonicalBlockRecord,
     KnowledgeCanonicalDocumentRecord,
     KnowledgeCanonicalEntityRecord,
+    KnowledgeCanonicalVisualReferenceRecord,
     KnowledgeCanonicalSectionRecord,
     KnowledgeCorpusRecord,
     KnowledgeDependencyInvalidationRecord,
@@ -89,6 +90,8 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeEvidenceRetrievalEntryRecord,
     KnowledgeEvidenceUnitRecord,
     KnowledgeExternalHostRateRecord,
+    KnowledgeExternalSourceCollectionStateRecord,
+    KnowledgeExternalSourcePageStateRecord,
     KnowledgeExternalSourceScheduleRecord,
     KnowledgeExternalSourceSyncStateRecord,
     KnowledgeExtractedAssertionRecord,
@@ -337,6 +340,8 @@ class Database:
             KnowledgeCorpusRecord,
             KnowledgeSourceRecord,
             KnowledgeSourceCurrentEntryRecord,
+            KnowledgeExternalSourceCollectionStateRecord,
+            KnowledgeExternalSourcePageStateRecord,
             KnowledgeExternalSourceSyncStateRecord,
             KnowledgeExternalSourceScheduleRecord,
             KnowledgeExternalHostRateRecord,
@@ -356,6 +361,7 @@ class Database:
             KnowledgeEvidenceRetrievalEntryRecord,
             KnowledgeEvidenceEmbeddingRecord,
             KnowledgeCanonicalEntityRecord,
+            KnowledgeCanonicalVisualReferenceRecord,
             KnowledgeRuntimeEntityResolutionRecord,
             KnowledgeExtractedAssertionRecord,
             KnowledgeWorldEventRecord,
@@ -376,6 +382,8 @@ class Database:
             KnowledgeFabricContentMigration,
             KnowledgeFabricCharacterPolicyMigration,
             KnowledgeFabricCurrentEntryMigration,
+            KnowledgeFabricSiteCollectionStateMigration,
+            KnowledgeFabricVisualReferenceMigration,
             KnowledgeFabricExternalScheduleMigration,
             KnowledgeFabricIndexMigration,
             KnowledgeFabricInterpretationMigration,
@@ -391,6 +399,8 @@ class Database:
         KnowledgeFabricObjectLifecycleMigration(self).run()
         KnowledgeFabricCharacterPolicyMigration(self).run()
         KnowledgeFabricCurrentEntryMigration(self).run()
+        KnowledgeFabricSiteCollectionStateMigration(self).run()
+        KnowledgeFabricVisualReferenceMigration(self).run()
         KnowledgeFabricInterpretationMigration(self).run()
         KnowledgeFabricIndexMigration(self).run()
         KnowledgeFabricProjectionMigration(self).run()

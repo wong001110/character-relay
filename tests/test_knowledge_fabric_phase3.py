@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from echo_masque.knowledge_fabric_ingestion import (
     KnowledgeFabricIngestionService,
+    SourceSnapshotAssetInput,
     SourceSnapshotIngestionRequest,
 )
 from echo_masque.knowledge_object_storage import (
@@ -251,6 +252,102 @@ def test_snapshot_is_immutable_content_addressed_and_invalidates_dependents(tmp_
             )
         )
     assert len(content.list_source_versions(source_id)) == 1
+
+
+def test_snapshot_ingests_private_child_assets_with_document_and_evidence_links(
+    tmp_path: Path,
+) -> None:
+    storage = FakeObjectStorage(objects={})
+    _, _, content, service, source_id = _service(tmp_path, storage)
+
+    version = service.ingest_snapshot(
+        replace(
+            _request(source_id),
+            assets=(
+                SourceSnapshotAssetInput(
+                    document_locator="https://docs.example.test/fabric",
+                    structural_path="image:amber-portrait",
+                    asset_type="image",
+                    artifact_content=b"amber private portrait",
+                    artifact_content_type="image/webp",
+                    evidence_locator="https://docs.example.test/fabric#image:amber-portrait",
+                    evidence_type="image",
+                    text_content="Amber portrait",
+                    block_structural_path="paragraph:0",
+                    coordinates={"alt": "Amber"},
+                ),
+                SourceSnapshotAssetInput(
+                    document_locator="https://docs.example.test/fabric",
+                    structural_path="image:amber-icon",
+                    asset_type="image",
+                    artifact_content=b"amber private icon",
+                    artifact_content_type="image/png",
+                    evidence_locator="https://docs.example.test/fabric#image:amber-icon",
+                    evidence_type="image",
+                    text_content="Amber icon",
+                ),
+            ),
+        )
+    )
+
+    document = content.list_canonical_documents(version.id)[0]
+    blocks = content.list_canonical_blocks(document.id)
+    assets = content.list_asset_references(document.id)
+    evidence = content.list_evidence_units(version.id)
+
+    assert len(assets) == 2
+    assert len(storage.objects) == 3
+    artifact_keys = [
+        content.get_artifact(asset.artifact_id).object_key
+        for asset in assets
+        if content.get_artifact(asset.artifact_id) is not None
+    ]
+    assert len(artifact_keys) == len(assets)
+    assert all("/assets/" in storage_key for storage_key in artifact_keys)
+    assert all(asset.artifact_id != version.artifact_id for asset in assets)
+    assets_by_path = {asset.structural_path: asset for asset in assets}
+    assert assets_by_path["image:amber-portrait"].block_id == blocks[0].id
+    evidence_by_asset = {item.asset_id: item for item in evidence if item.asset_id is not None}
+    assert set(evidence_by_asset) == {asset.id for asset in assets}
+    assert {
+        item.evidence_locator: item.content_sha256 for item in evidence_by_asset.values()
+    } == {
+        "https://docs.example.test/fabric#image:amber-portrait": sha256(
+            b"amber private portrait"
+        ).hexdigest(),
+        "https://docs.example.test/fabric#image:amber-icon": sha256(
+            b"amber private icon"
+        ).hexdigest(),
+    }
+
+
+def test_snapshot_asset_link_failure_removes_all_unpublished_private_objects(
+    tmp_path: Path,
+) -> None:
+    storage = FakeObjectStorage(objects={})
+    database, _, content, service, source_id = _service(tmp_path, storage)
+
+    with pytest.raises(ValueError, match="asset document"):
+        service.ingest_snapshot(
+            replace(
+                _request(source_id),
+                assets=(
+                    SourceSnapshotAssetInput(
+                        document_locator="https://docs.example.test/missing",
+                        structural_path="image:missing",
+                        asset_type="image",
+                        artifact_content=b"private image",
+                        artifact_content_type="image/png",
+                        evidence_locator="https://docs.example.test/missing#image:missing",
+                    ),
+                ),
+            )
+        )
+
+    assert storage.objects == {}
+    assert content.list_source_versions(source_id) == []
+    with database.session() as session:
+        assert list(session.scalars(select(KnowledgeObjectArtifactRecord))) == []
 
 
 def test_storage_failure_keeps_source_version_unpublished_and_error_redacted(

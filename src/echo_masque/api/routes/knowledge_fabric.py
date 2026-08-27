@@ -13,6 +13,8 @@ from echo_masque.api.dependencies import (
 )
 from echo_masque.api.knowledge_fabric_schemas import (
     KnowledgeAccessGrantView,
+    KnowledgeCanonicalEntityCreate,
+    KnowledgeCanonicalEntityView,
     KnowledgeCharacterCorpusPolicyUpdate,
     KnowledgeCharacterCorpusPolicyView,
     KnowledgeCorpusCreate,
@@ -21,6 +23,7 @@ from echo_masque.api.knowledge_fabric_schemas import (
     KnowledgeExternalSourceScheduleUpdate,
     KnowledgeExternalSourceScheduleView,
     KnowledgeGrantUpdate,
+    KnowledgeImageAssetCandidateView,
     KnowledgeOverlayPolicyUpdate,
     KnowledgeOverlayPolicyView,
     KnowledgeQueryInspectorRequest,
@@ -32,6 +35,8 @@ from echo_masque.api.knowledge_fabric_schemas import (
     KnowledgeSourceCreate,
     KnowledgeSourceOperationalView,
     KnowledgeSourceView,
+    KnowledgeVisualReferenceCreate,
+    KnowledgeVisualReferenceView,
     encode_profile,
 )
 from echo_masque.knowledge_fabric_policy import (
@@ -49,6 +54,9 @@ from echo_masque.persistence.knowledge_fabric_external_schedule_repository impor
 from echo_masque.persistence.knowledge_fabric_external_sync_repository import (
     KnowledgeFabricExternalSyncRepository,
 )
+from echo_masque.persistence.knowledge_fabric_interpretation_repository import (
+    KnowledgeFabricInterpretationRepository,
+)
 from echo_masque.persistence.knowledge_fabric_invalidation_repository import (
     KnowledgeFabricInvalidationRepository,
 )
@@ -61,6 +69,9 @@ from echo_masque.persistence.knowledge_fabric_repository import (
     OWNER_SYSTEM,
     VISIBILITY_GLOBAL,
     KnowledgeFabricRepository,
+)
+from echo_masque.persistence.knowledge_fabric_visual_reference_repository import (
+    KnowledgeFabricVisualReferenceRepository,
 )
 from echo_masque.public_demo import is_public_demo_email
 
@@ -102,6 +113,20 @@ def _derived_work(request: Request) -> KnowledgeFabricInvalidationRepository:
     return cast(
         KnowledgeFabricInvalidationRepository,
         request.app.state.knowledge_fabric_invalidation_repository,
+    )
+
+
+def _interpretations(request: Request) -> KnowledgeFabricInterpretationRepository:
+    return cast(
+        KnowledgeFabricInterpretationRepository,
+        request.app.state.knowledge_fabric_interpretation_repository,
+    )
+
+
+def _visual_references(request: Request) -> KnowledgeFabricVisualReferenceRepository:
+    return cast(
+        KnowledgeFabricVisualReferenceRepository,
+        request.app.state.knowledge_fabric_visual_reference_repository,
     )
 
 
@@ -705,6 +730,170 @@ def list_global_sources(
         KnowledgeSourceView.from_record(record)
         for record in _fabric(request).list_sources(corpus_id)
     ]
+
+
+@router.post(
+    "/admin/corpora/{corpus_id}/canonical-entities",
+    response_model=KnowledgeCanonicalEntityView,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_global_canonical_entity(
+    corpus_id: str,
+    payload: KnowledgeCanonicalEntityCreate,
+    request: Request,
+    user: SuperAdminUserDependency,
+) -> KnowledgeCanonicalEntityView:
+    """Create or return one corpus-bound identity for explicit asset approval."""
+
+    _require_global_manager(request, user)
+    _global_corpus_or_404(request, corpus_id)
+    try:
+        record = _interpretations(request).create_canonical_entity(
+            corpus_id=corpus_id,
+            entity_type=payload.entity_type,
+            canonical_name=payload.canonical_name,
+            aliases=payload.aliases,
+            metadata=payload.metadata,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _audit(
+        request,
+        actor_user_id=user.id,
+        action="knowledge_fabric.canonical_entity_registered",
+        resource_type="knowledge_canonical_entity",
+        resource_id=record.id,
+        metadata={"corpus_id": corpus_id, "entity_type": record.entity_type},
+    )
+    return KnowledgeCanonicalEntityView.from_record(record)
+
+
+@router.get(
+    "/admin/corpora/{corpus_id}/canonical-entities",
+    response_model=list[KnowledgeCanonicalEntityView],
+)
+def list_global_canonical_entities(
+    corpus_id: str,
+    request: Request,
+    user: SuperAdminUserDependency,
+) -> list[KnowledgeCanonicalEntityView]:
+    _require_global_manager(request, user)
+    _global_corpus_or_404(request, corpus_id)
+    return [
+        KnowledgeCanonicalEntityView.from_record(record)
+        for record in _interpretations(request).list_canonical_entities(corpus_id)
+    ]
+
+
+@router.get(
+    "/admin/corpora/{corpus_id}/image-assets",
+    response_model=list[KnowledgeImageAssetCandidateView],
+)
+def list_global_image_asset_candidates(
+    corpus_id: str,
+    request: Request,
+    user: SuperAdminUserDependency,
+) -> list[KnowledgeImageAssetCandidateView]:
+    """Return only provenance metadata needed to select an image for approval."""
+
+    _require_global_manager(request, user)
+    _global_corpus_or_404(request, corpus_id)
+    return [
+        KnowledgeImageAssetCandidateView.from_candidate(candidate)
+        for candidate in _content(request).list_image_asset_candidates(corpus_id)
+    ]
+
+
+@router.post(
+    "/admin/corpora/{corpus_id}/visual-references",
+    response_model=KnowledgeVisualReferenceView,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_global_visual_reference(
+    corpus_id: str,
+    payload: KnowledgeVisualReferenceCreate,
+    request: Request,
+    user: SuperAdminUserDependency,
+) -> KnowledgeVisualReferenceView:
+    """Approve a corpus-local visual reference from existing private provenance."""
+
+    _require_global_manager(request, user)
+    _global_corpus_or_404(request, corpus_id)
+    try:
+        record = _visual_references(request).create(
+            corpus_id=corpus_id,
+            canonical_entity_id=payload.canonical_entity_id,
+            evidence_unit_id=payload.evidence_unit_id,
+            asset_id=payload.asset_id,
+            descriptor=payload.descriptor,
+            comparison_authorized=payload.comparison_authorized,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail="Visual reference provenance not found."
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _audit(
+        request,
+        actor_user_id=user.id,
+        action="knowledge_fabric.visual_reference_approved",
+        resource_type="knowledge_canonical_visual_reference",
+        resource_id=record.id,
+        metadata={"corpus_id": corpus_id},
+    )
+    return KnowledgeVisualReferenceView.from_record(record)
+
+
+@router.get(
+    "/admin/corpora/{corpus_id}/visual-references",
+    response_model=list[KnowledgeVisualReferenceView],
+)
+def list_global_visual_references(
+    corpus_id: str,
+    request: Request,
+    user: SuperAdminUserDependency,
+) -> list[KnowledgeVisualReferenceView]:
+    _require_global_manager(request, user)
+    _global_corpus_or_404(request, corpus_id)
+    return [
+        KnowledgeVisualReferenceView.from_record(record)
+        for record in _visual_references(request).list_active(corpus_id)
+    ]
+
+
+@router.delete(
+    "/admin/corpora/{corpus_id}/visual-references/{reference_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def revoke_global_visual_reference(
+    corpus_id: str,
+    reference_id: str,
+    request: Request,
+    user: SuperAdminUserDependency,
+) -> None:
+    """Revoke only an active reference within the requested global corpus."""
+
+    _require_global_manager(request, user)
+    _global_corpus_or_404(request, corpus_id)
+    reference = next(
+        (
+            record
+            for record in _visual_references(request).list_active(corpus_id)
+            if record.id == reference_id
+        ),
+        None,
+    )
+    if reference is None or not _visual_references(request).revoke(reference.id):
+        raise HTTPException(status_code=404, detail="Knowledge visual reference not found.")
+    _audit(
+        request,
+        actor_user_id=user.id,
+        action="knowledge_fabric.visual_reference_revoked",
+        resource_type="knowledge_canonical_visual_reference",
+        resource_id=reference.id,
+        metadata={"corpus_id": corpus_id},
+    )
 
 
 @router.put(

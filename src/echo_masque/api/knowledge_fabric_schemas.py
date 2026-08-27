@@ -12,8 +12,13 @@ from pydantic import BaseModel, Field, field_validator
 
 from echo_masque.knowledge_fabric_query import KnowledgeQueryHit, KnowledgeQueryResult
 from echo_masque.knowledge_fabric_query_policy import query_mode_is_valid
+from echo_masque.persistence.knowledge_fabric_content_repository import (
+    KnowledgeImageAssetCandidate,
+)
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeAccessGrantRecord,
+    KnowledgeCanonicalEntityRecord,
+    KnowledgeCanonicalVisualReferenceRecord,
     KnowledgeCharacterCorpusPolicyRecord,
     KnowledgeCorpusRecord,
     KnowledgeExternalSourceScheduleRecord,
@@ -319,6 +324,127 @@ class KnowledgeSourceView(BaseModel):
         )
 
 
+class KnowledgeVisualReferenceCreate(BaseModel):
+    """An administrator's provenance-backed approval of one existing image Asset."""
+
+    canonical_entity_id: str = Field(min_length=1, max_length=64)
+    evidence_unit_id: str = Field(min_length=1, max_length=64)
+    asset_id: str = Field(min_length=1, max_length=64)
+    descriptor: dict[str, str] = Field(default_factory=dict)
+    comparison_authorized: bool = False
+
+
+class KnowledgeCanonicalEntityCreate(BaseModel):
+    entity_type: str = Field(min_length=1, max_length=80)
+    canonical_name: str = Field(min_length=1, max_length=500)
+    aliases: list[str] = Field(default_factory=list, max_length=100)
+    metadata: dict[str, str] = Field(default_factory=dict)
+
+
+class KnowledgeCanonicalEntityView(BaseModel):
+    id: str
+    corpus_id: str
+    entity_type: str
+    canonical_name: str
+    aliases: list[str]
+    status: str
+    metadata: dict[str, str]
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_record(cls, record: KnowledgeCanonicalEntityRecord) -> KnowledgeCanonicalEntityView:
+        aliases = json.loads(record.aliases_json)
+        metadata = json.loads(record.metadata_json)
+        return cls(
+            id=record.id,
+            corpus_id=record.corpus_id,
+            entity_type=record.entity_type,
+            canonical_name=record.canonical_name,
+            aliases=[str(item) for item in aliases] if isinstance(aliases, list) else [],
+            status=record.status,
+            metadata=(
+                {str(key): str(value) for key, value in metadata.items()}
+                if isinstance(metadata, dict)
+                else {}
+            ),
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+
+class KnowledgeImageAssetCandidateView(BaseModel):
+    """Approval inventory metadata; private object identifiers are intentionally absent."""
+
+    source_id: str
+    source_version_id: str
+    document_id: str
+    document_locator: str
+    asset_id: str
+    evidence_unit_id: str
+    asset_type: str
+    caption: str
+
+    @classmethod
+    def from_candidate(
+        cls, candidate: KnowledgeImageAssetCandidate
+    ) -> KnowledgeImageAssetCandidateView:
+        return cls(
+            source_id=candidate.source_id,
+            source_version_id=candidate.source_version_id,
+            document_id=candidate.document_id,
+            document_locator=candidate.document_locator,
+            asset_id=candidate.asset_id,
+            evidence_unit_id=candidate.evidence_unit_id,
+            asset_type=candidate.asset_type,
+            caption=candidate.caption,
+        )
+
+
+class KnowledgeVisualReferenceView(BaseModel):
+    """Private artifact identity stays opaque; no object location is exposed."""
+
+    id: str
+    corpus_id: str
+    canonical_entity_id: str
+    evidence_unit_id: str
+    asset_id: str
+    descriptor: dict[str, str]
+    comparison_authorized: bool
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_record(
+        cls, record: KnowledgeCanonicalVisualReferenceRecord
+    ) -> KnowledgeVisualReferenceView:
+        decoded = json.loads(record.descriptor_json)
+        descriptor = (
+            {
+                str(key): str(value)
+                for key, value in decoded.items()
+                if key != "comparison_authorized"
+            }
+            if isinstance(decoded, dict)
+            else {}
+        )
+        return cls(
+            id=record.id,
+            corpus_id=record.corpus_id,
+            canonical_entity_id=record.canonical_entity_id,
+            evidence_unit_id=record.evidence_unit_id,
+            asset_id=record.asset_id,
+            descriptor=descriptor,
+            comparison_authorized=decoded.get("comparison_authorized") is True
+            if isinstance(decoded, dict)
+            else False,
+            status=record.status,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+
 class KnowledgeExternalSourceScheduleUpdate(BaseModel):
     enabled: bool
     interval_seconds: int = Field(default=900, ge=900, le=604800)
@@ -496,6 +622,8 @@ def _decode_profile(value: str) -> dict[str, str]:
 
 __all__ = [
     "KnowledgeAccessGrantView",
+    "KnowledgeCanonicalEntityCreate",
+    "KnowledgeCanonicalEntityView",
     "KnowledgeCharacterCorpusPolicyUpdate",
     "KnowledgeCharacterCorpusPolicyView",
     "KnowledgeCorpusCreate",
@@ -505,6 +633,7 @@ __all__ = [
     "KnowledgeExternalSourceScheduleView",
     "KnowledgeExternalSourceSyncStateView",
     "KnowledgeGrantUpdate",
+    "KnowledgeImageAssetCandidateView",
     "KnowledgeOverlayPolicyUpdate",
     "KnowledgeOverlayPolicyView",
     "KnowledgeQueryInspectorHitView",
@@ -517,5 +646,7 @@ __all__ = [
     "KnowledgeSourceCreate",
     "KnowledgeSourceOperationalView",
     "KnowledgeSourceView",
+    "KnowledgeVisualReferenceCreate",
+    "KnowledgeVisualReferenceView",
     "encode_profile",
 ]
