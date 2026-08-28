@@ -425,7 +425,7 @@ export function KnowledgeFabricPanel({ profile, deployments, demoMode, zh }: Pro
               onChange={(event) => setDescription(event.currentTarget.value)}
             />
           </FormField>
-          <Button variant="primary" disabled={working}>
+              <Button type="submit" variant="primary" disabled={working}>
             {zh ? "建立 Corpus" : "Create Corpus"}
           </Button>
         </form>
@@ -497,7 +497,7 @@ export function KnowledgeFabricPanel({ profile, deployments, demoMode, zh }: Pro
                       onChange={(event) => setSourceLocator(event.currentTarget.value)}
                     />
                   </FormField>
-                  <Button variant="primary" disabled={working}>
+                  <Button type="submit" variant="primary" disabled={working}>
                     {zh ? "注册 Source" : "Register Source"}
                   </Button>
                 </form>
@@ -541,7 +541,7 @@ export function KnowledgeFabricPanel({ profile, deployments, demoMode, zh }: Pro
               <option value="code">Code</option>
             </Select>
           </FormField>
-          <Button variant="secondary" disabled={working}>
+          <Button type="submit" variant="secondary" disabled={working}>
             {zh ? "Inspect" : "Inspect"}
           </Button>
         </form>
