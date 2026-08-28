@@ -39,6 +39,9 @@ from echo_masque.api.knowledge_fabric_schemas import (
     KnowledgeVisualReferenceView,
     encode_profile,
 )
+from echo_masque.knowledge_fabric_external_policy import (
+    WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE,
+)
 from echo_masque.knowledge_fabric_policy import (
     may_access_server_scope,
     may_manage_global_library,
@@ -70,6 +73,9 @@ from echo_masque.persistence.knowledge_fabric_repository import (
     VISIBILITY_GLOBAL,
     KnowledgeFabricRepository,
 )
+from echo_masque.persistence.knowledge_fabric_site_collection_repository import (
+    KnowledgeFabricSiteCollectionRepository,
+)
 from echo_masque.persistence.knowledge_fabric_visual_reference_repository import (
     KnowledgeFabricVisualReferenceRepository,
 )
@@ -99,6 +105,13 @@ def _external_sync(request: Request) -> KnowledgeFabricExternalSyncRepository:
     return cast(
         KnowledgeFabricExternalSyncRepository,
         request.app.state.knowledge_fabric_external_sync_repository,
+    )
+
+
+def _site_collections(request: Request) -> KnowledgeFabricSiteCollectionRepository:
+    return cast(
+        KnowledgeFabricSiteCollectionRepository,
+        request.app.state.knowledge_fabric_site_collection_repository,
     )
 
 
@@ -390,12 +403,20 @@ def list_global_corpus_operational_sources(
         record.source_id: record
         for record in _external_sync(request).list_states_for_source_ids(source_ids)
     }
+    collection_summaries = _site_collections(request).summaries_for_source_ids(
+        tuple(
+            source.id
+            for source in sources
+            if source.source_type == WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE
+        )
+    )
     derived_work = _derived_work(request).summary_for_source_ids(source_ids)
     return [
         KnowledgeSourceOperationalView.from_record(
             source,
             external_sync=sync_states.get(source.id),
             external_schedule=schedules.get(source.id),
+            site_collection_summary=collection_summaries.get(source.id),
             derived_work=KnowledgeDerivedWorkSummaryView(
                 pending=derived_work[source.id].pending,
                 running=derived_work[source.id].running,

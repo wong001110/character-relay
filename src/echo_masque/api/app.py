@@ -277,6 +277,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     external_sync_repository = KnowledgeFabricExternalSyncRepository(database)
     external_schedule_repository = KnowledgeFabricExternalScheduleRepository(database)
+    site_collection_repository = KnowledgeFabricSiteCollectionRepository(database)
 
     async def resolve_public_host(hostname: str) -> tuple[str, ...]:
         loop = asyncio.get_running_loop()
@@ -299,7 +300,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     website_collection_sync_service = KnowledgeFabricWebsiteCollectionSyncService(
         sync_repository=external_sync_repository,
-        collection_repository=KnowledgeFabricSiteCollectionRepository(database),
+        collection_repository=site_collection_repository,
         ingestion_service=knowledge_fabric_ingestion_service,
         fetcher=pinned_fetcher,
     )
@@ -678,6 +679,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.knowledge_fabric_ingestion_service = knowledge_fabric_ingestion_service
     app.state.knowledge_fabric_external_schedule_repository = external_schedule_repository
     app.state.knowledge_fabric_external_sync_repository = external_sync_repository
+    app.state.knowledge_fabric_site_collection_repository = site_collection_repository
     app.state.knowledge_fabric_external_sync_scheduler = external_sync_scheduler
     app.state.knowledge_fabric_invalidation_worker = knowledge_fabric_invalidation_worker
     app.state.knowledge_fabric_visual_reference_repository = (

@@ -89,6 +89,16 @@ export interface KnowledgeFabricDerivedWorkSummary {
   failed: number;
 }
 
+/** Aggregate Site Collection progress only; page URLs, validators, and artifacts stay private. */
+export interface KnowledgeFabricSiteCollectionSyncSummary {
+  source_id: string;
+  last_completed_at: string | null;
+  available_page_count: number;
+  removed_page_count: number;
+  checked_page_count: number;
+  failed_page_count: number;
+}
+
 /** Approval metadata only; private image bytes and object locations never reach the portal. */
 export interface KnowledgeFabricImageAssetCandidate {
   source_id: string;
@@ -140,6 +150,7 @@ export interface KnowledgeFabricOperationalSource {
   updated_at: string;
   external_sync: KnowledgeFabricExternalSourceSyncState | null;
   external_schedule: KnowledgeFabricExternalSourceSchedule | null;
+  site_collection_summary: KnowledgeFabricSiteCollectionSyncSummary | null;
   derived_work: KnowledgeFabricDerivedWorkSummary;
 }
 

@@ -499,6 +499,11 @@ The sitemap cap is 20 XML documents and 1,000 page locators. Robots/terms enforc
 MediaWiki/Docusaurus/GitBook source-native adapters, visual matching, and license workflows
 remain explicit later phases rather than implicit crawler authority.
 
+Super Admin operational state may expose a current, redaction-safe Site Collection sync summary:
+last completed generation plus aggregate available, removed, checked, and failed page counts. It
+contains no page locators, validators, raw response details, artifacts, or credentials, and is a
+current collection-state snapshot rather than a fabricated crawl-progress estimate or run history.
+
 ### Corpus visual references
 
 An approved `CanonicalVisualReference` is corpus-bound and links one canonical entity to the

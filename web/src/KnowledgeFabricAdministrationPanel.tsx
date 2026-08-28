@@ -47,6 +47,11 @@ function sourceOptionNote(sourceType: string): string {
   return SOURCE_OPTIONS.find((option) => option.value === sourceType)?.note ?? "";
 }
 
+function syncOutcome(source: KnowledgeFabricOperationalSource): string {
+  if (source.external_sync?.last_error_code) return source.external_sync.last_error_code;
+  return source.external_sync?.last_outcome ?? "Waiting for the first sync";
+}
+
 export function KnowledgeFabricAdministrationPanel() {
   const [corpora, setCorpora] = useState<KnowledgeFabricCorpus[]>([]);
   const [sources, setSources] = useState<KnowledgeFabricOperationalSource[]>([]);
@@ -330,7 +335,18 @@ export function KnowledgeFabricAdministrationPanel() {
             <div><p className="settings-card-kicker">Collection journal</p><h3>What the library is watching</h3><p>These are redacted operational facts, not invented crawl counts or progress.</p></div>
           </div>
           {workspaceLoading ? <Spinner label="Refreshing library state" /> : sources.length === 0 ? <EmptyState title="Your first source will appear here" description="Add a Wiki or public site above. Scheduling remains off until you choose to enable it." /> : <div className="knowledge-fabric-source-list">
-            {sources.map((source) => <article className="knowledge-fabric-source-row" key={source.id}><div><StickyLabel variant="link">{source.source_type.replaceAll("_", " ")}</StickyLabel><strong>{source.authority_profile} source</strong><span>Last checked {formatTimestamp(source.last_checked_at)}</span><small>{source.external_sync?.last_outcome ?? "Waiting for the first sync"}{source.external_sync?.last_error_code ? ` · ${source.external_sync.last_error_code}` : ""}</small></div><div className="knowledge-card-actions"><StatusIndicator tone={source.status === "available" ? "success" : "warning"}>{source.status}</StatusIndicator>{source.derived_work.failed > 0 && <Button size="sm" variant="secondary" disabled={working} onClick={() => retryDerivedWork(source)}>Retry review work</Button>}</div></article>)}
+            {sources.map((source) => <article className="knowledge-fabric-source-row" key={source.id}>
+              <div className="knowledge-fabric-source-summary"><StickyLabel variant="link">{source.source_type.replaceAll("_", " ")}</StickyLabel><strong>{source.authority_profile} source</strong><span>Last checked {formatTimestamp(source.last_checked_at)}</span><small>{syncOutcome(source)}</small></div>
+              <div className="knowledge-card-actions"><StatusIndicator tone={source.status === "available" ? "success" : "warning"}>{source.status}</StatusIndicator>{source.derived_work.failed > 0 && <Button size="sm" variant="secondary" disabled={working} onClick={() => retryDerivedWork(source)}>Retry review work</Button>}</div>
+              {source.site_collection_summary && <dl className="knowledge-fabric-sync-report" aria-label="Latest site collection sync report">
+                <div><dt>Last complete scan</dt><dd>{formatTimestamp(source.site_collection_summary.last_completed_at)}</dd></div>
+                <div><dt>Current pages</dt><dd>{source.site_collection_summary.available_page_count}</dd></div>
+                <div><dt>Pages checked</dt><dd>{source.site_collection_summary.checked_page_count}</dd></div>
+                <div><dt>Failed pages</dt><dd>{source.site_collection_summary.failed_page_count}</dd></div>
+                <div><dt>Removed pages</dt><dd>{source.site_collection_summary.removed_page_count}</dd></div>
+                <div><dt>Next check</dt><dd>{formatTimestamp(source.external_schedule?.next_run_at ?? null)}</dd></div>
+              </dl>}
+            </article>)}
           </div>}
           {sources.length > 0 && <form className="knowledge-fabric-schedule-form" onSubmit={saveSchedule}>
             <FormField label="Source to check"><Select value={scheduleSourceId} disabled={working} onChange={(event) => { const source = sources.find((item) => item.id === event.currentTarget.value); setScheduleSourceId(event.currentTarget.value); setScheduleFields(source); }}>{sources.map((source) => <option key={source.id} value={source.id}>{source.source_type} · {source.status}</option>)}</Select></FormField>

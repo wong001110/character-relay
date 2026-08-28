@@ -155,12 +155,13 @@ runtime crawling or Character knowledge.
   `website_collection_public_https` source type, then review canonical fictional-character and
   visual-reference approvals. Source health and the opt-in schedule remain visible in the same
   context rather than as a separate technical form.
-- Invariants: the Portal only renders existing redacted operational state; it does not promise an
-  immediate sync, a page count, or a website preview. Image candidates expose only existing safe
-  provenance metadata, never private bytes, object keys, hashes, or URLs. External image comparison
-  remains opt-in, fictional-character-only, capped, and revocable; the consent language describes
-  the already-approved egress boundary rather than broadening it. Server grants and Character
-  epistemic policy remain in the Deployment Workspace.
+- Invariants: the Portal only renders existing redacted operational state. It now exposes an
+  actual current Site Collection summary (completed generation plus aggregate page counts), but
+  does not promise an immediate sync, invented crawl progress, or a website preview. Image
+  candidates expose only existing safe provenance metadata, never private bytes, object keys,
+  hashes, or URLs. External image comparison remains opt-in, fictional-character-only, capped,
+  and revocable; the consent language describes the already-approved egress boundary rather than
+  broadening it. Server grants and Character epistemic policy remain in the Deployment Workspace.
 - Validation: Portal TypeScript check and focused `knowledgeFabricApi.test.ts` passed; production
   Vite build passed. The current desktop session had no callable browser automation surface, so no
   browser screenshot claim is made.

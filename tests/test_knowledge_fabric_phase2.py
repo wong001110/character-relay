@@ -11,6 +11,9 @@ from sqlalchemy.engine import make_url
 
 from echo_masque.api import create_app
 from echo_masque.config import Settings
+from echo_masque.knowledge_fabric_external_policy import (
+    WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE,
+)
 from echo_masque.knowledge_fabric_policy import (
     corpus_is_effectively_available,
     may_access_server_scope,
@@ -554,6 +557,7 @@ def test_super_admin_operational_source_view_is_redacted_and_source_backed(tmp_p
     assert operational["external_schedule"]["enabled"] is True
     assert operational["external_schedule"]["interval_seconds"] == 900
     assert operational["external_schedule"]["last_error_code"] is None
+    assert operational["site_collection_summary"] is None
     assert operational["derived_work"] == {"pending": 0, "running": 0, "failed": 0}
     assert "locator" not in operational
     assert "access_profile" not in operational
@@ -579,6 +583,65 @@ def test_super_admin_operational_source_view_is_redacted_and_source_backed(tmp_p
         ordinary.post(f"/api/knowledge-fabric/admin/sources/{source_id}/derived-work/retry").status_code
         == 403
     )
+
+
+def test_global_operational_source_view_exposes_safe_site_collection_sync_summary(
+    tmp_path: Path,
+) -> None:
+    app = create_app(settings(tmp_path / "collection-summary.db"))
+    admin = TestClient(app)
+    login(admin, SUPER_EMAIL)
+    corpus = create_global_corpus(admin)
+    source = admin.post(
+        f"/api/knowledge-fabric/admin/corpora/{corpus['id']}/sources",
+        json={
+            "source_type": WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE,
+            "locator": "https://example.test/wiki",
+            "authority_profile": "official",
+        },
+    )
+    assert source.status_code == 201, source.text
+    source_id = source.json()["id"]
+    collections = app.state.knowledge_fabric_site_collection_repository
+    generation = collections.begin_generation(source_id)
+    collections.reconcile_discovered_pages(
+        source_id=source_id,
+        generation=generation,
+        pages=(
+            ("https://example.test/wiki", "root_link", "https://example.test/wiki"),
+            ("https://example.test/amber", "root_link", "https://example.test/wiki"),
+        ),
+    )
+    collections.record_page_outcome(
+        source_id=source_id,
+        locator="https://example.test/wiki",
+        outcome="changed",
+        checked_at=datetime(2026, 8, 28, tzinfo=UTC),
+    )
+    collections.record_page_outcome(
+        source_id=source_id,
+        locator="https://example.test/amber",
+        outcome="failed",
+        error_code="fetch_failed",
+        checked_at=datetime(2026, 8, 28, tzinfo=UTC),
+    )
+    collections.complete_generation(source_id=source_id, generation=generation)
+
+    response = admin.get(
+        f"/api/knowledge-fabric/admin/corpora/{corpus['id']}/operational-sources"
+    )
+
+    assert response.status_code == 200, response.text
+    [operational] = response.json()
+    summary = operational["site_collection_summary"]
+    assert summary is not None
+    assert summary["source_id"] == source_id
+    assert summary["last_completed_at"] is not None
+    assert summary["available_page_count"] == 2
+    assert summary["removed_page_count"] == 0
+    assert summary["checked_page_count"] == 2
+    assert summary["failed_page_count"] == 1
+    assert "locator" not in summary
 
 
 def test_query_inspector_is_scope_bound_bounded_and_public_demo_denied(tmp_path: Path) -> None:

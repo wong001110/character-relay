@@ -33,6 +33,18 @@ class SiteCollectionPageState:
     status: str
 
 
+@dataclass(frozen=True, slots=True)
+class SiteCollectionSyncSummary:
+    """Redaction-safe current state for one Site Collection Source."""
+
+    source_id: str
+    last_completed_at: datetime | None
+    available_page_count: int
+    removed_page_count: int
+    checked_page_count: int
+    failed_page_count: int
+
+
 class KnowledgeFabricSiteCollectionRepository:
     """Keep page metadata separate from immutable source artifacts and Evidence."""
 
@@ -99,6 +111,48 @@ class KnowledgeFabricSiteCollectionRepository:
                     .order_by(KnowledgeExternalSourcePageStateRecord.locator)
                 )
             ]
+
+    def summaries_for_source_ids(
+        self,
+        source_ids: tuple[str, ...],
+    ) -> dict[str, SiteCollectionSyncSummary]:
+        """Return only aggregate page-state facts; locators and validators stay internal."""
+
+        if not source_ids:
+            return {}
+        with self.database.session() as session:
+            collections = {
+                record.source_id: record
+                for record in session.scalars(
+                    select(KnowledgeExternalSourceCollectionStateRecord).where(
+                        KnowledgeExternalSourceCollectionStateRecord.source_id.in_(source_ids)
+                    )
+                )
+            }
+            pages_by_source: dict[str, list[KnowledgeExternalSourcePageStateRecord]] = {
+                source_id: [] for source_id in source_ids
+            }
+            for record in session.scalars(
+                select(KnowledgeExternalSourcePageStateRecord).where(
+                    KnowledgeExternalSourcePageStateRecord.source_id.in_(source_ids)
+                )
+            ):
+                pages_by_source.setdefault(record.source_id, []).append(record)
+            return {
+                source_id: SiteCollectionSyncSummary(
+                    source_id=source_id,
+                    last_completed_at=(
+                        collections[source_id].last_completed_at
+                        if source_id in collections
+                        else None
+                    ),
+                    available_page_count=sum(page.status == "available" for page in pages),
+                    removed_page_count=sum(page.status == "removed" for page in pages),
+                    checked_page_count=sum(page.last_checked_at is not None for page in pages),
+                    failed_page_count=sum(page.last_error_code is not None for page in pages),
+                )
+                for source_id, pages in pages_by_source.items()
+            }
 
     def record_page_outcome(
         self,
@@ -178,4 +232,8 @@ class KnowledgeFabricSiteCollectionRepository:
         )
 
 
-__all__ = ["KnowledgeFabricSiteCollectionRepository", "SiteCollectionPageState"]
+__all__ = [
+    "KnowledgeFabricSiteCollectionRepository",
+    "SiteCollectionPageState",
+    "SiteCollectionSyncSummary",
+]

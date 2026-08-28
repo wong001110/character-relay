@@ -27,6 +27,9 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeServerScopeRecord,
     KnowledgeSourceRecord,
 )
+from echo_masque.persistence.knowledge_fabric_site_collection_repository import (
+    SiteCollectionSyncSummary,
+)
 
 _CREDENTIAL_PROFILE_WORDS = frozenset(
     {
@@ -498,6 +501,30 @@ class KnowledgeDerivedWorkSummaryView(BaseModel):
     failed: int
 
 
+class KnowledgeSiteCollectionSyncSummaryView(BaseModel):
+    """Aggregate Site Collection facts that are safe to expose to a global operator."""
+
+    source_id: str
+    last_completed_at: datetime | None
+    available_page_count: int
+    removed_page_count: int
+    checked_page_count: int
+    failed_page_count: int
+
+    @classmethod
+    def from_summary(
+        cls, summary: SiteCollectionSyncSummary
+    ) -> KnowledgeSiteCollectionSyncSummaryView:
+        return cls(
+            source_id=summary.source_id,
+            last_completed_at=summary.last_completed_at,
+            available_page_count=summary.available_page_count,
+            removed_page_count=summary.removed_page_count,
+            checked_page_count=summary.checked_page_count,
+            failed_page_count=summary.failed_page_count,
+        )
+
+
 class KnowledgeSourceOperationalView(BaseModel):
     """Operator-safe Source status; profiles, locators, artifacts, and metadata stay private."""
 
@@ -513,6 +540,7 @@ class KnowledgeSourceOperationalView(BaseModel):
     updated_at: datetime
     external_sync: KnowledgeExternalSourceSyncStateView | None
     external_schedule: KnowledgeExternalSourceScheduleView | None
+    site_collection_summary: KnowledgeSiteCollectionSyncSummaryView | None
     derived_work: KnowledgeDerivedWorkSummaryView
 
     @classmethod
@@ -522,6 +550,7 @@ class KnowledgeSourceOperationalView(BaseModel):
         *,
         external_sync: KnowledgeExternalSourceSyncStateRecord | None,
         external_schedule: KnowledgeExternalSourceScheduleRecord | None,
+        site_collection_summary: SiteCollectionSyncSummary | None,
         derived_work: KnowledgeDerivedWorkSummaryView,
     ) -> KnowledgeSourceOperationalView:
         return cls(
@@ -543,6 +572,11 @@ class KnowledgeSourceOperationalView(BaseModel):
             external_schedule=(
                 KnowledgeExternalSourceScheduleView.from_record(external_schedule)
                 if external_schedule is not None
+                else None
+            ),
+            site_collection_summary=(
+                KnowledgeSiteCollectionSyncSummaryView.from_summary(site_collection_summary)
+                if site_collection_summary is not None
                 else None
             ),
             derived_work=derived_work,
