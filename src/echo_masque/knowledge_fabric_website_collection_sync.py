@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -72,6 +73,10 @@ from echo_masque.persistence.knowledge_fabric_site_collection_repository import 
 )
 
 _COLLECTION_SOURCE_TYPES = frozenset({WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE})
+_JSON_ROUTE_FIELD_NAMES = frozenset(
+    {"href", "url", "uri", "link", "path", "web_path", "deeplink"}
+)
+_MAX_RENDERED_JSON_ROUTE_NODES = 10_000
 
 
 class RenderedCollectionFetcher(Protocol):
@@ -361,12 +366,12 @@ class KnowledgeFabricWebsiteCollectionSyncService:
         root_host = urlsplit(root).hostname
         if root_host is None:
             raise RenderedCollectionRejected("Rendered collection root host is invalid.")
-        pending: list[tuple[str, int, str]] = [(root, 0, root)]
+        pending: list[tuple[str, int, str, str]] = [(root, 0, root, "rendered_root")]
         visited: set[str] = set()
         discovered: list[_DiscoveredPage] = []
         pages: dict[str, WebsiteFetchResponse] = {}
         while pending:
-            locator, depth, parent_locator = pending.pop(0)
+            locator, depth, parent_locator, discovery_kind = pending.pop(0)
             if locator in visited:
                 continue
             if len(visited) >= profile.page_limit:
@@ -390,17 +395,23 @@ class KnowledgeFabricWebsiteCollectionSyncService:
             discovered.append(
                 _DiscoveredPage(
                     locator=locator,
-                    discovery_kind="rendered_root" if locator == root else "rendered_link",
+                    discovery_kind=discovery_kind,
                     discovered_from_locator=parent_locator,
                 )
             )
             if depth >= profile.max_depth:
                 continue
-            children = self._same_origin_rendered_links(
+            dom_children = self._same_origin_rendered_links(
                 root=root,
                 page_locator=locator,
                 hrefs=page.hrefs,
             )
+            json_children = self._same_origin_rendered_links(
+                root=root,
+                page_locator=locator,
+                hrefs=self._rendered_collection_json_route_hrefs(page.public_json),
+            )
+            children = tuple(sorted({*dom_children, *json_children}))
             available = profile.page_limit - len(visited) - len(pending)
             queued_locators = {queued[0] for queued in pending}
             new_children = [
@@ -408,7 +419,16 @@ class KnowledgeFabricWebsiteCollectionSyncService:
             ]
             if len(new_children) > available:
                 raise RenderedCollectionRejected("Rendered collection exceeds its page limit.")
-            pending.extend((item, depth + 1, locator) for item in new_children)
+            dom_child_set = set(dom_children)
+            pending.extend(
+                (
+                    item,
+                    depth + 1,
+                    locator,
+                    "rendered_link" if item in dom_child_set else "rendered_json_link",
+                )
+                for item in new_children
+            )
         return tuple(discovered), pages
 
     @staticmethod
@@ -447,6 +467,39 @@ class KnowledgeFabricWebsiteCollectionSyncService:
                 continue
             if urlsplit(candidate).hostname == root_host:
                 candidates.add(candidate)
+        return tuple(sorted(candidates))
+
+    @staticmethod
+    def _rendered_collection_json_route_hrefs(public_json: tuple[str, ...]) -> tuple[str, ...]:
+        """Discover only bounded URL-valued JSON fields; page admission remains same-origin."""
+
+        candidates: set[str] = set()
+        inspected_nodes = 0
+        pending: list[object] = []
+        for raw in public_json:
+            try:
+                pending.append(json.loads(raw))
+            except json.JSONDecodeError:
+                continue
+        while pending and inspected_nodes < _MAX_RENDERED_JSON_ROUTE_NODES:
+            value = pending.pop()
+            inspected_nodes += 1
+            if isinstance(value, dict):
+                for raw_key, child in value.items():
+                    key = str(raw_key).casefold().replace("-", "_")
+                    if (
+                        key in _JSON_ROUTE_FIELD_NAMES
+                        and isinstance(child, str)
+                        and len(child) <= 2_048
+                        and child.startswith(("/", "https://"))
+                        and "?" not in child
+                        and "#" not in child
+                    ):
+                        candidates.add(child)
+                    if isinstance(child, (dict, list)):
+                        pending.append(child)
+            elif isinstance(value, list):
+                pending.extend(value[:_MAX_RENDERED_JSON_ROUTE_NODES - inspected_nodes])
         return tuple(sorted(candidates))
 
     async def _discover_sitemap_pages(self, root: str, sitemap: str) -> tuple[str, ...]:

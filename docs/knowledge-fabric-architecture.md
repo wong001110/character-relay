@@ -501,11 +501,14 @@ permits HTTPS requests only to the root host and the exact approved host set, an
 post-render, same-origin page DOM. It may additionally preserve at most eight successful public
 `GET` XHR/fetch JSON responses from those approved hosts (128 KiB each and 512 KiB total), after
 normalizing their JSON and without retaining request URLs, query values, headers, or credentials.
-Those bytes are appended only to the private root-page artifact and never become crawl locators.
-The worker traverses a bounded same-origin DOM-link graph (at most 100 pages and depth 3), and
-stores its artifact privately with `rendered_browser` acquisition provenance. Rendered runs do not
-collect images, reuse browser tool sessions, transmit credentials, or relax corpus/Character access
-policy.
+Those bytes are appended only to the private root-page artifact. Within the already approved page
+budget, the worker may also discover root-relative or absolute HTTPS strings from generic
+URL-valued JSON fields (`href`, `url`, `uri`, `link`, or path variants). Each candidate must still
+pass canonical no-query/no-fragment validation and same-origin admission before it becomes a crawl
+locator. The worker traverses this bounded DOM/JSON same-origin graph (at most 100 pages and depth
+3), and stores its artifact privately with `rendered_browser` acquisition provenance. Rendered
+runs do not collect images, reuse browser tool sessions, transmit credentials, or relax
+corpus/Character access policy.
 
 The private immutable artifact contains the approved raw page bytes. Each page creates exactly one
 canonical document/Evidence Unit, whose canonical page locator is also a stable current-entry key.

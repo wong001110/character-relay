@@ -213,8 +213,8 @@ def test_rendered_collection_sync_keeps_browser_egress_bounded_and_ingests_dom(
             "https://example.test/wiki": _page(
                 "Wiki",
                 "Welcome to Teyvat",
-                ("/amber", "/lisa", "https://outside.test/no"),
-                ('{"entries":["Amber","Lisa"]}',),
+                ("/amber", "https://outside.test/no"),
+                ('{"entries":["Amber","Lisa"],"web_path":"/lisa"}',),
             ),
             "https://example.test/amber": _page("Amber", "Pyro outrider"),
             "https://example.test/lisa": _page("Lisa", "Electro librarian"),
@@ -247,15 +247,17 @@ def test_rendered_collection_sync_keeps_browser_egress_bounded_and_ingests_dom(
     ]
     approved_hosts = frozenset({"example.test", "api.example.test"})
     assert all(call[1] == approved_hosts for call in renderer.calls)
-    assert {
-        page.locator
-        for page in KnowledgeFabricSiteCollectionRepository(database)
-        .list_available_pages(source.id)
-    } == {
+    available_pages = KnowledgeFabricSiteCollectionRepository(database).list_available_pages(
+        source.id
+    )
+    assert {page.locator for page in available_pages} == {
         "https://example.test/wiki",
         "https://example.test/amber",
         "https://example.test/lisa",
     }
+    assert {
+        page.locator: page.discovery_kind for page in available_pages
+    }["https://example.test/lisa"] == "rendered_json_link"
     stored_artifacts = [
         json.loads(content)
         for content in storage.objects.values()
@@ -302,4 +304,26 @@ def test_rendered_collection_json_capture_accepts_only_bounded_public_get_json()
         status_code=200,
         content_type="application/json",
         allowed_hosts=allowed,
+    )
+
+
+def test_rendered_collection_json_route_discovery_requires_semantic_relative_or_https_fields(
+) -> None:
+    assert KnowledgeFabricWebsiteCollectionSyncService._rendered_collection_json_route_hrefs(
+        (
+            json.dumps(
+                {
+                    "web_path": "/articles/amber",
+                    "url": "https://example.test/articles/lisa",
+                    "label": "/not-a-route",
+                    "unsafe_path": "/not-a-route-either",
+                    "query_path": "/articles/nope?preview=1",
+                    "nested": [{"href": "/articles/kaeya"}],
+                }
+            ),
+        )
+    ) == (
+        "/articles/amber",
+        "/articles/kaeya",
+        "https://example.test/articles/lisa",
     )
