@@ -338,7 +338,7 @@ export function KnowledgeFabricAdministrationPanel() {
             {sources.map((source) => <article className="knowledge-fabric-source-row" key={source.id}>
               <div className="knowledge-fabric-source-summary"><StickyLabel variant="link">{source.source_type.replaceAll("_", " ")}</StickyLabel><strong>{source.authority_profile} source</strong><span>Last checked {formatTimestamp(source.last_checked_at)}</span><small>{syncOutcome(source)}</small></div>
               <div className="knowledge-card-actions"><StatusIndicator tone={source.status === "available" ? "success" : "warning"}>{source.status}</StatusIndicator>{source.derived_work.failed > 0 && <Button size="sm" variant="secondary" disabled={working} onClick={() => retryDerivedWork(source)}>Retry review work</Button>}</div>
-              {(source.site_collection_summary || source.sync_run_reports.length > 0) && <div className="knowledge-fabric-sync-journal">
+              {(source.source_type === "website_collection_public_https" || source.sync_run_reports.length > 0) && <div className="knowledge-fabric-sync-journal">
                 {source.site_collection_summary && <dl className="knowledge-fabric-sync-report" aria-label="Current site collection state">
                   <div><dt>Last complete scan</dt><dd>{formatTimestamp(source.site_collection_summary.last_completed_at)}</dd></div>
                   <div><dt>Current pages</dt><dd>{source.site_collection_summary.available_page_count}</dd></div>
