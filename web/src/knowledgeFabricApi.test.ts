@@ -335,6 +335,68 @@ describe("Knowledge Fabric Portal API", () => {
     );
   });
 
+  it("keeps visual-reference review scoped to the selected global Corpus", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response([]))
+      .mockResolvedValueOnce(response([]))
+      .mockResolvedValueOnce(response([]))
+      .mockResolvedValueOnce(response({ id: "entity-a" }))
+      .mockResolvedValueOnce(response({ id: "reference-a" }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await knowledgeFabricApi.listGlobalCanonicalEntities("corpus/a");
+    await knowledgeFabricApi.listGlobalImageAssetCandidates("corpus/a");
+    await knowledgeFabricApi.listGlobalVisualReferences("corpus/a");
+    await knowledgeFabricApi.createGlobalCanonicalEntity("corpus/a", {
+      entity_type: "fictional_character",
+      canonical_name: "Amber",
+      aliases: ["Outrider"],
+      metadata: {}
+    });
+    await knowledgeFabricApi.createGlobalVisualReference("corpus/a", {
+      canonical_entity_id: "entity/a",
+      evidence_unit_id: "evidence/a",
+      asset_id: "asset/a",
+      descriptor: { caption: "Amber reference" },
+      comparison_authorized: true
+    });
+    await expect(
+      knowledgeFabricApi.revokeGlobalVisualReference("corpus/a", "reference/a")
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/knowledge-fabric/admin/corpora/corpus%2Fa/canonical-entities",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/knowledge-fabric/admin/corpora/corpus%2Fa/image-assets",
+      expect.objectContaining({ credentials: "include" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      "/api/knowledge-fabric/admin/corpora/corpus%2Fa/visual-references",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          canonical_entity_id: "entity/a",
+          evidence_unit_id: "evidence/a",
+          asset_id: "asset/a",
+          descriptor: { caption: "Amber reference" },
+          comparison_authorized: true
+        })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      "/api/knowledge-fabric/admin/corpora/corpus%2Fa/visual-references/reference%2Fa",
+      expect.objectContaining({ method: "DELETE", credentials: "include" })
+    );
+  });
+
   it("surfaces the API detail instead of accepting a failed management action", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ detail: "Not authorized." }, 404)));
 

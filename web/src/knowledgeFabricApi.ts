@@ -89,6 +89,43 @@ export interface KnowledgeFabricDerivedWorkSummary {
   failed: number;
 }
 
+/** Approval metadata only; private image bytes and object locations never reach the portal. */
+export interface KnowledgeFabricImageAssetCandidate {
+  source_id: string;
+  source_version_id: string;
+  document_id: string;
+  document_locator: string;
+  asset_id: string;
+  evidence_unit_id: string;
+  asset_type: string;
+  caption: string;
+}
+
+export interface KnowledgeFabricCanonicalEntity {
+  id: string;
+  corpus_id: string;
+  entity_type: string;
+  canonical_name: string;
+  aliases: string[];
+  status: string;
+  metadata: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeFabricVisualReference {
+  id: string;
+  corpus_id: string;
+  canonical_entity_id: string;
+  evidence_unit_id: string;
+  asset_id: string;
+  descriptor: Record<string, string>;
+  comparison_authorized: boolean;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
 /** Safe operational state only: it intentionally has no locator, profiles, or artifacts. */
 export interface KnowledgeFabricOperationalSource {
   id: string;
@@ -142,6 +179,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...init?.headers }
   });
   if (!response.ok) throw new Error(await errorMessage(response));
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -174,6 +212,50 @@ export const knowledgeFabricApi = {
         freshness_policy: {}
       })
     }),
+  listGlobalCanonicalEntities: (corpusId: string) =>
+    request<KnowledgeFabricCanonicalEntity[]>(
+      `/admin/corpora/${encodeURIComponent(corpusId)}/canonical-entities`
+    ),
+  createGlobalCanonicalEntity: (
+    corpusId: string,
+    payload: {
+      entity_type: string;
+      canonical_name: string;
+      aliases: string[];
+      metadata: Record<string, string>;
+    }
+  ) =>
+    request<KnowledgeFabricCanonicalEntity>(
+      `/admin/corpora/${encodeURIComponent(corpusId)}/canonical-entities`,
+      { method: "POST", body: JSON.stringify(payload) }
+    ),
+  listGlobalImageAssetCandidates: (corpusId: string) =>
+    request<KnowledgeFabricImageAssetCandidate[]>(
+      `/admin/corpora/${encodeURIComponent(corpusId)}/image-assets`
+    ),
+  listGlobalVisualReferences: (corpusId: string) =>
+    request<KnowledgeFabricVisualReference[]>(
+      `/admin/corpora/${encodeURIComponent(corpusId)}/visual-references`
+    ),
+  createGlobalVisualReference: (
+    corpusId: string,
+    payload: {
+      canonical_entity_id: string;
+      evidence_unit_id: string;
+      asset_id: string;
+      descriptor: Record<string, string>;
+      comparison_authorized: boolean;
+    }
+  ) =>
+    request<KnowledgeFabricVisualReference>(
+      `/admin/corpora/${encodeURIComponent(corpusId)}/visual-references`,
+      { method: "POST", body: JSON.stringify(payload) }
+    ),
+  revokeGlobalVisualReference: (corpusId: string, referenceId: string) =>
+    request<void>(
+      `/admin/corpora/${encodeURIComponent(corpusId)}/visual-references/${encodeURIComponent(referenceId)}`,
+      { method: "DELETE" }
+    ),
   configureExternalSourceSchedule: (
     sourceId: string,
     payload: { enabled: boolean; interval_seconds: number }

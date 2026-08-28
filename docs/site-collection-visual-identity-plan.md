@@ -144,3 +144,27 @@ runtime crawling or Character knowledge.
   of a visual result into a canonical entity or Belief.
 - Next concrete action: review and explicitly authorize the paused Global Library UI work before
   exposing the onboarding flow in the portal; keep this API-first workflow otherwise.
+
+## Administration UI phase handoff
+
+- Evidence: `web/src/KnowledgeFabricAdministrationPanel.tsx`,
+  `web/src/knowledgeFabricApi.ts`, `web/src/settings-access.css`, and
+  `web/src/knowledgeFabricApi.test.ts`.
+- Delivered: the Super Admin Administration > Knowledge Fabric panel is now a focused three-step
+  workspace: choose/create a global library, add a public Wiki/site using the recommended bounded
+  `website_collection_public_https` source type, then review canonical fictional-character and
+  visual-reference approvals. Source health and the opt-in schedule remain visible in the same
+  context rather than as a separate technical form.
+- Invariants: the Portal only renders existing redacted operational state; it does not promise an
+  immediate sync, a page count, or a website preview. Image candidates expose only existing safe
+  provenance metadata, never private bytes, object keys, hashes, or URLs. External image comparison
+  remains opt-in, fictional-character-only, capped, and revocable; the consent language describes
+  the already-approved egress boundary rather than broadening it. Server grants and Character
+  epistemic policy remain in the Deployment Workspace.
+- Validation: Portal TypeScript check and focused `knowledgeFabricApi.test.ts` passed; production
+  Vite build passed. The current desktop session had no callable browser automation surface, so no
+  browser screenshot claim is made.
+- Deliberate omissions: this is not a global Portal redesign; Dashboard, Server Knowledge,
+  deployment scope, and private image previews remain unchanged. A future approved reference can
+  refine the wider Global Library visual direction without changing these API/security boundaries.
+- Implementation commit: current branch `HEAD` (`feat: guide knowledge fabric administration`).
