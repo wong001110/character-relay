@@ -497,11 +497,15 @@ root through the pinned transport and returns only bounded hostnames declared in
 `preconnect` or `dns-prefetch` markup. Saving the recipe rechecks that every approved external
 hostname was observed; registration and analysis alone do not authorize rendered sync. The worker
 then creates a one-use, cookie-free browser context with service workers and downloads disabled,
-permits HTTPS requests only to the root host and the exact approved host set, and captures no API
-response as Knowledge. It admits only post-render, same-origin page DOM, traverses a bounded
-same-origin link graph (at most 100 pages and depth 3), and stores the DOM artifact privately with
-its `rendered_browser` acquisition provenance. Rendered runs do not collect images, reuse browser
-tool sessions, transmit credentials, or relax corpus/Character access policy.
+permits HTTPS requests only to the root host and the exact approved host set, and admits the
+post-render, same-origin page DOM. It may additionally preserve at most eight successful public
+`GET` XHR/fetch JSON responses from those approved hosts (128 KiB each and 512 KiB total), after
+normalizing their JSON and without retaining request URLs, query values, headers, or credentials.
+Those bytes are appended only to the private root-page artifact and never become crawl locators.
+The worker traverses a bounded same-origin DOM-link graph (at most 100 pages and depth 3), and
+stores its artifact privately with `rendered_browser` acquisition provenance. Rendered runs do not
+collect images, reuse browser tool sessions, transmit credentials, or relax corpus/Character access
+policy.
 
 The private immutable artifact contains the approved raw page bytes. Each page creates exactly one
 canonical document/Evidence Unit, whose canonical page locator is also a stable current-entry key.

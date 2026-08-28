@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -9,7 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from echo_masque.browser_runtime import RenderedCollectionPage
+from echo_masque.browser_runtime import (
+    RenderedCollectionPage,
+    _is_admissible_rendered_collection_json_response,
+)
 from echo_masque.knowledge_fabric_external_policy import (
     WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE,
 )
@@ -104,11 +109,17 @@ class _BootstrapFetcher:
         return self.response
 
 
-def _page(title: str, text: str, hrefs: tuple[str, ...] = ()) -> RenderedCollectionPage:
+def _page(
+    title: str,
+    text: str,
+    hrefs: tuple[str, ...] = (),
+    public_json: tuple[str, ...] = (),
+) -> RenderedCollectionPage:
     anchors = "".join(f'<a href="{href}">Link</a>' for href in hrefs)
     return RenderedCollectionPage(
         html=f"<html><head><title>{title}</title></head><body><main>{anchors}<p>{text}</p></main></body></html>",
         hrefs=hrefs,
+        public_json=public_json,
     )
 
 
@@ -200,7 +211,10 @@ def test_rendered_collection_sync_keeps_browser_egress_bounded_and_ingests_dom(
     renderer = _RenderedFetcher(
         {
             "https://example.test/wiki": _page(
-                "Wiki", "Welcome to Teyvat", ("/amber", "/lisa", "https://outside.test/no")
+                "Wiki",
+                "Welcome to Teyvat",
+                ("/amber", "/lisa", "https://outside.test/no"),
+                ('{"entries":["Amber","Lisa"]}',),
             ),
             "https://example.test/amber": _page("Amber", "Pyro outrider"),
             "https://example.test/lisa": _page("Lisa", "Electro librarian"),
@@ -242,3 +256,50 @@ def test_rendered_collection_sync_keeps_browser_egress_bounded_and_ingests_dom(
         "https://example.test/amber",
         "https://example.test/lisa",
     }
+    stored_artifacts = [
+        json.loads(content)
+        for content in storage.objects.values()
+        if b'"root_locator":"https://example.test/wiki"' in content
+    ]
+    root_artifact = next(
+        item for item in stored_artifacts if len(item["pages"]) == 1
+    )
+    root_html = base64.b64decode(root_artifact["pages"][0]["content_base64"]).decode("utf-8")
+    assert "Public data loaded by rendered page" in root_html
+    assert "Amber" in root_html
+
+
+def test_rendered_collection_json_capture_accepts_only_bounded_public_get_json() -> None:
+    allowed = frozenset({"example.test", "api.example.test"})
+    assert _is_admissible_rendered_collection_json_response(
+        url="https://api.example.test/public/entries",
+        request_method="GET",
+        resource_type="xhr",
+        status_code=200,
+        content_type="application/json; charset=utf-8",
+        allowed_hosts=allowed,
+    )
+    assert not _is_admissible_rendered_collection_json_response(
+        url="https://api.example.test/public/entries",
+        request_method="POST",
+        resource_type="xhr",
+        status_code=200,
+        content_type="application/json",
+        allowed_hosts=allowed,
+    )
+    assert not _is_admissible_rendered_collection_json_response(
+        url="https://unapproved.example.test/public/entries",
+        request_method="GET",
+        resource_type="fetch",
+        status_code=200,
+        content_type="application/json",
+        allowed_hosts=allowed,
+    )
+    assert not _is_admissible_rendered_collection_json_response(
+        url="https://api.example.test/public/entries",
+        request_method="GET",
+        resource_type="document",
+        status_code=200,
+        content_type="application/json",
+        allowed_hosts=allowed,
+    )

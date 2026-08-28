@@ -19,6 +19,7 @@ from playwright.async_api import (
     BrowserContext,
     Page,
     Playwright,
+    Response,
     Route,
     TimeoutError as PlaywrightTimeoutError,
     async_playwright,
@@ -34,6 +35,10 @@ _STATIC_SEARCH_ENGINE = "duckduckgo-html"
 _WEB_SEARCH_ENGINES = ("google", "bing")
 _DDG_SEARCH_HOST = "html.duckduckgo.com"
 _DDG_HTTP_TIMEOUT_SECONDS = 8.0
+_MAX_RENDERED_COLLECTION_JSON_RESPONSES = 8
+_MAX_RENDERED_COLLECTION_JSON_RESPONSE_BYTES = 128 * 1_024
+_MAX_RENDERED_COLLECTION_JSON_TOTAL_BYTES = 512 * 1_024
+_RENDERED_COLLECTION_JSON_DRAIN_SECONDS = 2.0
 
 
 class BrowserToolUnavailable(RuntimeError):
@@ -56,12 +61,15 @@ class BrowserRuntimeSettings:
 class RenderedCollectionPage:
     """One bounded public DOM capture for an explicitly approved Fabric Source.
 
-    ``html`` is the post-render DOM artifact.  It is consumed only by the private Knowledge
-    ingestion path and is never returned from the Portal API.
+    ``html`` and ``public_json`` are consumed only by the private Knowledge ingestion path and
+    are never returned from the Portal API. ``public_json`` contains only bounded successful JSON
+    responses loaded by the rendered page from an explicitly approved host; it never contains
+    request URLs, headers, or credentials.
     """
 
     html: str
     hrefs: tuple[str, ...]
+    public_json: tuple[str, ...] = ()
 
 
 @dataclass
@@ -349,11 +357,81 @@ class BrowserCapabilityManager:
             raise BrowserToolUnavailable("Rendered collection destination is not approved.")
         capped_links = min(max(max_links, 1), 1_000)
         async with self._public_collection_page(normalized_hosts) as page:
+            captured_json: list[str] = []
+            captured_json_bytes = 0
+            response_tasks: list[asyncio.Task[None]] = []
+
+            async def capture_public_json(response: Response) -> None:
+                nonlocal captured_json_bytes
+                if not _is_admissible_rendered_collection_json_response(
+                    url=response.url,
+                    request_method=response.request.method,
+                    resource_type=response.request.resource_type,
+                    status_code=response.status,
+                    content_type=response.headers.get("content-type", ""),
+                    allowed_hosts=normalized_hosts,
+                ):
+                    return
+                try:
+                    body = await response.body()
+                except Exception:
+                    return
+                if len(body) > _MAX_RENDERED_COLLECTION_JSON_RESPONSE_BYTES:
+                    return
+                try:
+                    value = json.loads(body)
+                    normalized = json.dumps(
+                        value,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                except (TypeError, UnicodeDecodeError, json.JSONDecodeError):
+                    return
+                encoded = normalized.encode("utf-8")
+                if (
+                    len(encoded) > _MAX_RENDERED_COLLECTION_JSON_RESPONSE_BYTES
+                    or captured_json_bytes + len(encoded) > _MAX_RENDERED_COLLECTION_JSON_TOTAL_BYTES
+                ):
+                    return
+                captured_json.append(normalized)
+                captured_json_bytes += len(encoded)
+
+            response_slots = 0
+
+            def schedule_public_json_capture(response: Response) -> None:
+                nonlocal response_slots
+                if response_slots >= _MAX_RENDERED_COLLECTION_JSON_RESPONSES:
+                    return
+                if not _is_admissible_rendered_collection_json_response(
+                    url=response.url,
+                    request_method=response.request.method,
+                    resource_type=response.request.resource_type,
+                    status_code=response.status,
+                    content_type=response.headers.get("content-type", ""),
+                    allowed_hosts=normalized_hosts,
+                ):
+                    return
+                response_slots += 1
+                response_tasks.append(asyncio.create_task(capture_public_json(response)))
+
+            page.on("response", schedule_public_json_capture)
             await self._navigate(page, validated)
             try:
                 await page.wait_for_load_state("networkidle", timeout=4_000)
             except PlaywrightTimeoutError:
                 pass
+            await page.wait_for_timeout(250)
+            page.remove_listener("response", schedule_public_json_capture)
+            if response_tasks:
+                _done, pending = await asyncio.wait(
+                    response_tasks,
+                    timeout=_RENDERED_COLLECTION_JSON_DRAIN_SECONDS,
+                )
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
             try:
                 html = await page.content()
                 links = page.locator("a")
@@ -369,7 +447,11 @@ class BrowserCapabilityManager:
                 ) from exc
         if len(html.encode("utf-8")) > 1_048_576:
             raise BrowserToolUnavailable("Rendered collection DOM exceeded the page limit.")
-        return RenderedCollectionPage(html=html, hrefs=tuple(hrefs))
+        return RenderedCollectionPage(
+            html=html,
+            hrefs=tuple(hrefs),
+            public_json=tuple(captured_json),
+        )
 
     @asynccontextmanager
     async def _page_for(self, page_kind: str) -> AsyncIterator[Page]:
@@ -925,6 +1007,29 @@ def _is_external_result_url(value: str) -> bool:
     )
     return hostname not in blocked_hosts and not hostname.endswith(
         (".google.com", ".bing.com", ".duckduckgo.com")
+    )
+
+
+def _is_admissible_rendered_collection_json_response(
+    *,
+    url: str,
+    request_method: str,
+    resource_type: str,
+    status_code: int,
+    content_type: str,
+    allowed_hosts: frozenset[str],
+) -> bool:
+    """Keep optional SPA data capture inside the already-approved public request boundary."""
+
+    hostname = (urlsplit(url).hostname or "").casefold().rstrip(".")
+    media_type = content_type.casefold().split(";", maxsplit=1)[0].strip()
+    return (
+        url.startswith("https://")
+        and hostname in allowed_hosts
+        and request_method.upper() == "GET"
+        and resource_type in {"fetch", "xhr"}
+        and 200 <= status_code < 300
+        and (media_type == "application/json" or media_type.endswith("+json"))
     )
 
 

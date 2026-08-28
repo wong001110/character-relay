@@ -6,6 +6,7 @@ import asyncio
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from hashlib import sha256
+from html import escape as html_escape
 from typing import Protocol
 from urllib.parse import urljoin, urlsplit
 
@@ -383,7 +384,7 @@ class KnowledgeFabricWebsiteCollectionSyncService:
             visited.add(locator)
             pages[locator] = WebsiteFetchResponse(
                 status_code=200,
-                content=page.html.encode("utf-8"),
+                content=self._rendered_collection_page_content(page).encode("utf-8"),
                 headers={"content-type": "text/html; charset=utf-8"},
             )
             discovered.append(
@@ -409,6 +410,24 @@ class KnowledgeFabricWebsiteCollectionSyncService:
                 raise RenderedCollectionRejected("Rendered collection exceeds its page limit.")
             pending.extend((item, depth + 1, locator) for item in new_children)
         return tuple(discovered), pages
+
+    @staticmethod
+    def _rendered_collection_page_content(page: RenderedCollectionPage) -> str:
+        """Join bounded public page JSON to the private DOM artifact without crawling it."""
+
+        if not page.public_json:
+            return page.html
+        payload = "\n".join(page.public_json)
+        appendix = (
+            '<section data-knowledge-fabric="rendered-public-json">'
+            "<h2>Public data loaded by rendered page</h2>"
+            f"<pre>{html_escape(payload)}</pre>"
+            "</section>"
+        )
+        body_end = page.html.casefold().rfind("</body>")
+        if body_end < 0:
+            return page.html + appendix
+        return page.html[:body_end] + appendix + page.html[body_end:]
 
     @staticmethod
     def _same_origin_rendered_links(
