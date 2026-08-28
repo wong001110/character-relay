@@ -137,6 +137,17 @@ Do not put these values in Portal settings, source-adapter credentials, exports,
 fixtures. The application stores only provider, bucket, object key, hash, size, and content type;
 it does not generate public object URLs or ACLs.
 
+For an explicitly single-replica deployment with a private persistent volume, the application can
+instead use a filesystem provider. This is not a fallback for missing R2/S3 credentials and is not
+appropriate for multiple replicas or ephemeral storage:
+
+```text
+CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_PROVIDER=local_filesystem
+CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_FILESYSTEM_PATH=/data/knowledge-fabric
+```
+
+The directory is private to the running service; no Portal route exposes files from it.
+
 ## 5. Bootstrap and authenticate Admin access
 
 Configure the Bootstrap Admin email/password together and deploy. Sign in through the normal authentication flow; Admin routes, Storage & Backup, probes, and runtime administration use the authenticated HttpOnly Session and server-side role checks.

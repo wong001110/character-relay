@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -5,6 +6,8 @@ from pydantic import ValidationError
 
 from echo_masque.config import Settings
 from echo_masque.knowledge_object_storage import (
+    FilesystemKnowledgeObjectStorage,
+    ObjectStorageError,
     ObjectStorageUnavailable,
     object_storage_from_settings,
 )
@@ -68,6 +71,47 @@ def test_knowledge_object_storage_defaults_to_unconfigured_private_r2_boundary()
             content=b"source",
             content_type="text/plain",
             metadata={},
+        )
+
+
+def test_knowledge_object_storage_uses_only_explicit_private_filesystem_roots(
+    tmp_path: Path,
+) -> None:
+    storage = object_storage_from_settings(
+        Settings(
+            environment="test",
+            knowledge_object_storage_provider="local_filesystem",
+            knowledge_object_storage_filesystem_path=str(tmp_path / "private-artifacts"),
+        )
+    )
+
+    assert isinstance(storage, FilesystemKnowledgeObjectStorage)
+    stored = storage.put_private(
+        object_key="knowledge-fabric/source/aa/hash",
+        content=b"source",
+        content_type="text/plain",
+        metadata={"source-id": "source"},
+    )
+    assert stored.provider == "local_filesystem"
+    assert storage.get_private(object_key=stored.object_key) == b"source"
+    assert storage.delete_private(object_key=stored.object_key)
+    assert not storage.delete_private(object_key=stored.object_key)
+
+    with pytest.raises(ObjectStorageError, match="object key is invalid"):
+        storage.put_private(
+            object_key="../outside",
+            content=b"source",
+            content_type="text/plain",
+            metadata={},
+        )
+
+
+def test_knowledge_object_storage_filesystem_root_must_be_absolute() -> None:
+    with pytest.raises(ValidationError, match="must be absolute"):
+        Settings(
+            environment="test",
+            knowledge_object_storage_provider="local_filesystem",
+            knowledge_object_storage_filesystem_path="relative/private-artifacts",
         )
 
 

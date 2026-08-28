@@ -1,6 +1,7 @@
 """Application configuration."""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -11,7 +12,7 @@ from echo_masque import __version__
 
 LangGraphMode = Literal["off", "condition_watch", "character_turn", "social_turn"]
 LangGraphWorkflow = Literal["condition_watch", "character_turn", "social_turn"]
-KnowledgeObjectStorageProvider = Literal["cloudflare_r2", "aws_s3"]
+KnowledgeObjectStorageProvider = Literal["cloudflare_r2", "aws_s3", "local_filesystem"]
 _LANGGRAPH_MODE_RANK: dict[str, int] = {
     "off": 0,
     "condition_watch": 1,
@@ -54,7 +55,9 @@ class Settings(BaseSettings):
 
     # Cloudflare R2 is the production default.  The service talks only through the
     # private S3-compatible API so an explicitly configured AWS S3 deployment can
-    # use the same boundary later.  None means ingestion fails cleanly when invoked.
+    # use the same boundary later.  A private filesystem is an explicit single-node,
+    # mounted-volume option; without its provider and absolute root, ingestion fails
+    # cleanly when invoked.
     knowledge_object_storage_provider: KnowledgeObjectStorageProvider = "cloudflare_r2"
     knowledge_object_storage_endpoint: str | None = None
     knowledge_object_storage_bucket: str | None = None
@@ -62,6 +65,7 @@ class Settings(BaseSettings):
     knowledge_object_storage_access_key_id: SecretStr | None = None
     knowledge_object_storage_secret_access_key: SecretStr | None = None
     knowledge_object_storage_prefix: str = "knowledge-fabric"
+    knowledge_object_storage_filesystem_path: str | None = None
 
     # Public Character Discovery source configuration. YouTube works without a credential via
     # metadata-only yt-dlp search; an optional Data API key upgrades acquisition to the official
@@ -175,6 +179,16 @@ class Settings(BaseSettings):
         if value is not None and not value.strip():
             raise ValueError("Knowledge object-storage names must not be blank.")
         return value
+
+    @field_validator("knowledge_object_storage_filesystem_path")
+    @classmethod
+    def object_storage_filesystem_path_is_absolute(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        path = Path(value)
+        if not path.is_absolute():
+            raise ValueError("Knowledge filesystem storage path must be absolute.")
+        return str(path)
 
     def langgraph_allows(self, workflow: LangGraphWorkflow) -> bool:
         """Return whether the cumulative rollout mode includes a workflow."""

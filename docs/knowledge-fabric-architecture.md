@@ -159,7 +159,12 @@ Section / Block / Asset
 └ source provenance
 ```
 
-Original large artifacts belong in object storage. PostgreSQL stores the structured records, references, hashes, permissions, and queryable metadata rather than large opaque blobs.
+Original large artifacts belong in private object storage. PostgreSQL stores the structured records,
+references, hashes, permissions, and queryable metadata rather than large opaque blobs. Cloudflare
+R2 and AWS S3 are the normal multi-replica stores; an explicitly configured private mounted
+filesystem is supported only for a single-replica durable deployment. Missing storage configuration
+must fail ingestion rather than publish a partial Source Version, and none of these stores creates
+public object URLs.
 
 ### Evidence Unit
 
