@@ -82,3 +82,58 @@ def test_external_scheduler_passes_the_durable_claim_to_the_source_sync() -> Non
     assert asyncio.run(scheduler.run_once()) == 1
     assert received == [claim]
     assert repository.marked == [(claim, True, None)]
+
+
+class _SyncRunRepository:
+    def __init__(self) -> None:
+        self.records: list[tuple[str, WebsiteSyncResult]] = []
+
+    def record_completed(
+        self,
+        *,
+        source_id: str,
+        result: WebsiteSyncResult,
+        started_at: object,
+    ) -> None:
+        del started_at
+        self.records.append((source_id, result))
+
+
+def test_external_scheduler_records_only_finalized_non_stale_claim_results() -> None:
+    claim = ExternalSourceScheduleClaim(
+        source_id="source-1",
+        source_type="website_collection_public_https",
+        hostname="example.test",
+        lease_token="lease-1",
+    )
+    schedule = _ClaimingScheduleRepository(claim)
+    reports = _SyncRunRepository()
+
+    async def sync(_: ExternalSourceScheduleClaim) -> WebsiteSyncResult:
+        return WebsiteSyncResult(
+            outcome="changed",
+            discovered_page_count=3,
+            changed_page_count=1,
+            unchanged_page_count=2,
+            admitted_image_count=1,
+        )
+
+    scheduler = KnowledgeFabricExternalSyncScheduler(
+        schedule_repository=schedule,  # type: ignore[arg-type]
+        sync_by_source_type={"website_collection_public_https": sync},
+        sync_run_repository=reports,  # type: ignore[arg-type]
+    )
+
+    assert asyncio.run(scheduler.run_once()) == 1
+    assert reports.records == [
+        (
+            "source-1",
+            WebsiteSyncResult(
+                outcome="changed",
+                discovered_page_count=3,
+                changed_page_count=1,
+                unchanged_page_count=2,
+                admitted_image_count=1,
+            ),
+        )
+    ]

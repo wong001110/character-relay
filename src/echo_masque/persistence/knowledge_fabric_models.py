@@ -155,6 +155,36 @@ class KnowledgeExternalSourceScheduleRecord(Base):
     )
 
 
+class KnowledgeExternalSourceSyncRunRecord(Base):
+    """Expired, redaction-safe operational report for one completed scheduled sync."""
+
+    __tablename__ = "knowledge_external_source_sync_runs"
+    __table_args__ = (
+        Index("ix_knowledge_external_source_sync_run_expiry", "expires_at"),
+        Index(
+            "ix_knowledge_external_source_sync_run_source_completed",
+            "source_id",
+            "completed_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_sources.id"), index=True, nullable=False
+    )
+    outcome: Mapped[str] = mapped_column(String(40), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    discovered_page_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    changed_page_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    unchanged_page_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_page_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    removed_page_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    admitted_image_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
 class KnowledgeExternalSourceCollectionStateRecord(Base):
     """Derived discovery generation for one public Site Collection Source."""
 

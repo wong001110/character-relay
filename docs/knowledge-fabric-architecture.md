@@ -501,8 +501,17 @@ remain explicit later phases rather than implicit crawler authority.
 
 Super Admin operational state may expose a current, redaction-safe Site Collection sync summary:
 last completed generation plus aggregate available, removed, checked, and failed page counts. It
-contains no page locators, validators, raw response details, artifacts, or credentials, and is a
-current collection-state snapshot rather than a fabricated crawl-progress estimate or run history.
+contains no page locators, validators, raw response details, artifacts, or credentials.
+
+The scheduler also retains a bounded, source-scoped journal of completed automatic checks so an
+operator can diagnose a changed, unchanged, or failed collection pass. A journal entry carries
+only start/completion time, safe outcome/error code, and aggregate discovered/changed/unchanged/
+failed/removed page and admitted-image counts. It never carries page locators, validators, raw
+responses, artifact/object identifiers, hashes, headers, credentials, or provider payloads. This
+is derived operational state only: it cannot authorize egress, change collection current state, or
+influence retrieval. Entries expire through a best-effort hourly TTL worker; the default retention
+is seven days and deployments may set `CHARACTER_RELAY_KNOWLEDGE_EXTERNAL_SYNC_REPORT_RETENTION_DAYS`
+between one and ninety days.
 
 ### Corpus visual references
 

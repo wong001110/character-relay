@@ -151,7 +151,24 @@ export interface KnowledgeFabricOperationalSource {
   external_sync: KnowledgeFabricExternalSourceSyncState | null;
   external_schedule: KnowledgeFabricExternalSourceSchedule | null;
   site_collection_summary: KnowledgeFabricSiteCollectionSyncSummary | null;
+  sync_run_reports: KnowledgeFabricExternalSyncRunReport[];
   derived_work: KnowledgeFabricDerivedWorkSummary;
+}
+
+/** A short-lived, redacted record of one completed automatic source check. */
+export interface KnowledgeFabricExternalSyncRunReport {
+  id: string;
+  source_id: string;
+  outcome: string;
+  error_code: string | null;
+  started_at: string;
+  completed_at: string;
+  discovered_page_count: number;
+  changed_page_count: number;
+  unchanged_page_count: number;
+  failed_page_count: number;
+  removed_page_count: number;
+  admitted_image_count: number;
 }
 
 export interface KnowledgeFabricQueryInspectorHit {

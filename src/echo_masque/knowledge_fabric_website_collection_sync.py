@@ -139,6 +139,9 @@ class KnowledgeFabricWebsiteCollectionSyncService:
         changed = False
         checked_changed = False
         latest_version_id: str | None = None
+        changed_page_count = 0
+        unchanged_page_count = 0
+        admitted_image_count = 0
         for page in pages:
             result = await self._sync_page(
                 source_id=source_id,
@@ -147,12 +150,28 @@ class KnowledgeFabricWebsiteCollectionSyncService:
                 external_schedule_lease_token=external_schedule_lease_token,
             )
             if result.outcome in {"failed", "stale"}:
-                return result
+                return replace(
+                    result,
+                    discovered_page_count=len(pages),
+                    changed_page_count=changed_page_count,
+                    unchanged_page_count=unchanged_page_count,
+                    failed_page_count=1 if result.outcome == "failed" else 0,
+                    admitted_image_count=admitted_image_count,
+                )
             changed = changed or result.outcome == "changed"
             checked_changed = checked_changed or result.outcome == "unchanged"
+            changed_page_count += result.changed_page_count
+            unchanged_page_count += result.unchanged_page_count
+            admitted_image_count += result.admitted_image_count
             latest_version_id = result.source_version_id or latest_version_id
         if not await self._schedule_claim_is_current(source_id, external_schedule_lease_token, now):
-            return WebsiteSyncResult(outcome="stale")
+            return WebsiteSyncResult(
+                outcome="stale",
+                discovered_page_count=len(pages),
+                changed_page_count=changed_page_count,
+                unchanged_page_count=unchanged_page_count,
+                admitted_image_count=admitted_image_count,
+            )
         removed = await asyncio.to_thread(
             self.collection_repository.complete_generation,
             source_id=source_id,
@@ -172,7 +191,13 @@ class KnowledgeFabricWebsiteCollectionSyncService:
                     self._with_lease(removal, external_schedule_lease_token),
                 )
             except KnowledgeExternalScheduleClaimLost:
-                return WebsiteSyncResult(outcome="stale")
+                return WebsiteSyncResult(
+                    outcome="stale",
+                    discovered_page_count=len(pages),
+                    changed_page_count=changed_page_count,
+                    unchanged_page_count=unchanged_page_count,
+                    admitted_image_count=admitted_image_count,
+                )
             latest_version_id = version.id
             changed = True
         outcome = "changed" if changed else "unchanged" if checked_changed else "not_modified"
@@ -188,8 +213,22 @@ class KnowledgeFabricWebsiteCollectionSyncService:
             allowed_source_types=_COLLECTION_SOURCE_TYPES,
         )
         if recorded is None:
-            return WebsiteSyncResult(outcome="stale")
-        return WebsiteSyncResult(outcome=outcome, source_version_id=latest_version_id)
+            return WebsiteSyncResult(
+                outcome="stale",
+                discovered_page_count=len(pages),
+                changed_page_count=changed_page_count,
+                unchanged_page_count=unchanged_page_count,
+                admitted_image_count=admitted_image_count,
+            )
+        return WebsiteSyncResult(
+            outcome=outcome,
+            source_version_id=latest_version_id,
+            discovered_page_count=len(pages),
+            changed_page_count=changed_page_count,
+            unchanged_page_count=unchanged_page_count,
+            removed_page_count=len(removed),
+            admitted_image_count=admitted_image_count,
+        )
 
     async def sync_claim(self, claim: ExternalSourceScheduleClaim) -> WebsiteSyncResult:
         return await self.sync(claim.source_id, external_schedule_lease_token=claim.lease_token)
@@ -315,9 +354,10 @@ class KnowledgeFabricWebsiteCollectionSyncService:
                 error_code="fetch_failed",
                 checked_at=checked_at,
             )
-            return await self._failure(
+            result = await self._failure(
                 source_id, "page_failed", checked_at, external_schedule_lease_token
             )
+            return replace(result, failed_page_count=1)
         error = website_response_error_code(
             status_code=response.status_code,
             content_type=response.headers.get("content-type", ""),
@@ -341,9 +381,10 @@ class KnowledgeFabricWebsiteCollectionSyncService:
                 error_code=error,
                 checked_at=checked_at,
             )
-            return await self._failure(
+            result = await self._failure(
                 source_id, "page_failed", checked_at, external_schedule_lease_token
             )
+            return replace(result, failed_page_count=1)
         try:
             assert self.adapter is not None
             snapshot = self.adapter.build_page_snapshot(
@@ -361,9 +402,10 @@ class KnowledgeFabricWebsiteCollectionSyncService:
             )
             snapshot = replace(snapshot, assets=assets)
         except (WebsiteCollectionResponseRejected, WebsiteSourceRejected):
-            return await self._failure(
+            result = await self._failure(
                 source_id, "collection_rejected", checked_at, external_schedule_lease_token
             )
+            return replace(result, failed_page_count=1)
         existing = await asyncio.to_thread(
             self.ingestion_service.repository.get_source_version_by_key,
             source_id=source_id,
@@ -394,7 +436,13 @@ class KnowledgeFabricWebsiteCollectionSyncService:
             last_modified=response.headers.get("last-modified"),
             checked_at=checked_at,
         )
-        return WebsiteSyncResult(outcome=outcome, source_version_id=version_id)
+        return WebsiteSyncResult(
+            outcome=outcome,
+            source_version_id=version_id,
+            changed_page_count=1 if outcome == "changed" else 0,
+            unchanged_page_count=1 if outcome == "unchanged" else 0,
+            admitted_image_count=len(assets),
+        )
 
     async def _fetch_page_images(
         self,

@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./echo_masque.db"
     provider_trace_retention_days: int = 7
     provider_trace_max_records: int = 2000
+    knowledge_external_sync_report_retention_days: int = Field(default=7, ge=1, le=90)
 
     langgraph_mode: LangGraphMode = "off"
     semantic_embedding_enabled: bool = False

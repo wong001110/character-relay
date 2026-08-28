@@ -5,11 +5,15 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
+from datetime import UTC, datetime
 
 from echo_masque.knowledge_fabric_website_sync import WebsiteSyncResult
 from echo_masque.persistence.knowledge_fabric_external_schedule_repository import (
     ExternalSourceScheduleClaim,
     KnowledgeFabricExternalScheduleRepository,
+)
+from echo_masque.persistence.knowledge_fabric_external_sync_run_repository import (
+    KnowledgeFabricExternalSyncRunRepository,
 )
 
 type ExternalSourceSync = Callable[[ExternalSourceScheduleClaim], Awaitable[WebsiteSyncResult]]
@@ -23,6 +27,7 @@ class KnowledgeFabricExternalSyncScheduler:
         *,
         schedule_repository: KnowledgeFabricExternalScheduleRepository,
         sync_by_source_type: Mapping[str, ExternalSourceSync],
+        sync_run_repository: KnowledgeFabricExternalSyncRunRepository | None = None,
         poll_seconds: float = 30,
         lease_seconds: int = 120,
     ) -> None:
@@ -32,6 +37,7 @@ class KnowledgeFabricExternalSyncScheduler:
             raise ValueError("External sync lease duration must be at least 30 seconds.")
         self.schedule_repository = schedule_repository
         self.sync_by_source_type = dict(sync_by_source_type)
+        self.sync_run_repository = sync_run_repository
         self.poll_seconds = poll_seconds
         self.lease_seconds = lease_seconds
         self._task: asyncio.Task[None] | None = None
@@ -74,12 +80,19 @@ class KnowledgeFabricExternalSyncScheduler:
                 await asyncio.wait_for(self._stopping.wait(), timeout=self.poll_seconds)
 
     async def _run_claim(self, claim: ExternalSourceScheduleClaim) -> None:
+        started_at = datetime.now(UTC)
         sync = self.sync_by_source_type.get(claim.source_type)
         if sync is None:
-            await asyncio.to_thread(
+            marked = await asyncio.to_thread(
                 self.schedule_repository.mark_result,
                 claim=claim, succeeded=False, error_code="source_rejected"
             )
+            if marked:
+                await self._record_completed_report(
+                    claim,
+                    WebsiteSyncResult(outcome="failed", error_code="source_rejected"),
+                    started_at,
+                )
             return
         renewal = asyncio.create_task(
             self._renew_claim_until_complete(claim),
@@ -93,11 +106,30 @@ class KnowledgeFabricExternalSyncScheduler:
             renewal.cancel()
             with suppress(asyncio.CancelledError):
                 await renewal
-        await asyncio.to_thread(
+        marked = await asyncio.to_thread(
             self.schedule_repository.mark_result,
             claim=claim,
             succeeded=result.outcome != "failed",
             error_code=result.error_code,
+        )
+        if marked:
+            await self._record_completed_report(claim, result, started_at)
+
+    async def _record_completed_report(
+        self,
+        claim: ExternalSourceScheduleClaim,
+        result: WebsiteSyncResult,
+        started_at: datetime,
+    ) -> None:
+        """Persist final worker facts only after the schedule accepted its matching lease."""
+
+        if self.sync_run_repository is None or result.outcome == "stale":
+            return
+        await asyncio.to_thread(
+            self.sync_run_repository.record_completed,
+            source_id=claim.source_id,
+            result=result,
+            started_at=started_at,
         )
 
     async def _renew_claim_until_complete(self, claim: ExternalSourceScheduleClaim) -> None:

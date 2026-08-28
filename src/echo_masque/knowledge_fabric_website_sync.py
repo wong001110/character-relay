@@ -51,6 +51,12 @@ class WebsiteSyncResult:
     outcome: str
     error_code: str | None = None
     source_version_id: str | None = None
+    discovered_page_count: int = 0
+    changed_page_count: int = 0
+    unchanged_page_count: int = 0
+    failed_page_count: int = 0
+    removed_page_count: int = 0
+    admitted_image_count: int = 0
 
 
 class KnowledgeFabricWebsiteSyncService:

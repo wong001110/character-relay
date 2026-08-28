@@ -155,9 +155,10 @@ runtime crawling or Character knowledge.
   `website_collection_public_https` source type, then review canonical fictional-character and
   visual-reference approvals. Source health and the opt-in schedule remain visible in the same
   context rather than as a separate technical form.
-- Invariants: the Portal only renders existing redacted operational state. It now exposes an
-  actual current Site Collection summary (completed generation plus aggregate page counts), but
-  does not promise an immediate sync, invented crawl progress, or a website preview. Image
+- Invariants: the Portal only renders existing redacted operational state. It exposes both an
+  actual current Site Collection summary (completed generation plus aggregate page counts) and a
+  bounded, TTL-backed journal of completed automatic checks, but does not promise an immediate
+  sync, invented crawl progress, or a website preview. Image
   candidates expose only existing safe provenance metadata, never private bytes, object keys,
   hashes, or URLs. External image comparison remains opt-in, fictional-character-only, capped,
   and revocable; the consent language describes the already-approved egress boundary rather than
@@ -169,3 +170,24 @@ runtime crawling or Character knowledge.
   deployment scope, and private image previews remain unchanged. A future approved reference can
   refine the wider Global Library visual direction without changing these API/security boundaries.
 - Implementation commit: current branch `HEAD` (`feat: guide knowledge fabric administration`).
+
+## Sync-report observability phase handoff
+
+- Evidence: `knowledge_fabric_external_sync_scheduler.py`,
+  `persistence/knowledge_fabric_external_sync_run_repository.py`,
+  `knowledge_fabric_external_sync_report_retention.py`, `api/app.py`, the Knowledge Fabric
+  schemas/routes, and the Administration panel/API types.
+- Delivered: a completed automatic check now writes one source-scoped, redacted report after its
+  lease result is accepted. Reports carry timestamps, safe outcome/error code, and aggregate page/
+  image counts only. A separate hourly worker deletes expired entries; the deployment default is
+  seven days, with a validated one-to-ninety day environment override. Registration and scheduling
+  stay default-off.
+- Validation: focused scheduler/report-retention/migration/API/Site Collection pytest batch,
+  scoped Ruff, focused mypy, Portal API tests, TypeScript check, and production build passed.
+- Mutation: a disposable WSL probe of the new repository killed 85 of 132 mutants and left 47
+  survivors. The repository was deliberately not added to the protected mutmut configuration:
+  those survivors need a separate behavioral-test hardening phase rather than an unreviewed low
+  baseline. Existing configured mutation scopes remain unchanged.
+- Next concrete action: after deployment, enable an explicitly approved source schedule and verify
+  that its first completed production check appears in this journal before relying on it for
+  operational diagnosis.

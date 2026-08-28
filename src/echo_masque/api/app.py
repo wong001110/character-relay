@@ -86,6 +86,9 @@ from echo_masque.knowledge_fabric_external_policy import (
     WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE,
     WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE,
 )
+from echo_masque.knowledge_fabric_external_sync_report_retention import (
+    KnowledgeFabricExternalSyncReportRetentionService,
+)
 from echo_masque.knowledge_fabric_external_sync_scheduler import (
     KnowledgeFabricExternalSyncScheduler,
 )
@@ -153,6 +156,9 @@ from echo_masque.persistence.knowledge_fabric_external_schedule_repository impor
 )
 from echo_masque.persistence.knowledge_fabric_external_sync_repository import (
     KnowledgeFabricExternalSyncRepository,
+)
+from echo_masque.persistence.knowledge_fabric_external_sync_run_repository import (
+    KnowledgeFabricExternalSyncRunRepository,
 )
 from echo_masque.persistence.knowledge_fabric_interpretation_repository import (
     KnowledgeFabricInterpretationRepository,
@@ -277,6 +283,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     external_sync_repository = KnowledgeFabricExternalSyncRepository(database)
     external_schedule_repository = KnowledgeFabricExternalScheduleRepository(database)
+    external_sync_run_repository = KnowledgeFabricExternalSyncRunRepository(
+        database, retention_days=resolved.knowledge_external_sync_report_retention_days
+    )
+    external_sync_report_retention = KnowledgeFabricExternalSyncReportRetentionService(
+        external_sync_run_repository
+    )
     site_collection_repository = KnowledgeFabricSiteCollectionRepository(database)
 
     async def resolve_public_host(hostname: str) -> tuple[str, ...]:
@@ -306,6 +318,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     external_sync_scheduler = KnowledgeFabricExternalSyncScheduler(
         schedule_repository=external_schedule_repository,
+        sync_run_repository=external_sync_run_repository,
         sync_by_source_type={
             WEBSITE_PUBLIC_HTTPS_SOURCE_TYPE: website_sync_service.sync_claim,
             ATOM_PUBLIC_HTTPS_SOURCE_TYPE: atom_sync_service.sync_claim,
@@ -614,6 +627,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await browser_runtime.start()
         await scheduled_reminder_delivery.start()
         await condition_watch_service.start()
+        await external_sync_report_retention.start()
         await external_sync_scheduler.start()
         await knowledge_fabric_invalidation_worker.start()
         try:
@@ -622,6 +636,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await knowledge_fabric_invalidation_worker.stop()
             await condition_watch_service.stop()
             await external_sync_scheduler.stop()
+            await external_sync_report_retention.stop()
             await scheduled_reminder_delivery.stop()
             await browser_runtime.stop()
 
@@ -679,6 +694,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.knowledge_fabric_ingestion_service = knowledge_fabric_ingestion_service
     app.state.knowledge_fabric_external_schedule_repository = external_schedule_repository
     app.state.knowledge_fabric_external_sync_repository = external_sync_repository
+    app.state.knowledge_fabric_external_sync_run_repository = external_sync_run_repository
+    app.state.knowledge_fabric_external_sync_report_retention = external_sync_report_retention
     app.state.knowledge_fabric_site_collection_repository = site_collection_repository
     app.state.knowledge_fabric_external_sync_scheduler = external_sync_scheduler
     app.state.knowledge_fabric_invalidation_worker = knowledge_fabric_invalidation_worker

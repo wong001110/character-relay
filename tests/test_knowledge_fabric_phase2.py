@@ -25,6 +25,7 @@ from echo_masque.knowledge_fabric_query import (
     KnowledgeQueryRequest,
     KnowledgeQueryResult,
 )
+from echo_masque.knowledge_fabric_website_sync import WebsiteSyncResult
 from echo_masque.persistence import Database
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeCorpusRecord,
@@ -558,6 +559,7 @@ def test_super_admin_operational_source_view_is_redacted_and_source_backed(tmp_p
     assert operational["external_schedule"]["interval_seconds"] == 900
     assert operational["external_schedule"]["last_error_code"] is None
     assert operational["site_collection_summary"] is None
+    assert operational["sync_run_reports"] == []
     assert operational["derived_work"] == {"pending": 0, "running": 0, "failed": 0}
     assert "locator" not in operational
     assert "access_profile" not in operational
@@ -642,6 +644,61 @@ def test_global_operational_source_view_exposes_safe_site_collection_sync_summar
     assert summary["checked_page_count"] == 2
     assert summary["failed_page_count"] == 1
     assert "locator" not in summary
+
+
+def test_global_operational_source_view_exposes_expiring_redacted_sync_reports(
+    tmp_path: Path,
+) -> None:
+    app = create_app(settings(tmp_path / "sync-report-view.db"))
+    admin = TestClient(app)
+    login(admin, SUPER_EMAIL)
+    corpus = create_global_corpus(admin)
+    source = admin.post(
+        f"/api/knowledge-fabric/admin/corpora/{corpus['id']}/sources",
+        json={
+            "source_type": WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE,
+            "locator": "https://example.test/wiki",
+            "authority_profile": "official",
+        },
+    )
+    assert source.status_code == 201, source.text
+    source_id = source.json()["id"]
+    app.state.knowledge_fabric_external_sync_run_repository.record_completed(
+        source_id=source_id,
+        started_at=datetime(2026, 8, 28, tzinfo=UTC),
+        completed_at=datetime(2026, 8, 28, 0, 0, 9, tzinfo=UTC),
+        result=WebsiteSyncResult(
+            outcome="changed",
+            discovered_page_count=2,
+            changed_page_count=1,
+            unchanged_page_count=1,
+            admitted_image_count=1,
+        ),
+    )
+
+    response = admin.get(
+        f"/api/knowledge-fabric/admin/corpora/{corpus['id']}/operational-sources"
+    )
+
+    assert response.status_code == 200, response.text
+    [operational] = response.json()
+    [report] = operational["sync_run_reports"]
+    assert report == {
+        "id": report["id"],
+        "source_id": source_id,
+        "outcome": "changed",
+        "error_code": None,
+        "started_at": "2026-08-28T00:00:00Z",
+        "completed_at": "2026-08-28T00:00:09Z",
+        "discovered_page_count": 2,
+        "changed_page_count": 1,
+        "unchanged_page_count": 1,
+        "failed_page_count": 0,
+        "removed_page_count": 0,
+        "admitted_image_count": 1,
+    }
+    assert "locator" not in report
+    assert "etag" not in report
 
 
 def test_query_inspector_is_scope_bound_bounded_and_public_demo_denied(tmp_path: Path) -> None:

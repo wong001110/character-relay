@@ -91,9 +91,10 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeEvidenceUnitRecord,
     KnowledgeExternalHostRateRecord,
     KnowledgeExternalSourceCollectionStateRecord,
-    KnowledgeExternalSourcePageStateRecord,
-    KnowledgeExternalSourceScheduleRecord,
-    KnowledgeExternalSourceSyncStateRecord,
+            KnowledgeExternalSourcePageStateRecord,
+            KnowledgeExternalSourceScheduleRecord,
+            KnowledgeExternalSourceSyncRunRecord,
+            KnowledgeExternalSourceSyncStateRecord,
     KnowledgeExtractedAssertionRecord,
     KnowledgeIngestionCheckpointRecord,
     KnowledgeIngestionJobRecord,
@@ -344,6 +345,7 @@ class Database:
             KnowledgeExternalSourcePageStateRecord,
             KnowledgeExternalSourceSyncStateRecord,
             KnowledgeExternalSourceScheduleRecord,
+            KnowledgeExternalSourceSyncRunRecord,
             KnowledgeExternalHostRateRecord,
             KnowledgeObjectArtifactRecord,
             KnowledgeObjectDeletionRecord,
@@ -382,6 +384,7 @@ class Database:
             KnowledgeFabricContentMigration,
             KnowledgeFabricCharacterPolicyMigration,
             KnowledgeFabricCurrentEntryMigration,
+            KnowledgeFabricExternalSyncRunMigration,
             KnowledgeFabricSiteCollectionStateMigration,
             KnowledgeFabricVisualReferenceMigration,
             KnowledgeFabricExternalScheduleMigration,
@@ -400,6 +403,7 @@ class Database:
         KnowledgeFabricCharacterPolicyMigration(self).run()
         KnowledgeFabricCurrentEntryMigration(self).run()
         KnowledgeFabricSiteCollectionStateMigration(self).run()
+        KnowledgeFabricExternalSyncRunMigration(self).run()
         KnowledgeFabricVisualReferenceMigration(self).run()
         KnowledgeFabricInterpretationMigration(self).run()
         KnowledgeFabricIndexMigration(self).run()

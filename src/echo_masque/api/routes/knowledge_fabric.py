@@ -57,6 +57,9 @@ from echo_masque.persistence.knowledge_fabric_external_schedule_repository impor
 from echo_masque.persistence.knowledge_fabric_external_sync_repository import (
     KnowledgeFabricExternalSyncRepository,
 )
+from echo_masque.persistence.knowledge_fabric_external_sync_run_repository import (
+    KnowledgeFabricExternalSyncRunRepository,
+)
 from echo_masque.persistence.knowledge_fabric_interpretation_repository import (
     KnowledgeFabricInterpretationRepository,
 )
@@ -105,6 +108,13 @@ def _external_sync(request: Request) -> KnowledgeFabricExternalSyncRepository:
     return cast(
         KnowledgeFabricExternalSyncRepository,
         request.app.state.knowledge_fabric_external_sync_repository,
+    )
+
+
+def _external_sync_runs(request: Request) -> KnowledgeFabricExternalSyncRunRepository:
+    return cast(
+        KnowledgeFabricExternalSyncRunRepository,
+        request.app.state.knowledge_fabric_external_sync_run_repository,
     )
 
 
@@ -410,6 +420,7 @@ def list_global_corpus_operational_sources(
             if source.source_type == WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE
         )
     )
+    sync_run_reports = _external_sync_runs(request).list_for_source_ids(source_ids)
     derived_work = _derived_work(request).summary_for_source_ids(source_ids)
     return [
         KnowledgeSourceOperationalView.from_record(
@@ -417,6 +428,7 @@ def list_global_corpus_operational_sources(
             external_sync=sync_states.get(source.id),
             external_schedule=schedules.get(source.id),
             site_collection_summary=collection_summaries.get(source.id),
+            sync_run_reports=sync_run_reports.get(source.id, []),
             derived_work=KnowledgeDerivedWorkSummaryView(
                 pending=derived_work[source.id].pending,
                 running=derived_work[source.id].running,

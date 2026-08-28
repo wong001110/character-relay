@@ -15,6 +15,9 @@ from echo_masque.knowledge_fabric_query_policy import query_mode_is_valid
 from echo_masque.persistence.knowledge_fabric_content_repository import (
     KnowledgeImageAssetCandidate,
 )
+from echo_masque.persistence.knowledge_fabric_external_sync_run_repository import (
+    ExternalSyncRunReport,
+)
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeAccessGrantRecord,
     KnowledgeCanonicalEntityRecord,
@@ -525,6 +528,40 @@ class KnowledgeSiteCollectionSyncSummaryView(BaseModel):
         )
 
 
+class KnowledgeExternalSyncRunReportView(BaseModel):
+    """Bounded redacted scheduler history; it deliberately excludes page and response details."""
+
+    id: str
+    source_id: str
+    outcome: str
+    error_code: str | None
+    started_at: datetime
+    completed_at: datetime
+    discovered_page_count: int
+    changed_page_count: int
+    unchanged_page_count: int
+    failed_page_count: int
+    removed_page_count: int
+    admitted_image_count: int
+
+    @classmethod
+    def from_report(cls, report: ExternalSyncRunReport) -> KnowledgeExternalSyncRunReportView:
+        return cls(
+            id=report.id,
+            source_id=report.source_id,
+            outcome=report.outcome,
+            error_code=report.error_code,
+            started_at=report.started_at,
+            completed_at=report.completed_at,
+            discovered_page_count=report.discovered_page_count,
+            changed_page_count=report.changed_page_count,
+            unchanged_page_count=report.unchanged_page_count,
+            failed_page_count=report.failed_page_count,
+            removed_page_count=report.removed_page_count,
+            admitted_image_count=report.admitted_image_count,
+        )
+
+
 class KnowledgeSourceOperationalView(BaseModel):
     """Operator-safe Source status; profiles, locators, artifacts, and metadata stay private."""
 
@@ -541,6 +578,7 @@ class KnowledgeSourceOperationalView(BaseModel):
     external_sync: KnowledgeExternalSourceSyncStateView | None
     external_schedule: KnowledgeExternalSourceScheduleView | None
     site_collection_summary: KnowledgeSiteCollectionSyncSummaryView | None
+    sync_run_reports: list[KnowledgeExternalSyncRunReportView]
     derived_work: KnowledgeDerivedWorkSummaryView
 
     @classmethod
@@ -551,6 +589,7 @@ class KnowledgeSourceOperationalView(BaseModel):
         external_sync: KnowledgeExternalSourceSyncStateRecord | None,
         external_schedule: KnowledgeExternalSourceScheduleRecord | None,
         site_collection_summary: SiteCollectionSyncSummary | None,
+        sync_run_reports: list[ExternalSyncRunReport],
         derived_work: KnowledgeDerivedWorkSummaryView,
     ) -> KnowledgeSourceOperationalView:
         return cls(
@@ -579,6 +618,10 @@ class KnowledgeSourceOperationalView(BaseModel):
                 if site_collection_summary is not None
                 else None
             ),
+            sync_run_reports=[
+                KnowledgeExternalSyncRunReportView.from_report(report)
+                for report in sync_run_reports
+            ],
             derived_work=derived_work,
         )
 

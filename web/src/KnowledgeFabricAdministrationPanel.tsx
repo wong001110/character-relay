@@ -338,14 +338,20 @@ export function KnowledgeFabricAdministrationPanel() {
             {sources.map((source) => <article className="knowledge-fabric-source-row" key={source.id}>
               <div className="knowledge-fabric-source-summary"><StickyLabel variant="link">{source.source_type.replaceAll("_", " ")}</StickyLabel><strong>{source.authority_profile} source</strong><span>Last checked {formatTimestamp(source.last_checked_at)}</span><small>{syncOutcome(source)}</small></div>
               <div className="knowledge-card-actions"><StatusIndicator tone={source.status === "available" ? "success" : "warning"}>{source.status}</StatusIndicator>{source.derived_work.failed > 0 && <Button size="sm" variant="secondary" disabled={working} onClick={() => retryDerivedWork(source)}>Retry review work</Button>}</div>
-              {source.site_collection_summary && <dl className="knowledge-fabric-sync-report" aria-label="Latest site collection sync report">
-                <div><dt>Last complete scan</dt><dd>{formatTimestamp(source.site_collection_summary.last_completed_at)}</dd></div>
-                <div><dt>Current pages</dt><dd>{source.site_collection_summary.available_page_count}</dd></div>
-                <div><dt>Pages checked</dt><dd>{source.site_collection_summary.checked_page_count}</dd></div>
-                <div><dt>Failed pages</dt><dd>{source.site_collection_summary.failed_page_count}</dd></div>
-                <div><dt>Removed pages</dt><dd>{source.site_collection_summary.removed_page_count}</dd></div>
-                <div><dt>Next check</dt><dd>{formatTimestamp(source.external_schedule?.next_run_at ?? null)}</dd></div>
-              </dl>}
+              {(source.site_collection_summary || source.sync_run_reports.length > 0) && <div className="knowledge-fabric-sync-journal">
+                {source.site_collection_summary && <dl className="knowledge-fabric-sync-report" aria-label="Current site collection state">
+                  <div><dt>Last complete scan</dt><dd>{formatTimestamp(source.site_collection_summary.last_completed_at)}</dd></div>
+                  <div><dt>Current pages</dt><dd>{source.site_collection_summary.available_page_count}</dd></div>
+                  <div><dt>Pages checked</dt><dd>{source.site_collection_summary.checked_page_count}</dd></div>
+                  <div><dt>Failed pages</dt><dd>{source.site_collection_summary.failed_page_count}</dd></div>
+                  <div><dt>Removed pages</dt><dd>{source.site_collection_summary.removed_page_count}</dd></div>
+                  <div><dt>Next check</dt><dd>{formatTimestamp(source.external_schedule?.next_run_at ?? null)}</dd></div>
+                </dl>}
+                <div className="knowledge-fabric-sync-runs" aria-label="Recent automatic sync reports">
+                  <strong>Recent automatic checks</strong>
+                  {source.sync_run_reports.length === 0 ? <small>Completed checks are kept here for 7 days.</small> : <ol>{source.sync_run_reports.map((report) => <li key={report.id}><span><b>{report.outcome.replaceAll("_", " ")}</b> · {formatTimestamp(report.completed_at)}</span><small>{report.error_code ? `Reason: ${report.error_code}` : `Pages ${report.discovered_page_count} · changed ${report.changed_page_count} · unchanged ${report.unchanged_page_count} · failed ${report.failed_page_count} · removed ${report.removed_page_count} · images ${report.admitted_image_count}`}</small></li>)}</ol>}
+                </div>
+              </div>}
             </article>)}
           </div>}
           {sources.length > 0 && <form className="knowledge-fabric-schedule-form" onSubmit={saveSchedule}>
