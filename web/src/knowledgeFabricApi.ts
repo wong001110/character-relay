@@ -76,6 +76,19 @@ export interface KnowledgeFabricExternalSourceSchedule {
   updated_at: string;
 }
 
+/** A public bootstrap-derived host list. It excludes response bodies and page locators. */
+export interface KnowledgeFabricRenderedCollectionAnalysis {
+  source_id: string;
+  candidate_hosts: string[];
+}
+
+export interface KnowledgeFabricRenderedCollectionProfileUpdate {
+  enabled: boolean;
+  allowed_hosts: string[];
+  page_limit: number;
+  max_depth: number;
+}
+
 export interface KnowledgeFabricExternalSourceSyncState {
   source_id: string;
   last_outcome: string;
@@ -290,6 +303,19 @@ export const knowledgeFabricApi = {
   ) =>
     request<KnowledgeFabricExternalSourceSchedule>(
       `/admin/sources/${encodeURIComponent(sourceId)}/external-sync-schedule`,
+      { method: "PUT", body: JSON.stringify(payload) }
+    ),
+  analyzeRenderedCollection: (sourceId: string) =>
+    request<KnowledgeFabricRenderedCollectionAnalysis>(
+      `/admin/sources/${encodeURIComponent(sourceId)}/rendered-collection-analysis`,
+      { method: "POST" }
+    ),
+  configureRenderedCollection: (
+    sourceId: string,
+    payload: KnowledgeFabricRenderedCollectionProfileUpdate
+  ) =>
+    request<KnowledgeFabricSource>(
+      `/admin/sources/${encodeURIComponent(sourceId)}/rendered-collection-profile`,
       { method: "PUT", body: JSON.stringify(payload) }
     ),
   retryFailedDerivedWork: (sourceId: string) =>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import cast
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request, status
 
@@ -28,6 +29,8 @@ from echo_masque.api.knowledge_fabric_schemas import (
     KnowledgeOverlayPolicyView,
     KnowledgeQueryInspectorRequest,
     KnowledgeQueryInspectorResultView,
+    KnowledgeRenderedCollectionAnalysisView,
+    KnowledgeRenderedCollectionProfileUpdate,
     KnowledgeServerAdministratorView,
     KnowledgeServerGlobalCorpusAccessView,
     KnowledgeServerScopeCreate,
@@ -47,6 +50,12 @@ from echo_masque.knowledge_fabric_policy import (
     may_manage_global_library,
 )
 from echo_masque.knowledge_fabric_query import KnowledgeQueryEngine, KnowledgeQueryRequest
+from echo_masque.knowledge_fabric_rendered_collection import (
+    KnowledgeFabricRenderedCollectionAnalyzer,
+    RenderedCollectionRejected,
+    configured_rendered_collection_profile,
+    rendered_collection_profile,
+)
 from echo_masque.persistence import AuthRepository
 from echo_masque.persistence.knowledge_fabric_content_repository import (
     KnowledgeFabricContentRepository,
@@ -122,6 +131,13 @@ def _site_collections(request: Request) -> KnowledgeFabricSiteCollectionReposito
     return cast(
         KnowledgeFabricSiteCollectionRepository,
         request.app.state.knowledge_fabric_site_collection_repository,
+    )
+
+
+def _rendered_collections(request: Request) -> KnowledgeFabricRenderedCollectionAnalyzer:
+    return cast(
+        KnowledgeFabricRenderedCollectionAnalyzer,
+        request.app.state.knowledge_fabric_rendered_collection_analyzer,
     )
 
 
@@ -959,6 +975,116 @@ def configure_external_source_schedule(
         metadata={"enabled": record.enabled, "interval_seconds": record.interval_seconds},
     )
     return KnowledgeExternalSourceScheduleView.from_record(record)
+
+
+@router.post(
+    "/admin/sources/{source_id}/rendered-collection-analysis",
+    response_model=KnowledgeRenderedCollectionAnalysisView,
+)
+async def analyze_rendered_collection(
+    source_id: str,
+    request: Request,
+    user: SuperAdminUserDependency,
+) -> KnowledgeRenderedCollectionAnalysisView:
+    """Propose public bootstrap hosts; analysis alone cannot enable browser collection."""
+
+    _require_global_manager(request, user)
+    source = _content(request).get_source(source_id)
+    if source is None or source.source_type != WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE:
+        raise HTTPException(
+            status_code=404,
+            detail="Knowledge Website Collection Source not found.",
+        )
+    _global_corpus_or_404(request, source.corpus_id)
+    try:
+        analysis = await _rendered_collections(request).analyze(
+            source_id=source_id,
+            locator=source.locator,
+        )
+    except RenderedCollectionRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _audit(
+        request,
+        actor_user_id=user.id,
+        action="knowledge_fabric.rendered_collection_analyzed",
+        resource_type="knowledge_source",
+        resource_id=source_id,
+        metadata={"candidate_host_count": len(analysis.candidate_hosts)},
+    )
+    return KnowledgeRenderedCollectionAnalysisView(
+        source_id=analysis.source_id,
+        candidate_hosts=list(analysis.candidate_hosts),
+    )
+
+
+@router.put(
+    "/admin/sources/{source_id}/rendered-collection-profile",
+    response_model=KnowledgeSourceView,
+)
+async def configure_rendered_collection(
+    source_id: str,
+    payload: KnowledgeRenderedCollectionProfileUpdate,
+    request: Request,
+    user: SuperAdminUserDependency,
+) -> KnowledgeSourceView:
+    """Save a bounded browser recipe after rechecking every external host was observed."""
+
+    _require_global_manager(request, user)
+    source = _content(request).get_source(source_id)
+    if source is None or source.source_type != WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE:
+        raise HTTPException(
+            status_code=404,
+            detail="Knowledge Website Collection Source not found.",
+        )
+    _global_corpus_or_404(request, source.corpus_id)
+    try:
+        parser_profile_json = configured_rendered_collection_profile(
+            current_profile_json=source.parser_profile_json,
+            enabled=payload.enabled,
+            allowed_hosts=tuple(payload.allowed_hosts),
+            page_limit=payload.page_limit,
+            max_depth=payload.max_depth,
+        )
+        profile = rendered_collection_profile(
+            locator=source.locator,
+            parser_profile_json=parser_profile_json,
+        )
+        if payload.enabled:
+            analysis = await _rendered_collections(request).analyze(
+                source_id=source_id,
+                locator=source.locator,
+            )
+            root_host = (urlsplit(source.locator).hostname or "").casefold().rstrip(".")
+            granted_external_hosts = profile.allowed_hosts - {root_host}
+            if not granted_external_hosts.issubset(set(analysis.candidate_hosts)):
+                raise RenderedCollectionRejected(
+                    "Each rendered collection host must be observed in the public bootstrap page."
+                )
+    except RenderedCollectionRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    record = _fabric(request).update_source_parser_profile(
+        source_id=source_id,
+        parser_profile_json=parser_profile_json,
+    )
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Knowledge Website Collection Source not found.",
+        )
+    _audit(
+        request,
+        actor_user_id=user.id,
+        action="knowledge_fabric.rendered_collection_profile_updated",
+        resource_type="knowledge_source",
+        resource_id=source_id,
+        metadata={
+            "enabled": profile.enabled,
+            "approved_external_host_count": max(0, len(profile.allowed_hosts) - 1),
+            "page_limit": profile.page_limit,
+            "max_depth": profile.max_depth,
+        },
+    )
+    return KnowledgeSourceView.from_record(record)
 
 
 @router.post(

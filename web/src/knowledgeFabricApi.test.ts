@@ -194,6 +194,8 @@ describe("Knowledge Fabric Portal API", () => {
       .mockResolvedValueOnce(response({}))
       .mockResolvedValueOnce(response([]))
       .mockResolvedValueOnce(response({}))
+      .mockResolvedValueOnce(response({ source_id: "source/a", candidate_hosts: ["api.example.test"] }))
+      .mockResolvedValueOnce(response({}))
       .mockResolvedValueOnce(response({ pending: 1, running: 0, failed: 2 }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -212,6 +214,13 @@ describe("Knowledge Fabric Portal API", () => {
     await knowledgeFabricApi.configureExternalSourceSchedule("source/a", {
       enabled: true,
       interval_seconds: 900
+    });
+    await knowledgeFabricApi.analyzeRenderedCollection("source/a");
+    await knowledgeFabricApi.configureRenderedCollection("source/a", {
+      enabled: true,
+      allowed_hosts: ["api.example.test"],
+      page_limit: 50,
+      max_depth: 1
     });
     await knowledgeFabricApi.retryFailedDerivedWork("source/a");
 
@@ -262,6 +271,24 @@ describe("Knowledge Fabric Portal API", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       6,
+      "/api/knowledge-fabric/admin/sources/source%2Fa/rendered-collection-analysis",
+      expect.objectContaining({ method: "POST", credentials: "include" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      7,
+      "/api/knowledge-fabric/admin/sources/source%2Fa/rendered-collection-profile",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          enabled: true,
+          allowed_hosts: ["api.example.test"],
+          page_limit: 50,
+          max_depth: 1
+        })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      8,
       "/api/knowledge-fabric/admin/sources/source%2Fa/derived-work/retry",
       expect.objectContaining({ method: "POST", credentials: "include" })
     );

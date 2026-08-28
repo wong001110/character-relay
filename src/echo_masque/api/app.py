@@ -99,6 +99,9 @@ from echo_masque.knowledge_fabric_pinned_fetcher import (
     PinnedPublicHttpsFetcher,
 )
 from echo_masque.knowledge_fabric_query import KnowledgeQueryEngine
+from echo_masque.knowledge_fabric_rendered_collection import (
+    KnowledgeFabricRenderedCollectionAnalyzer,
+)
 from echo_masque.knowledge_fabric_visual_identity import KnowledgeFabricVisualIdentityResolver
 from echo_masque.knowledge_fabric_website_collection_sync import (
     KnowledgeFabricWebsiteCollectionSyncService,
@@ -300,6 +303,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolver=resolve_public_host,
         dial_transport=AsyncioPinnedHttpsDialTransport(timeout_seconds=15),
     )
+    rendered_collection_analyzer = KnowledgeFabricRenderedCollectionAnalyzer(pinned_fetcher)
     website_sync_service = KnowledgeFabricWebsiteSyncService(
         sync_repository=external_sync_repository,
         ingestion_service=knowledge_fabric_ingestion_service,
@@ -315,6 +319,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         collection_repository=site_collection_repository,
         ingestion_service=knowledge_fabric_ingestion_service,
         fetcher=pinned_fetcher,
+        rendered_fetcher=browser_runtime,
     )
     external_sync_scheduler = KnowledgeFabricExternalSyncScheduler(
         schedule_repository=external_schedule_repository,
@@ -697,6 +702,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.knowledge_fabric_external_sync_run_repository = external_sync_run_repository
     app.state.knowledge_fabric_external_sync_report_retention = external_sync_report_retention
     app.state.knowledge_fabric_site_collection_repository = site_collection_repository
+    app.state.knowledge_fabric_rendered_collection_analyzer = rendered_collection_analyzer
     app.state.knowledge_fabric_external_sync_scheduler = external_sync_scheduler
     app.state.knowledge_fabric_invalidation_worker = knowledge_fabric_invalidation_worker
     app.state.knowledge_fabric_visual_reference_repository = (

@@ -780,6 +780,23 @@ class KnowledgeFabricRepository:
                 )
             )
 
+    def update_source_parser_profile(
+        self,
+        *,
+        source_id: str,
+        parser_profile_json: str,
+    ) -> KnowledgeSourceRecord | None:
+        """Persist one administrator-approved parser recipe without changing Source identity."""
+
+        with self.database.session() as session:
+            record = session.get(KnowledgeSourceRecord, source_id)
+            if record is None:
+                return None
+            record.parser_profile_json = parser_profile_json
+            session.commit()
+            session.refresh(record)
+            return record
+
     def delete_owner(self, user_id: str) -> dict[str, int]:
         """Delete only user-owned Fabric records and explicit user memberships/grants."""
 

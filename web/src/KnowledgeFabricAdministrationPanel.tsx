@@ -18,6 +18,7 @@ import {
   type KnowledgeFabricCorpus,
   type KnowledgeFabricImageAssetCandidate,
   type KnowledgeFabricOperationalSource,
+  type KnowledgeFabricRenderedCollectionAnalysis,
   type KnowledgeFabricVisualReference
 } from "./knowledgeFabricApi";
 
@@ -72,6 +73,12 @@ export function KnowledgeFabricAdministrationPanel() {
   const [scheduleSourceId, setScheduleSourceId] = useState("");
   const [scheduleEnabled, setScheduleEnabled] = useState("false");
   const [scheduleInterval, setScheduleInterval] = useState("900");
+  const [renderedSourceId, setRenderedSourceId] = useState("");
+  const [renderedHosts, setRenderedHosts] = useState("");
+  const [renderedPageLimit, setRenderedPageLimit] = useState("50");
+  const [renderedMaxDepth, setRenderedMaxDepth] = useState("1");
+  const [renderedAnalysis, setRenderedAnalysis] =
+    useState<KnowledgeFabricRenderedCollectionAnalysis | null>(null);
   const [entityName, setEntityName] = useState("");
   const [entityAliases, setEntityAliases] = useState("");
   const [referenceEntityId, setReferenceEntityId] = useState("");
@@ -83,6 +90,9 @@ export function KnowledgeFabricAdministrationPanel() {
   const selectedCorpus = corpora.find((corpus) => corpus.id === selectedCorpusId) ?? null;
   const selectedEntity = entities.find((entity) => entity.id === referenceEntityId) ?? null;
   const selectedCandidate = candidates.find((candidate) => candidate.asset_id === referenceCandidateId) ?? null;
+  const collectionSources = sources.filter(
+    (source) => source.source_type === "website_collection_public_https"
+  );
 
   async function loadCorpora() {
     const version = ++corpusRequestVersion.current;
@@ -134,6 +144,11 @@ export function KnowledgeFabricAdministrationPanel() {
         ?? nextSources[0];
       setScheduleSourceId(nextScheduleSource?.id ?? "");
       setScheduleFields(nextScheduleSource);
+      const nextRenderedSource = nextSources.find(
+        (source) =>
+          source.source_type === "website_collection_public_https" && source.id === renderedSourceId
+      ) ?? nextSources.find((source) => source.source_type === "website_collection_public_https");
+      setRenderedSourceId(nextRenderedSource?.id ?? "");
       setReferenceEntityId((current) =>
         nextEntities.some((entity) => entity.id === current) ? current : nextEntities[0]?.id ?? ""
       );
@@ -216,6 +231,32 @@ export function KnowledgeFabricAdministrationPanel() {
       await knowledgeFabricApi.configureExternalSourceSchedule(scheduleSourceId, {
         enabled: scheduleEnabled === "true",
         interval_seconds: Number(scheduleInterval)
+      });
+      await refreshWorkspace(selectedCorpus.id);
+    });
+  }
+
+  function analyzeRenderedCollection() {
+    if (!renderedSourceId) return;
+    void run(async () => {
+      const analysis = await knowledgeFabricApi.analyzeRenderedCollection(renderedSourceId);
+      setRenderedAnalysis(analysis);
+      setRenderedHosts(analysis.candidate_hosts.join(", "));
+    });
+  }
+
+  function saveRenderedCollection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!renderedSourceId || !selectedCorpus) return;
+    void run(async () => {
+      await knowledgeFabricApi.configureRenderedCollection(renderedSourceId, {
+        enabled: true,
+        allowed_hosts: renderedHosts
+          .split(/[,\n]/)
+          .map((host) => host.trim())
+          .filter(Boolean),
+        page_limit: Number(renderedPageLimit),
+        max_depth: Number(renderedMaxDepth)
       });
       await refreshWorkspace(selectedCorpus.id);
     });
@@ -354,6 +395,14 @@ export function KnowledgeFabricAdministrationPanel() {
               </div>}
             </article>)}
           </div>}
+          {collectionSources.length > 0 && <form className="knowledge-fabric-schedule-form" onSubmit={saveRenderedCollection}>
+            <FormField label="Dynamic Wiki recipe"><Select value={renderedSourceId} disabled={working} onChange={(event) => { setRenderedSourceId(event.currentTarget.value); setRenderedAnalysis(null); setRenderedHosts(""); }}>{collectionSources.map((source) => <option key={source.id} value={source.id}>{source.source_type} · {source.status}</option>)}</Select></FormField>
+            <FormField label="Public render hosts" hint="Analyze first, then approve only the detected hosts."><Textarea rows={2} required value={renderedHosts} disabled={working} onChange={(event) => setRenderedHosts(event.currentTarget.value)} /></FormField>
+            <FormField label="Page limit" hint="1–100"><Input type="number" min={1} max={100} required value={renderedPageLimit} disabled={working} onChange={(event) => setRenderedPageLimit(event.currentTarget.value)} /></FormField>
+            <FormField label="Link depth" hint="0–3"><Input type="number" min={0} max={3} required value={renderedMaxDepth} disabled={working} onChange={(event) => setRenderedMaxDepth(event.currentTarget.value)} /></FormField>
+            <div className="knowledge-card-actions"><Button type="button" variant="secondary" disabled={working || !renderedSourceId} onClick={analyzeRenderedCollection}>Analyze dynamic site</Button><Button type="submit" variant="primary" disabled={working || !renderedSourceId || renderedHosts.trim() === ""}>Enable rendered collection</Button></div>
+            <p className="knowledge-fabric-field-note">{renderedAnalysis ? `Detected ${renderedAnalysis.candidate_hosts.length} public bootstrap host${renderedAnalysis.candidate_hosts.length === 1 ? "" : "s"}.` : "Analysis reads the public bootstrap only. It does not start a sync or expose page content."}</p>
+          </form>}
           {sources.length > 0 && <form className="knowledge-fabric-schedule-form" onSubmit={saveSchedule}>
             <FormField label="Source to check"><Select value={scheduleSourceId} disabled={working} onChange={(event) => { const source = sources.find((item) => item.id === event.currentTarget.value); setScheduleSourceId(event.currentTarget.value); setScheduleFields(source); }}>{sources.map((source) => <option key={source.id} value={source.id}>{source.source_type} · {source.status}</option>)}</Select></FormField>
             <FormField label="Automatic checks"><Select value={scheduleEnabled} disabled={working} onChange={(event) => setScheduleEnabled(event.currentTarget.value)}><option value="false">Keep off for now</option><option value="true">Check automatically</option></Select></FormField>

@@ -29,6 +29,7 @@ class WebsiteCollectionPageInput:
     locator: str
     content: bytes
     content_type: str
+    acquisition_kind: str = "pinned_https"
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,7 +106,11 @@ class KnowledgeFabricWebsiteCollectionAdapter:
                     canonical_locator=locator,
                     title=title,
                     mime_type=content_type,
-                    metadata={"adapter": "website_collection_public_https", "locator": locator},
+                    metadata={
+                        "adapter": "website_collection_public_https",
+                        "acquisition": page.acquisition_kind,
+                        "locator": locator,
+                    },
                     blocks=(
                         CanonicalBlockInput(
                             structural_path="page:0",

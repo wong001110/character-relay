@@ -483,8 +483,20 @@ collection. Its configured root is an exact canonical public HTTPS URL. A schedu
 the existing pinned transport and first attempts the same-origin conventional sitemap. It accepts
 bounded `urlset` and nested `sitemapindex` manifests only after DTD/entity rejection, type/size
 checks, canonical URL validation, and same-origin admission. A missing root sitemap falls back to
-at most 50 direct HTML links; it never recursively crawls HTML, follows a cross-origin URL, invokes
-a browser, or accepts credentials.
+at most 50 direct HTML links; the default collector never recursively crawls HTML, follows a
+cross-origin page URL, invokes a browser, or accepts credentials.
+
+A Super Admin may separately approve a `browser` rendered-collection recipe for a public
+client-rendered site that has no admissible sitemap or useful static links. Analysis fetches the
+root through the pinned transport and returns only bounded hostnames declared in public
+`preconnect` or `dns-prefetch` markup. Saving the recipe rechecks that every approved external
+hostname was observed; registration and analysis alone do not authorize rendered sync. The worker
+then creates a one-use, cookie-free browser context with service workers and downloads disabled,
+permits HTTPS requests only to the root host and the exact approved host set, and captures no API
+response as Knowledge. It admits only post-render, same-origin page DOM, traverses a bounded
+same-origin link graph (at most 100 pages and depth 3), and stores the DOM artifact privately with
+its `rendered_browser` acquisition provenance. Rendered runs do not collect images, reuse browser
+tool sessions, transmit credentials, or relax corpus/Character access policy.
 
 The private immutable artifact contains the approved raw page bytes. Each page creates exactly one
 canonical document/Evidence Unit, whose canonical page locator is also a stable current-entry key.
@@ -496,8 +508,8 @@ so a failed/partial run cannot retract prior evidence. Indexes and source-overvi
 only available current entries.
 
 The sitemap cap is 20 XML documents and 1,000 page locators. Robots/terms enforcement,
-MediaWiki/Docusaurus/GitBook source-native adapters, visual matching, and license workflows
-remain explicit later phases rather than implicit crawler authority.
+MediaWiki/Docusaurus/GitBook source-native adapters, browser interaction, visual matching, and
+license workflows remain explicit later phases rather than implicit crawler authority.
 
 Super Admin operational state may expose a current, redaction-safe Site Collection sync summary:
 last completed generation plus aggregate available, removed, checked, and failed page counts. It

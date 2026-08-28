@@ -191,3 +191,23 @@ runtime crawling or Character knowledge.
 - Next concrete action: after deployment, enable an explicitly approved source schedule and verify
   that its first completed production check appears in this journal before relying on it for
   operational diagnosis.
+
+## Rendered public collection extension
+
+- Delivered: an explicitly approved browser recipe is available for public client-rendered sites
+  that expose no useful static sitemap or links. Analysis returns only public bootstrap
+  `preconnect`/`dns-prefetch` hostnames; saving a recipe rechecks that the selected hosts are a
+  subset of that analysis. The worker uses a fresh cookie-free BrowserContext, blocks service
+  workers/downloads, admits HTTPS requests only to the root plus the approved host set, and keeps
+  only bounded same-origin rendered DOM pages as private provenance.
+- Invariants: registration and analysis do not schedule egress. The rendered graph is bounded to
+  100 pages and depth 3, keeps source page navigation same-origin, does not retain cross-origin
+  JSON/API responses, does not collect images, and leaves corpus/Character access and the redacted
+  sync journal unchanged. The Portal exposes the explicit analysis/configuration controls and the
+  existing source-level reports, never a response body or page URL inventory.
+- Evidence: `knowledge_fabric_rendered_collection.py`, `browser_runtime.py`,
+  `knowledge_fabric_website_collection_sync.py`, Knowledge Fabric API routes/schemas, and
+  `KnowledgeFabricAdministrationPanel.tsx`.
+- Validation: scoped Ruff, strict mypy, and compileall passed; the focused rendered/static Site
+  Collection, scheduler, and API pytest batch passed 30 tests (one configured PostgreSQL test
+  skipped); Portal API Vitest, TypeScript, and production Vite build passed.

@@ -11,7 +11,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from time import monotonic
-from urllib.parse import parse_qs, quote_plus, unquote, urlparse
+from urllib.parse import parse_qs, quote_plus, unquote, urlparse, urlsplit
 
 import httpx
 from playwright.async_api import (
@@ -50,6 +50,18 @@ class BrowserRuntimeSettings:
     browser_max_operations: int = 100
     max_concurrent_contexts: int = 3
     navigation_timeout_ms: int = 15_000
+
+
+@dataclass(frozen=True, slots=True)
+class RenderedCollectionPage:
+    """One bounded public DOM capture for an explicitly approved Fabric Source.
+
+    ``html`` is the post-render DOM artifact.  It is consumed only by the private Knowledge
+    ingestion path and is never returned from the Portal API.
+    """
+
+    html: str
+    hrefs: tuple[str, ...]
 
 
 @dataclass
@@ -314,6 +326,51 @@ class BrowserCapabilityManager:
             "untrusted_external_content": True,
         }
 
+    async def fetch_rendered_collection_page(
+        self,
+        *,
+        url: str,
+        allowed_hosts: frozenset[str],
+        max_links: int,
+    ) -> RenderedCollectionPage:
+        """Render one public page within a Source-approved hostname set.
+
+        This is deliberately separate from interactive Browser Tools: it creates an ephemeral
+        cookie-free context, blocks service workers, and refuses every request outside the exact
+        Source profile host set.  The caller owns page/graph budgets and canonical URL admission.
+        """
+
+        validated = await self.url_guard.validate(url.strip())
+        hostname = (urlsplit(validated).hostname or "").casefold().rstrip(".")
+        normalized_hosts = frozenset(
+            item.strip().casefold().rstrip(".") for item in allowed_hosts if item.strip()
+        )
+        if not hostname or hostname not in normalized_hosts:
+            raise BrowserToolUnavailable("Rendered collection destination is not approved.")
+        capped_links = min(max(max_links, 1), 1_000)
+        async with self._public_collection_page(normalized_hosts) as page:
+            await self._navigate(page, validated)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=4_000)
+            except PlaywrightTimeoutError:
+                pass
+            try:
+                html = await page.content()
+                links = page.locator("a")
+                link_count = min(await links.count(), capped_links)
+                hrefs: list[str] = []
+                for index in range(link_count):
+                    href = await links.nth(index).get_attribute("href")
+                    if href and len(href) <= 2_048:
+                        hrefs.append(href)
+            except PlaywrightTimeoutError as exc:
+                raise BrowserToolUnavailable(
+                    "Rendered collection page did not expose a readable DOM."
+                ) from exc
+        if len(html.encode("utf-8")) > 1_048_576:
+            raise BrowserToolUnavailable("Rendered collection DOM exceeded the page limit.")
+        return RenderedCollectionPage(html=html, hrefs=tuple(hrefs))
+
     @asynccontextmanager
     async def _page_for(self, page_kind: str) -> AsyncIterator[Page]:
         if not self.settings.enabled:
@@ -330,6 +387,47 @@ class BrowserCapabilityManager:
                     session.last_used_at = now
                     session.page_last_used[page_kind] = now
             finally:
+                async with self._state_lock:
+                    self._active_operations = max(0, self._active_operations - 1)
+                    self._browser_operations += 1
+                    self._browser_last_used_at = monotonic()
+
+    @asynccontextmanager
+    async def _public_collection_page(self, allowed_hosts: frozenset[str]) -> AsyncIterator[Page]:
+        """Create a one-use BrowserContext whose route guard is narrower than Browser Tools."""
+
+        if not self.settings.enabled:
+            raise BrowserToolUnavailable("Browser Tools are disabled by Runtime configuration.")
+        async with self._semaphore:
+            async with self._state_lock:
+                await self._ensure_browser_locked()
+                browser = self._browser
+                if browser is None:
+                    raise BrowserToolUnavailable("Chromium is unavailable.")
+                self._active_operations += 1
+            context: BrowserContext | None = None
+            try:
+                context = await browser.new_context(
+                    accept_downloads=False,
+                    service_workers="block",
+                    locale="en-MY",
+                    user_agent=_chromium_user_agent(browser.version),
+                    viewport={"width": 1365, "height": 768},
+                    extra_http_headers={"Accept-Language": "en-MY,en;q=0.9"},
+                )
+
+                async def guard(route: Route) -> None:
+                    await self._collection_route_guard(route, allowed_hosts)
+
+                await context.route("**/*", guard)
+                page = await context.new_page()
+                page.set_default_navigation_timeout(self.settings.navigation_timeout_ms)
+                page.set_default_timeout(self.settings.navigation_timeout_ms)
+                yield page
+            finally:
+                if context is not None:
+                    with suppress(Exception):
+                        await context.close()
                 async with self._state_lock:
                     self._active_operations = max(0, self._active_operations - 1)
                     self._browser_operations += 1
@@ -622,6 +720,27 @@ class BrowserCapabilityManager:
             await route.continue_()
             return
         if not url.startswith(("http://", "https://")):
+            await route.abort()
+            return
+        try:
+            await self.url_guard.validate(url)
+        except PublicUrlRejected:
+            await route.abort()
+            return
+        await route.continue_()
+
+    async def _collection_route_guard(self, route: Route, allowed_hosts: frozenset[str]) -> None:
+        """Allow only public HTTPS requests to the exact hosts approved in a Source profile."""
+
+        url = route.request.url
+        if url.startswith(("data:", "blob:", "about:")):
+            await route.continue_()
+            return
+        if not url.startswith("https://"):
+            await route.abort()
+            return
+        hostname = (urlsplit(url).hostname or "").casefold().rstrip(".")
+        if not hostname or hostname not in allowed_hosts:
             await route.abort()
             return
         try:

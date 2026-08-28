@@ -6,7 +6,10 @@ import asyncio
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from hashlib import sha256
+from typing import Protocol
+from urllib.parse import urljoin, urlsplit
 
+from echo_masque.browser_runtime import RenderedCollectionPage
 from echo_masque.knowledge_fabric_external_policy import (
     WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE,
     WebsiteSourceRejected,
@@ -19,6 +22,11 @@ from echo_masque.knowledge_fabric_ingestion import (
     KnowledgeFabricIngestionService,
     SourceSnapshotAssetInput,
     SourceSnapshotIngestionRequest,
+)
+from echo_masque.knowledge_fabric_rendered_collection import (
+    RenderedCollectionProfile,
+    RenderedCollectionRejected,
+    rendered_collection_profile,
 )
 from echo_masque.knowledge_fabric_website_collection_adapter import (
     KnowledgeFabricWebsiteCollectionAdapter,
@@ -65,6 +73,18 @@ from echo_masque.persistence.knowledge_fabric_site_collection_repository import 
 _COLLECTION_SOURCE_TYPES = frozenset({WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE})
 
 
+class RenderedCollectionFetcher(Protocol):
+    """Cookie-free browser capture supplied by the Runtime, never a portal/browser session."""
+
+    async def fetch_rendered_collection_page(
+        self,
+        *,
+        url: str,
+        allowed_hosts: frozenset[str],
+        max_links: int,
+    ) -> RenderedCollectionPage: ...
+
+
 @dataclass(frozen=True, slots=True)
 class _DiscoveredPage:
     locator: str
@@ -86,6 +106,7 @@ class KnowledgeFabricWebsiteCollectionSyncService:
     fetcher: WebsiteFetcher
     url_guard: PublicUrlGuard | None = None
     adapter: KnowledgeFabricWebsiteCollectionAdapter | None = None
+    rendered_fetcher: RenderedCollectionFetcher | None = None
 
     def __post_init__(self) -> None:
         if self.adapter is None:
@@ -115,12 +136,37 @@ class KnowledgeFabricWebsiteCollectionSyncService:
             return await self._failure(
                 source_id, "source_rejected", now, external_schedule_lease_token
             )
-        root_response = await self._fetch_root(root, source_id, now, external_schedule_lease_token)
-        if isinstance(root_response, WebsiteSyncResult):
-            return root_response
         try:
-            discovered = await self._discover_pages(root, root_response)
-        except (PublicUrlRejected, WebsiteCollectionRejected, WebsiteSitemapRejected):
+            rendered_profile = rendered_collection_profile(
+                locator=root,
+                parser_profile_json=source.parser_profile_json,
+            )
+        except RenderedCollectionRejected:
+            return await self._failure(
+                source_id, "collection_rejected", now, external_schedule_lease_token
+            )
+        root_response: WebsiteFetchResponse | None = None
+        rendered_pages: dict[str, WebsiteFetchResponse] = {}
+        try:
+            if rendered_profile.enabled:
+                discovered, rendered_pages = await self._discover_rendered_pages(
+                    root=root,
+                    profile=rendered_profile,
+                )
+            else:
+                fetched_root = await self._fetch_root(
+                    root, source_id, now, external_schedule_lease_token
+                )
+                if isinstance(fetched_root, WebsiteSyncResult):
+                    return fetched_root
+                discovered = await self._discover_pages(root, fetched_root)
+                root_response = fetched_root
+        except (
+            PublicUrlRejected,
+            RenderedCollectionRejected,
+            WebsiteCollectionRejected,
+            WebsiteSitemapRejected,
+        ):
             return await self._failure(
                 source_id, "discovery_rejected", now, external_schedule_lease_token
             )
@@ -148,6 +194,7 @@ class KnowledgeFabricWebsiteCollectionSyncService:
                 page=page,
                 checked_at=now,
                 external_schedule_lease_token=external_schedule_lease_token,
+                rendered_response=rendered_pages.get(page.locator),
             )
             if result.outcome in {"failed", "stale"}:
                 return replace(
@@ -205,8 +252,16 @@ class KnowledgeFabricWebsiteCollectionSyncService:
             self.sync_repository.record_outcome,
             source_id=source_id,
             outcome=outcome,
-            etag=normalized_website_validator(root_response.headers.get("etag")),
-            last_modified=normalized_website_validator(root_response.headers.get("last-modified")),
+            etag=(
+                normalized_website_validator(root_response.headers.get("etag"))
+                if root_response is not None
+                else None
+            ),
+            last_modified=(
+                normalized_website_validator(root_response.headers.get("last-modified"))
+                if root_response is not None
+                else None
+            ),
             changed=changed,
             checked_at=now,
             schedule_lease_token=external_schedule_lease_token,
@@ -292,6 +347,89 @@ class KnowledgeFabricWebsiteCollectionSyncService:
             _DiscoveredPage(item, "sitemap", sitemap) for item in sorted({root, *sitemap_pages})
         )
 
+    async def _discover_rendered_pages(
+        self,
+        *,
+        root: str,
+        profile: RenderedCollectionProfile,
+    ) -> tuple[tuple[_DiscoveredPage, ...], dict[str, WebsiteFetchResponse]]:
+        """Traverse a bounded same-origin DOM link graph with one private browser page per entry."""
+
+        if self.rendered_fetcher is None:
+            raise RenderedCollectionRejected("Rendered collection support is unavailable.")
+        root_host = urlsplit(root).hostname
+        if root_host is None:
+            raise RenderedCollectionRejected("Rendered collection root host is invalid.")
+        pending: list[tuple[str, int, str]] = [(root, 0, root)]
+        visited: set[str] = set()
+        discovered: list[_DiscoveredPage] = []
+        pages: dict[str, WebsiteFetchResponse] = {}
+        while pending:
+            locator, depth, parent_locator = pending.pop(0)
+            if locator in visited:
+                continue
+            if len(visited) >= profile.page_limit:
+                raise RenderedCollectionRejected("Rendered collection exceeds its page limit.")
+            try:
+                page = await self.rendered_fetcher.fetch_rendered_collection_page(
+                    url=locator,
+                    allowed_hosts=profile.allowed_hosts,
+                    max_links=profile.page_limit,
+                )
+            except Exception as exc:
+                raise RenderedCollectionRejected(
+                    "Rendered collection page could not be read."
+                ) from exc
+            visited.add(locator)
+            pages[locator] = WebsiteFetchResponse(
+                status_code=200,
+                content=page.html.encode("utf-8"),
+                headers={"content-type": "text/html; charset=utf-8"},
+            )
+            discovered.append(
+                _DiscoveredPage(
+                    locator=locator,
+                    discovery_kind="rendered_root" if locator == root else "rendered_link",
+                    discovered_from_locator=parent_locator,
+                )
+            )
+            if depth >= profile.max_depth:
+                continue
+            children = self._same_origin_rendered_links(
+                root=root,
+                page_locator=locator,
+                hrefs=page.hrefs,
+            )
+            available = profile.page_limit - len(visited) - len(pending)
+            queued_locators = {queued[0] for queued in pending}
+            new_children = [
+                item for item in children if item not in visited and item not in queued_locators
+            ]
+            if len(new_children) > available:
+                raise RenderedCollectionRejected("Rendered collection exceeds its page limit.")
+            pending.extend((item, depth + 1, locator) for item in new_children)
+        return tuple(discovered), pages
+
+    @staticmethod
+    def _same_origin_rendered_links(
+        *,
+        root: str,
+        page_locator: str,
+        hrefs: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        root_host = urlsplit(root).hostname
+        if root_host is None:
+            raise RenderedCollectionRejected("Rendered collection root host is invalid.")
+        candidates: set[str] = set()
+        for href in hrefs:
+            try:
+                candidate = canonical_public_https_locator(urljoin(page_locator, href))
+            except WebsiteSourceRejected:
+                continue
+            if urlsplit(candidate).hostname == root_host:
+                candidates.add(candidate)
+        return tuple(sorted(candidates))
+
     async def _discover_sitemap_pages(self, root: str, sitemap: str) -> tuple[str, ...]:
         pending = [sitemap]
         documents_seen: set[str] = set()
@@ -335,29 +473,33 @@ class KnowledgeFabricWebsiteCollectionSyncService:
         page: SiteCollectionPageState,
         checked_at: datetime,
         external_schedule_lease_token: str | None,
+        rendered_response: WebsiteFetchResponse | None = None,
     ) -> WebsiteSyncResult:
-        try:
-            await self._validate_url(page.locator)
-            response = await self.fetcher.fetch(
-                url=page.locator,
-                headers=conditional_request_headers(
-                    etag=page.etag,
-                    last_modified=page.last_modified,
-                ),
-            )
-        except (Exception, PublicUrlRejected):
-            await asyncio.to_thread(
-                self.collection_repository.record_page_outcome,
-                source_id=source_id,
-                locator=page.locator,
-                outcome="failed",
-                error_code="fetch_failed",
-                checked_at=checked_at,
-            )
-            result = await self._failure(
-                source_id, "page_failed", checked_at, external_schedule_lease_token
-            )
-            return replace(result, failed_page_count=1)
+        if rendered_response is None:
+            try:
+                await self._validate_url(page.locator)
+                response = await self.fetcher.fetch(
+                    url=page.locator,
+                    headers=conditional_request_headers(
+                        etag=page.etag,
+                        last_modified=page.last_modified,
+                    ),
+                )
+            except (Exception, PublicUrlRejected):
+                await asyncio.to_thread(
+                    self.collection_repository.record_page_outcome,
+                    source_id=source_id,
+                    locator=page.locator,
+                    outcome="failed",
+                    error_code="fetch_failed",
+                    checked_at=checked_at,
+                )
+                result = await self._failure(
+                    source_id, "page_failed", checked_at, external_schedule_lease_token
+                )
+                return replace(result, failed_page_count=1)
+        else:
+            response = rendered_response
         error = website_response_error_code(
             status_code=response.status_code,
             content_type=response.headers.get("content-type", ""),
@@ -393,12 +535,19 @@ class KnowledgeFabricWebsiteCollectionSyncService:
                     locator=page.locator,
                     content=response.content,
                     content_type=response.headers.get("content-type", ""),
+                    acquisition_kind=(
+                        "rendered_browser" if rendered_response is not None else "pinned_https"
+                    ),
                 ),
                 fetched_at=checked_at,
             )
-            assets = await self._fetch_page_images(
-                page_locator=page.locator,
-                content=response.content,
+            assets = (
+                ()
+                if rendered_response is not None
+                else await self._fetch_page_images(
+                    page_locator=page.locator,
+                    content=response.content,
+                )
             )
             snapshot = replace(snapshot, assets=assets)
         except (WebsiteCollectionResponseRejected, WebsiteSourceRejected):
@@ -549,4 +698,4 @@ class _SitemapUnavailable(Exception):
     """The conventional sitemap endpoint is absent, so bounded root-link discovery may run."""
 
 
-__all__ = ["KnowledgeFabricWebsiteCollectionSyncService"]
+__all__ = ["KnowledgeFabricWebsiteCollectionSyncService", "RenderedCollectionFetcher"]

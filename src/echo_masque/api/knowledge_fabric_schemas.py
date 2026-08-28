@@ -478,6 +478,29 @@ class KnowledgeExternalSourceScheduleView(BaseModel):
         )
 
 
+class KnowledgeRenderedCollectionProfileUpdate(BaseModel):
+    """Explicit Super Admin approval for a bounded browser-rendered collection recipe."""
+
+    enabled: bool
+    allowed_hosts: list[str] = Field(default_factory=list, max_length=8)
+    page_limit: int = Field(default=50, ge=1, le=100)
+    max_depth: int = Field(default=1, ge=0, le=3)
+
+    @field_validator("allowed_hosts")
+    @classmethod
+    def hosts_are_nonblank(cls, value: list[str]) -> list[str]:
+        if any(not host.strip() or len(host) > 253 for host in value):
+            raise ValueError("Rendered collection host is invalid.")
+        return value
+
+
+class KnowledgeRenderedCollectionAnalysisView(BaseModel):
+    """Candidate public hosts only; raw bootstrap HTML remains private."""
+
+    source_id: str
+    candidate_hosts: list[str]
+
+
 class KnowledgeExternalSourceSyncStateView(BaseModel):
     source_id: str
     last_outcome: str
@@ -716,6 +739,8 @@ __all__ = [
     "KnowledgeQueryInspectorHitView",
     "KnowledgeQueryInspectorRequest",
     "KnowledgeQueryInspectorResultView",
+    "KnowledgeRenderedCollectionAnalysisView",
+    "KnowledgeRenderedCollectionProfileUpdate",
     "KnowledgeServerAdministratorView",
     "KnowledgeServerGlobalCorpusAccessView",
     "KnowledgeServerScopeCreate",

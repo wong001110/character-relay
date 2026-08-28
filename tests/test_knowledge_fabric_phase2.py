@@ -25,6 +25,7 @@ from echo_masque.knowledge_fabric_query import (
     KnowledgeQueryRequest,
     KnowledgeQueryResult,
 )
+from echo_masque.knowledge_fabric_rendered_collection import RenderedCollectionAnalysis
 from echo_masque.knowledge_fabric_website_sync import WebsiteSyncResult
 from echo_masque.persistence import Database
 from echo_masque.persistence.knowledge_fabric_models import (
@@ -180,6 +181,16 @@ class _QueryInspectorEngine:
                 ),
             ),
         )
+
+
+class _RenderedCollectionAnalyzer:
+    def __init__(self, hosts: tuple[str, ...]) -> None:
+        self.hosts = hosts
+        self.calls: list[tuple[str, str]] = []
+
+    async def analyze(self, *, source_id: str, locator: str) -> RenderedCollectionAnalysis:
+        self.calls.append((source_id, locator))
+        return RenderedCollectionAnalysis(source_id=source_id, candidate_hosts=self.hosts)
 
 
 def test_scope_authority_is_explicit_and_never_inferred_from_legacy_access(tmp_path: Path) -> None:
@@ -585,6 +596,84 @@ def test_super_admin_operational_source_view_is_redacted_and_source_backed(tmp_p
         ordinary.post(f"/api/knowledge-fabric/admin/sources/{source_id}/derived-work/retry").status_code
         == 403
     )
+
+
+def test_rendered_collection_recipe_requires_bootstrap_observed_hosts(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "rendered-collection-api.db"))
+    admin = TestClient(app)
+    ordinary = TestClient(app)
+    login(admin, SUPER_EMAIL)
+    register(ordinary, "rendered-collection-reader@example.com")
+    login(ordinary, "rendered-collection-reader@example.com")
+    corpus = create_global_corpus(admin)
+    source = admin.post(
+        f"/api/knowledge-fabric/admin/corpora/{corpus['id']}/sources",
+        json={
+            "source_type": WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE,
+            "locator": "https://example.test/wiki",
+            "authority_profile": "official",
+        },
+    )
+    assert source.status_code == 201, source.text
+    source_id = source.json()["id"]
+    analyzer = _RenderedCollectionAnalyzer(("api.example.test", "cdn.example.test"))
+    app.state.knowledge_fabric_rendered_collection_analyzer = analyzer
+
+    analysis = admin.post(
+        f"/api/knowledge-fabric/admin/sources/{source_id}/rendered-collection-analysis"
+    )
+    assert analysis.status_code == 200, analysis.text
+    assert analysis.json() == {
+        "source_id": source_id,
+        "candidate_hosts": ["api.example.test", "cdn.example.test"],
+    }
+    configured = admin.put(
+        f"/api/knowledge-fabric/admin/sources/{source_id}/rendered-collection-profile",
+        json={
+            "enabled": True,
+            "allowed_hosts": ["api.example.test"],
+            "page_limit": 12,
+            "max_depth": 2,
+        },
+    )
+    assert configured.status_code == 200, configured.text
+    assert configured.json()["parser_profile"] == {
+        "collection_render_hosts": "api.example.test",
+        "collection_render_max_depth": "2",
+        "collection_render_page_limit": "12",
+        "collection_renderer": "browser",
+    }
+    rejected = admin.put(
+        f"/api/knowledge-fabric/admin/sources/{source_id}/rendered-collection-profile",
+        json={
+            "enabled": True,
+            "allowed_hosts": ["unseen.example.test"],
+            "page_limit": 12,
+            "max_depth": 2,
+        },
+    )
+    assert rejected.status_code == 422
+    assert "observed" in rejected.json()["detail"]
+    assert len(analyzer.calls) == 3
+    assert (
+        ordinary.post(
+            f"/api/knowledge-fabric/admin/sources/{source_id}/rendered-collection-analysis"
+        ).status_code
+        == 403
+    )
+    with app.state.database.session() as session:
+        audit_metadata = [
+            event.metadata_json
+            for event in session.scalars(
+                select(AuditEventRecord).where(
+                    AuditEventRecord.action
+                    == "knowledge_fabric.rendered_collection_profile_updated"
+                )
+            )
+        ]
+    assert audit_metadata == [
+        '{"approved_external_host_count":1,"enabled":true,"max_depth":2,"page_limit":12}'
+    ]
 
 
 def test_global_operational_source_view_exposes_safe_site_collection_sync_summary(
