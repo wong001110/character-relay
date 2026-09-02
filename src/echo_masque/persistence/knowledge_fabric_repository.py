@@ -28,9 +28,14 @@ from echo_masque.persistence.knowledge_fabric_interpretation_repository import (
 )
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeAccessGrantRecord,
+    KnowledgeCanonicalVisualReferenceRecord,
     KnowledgeCharacterCorpusPolicyRecord,
     KnowledgeCorpusRecord,
+    KnowledgeExternalHostRateRecord,
+    KnowledgeExternalSourceCollectionStateRecord,
+    KnowledgeExternalSourcePageStateRecord,
     KnowledgeExternalSourceScheduleRecord,
+    KnowledgeExternalSourceSyncRunRecord,
     KnowledgeExternalSourceSyncStateRecord,
     KnowledgeOverlayPolicyRecord,
     KnowledgeServerAdministratorRecord,
@@ -934,6 +939,139 @@ class KnowledgeFabricRepository:
             "knowledge_fabric_server_administrators": member_count,
             "knowledge_fabric_user_grants": user_grant_count,
         }
+
+    def reset_all(self) -> dict[str, int]:
+        """Remove every Fabric record while retaining non-Fabric runtime/account data."""
+
+        content_repository = KnowledgeFabricContentRepository(
+            self.database,
+            object_storage=self.object_storage,
+        )
+        interpretation_repository = KnowledgeFabricInterpretationRepository(self.database)
+        with self.database.session() as session:
+            corpus_ids = list(session.scalars(select(KnowledgeCorpusRecord.id)))
+            source_ids = list(session.scalars(select(KnowledgeSourceRecord.id)))
+            visual_reference_count = self._rowcount(
+                session.execute(
+                    delete(KnowledgeCanonicalVisualReferenceRecord).where(
+                        KnowledgeCanonicalVisualReferenceRecord.corpus_id.in_(corpus_ids)
+                    )
+                )
+                if corpus_ids
+                else None
+            )
+            counts = interpretation_repository.delete_interpretations_for_corpora_in_session(
+                session,
+                corpus_ids,
+            )
+            counts["knowledge_fabric_visual_references"] = visual_reference_count
+            counts.update(
+                content_repository.delete_content_for_corpora_in_session(session, corpus_ids)
+            )
+            counts["knowledge_fabric_external_source_page_states"] = self._rowcount(
+                session.execute(
+                    delete(KnowledgeExternalSourcePageStateRecord).where(
+                        KnowledgeExternalSourcePageStateRecord.source_id.in_(source_ids)
+                    )
+                )
+                if source_ids
+                else None
+            )
+            counts["knowledge_fabric_external_source_collection_states"] = self._rowcount(
+                session.execute(
+                    delete(KnowledgeExternalSourceCollectionStateRecord).where(
+                        KnowledgeExternalSourceCollectionStateRecord.source_id.in_(source_ids)
+                    )
+                )
+                if source_ids
+                else None
+            )
+            counts["knowledge_fabric_external_source_sync_runs"] = self._rowcount(
+                session.execute(
+                    delete(KnowledgeExternalSourceSyncRunRecord).where(
+                        KnowledgeExternalSourceSyncRunRecord.source_id.in_(source_ids)
+                    )
+                )
+                if source_ids
+                else None
+            )
+            counts["knowledge_fabric_external_source_schedules"] = self._rowcount(
+                session.execute(
+                    delete(KnowledgeExternalSourceScheduleRecord).where(
+                        KnowledgeExternalSourceScheduleRecord.source_id.in_(source_ids)
+                    )
+                )
+                if source_ids
+                else None
+            )
+            counts["knowledge_fabric_external_source_sync_states"] = self._rowcount(
+                session.execute(
+                    delete(KnowledgeExternalSourceSyncStateRecord).where(
+                        KnowledgeExternalSourceSyncStateRecord.source_id.in_(source_ids)
+                    )
+                )
+                if source_ids
+                else None
+            )
+            counts["knowledge_fabric_external_host_rates"] = self._rowcount(
+                session.execute(delete(KnowledgeExternalHostRateRecord))
+            )
+            counts["knowledge_fabric_character_corpus_policies"] = self._rowcount(
+                session.execute(
+                    delete(KnowledgeCharacterCorpusPolicyRecord).where(
+                        KnowledgeCharacterCorpusPolicyRecord.corpus_id.in_(corpus_ids)
+                    )
+                )
+                if corpus_ids
+                else None
+            )
+            counts["knowledge_fabric_overlay_policies"] = self._rowcount(
+                session.execute(
+                    delete(KnowledgeOverlayPolicyRecord).where(
+                        KnowledgeOverlayPolicyRecord.corpus_id.in_(corpus_ids)
+                    )
+                )
+                if corpus_ids
+                else None
+            )
+            counts["knowledge_fabric_access_grants"] = self._rowcount(
+                session.execute(
+                    delete(KnowledgeAccessGrantRecord).where(
+                        KnowledgeAccessGrantRecord.corpus_id.in_(corpus_ids)
+                    )
+                )
+                if corpus_ids
+                else None
+            )
+            counts["knowledge_fabric_sources"] = self._rowcount(
+                session.execute(delete(KnowledgeSourceRecord).where(KnowledgeSourceRecord.id.in_(source_ids)))
+                if source_ids
+                else None
+            )
+            counts["knowledge_fabric_corpora"] = self._rowcount(
+                session.execute(delete(KnowledgeCorpusRecord).where(KnowledgeCorpusRecord.id.in_(corpus_ids)))
+                if corpus_ids
+                else None
+            )
+            counts["knowledge_fabric_server_administrators"] = self._rowcount(
+                session.execute(delete(KnowledgeServerAdministratorRecord))
+            )
+            counts["knowledge_fabric_server_scopes"] = self._rowcount(
+                session.execute(delete(KnowledgeServerScopeRecord))
+            )
+            session.commit()
+
+        deleted_objects = 0
+        while content_repository.list_pending_object_deletions():
+            deleted = content_repository.process_pending_object_deletions(limit=100)
+            deleted_objects += deleted
+            if deleted == 0:
+                break
+        counts["knowledge_fabric_private_objects_deleted"] = deleted_objects
+        counts["knowledge_fabric_pending_object_deletions"] = len(
+            content_repository.list_pending_object_deletions()
+        )
+        return counts
 
     def claim_owner(self, source_owner_id: str, target_owner_id: str) -> dict[str, int]:
         """Claim only user-owned local rows; server/system principals never transfer."""

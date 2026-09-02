@@ -87,6 +87,45 @@ def test_api_lifespan_does_not_start_fabric_background_workers_by_default(tmp_pa
         assert app.state.knowledge_fabric_invalidation_worker._task is None
 
 
+def test_super_admin_can_reset_all_knowledge_fabric_data(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "fabric-reset.db"))
+    admin = TestClient(app)
+    login(admin, SUPER_EMAIL)
+    corpus = create_global_corpus(admin)
+    source = admin.post(
+        f"/api/knowledge-fabric/admin/corpora/{corpus['id']}/sources",
+        json={
+            "source_type": WEBSITE_COLLECTION_PUBLIC_HTTPS_SOURCE_TYPE,
+            "locator": "https://example.test/wiki",
+            "authority_profile": "official",
+        },
+    )
+    assert source.status_code == 201, source.text
+    source_id = source.json()["id"]
+    assert (
+        admin.put(
+            f"/api/knowledge-fabric/admin/sources/{source_id}/external-sync-schedule",
+            json={"enabled": True, "interval_seconds": 900},
+        ).status_code
+        == 200
+    )
+
+    rejected = admin.post("/api/knowledge-fabric/admin/reset", json={"confirmation": "delete"})
+    assert rejected.status_code == 422
+
+    reset = admin.post(
+        "/api/knowledge-fabric/admin/reset",
+        json={"confirmation": "DELETE KNOWLEDGE FABRIC"},
+    )
+
+    assert reset.status_code == 200, reset.text
+    assert reset.json()["deleted"]["knowledge_fabric_corpora"] == 1
+    assert reset.json()["deleted"]["knowledge_fabric_sources"] == 1
+    assert reset.json()["deleted"]["knowledge_fabric_external_source_schedules"] == 1
+    assert reset.json()["deleted"]["knowledge_fabric_pending_object_deletions"] == 0
+    assert admin.get("/api/knowledge-fabric/admin/corpora").json() == []
+
+
 def register(client: TestClient, email: str) -> str:
     response = client.post(
         "/api/auth/register",

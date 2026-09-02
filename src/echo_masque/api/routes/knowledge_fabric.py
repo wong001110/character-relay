@@ -23,6 +23,8 @@ from echo_masque.api.knowledge_fabric_schemas import (
     KnowledgeDerivedWorkSummaryView,
     KnowledgeExternalSourceScheduleUpdate,
     KnowledgeExternalSourceScheduleView,
+    KnowledgeFabricResetRequest,
+    KnowledgeFabricResetResult,
     KnowledgeGrantUpdate,
     KnowledgeImageAssetCandidateView,
     KnowledgeOverlayPolicyUpdate,
@@ -404,6 +406,28 @@ def list_system_global_corpora(
         KnowledgeCorpusView.from_record(record)
         for record in _fabric(request).list_system_global_corpora()
     ]
+
+
+@router.post("/admin/reset", response_model=KnowledgeFabricResetResult)
+def reset_knowledge_fabric(
+    payload: KnowledgeFabricResetRequest,
+    request: Request,
+    user: SuperAdminUserDependency,
+) -> KnowledgeFabricResetResult:
+    """Erase all Fabric data and private artifacts for a deliberate architecture reset."""
+
+    del payload
+    _require_global_manager(request, user)
+    deleted = _fabric(request).reset_all()
+    _audit(
+        request,
+        actor_user_id=user.id,
+        action="knowledge_fabric.reset",
+        resource_type="knowledge_fabric",
+        resource_id="all",
+        metadata={"pending_object_deletions": deleted["knowledge_fabric_pending_object_deletions"]},
+    )
+    return KnowledgeFabricResetResult(deleted=deleted)
 
 
 @router.get(

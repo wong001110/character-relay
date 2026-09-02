@@ -159,6 +159,23 @@ class KnowledgeCorpusCreate(BaseModel):
         return value
 
 
+class KnowledgeFabricResetRequest(BaseModel):
+    """Explicit confirmation for the destructive, Super-Admin-only Fabric reset."""
+
+    confirmation: str = Field(min_length=1, max_length=80)
+
+    @field_validator("confirmation")
+    @classmethod
+    def requires_exact_confirmation(cls, value: str) -> str:
+        if value != "DELETE KNOWLEDGE FABRIC":
+            raise ValueError("Confirmation must be DELETE KNOWLEDGE FABRIC.")
+        return value
+
+
+class KnowledgeFabricResetResult(BaseModel):
+    deleted: dict[str, int]
+
+
 class KnowledgeCorpusView(BaseModel):
     id: str
     name: str
@@ -732,6 +749,8 @@ __all__ = [
     "KnowledgeExternalSourceScheduleUpdate",
     "KnowledgeExternalSourceScheduleView",
     "KnowledgeExternalSourceSyncStateView",
+    "KnowledgeFabricResetRequest",
+    "KnowledgeFabricResetResult",
     "KnowledgeGrantUpdate",
     "KnowledgeImageAssetCandidateView",
     "KnowledgeOverlayPolicyUpdate",
