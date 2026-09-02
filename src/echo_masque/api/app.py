@@ -47,6 +47,7 @@ from echo_masque.api.routes import (
 from echo_masque.api.routes.discord_debug_captures import (
     router as discord_debug_captures_router,
 )
+from echo_masque.api.runtime_thread_limiter import limit_request_threads
 from echo_masque.audit_middleware import SensitiveAuditMiddleware
 from echo_masque.auth import AuthService
 from echo_masque.authoring_archive import AuthoringArchiveService
@@ -79,6 +80,7 @@ from echo_masque.intelligence_v3_projection import ProjectionConversationRuntime
 from echo_masque.internal_context import InternalContextService
 from echo_masque.judge_evaluation import JudgeEvaluationService
 from echo_masque.knowledge_fabric_atom_sync import KnowledgeFabricAtomSyncService
+from echo_masque.knowledge_fabric_background_runtime import KnowledgeFabricBackgroundRuntime
 from echo_masque.knowledge_fabric_context import KnowledgeContextBuilder
 from echo_masque.knowledge_fabric_epistemic_policy import PersistedCharacterEpistemicPolicy
 from echo_masque.knowledge_fabric_external_policy import (
@@ -334,6 +336,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         invalidations=knowledge_fabric_invalidation_repository,
         indexes=knowledge_fabric_index_repository,
         projections=knowledge_fabric_projection_repository,
+    )
+    knowledge_fabric_background_runtime = KnowledgeFabricBackgroundRuntime(
+        start_report_retention=external_sync_report_retention.start,
+        stop_report_retention=external_sync_report_retention.stop,
+        start_external_sync=external_sync_scheduler.start,
+        stop_external_sync=external_sync_scheduler.stop,
+        start_derived_work=knowledge_fabric_invalidation_worker.start,
+        stop_derived_work=knowledge_fabric_invalidation_worker.stop,
     )
 
     # Intelligence Core v3 runtime authorities.
@@ -629,21 +639,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        await browser_runtime.start()
-        await scheduled_reminder_delivery.start()
-        await condition_watch_service.start()
-        await external_sync_report_retention.start()
-        await external_sync_scheduler.start()
-        await knowledge_fabric_invalidation_worker.start()
-        try:
-            yield
-        finally:
-            await knowledge_fabric_invalidation_worker.stop()
-            await condition_watch_service.stop()
-            await external_sync_scheduler.stop()
-            await external_sync_report_retention.stop()
-            await scheduled_reminder_delivery.stop()
-            await browser_runtime.stop()
+        async with limit_request_threads(resolved.api_thread_pool_limit):
+            await browser_runtime.start()
+            await scheduled_reminder_delivery.start()
+            await condition_watch_service.start()
+            if resolved.knowledge_fabric_api_background_workers_enabled:
+                await knowledge_fabric_background_runtime.start()
+            try:
+                yield
+            finally:
+                if resolved.knowledge_fabric_api_background_workers_enabled:
+                    await knowledge_fabric_background_runtime.stop()
+                await condition_watch_service.stop()
+                await scheduled_reminder_delivery.stop()
+                await browser_runtime.stop()
 
     app = FastAPI(
         title=resolved.app_name,
@@ -705,6 +714,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.knowledge_fabric_rendered_collection_analyzer = rendered_collection_analyzer
     app.state.knowledge_fabric_external_sync_scheduler = external_sync_scheduler
     app.state.knowledge_fabric_invalidation_worker = knowledge_fabric_invalidation_worker
+    app.state.knowledge_fabric_background_runtime = knowledge_fabric_background_runtime
     app.state.knowledge_fabric_visual_reference_repository = (
         knowledge_fabric_visual_reference_repository
     )

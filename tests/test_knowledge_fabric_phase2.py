@@ -78,6 +78,15 @@ def login(client: TestClient, email: str) -> None:
     assert response.status_code == 200, response.text
 
 
+def test_api_lifespan_does_not_start_fabric_background_workers_by_default(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "background-default-off.db"))
+
+    with TestClient(app):
+        assert app.state.knowledge_fabric_external_sync_report_retention._task is None
+        assert app.state.knowledge_fabric_external_sync_scheduler._task is None
+        assert app.state.knowledge_fabric_invalidation_worker._task is None
+
+
 def register(client: TestClient, email: str) -> str:
     response = client.post(
         "/api/auth/register",

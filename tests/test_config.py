@@ -17,6 +17,8 @@ def test_default_settings_require_no_credentials() -> None:
     settings = Settings(environment="test")
     assert settings.environment == "test"
     assert not hasattr(settings, "api_key")
+    assert not settings.knowledge_fabric_api_background_workers_enabled
+    assert settings.api_thread_pool_limit == 16
 
 
 def test_character_relay_env_prefix_is_used(monkeypatch: Any) -> None:

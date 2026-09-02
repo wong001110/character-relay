@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     provider_trace_retention_days: int = 7
     provider_trace_max_records: int = 2000
     knowledge_external_sync_report_retention_days: int = Field(default=7, ge=1, le=90)
+    # Knowledge Fabric acquisition and derived-work maintenance are intentionally not part of
+    # the HTTP API's default lifecycle. Run them through ``knowledge_fabric_worker`` instead so
+    # a large crawl cannot consume the request process's thread or PID budget. This temporary
+    # API-side switch exists only for a controlled migration/recovery and must stay opt-in.
+    knowledge_fabric_api_background_workers_enabled: bool = False
+    api_thread_pool_limit: int = Field(default=16, ge=1, le=40)
 
     langgraph_mode: LangGraphMode = "off"
     semantic_embedding_enabled: bool = False

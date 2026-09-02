@@ -38,4 +38,4 @@ COPY --from=web /app/web/dist ./web/dist
 USER character-relay
 EXPOSE 8000
 ENTRYPOINT ["character-relay-entrypoint"]
-CMD ["sh", "-c", "exec python -m uvicorn echo_masque.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "if [ \"${CHARACTER_RELAY_SERVICE_ROLE:-api}\" = \"knowledge-fabric-worker\" ]; then exec python -m echo_masque.knowledge_fabric_worker; fi; exec python -m uvicorn echo_masque.main:app --host 0.0.0.0 --port ${PORT:-8000} --limit-concurrency ${CHARACTER_RELAY_UVICORN_LIMIT_CONCURRENCY:-32}"]

@@ -460,6 +460,14 @@ any returned address is non-global, then dials one literal address while retaini
 hostname for HTTP Host and verified TLS SNI/certificate validation. It does not use proxy
 configuration, redirects, credentials, Tool Runtime, browser runtime, or a Character request.
 
+Deployment boundary: the HTTP API never starts Fabric acquisition, sync-report retention, or
+derived index/projection work by default. Those loops run in the separately deployed
+`knowledge-fabric-worker` service (`CHARACTER_RELAY_SERVICE_ROLE=knowledge-fabric-worker`) and
+share only the durable database/object-storage contracts with the API. The API process caps its
+synchronous dependency threads and Uvicorn request concurrency; an exceptional temporary
+API-side worker start requires the explicit
+`CHARACTER_RELAY_KNOWLEDGE_FABRIC_API_BACKGROUND_WORKERS_ENABLED=true` recovery switch.
+
 `atom_public_https` is the first source-native adapter. It accepts bounded Atom 1.0 XML using
 `defusedxml`, rejects DTD/entity declarations, and preserves only bounded entry evidence and safe
 link provenance. It never follows feed or entry links.
