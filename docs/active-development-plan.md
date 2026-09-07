@@ -1,7 +1,9 @@
 # Active development plan — AI-native reliability review
 
-Status: **corrective implementation complete; final verification and draft PR in progress; not merged**
+Status: **corrective implementation and local verification complete; Draft PR #204 open; not merged**
 Branch: `codex/ai-native-reliability-review`
+PR: https://github.com/wong001110/character-relay/pull/204
+Implementation commit: `3b334a8e78bf1ce64cc25d8253afc2efe2ac4d1b`
 Base: `main @ d23e7f22229788068dbb76abf9e403fd0a4bcc7d`
 
 User authorized implementation, sub-agents/model choice, a PR, and a final whole-project Red Team assessment. Root owns integration. No production deployment, external attack targets or production data deletion is authorized.
@@ -21,8 +23,8 @@ Invariants: Runtime owns authorization/side effects; owner/server/Character perc
 | A: evidence/environment | R09 | Archive stale plan, isolated dependencies, reproducible PG/API/worker recipe and actual validation evidence | Implemented; local evidence below, PG execution unavailable |
 | B: recovery/acquisition | R01–R03 | New service cannot reset active work; supervised/restartable tasks; explicit offline recovery; bounded capture and process resources; failed discovery preserves current source | Implemented; focused regressions and independent review passed |
 | C: continuation/recall | R04–R07 | Formal runtime continuation scoped to actor/deployment/server and assigned tool; no unknown effect replay; query-first older recall with perception; allowed Fabric candidates and provenance-safe packing | Implemented; focused regressions and independent review passed |
-| D: integrated security gate | R09 + new findings | Source-wide defensive review, boundary/failure regressions, Python/Web/Connector gates, final scope-wide assessment with executed/blocked/unverified distinctions | Defensive assessment complete; final regression running; adversarial exercise blocked |
-| E: PR | all | Reviewed diff, evidence, remaining work and handoff; open PR without merging/deploying | Pending |
+| D: integrated security gate | R09 + new findings | Source-wide defensive review, boundary/failure regressions, Python/Web/Connector gates, final scope-wide assessment with executed/blocked/unverified distinctions | Defensive assessment and local regressions complete; adversarial exercise blocked |
+| E: PR | all | Reviewed diff, evidence, remaining work and handoff; open PR without merging/deploying | Draft PR #204 open |
 | Follow-up: interaction quality | R08 + remaining R04–R06 | Durable acknowledgement/progress/result protocol; real dialogue replay, same-model quality/latency/cost comparison | Planned |
 | Follow-up: dense retrieval | remaining R06–R07 | Actual index→query→prompt and update/delete semantics with measured relevance benefit | Planned; do not claim disconnected paths available |
 | Follow-up: MCP | R05 | One controlled provider; pagination, discovery, schema changes, reauthorization/failures after capability contracts | Planned |
@@ -49,7 +51,7 @@ An automatic cybersecurity check stopped the independent agent's attack-reproduc
 - Remote main rechecked at start: d23e7f2.
 - Sandbox lacks Docker/PostgreSQL. apt setup failed because user/group switching is unsupported; do not claim local PostgreSQL coverage.
 - Production incident logs/resources/topology and actual model/Discord quality remain unverified.
-- Final commands/outcomes and exact handoff will be appended after integration.
+- Final commands/outcomes and exact handoff are recorded below.
 - No production changes. Document rollout/offline recovery and rollback before deployment.
 
 ## Integration evidence and takeover
@@ -70,17 +72,26 @@ An automatic cybersecurity check stopped the independent agent's attack-reproduc
   within one process; existing PostgreSQL advisory locking remains. Root reviewed the correction.
   Migration/foundation regressions: 14 passed, 3 skipped; concurrency regression: five passes.
   This does not claim SQLite cross-process locking or canonicalization of alternate file URLs.
-- Final `python -m pytest -n 2 --tb=short` outcome: pending integration closeout.
+- Final `python -m pytest -n 2 --tb=short`: **976 passed, 6 skipped, 13 warnings in 267.29 s**
+  on Python 3.12.13 after the SQLite correction. This is the repository-configured suite, including
+  its pre-existing exclusion of `tests/test_utility_gateway_phase2.py`; no new exclusions were added.
+  Warnings include existing pytest class-collection and Pydantic fixture-serialization warnings.
+- GitHub CI for implementation commit `3b334a8` (run `34117172813`) completed the Web,
+  Discord Connector, PostgreSQL foundation and Docker jobs successfully. PostgreSQL evidence
+  covers the existing five bootstrap/cutover/API/retrieval contracts; Docker covers production
+  storage rejection, non-root browser startup, API readiness and storage identity after replacement.
+  This does not run the new full Compose topology, invitation concurrency or load tests.
+  Python 3.12/3.13 CI jobs were still running at documentation closeout; check current PR status.
 - Initial whole-suite run was stopped when automatic approval review rejected unexpected ONNX
   telemetry. No completion/pass is claimed for that run. Default tests now inject a fake encoder
   or exercise the unavailable fallback. This is not a general outbound-network sandbox.
 - Earlier completed offline run found outdated recovery expectations, fixed-date expiration tests,
   an unnecessary live DNS dependency behind fake media transports, and a stale HTTPX test assertion.
-  Those focused failures were corrected; the final integration run remains the acceptance evidence.
+  Those failures were corrected; the successful final integration run above is the local evidence.
 
 No release is approved. Remaining egress/DNS binding, multimodal-client admission and atomic quota
 work are tracked in [the scope-wide security assessment](security-red-team-2026-09-07.md).
-Next: finish the final regression, open the draft PR and inspect CI. Then resolve PostgreSQL/container
-and blocked adversarial validation in an authorized suitable environment before release; prioritize
+Next: inspect the latest PR CI, validate the full local Compose topology and resolve
+blocked adversarial validation in an authorized suitable environment before release; prioritize
 remaining security findings before MCP/dense/dialogue expansion. Production rollout and merge are
 not part of this task.

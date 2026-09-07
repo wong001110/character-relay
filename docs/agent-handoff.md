@@ -20,6 +20,9 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
 ## Current baseline
 
 The reliability branch's exact state and validation are in `docs/active-development-plan.md`.
+Draft PR #204 contains implementation commit `3b334a8e78bf1ce64cc25d8253afc2efe2ac4d1b`;
+local Python verification passed 976 tests with 6 skips. Check current PR CI and the security
+assessment before any release; blocked adversarial work is not a pass.
 The following Fabric phase narrative is historical context; it does not prove live dense
 retrieval or replace current source/verification. The former phase execution record is archived
 under `docs/history/knowledge-fabric-foundation-execution.md`.

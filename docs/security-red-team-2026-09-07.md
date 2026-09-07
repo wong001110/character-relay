@@ -3,8 +3,9 @@
 Status: **defensive source assessment and local regression evidence; adversarial validation blocked**.
 
 Branch: `codex/ai-native-reliability-review`. Baseline: `d23e7f22229788068dbb76abf9e403fd0a4bcc7d`.
-This review covers the integrated working-tree changes on that baseline, not a frozen release
-commit. The integration owner must record the final commit and final validation results below.
+This assessment was performed during integration. The reviewed implementation was frozen as
+`3b334a8e78bf1ce64cc25d8253afc2efe2ac4d1b`; documentation closeout follows in Draft PR #204.
+Final validation results and limits are recorded below.
 
 ## Recommendation and limits
 
@@ -107,14 +108,14 @@ rejected an unexpected Microsoft ONNX telemetry request. That run is **not a com
 The rerun uses `tests/conftest.py` to disable real encoder builds by default (tests use injected
 encoders or the unavailable-embedding fallback), and `_build_model` now disables ONNX Runtime
 telemetry before creating inference sessions. These measures were source-inspected here. The
-root is collecting final offline suite/mutation results; those results do not validate real
+root recorded final offline suite/mutation results below; those results do not validate real
 embedding model quality or an external provider. The fixture is not a universal network sandbox.
 
 ## Integration closeout
 
 Root integration record (implementation is on the corrective branch; no production release):
 
-- Reviewed implementation commit: pending final regression; the PR head will identify the artifact.
+- Reviewed implementation commit: `3b334a8e78bf1ce64cc25d8253afc2efe2ac4d1b`, Draft PR #204.
 - Independent review of workspace import correction: root reported accepted for corrective PR.
 - S08: independent memory reviewer accepted the final tool list filtering and CAS behavior;
   28 focused tests passed. Cancelled/uncertain actions and CAS losers cannot return through the
@@ -123,14 +124,19 @@ Root integration record (implementation is on the corrective branch; no producti
 - Root whole-tree Ruff and mypy passed (390 source files). Portal: 69 tests and build passed;
   Connector: typecheck, 95 tests and build passed. Endpoint mutation gate: 65 killed and 22
   individually documented equivalent survivors among 87 checked; see the mutation report.
-- Final Python full-suite result: pending. PostgreSQL/container tests were not runnable locally.
+- Final configured Python suite: `python -m pytest -n 2 --tb=short`: **976 passed, 6 skipped,
+  13 warnings in 267.29 s**. The pre-existing utility-gateway test exclusion is unchanged.
+  PostgreSQL/container execution was unavailable locally, but implementation-commit CI run
+  `34117172813` passed its PostgreSQL foundation, Docker, Web and Discord Connector jobs.
+  Those are existing bounded CI contracts, not the full new Compose topology or an invitation
+  concurrency/load exercise. Python 3.12/3.13 CI jobs were still running at closeout.
 - A full-suite SQLite initialization race was corrected by the runtime owner with same-URL,
   process-local bootstrap locking. Root inspected the change; migration/foundation tests passed
   (14 passed, 3 skipped) and the existing concurrent-initialization test passed five times.
   PostgreSQL retains its existing advisory lock; SQLite cross-process safety is not claimed.
 - S03/S04/S09: latest corrective source independently inspected within the scopes above.
 - Release remains deferred: broader egress/multimodal admission, DNS connection binding, atomic
-  quotas, PostgreSQL/container execution and blocked adversarial work need explicit disposition.
+  quotas, full Compose/recovery/load validation and blocked adversarial work need explicit disposition.
   The corrective PR is a draft; passing regressions do not approve deployment.
 
 Adversarial validation remains **blocked/not performed**, irrespective of subsequent standard
