@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse
 
 import httpx
 from pydantic import SecretStr, ValidationError
 
 from echo_masque.media_runtime import MediaAnalysis, MediaAsset
+from echo_masque.network_safety import PinnedAsyncHTTPTransport
 from echo_masque.provider_capabilities import ModelCapability, ProviderModelCapabilityRegistry
 from echo_masque.provider_failure_classifier import classify_provider_response
 from echo_masque.providers.base import ChatMessage, ProviderQuotaObservation
@@ -32,6 +34,10 @@ from echo_masque.providers.errors import (
     ProviderUnavailableError,
 )
 from echo_masque.providers.trace import ProviderTrace
+from echo_masque.target_endpoint_policy import EndpointPolicyRejected, TargetEndpointPolicy
+
+if TYPE_CHECKING:
+    from echo_masque.config import Settings
 
 _MEDIA_SYSTEM_PROMPT = """You are an objective media-understanding parser.
 Describe only information supported by the supplied image/video samples. Never role-play.
@@ -94,6 +100,7 @@ class OpenAICompatibleMultimodalProvider:
         base_url: str,
         timeout_seconds: float = 180.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        settings: Settings | None = None,
     ) -> None:
         normalized_provider = provider_id.strip() or "custom"
         self._api_key = api_key
@@ -101,6 +108,11 @@ class OpenAICompatibleMultimodalProvider:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout_seconds
         self._transport = transport
+        if settings is None:
+            from echo_masque.config import get_settings
+
+            settings = get_settings()
+        self._endpoint_policy = TargetEndpointPolicy.from_settings(settings)
         if not self._model:
             raise ValueError("Media Understanding model cannot be blank.")
         if not self._base_url:
@@ -416,11 +428,17 @@ class OpenAICompatibleMultimodalProvider:
             "Content-Type": "application/json",
         }
         try:
+            self._endpoint_policy.require_provider_url(self.endpoint)
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(self._timeout),
-                transport=self._transport,
+                transport=self._transport or PinnedAsyncHTTPTransport(),
+                follow_redirects=False,
+                trust_env=False,
             ) as client:
                 response = await client.post(self.endpoint, headers=headers, json=payload)
+        except EndpointPolicyRejected as exc:
+            trace.error(reason="media_understanding_endpoint_rejected")
+            raise ProviderProtocolError("Media Understanding provider endpoint is not approved.") from exc
         except httpx.TimeoutException as exc:
             trace.error(reason="media_understanding_timeout")
             raise ProviderTimeoutError("Media Understanding provider timed out.") from exc

@@ -29,7 +29,12 @@ from echo_masque.tool_external import (
     ExternalToolRuntime,
     json_result,
 )
-from echo_masque.turn_progress import publish_turn_progress, turn_progress_available
+from echo_masque.turn_progress import (
+    TurnNoLongerActive,
+    publish_turn_progress,
+    require_active_turn,
+    turn_progress_available,
+)
 
 if TYPE_CHECKING:
     from echo_masque.mcp_gateway import McpGateway
@@ -1014,6 +1019,10 @@ class ToolRegistry:
 
         try:
             context = replace(context, progress_message=progress_message)
+            try:
+                require_active_turn()
+            except TurnNoLongerActive as exc:
+                raise ExternalToolRejected("turn_job_no_longer_active") from exc
             if progress_message and tool_id not in {"mcp.discover", "mcp.invoke", "image.generate"}:
                 await publish_turn_progress(progress_message)
             content = await self._execute_tool(tool_id, arguments, context)

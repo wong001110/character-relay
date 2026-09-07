@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
 from echo_masque.persistence import Database
 from echo_masque.persistence.utility_gateway_models import UtilityProviderCapabilityRecord
 from echo_masque.provider_capabilities import CapabilityObservation, ModelCapability
@@ -60,32 +63,34 @@ class ProviderCapabilityPersistence:
                 status=row.status,  # type: ignore[arg-type]
                 source=row.source,  # type: ignore[arg-type]
                 detail=row.detail,
+                observed_at=row.updated_at,
             )
 
     def save(self, observation: CapabilityObservation) -> None:
-        key = (
-            observation.provider.casefold().strip(),
-            observation.model.casefold().strip(),
-            observation.endpoint_key,
-            observation.capability,
+        record = UtilityProviderCapabilityRecord
+        insert = pg_insert if self.database.engine.dialect.name == "postgresql" else sqlite_insert
+        statement = insert(record).values(
+            provider=observation.provider.casefold().strip(),
+            model=observation.model.casefold().strip(),
+            endpoint_key=observation.endpoint_key,
+            capability=observation.capability,
+            status=observation.status,
+            source=observation.source,
+            detail=observation.detail,
+            updated_at=observation.observed_at,
+        )
+        statement = statement.on_conflict_do_update(
+            index_elements=[record.provider, record.model, record.endpoint_key, record.capability],
+            set_={
+                "status": observation.status,
+                "source": observation.source,
+                "detail": observation.detail,
+                "updated_at": observation.observed_at,
+            },
+            where=record.updated_at <= observation.observed_at,
         )
         with self.database.session() as session:
-            row = session.get(UtilityProviderCapabilityRecord, key)
-            if row is None:
-                row = UtilityProviderCapabilityRecord(
-                    provider=key[0],
-                    model=key[1],
-                    endpoint_key=observation.endpoint_key,
-                    capability=observation.capability,
-                    status=observation.status,
-                    source=observation.source,
-                    detail=observation.detail,
-                )
-                session.add(row)
-            else:
-                row.status = observation.status
-                row.source = observation.source
-                row.detail = observation.detail
+            session.execute(statement)
             session.commit()
 
 

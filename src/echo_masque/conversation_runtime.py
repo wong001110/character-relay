@@ -277,7 +277,7 @@ class ConversationRuntimeCoordinator:
                 thread_id=thread_id,
                 now=current,
             )
-        self.runtime.expire_working_states(now=current)
+        self.runtime.expire_working_states(owner_id=owner_id, now=current)
         return tuple(changed)
 
 

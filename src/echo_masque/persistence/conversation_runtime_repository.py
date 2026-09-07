@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import cast
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from sqlalchemy import and_, case, literal, or_, select, update
+from sqlalchemy import and_, case, func, literal, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -229,12 +229,32 @@ class ConversationRuntimeRepository:
             session.refresh(record)
             return self.working_state_view(record)
 
-    def working_state(self, *, owner_id: str, thread_id: str) -> ThreadWorkingStateView | None:
+    def working_state(
+        self,
+        *,
+        owner_id: str,
+        thread_id: str,
+        now: datetime | None = None,
+    ) -> ThreadWorkingStateView | None:
+        """Return only live scratch state, archiving an expired record on its first read.
+
+        Working state is a prompt-time convenience, rather than durable history.  The read
+        boundary therefore enforces both its lifecycle state and TTL instead of relying on a
+        best-effort maintenance loop to run before a Context Resolver call.
+        """
+
+        current = now or datetime.now(UTC)
         with self.database.session() as session:
             record = session.get(ThreadWorkingStateRecord, thread_id)
-        if record is None or record.owner_id != owner_id:
-            return None
-        return self.working_state_view(record)
+            if record is None or record.owner_id != owner_id or record.status != "active":
+                return None
+            expires_at = self._aware(record.expires_at)
+            if expires_at is not None and expires_at <= current:
+                record.status = "archived"
+                record.updated_at = current
+                session.commit()
+                return None
+            return self.working_state_view(record)
 
     def archive_working_state(
         self,
@@ -254,25 +274,86 @@ class ConversationRuntimeRepository:
             session.refresh(record)
             return self.working_state_view(record)
 
-    def expire_working_states(self, *, now: datetime | None = None) -> int:
+    def expire_working_states(
+        self,
+        *,
+        owner_id: str | None = None,
+        now: datetime | None = None,
+    ) -> int:
         current = now or datetime.now(UTC)
         changed = 0
         with self.database.session() as session:
-            records = list(
-                session.scalars(
-                    select(ThreadWorkingStateRecord).where(
-                        ThreadWorkingStateRecord.status == "active",
-                        ThreadWorkingStateRecord.expires_at.is_not(None),
-                        ThreadWorkingStateRecord.expires_at <= current,
-                    )
-                )
+            statement = select(ThreadWorkingStateRecord).where(
+                ThreadWorkingStateRecord.status == "active",
+                ThreadWorkingStateRecord.expires_at.is_not(None),
+                ThreadWorkingStateRecord.expires_at <= current,
             )
+            if owner_id is not None:
+                statement = statement.where(ThreadWorkingStateRecord.owner_id == owner_id)
+            records = list(session.scalars(statement))
             for record in records:
                 record.status = "archived"
                 record.updated_at = current
                 changed += 1
             session.commit()
         return changed
+
+    def owners_with_expired_working_states(
+        self, *, now: datetime | None = None
+    ) -> tuple[str, ...]:
+        """Return only owners with scratch that is due for an owner-scoped expiry pass."""
+
+        current = now or datetime.now(UTC)
+        with self.database.session() as session:
+            owners = list(
+                session.scalars(
+                    select(ThreadWorkingStateRecord.owner_id)
+                    .where(
+                        ThreadWorkingStateRecord.status == "active",
+                        ThreadWorkingStateRecord.expires_at.is_not(None),
+                        ThreadWorkingStateRecord.expires_at <= current,
+                    )
+                    .distinct()
+                )
+            )
+        return tuple(str(owner) for owner in owners if owner)
+
+    def expired_working_state_count(
+        self,
+        *,
+        owner_id: str,
+        now: datetime | None = None,
+    ) -> int:
+        """Count one owner's due scratch records before an owner-scoped transition."""
+
+        current = now or datetime.now(UTC)
+        with self.database.session() as session:
+            count = session.scalar(
+                select(func.count(ThreadWorkingStateRecord.thread_id)).where(
+                    ThreadWorkingStateRecord.owner_id == owner_id,
+                    ThreadWorkingStateRecord.status == "active",
+                    ThreadWorkingStateRecord.expires_at.is_not(None),
+                    ThreadWorkingStateRecord.expires_at <= current,
+                )
+            )
+        return int(count or 0)
+
+    def owners_with_active_episodes(self) -> tuple[str, ...]:
+        """Return owners that can have an inactivity checkpoint applied.
+
+        The lifecycle runner deliberately keeps the actual checkpoint operation owner-scoped;
+        this method only finds eligible owners and exposes no conversation content.
+        """
+
+        with self.database.session() as session:
+            owners = list(
+                session.scalars(
+                    select(ConversationEpisodeV3Record.owner_id)
+                    .where(ConversationEpisodeV3Record.status == "active")
+                    .distinct()
+                )
+            )
+        return tuple(str(owner) for owner in owners if owner)
 
     def active_episode(
         self,

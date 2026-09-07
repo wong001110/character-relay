@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 from urllib.parse import urljoin
 
 import httpx
@@ -16,7 +16,7 @@ from echo_masque.image_generation import (
     ImageGenerationRequest,
     ImageReference,
 )
-from echo_masque.network_safety import PublicUrlGuard, PublicUrlRejected
+from echo_masque.network_safety import PinnedAsyncHTTPTransport, PublicUrlGuard, PublicUrlRejected
 from echo_masque.openrouter_image_scout import (
     AUTO_FREE_ANIME_MODEL,
     AutomaticFreeAnimeImageProvider,
@@ -30,6 +30,9 @@ from echo_masque.provider_credentials import (
     ResolvedProviderCredential,
 )
 from echo_masque.providers.openrouter_image import OpenRouterImageGenerationProvider
+
+if TYPE_CHECKING:
+    from echo_masque.config import Settings
 
 _MAX_GENERATED_IMAGE_BYTES = 8 * 1024 * 1024
 _MAX_REDIRECTS = 4
@@ -56,12 +59,14 @@ class ImageGenerationProviderFactory(Protocol):
 
 def default_image_generation_provider_factory(
     credential: ResolvedProviderCredential,
+    *,
+    settings: Settings | None = None,
 ) -> ImageGenerationProvider:
     provider = credential.provider.casefold().strip()
     base_url = credential.base_url.strip()
     if provider == "openrouter":
         if credential.model == AUTO_FREE_ANIME_MODEL:
-            return AutomaticFreeAnimeImageProvider(credential)
+            return AutomaticFreeAnimeImageProvider(credential, settings=settings)
         base_url = base_url or "https://openrouter.ai/api/v1"
     elif provider in {"custom", "openai", "openai_compatible"}:
         if not base_url:
@@ -75,6 +80,7 @@ def default_image_generation_provider_factory(
         api_key=credential.api_key,
         model=credential.model,
         base_url=base_url,
+        settings=settings,
     )
 
 
@@ -92,6 +98,7 @@ class ImageCreationRuntimeService:
         ),
         http_transport: httpx.AsyncBaseTransport | None = None,
         url_guard: PublicUrlGuard | None = None,
+        settings: Settings | None = None,
     ) -> None:
         self.credential_resolver = credential_resolver
         self.conversation_media_repository = conversation_media_repository
@@ -99,6 +106,7 @@ class ImageCreationRuntimeService:
         self.provider_factory = provider_factory
         self.http_transport = http_transport
         self.url_guard = url_guard or PublicUrlGuard()
+        self.settings = settings
 
     async def generate(
         self,
@@ -137,7 +145,10 @@ class ImageCreationRuntimeService:
                 "for that reference."
             )
 
-        provider = self.provider_factory(credential)
+        if self.provider_factory is default_image_generation_provider_factory:
+            provider = default_image_generation_provider_factory(credential, settings=self.settings)
+        else:
+            provider = self.provider_factory(credential)
         result = await provider.generate(
             ImageGenerationRequest(
                 prompt=payload.prompt,
@@ -252,8 +263,10 @@ class ImageCreationRuntimeService:
         try:
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(30.0),
-                transport=self.http_transport,
+                transport=self.http_transport
+                or PinnedAsyncHTTPTransport(url_guard=self.url_guard),
                 follow_redirects=False,
+                trust_env=False,
             ) as client:
                 for redirect_index in range(_MAX_REDIRECTS + 1):
                     response = await client.get(current)

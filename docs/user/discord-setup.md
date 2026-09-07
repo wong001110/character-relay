@@ -22,11 +22,15 @@ The configured Bootstrap Super Admin creates the managed Discord Connection. In 
 
 1. Create or select the Character Card you want to deploy.
 2. Open **Deployment Center** and add a Discord Connection (Super Admin only).
-3. Copy its Connection ID.
+3. Open the Connection details and copy the **internal Connection ID**. It is the UUID shown as `Internal Connection ID`; do not use the Discord Bot / external account ID.
 4. Create a Server Profile from a Discord Server synchronized by that Connection.
-5. Create an Active Character Deployment in that Server workspace and choose its Channel or Thread.
+5. Create the Character Deployment in that Server workspace, choose its Channel or Thread, then activate it when the connector and destination have been checked.
 
-Regular users cannot create managed Connections. They select/claim a Server already synchronized by the operator, then create their Character Deployment in that Server workspace. New Connection and Deployment creation is Discord-only. A Character Card can be deployed more than once, but every Deployment keeps its own Server and destination scope.
+Regular users cannot create managed Connections. They first receive Server Access (a join code or a Super Admin assignment), then select or claim a Server already synchronized by the operator and create their Character Deployment in that Server workspace. Connector synchronization, Server Access, Server Profiles, and Knowledge Fabric scopes are separate records: synchronization does not grant access or create either kind of scope.
+
+Only the Super Admin can bootstrap a Knowledge Fabric Server scope. It uses the exact Discord Connection ID and Server ID, and it does not grant Fabric administration to Discord members or Server Access members; those memberships stay explicit.
+
+New deployments are created **Paused**. This retains the destination, identity, and exclusions while the connector is checked; it does not participate in Discord until you activate it from Deployment Center. A Server Profile sets the Server-wide channel exclusions. A deployment can add its own exclusions but cannot re-enable a location excluded by that profile.
 
 ## 3. Configure the shared secret
 
@@ -52,7 +56,7 @@ The Connector requires:
 DISCORD_BOT_TOKEN=<Discord Bot token>
 CHARACTER_RELAY_API_URL=https://<Character Relay service domain>
 CHARACTER_RELAY_CONNECTOR_TOKEN=<shared secret>
-CHARACTER_RELAY_CONNECTION_ID=<Connection ID from Deployment Center>
+CHARACTER_RELAY_CONNECTION_ID=<internal Connection UUID copied from Connection details>
 DISCORD_MESSAGE_CONTENT_INTENT=true
 ```
 

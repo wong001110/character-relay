@@ -21,6 +21,7 @@ class TurnJobRecord(Base):
     thread_id: Mapped[str] = mapped_column(String(200), default="")
     category_id: Mapped[str] = mapped_column(String(200), default="")
     source_message_id: Mapped[str] = mapped_column(String(200), default="")
+    source_author_id: Mapped[str] = mapped_column(String(200), default="", index=True)
     request_json: Mapped[str] = mapped_column(Text, default="{}")
     status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
     reply_json: Mapped[str] = mapped_column(Text, default="")

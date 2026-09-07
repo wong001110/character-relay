@@ -94,6 +94,7 @@ import {
   decideTurnCollection,
   summarizeConversationBurst
 } from "./turnIngress.js";
+import { parseTurnControl } from "./turnControl.js";
 import { DiscordWebhookManager } from "./webhookManager.js";
 
 const config = loadConfig();
@@ -164,6 +165,8 @@ interface CollectedDiscordTurn {
 
 const context = new ContextBuffer(config.maxContextMessages);
 const queues = new Map<string, Promise<void>>();
+const queuedIngressByDestination = new Map<string, number>();
+let queuedIngressCount = 0;
 const latestHumanTurnByDestination = new Map<
   string,
   { epoch: number; messageId: string }
@@ -215,6 +218,19 @@ const turnIngress = new TurnIngressCoordinator<CollectedDiscordTurn>(
     log("Discord Turn Collector ingress failed.", {
       scopeKey,
       ...safeDiagnosticError(error)
+    });
+  },
+  {
+    maxPending: config.turnIngressMaxPending,
+    maxPendingPerScope: config.turnIngressMaxPendingPerDestination,
+    maxPreflightAgeMs: config.turnIngressMaxPreflightAgeMs
+  },
+  (scopeKey, reason) => {
+    log("Discord turn ingress rejected before Runtime submission.", {
+      scopeKey,
+      reason,
+      pending: queuedIngressCount,
+      destinationPending: queuedIngressByDestination.get(scopeKey) ?? 0
     });
   }
 );
@@ -669,7 +685,16 @@ async function resolveReplyTarget(
   }
 }
 
-function enqueue(destination: string, task: () => Promise<void>): void {
+function enqueue(destination: string, task: () => Promise<void>): boolean {
+  const destinationPending = queuedIngressByDestination.get(destination) ?? 0;
+  if (
+    queuedIngressCount >= config.turnIngressMaxPending ||
+    destinationPending >= config.turnIngressMaxPendingPerDestination
+  ) {
+    return false;
+  }
+  queuedIngressCount += 1;
+  queuedIngressByDestination.set(destination, destinationPending + 1);
   const previous = queues.get(destination) ?? Promise.resolve();
   let next: Promise<void>;
   next = previous
@@ -680,9 +705,14 @@ function enqueue(destination: string, task: () => Promise<void>): void {
       log("Discord message task failed.", { destination, ...safeDiagnosticError(error) });
     })
     .finally(() => {
+      queuedIngressCount = Math.max(0, queuedIngressCount - 1);
+      const remaining = (queuedIngressByDestination.get(destination) ?? 1) - 1;
+      if (remaining > 0) queuedIngressByDestination.set(destination, remaining);
+      else queuedIngressByDestination.delete(destination);
       if (queues.get(destination) === next) queues.delete(destination);
     });
   queues.set(destination, next);
+  return true;
 }
 
 async function sendSelectionHelp(
@@ -831,7 +861,10 @@ async function deliverCharacterTurnFailure(
 async function claimTerminalTurnFailure(
   error: TurnJobTerminalError
 ): Promise<boolean> {
-  if (error.errorCode === "connector_poll_budget_exhausted") return false;
+  if (
+    error.errorCode === "connector_poll_budget_exhausted" ||
+    error.status === "cancelled"
+  ) return false;
   try {
     await relay.consumeTerminalTurnJob(error.jobId);
     return true;
@@ -1970,7 +2003,7 @@ async function processMessage(
     managedBotRoleIds
   });
   const mentionedBot = mentionDetection.mentionedBot;
-  const originalText = normalizedText(
+  let originalText = normalizedText(
     guildMessage,
     botUser.id,
     mentionDetection.managedBotRoleIds
@@ -2068,6 +2101,74 @@ async function processMessage(
       });
     }
     return;
+  }
+  // Cancellation is deliberately a narrow, reply-based control.  It must name one
+  // deployment, be addressed to this Bot, and reply to the same human's original
+  // request.  New unrelated messages never cancel a turn.
+  if (!options?.recovery && mentionedBot && guildMessage.reference?.messageId) {
+    const control = parseTurnControl(originalText);
+    if (control) {
+      const audience = resolveAudience(
+        candidates,
+        control.audienceText,
+        null,
+        config.groupAddressAliases
+      );
+      const deployment = audience.deployments.length === 1 ? audience.deployments[0] : null;
+      if (deployment) {
+        try {
+          const referenced = await guildMessage.fetchReference();
+          if (!referenced.author.bot && referenced.author.id === guildMessage.author.id) {
+            const resolvedDeployment = resolveDeploymentLocation(deployment, location);
+            const cancelled = await relay.cancelTurnJobs({
+              deployment_id: resolvedDeployment.deployment_id,
+              guild_id: guildMessage.guildId,
+              channel_id: location.channelId,
+              thread_id: location.threadId,
+              category_id: location.categoryId,
+              source_message_id: referenced.id,
+              source_author_id: guildMessage.author.id,
+              reason: control.kind === "replace" ? "user_replaced" : "user_cancelled"
+            });
+            reportDiscordEvent({
+              level: "info",
+              eventType: control.kind === "replace" ? "turn_replaced" : "turn_cancelled",
+              message: "A user explicitly controlled their matching Character turn.",
+              guildId: guildMessage.guildId,
+              guildName: guildMessage.guild.name,
+              channelId: location.channelId,
+              channelName: location.channelName,
+              threadId: location.threadId,
+              threadName: location.threadName,
+              sourceMessageId: guildMessage.id,
+              deploymentId: resolvedDeployment.deployment_id,
+              characterName: deploymentDisplayName(resolvedDeployment),
+              details: {
+                target_message_id: referenced.id,
+                cancelled_job_ids: cancelled,
+                command: control.kind
+              }
+            });
+            if (control.kind === "cancel") {
+              await guildMessage.reply({
+                content: cancelled.length
+                  ? "Okay, I cancelled that request. Any work already sent to an external tool may still finish, but it will not be delivered as this reply."
+                  : "That request is no longer active.",
+                allowedMentions: { parse: [], repliedUser: false }
+              });
+              return;
+            }
+            originalText = control.replacementText;
+          }
+        } catch (error) {
+          log("Explicit Discord turn control could not be applied.", {
+            sourceMessageId: guildMessage.id,
+            deploymentId: deployment.deployment_id,
+            ...safeDiagnosticError(error)
+          });
+        }
+      }
+    }
   }
   const key = destinationKey(location.channelId, location.threadId);
   const previousHumanTurn = latestHumanTurnByDestination.get(key);
@@ -3408,6 +3509,22 @@ async function processMessage(
       : {}),
     execute: async (burst) => {
       await executeQueued(burst, preclaimedInteraction);
+    },
+    onRejected: (reason) => {
+      if (collectionDecision.collect || (!mentionedBot && !explicitAudience)) return;
+      const text = reason === "expired"
+        ? "That request waited too long before it could start. Please send it again."
+        : "I’m handling the maximum number of requests for this conversation. Please try again shortly.";
+      void guildMessage.reply({
+        content: text,
+        allowedMentions: { parse: [], repliedUser: false }
+      }).catch((error: unknown) => {
+        log("Unable to show explicit Discord turn ingress status.", {
+          sourceMessageId: guildMessage.id,
+          reason,
+          ...safeDiagnosticError(error)
+        });
+      });
     }
   });
 }

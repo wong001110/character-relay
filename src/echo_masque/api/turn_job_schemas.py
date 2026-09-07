@@ -9,7 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from echo_masque.api.connector_schemas import DiscordConnectorReplyView
 from echo_masque.api.social_turn_schemas import DiscordSocialTurnStepView
 
-TurnJobStatus = Literal["queued", "running", "succeeded", "failed", "timed_out", "stopped"]
+TurnJobStatus = Literal[
+    "queued", "running", "succeeded", "failed", "timed_out", "stopped", "cancelled"
+]
 
 
 class TurnProgressEvent(BaseModel):
@@ -37,6 +39,20 @@ class TurnProgressClaimRequest(BaseModel):
 class TurnProgressClaimView(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event: TurnProgressEvent | None = None
+
+
+class TurnJobCancelRequest(BaseModel):
+    """A Connector-authenticated, exact source-event cancellation request."""
+
+    model_config = ConfigDict(extra="forbid")
+    deployment_id: str = Field(min_length=1, max_length=64)
+    guild_id: str = Field(min_length=1, max_length=200)
+    channel_id: str = Field(min_length=1, max_length=200)
+    thread_id: str = Field(default="", max_length=200)
+    category_id: str = Field(default="", max_length=200)
+    source_message_id: str = Field(min_length=1, max_length=200)
+    source_author_id: str = Field(min_length=1, max_length=200)
+    reason: Literal["user_cancelled", "user_replaced"]
 
 
 class TurnJobRecoveryItem(BaseModel):

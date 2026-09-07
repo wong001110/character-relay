@@ -75,6 +75,7 @@ export function DiscordServerProfilesPanel({
   const [excludedChannels, setExcludedChannels] = useState<Set<string>>(new Set());
   const [excludedCategories, setExcludedCategories] = useState<Set<string>>(new Set());
   const [connectionEditorOpen, setConnectionEditorOpen] = useState(false);
+  const [connectionCopied, setConnectionCopied] = useState(false);
   const [connectionDisplayName, setConnectionDisplayName] = useState("");
   const [connectionMode, setConnectionMode] = useState<ConnectionMode>("managed");
   const [connectionExternalAccountId, setConnectionExternalAccountId] = useState("");
@@ -152,6 +153,17 @@ export function DiscordServerProfilesPanel({
 
   function closeConnectionEditor() {
     setConnectionEditorOpen(false);
+    setConnectionCopied(false);
+  }
+
+  async function copyConnectionId() {
+    if (!workspaceConnection) return;
+    try {
+      await navigator.clipboard.writeText(workspaceConnection.id);
+      setConnectionCopied(true);
+    } catch (reason) {
+      onError(reason instanceof Error ? reason.message : "Could not copy the internal Connection ID.");
+    }
   }
 
   async function saveConnection(event: FormEvent<HTMLFormElement>) {
@@ -665,9 +677,19 @@ export function DiscordServerProfilesPanel({
                 <div className="server-workspace-connection-icon" aria-hidden="true">D</div>
                 <div>
                   <strong>Discord</strong>
-                  <span>{workspaceConnection.id}</span>
+                  <span>Internal Connection ID: {workspaceConnection.id}</span>
                 </div>
                 <small>{workspaceConnection.status}</small>
+              </div>
+              <div className="server-drawer-footer drawer-form-wide">
+                <small>
+                  {zh
+                    ? "这是 Connector 的 CHARACTER_RELAY_CONNECTION_ID。它是内部 UUID，不是 Discord Bot / 外部账号 ID。"
+                    : "Use this internal UUID for CHARACTER_RELAY_CONNECTION_ID. It is not the Discord Bot / external account ID."}
+                </small>
+                <button className="paper-button" type="button" onClick={() => void copyConnectionId()}>
+                  {connectionCopied ? (zh ? "已复制" : "Copied") : (zh ? "复制 Connection ID" : "Copy Connection ID")}
+                </button>
               </div>
               <label className="drawer-form-wide">
                 {zh ? "连接显示名称" : "Connection display name"}
@@ -695,6 +717,11 @@ export function DiscordServerProfilesPanel({
                   onChange={(event) => setConnectionExternalAccountId(event.currentTarget.value)}
                   maxLength={200}
                 />
+                <small>
+                  {zh
+                    ? "仅用于识别 Discord Bot；不要把这个值填入 Connector 的 CHARACTER_RELAY_CONNECTION_ID。"
+                    : "This identifies the Discord Bot only. Do not put it in CHARACTER_RELAY_CONNECTION_ID."}
+                </small>
               </label>
               <div className="server-drawer-footer drawer-form-wide">
                 <small>

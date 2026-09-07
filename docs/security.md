@@ -58,10 +58,21 @@ Token-usage fields such as input/output token counts are metrics, not credential
   Custom `HttpTarget` requests are denied by default; operators must configure
   `CHARACTER_RELAY_HTTP_TARGET_ALLOWED_ORIGINS`. Entries cannot contain userinfo, paths, queries
   or fragments. Configure existing custom/Cloudflare endpoints before rollout if required.
-- API-composed trials, Discord characters and condition watches pass the application's resolved
-  settings to these clients. The allowlist is an application admission boundary, not DNS pinning
-  or an egress firewall. Other direct multimodal/image/network clients require separate review;
-  this change does not declare them covered. Development permits loopback HTTP models.
+- The same exact provider-origin admission applies to OpenAI-compatible multimodal analysis,
+  image generation, and OpenRouter's automatic image-model discovery. Redirects are disabled on
+  credential-bearing provider and discovery requests; HTTP clients also disable environment proxy
+  discovery. Development permits loopback HTTP models.
+- Public Tool downloads, generated-image materialization, live-media downloads, MCP Streamable
+  HTTP, static search, and Browser HTTP(S) subresources use a direct HTTP/1.1 transport that
+  resolves once, rejects a non-public address set, and dials the selected literal address while
+  retaining the configured hostname for Host/TLS SNI verification. Browser routes are fulfilled
+  from that transport rather than continued by Chromium, so redirects and each GET/HEAD
+  subresource are separately pinned. Browser non-GET/HEAD external requests are aborted;
+  WebSocket routes are closed and page scripts cannot construct WebRTC or WebTransport channels.
+  This is a process-level socket-binding control for these call sites, not a universal egress
+  firewall: unrelated libraries, non-HTTP protocols, an operator-added custom transport, and the
+  host platform's own network policy remain separate boundaries. Production still needs operating
+  system/container egress isolation for a complete Chromium sandbox boundary.
 
 ## Data retention and storage
 

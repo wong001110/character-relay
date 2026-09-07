@@ -30,6 +30,9 @@ export interface ConnectorConfig {
   botTagMaxResponses: number;
   turnJobMaxWaitMs: number;
   turnJobRecoveryMaxConcurrent: number;
+  turnIngressMaxPending: number;
+  turnIngressMaxPendingPerDestination: number;
+  turnIngressMaxPreflightAgeMs: number;
 }
 
 function required(name: string): string {
@@ -163,6 +166,24 @@ export function loadConfig(): ConnectorConfig {
       4,
       1,
       10
+    ),
+    turnIngressMaxPending: boundedInteger(
+      "DISCORD_TURN_INGRESS_MAX_PENDING",
+      100,
+      1,
+      1_000
+    ),
+    turnIngressMaxPendingPerDestination: boundedInteger(
+      "DISCORD_TURN_INGRESS_MAX_PENDING_PER_DESTINATION",
+      8,
+      1,
+      100
+    ),
+    turnIngressMaxPreflightAgeMs: boundedInteger(
+      "DISCORD_TURN_INGRESS_MAX_PREFLIGHT_AGE_MS",
+      30_000,
+      1_000,
+      300_000
     )
   };
   if (

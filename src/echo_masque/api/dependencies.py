@@ -11,6 +11,7 @@ from fastapi.security import OAuth2PasswordBearer
 from echo_masque.auth import AuthContext, AuthenticatedUser, AuthService
 from echo_masque.config import Settings
 from echo_masque.providers.trace import provider_trace_scope
+from echo_masque.quota_admission import owner_quota_admission
 from echo_masque.security_controls import QuotaExceeded, QuotaService
 
 _oauth2 = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
@@ -86,7 +87,14 @@ async def current_auth_context(
         except QuotaExceeded as exc:
             raise quota_http_exception(exc) from exc
     with provider_trace_scope(owner_id=context.user.id):
-        yield context
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            try:
+                async with owner_quota_admission(quota_service(request).database, context.user.id):
+                    yield context
+            except QuotaExceeded as exc:
+                raise quota_http_exception(exc) from exc
+        else:
+            yield context
 
 
 def current_user(

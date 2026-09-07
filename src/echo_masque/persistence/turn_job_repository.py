@@ -19,7 +19,7 @@ from echo_masque.persistence.runtime_durability_models import (
 )
 from echo_masque.persistence.turn_job_models import TurnJobProgressRecord, TurnJobRecord
 
-TERMINAL = frozenset({"succeeded", "failed", "timed_out", "stopped"})
+TERMINAL = frozenset({"succeeded", "failed", "timed_out", "stopped", "cancelled"})
 
 
 def _rowcount(result: object) -> int:
@@ -55,6 +55,7 @@ class TurnJobRepository:
         message_id: str,
         request_json: str,
         deadline_seconds: int,
+        source_author_id: str = "",
         thread_id: str = "",
         category_id: str = "",
     ) -> tuple[TurnJobRecord, bool]:
@@ -76,6 +77,7 @@ class TurnJobRepository:
             thread_id=thread_id,
             category_id=category_id,
             source_message_id=message_id,
+            source_author_id=source_author_id,
             request_json=request_json,
             status="queued",
             deadline_at=now + timedelta(seconds=deadline_seconds),
@@ -175,12 +177,160 @@ class TurnJobRepository:
                 return
             session.commit()
 
-    def fail(self, job_id: str, *, status: str, error_code: str) -> None:
+    def is_running(self, job_id: str) -> bool:
+        """A cheap durable gate for progress and publication callbacks."""
+        with self.database.session() as session:
+            return bool(
+                session.scalar(
+                    select(TurnJobRecord.job_id).where(
+                        TurnJobRecord.job_id == job_id,
+                        TurnJobRecord.status == "running",
+                        TurnJobRecord.deadline_at > datetime.now(UTC),
+                    )
+                )
+            )
+
+    def cancel(
+        self,
+        job_id: str,
+        *,
+        owner_id: str,
+        connection_id: str,
+        reason: str,
+    ) -> bool:
+        """Terminalize a scoped job without replaying or undoing external effects."""
+        with self.database.session() as session:
+            record = session.get(TurnJobRecord, job_id)
+            if (
+                record is None
+                or record.owner_id != owner_id
+                or record.connection_id != connection_id
+                or record.status in TERMINAL
+            ):
+                return False
+        return self.fail(job_id, status="cancelled", error_code=reason)
+
+    def cancel_matching_request(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        deployment_id: str,
+        guild_id: str,
+        channel_id: str,
+        thread_id: str,
+        category_id: str,
+        source_message_id: str,
+        source_author_id: str,
+        reason: str,
+    ) -> list[str]:
+        """Cancel only the named author's active request at its exact deployment destination.
+
+        A completed job is still cancellable only while its durable Runtime step remains
+        ``generated``.  That compare-and-set wins or loses against the Connector's final
+        delivery claim, so cancellation never pretends to undo a claimed Discord send.
+        """
+        with self.database.session() as session:
+            records = list(
+                session.scalars(
+                    select(TurnJobRecord).where(
+                        TurnJobRecord.owner_id == owner_id,
+                        TurnJobRecord.connection_id == connection_id,
+                        TurnJobRecord.deployment_id == deployment_id,
+                        TurnJobRecord.guild_id == guild_id,
+                        TurnJobRecord.channel_id == channel_id,
+                        TurnJobRecord.thread_id == thread_id,
+                        TurnJobRecord.category_id == category_id,
+                        TurnJobRecord.source_message_id == source_message_id,
+                        TurnJobRecord.source_author_id == source_author_id,
+                        TurnJobRecord.status.in_(("queued", "running", "succeeded")),
+                    )
+                )
+            )
+        cancelled: list[str] = []
+        for record in records:
+            if record.status in {"queued", "running"}:
+                if self.cancel(
+                    record.job_id,
+                    owner_id=owner_id,
+                    connection_id=connection_id,
+                    reason=reason,
+                ):
+                    cancelled.append(record.job_id)
+                    continue
+                # Generation can complete between the candidate query and the
+                # active-job transition.  Re-read it so cancellation still gets
+                # the generated-before-delivery compare-and-set opportunity.
+                with self.database.session() as session:
+                    completed = session.get(TurnJobRecord, record.job_id)
+                if (
+                    completed is not None
+                    and completed.status == "succeeded"
+                    and self._cancel_generated_delivery(completed, reason=reason)
+                ):
+                    cancelled.append(record.job_id)
+            elif self._cancel_generated_delivery(record, reason=reason):
+                cancelled.append(record.job_id)
+        return cancelled
+
+    def _cancel_generated_delivery(self, record: TurnJobRecord, *, reason: str) -> bool:
+        """Atomically remove a generated final before the Connector can claim it."""
+        if not record.runtime_step_id:
+            return False
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            step = session.get(RuntimeStepRecord, record.runtime_step_id)
+            if step is None or step.deployment_id != record.deployment_id:
+                return False
+            operation = session.get(RuntimeOperationRecord, step.operation_id)
+            if operation is None or operation not in self._runtime_operations(session, record):
+                return False
+            step_transitioned = session.execute(
+                update(RuntimeStepRecord)
+                .where(
+                    RuntimeStepRecord.step_id == step.step_id,
+                    RuntimeStepRecord.status == "generated",
+                )
+                .values(
+                    status="failed",
+                    response_json="{}",
+                    last_error="turn_job_cancelled_before_delivery",
+                    updated_at=now,
+                )
+            )
+            if _rowcount(step_transitioned) != 1:
+                return False
+            job_transitioned = session.execute(
+                update(TurnJobRecord)
+                .where(
+                    TurnJobRecord.job_id == record.job_id,
+                    TurnJobRecord.status == "succeeded",
+                )
+                .values(
+                    request_json="{}",
+                    reply_json="",
+                    social_step_json="",
+                    status="cancelled",
+                    error_code=reason[:80],
+                    completed_at=now,
+                    updated_at=now,
+                )
+            )
+            if _rowcount(job_transitioned) != 1:
+                session.rollback()
+                return False
+            operation.status = "failed"
+            operation.last_error = "turn_job_cancelled_before_delivery"
+            operation.updated_at = now
+            session.commit()
+            return True
+
+    def fail(self, job_id: str, *, status: str, error_code: str) -> bool:
         now = datetime.now(UTC)
         with self.database.session() as session:
             record = session.get(TurnJobRecord, job_id)
             if record is None or record.status in TERMINAL:
-                return
+                return False
             transitioned = session.execute(
                 update(TurnJobRecord)
                 .where(
@@ -196,8 +346,8 @@ class TurnJobRepository:
                 )
             )
             if _rowcount(transitioned) != 1:
-                return
-            if status in {"timed_out", "stopped"}:
+                return False
+            if status in {"timed_out", "stopped", "cancelled"}:
                 operations = self._runtime_operations(session, record)
                 for operation in operations:
                     operation.status = "uncertain"
@@ -211,6 +361,7 @@ class TurnJobRepository:
                         step.status = "uncertain"
                         step.last_error = "turn_job_interrupted"
             session.commit()
+            return True
 
     def publish_progress(self, job_id: str, text: str) -> bool:
         normalized = " ".join(text.split())[:500]
@@ -249,6 +400,9 @@ class TurnJobRepository:
         if not nonce or len(nonce) > 64:
             return None
         with self.database.session() as session:
+            job = session.get(TurnJobRecord, job_id)
+            if job is None or job.status not in {"queued", "running", "succeeded"}:
+                return None
             records = list(
                 session.scalars(
                     select(TurnJobProgressRecord)

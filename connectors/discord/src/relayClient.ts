@@ -902,6 +902,25 @@ export class RelayClient {
     );
   }
 
+  async cancelTurnJobs(input: {
+    deployment_id: string;
+    guild_id: string;
+    channel_id: string;
+    thread_id: string;
+    category_id: string;
+    source_message_id: string;
+    source_author_id: string;
+    reason: "user_cancelled" | "user_replaced";
+  }): Promise<string[]> {
+    const query = new URLSearchParams({ connection_id: this.connectionId });
+    return this.request<string[]>(
+      `/api/connectors/discord/turn-jobs/cancel?${query.toString()}`,
+      { method: "POST", body: JSON.stringify(input) },
+      false,
+      TURN_JOB_REQUEST_TIMEOUT_MS
+    );
+  }
+
   async resumeMessageTurnJob(
     jobId: string,
     options: Required<Pick<TurnJobProgressOptions, "onProgress">> & TurnJobProgressOptions

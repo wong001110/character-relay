@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Literal, Protocol, cast
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -27,7 +27,7 @@ from echo_masque.media_runtime import (
     MediaUnderstandingProvider,
     MediaUnderstandingService,
 )
-from echo_masque.network_safety import PublicUrlGuard, PublicUrlRejected
+from echo_masque.network_safety import PinnedAsyncHTTPTransport, PublicUrlGuard, PublicUrlRejected
 from echo_masque.persistence.media_repository import MediaAnalysisRepository
 from echo_masque.provider_credentials import (
     KeyGroupProviderCredentialResolver,
@@ -35,6 +35,9 @@ from echo_masque.provider_credentials import (
 )
 from echo_masque.providers.openai_multimodal import OpenAICompatibleMultimodalProvider
 from echo_masque.tool_external import ExternalToolFailed, ExternalToolRuntime
+
+if TYPE_CHECKING:
+    from echo_masque.config import Settings
 
 _DISCORD_API_BASE = "https://discord.com/api/v10"
 _URL_PATTERN = re.compile(r"https?://[^\s<>\]\[(){}\"']+", re.IGNORECASE)
@@ -115,6 +118,8 @@ class _AttachmentCacheEntry:
 
 def default_live_media_provider_factory(
     credential: ResolvedProviderCredential,
+    *,
+    settings: Settings | None = None,
 ) -> MediaUnderstandingProvider:
     provider = credential.provider.casefold().strip()
     base_url = credential.base_url.strip()
@@ -132,6 +137,7 @@ def default_live_media_provider_factory(
         api_key=credential.api_key,
         model=credential.model,
         base_url=base_url,
+        settings=settings,
     )
 
 
@@ -147,13 +153,24 @@ class LiveMediaContextService:
         provider_factory: LiveMediaProviderFactory = default_live_media_provider_factory,
         http_transport: httpx.AsyncBaseTransport | None = None,
         url_guard: PublicUrlGuard | None = None,
+        settings: Settings | None = None,
     ) -> None:
         self.media_repository = media_repository
         self.credential_resolver = credential_resolver
         self.discord_bot_token = discord_bot_token
-        self.provider_factory = provider_factory
+        self.provider_factory = (
+            (
+                lambda credential: default_live_media_provider_factory(
+                    credential,
+                    settings=settings,
+                )
+            )
+            if provider_factory is default_live_media_provider_factory
+            else provider_factory
+        )
         self.http_transport = http_transport
         self.url_guard = url_guard or PublicUrlGuard()
+        self.settings = settings
         self.external = ExternalToolRuntime(
             discord_bot_token=discord_bot_token,
             http_transport=http_transport,
@@ -354,7 +371,10 @@ class LiveMediaContextService:
         try:
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(12.0),
-                transport=self.http_transport,
+                transport=self.http_transport
+                or PinnedAsyncHTTPTransport(url_guard=self.url_guard),
+                follow_redirects=False,
+                trust_env=False,
             ) as client:
                 response = await client.get(endpoint, headers=headers)
             if response.is_error:
@@ -481,8 +501,10 @@ class LiveMediaContextService:
         response_type = declared_mime
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(60.0),
-            transport=self.http_transport,
+            transport=self.http_transport
+            or PinnedAsyncHTTPTransport(url_guard=self.url_guard),
             follow_redirects=False,
+            trust_env=False,
             headers={"User-Agent": "CharacterRelay/0.3 MediaResolver"},
         ) as client:
             for redirect_index in range(_MAX_REDIRECTS + 1):

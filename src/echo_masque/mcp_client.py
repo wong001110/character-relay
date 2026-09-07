@@ -8,10 +8,11 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
+import httpx2
 from pydantic import SecretStr
 
 from echo_masque.mcp_config import McpProviderConfig
-from echo_masque.network_safety import PublicUrlGuard
+from echo_masque.network_safety import PinnedAsyncNetworkBackend, PublicUrlGuard
 
 
 class McpClientError(RuntimeError):
@@ -52,6 +53,68 @@ type McpSessionFactory = Callable[
     [McpProviderConfig, SecretStr | None], AbstractAsyncContextManager[McpSession]
 ]
 type HttpTransportFactory = Callable[[], object]
+
+
+class _PinnedMcpHTTPTransport:
+    """Adapt the direct pinned exchange to MCP's vendored ``httpx2`` transport API."""
+
+    def __init__(self, httpx2: Any, *, url_guard: PublicUrlGuard, max_response_bytes: int) -> None:
+        import httpcore2
+
+        self._httpx2 = httpx2
+        self._httpcore = httpcore2
+        self._pool = httpcore2.AsyncConnectionPool(
+            http1=True,
+            http2=False,
+            network_backend=cast(
+                Any,
+                PinnedAsyncNetworkBackend(
+                    httpcore2.AnyIOBackend(),
+                    url_guard=url_guard,
+                ),
+            ),
+        )
+        del max_response_bytes  # The response hook below caps the preserved streaming body.
+
+    async def handle_async_request(self, request: Any) -> object:
+        core_request = self._httpcore.Request(
+            method=request.method,
+            url=self._httpcore.URL(
+                scheme=request.url.raw_scheme,
+                host=request.url.raw_host,
+                port=request.url.port,
+                target=request.url.raw_path,
+            ),
+            headers=request.headers.raw,
+            content=request.stream,
+            extensions=request.extensions,
+        )
+        response = await self._pool.handle_async_request(core_request)
+        return self._httpx2.Response(
+            status_code=response.status,
+            headers=response.headers,
+            stream=_McpCoreResponseStream(response.stream),
+            request=request,
+            extensions=response.extensions,
+        )
+
+    async def aclose(self) -> None:
+        await self._pool.aclose()
+
+
+class _McpCoreResponseStream(httpx2.AsyncByteStream):
+    """httpx2-compatible streaming response wrapper over httpcore2's body stream."""
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        async for chunk in self._stream:
+            yield chunk
+
+    async def aclose(self) -> None:
+        if hasattr(self._stream, "aclose"):
+            await self._stream.aclose()
 
 
 class McpClient:
@@ -162,9 +225,8 @@ class McpClient:
         provider: McpProviderConfig,
         bearer_token: SecretStr | None,
     ) -> AsyncIterator[McpSession]:
-        # Import lazily so configuration inspection and deterministic tests do not open or
-        # require an MCP client stack. ``mcp`` 2.x owns JSON/SSE Streamable HTTP framing.
-        import httpx2
+        # ``mcp`` 2.x owns JSON/SSE Streamable HTTP framing.  ``httpx2`` is imported by this
+        # module for its transport base class, but no network client is opened until this method.
         from mcp import Client
         from mcp.client.streamable_http import streamable_http_client
 
@@ -209,7 +271,13 @@ class McpClient:
             pool=min(10.0, provider.call_timeout_seconds),
         )
         base_transport = (
-            self._http_transport_factory() if self._http_transport_factory is not None else None
+            self._http_transport_factory()
+            if self._http_transport_factory is not None
+            else _PinnedMcpHTTPTransport(
+                httpx2,
+                url_guard=self._url_guard,
+                max_response_bytes=provider.max_http_response_bytes,
+            )
         )
         async with httpx2.AsyncClient(
             headers=headers,

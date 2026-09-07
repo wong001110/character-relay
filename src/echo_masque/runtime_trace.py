@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Literal, Protocol
 
 TraceNodeKind = Literal[
@@ -36,6 +37,7 @@ class RuntimeTraceEvent:
     changed_keys: tuple[str, ...] = ()
     metadata: tuple[tuple[str, str], ...] = ()
     error: str = ""
+    occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class RuntimeTraceSink(Protocol):

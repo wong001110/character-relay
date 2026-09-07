@@ -83,6 +83,9 @@ intended deployment. Existing native `image.generate` assignment remains indepen
 | `CHARACTER_RELAY_TURN_JOB_RETENTION_HOURS` | 24 | 1–168 hours for job/progress records |
 | `DISCORD_TURN_JOB_MAX_WAIT_MS` | 330000 | Connector overall wait; align above API deadline |
 | `DISCORD_TURN_JOB_RECOVERY_MAX_CONCURRENT` | 4 | 1–10 recovery jobs; bounded pending queue |
+| `DISCORD_TURN_INGRESS_MAX_PENDING` | 100 | 1–1000 Connector preflight, collected-burst, and runtime tasks per process |
+| `DISCORD_TURN_INGRESS_MAX_PENDING_PER_DESTINATION` | 8 | 1–100 pending tasks for one channel/thread destination |
+| `DISCORD_TURN_INGRESS_MAX_PREFLIGHT_AGE_MS` | 30000 | 1000–300000; stale work is rejected before Runtime/API submission |
 | Provider `list_timeout_seconds` | 10 | 1–10 seconds |
 | Provider `call_timeout_seconds` | 90 | 1–120 seconds; also bounded by overall job deadline |
 | Provider `catalog_ttl_seconds` | 300 | 60–3600 seconds; invocation refreshes regardless |
@@ -113,6 +116,7 @@ guild, channel, thread, and category before acceptance or reattachment.
 | `POST /turn-jobs/{job_id}/progress/{progress_id}/ack` | Confirm the same claim after delivery |
 | `GET /turn-jobs?connection_id=…&after_job_id=…&limit=…` | Message-job recovery page with `items` and `next_cursor` |
 | `POST /turn-jobs/{job_id}/consume` | Claim the single terminal failure-notice attempt **before** sending |
+| `POST /turn-jobs/cancel?connection_id=…` | Terminalize only one exact author/source/deployment/destination request; returns cancelled job IDs |
 
 Mutation endpoints also require `connection_id` and existing Connector authentication.
 Final successful responses reuse Runtime's existing delivery claim/acknowledgement protocol.
@@ -120,6 +124,19 @@ Unacknowledged progress claims and ambiguous final sends are not replayed. Failu
 consume returns 204 to one contender and 409 thereafter. A crash between claim and send can
 lose a notice; it cannot safely be retried without transport reconciliation. Connector-only
 poll expiry does not publish a false “generation failed” while the server job is still active.
+
+Discord text controls are intentionally narrow until a Discord interaction command is installed:
+the user must mention the Bot, reply to their own original human request, name exactly one
+Character, and use the anchored form `Character cancel` or `Character replace: new request`.
+The Connector forwards the original source message ID, author ID, deployment and exact Discord
+destination; ordinary new messages and natural-language substrings do not cancel work. A cancelled
+job is terminal and cannot store or deliver a late final reply. Cancellation cannot undo an
+external effect that was already started; those outcomes stay uncertain and are never replayed.
+It can also win the narrow interval after a final is generated but before Discord's durable
+delivery claim: the server atomically makes that generated step non-deliverable. If the delivery
+claim already won, cancellation reports no cancelled job because a Discord send may be in flight.
+Explicit requests rejected by bounded Connector ingress receive a visible busy/expired reply;
+Smart Participation collector work remains coalesced within its bounded burst window.
 
 The Connector periodically scans bounded recovery pages, including pages whose records have
 all lost authorization, and reattaches by job ID without calling generation again. Successful

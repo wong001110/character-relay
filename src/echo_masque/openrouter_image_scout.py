@@ -12,14 +12,19 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from time import monotonic
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 import httpx
 
 from echo_masque.image_generation import ImageGenerationRequest, ImageGenerationResult
+from echo_masque.network_safety import PinnedAsyncHTTPTransport
 from echo_masque.provider_credentials import ResolvedProviderCredential
 from echo_masque.providers.openrouter_image import OpenRouterImageGenerationProvider
+from echo_masque.target_endpoint_policy import EndpointPolicyRejected, TargetEndpointPolicy
+
+if TYPE_CHECKING:
+    from echo_masque.config import Settings
 
 AUTO_FREE_ANIME_MODEL = "auto:openrouter-free-anime"
 _DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -89,9 +94,15 @@ class OpenRouterImageModelScout:
         *,
         cache_ttl_seconds: int = _CACHE_TTL_SECONDS,
         http_transport: httpx.AsyncBaseTransport | None = None,
+        settings: Settings | None = None,
     ) -> None:
         self.cache_ttl_seconds = max(60, cache_ttl_seconds)
         self.http_transport = http_transport
+        if settings is None:
+            from echo_masque.config import get_settings
+
+            settings = get_settings()
+        self._endpoint_policy = TargetEndpointPolicy.from_settings(settings)
         self._cache: dict[str, _CacheEntry] = {}
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -149,6 +160,7 @@ class OpenRouterImageModelScout:
             )
         provider_tag = candidate.provider_tags[0]
         base_url = credential.base_url.strip() or _DEFAULT_OPENROUTER_BASE_URL
+        self._require_endpoint(base_url)
         headers = {
             "Authorization": f"Bearer {credential.api_key.get_secret_value()}",
             "Accept": "application/json",
@@ -158,8 +170,9 @@ class OpenRouterImageModelScout:
                 base_url=base_url.rstrip("/") + "/",
                 headers=headers,
                 timeout=httpx.Timeout(8.0),
-                transport=self.http_transport,
-                follow_redirects=True,
+                transport=self.http_transport or PinnedAsyncHTTPTransport(),
+                follow_redirects=False,
+                trust_env=False,
             ) as client:
                 response = await client.get(self._endpoint_path(candidate.model_id))
                 response.raise_for_status()
@@ -183,6 +196,7 @@ class OpenRouterImageModelScout:
 
     async def _fetch(self, credential: ResolvedProviderCredential) -> ImageModelScoutResult:
         base_url = credential.base_url.strip() or _DEFAULT_OPENROUTER_BASE_URL
+        self._require_endpoint(base_url)
         headers = {
             "Authorization": f"Bearer {credential.api_key.get_secret_value()}",
             "Accept": "application/json",
@@ -192,8 +206,9 @@ class OpenRouterImageModelScout:
                 base_url=base_url.rstrip("/") + "/",
                 headers=headers,
                 timeout=httpx.Timeout(12.0),
-                transport=self.http_transport,
-                follow_redirects=True,
+                transport=self.http_transport or PinnedAsyncHTTPTransport(),
+                follow_redirects=False,
+                trust_env=False,
             ) as client:
                 response = await client.get("images/models")
                 response.raise_for_status()
@@ -231,6 +246,14 @@ class OpenRouterImageModelScout:
             total_image_models=len(models),
             inspected_models=len(inspected),
         )
+
+    def _require_endpoint(self, base_url: str) -> None:
+        try:
+            self._endpoint_policy.require_provider_url(base_url)
+        except EndpointPolicyRejected as exc:
+            raise OpenRouterImageScoutError(
+                "OpenRouter image-model endpoint is not approved."
+            ) from exc
 
     async def _inspect_model(
         self,
@@ -339,9 +362,15 @@ class AutomaticFreeAnimeImageProvider:
         credential: ResolvedProviderCredential,
         *,
         scout: OpenRouterImageModelScout | None = None,
+        settings: Settings | None = None,
     ) -> None:
         self.credential = credential
-        self.scout = scout or default_openrouter_image_model_scout
+        self.scout = scout or (
+            default_openrouter_image_model_scout
+            if settings is None
+            else OpenRouterImageModelScout(settings=settings)
+        )
+        self._settings = settings
 
     @property
     def provider_id(self) -> str:
@@ -395,6 +424,7 @@ class AutomaticFreeAnimeImageProvider:
             base_url=credential.base_url.strip() or _DEFAULT_OPENROUTER_BASE_URL,
             provider_only=(provider_tag,),
             allow_fallbacks=False,
+            settings=self._settings,
         )
         return await provider.generate(request)
 

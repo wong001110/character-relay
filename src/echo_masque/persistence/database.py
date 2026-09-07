@@ -63,6 +63,7 @@ from echo_masque.persistence.entity_evidence_models import (
     EntityV3Record,
     EvidenceEdgeV3Record,
     KnowledgeGapRecord,
+    KnowledgeGapCandidateRecord,
 )
 from echo_masque.persistence.episodic_sql_rag_models import (
     CharacterEpisodeAccessRecord,
@@ -306,6 +307,7 @@ class Database:
             EntityV3Record,
             EvidenceEdgeV3Record,
             KnowledgeGapRecord,
+            KnowledgeGapCandidateRecord,
             BeliefV3Record,
             BeliefEvidenceDependencyRecord,
             BeliefRevisionEventRecord,
@@ -417,6 +419,7 @@ class Database:
         KnowledgeFabricProjectionMigration(self).run()
         KnowledgeFabricExternalSyncMigration(self).run()
         KnowledgeFabricExternalScheduleMigration(self).run()
+        self._ensure_turn_job_author_scope()
 
         if not allow_incomplete_data_migration:
             self._assert_no_incomplete_data_migration()
@@ -454,6 +457,21 @@ class Database:
         self._ensure_sqlite_deployment_runtime_invariants()
         self._ensure_postgresql_deployment_runtime_invariants()
         self._ensure_sqlite_message_relation_author_snapshots()
+
+    def _ensure_turn_job_author_scope(self) -> None:
+        """Add cancellation actor identity without guessing authors for historical jobs."""
+        from sqlalchemy import inspect, text
+
+        with self.engine.begin() as connection:
+            inspector = inspect(connection)
+            if not inspector.has_table("discord_turn_jobs"):
+                return
+            columns = {column["name"] for column in inspector.get_columns("discord_turn_jobs")}
+            if "source_author_id" not in columns:
+                connection.execute(text(
+                    "ALTER TABLE discord_turn_jobs ADD COLUMN source_author_id "
+                    "VARCHAR(200) NOT NULL DEFAULT ''"
+                ))
 
     @contextmanager
     def _initialize_lock(self) -> Iterator[None]:

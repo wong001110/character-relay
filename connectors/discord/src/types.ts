@@ -371,7 +371,8 @@ export type DiscordTurnJobStatus =
   | "succeeded"
   | "failed"
   | "timed_out"
-  | "stopped";
+  | "stopped"
+  | "cancelled";
 
 export interface DiscordTurnProgressEvent {
   id: number;

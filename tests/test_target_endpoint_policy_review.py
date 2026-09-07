@@ -7,7 +7,11 @@ import pytest
 from pydantic import SecretStr, ValidationError
 
 from echo_masque.config import Settings
+from echo_masque.image_generation import ImageGenerationRequest
+from echo_masque.media_runtime import MediaAsset
 from echo_masque.providers import ChatMessage, OpenAICompatibleProvider, ProviderProtocolError
+from echo_masque.providers.openai_multimodal import OpenAICompatibleMultimodalProvider
+from echo_masque.providers.openrouter_image import OpenRouterImageGenerationProvider
 from echo_masque.target_endpoint_policy import (
     EndpointPolicyRejected,
     TargetEndpointPolicy,
@@ -108,6 +112,46 @@ def test_unapproved_production_provider_never_reaches_transport() -> None:
                 temperature=0.1,
             )
         )
+
+    assert requests == []
+
+
+def test_unapproved_multimodal_and_image_provider_endpoints_never_reach_transport() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={})
+
+    settings = Settings(environment="production")
+    multimodal = OpenAICompatibleMultimodalProvider(
+        provider_id="custom",
+        api_key=SecretStr("synthetic-provider-value"),
+        model="vision-model",
+        base_url="https://unapproved.example.test/v1",
+        transport=httpx.MockTransport(handler),
+        settings=settings,
+    )
+    with pytest.raises(ProviderProtocolError, match="not approved"):
+        asyncio.run(
+            multimodal.analyze(
+                MediaAsset(
+                    media_key="sha256:example",
+                    media_type="image",
+                    source_uri="https://cdn.example.test/image.png",
+                )
+            )
+        )
+
+    image = OpenRouterImageGenerationProvider(
+        api_key=SecretStr("synthetic-provider-value"),
+        model="image-model",
+        base_url="https://unapproved.example.test/v1",
+        transport=httpx.MockTransport(handler),
+        settings=settings,
+    )
+    with pytest.raises(ProviderProtocolError, match="not approved"):
+        asyncio.run(image.generate(ImageGenerationRequest(prompt="synthetic image")))
 
     assert requests == []
 

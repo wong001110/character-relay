@@ -32,7 +32,7 @@ from echo_masque.tool_runtime import (
     ToolExecutionResult,
     _tool,
 )
-from echo_masque.turn_progress import publish_turn_progress
+from echo_masque.turn_progress import TurnNoLongerActive, publish_turn_progress, require_active_turn
 
 _MEDIA_INSPECT_TOOL_ID = "media.inspect"
 
@@ -358,6 +358,12 @@ class MediaToolRegistry(ServerAwareToolRegistry):
         self, context: ToolExecutionContext, tool_id: str, *, after_effect: bool = False,
     ) -> None:
         """Recheck live grants/destination after queued or slow work, before publication."""
+        try:
+            require_active_turn()
+        except TurnNoLongerActive as exc:
+            if after_effect:
+                raise ExternalToolFailed("turn_cancelled_result_not_published") from exc
+            raise ExternalToolRejected("turn_job_no_longer_active") from exc
         deployments = self.deployment_repository
         tools = self.deployment_tool_repository
         if deployments is None or tools is None:

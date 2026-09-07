@@ -1,10 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import type { CharacterDeployment } from "./deploymentApi";
 import {
+  correctBelief,
+  forgetBelief,
+  getBeliefDetail,
+  listKnowledgeGapCandidates,
   loadConversationStructurePage,
+  rejectBelief,
+  reviewKnowledgeGapCandidate,
+  type BeliefDetail,
   type ConversationCollection,
-  type ConversationStructureView
+  type ConversationStructureView,
+  type KnowledgeGapCandidate,
+  type KnowledgeGapObservation
 } from "./conversationStructureApi";
 import { EPISODE_BOARD_PAGE_SIZE, groupEpisodesForBoard, episodeDisplayTitle } from "./conversationEpisodeBoard";
 import {
@@ -23,6 +32,7 @@ import {
 } from "./conversationThreadMap";
 import { PaperDrawer } from "./NotebookUI";
 import { Pagination } from "./Pagination";
+import { Button, FormField, Input, Select, Textarea } from "./components/ui";
 import "./conversation-structure.css";
 
 interface Props {
@@ -82,6 +92,17 @@ function confidence(value: number): string {
   return Number.isFinite(value) ? value.toFixed(2) : "—";
 }
 
+function refreshManagedGap(
+  view: ConversationStructureView | null,
+  next: KnowledgeGapObservation
+): ConversationStructureView | null {
+  if (!view) return view;
+  return {
+    ...view,
+    knowledge_gaps: view.knowledge_gaps.map((gap) => (gap.id === next.id ? next : gap))
+  };
+}
+
 export function ConversationStructurePanel({ deployments, zh, fixture }: Props) {
   const [deploymentId, setDeploymentId] = useState("");
   const [tab, setTab] = useState<NotebookTab>("threads");
@@ -107,6 +128,11 @@ export function ConversationStructurePanel({ deployments, zh, fixture }: Props) 
   const [segmentPage, setSegmentPage] = useState(1);
   const [threadFragmentsOpen, setThreadFragmentsOpen] = useState(false);
   const [threadFragmentPage, setThreadFragmentPage] = useState(1);
+  const [selectedGap, setSelectedGap] = useState<KnowledgeGapObservation | null>(null);
+  const [gapCandidates, setGapCandidates] = useState<KnowledgeGapCandidate[]>([]);
+  const [selectedBelief, setSelectedBelief] = useState<BeliefDetail | null>(null);
+  const [managementBusy, setManagementBusy] = useState(false);
+  const [managementError, setManagementError] = useState("");
 
   useEffect(() => {
     if (deploymentId && deployments.some((item) => item.id === deploymentId)) return;
@@ -226,6 +252,121 @@ export function ConversationStructurePanel({ deployments, zh, fixture }: Props) 
   function changeCollectionPage(collection: ConversationCollection, page: number) {
     if (fixture) return;
     void loadCollectionPage(collection, page);
+  }
+
+  async function openGapReview(gap: KnowledgeGapObservation) {
+    if (!deploymentId || fixture) return;
+    try {
+      setManagementBusy(true);
+      setManagementError("");
+      const response = await listKnowledgeGapCandidates(deploymentId, gap.id);
+      setSelectedGap(gap);
+      setGapCandidates(response.items);
+    } catch (reason) {
+      setManagementError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setManagementBusy(false);
+    }
+  }
+
+  async function openBeliefReview(beliefId: string) {
+    if (!deploymentId || fixture) return;
+    try {
+      setManagementBusy(true);
+      setManagementError("");
+      setSelectedBelief(await getBeliefDetail(deploymentId, beliefId));
+    } catch (reason) {
+      setManagementError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setManagementBusy(false);
+    }
+  }
+
+  async function submitCandidateReview(
+    event: FormEvent<HTMLFormElement>,
+    candidate: KnowledgeGapCandidate,
+    action: "accept" | "reject"
+  ) {
+    event.preventDefault();
+    if (!deploymentId || !selectedGap) return;
+    const fields = new FormData(event.currentTarget);
+    const acceptedFields = String(fields.get("resolved_fields") ?? "")
+      .split(/[,\n]/u)
+      .map((field) => field.trim())
+      .filter(Boolean);
+    const candidateConfidence = Number(fields.get("confidence") ?? 0.7);
+    if (action === "accept" && (acceptedFields.length === 0 || candidateConfidence < 0.7)) {
+      setManagementError(zh ? "接受候选需要已解决字段和至少 0.70 的置信度。来源会绑定到现有 Discovery 条目。" : "Accepting needs resolved fields and confidence of at least 0.70. Its provenance is bound to the existing Discovery item.");
+      return;
+    }
+    try {
+      setManagementBusy(true);
+      setManagementError("");
+      const result = await reviewKnowledgeGapCandidate(deploymentId, selectedGap.id, candidate.id, {
+        action,
+        ...(action === "accept" ? {
+          validated_evidence_ref: `discovery_item:${candidate.discovery_item_id}`,
+          resolved_fields: acceptedFields,
+          confidence: candidateConfidence
+        } : {})
+      });
+      setGapCandidates((current) => current.filter((item) => item.id !== candidate.id));
+      setSelectedGap(result.gap);
+      setValue((current) => refreshManagedGap(current, result.gap));
+    } catch (reason) {
+      setManagementError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setManagementBusy(false);
+    }
+  }
+
+  async function rejectCandidate(candidate: KnowledgeGapCandidate) {
+    if (!deploymentId || !selectedGap) return;
+    try {
+      setManagementBusy(true);
+      setManagementError("");
+      const result = await reviewKnowledgeGapCandidate(deploymentId, selectedGap.id, candidate.id, {
+        action: "reject"
+      });
+      setGapCandidates((current) => current.filter((item) => item.id !== candidate.id));
+      setSelectedGap(result.gap);
+      setValue((current) => refreshManagedGap(current, result.gap));
+    } catch (reason) {
+      setManagementError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setManagementBusy(false);
+    }
+  }
+
+  async function submitBeliefAction(event: FormEvent<HTMLFormElement>, action: "correct" | "reject" | "forget") {
+    event.preventDefault();
+    if (!deploymentId || !selectedBelief) return;
+    const fields = new FormData(event.currentTarget);
+    const reason = String(fields.get("reason") ?? "").trim();
+    if (!reason) {
+      setManagementError(zh ? "请说明这项管理决定。" : "Explain this management decision.");
+      return;
+    }
+    try {
+      setManagementBusy(true);
+      setManagementError("");
+      const result = action === "correct"
+        ? await correctBelief(deploymentId, selectedBelief.id, {
+            value_text: String(fields.get("value_text") ?? "").trim(),
+            domain: String(fields.get("domain") ?? "general") as "personal" | "canonical" | "general",
+            reason,
+            confidence: Number(fields.get("confidence") ?? 0.7)
+          })
+        : action === "reject"
+          ? await rejectBelief(deploymentId, selectedBelief.id, reason)
+          : await forgetBelief(deploymentId, selectedBelief.id, reason);
+      setSelectedBelief(result.belief);
+      await load(deploymentId);
+    } catch (reasonValue) {
+      setManagementError(reasonValue instanceof Error ? reasonValue.message : String(reasonValue));
+    } finally {
+      setManagementBusy(false);
+    }
   }
 
   const tabs: Array<{ key: NotebookTab; en: string; zh: string; count: number }> = [
@@ -648,6 +789,11 @@ export function ConversationStructurePanel({ deployments, zh, fixture }: Props) 
                           ? (zh ? "已交给现有 Discovery 查找" : "Existing Discovery requested")
                           : (zh ? "暂不需要 Discovery" : "Discovery not required yet")}
                       </small>
+                      {!fixture && (
+                        <Button size="sm" variant="secondary" disabled={managementBusy} onClick={() => void openGapReview(gap)}>
+                          {zh ? "审查候选" : "Review candidates"}
+                        </Button>
+                      )}
                     </article>
                   ))}
                   {value.knowledge_gaps.length === 0 && (
@@ -681,6 +827,11 @@ export function ConversationStructurePanel({ deployments, zh, fixture }: Props) 
                       <small>{zh ? "取代 Belief" : "Supersedes Belief"} {shortRef(belief.supersedes_belief_id)}</small>
                     )}
                     <small>{stamp(belief.updated_at, zh)}</small>
+                    {!fixture && (
+                      <Button size="sm" variant="secondary" disabled={managementBusy} onClick={() => void openBeliefReview(belief.id)}>
+                        {zh ? "管理信念" : "Manage belief"}
+                      </Button>
+                    )}
                   </article>
                 ))}
                 {value.beliefs.length === 0 && (
@@ -776,6 +927,64 @@ export function ConversationStructurePanel({ deployments, zh, fixture }: Props) 
           </PaperDrawer>
         );
       })()}
+      {selectedGap && (
+        <PaperDrawer ariaLabel={zh ? "审查 Knowledge Gap 候选" : "Review Knowledge Gap candidates"} onClose={() => { setSelectedGap(null); setGapCandidates([]); setManagementError(""); }} className="conversation-episode-drawer">
+          <section className="conversation-episode-drawer-content">
+            <span className="tape-label">PROVENANCE REVIEW</span>
+            <h2>{zh ? "审查候选证据" : "Review candidate evidence"}</h2>
+            <p>{zh ? "接受会把来源绑定到现有 Discovery 条目；候选本身不会成为 prompt 或 Belief 的权威。" : "Accepting binds provenance to the existing Discovery item. A candidate itself never becomes prompt or Belief authority."}</p>
+            <p><strong>{zh ? "待解决字段" : "Missing fields"}:</strong> {selectedGap.missing_fields.join(", ") || "—"}</p>
+            {managementError && <p className="error-note" role="alert">{managementError}</p>}
+            {gapCandidates.map((candidate) => (
+              <form key={candidate.id} className="conversation-evidence-card" onSubmit={(event) => void submitCandidateReview(event, candidate, "accept")}>
+                <header><strong>{candidate.title || candidate.canonical_key}</strong><span>{candidate.status}</span></header>
+                <p>{candidate.creator || candidate.source} · {candidate.content_kind} · {confidence(candidate.score)}</p>
+                <small>{candidate.rank_reason || "—"}</small>
+                {candidate.url && <small>{candidate.url}</small>}
+                {candidate.status === "ready" && (
+                  <>
+                    <small>{zh ? `来源已绑定到 Discovery 条目：${shortRef(candidate.discovery_item_id)}` : `Provenance is bound to Discovery item: ${shortRef(candidate.discovery_item_id)}`}</small>
+                    <FormField label={zh ? "已解决字段" : "Resolved fields"} hint={zh ? "逗号分隔" : "Comma separated"} required><Input name="resolved_fields" required defaultValue={selectedGap.missing_fields.join(", ")} /></FormField>
+                    <FormField label={zh ? "置信度" : "Confidence"} hint="0.70–1.00"><Input name="confidence" type="number" min="0.7" max="1" step="0.01" defaultValue="0.7" required /></FormField>
+                    <div className="conversation-card-actions"><Button type="submit" size="sm" variant="primary" disabled={managementBusy}>{zh ? "接受并记录证据" : "Accept with evidence"}</Button><Button type="button" size="sm" variant="danger" disabled={managementBusy} onClick={() => void rejectCandidate(candidate)}>{zh ? "拒绝候选" : "Reject candidate"}</Button></div>
+                  </>
+                )}
+              </form>
+            ))}
+            {!managementBusy && gapCandidates.length === 0 && <p>{zh ? "没有待审候选。" : "No candidates are awaiting review."}</p>}
+          </section>
+        </PaperDrawer>
+      )}
+      {selectedBelief && (
+        <PaperDrawer ariaLabel={zh ? "管理 Belief" : "Manage belief"} onClose={() => { setSelectedBelief(null); setManagementError(""); }} className="conversation-episode-drawer">
+          <section className="conversation-episode-drawer-content">
+            <span className="tape-label">BELIEF REVIEW</span>
+            <h2>{selectedBelief.predicate}</h2>
+            <p>{selectedBelief.subject_ref || shortRef(selectedBelief.subject_entity_id)} → {selectedBelief.value_text}</p>
+            <small>{selectedBelief.scope} · {selectedBelief.origin} · {selectedBelief.status} · {selectedBelief.evidence_refs.length} evidence</small>
+            {managementError && <p className="error-note" role="alert">{managementError}</p>}
+            {!selectedBelief.authored ? (
+              <p>{zh ? "只有 authored Belief 可在这里管理；运行时会继续执行所有权与范围检查。" : "Only authored Beliefs are managed here; the runtime still enforces ownership and scope."}</p>
+            ) : (
+              <>
+                <form className="conversation-evidence-card" onSubmit={(event) => void submitBeliefAction(event, "correct")}>
+                  <strong>{zh ? "更正" : "Correct"}</strong>
+                  <FormField label={zh ? "新值" : "New value"} required><Textarea name="value_text" rows={2} defaultValue={selectedBelief.value_text} required /></FormField>
+                  <FormField label={zh ? "领域" : "Domain"}><Select name="domain" defaultValue="general"><option value="general">General</option><option value="personal">Personal</option><option value="canonical">Canonical</option></Select></FormField>
+                  <FormField label={zh ? "置信度" : "Confidence"}><Input name="confidence" type="number" min="0" max="1" step="0.01" defaultValue={String(selectedBelief.confidence)} /></FormField>
+                  <FormField label={zh ? "原因" : "Reason"} required><Textarea name="reason" rows={2} required /></FormField>
+                  <Button type="submit" size="sm" variant="primary" disabled={managementBusy}>{zh ? "保存更正" : "Save correction"}</Button>
+                </form>
+                <form className="conversation-evidence-card" onSubmit={(event) => void submitBeliefAction(event, "forget")}>
+                  <strong>{zh ? "忘记此 authored Belief" : "Forget this authored Belief"}</strong>
+                  <FormField label={zh ? "原因" : "Reason"} required><Input name="reason" required /></FormField>
+                  <Button type="submit" size="sm" variant="danger" disabled={managementBusy}>{zh ? "忘记" : "Forget"}</Button>
+                </form>
+              </>
+            )}
+          </section>
+        </PaperDrawer>
+      )}
     </section>
   );
 }

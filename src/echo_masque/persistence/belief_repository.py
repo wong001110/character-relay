@@ -360,6 +360,71 @@ class BeliefRepository:
             )
         return tuple(self.view(record) for record in records)
 
+    def get_for_deployment_scope(
+        self,
+        *,
+        owner_id: str,
+        belief_id: str,
+        character_card_id: str,
+        connection_id: str,
+        guild_id: str,
+    ) -> BeliefV3View | None:
+        """Return one Belief only when it belongs to this exact deployment scope.
+
+        Owner checks alone are insufficient for an owner with multiple Characters or Discord
+        servers.  Management endpoints use this exact match before any mutation and deliberately
+        do not treat character-global Beliefs as implicitly mutable from a deployment route.
+        """
+
+        with self.database.session() as session:
+            record = session.scalar(
+                select(BeliefV3Record).where(
+                    BeliefV3Record.id == belief_id,
+                    BeliefV3Record.owner_id == owner_id,
+                    BeliefV3Record.character_card_id == character_card_id,
+                    BeliefV3Record.connection_id == connection_id,
+                    BeliefV3Record.guild_id == guild_id,
+                )
+            )
+        return self.view(record) if record is not None else None
+
+    def reject_for_deployment_scope(
+        self,
+        *,
+        owner_id: str,
+        belief_id: str,
+        character_card_id: str,
+        connection_id: str,
+        guild_id: str,
+        allow_authored: bool = False,
+        now: datetime | None = None,
+    ) -> BeliefV3View:
+        """Reject a learned Belief after checking owner and deployment scope atomically."""
+
+        current = now or datetime.now(UTC)
+        with self.database.session() as session:
+            record = session.scalar(
+                select(BeliefV3Record).where(
+                    BeliefV3Record.id == belief_id,
+                    BeliefV3Record.owner_id == owner_id,
+                    BeliefV3Record.character_card_id == character_card_id,
+                    BeliefV3Record.connection_id == connection_id,
+                    BeliefV3Record.guild_id == guild_id,
+                )
+            )
+            if record is None:
+                raise KeyError("Belief not found.")
+            if record.authored and not allow_authored:
+                raise ValueError("Authored Belief cannot be auto-rejected.")
+            if record.status == "rejected":
+                return self.view(record)
+            record.status = "rejected"
+            record.valid_to = current
+            record.updated_at = current
+            session.commit()
+            session.refresh(record)
+            return self.view(record)
+
     def recall(
         self,
         *,
@@ -550,6 +615,8 @@ class BeliefRepository:
                 raise KeyError("Belief not found.")
             if record.authored:
                 raise ValueError("Authored Belief cannot be auto-rejected.")
+            if record.status == "rejected":
+                return self.view(record)
             record.status = "rejected"
             record.valid_to = current
             record.updated_at = current

@@ -142,9 +142,7 @@ class DurableRuntimeRepository:
                     initial_deployment_ids_json=self._json([deployment_id]),
                     available_deployment_ids_json=self._json([deployment_id]),
                     cursor_json=self._json(
-                        self.initial_cursor(
-                            [deployment_id], continuation_budget=0, max_depth=0
-                        )
+                        self.initial_cursor([deployment_id], continuation_budget=0, max_depth=0)
                     ),
                     sources_json="[]",
                     continuation_budget=0,
@@ -207,9 +205,7 @@ class DurableRuntimeRepository:
             operation_id=operation_id,
             step_index=0,
             deployment_id=deployment_id,
-            request_hash=self.stable_hash(
-                "discord-character-step-v1", operation_id, deployment_id
-            ),
+            request_hash=self.stable_hash("discord-character-step-v1", operation_id, deployment_id),
         )
 
     def acknowledge_character_delivery(
@@ -756,59 +752,63 @@ class DurableRuntimeRepository:
                 self._scrub_side_effect_payloads(scoped, step.step_id)
 
     def emit(self, event: RuntimeTraceEvent) -> None:
-        """Persist only the privacy-safe RuntimeTraceEvent contract."""
+        self.emit_batch([event])
 
-        graph_run_id = event.graph_run_id.strip()
-        if not graph_run_id:
-            return
-        now = datetime.now(UTC)
+    def emit_batch(self, events: list[RuntimeTraceEvent]) -> None:
+        """Persist a diagnostic batch in one transaction; durable actions remain synchronous."""
         with self.database.session() as session:
-            run = session.get(RuntimeTraceRunRecord, graph_run_id)
-            if run is None:
-                run = RuntimeTraceRunRecord(
-                    graph_run_id=graph_run_id,
-                    trace_id=event.trace_id,
-                    operation_id=event.operation_id,
-                    graph_name=event.graph_name,
-                    status="running",
-                    owner_id=event.owner_id,
-                    deployment_id=event.deployment_id,
-                    character_card_id=event.character_card_id,
-                    event_count=0,
-                    created_at=now,
-                    updated_at=now,
-                )
-                session.add(run)
-            run.trace_id = event.trace_id or run.trace_id
-            run.operation_id = event.operation_id or run.operation_id
-            run.graph_name = event.graph_name or run.graph_name
-            run.owner_id = event.owner_id or run.owner_id
-            run.deployment_id = event.deployment_id or run.deployment_id
-            run.character_card_id = event.character_card_id or run.character_card_id
-            run.last_node = event.node_name
-            run.event_count = (run.event_count or 0) + 1
-            run.updated_at = now
-            if event.status == "failed":
-                run.status = "failed"
-                run.error = event.error[:1000]
-            elif self._final_completed_event(event):
-                run.status = "completed"
+            for event in events:
+                graph_run_id = event.graph_run_id.strip()
+                if not graph_run_id:
+                    continue
+                now = event.occurred_at
+                run = session.get(RuntimeTraceRunRecord, graph_run_id)
+                if run is None:
+                    run = RuntimeTraceRunRecord(
+                        graph_run_id=graph_run_id,
+                        trace_id=event.trace_id,
+                        operation_id=event.operation_id,
+                        graph_name=event.graph_name,
+                        status="running",
+                        owner_id=event.owner_id,
+                        deployment_id=event.deployment_id,
+                        character_card_id=event.character_card_id,
+                        event_count=0,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    session.add(run)
+                run.trace_id = event.trace_id or run.trace_id
+                run.operation_id = event.operation_id or run.operation_id
+                run.graph_name = event.graph_name or run.graph_name
+                run.owner_id = event.owner_id or run.owner_id
+                run.deployment_id = event.deployment_id or run.deployment_id
+                run.character_card_id = event.character_card_id or run.character_card_id
+                run.last_node = event.node_name
+                run.event_count = (run.event_count or 0) + 1
+                run.updated_at = now
+                if event.status == "failed":
+                    run.status = "failed"
+                    run.error = event.error[:1000]
+                elif self._final_completed_event(event):
+                    run.status = "completed"
 
-            session.add(
-                RuntimeTraceEventRecord(
-                    graph_run_id=graph_run_id,
-                    trace_id=event.trace_id,
-                    operation_id=event.operation_id,
-                    graph_name=event.graph_name,
-                    node_name=event.node_name,
-                    node_kind=event.node_kind,
-                    status=event.status,
-                    changed_keys_json=self._json(list(event.changed_keys)),
-                    metadata_json=self._json([list(item) for item in event.metadata]),
-                    error=event.error[:1000],
-                    created_at=now,
+                session.add(
+                    RuntimeTraceEventRecord(
+                        graph_run_id=graph_run_id,
+                        trace_id=event.trace_id,
+                        operation_id=event.operation_id,
+                        graph_name=event.graph_name,
+                        node_name=event.node_name,
+                        node_kind=event.node_kind,
+                        status=event.status,
+                        changed_keys_json=self._json(list(event.changed_keys)),
+                        metadata_json=self._json([list(item) for item in event.metadata]),
+                        error=event.error[:1000],
+                        created_at=now,
+                    )
                 )
-            )
+                session.flush()
             session.commit()
 
     @staticmethod
@@ -906,12 +906,42 @@ class DurableRuntimeRepository:
 
     def prune(self) -> None:
         cutoff = datetime.now(UTC) - timedelta(days=self.retention_days)
+        safe_trace = and_(
+            or_(
+                RuntimeTraceRunRecord.status.in_(["completed", "failed"]),
+                RuntimeTraceRunRecord.updated_at < cutoff,
+            ),
+            ~select(RuntimeOperationRecord.operation_id)
+            .where(
+                RuntimeOperationRecord.operation_id == RuntimeTraceRunRecord.operation_id,
+                RuntimeOperationRecord.status.in_(["active", "awaiting_delivery", "uncertain"]),
+            )
+            .exists(),
+        )
         with self.database.session() as session:
             old_operation_ids = list(
                 session.scalars(
                     select(RuntimeOperationRecord.operation_id).where(
                         RuntimeOperationRecord.updated_at < cutoff,
-                        RuntimeOperationRecord.status.in_(["completed", "failed", "uncertain"]),
+                        RuntimeOperationRecord.status.in_(["completed", "failed"]),
+                        ~select(RuntimeSideEffectRecord.idempotency_key)
+                        .join(
+                            RuntimeStepRecord,
+                            RuntimeStepRecord.step_id == RuntimeSideEffectRecord.step_id,
+                        )
+                        .where(
+                            RuntimeStepRecord.operation_id == RuntimeOperationRecord.operation_id,
+                            RuntimeSideEffectRecord.status.in_(["claimed", "uncertain"]),
+                        )
+                        .exists(),
+                        ~select(RuntimeStepRecord.step_id)
+                        .where(
+                            RuntimeStepRecord.operation_id == RuntimeOperationRecord.operation_id,
+                            RuntimeStepRecord.status.in_(
+                                ["generating", "generated", "delivery_claimed", "uncertain"]
+                            ),
+                        )
+                        .exists(),
                     )
                 )
             )
@@ -943,13 +973,14 @@ class DurableRuntimeRepository:
             trace_ids = list(
                 session.scalars(
                     select(RuntimeTraceRunRecord.graph_run_id).where(
-                        RuntimeTraceRunRecord.created_at < cutoff
+                        RuntimeTraceRunRecord.created_at < cutoff, safe_trace
                     )
                 )
             )
             excess = list(
                 session.scalars(
                     select(RuntimeTraceRunRecord.graph_run_id)
+                    .where(safe_trace)
                     .order_by(RuntimeTraceRunRecord.created_at.desc())
                     .offset(self.maximum_trace_runs)
                 )

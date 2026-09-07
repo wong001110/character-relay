@@ -13,6 +13,7 @@ from echo_masque.api.routes.connectors import (
 )
 from echo_masque.api.social_turn_schemas import DiscordSocialTurnStepRequest
 from echo_masque.api.turn_job_schemas import (
+    TurnJobCancelRequest,
     TurnJobRecoveryItem,
     TurnJobRecoveryView,
     TurnJobStatus,
@@ -143,12 +144,49 @@ def _submit(
         message_id=payload.message_id,
         request_json=request_json,
         deadline_seconds=manager.deadline_seconds,
+        source_author_id=payload.author_id,
         thread_id=payload.thread_id,
         category_id=payload.category_id,
     )
     if created and not manager.submit(record.job_id):
         repository.fail(record.job_id, status="stopped", error_code="queue_unavailable")
     return _view(repository, record)
+
+
+@router.post("/turn-jobs/cancel", response_model=list[str])
+def cancel_turn_jobs(
+    payload: TurnJobCancelRequest,
+    request: Request,
+    connection_id: str = Query(min_length=1, max_length=64),
+    authorization: Annotated[str | None, Header()] = None,
+) -> list[str]:
+    """Cancel an exact, active source request after current destination authority checks."""
+    _authorize_connector(request, authorization)
+    deployment = request.app.state.deployment_repository.deployment_matches_discord_destination(
+        payload.deployment_id,
+        connection_id=connection_id,
+        guild_id=payload.guild_id,
+        channel_id=payload.channel_id,
+        thread_id=payload.thread_id,
+        category_id=payload.category_id,
+    )
+    if deployment is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Discord destination scope is no longer active.",
+        )
+    return _repository(request).cancel_matching_request(
+        owner_id=deployment.owner_id,
+        connection_id=connection_id,
+        deployment_id=payload.deployment_id,
+        guild_id=payload.guild_id,
+        channel_id=payload.channel_id,
+        thread_id=payload.thread_id,
+        category_id=payload.category_id,
+        source_message_id=payload.source_message_id,
+        source_author_id=payload.source_author_id,
+        reason=payload.reason,
+    )
 
 
 @router.post("/messages/jobs", response_model=TurnJobView, status_code=status.HTTP_202_ACCEPTED)
@@ -254,8 +292,14 @@ def claim_turn_progress(
     authorization: Annotated[str | None, Header()] = None,
 ) -> TurnProgressClaimView:
     _authorize_connector(request, authorization)
-    if _scoped_job(request, job_id, connection_id) is None:
+    record = _scoped_job(request, job_id, connection_id)
+    if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Turn job not found.")
+    if record.status not in {"queued", "running", "succeeded"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Turn job is no longer active.",
+        )
     event = _repository(request).claim_progress(job_id, nonce=payload.nonce)
     return TurnProgressClaimView(
         event=TurnProgressEvent(id=event.id, nonce=event.claim_nonce, text=event.text)

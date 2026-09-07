@@ -1,10 +1,47 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { loadConversationStructurePage } from "./conversationStructureApi";
+import {
+  correctBelief,
+  listKnowledgeGapCandidates,
+  loadConversationStructurePage,
+  reviewKnowledgeGapCandidate
+} from "./conversationStructureApi";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("conversation structure pagination adapter", () => {
+  it("keeps candidate review and belief correction inside the selected deployment", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ gap: {}, candidate: {} }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ action: "correct", belief: {}, previous_belief_ids: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listKnowledgeGapCandidates("deployment/a", "gap/a");
+    await reviewKnowledgeGapCandidate("deployment/a", "gap/a", "candidate/a", {
+      action: "accept",
+      validated_evidence_ref: "discovery_item:discovery/a",
+      resolved_fields: ["birthplace"],
+      confidence: 0.8
+    });
+    await correctBelief("deployment/a", "belief/a", {
+      value_text: "corrected",
+      domain: "canonical",
+      reason: "verified source",
+      confidence: 0.9
+    });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/deployments/deployment%2Fa/knowledge-gaps/gap%2Fa/candidates?include_terminal=false",
+      "/api/deployments/deployment%2Fa/knowledge-gaps/gap%2Fa/candidates/candidate%2Fa/review",
+      "/api/deployments/deployment%2Fa/beliefs/belief%2Fa/correct"
+    ]);
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ action: "accept", validated_evidence_ref: "discovery_item:discovery/a", resolved_fields: ["birthplace"], confidence: 0.8 })
+    });
+  });
+
   it("keeps legacy bounded arrays usable as an unpaged fixture", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ deployment_id: "dep-1", threads: [{ id: "thread-1" }] }), { status: 200 })

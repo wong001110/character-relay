@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 import httpx
 from pydantic import SecretStr
@@ -13,6 +14,7 @@ from echo_masque.image_generation import (
     ImageGenerationRequest,
     ImageGenerationResult,
 )
+from echo_masque.network_safety import PinnedAsyncHTTPTransport
 from echo_masque.providers.base import ChatMessage
 from echo_masque.providers.errors import (
     ProviderAuthenticationError,
@@ -20,6 +22,10 @@ from echo_masque.providers.errors import (
     ProviderTimeoutError,
 )
 from echo_masque.providers.trace import ProviderTrace
+from echo_masque.target_endpoint_policy import EndpointPolicyRejected, TargetEndpointPolicy
+
+if TYPE_CHECKING:
+    from echo_masque.config import Settings
 
 _IMAGE_GENERATION_MARKER = "[IMAGE_GENERATION]"
 _IMAGE_GENERATION_RESULT_MARKER = "[IMAGE_GENERATION_RESULT]"
@@ -39,6 +45,7 @@ class OpenRouterImageGenerationProvider:
         transport: httpx.AsyncBaseTransport | None = None,
         provider_only: tuple[str, ...] = (),
         allow_fallbacks: bool = True,
+        settings: Settings | None = None,
     ) -> None:
         self._provider_id = provider_id.strip() or "openrouter"
         self._api_key = api_key
@@ -48,6 +55,11 @@ class OpenRouterImageGenerationProvider:
         self._transport = transport
         self._provider_only = tuple(item.strip() for item in provider_only if item.strip())
         self._allow_fallbacks = allow_fallbacks
+        if settings is None:
+            from echo_masque.config import get_settings
+
+            settings = get_settings()
+        self._endpoint_policy = TargetEndpointPolicy.from_settings(settings)
 
     @property
     def provider_id(self) -> str:
@@ -123,11 +135,19 @@ class OpenRouterImageGenerationProvider:
             "Content-Type": "application/json",
         }
         try:
+            self._endpoint_policy.require_provider_url(self.endpoint)
             async with httpx.AsyncClient(
                 timeout=self._timeout,
-                transport=self._transport,
+                transport=self._transport or PinnedAsyncHTTPTransport(),
+                follow_redirects=False,
+                trust_env=False,
             ) as client:
                 response = await client.post(self.endpoint, json=payload, headers=headers)
+        except EndpointPolicyRejected as exc:
+            trace.error(reason="image_generation_endpoint_rejected")
+            raise ProviderProtocolError(
+                "Image generation provider endpoint is not approved."
+            ) from exc
         except httpx.TimeoutException as exc:
             trace.error(
                 reason="provider_timeout",

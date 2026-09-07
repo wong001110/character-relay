@@ -81,8 +81,14 @@ class TurnJobManager:
                 async def progress(text: str, *, target_id: str = active_job_id) -> bool:
                     return self.repository.publish_progress(target_id, text)
 
+                def is_active(target_id: str = active_job_id) -> bool:
+                    return self.repository.is_running(target_id)
+
                 try:
-                    with bind_turn_progress(progress):
+                    with bind_turn_progress(
+                        progress,
+                        is_active=is_active,
+                    ):
                         deadline = job.deadline_at
                         now = datetime.now(UTC)
                         if deadline.tzinfo is None:

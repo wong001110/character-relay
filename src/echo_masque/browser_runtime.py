@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -22,10 +22,11 @@ from playwright.async_api import (
     Response,
     Route,
     TimeoutError as PlaywrightTimeoutError,
+    WebSocketRoute,
     async_playwright,
 )
 
-from echo_masque.network_safety import PublicUrlGuard, PublicUrlRejected
+from echo_masque.network_safety import PinnedAsyncHTTPTransport, PublicUrlGuard, PublicUrlRejected
 
 _BROWSER_SESSION_KEY: ContextVar[str] = ContextVar(
     "character_relay_browser_session_key",
@@ -40,6 +41,20 @@ _MAX_RENDERED_COLLECTION_JSON_RESPONSE_BYTES = 128 * 1_024
 _MAX_RENDERED_COLLECTION_JSON_TOTAL_BYTES = 512 * 1_024
 _RENDERED_COLLECTION_JSON_DRAIN_SECONDS = 2.0
 _MAX_RENDERED_COLLECTION_DOM_BYTES = 1_048_576
+_MAX_BROWSER_ROUTE_RESPONSE_BYTES = 8 * 1_024 * 1_024
+_BLOCK_ACTIVE_NETWORK_APIS_SCRIPT = """
+(() => {
+  for (const name of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'mozRTCPeerConnection', 'WebTransport']) {
+    try { Object.defineProperty(window, name, { configurable: false, value: undefined }); } catch (_) {}
+  }
+  try {
+    if (navigator.mediaDevices) {
+      navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('Disabled by Browser Tool policy.', 'NotAllowedError'));
+      navigator.mediaDevices.getDisplayMedia = () => Promise.reject(new DOMException('Disabled by Browser Tool policy.', 'NotAllowedError'));
+    }
+  } catch (_) {}
+})();
+"""
 
 
 class BrowserToolUnavailable(RuntimeError):
@@ -160,6 +175,11 @@ class BrowserCapabilityManager:
     ) -> None:
         self.settings = settings or BrowserRuntimeSettings()
         self.url_guard = url_guard or PublicUrlGuard()
+        # Chromium never continues an external request directly.  Each short-lived HTTPX client
+        # receives its own transport because closing an HTTPX client also closes its transport.
+        self._pinned_transport_factory: Callable[[], httpx.AsyncBaseTransport] = (
+            lambda: PinnedAsyncHTTPTransport(url_guard=self.url_guard)
+        )
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._browser_created_at = 0.0
@@ -561,7 +581,7 @@ class BrowserCapabilityManager:
                 async def guard(route: Route) -> None:
                     await self._collection_route_guard(route, allowed_hosts)
 
-                await context.route("**/*", guard)
+                await self._configure_context(context, guard)
                 page = await context.new_page()
                 page.set_default_navigation_timeout(self.settings.navigation_timeout_ms)
                 page.set_default_timeout(self.settings.navigation_timeout_ms)
@@ -601,7 +621,7 @@ class BrowserCapabilityManager:
                 viewport={"width": 1365, "height": 768},
                 extra_http_headers={"Accept-Language": "en-MY,en;q=0.9"},
             )
-            await context.route("**/*", self._route_guard)
+            await self._configure_context(context, self._route_guard)
             now = monotonic()
             session = _BrowserSession(
                 context=context,
@@ -718,9 +738,11 @@ class BrowserCapabilityManager:
         }
         try:
             async with httpx.AsyncClient(
-                follow_redirects=True,
+                follow_redirects=False,
                 timeout=_DDG_HTTP_TIMEOUT_SECONDS,
                 headers=headers,
+                transport=self._pinned_transport_factory(),
+                trust_env=False,
             ) as client:
                 response = await client.get(validated)
         except httpx.HTTPError as exc:
@@ -729,6 +751,10 @@ class BrowserCapabilityManager:
             raise BrowserToolUnavailable(
                 f"static HTML endpoint returned HTTP {response.status_code}"
             )
+        if 300 <= response.status_code < 400:
+            # The browser fallback is also intercepted through the pinned route transport.  Do
+            # not let the static helper silently hand redirect policy back to HTTPX.
+            raise BrowserToolUnavailable("static HTML endpoint returned a redirect")
         results = _extract_duckduckgo_html_results(response.text, count)
         if results:
             return results
@@ -865,11 +891,26 @@ class BrowserCapabilityManager:
             await route.abort()
             return
         try:
-            await self.url_guard.validate(url)
+            await self._fulfill_pinned_route(route)
         except PublicUrlRejected:
             await route.abort()
             return
-        await route.continue_()
+        except (httpx.HTTPError, BrowserToolUnavailable):
+            await route.abort()
+
+    async def _configure_context(
+        self,
+        context: BrowserContext,
+        route_handler: Callable[[Route], Awaitable[None]],
+    ) -> None:
+        """Install the HTTP fulfillment boundary and disable non-HTTP active channels."""
+
+        await context.route("**/*", route_handler)
+        await context.route_web_socket("**/*", self._close_websocket)
+        await context.add_init_script(_BLOCK_ACTIVE_NETWORK_APIS_SCRIPT)
+
+    async def _close_websocket(self, route: WebSocketRoute) -> None:
+        await route.close()
 
     async def _collection_route_guard(self, route: Route, allowed_hosts: frozenset[str]) -> None:
         """Allow only public HTTPS requests to the exact hosts approved in a Source profile."""
@@ -886,11 +927,66 @@ class BrowserCapabilityManager:
             await route.abort()
             return
         try:
-            await self.url_guard.validate(url)
+            await self._fulfill_pinned_route(route)
         except PublicUrlRejected:
             await route.abort()
             return
-        await route.continue_()
+        except (httpx.HTTPError, BrowserToolUnavailable):
+            await route.abort()
+
+    async def _fulfill_pinned_route(self, route: Route) -> None:
+        """Fetch an intercepted browser resource through the literal-address transport.
+
+        Browser route validation alone cannot bind Chromium's later hostname lookup.  Fulfilling
+        every HTTP(S) route makes Chromium consume bytes obtained by the guarded direct socket;
+        navigation redirects and subresources each re-enter this method as a new route.
+        """
+
+        request = route.request
+        if request.method.upper() not in {"GET", "HEAD"}:
+            raise BrowserToolUnavailable("Browser request method is not allowed.")
+        try:
+            headers = await request.all_headers()
+        except Exception as exc:
+            raise BrowserToolUnavailable("Browser request headers could not be read.") from exc
+        try:
+            async with (
+                httpx.AsyncClient(
+                    follow_redirects=False,
+                    timeout=httpx.Timeout(self.settings.navigation_timeout_ms / 1000),
+                    transport=self._pinned_transport_factory(),
+                    trust_env=False,
+                ) as client,
+                client.stream(
+                    request.method,
+                    request.url,
+                    headers=headers,
+                ) as response,
+            ):
+                declared = response.headers.get("content-length", "")
+                if declared.isdigit() and int(declared) > _MAX_BROWSER_ROUTE_RESPONSE_BYTES:
+                    raise BrowserToolUnavailable("Browser resource exceeds its size limit.")
+                chunks: list[bytes] = []
+                total = 0
+                async for chunk in response.aiter_bytes():
+                    total += len(chunk)
+                    if total > _MAX_BROWSER_ROUTE_RESPONSE_BYTES:
+                        raise BrowserToolUnavailable("Browser resource exceeds its size limit.")
+                    chunks.append(chunk)
+                response_body = b"".join(chunks)
+        except (httpx.HTTPError, PublicUrlRejected) as exc:
+            raise BrowserToolUnavailable("Browser resource could not be fetched safely.") from exc
+        response_headers = {
+            name: value
+            for name, value in response.headers.items()
+            if name.casefold()
+            not in {"connection", "transfer-encoding", "content-length", "content-encoding"}
+        }
+        await route.fulfill(
+            status=response.status_code,
+            headers=response_headers,
+            body=response_body,
+        )
 
     async def _cleanup_loop(self) -> None:
         try:

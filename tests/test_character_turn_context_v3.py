@@ -664,8 +664,8 @@ def test_knowledge_gap_candidates_remain_unresolved_until_evidence_acceptance(
         )
     )
 
-    assert result.status == "candidates_ready"
-    assert result.gap.resolution_state == "searching"
+    assert result.status == "no_candidates"
+    assert result.gap.resolution_state == "unresolved"
     assert (
         entities.gap_for_scope(
             owner_id="owner-1",
@@ -673,7 +673,7 @@ def test_knowledge_gap_candidates_remain_unresolved_until_evidence_acceptance(
             guild_id="guild-1",
             gap_id=gap.id,
         ).resolution_state
-        == "searching"
+        == "unresolved"
     )
 
 

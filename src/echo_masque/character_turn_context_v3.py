@@ -7,6 +7,7 @@ import logging
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from threading import RLock
 from typing import TYPE_CHECKING, TypeVar, cast
 
@@ -621,6 +622,26 @@ class CharacterTurnContextV3Service:
         service = self.knowledge_gap_discovery
         if service is None:
             return
+        # A process may stop after marking the Gap searching but before the task can publish a
+        # terminal result. Reconcile that stale state when the scope is next observed; preserving
+        # discovery_requested prevents this recovery from becoming a per-message retry loop.
+        now = datetime.now(UTC)
+        try:
+            service.entities.recover_stale_gap_searches(
+                owner_id=resolved.deployment.owner_id,
+                connection_id=resolved.payload.connection_id,
+                guild_id=resolved.payload.guild_id,
+                stale_before=now - service.stale_search_after,
+                now=now,
+            )
+            gap = service.entities.gap_for_scope(
+                owner_id=resolved.deployment.owner_id,
+                connection_id=resolved.payload.connection_id,
+                guild_id=resolved.payload.guild_id,
+                gap_id=gap.id,
+            )
+        except KeyError:
+            return
         # A previous runtime attempt owns the open Gap until Content Understanding accepts
         # evidence or the Discovery service explicitly reopens it.  Do not re-dispatch on a
         # repeated Character turn.
@@ -646,6 +667,8 @@ class CharacterTurnContextV3Service:
                     guild_id=resolved.payload.guild_id,
                     gap=gap,
                 )
+            except asyncio.CancelledError:
+                raise
             except Exception:
                 # Discovery is optional and must never block context construction.  Do not log
                 # message text, candidate content, or credential-derived details here.
@@ -661,6 +684,15 @@ class CharacterTurnContextV3Service:
         )
         self._knowledge_gap_tasks.add(task)
         task.add_done_callback(self._knowledge_gap_tasks.discard)
+
+    async def shutdown(self) -> None:
+        """Cancel and await optional Discovery tasks during application shutdown."""
+
+        tasks = tuple(self._knowledge_gap_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def _ground_existing_entity_references(
         self,

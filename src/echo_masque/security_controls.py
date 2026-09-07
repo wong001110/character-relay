@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Literal, cast
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import case, delete, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from echo_masque.config import Settings
 from echo_masque.persistence import Database
@@ -85,10 +87,8 @@ class QuotaService:
                 return
             blocked_until = self._utc(record.blocked_until)
             if blocked_until <= now:
-                record.blocked_until = None
-                record.count = 0
-                record.window_started_at = now
-                session.commit()
+                # Reset only in the atomic failure upsert; a stale admission read must
+                # never erase another replica's newly recorded failures or block.
                 return
             retry_after = max(1, int((blocked_until - now).total_seconds()))
             raise QuotaExceeded(
@@ -99,26 +99,38 @@ class QuotaService:
     def record_login_failure(self, identity_hash: str) -> None:
         key = f"login:{identity_hash}"
         now = datetime.now(UTC)
-        window = timedelta(seconds=self.settings.login_failure_window_seconds)
+        bucket = RateLimitBucketRecord
+        expired = or_(
+            bucket.window_started_at
+            <= now - timedelta(seconds=self.settings.login_failure_window_seconds),
+            bucket.blocked_until <= now,
+        )
+        next_count = case((expired, 1), else_=bucket.count + 1)
+        blocked_until = now + timedelta(seconds=self.settings.login_block_seconds)
+        insert = pg_insert if self.database.engine.dialect.name == "postgresql" else sqlite_insert
+        statement = (
+            insert(bucket)
+            .values(
+                key=key,
+                window_started_at=now,
+                count=1,
+                updated_at=now,
+                blocked_until=blocked_until if self.settings.login_failure_limit <= 1 else None,
+            )
+            .on_conflict_do_update(
+                index_elements=[bucket.key],
+                set_={
+                    "count": next_count,
+                    "window_started_at": case((expired, now), else_=bucket.window_started_at),
+                    "blocked_until": case(
+                        (next_count >= self.settings.login_failure_limit, blocked_until), else_=None
+                    ),
+                    "updated_at": now,
+                },
+            )
+        )
         with self.database.session() as session:
-            record = session.get(RateLimitBucketRecord, key)
-            if record is None:
-                record = RateLimitBucketRecord(
-                    key=key,
-                    window_started_at=now,
-                    count=1,
-                )
-                session.add(record)
-            else:
-                if now - self._utc(record.window_started_at) >= window:
-                    record.window_started_at = now
-                    record.count = 0
-                    record.blocked_until = None
-                record.count += 1
-            if record.count >= self.settings.login_failure_limit:
-                record.blocked_until = now + timedelta(
-                    seconds=self.settings.login_block_seconds
-                )
+            session.execute(statement)
             session.commit()
 
     def record_login_success(self, identity_hash: str) -> None:
@@ -274,38 +286,54 @@ class QuotaService:
     ) -> None:
         if limit <= 0 or amount <= 0:
             return
+        if amount > limit:
+            raise QuotaExceeded(message, retry_after=window_seconds)
         now = datetime.now(UTC)
-        window = timedelta(seconds=window_seconds)
+        cutoff = now - timedelta(seconds=window_seconds)
+        bucket = RateLimitBucketRecord
+        insert = pg_insert if self.database.engine.dialect.name == "postgresql" else sqlite_insert
+        expired = bucket.window_started_at <= cutoff
+        statement = (
+            insert(bucket)
+            .values(
+                key=key,
+                window_started_at=now,
+                count=amount,
+                updated_at=now,
+            )
+            .on_conflict_do_update(
+                index_elements=[bucket.key],
+                set_={
+                    "count": case((expired, amount), else_=bucket.count + amount),
+                    "window_started_at": case((expired, now), else_=bucket.window_started_at),
+                    "blocked_until": None,
+                    "updated_at": now,
+                },
+                where=or_(expired, bucket.count <= limit - amount),
+            )
+            .returning(bucket.count)
+        )
         with self.database.session() as session:
-            record = session.get(RateLimitBucketRecord, key)
-            if record is None:
-                if amount > limit:
-                    raise QuotaExceeded(message, retry_after=window_seconds)
-                record = RateLimitBucketRecord(
-                    key=key,
-                    window_started_at=now,
-                    count=amount,
-                )
-                session.add(record)
-                session.commit()
-                return
-            if now - self._utc(record.window_started_at) >= window:
-                if amount > limit:
-                    raise QuotaExceeded(message, retry_after=window_seconds)
-                record.window_started_at = now
-                record.count = amount
-                record.blocked_until = None
-                session.commit()
-                return
-            record.count += amount
-            if record.count > limit:
-                session.commit()
-                retry_after = max(
-                    1,
-                    int((self._utc(record.window_started_at) + window - now).total_seconds()),
-                )
-                raise QuotaExceeded(message, retry_after=retry_after)
+            admitted = session.scalar(statement)
             session.commit()
+            if admitted is not None:
+                return
+            record = session.get(bucket, key)
+            retry_after = (
+                window_seconds
+                if record is None
+                else max(
+                    1,
+                    int(
+                        (
+                            self._utc(record.window_started_at)
+                            + timedelta(seconds=window_seconds)
+                            - now
+                        ).total_seconds()
+                    ),
+                )
+            )
+        raise QuotaExceeded(message, retry_after=retry_after)
 
     @staticmethod
     def _utc(value: datetime) -> datetime:

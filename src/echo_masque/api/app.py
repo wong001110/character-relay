@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -63,6 +63,7 @@ from echo_masque.condition_watch_service import ConditionWatchService
 from echo_masque.config import Settings, get_settings
 from echo_masque.context_resolver_v3 import ContextResolverV3
 from echo_masque.conversation_media import ConversationMediaReferenceService
+from echo_masque.conversation_runtime_maintenance import ConversationRuntimeMaintenanceService
 from echo_masque.conversation_structure_resolver import ConversationStructureResolver
 from echo_masque.coverage_analytics import CoverageAnalyticsService
 from echo_masque.credentials import CredentialVault
@@ -192,6 +193,8 @@ from echo_masque.public_demo import PublicDemoService
 from echo_masque.public_demo_middleware import PublicDemoReadOnlyMiddleware
 from echo_masque.public_demo_quota import PublicDemoQuotaService
 from echo_masque.recall_media_connector_runtime import RecallAwareMediaDiscordConnectorRuntime
+from echo_masque.runtime_maintenance import RuntimeMaintenance
+from echo_masque.runtime_trace_buffer import BufferedRuntimeTraceSink
 from echo_masque.scheduled_reminder_service import ScheduledReminderDeliveryService
 from echo_masque.semantic_participation import CharacterParticipationSemanticService
 from echo_masque.services import MatrixService, RuntimeService, TrialService
@@ -240,6 +243,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     scheduled_reminder_repository = ScheduledReminderRepository(database)
     condition_watch_repository = ConditionWatchRepository(database)
     durable_runtime_repository = DurableRuntimeRepository(database)
+    buffered_runtime_trace = BufferedRuntimeTraceSink(durable_runtime_repository)
+    runtime_maintenance = RuntimeMaintenance(durable_runtime_repository)
     browser_runtime = BrowserCapabilityManager(
         BrowserRuntimeSettings(
             enabled=resolved.browser_tools_enabled,
@@ -402,6 +407,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     conversation_media_service = ConversationMediaReferenceService(conversation_media_repository)
     image_creation_service = ImageCreationRuntimeService(
+        settings=resolved,
         credential_resolver=media_credential_resolver,
         conversation_media_repository=conversation_media_repository,
         artifact_repository=generated_media_repository,
@@ -427,6 +433,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         deployment_tool_repository=deployment_tool_repository,
     )
     live_media_service = KeyGroupScopedLiveMediaContextService(
+        settings=resolved,
         media_repository=media_analysis_repository,
         credential_resolver=media_credential_resolver,
         discord_bot_token=resolved.discord_tool_bot_token,
@@ -466,7 +473,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             condition_watch_repository,
             evaluator=condition_watch_evaluator,
             notifier=condition_watch_notifier,
-            trace_sink=durable_runtime_repository,
+            trace_sink=buffered_runtime_trace,
         )
         if resolved.langgraph_allows("condition_watch")
         else None
@@ -497,6 +504,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         conversation_structure_repository,
         conversation_runtime_repository,
         graph=EvidenceGraphService(entity_evidence_repository),
+    )
+    conversation_runtime_maintenance = ConversationRuntimeMaintenanceService(
+        conversation_runtime_coordinator, conversation_runtime_repository
     )
     pending_action_service = PendingActionService(conversation_runtime_repository)
     context_resolver_v3 = ContextResolverV3(
@@ -546,7 +556,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     character_turn_graph_runner = (
         CharacterTurnGraphRunner(
             discord_connector_runtime,
-            trace_sink=durable_runtime_repository,
+            trace_sink=buffered_runtime_trace,
         )
         if resolved.langgraph_allows("character_turn")
         else None
@@ -554,7 +564,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     social_turn_graph_runner = (
         SocialTurnGraphRunner(
             character_turn_graph_runner,
-            trace_sink=durable_runtime_repository,
+            trace_sink=buffered_runtime_trace,
         )
         if (character_turn_graph_runner is not None and resolved.langgraph_allows("social_turn"))
         else None
@@ -644,22 +654,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        async with limit_request_threads(resolved.api_thread_pool_limit):
-            await turn_job_manager.start()
+        async with (
+            limit_request_threads(resolved.api_thread_pool_limit),
+            AsyncExitStack() as cleanup,
+        ):
+            cleanup.push_async_callback(buffered_runtime_trace.stop)
+            await buffered_runtime_trace.start()
+            cleanup.push_async_callback(runtime_maintenance.stop)
+            await runtime_maintenance.start()
+            cleanup.push_async_callback(conversation_runtime_maintenance.stop)
+            await conversation_runtime_maintenance.start()
+            cleanup.push_async_callback(browser_runtime.stop)
             await browser_runtime.start()
+            cleanup.push_async_callback(character_turn_context_v3_service.shutdown)
+            cleanup.push_async_callback(scheduled_reminder_delivery.stop)
             await scheduled_reminder_delivery.start()
+            cleanup.push_async_callback(condition_watch_service.stop)
             await condition_watch_service.start()
+            cleanup.push_async_callback(turn_job_manager.stop)
+            await turn_job_manager.start()
             if resolved.knowledge_fabric_api_background_workers_enabled:
+                cleanup.push_async_callback(knowledge_fabric_background_runtime.stop)
                 await knowledge_fabric_background_runtime.start()
-            try:
-                yield
-            finally:
-                await turn_job_manager.stop()
-                if resolved.knowledge_fabric_api_background_workers_enabled:
-                    await knowledge_fabric_background_runtime.stop()
-                await condition_watch_service.stop()
-                await scheduled_reminder_delivery.stop()
-                await browser_runtime.stop()
+            yield
 
     app = FastAPI(
         title=resolved.app_name,
@@ -777,6 +794,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.utility_gateway_router_v3 = planner_utility_gateway
     app.state.provider_trace_repository = provider_trace_repository
     app.state.durable_runtime_repository = durable_runtime_repository
+    app.state.buffered_runtime_trace = buffered_runtime_trace
+    app.state.runtime_maintenance = runtime_maintenance
+    app.state.conversation_runtime_maintenance = conversation_runtime_maintenance
     app.state.key_group_repository = key_group_repository
     app.state.media_analysis_repository = media_analysis_repository
     app.state.conversation_media_repository = conversation_media_repository

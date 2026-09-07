@@ -81,6 +81,41 @@ export interface KnowledgeGapObservation {
   resolution_evidence_refs: string[];
 }
 
+export interface KnowledgeGapCandidate {
+  id: string;
+  gap_id: string;
+  discovery_item_id: string;
+  source: string;
+  canonical_key: string;
+  content_kind: string;
+  title: string;
+  creator: string;
+  url: string;
+  score: number;
+  rank_reason: string;
+  status: "ready" | "accepted" | "rejected" | "expired";
+  validation_method: string;
+  validated_evidence_ref: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  expires_at: string;
+}
+
+export interface BeliefDetail extends BeliefObservation {
+  scope: string;
+  origin: string;
+  importance: number;
+  valid_from: string | null;
+  valid_to: string | null;
+  stale_after: string | null;
+}
+
+export interface BeliefManagementResult {
+  action: string;
+  belief: BeliefDetail;
+  previous_belief_ids: string[];
+}
+
 export interface BeliefObservation {
   id: string;
   character_card_id: string;
@@ -281,3 +316,66 @@ export async function loadConversationStructure(
   const { pages: _pages, ...view } = page;
   return view;
 }
+
+async function managementRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...init?.headers }
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json() as Promise<T>;
+}
+
+export function listKnowledgeGapCandidates(deploymentId: string, gapId: string) {
+  return managementRequest<{ items: KnowledgeGapCandidate[] }>(
+    `/api/deployments/${encodeURIComponent(deploymentId)}/knowledge-gaps/${encodeURIComponent(gapId)}/candidates?include_terminal=false`
+  );
+}
+
+export function reviewKnowledgeGapCandidate(
+  deploymentId: string,
+  gapId: string,
+  candidateId: string,
+  payload: {
+    action: "accept" | "reject";
+    validated_evidence_ref?: string;
+    resolved_fields?: string[];
+    confidence?: number;
+  }
+) {
+  return managementRequest<{ gap: KnowledgeGapObservation; candidate: KnowledgeGapCandidate }>(
+    `/api/deployments/${encodeURIComponent(deploymentId)}/knowledge-gaps/${encodeURIComponent(gapId)}/candidates/${encodeURIComponent(candidateId)}/review`,
+    { method: "POST", body: JSON.stringify(payload) }
+  );
+}
+
+export function getBeliefDetail(deploymentId: string, beliefId: string) {
+  return managementRequest<BeliefDetail>(
+    `/api/deployments/${encodeURIComponent(deploymentId)}/beliefs/${encodeURIComponent(beliefId)}`
+  );
+}
+
+export function correctBelief(
+  deploymentId: string,
+  beliefId: string,
+  payload: { value_text: string; domain: "personal" | "canonical" | "general"; reason: string; confidence?: number }
+) {
+  return managementRequest<BeliefManagementResult>(
+    `/api/deployments/${encodeURIComponent(deploymentId)}/beliefs/${encodeURIComponent(beliefId)}/correct`,
+    { method: "POST", body: JSON.stringify(payload) }
+  );
+}
+
+function changeBeliefStatus(deploymentId: string, beliefId: string, action: "reject" | "forget", reason: string) {
+  return managementRequest<BeliefManagementResult>(
+    `/api/deployments/${encodeURIComponent(deploymentId)}/beliefs/${encodeURIComponent(beliefId)}/${action}`,
+    { method: "POST", body: JSON.stringify({ reason }) }
+  );
+}
+
+export const rejectBelief = (deploymentId: string, beliefId: string, reason: string) =>
+  changeBeliefStatus(deploymentId, beliefId, "reject", reason);
+
+export const forgetBelief = (deploymentId: string, beliefId: string, reason: string) =>
+  changeBeliefStatus(deploymentId, beliefId, "forget", reason);

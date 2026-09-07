@@ -1,10 +1,13 @@
 # Active development plan — AI-native reliability review
 
-Status: **corrective batch complete; MCP/slow-turn implementation and local verification complete; Draft PR #204 open; not merged**
+Status: **remaining-gap implementation and offline gates complete; new CI gates pending; Draft PR #204 open; not merged**
 Branch: `codex/ai-native-reliability-review`
 PR: https://github.com/wong001110/character-relay/pull/204
 Implementation commit: `3b334a8e78bf1ce64cc25d8253afc2efe2ac4d1b`
 Base: `main @ d23e7f22229788068dbb76abf9e403fd0a4bcc7d`
+
+Latest closeout: [R10–R17 / S03/S05/S06 implementation and evidence](reliability-gap-closeout.md).
+Historical stage evidence below is retained; this closeout supersedes earlier open-gap statements.
 
 User authorized implementation, sub-agents/model choice, a PR, and a final whole-project Red Team assessment. Root owns integration. No production deployment, external attack targets or production data deletion is authorized.
 
@@ -192,3 +195,54 @@ PR #204; identify the exact commit from Git history to avoid embedding a self-re
 Next action after review: configure one authorized MCP provider in an isolated preview, exercise
 real Discord acknowledgement/image/final delivery, and compare dialogue quality/latency against
 baseline. No merge, production deployment, live test dispatch, or feature removal was performed.
+
+## Remaining-gap implementation — user authorized 2026-09-07
+
+Baseline `8c30540338ce6799068f6c36ceb8730090993c60`. User requests completion of all remaining
+fixes and optimizations identified in the preceding review: R10–R17, broader outbound admission/
+connection binding, replica-safe quotas, operational validation, and actual Runtime replay.
+MCP/slow-turn implementation above remains the baseline. Existing production incident causality
+and live model/Discord quality cannot be invented; prepare reproducible isolated evidence and
+explicitly identify any unavailable live environment. Local models, gameplay/WebRTC, speculative
+graph expansion and new collectors remain deliberately deferred; no approved feature deletion.
+
+Evidence map: current source and the R10–R17 report, security assessment S03/S05/S06,
+`docs/mcp-conversation-jobs.md`, scope/memory/Fabric contracts, UI contracts and real API/types.
+Invariants: current owner/server/Character authority, source provenance, no automatic trust
+promotion, no uncertain effect replay, no production mutation/deployment or secret disclosure.
+
+| Work | Implementation owner | Acceptance |
+| --- | --- | --- |
+| Scratch expiry/checkpoint and scoped memory management | memory_lifecycle_closeout | Expired/archived scratch absent from actual context; authorized correction/exclusion/forget; maintenance wired |
+| Ingress capacity/age and cancel/replace lifecycle | conversation_lifecycle_closeout | Bounded pre-API queues; explicit request outcomes; actor/destination-bound cancel; late final/image suppressed |
+| Knowledge Gap result completion | knowledge_gap_closeout | Durable candidates with provenance; scoped validation/acceptance; success/failure/cancel/recovery terminal states |
+| Outbound security | egress_closeout | Configurable media clients admitted; public-address validation bound to actual transport; redirects/subresources tested offline |
+| First-use Portal and health workflow | portal_onboarding_closeout | Correct connection ID; authorized bootstrap; real status instructions; PR checks distinguish deployed health |
+| Formal replay and failure evidence / independent review | turn_job_backend | Actual API/runtime journeys and supervised Fabric faults; final cross-component source assessment |
+| Provider capabilities, atomic quotas, trace maintenance, app wiring | root | Endpoint isolation/negative TTL; contention-safe consume; bounded diagnostics/retention; lifecycle integration |
+
+Root owns `api/app.py`, global settings, pyproject/CI (except Demo workflow), active plan and map,
+publication gates in media/tool registry, integration, verification and commits. Agents own only
+assigned scopes and do not commit. Stage gates: focused meaningful tests, configured mutation
+scopes for changed protected logic, integrated Python/Web/Connector checks, independent review,
+canonical docs, and PR update. A static assessment is not a full adversarial Red Team pass.
+
+### Remaining-gap closeout
+
+All assigned implementation scopes are integrated. Full Python offline run: 1,041 passed / 6
+skipped; final browser/migration/capability scope 24 passed / 1 PostgreSQL skip; final atomic
+login/capability/security scope 14 passed / 1 PostgreSQL skip. Ruff passed, clean-cache mypy
+passed for 403 source files. Connector 110 tests and Portal 71 tests, typecheck/build passed.
+Eleven selected capability-expiry mutants were killed using fresh statistics. Independent final
+source review found no additional blocker after lifecycle, candidate-CAS and transport corrections.
+
+Executable Portal Playwright checks now run in the existing Chromium-equipped Docker CI job;
+PostgreSQL CI adds real quota/advisory-lock contention. Their local absence is explicit, not a
+pass. The new `source_author_id` additive migration preserves old job data, and candidate storage
+is registered without rewriting source evidence. Root publishes the coherent diff on existing
+Draft PR #204. Exact commit is recorded by Git history/PR rather than a self-referential hash.
+
+Remaining external gates: published-head CI, configured MCP/Discord preview, measured natural
+dialogue quality and production incident evidence. Production Demo credentials were not changed.
+Local-model/adversarial reproduction remains parked. Next takeover details, scoped residuals and
+operational costs are in `docs/reliability-gap-closeout.md`; no merge or deployment is authorized.

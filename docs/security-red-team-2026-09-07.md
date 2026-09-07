@@ -2,6 +2,12 @@
 
 Status: **defensive source assessment and local regression evidence; adversarial validation blocked**.
 
+Latest amendment: [remaining-gap closeout](reliability-gap-closeout.md) implements broader
+configurable-media admission, socket-bound public-address validation at controlled HTTP/MCP/browser
+call sites, atomic quota counters and owner-scoped write admission. This supersedes the earlier
+S03/S05/S06 implementation gaps below within that documented scope. Synthetic tests and independent
+final source review are complete; live adversarial testing remains parked, not passed.
+
 Branch: `codex/ai-native-reliability-review`. Baseline: `d23e7f22229788068dbb76abf9e403fd0a4bcc7d`.
 This assessment was performed during integration. The reviewed implementation was frozen as
 `3b334a8e78bf1ce64cc25d8253afc2efe2ac4d1b`; documentation closeout follows in Draft PR #204.
@@ -19,9 +25,10 @@ inspection, corrective import authorization code, and ordinary local defensive r
 
 The latest corrective sources address the original target-client admission and invitation
 atomicity gaps within the scopes stated below. An unqualified production security recommendation
-is still unsupported: the new endpoint policy covers two clients, not every outbound client;
-general HTTP/browser transport pinning and replica-safe quotas remain incomplete. Enablement of
-other configurable outbound clients requires its own admission/egress decision. The branch's
+is still unsupported. At the original assessment baseline, endpoint policy covered two clients
+and transport pinning/replica-safe quotas were incomplete; the amendment above records their
+subsequent implementation and precise residual scope. Other outbound clients still require
+their own admission/egress decision. The branch's
 improved worker behavior does not establish production resource capacity, latency isolation, or
 incident root cause.
 

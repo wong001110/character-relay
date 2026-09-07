@@ -35,7 +35,7 @@ export interface TurnJobConsumeOptions {
 
 export class TurnJobTerminalError extends Error {
   constructor(
-    readonly status: "failed" | "timed_out" | "stopped",
+    readonly status: "failed" | "timed_out" | "stopped" | "cancelled",
     readonly errorCode: string | null,
     readonly jobId: string
   ) {
@@ -130,7 +130,8 @@ export async function consumeTurnJob(
     if (
       view.status === "failed" ||
       view.status === "timed_out" ||
-      view.status === "stopped"
+      view.status === "stopped" ||
+      view.status === "cancelled"
     ) {
       throw new TurnJobTerminalError(view.status, view.error_code, view.job_id);
     }
