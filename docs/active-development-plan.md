@@ -91,7 +91,26 @@ An automatic cybersecurity check stopped the independent agent's attack-reproduc
 
 No release is approved. Remaining egress/DNS binding, multimodal-client admission and atomic quota
 work are tracked in [the scope-wide security assessment](security-red-team-2026-09-07.md).
-Next: inspect the latest PR CI, validate the full local Compose topology and resolve
-blocked adversarial validation in an authorized suitable environment before release; prioritize
-remaining security findings before MCP/dense/dialogue expansion. Production rollout and merge are
-not part of this task.
+Latest steering: the user has parked local-model/adversarial reproduction work and requested a
+continued reviewer assessment of improvements, omissions and lower-priority features. Do not
+restart the parked work. Full Compose validation and unresolved security evidence remain release
+limitations, not requirements to resume adversarial work in the current review task.
+
+## Reviewer follow-up — 2026-09-07
+
+Status: source review complete; recommendations only, no new product changes or feature-removal
+decision. The [product/runtime review](reviewer-product-runtime-2026-09-07.md) records R10–R17,
+source evidence, acceptance proposals and feature tradeoffs at `895f817`.
+
+- Root reconciled three read-only reviews: product surfaces, memory quality and runtime cost.
+- Main CI run `34117484100` and Railway Smoke passed at `895f817`. Public Demo Status Check
+  `34117484124` failed: two Demo cards, one credential ready. The workflow queries shared
+  production without deployed-commit attestation; this is not proof of a PR regression.
+- This review ran two existing provider-capability persistence tests (both passed), a pure local
+  endpoint-key comparison, source/caller checks and read-only GitHub CI inspection. No full-suite,
+  load, live-model or browser E2E evidence was added.
+- Proposed next work: repair first-use/readiness gaps; establish actual-turn replay evidence;
+  close queue/deadline/cancellation and scratch-expiry lifecycles; then assess automatic gap
+  discovery and optional modules by quality/cost comparison. R10–R17 remain unimplemented.
+- Existing security release limitations still apply. Production rollout and merge remain outside
+  this task. The new report does not supersede product contracts or approve deleting features.
