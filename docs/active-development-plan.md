@@ -1,6 +1,6 @@
 # Active development plan — AI-native reliability review
 
-Status: **corrective implementation and local verification complete; Draft PR #204 open; not merged**
+Status: **corrective batch complete; MCP/slow-turn implementation and local verification complete; Draft PR #204 open; not merged**
 Branch: `codex/ai-native-reliability-review`
 PR: https://github.com/wong001110/character-relay/pull/204
 Implementation commit: `3b334a8e78bf1ce64cc25d8253afc2efe2ac4d1b`
@@ -25,9 +25,9 @@ Invariants: Runtime owns authorization/side effects; owner/server/Character perc
 | C: continuation/recall | R04–R07 | Formal runtime continuation scoped to actor/deployment/server and assigned tool; no unknown effect replay; query-first older recall with perception; allowed Fabric candidates and provenance-safe packing | Implemented; focused regressions and independent review passed |
 | D: integrated security gate | R09 + new findings | Source-wide defensive review, boundary/failure regressions, Python/Web/Connector gates, final scope-wide assessment with executed/blocked/unverified distinctions | Defensive assessment and local regressions complete; adversarial exercise blocked |
 | E: PR | all | Reviewed diff, evidence, remaining work and handoff; open PR without merging/deploying | Draft PR #204 open |
-| Follow-up: interaction quality | R08 + remaining R04–R06 | Durable acknowledgement/progress/result protocol; real dialogue replay, same-model quality/latency/cost comparison | Planned |
+| Follow-up: interaction quality | R08 + remaining R04–R06 | Durable acknowledgement/progress/result protocol; real dialogue replay, same-model quality/latency/cost comparison | Protocol implemented; live dialogue-quality comparison remains pending |
 | Follow-up: dense retrieval | remaining R06–R07 | Actual index→query→prompt and update/delete semantics with measured relevance benefit | Planned; do not claim disconnected paths available |
-| Follow-up: MCP | R05 | One controlled provider; pagination, discovery, schema changes, reauthorization/failures after capability contracts | Planned |
+| Follow-up: MCP | R05 | One controlled provider; pagination, discovery, schema changes, reauthorization/failures after capability contracts | Controlled integration implemented; live configured-provider smoke remains pending |
 
 All nine findings are tracked. This corrective release fixes proven defects and establishes foundations; planned expansion is not implementation. Local gaming/WebRTC, framework replacement, broad graph enrichment and Portal redesign remain deferred.
 
@@ -114,3 +114,81 @@ source evidence, acceptance proposals and feature tradeoffs at `895f817`.
   discovery and optional modules by quality/cost comparison. R10–R17 remain unimplemented.
 - Existing security release limitations still apply. Production rollout and merge remain outside
   this task. The new report does not supersede product contracts or approve deleting features.
+
+## MCP and asynchronous conversation implementation — active
+
+User now explicitly requests implementation of MCP tool discovery/use and natural early replies
+while slow tools run, followed by images/results in the original conversation. This supersedes
+the preceding review-only scope for these capabilities; local models and adversarial reproduction
+remain parked. Baseline: `15c19029d3d627e044350ad601920686057b68de`; same Draft PR #204.
+
+Evidence: `tool_runtime.py`, `media_tools.py`, `targets/prompt_model.py`, `connector_runtime.py`,
+`api/routes/connectors.py`, durable runtime repositories, Discord `relayClient.ts`/`index.ts`,
+tool-calling and media-generation contracts. Runtime retains assignment, owner/deployment scope,
+side-effect admission and durable delivery authority. MCP catalog text is untrusted data.
+
+Stages:
+1. Controlled Streamable HTTP MCP gateway: operator-configured endpoints and exact owner/deployment
+   grants; bounded paginated discovery; fingerprints and argument validation before invocation;
+   no automatic server installation, OAuth grants or executable stdio configuration.
+2. Durable bounded turn jobs and progress claims: short submission/poll requests, model-authored
+   progress before slow tools, final existing delivery, timeout/shutdown outcomes with no blind
+   re-execution of uncertain effects. Knowledge Fabric worker remains separate in responsibility.
+3. Formal Discord connector integration, synthetic delayed-provider/MCP regressions, independent
+   source review, relevant Python/Connector gates, documentation and PR update.
+
+Delegation: MCP agent owns new config/client/gateway and focused tests/dependencies; job agent owns
+new job models/repository/routes/progress lifecycle and app/database composition; connector agent
+owns TypeScript job protocol and real delivery. Root owns registry/model/media integration, settings,
+contracts, reconciliation and commit. Agents do not commit or access live providers/Discord.
+
+Acceptance: acknowledgement can be delivered before blocked image/MCP work completes; authorized
+discovery returns only a few relevant schemas; unassigned or changed remote tools fail before call;
+final images use the existing scoped artifact/Discord identity path; failed/unknown effects never
+cause a second automatic write; repeated polls/submission do not repeat progress or final delivery.
+
+
+### MCP/slow-turn closeout — 2026-09-07
+
+Implemented the three stages above. Canonical contract/configuration: `docs/mcp-conversation-jobs.md`.
+New persistence tables are `discord_turn_jobs` and `discord_turn_job_progress`, initialized through
+existing SQLAlchemy table registration; no existing source-data table is rewritten. The job queue
+is lifespan-supervised inside each API process, distinct from the dedicated Fabric worker.
+
+Validation:
+- Full offline Python integration run: `python -m pytest -n 2 --tb=short` — **1005 passed,
+  6 skipped, 13 warnings**, 288.92 seconds. This ran before the final recovery pagination changes.
+- Post-recovery integration scope: `python -m pytest tests/test_turn_jobs.py tests/test_mcp_gateway.py
+  tests/test_mcp_conversation_integration.py tests/test_slow_image_conversation.py
+  tests/test_tool_continuation_review.py tests/test_prompt_model_tool_calling.py
+  tests/test_tool_runtime.py tests/test_image_creation_runtime.py -q` — **51 passed**.
+  Final query-limit change additionally rechecked all **8** job/API tests.
+- `ruff check src tests` and `mypy src` pass; mypy checks **399 source files**.
+  An optional repository-wide `ruff format --check` reports 251 unformatted files; this is not
+  an existing CI gate, and unrelated formatting was not changed. It is not recorded as a pass.
+- Discord Connector: `npm test -- --run` — **105 tests across 18 files passed**;
+  typecheck, production build, and whitespace diff check pass.
+- MCP grant mutation command: `mutmut run '*McpProviderConfig*granted_tool_names*'
+  --max-children 2` — **4 selected mutants killed, 0 survivors**. The tool generated other
+  configuration mutants, which were not executed or counted in this result.
+- MCP transport tests use the actual official SDK with synthetic in-process ASGI JSON/SSE
+  responses, including byte limits; no external MCP/provider/Discord calls were made.
+
+Independent Security source review was performed by `mcp_jobs_security_review`, separate from
+implementers. Findings drove streamed response bounds, restricted schema validation, fresh scope
+checks, progress CAS, continuous retention, terminal claim-before-send, delivery-state SQL filtering,
+message-only recovery pagination past revoked entries, and periodic bounded Connector recovery.
+Final static recheck found no remaining blockers in that reviewed scope. This is not a new full
+adversarial Red Team execution; the user parked local-model/adversarial reproduction.
+
+Deliberate limits: only configured public HTTPS Streamable HTTP MCP providers and explicit grants;
+no provider is enabled by default; restricted schemas and one bounded inline image; per-destination
+turn serialization; in-process rather than distributed job execution; uncertain effects never
+replayed; live dialogue quality, provider compatibility, Discord outages, PostgreSQL contention,
+and DNS-to-connection binding remain unverified. See the canonical contract for operational limits.
+
+Commit/handoff: this closeout and implementation are one coherent commit after `15c19029` on Draft
+PR #204; identify the exact commit from Git history to avoid embedding a self-referential hash.
+Next action after review: configure one authorized MCP provider in an isolated preview, exercise
+real Discord acknowledgement/image/final delivery, and compare dialogue quality/latency against
+baseline. No merge, production deployment, live test dispatch, or feature removal was performed.

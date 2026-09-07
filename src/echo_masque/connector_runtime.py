@@ -269,6 +269,7 @@ class DiscordConnectorRuntime:
             channel_id=payload.channel_id,
             thread_id=payload.thread_id,
             message_id=payload.message_id,
+            category_id=payload.category_id,
             trigger_text=payload.text,
             initiator_is_bot=payload.author_is_bot,
             initiator_user_id=payload.author_id,

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
+import io
 import json
 from typing import Any
 
+from PIL import Image
 from pydantic import SecretStr
 
 from echo_masque.api.connector_schemas import DiscordInboundMessage
@@ -13,17 +18,21 @@ from echo_masque.image_creation_runtime import ImageCreationRuntimeService, Imag
 from echo_masque.image_generation import CANONICAL_ASPECT_RATIOS
 from echo_masque.internal_context import INTERNAL_CONTEXT_TOOL_IDS, InternalContextService
 from echo_masque.live_media import LiveMediaContextService, LiveMediaResult
+from echo_masque.mcp_config import McpProviderConfig
+from echo_masque.mcp_gateway import McpGateway
 from echo_masque.persistence import DeploymentRepository, DiscordIdentityRepository
+from echo_masque.persistence.deployment_tool_repository import DeploymentToolRepository
 from echo_masque.providers import ChatToolCall, ChatToolDefinition, ProviderError
 from echo_masque.providers.trace import provider_trace_scope
 from echo_masque.server_time_tools import ServerAwareToolRegistry
-from echo_masque.tool_external import ExternalToolFailed, json_result
+from echo_masque.tool_external import ExternalToolFailed, ExternalToolRejected, json_result
 from echo_masque.tool_runtime import (
     ToolCatalogItem,
     ToolExecutionContext,
     ToolExecutionResult,
     _tool,
 )
+from echo_masque.turn_progress import publish_turn_progress
 
 _MEDIA_INSPECT_TOOL_ID = "media.inspect"
 
@@ -37,11 +46,22 @@ class MediaToolRegistry(ServerAwareToolRegistry):
         image_creation_service: ImageCreationRuntimeService | None = None,
         generated_media_delivery: GeneratedMediaDeliveryService | None = None,
         internal_context_service: InternalContextService | None = None,
+        mcp_providers: tuple[McpProviderConfig, ...] = (),
+        deployment_repository: DeploymentRepository | None = None,
+        deployment_tool_repository: DeploymentToolRepository | None = None,
         **kwargs: Any,
     ) -> None:
         raw_bot_token = kwargs.get("discord_bot_token")
+        if mcp_providers:
+            kwargs["mcp_gateway"] = McpGateway(
+                providers=mcp_providers,
+                image_delivery=self._deliver_mcp_image,
+                scope_validator=self._require_current_tool_scope,
+            )
         super().__init__(*args, **kwargs)
         self.image_creation_service = image_creation_service
+        self.deployment_repository = deployment_repository
+        self.deployment_tool_repository = deployment_tool_repository
         self.internal_context_service = internal_context_service
         if generated_media_delivery is None and image_creation_service is not None:
             database = image_creation_service.artifact_repository.database
@@ -284,12 +304,90 @@ class MediaToolRegistry(ServerAwareToolRegistry):
                     self._trim_turn_map(self._generated_by_turn)
         return result
 
+    async def _deliver_mcp_image(
+        self, context: ToolExecutionContext, mime_type: str, data_base64: str,
+    ) -> dict[str, object]:
+        """Materialize only bounded image bytes through the existing scoped delivery path."""
+
+        self._require_discord(context)
+        self._require_current_tool_scope(context, "mcp.invoke", after_effect=True)
+        service = self.image_creation_service
+        delivery = self.generated_media_delivery
+        if service is None or delivery is None:
+            raise ExternalToolFailed("mcp_image_delivery_unavailable")
+        if len(data_base64) > 12 * 1024 * 1024:
+            raise ExternalToolFailed("mcp_image_too_large")
+        try:
+            content = base64.b64decode(data_base64, validate=True)
+            if not content or len(content) > 8 * 1024 * 1024:
+                raise ValueError("image_size")
+            with Image.open(io.BytesIO(content)) as image:
+                actual_mime = Image.MIME.get(image.format or "", "")
+                if actual_mime not in {"image/png", "image/jpeg", "image/webp", "image/gif"}:
+                    raise ValueError("image_format")
+                if actual_mime != mime_type or image.width * image.height > 16_000_000:
+                    raise ValueError("image_metadata")
+                image.verify()
+        except (ValueError, OSError, binascii.Error, Image.DecompressionBombError) as exc:
+            raise ExternalToolFailed("mcp_image_invalid") from exc
+        extension = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp",
+                     "image/gif": "gif"}[mime_type]
+        artifact = service.artifact_repository.create(
+            owner_id=context.owner_id, deployment_id=context.deployment_id,
+            character_card_id=context.character_card_id,
+            media_key=f"generated:{hashlib.sha256(content).hexdigest()}",
+            mime_type=mime_type, filename=f"character-generated.{extension}",
+            provider="mcp", model="connected-tool", content=content,
+        )
+        try:
+            delivered = await delivery.deliver(
+                owner_id=context.owner_id, deployment_id=context.deployment_id,
+                channel_id=context.channel_id, thread_id=context.thread_id,
+                artifact_id=artifact.id,
+            )
+        except RuntimeError as exc:
+            raise ExternalToolFailed("mcp_image_delivery_outcome_unknown") from exc
+        self._generated_by_turn[(context.deployment_id, context.message_id)] = (artifact.id,)
+        self._trim_turn_map(self._generated_by_turn)
+        return {
+            "artifact_ids": [artifact.id], "discord_message_ids": [delivered.message_id],
+            "delivered": True, "count": 1,
+        }
+
+    def _require_current_tool_scope(
+        self, context: ToolExecutionContext, tool_id: str, *, after_effect: bool = False,
+    ) -> None:
+        """Recheck live grants/destination after queued or slow work, before publication."""
+        deployments = self.deployment_repository
+        tools = self.deployment_tool_repository
+        if deployments is None or tools is None:
+            if not tool_id.startswith("mcp."):
+                return  # Backward-compatible isolated native-tool test registries.
+            raise ExternalToolRejected("mcp_scope_authority_unavailable")
+        deployment = deployments.deployment_matches_discord_destination(
+            context.deployment_id, connection_id=context.connection_id,
+            guild_id=context.guild_id, channel_id=context.channel_id,
+            thread_id=context.thread_id, category_id=context.category_id,
+        )
+        allowed = (
+            deployment is not None
+            and deployment.owner_id == context.owner_id
+            and deployment.character_card_id == context.character_card_id
+            and tool_id in (tools.get_enabled_tools(context.deployment_id, context.owner_id) or [])
+        )
+        if not allowed:
+            if after_effect:
+                raise ExternalToolFailed("tool_scope_revoked_result_not_published")
+            raise ExternalToolRejected("tool_scope_revoked")
+
     async def _execute_tool(
         self,
         tool_id: str,
         arguments: dict[str, object],
         context: ToolExecutionContext,
     ) -> str:
+        if tool_id in {"mcp.discover", "mcp.invoke"}:
+            self._require_current_tool_scope(context, tool_id)
         if tool_id == _MEDIA_INSPECT_TOOL_ID:
             return await self._inspect_shared_media(context)
         if tool_id in INTERNAL_CONTEXT_TOOL_IDS:
@@ -302,6 +400,9 @@ class MediaToolRegistry(ServerAwareToolRegistry):
         if self.image_creation_service is None or self.generated_media_delivery is None:
             raise ValueError("Image Generation Runtime is unavailable.")
         payload = ImageGenerateToolInput.model_validate(arguments)
+        self._require_current_tool_scope(context, tool_id)
+        if context.progress_message:
+            await publish_turn_progress(context.progress_message)
         reply_to_message_id = self._reply_reference_by_turn.get(
             (context.deployment_id, context.message_id),
             "",
@@ -332,6 +433,7 @@ class MediaToolRegistry(ServerAwareToolRegistry):
         attachment_urls: list[str] = []
         try:
             for artifact_id in artifact_ids:
+                self._require_current_tool_scope(context, tool_id, after_effect=True)
                 delivered = await self.generated_media_delivery.deliver(
                     owner_id=context.owner_id,
                     deployment_id=context.deployment_id,

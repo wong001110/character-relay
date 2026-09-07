@@ -447,3 +447,7 @@ The current roadmap does not include:
 Character Tool Calling uses OpenAI-compatible native function tools (`tools`, assistant `tool_calls`, and `role=tool` results). Character Relay validates generated JSON arguments before execution; provider-generated arguments are never trusted directly.
 
 If a configured Character LLM provider does not expose native Tool Calling through the Character Relay provider adapter, the character continues without tools rather than bypassing Runtime validation.
+
+## Controlled MCP and slow-turn delivery
+
+Controlled MCP discovery/invocation and model-authored progress are implemented on the active PR branch. Read [MCP tools and asynchronous conversation turns](mcp-conversation-jobs.md) for the current assignment/grant contract, supported schemas/transports, configuration, recovery, and validation limits. This supersedes planning-only MCP descriptions for that bounded scope; Internet-wide discovery and automatic installation are not implemented.

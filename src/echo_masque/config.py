@@ -9,6 +9,7 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from echo_masque import __version__
+from echo_masque.mcp_config import McpProviderConfig
 from echo_masque.target_endpoint_policy import (
     DEFAULT_PROVIDER_ALLOWED_ORIGINS,
     validated_operator_origin,
@@ -58,6 +59,11 @@ class Settings(BaseSettings):
     # API-side switch exists only for a controlled migration/recovery and must stay opt-in.
     knowledge_fabric_api_background_workers_enabled: bool = False
     api_thread_pool_limit: int = Field(default=16, ge=1, le=40)
+    mcp_providers: tuple[McpProviderConfig, ...] = ()
+    turn_job_max_queue: int = Field(default=20, ge=1, le=200)
+    turn_job_max_concurrency: int = Field(default=2, ge=1, le=16)
+    turn_job_deadline_seconds: int = Field(default=300, ge=30, le=900)
+    turn_job_retention_hours: int = Field(default=24, ge=1, le=168)
 
     langgraph_mode: LangGraphMode = "off"
     semantic_embedding_enabled: bool = False

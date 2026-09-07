@@ -73,3 +73,5 @@ local synthetic fixtures prove production model quality.
 - Keep old filenames when links depend on them; classify them in the historical index instead of silently presenting them as current.
 - Never copy secrets, tokens, raw Discord captures, private payloads, or provider credentials into docs, the agent map, or handoffs.
 - Application settings use `CHARACTER_RELAY_*`; `ECHO_MASQUE_LIVE_*` names are workflow secrets, not runtime configuration.
+
+- [MCP tools and asynchronous conversation turns](mcp-conversation-jobs.md): controlled tool discovery, model-authored progress, durable jobs, delivery/recovery, and operator configuration.

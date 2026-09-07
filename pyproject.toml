@@ -18,6 +18,8 @@ dependencies = [
   "fastembed>=0.8,<0.9",
   "httpx>=0.28,<1.0",
   "langgraph>=1.2.9,<2.0",
+  "jsonschema>=4,<5",
+  "mcp>=2,<3",
   "pillow>=11,<13",
   "playwright>=1.54,<2.0",
   "pydantic>=2.10,<3.0",
@@ -53,6 +55,7 @@ testpaths = ["tests"]
 [tool.mutmut]
 source_paths = ["src/"]
 only_mutate = [
+    "src/echo_masque/mcp_config.py",
     "src/echo_masque/target_endpoint_policy.py",
     "src/echo_masque/knowledge_fabric_character_policy.py",
     "src/echo_masque/knowledge_fabric_hard_cutover_policy.py",
@@ -61,6 +64,7 @@ only_mutate = [
     "src/echo_masque/knowledge_fabric_visual_reference_policy.py",
 ]
 pytest_add_cli_args_test_selection = [
+    "tests/test_mcp_gateway.py",
     "tests/test_target_endpoint_policy_review.py",
     "tests/test_knowledge_fabric_character_policy.py",
     "tests/test_knowledge_fabric_hard_cutover_policy.py",

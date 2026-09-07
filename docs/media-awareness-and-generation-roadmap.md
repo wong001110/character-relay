@@ -418,3 +418,7 @@ Still not guaranteed:
 - No Redis until measured traffic justifies it.
 - No persona-specific text stored in global Media Analysis.
 - No automatic full-video download/analysis for every link merely because it appears in a channel.
+
+## Asynchronous image delivery
+
+The active PR adds model-authored progress before native image generation and controlled MCP calls, with final images posted through the existing artifact/destination identity path. See [MCP tools and asynchronous conversation turns](mcp-conversation-jobs.md). Image and final text remain separate deliveries; live provider/Discord behavior and conversational quality still require preview validation.

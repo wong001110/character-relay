@@ -28,6 +28,8 @@ export interface ConnectorConfig {
   botTagConversationsEnabled: boolean;
   botTagMaxDepth: number;
   botTagMaxResponses: number;
+  turnJobMaxWaitMs: number;
+  turnJobRecoveryMaxConcurrent: number;
 }
 
 function required(name: string): string {
@@ -149,6 +151,18 @@ export function loadConfig(): ConnectorConfig {
       8,
       1,
       30
+    ),
+    turnJobMaxWaitMs: boundedInteger(
+      "DISCORD_TURN_JOB_MAX_WAIT_MS",
+      330_000,
+      30_000,
+      960_000
+    ),
+    turnJobRecoveryMaxConcurrent: boundedInteger(
+      "DISCORD_TURN_JOB_RECOVERY_MAX_CONCURRENT",
+      4,
+      1,
+      10
     )
   };
   if (

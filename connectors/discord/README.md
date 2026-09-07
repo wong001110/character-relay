@@ -135,6 +135,8 @@ Bot Tag conversations are bounded per human trigger. Defaults are:
 DISCORD_BOT_TAG_CONVERSATIONS_ENABLED=true
 DISCORD_BOT_TAG_MAX_DEPTH=4
 DISCORD_BOT_TAG_MAX_RESPONSES=8
+DISCORD_TURN_JOB_MAX_WAIT_MS=330000
+DISCORD_TURN_JOB_RECOVERY_MAX_CONCURRENT=4
 ```
 
 `MAX_DEPTH` limits chained Tag hops. `MAX_RESPONSES` is a shared budget across all branches
@@ -246,3 +248,7 @@ semantics are stored in shared channel context, so Sticker-only messages can be 
 characters and by Interaction Sessions.
 
 ## Runtime behavior
+
+## Slow tools and recoverable turns
+
+Formal Character/social turn calls submit bounded API jobs, deliver model-authored progress while polling, and reuse durable final-delivery claims. Message-job recovery scans paginated results after successful state sync, without resubmitting generation. Configure `DISCORD_TURN_JOB_MAX_WAIT_MS` above the API deadline and `DISCORD_TURN_JOB_RECOVERY_MAX_CONCURRENT` for recovery concurrency (default 4). Per-destination conversation ordering stays serial. See [the MCP/job contract](../../docs/mcp-conversation-jobs.md) for setup, recovery, and known limitations.

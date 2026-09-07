@@ -122,3 +122,7 @@ that exact printed directory manually. Normal runs must leave this variable unse
 
 The active plan records each command, result, accepted equivalent mutant, deliberate exclusion,
 and remaining scope. It must not claim a mutation score for code that was not actually mutated.
+
+## Controlled MCP grant scope
+
+`mcp_config.py` and `test_mcp_gateway.py` are in the configured Python scope. The bounded command `mutmut run '*McpProviderConfig*granted_tool_names*' --max-children 2` exercised four owner/deployment grant-lookup mutants: all four killed, none survived. Gateway tests distinguish wrong owner, wrong deployment, and both. This result applies only to the selected grant method; it is not a mutation score for the full gateway, transport, job lifecycle, or the other generated configuration mutants.

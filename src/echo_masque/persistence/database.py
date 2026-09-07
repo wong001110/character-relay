@@ -58,6 +58,7 @@ from echo_masque.persistence.discovery_share_models import (
     DeploymentDiscoveryShareRecord,
 )
 from echo_masque.persistence.discord_identity_models import DiscordGuildActorIdentityRecord
+from echo_masque.persistence.turn_job_models import TurnJobProgressRecord, TurnJobRecord
 from echo_masque.persistence.entity_evidence_models import (
     EntityV3Record,
     EvidenceEdgeV3Record,
@@ -323,6 +324,8 @@ class Database:
             ConversationEpisodeEntityRecord,
             CharacterEpisodeAccessRecord,
             DiscordGuildActorIdentityRecord,
+            TurnJobRecord,
+            TurnJobProgressRecord,
             DeploymentPresenceRecord,
             DeploymentPresenceNoticeRecord,
             DeploymentPresenceRhythmRecord,
