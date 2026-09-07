@@ -3,9 +3,10 @@
 Date: 2026-09-07. Branch: `codex/ai-native-reliability-review`, Draft PR #204.
 Baseline: `8c30540338ce6799068f6c36ceb8730090993c60`. This document supersedes the
 unimplemented status of R10–R17 in the [product review](reviewer-product-runtime-2026-09-07.md).
-Implementation and offline verification are complete. PostgreSQL CI has passed; the browser
-check exposed a form-label test mismatch, corrected in the CI follow-up. Current CI status is
-attached to PR #204. Live model quality and incident causality are not established.
+Implementation and offline verification are complete. PostgreSQL CI has passed. The browser
+follow-ups corrected the form locator and a missing synthetic portrait response; the complete
+Portal journey now passes locally. Exact published-head CI status is attached to PR #204.
+Live model quality and incident causality are not established.
 
 ## Disposition and evidence
 
@@ -88,6 +89,16 @@ span is hidden from the accessible name. The follow-up uses exact accessible tex
 the named correction form, adds explicit field linkage, and fills the complete synthetic
 API fixture set while retaining console-error and request-contract assertions. A partial browser
 journey is not recorded as a pass; consult the PR's final run for the corrected browser gate.
+
+Follow-up at `9ccc773`: CI run `34134120102` passed Python 3.12/3.13, Web, Connector and
+PostgreSQL, but the completed Portal interaction sequence failed its final console-error check.
+Local reproduction identified repeated `GET /api/characters/portraits/card-1` requests missing
+from the synthetic fixture map. The fixture now returns a valid WebP for that exact GET, matching
+the native portrait response contract; unmatched calls remain errors. HTTP failure paths and
+uncaught page errors are included alongside all console/unmatched-request diagnostics, so one
+failure category no longer hides another. The built-Portal clipboard/candidate/correction journey
+passes locally with Python Playwright 1.62 and Chromium 149. No product source was changed.
+See the active plan and PR for the correction commit and production-image CI outcome.
 
 ## Remaining external validation and deliberate deferrals
 

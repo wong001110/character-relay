@@ -14,6 +14,7 @@ CI needs the Python ``playwright`` package and an installed Chromium browser
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import sys
 from typing import Any
@@ -28,6 +29,10 @@ DEPLOYMENT_ID = "deployment-1"
 GAP_ID = "gap-1"
 CANDIDATE_ID = "candidate-1"
 BELIEF_ID = "belief-1"
+# Valid local WebP matching the synthetic card's binary portrait endpoint.
+PORTRAIT_WEBP = base64.b64decode(
+    "UklGRh4AAABXRUJQVlA4TBEAAAAvAAAAAAdQvOIVr/+BiOh/AAA="
+)
 
 
 def fixture_data() -> dict[str, Any]:
@@ -214,6 +219,8 @@ def install_api_fixtures(
                     "role": "admin",
                 },
             )
+        elif path == "/api/characters/portraits/card-1" and method == "GET":
+            route.fulfill(status=200, content_type="image/webp", body=PORTRAIT_WEBP)
         elif path == "/api/characters" or path == "/api/targets":
             fulfill(route, [])
         elif path == "/api/runtime/status":
@@ -402,11 +409,24 @@ def run(base_url: str) -> None:
     writes: list[tuple[str, dict[str, Any]]] = []
     unmatched_requests: list[str] = []
     console_errors: list[str] = []
+    page_errors: list[str] = []
+    failed_responses: list[str] = []
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context(viewport={"width": 1440, "height": 1100})
         context.grant_permissions(["clipboard-read", "clipboard-write"], origin=base_url)
         page = context.new_page()
+        page.on("pageerror", lambda error: page_errors.append(str(error)))
+        page.on(
+            "response",
+            lambda response: (
+                failed_responses.append(
+                    f"{response.status} {response.request.method} {urlparse(response.url).path}"
+                )
+                if response.status >= 400
+                else None
+            ),
+        )
         page.on(
             "console",
             lambda message: (
@@ -482,10 +502,14 @@ def run(base_url: str) -> None:
             },
         )
 
-        if console_errors:
-            raise AssertionError(f"Portal emitted console errors: {console_errors}")
-        if unmatched_requests:
-            raise AssertionError(f"Portal requested unmocked API paths: {unmatched_requests}")
+        diagnostics = {
+            "unmocked_api_requests": unmatched_requests,
+            "failed_responses": failed_responses,
+            "page_errors": page_errors,
+            "console_errors": console_errors,
+        }
+        if any(diagnostics.values()):
+            raise AssertionError(f"Portal browser diagnostics: {json.dumps(diagnostics)}")
         context.close()
         browser.close()
     print(

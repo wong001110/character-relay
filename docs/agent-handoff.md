@@ -19,10 +19,14 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
 
 ## Current baseline
 
-The reliability branch's exact state and validation are in `docs/active-development-plan.md`.
-Draft PR #204 contains implementation commit `3b334a8e78bf1ce64cc25d8253afc2efe2ac4d1b`;
-local Python verification passed 976 tests with 6 skips. Check current PR CI and the security
-assessment before any release; blocked adversarial work is not a pass.
+The reliability branch's exact state and validation are in `docs/active-development-plan.md`
+and `docs/reliability-gap-closeout.md`. Draft PR #204 includes controlled MCP/slow-turn jobs
+and the R10–R17 reliability closeout beyond the original `3b334a8` batch. The subsequent
+`9ccc773` CI passed Python 3.12/3.13, Web, Connector and PostgreSQL but exposed a missing
+synthetic portrait response in the Portal browser test. That fixture is now repaired and the
+complete journey passes locally; consult PR #204 for the current commit and exact-head
+production-image CI result. Check the security assessment before any release; blocked
+adversarial work is not a pass.
 The following Fabric phase narrative is historical context; it does not prove live dense
 retrieval or replace current source/verification. The former phase execution record is archived
 under `docs/history/knowledge-fabric-foundation-execution.md`.

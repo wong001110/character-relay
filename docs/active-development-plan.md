@@ -1,6 +1,6 @@
 # Active development plan — AI-native reliability review
 
-Status: **remaining-gap implementation and offline gates complete; PostgreSQL CI passed; browser follow-up implemented; final CI on Draft PR #204; not merged**
+Status: **remaining-gap implementation complete; Portal portrait fixture repaired and browser flow verified locally; published-head CI tracked on Draft PR #204; not merged**
 Branch: `codex/ai-native-reliability-review`
 PR: https://github.com/wong001110/character-relay/pull/204
 Implementation commit: `3b334a8e78bf1ce64cc25d8253afc2efe2ac4d1b`
@@ -252,3 +252,34 @@ Remaining external gates: published-head CI, configured MCP/Discord preview, mea
 dialogue quality and production incident evidence. Production Demo credentials were not changed.
 Local-model/adversarial reproduction remains parked. Next takeover details, scoped residuals and
 operational costs are in `docs/reliability-gap-closeout.md`; no merge or deployment is authorized.
+
+### Portal browser gate takeover — 2026-09-07
+
+Resumed from `9ccc773`. Its CI run `34134120102` passed Python 3.12/3.13, Web, Connector
+and PostgreSQL, but Docker stopped at the Portal console-error gate. The accessible correction
+form itself completed; five repeated 404 messages obscured the failing request paths.
+
+- Reproduced against the same production Portal bundle with synthetic API routing. The missing
+  fixture was `GET /api/characters/portraits/card-1`; repeated CharacterPortrait mounts requested
+  it while the test returned 404. This is a test-fixture omission, not evidence of a production
+  portrait regression. The native endpoint serves WebP, so the exact synthetic-card GET now
+  returns a valid embedded WebP without a network fetch or a catch-all success response.
+- Browser diagnostics now report unmatched API methods/paths, HTTP failure methods/paths,
+  uncaught page errors and console errors together. Existing clipboard, candidate provenance,
+  correction request and rendered-result assertions remain intact. Unexpected calls still fail.
+- Local `npm run build` (TypeScript + Vite) and the complete `verify_portal_closeout.py` journey
+  passed. The local runner used Python Playwright 1.62 with Chromium 149 from the npm-distributed
+  `@sparticuz/chromium` package and a loopback static server in the same process namespace.
+  These tooling dependencies are outside the repository. Local Docker remains unavailable;
+  the existing Docker CI job is the production-image gate.
+- A focused browser probe also decoded the fixture image successfully and verified that a
+  different card's portrait still returns 404 and is recorded as an unmatched request.
+- `ruff check scripts/verify_portal_closeout.py` and `git diff --check` passed. The change is
+  confined to the validation fixture/diagnostics and takeover records; no runtime/security
+  decision logic changed, so no new mutation scope applies. Diff review was by the root agent.
+
+The resulting commit and exact-head CI outcome are recorded on PR #204. The old passing jobs
+do not attest this correction. Next gate: require the updated production-image Portal journey,
+storage replacement and smoke steps to pass, then verify all PR checks at the same head.
+Configured MCP/Discord preview and measured dialogue quality remain external validation;
+dense retrieval remains explicitly deferred, and production Demo credentials are unchanged.
