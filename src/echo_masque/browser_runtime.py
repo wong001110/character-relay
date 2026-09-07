@@ -39,6 +39,7 @@ _MAX_RENDERED_COLLECTION_JSON_RESPONSES = 8
 _MAX_RENDERED_COLLECTION_JSON_RESPONSE_BYTES = 128 * 1_024
 _MAX_RENDERED_COLLECTION_JSON_TOTAL_BYTES = 512 * 1_024
 _RENDERED_COLLECTION_JSON_DRAIN_SECONDS = 2.0
+_MAX_RENDERED_COLLECTION_DOM_BYTES = 1_048_576
 
 
 class BrowserToolUnavailable(RuntimeError):
@@ -372,6 +373,29 @@ class BrowserCapabilityManager:
                     allowed_hosts=normalized_hosts,
                 ):
                     return
+                # Playwright exposes response.body() only as an all-at-once value.  Do not ask it
+                # to copy an unbounded or chunked response into the Python worker merely to decide
+                # whether this optional appendix should be retained.  A declared size remains a
+                # protocol assertion rather than a process-level Chromium memory limit; the
+                # rendered worker is separately resource-isolated by deployment policy.
+                declared_body_bytes = _bounded_rendered_collection_json_content_length(
+                    response.headers.get("content-length", "")
+                )
+                # Content-Length applies to transferred bytes.  Reject encoded or transfer-coded
+                # payloads because their decoded body can be much larger than that declaration.
+                if (
+                    declared_body_bytes is None
+                    or response.headers.get("content-encoding", "").strip().casefold()
+                    not in {"", "identity"}
+                    or response.headers.get("transfer-encoding", "").strip()
+                ):
+                    return
+                if (
+                    declared_body_bytes > _MAX_RENDERED_COLLECTION_JSON_RESPONSE_BYTES
+                    or captured_json_bytes + declared_body_bytes
+                    > _MAX_RENDERED_COLLECTION_JSON_TOTAL_BYTES
+                ):
+                    return
                 try:
                     body = await response.body()
                 except Exception:
@@ -433,6 +457,42 @@ class BrowserCapabilityManager:
                 if pending:
                     await asyncio.gather(*pending, return_exceptions=True)
             try:
+                # Avoid serializing a large DOM across the browser/Python boundary before the
+                # collection cap has been checked.  The in-page calculation deliberately
+                # overestimates UTF-8 and HTML escaping, so a page admitted here is safe to copy.
+                estimated_html_bytes = await page.evaluate(
+                    """(maximum) => {
+                        const multiplier = 6;
+                        let total = 0;
+                        const add = (length) => {
+                            total += Math.max(0, length) * multiplier + 32;
+                            return total <= maximum;
+                        };
+                        const walker = document.createTreeWalker(
+                            document.documentElement,
+                            NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT | NodeFilter.SHOW_COMMENT,
+                        );
+                        let node = document.documentElement;
+                        while (node) {
+                            if (node.nodeType === Node.ELEMENT_NODE) {
+                                if (!add(node.tagName.length * 2 + 8)) return total;
+                                for (const attribute of node.attributes) {
+                                    if (!add(attribute.name.length + attribute.value.length + 4)) return total;
+                                }
+                            } else if (!add(node.data.length)) {
+                                return total;
+                            }
+                            node = walker.nextNode();
+                        }
+                        return total;
+                    }""",
+                    _MAX_RENDERED_COLLECTION_DOM_BYTES,
+                )
+                if (
+                    not isinstance(estimated_html_bytes, (int, float))
+                    or estimated_html_bytes > _MAX_RENDERED_COLLECTION_DOM_BYTES
+                ):
+                    raise BrowserToolUnavailable("Rendered collection DOM exceeded the page limit.")
                 html = await page.content()
                 links = page.locator("a")
                 link_count = min(await links.count(), capped_links)
@@ -445,7 +505,7 @@ class BrowserCapabilityManager:
                 raise BrowserToolUnavailable(
                     "Rendered collection page did not expose a readable DOM."
                 ) from exc
-        if len(html.encode("utf-8")) > 1_048_576:
+        if len(html.encode("utf-8")) > _MAX_RENDERED_COLLECTION_DOM_BYTES:
             raise BrowserToolUnavailable("Rendered collection DOM exceeded the page limit.")
         return RenderedCollectionPage(
             html=html,
@@ -1031,6 +1091,22 @@ def _is_admissible_rendered_collection_json_response(
         and 200 <= status_code < 300
         and (media_type == "application/json" or media_type.endswith("+json"))
     )
+
+
+def _bounded_rendered_collection_json_content_length(value: str) -> int | None:
+    """Return an explicitly declared, capture-safe response length.
+
+    Optional rendered JSON is intentionally skipped when a response has no trustworthy
+    Content-Length.  Playwright cannot stream response bodies into a caller-controlled byte cap.
+    """
+
+    candidate = value.strip()
+    if not candidate or re.fullmatch(r"[0-9]+", candidate) is None:
+        return None
+    try:
+        return int(candidate)
+    except ValueError:
+        return None
 
 
 def _safe_string(value: object, maximum: int) -> str:

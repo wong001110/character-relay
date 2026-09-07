@@ -119,6 +119,7 @@ from echo_masque.orchestration import (
     ConditionWatchGraphRunner,
     SocialTurnGraphRunner,
 )
+from echo_masque.pending_actions_v3 import PendingActionService
 from echo_masque.persistence import (
     AuthoringRepository,
     AuthRepository,
@@ -184,6 +185,7 @@ from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepos
 from echo_masque.planner_media import PlannerMediaDescriptorService
 from echo_masque.prompt_inspector import CharacterPromptInspector
 from echo_masque.provider_credentials import KeyGroupProviderCredentialResolver
+from echo_masque.providers import OpenAICompatibleProvider
 from echo_masque.providers.trace import configure_provider_trace_sink
 from echo_masque.public_demo import PublicDemoService
 from echo_masque.public_demo_middleware import PublicDemoReadOnlyMiddleware
@@ -443,6 +445,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         deployment_tool_repository,
         credential_store,
         tool_registry,
+        provider_factory=lambda base_url, api_key: OpenAICompatibleProvider(
+            base_url=base_url, api_key=api_key, settings=resolved
+        ),
     )
     condition_watch_notifier = ConditionWatchReminderNotifier(
         scheduled_reminder_repository,
@@ -485,6 +490,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         conversation_runtime_repository,
         graph=EvidenceGraphService(entity_evidence_repository),
     )
+    pending_action_service = PendingActionService(conversation_runtime_repository)
     context_resolver_v3 = ContextResolverV3(
         structure=conversation_structure_repository,
         runtime=conversation_runtime_repository,
@@ -513,10 +519,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repository,
         deployment_repository,
         credential_store,
+        provider_factory=lambda base_url, api_key: OpenAICompatibleProvider(
+            base_url=base_url, api_key=api_key, settings=resolved
+        ),
         context_service_v3=character_turn_context_v3_service,
         deployment_tool_repository=deployment_tool_repository,
         tool_registry=tool_registry,
         turn_director_gateway=planner_utility_gateway,
+        pending_action_service=pending_action_service,
         live_media_service=live_media_service,
         conversation_media_service=conversation_media_service,
         visual_identity_resolver=KnowledgeFabricVisualIdentityResolver(
@@ -577,20 +587,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         conversation_media_repository,
         generated_media_repository,
     )
-    recovered_matrices = matrix_repository.recover_interrupted()
-    if recovered_matrices:
-        logger.warning(
-            "Recovered %s interrupted Experiment Matrices as paused.",
-            recovered_matrices,
-        )
-    recovered_knowledge_ingestion_jobs = (
-        knowledge_fabric_ingestion_service.recover_interrupted_jobs()
-    )
-    if recovered_knowledge_ingestion_jobs:
-        logger.warning(
-            "Requeued %s interrupted Knowledge Fabric ingestion jobs.",
-            recovered_knowledge_ingestion_jobs,
-        )
     repository.seed_demo_targets()
     repository.remove_demo_character_cards()
     planner_media_service = PlannerMediaDescriptorService(
@@ -736,6 +732,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.belief_repository = belief_repository
     app.state.conversation_structure_repository = conversation_structure_repository
     app.state.conversation_runtime_repository = conversation_runtime_repository
+    app.state.pending_action_service = pending_action_service
     app.state.internal_context_service = internal_context_service
     app.state.planner_media_service = planner_media_service
     app.state.discord_connector_runtime = discord_connector_runtime

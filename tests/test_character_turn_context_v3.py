@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -753,6 +754,48 @@ def test_default_epistemic_gate_keeps_fabric_evidence_out_of_prompt_and_trace(
     assert "evidence-visible" not in trace
     assert "source-version-visible" not in trace
     assert "must-not-reach-prompt" not in trace
+
+
+def test_fabric_trace_uses_only_evidence_that_survives_prompt_packing(tmp_path: Path) -> None:
+    database = Database(f"sqlite:///{tmp_path / 'fabric-packed-trace.db'}")
+    database.initialize()
+    original = _knowledge_result()
+    long_hit = replace(
+        original.hits[0],
+        text_content="VISIBLE KNOWLEDGE " + ("hostile instruction text " * 180),
+    )
+    engine = _RecordingKnowledgeQueryEngine(replace(original, hits=(long_hit,)))
+    knowledge_context, _scope_id = _knowledge_context(database, query_engine=engine, allow=True)
+    service = _service(
+        database,
+        structure_resolver=_ResolveOnce(_entity_segment()),
+        runtime_coordinator=_ObserveOnce(),
+        knowledge_context=knowledge_context,
+    )
+
+    result = service.build(_resolved())
+    prompt = "\n".join(result.bundle.prompt_sections())
+    trace = result.turn_context.trace
+
+    assert result.error_reason == ""
+    assert result.bundle.knowledge_packing.selected_refs == ("evidence:evidence-visible",)
+    assert ("evidence:evidence-visible", "truncated_to_budget") in (
+        result.bundle.knowledge_packing.omitted
+    )
+    assert trace.rag_status == "completed"
+    assert trace.rag_reason == "knowledge_fabric_prompt_packed"
+    assert trace.selected_chunk_count == 1
+    assert trace.selected_knowledge_refs == ["evidence:evidence-visible"]
+    assert [(item.ref, item.reason) for item in trace.knowledge_omissions] == [
+        ("evidence:evidence-visible", "truncated_to_budget")
+    ]
+    assert trace.selected_knowledge_tokens <= trace.knowledge_token_budget
+    knowledge_section = next(
+        item for item in result.bundle.prompt_sections() if item.startswith("KNOWLEDGE EVIDENCE\n")
+    )
+    assert len(knowledge_section) <= service.context_resolver.budget.knowledge_chars
+    assert "BEGIN UNTRUSTED EVIDENCE JSON" in prompt
+    assert "END UNTRUSTED EVIDENCE JSON" in prompt
 
 
 def test_unknown_fabric_scope_neither_creates_state_nor_queries(tmp_path: Path) -> None:

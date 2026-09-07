@@ -19,6 +19,7 @@ from echo_masque.persistence.models import (
     EvidenceRecord,
     PersistenceProbeRecord,
     RunSnapshotRecord,
+    TargetOwnershipRecord,
     TargetRecord,
     TestPackItemRecord,
     TestPackRecord,
@@ -532,6 +533,7 @@ class WorkspaceRepository:
         imported: dict[str, int] = {}
         skipped: dict[str, int] = {}
         with self.database.session() as session:
+            self._validate_import_graph(session, owner_id, archive, mode)
             if mode == "replace":
                 self._delete_owner_workspace(session, owner_id)
             self._import_records(session, TargetRecord, archive.targets, imported, skipped, "targets")
@@ -585,6 +587,141 @@ class WorkspaceRepository:
                 imported["admin_runtime"] = 1
             session.commit()
         return WorkspaceImportResult(imported=imported, skipped=skipped)
+
+    @staticmethod
+    def _validate_import_graph(
+        session: Any, owner_id: str, archive: WorkspaceArchive, mode: str
+    ) -> None:
+        """Authorize the complete relational archive before changing any stored state.
+
+        An archive's owner fields are descriptive, never an authority grant. In particular,
+        a new child row cannot make an existing foreign parent part of this workspace.
+        """
+
+        if mode not in {"merge", "replace"}:
+            raise ValueError("Workspace import mode is invalid.")
+        if archive.admin_runtime is not None:
+            raise ValueError("Workspace import cannot configure shared Admin Runtime.")
+
+        rows_by_model: dict[type[Any], list[dict[str, object]]] = {
+            TargetRecord: archive.targets,
+            CharacterCardRecord: archive.character_cards,
+            CustomScenarioRecord: archive.scenarios,
+            TestPackRecord: archive.test_packs,
+            TrialRunRecord: archive.trial_runs,
+            RunSnapshotRecord: archive.run_snapshots,
+            CharacterTrialRecord: archive.character_trials,
+        }
+        incoming: dict[type[Any], set[str]] = {}
+        for model, rows in rows_by_model.items():
+            identities: set[str] = set()
+            key = "run_id" if model in {RunSnapshotRecord, CharacterTrialRecord} else "id"
+            for row in rows:
+                identity = row.get(key)
+                if not isinstance(identity, str) or not identity or identity in identities:
+                    raise ValueError("Workspace import contains an invalid or duplicate identity.")
+                identities.add(identity)
+            incoming[model] = identities
+
+        def owned(model: type[Any], identity: str) -> bool:
+            if model is TargetRecord:
+                if identity.startswith("demo-"):
+                    return True
+                grant = session.scalar(
+                    select(TargetOwnershipRecord.id).where(
+                        TargetOwnershipRecord.target_id == identity,
+                        TargetOwnershipRecord.owner_id == owner_id,
+                    )
+                )
+                legacy = session.scalar(
+                    select(CharacterCardRecord.id).where(
+                        CharacterCardRecord.target_id == identity,
+                        CharacterCardRecord.owner_id == owner_id,
+                    )
+                )
+                return grant is not None or legacy is not None
+            if model in {TrialRunRecord, CharacterTrialRecord}:
+                record = session.get(RunSnapshotRecord, identity)
+            else:
+                record = session.get(model, identity)
+            return record is not None and record.owner_id == owner_id
+
+        for model, identities in incoming.items():
+            for identity in identities:
+                existing = session.get(model, identity)
+                if existing is not None and not owned(model, identity):
+                    raise ValueError("Workspace import references an unavailable record.")
+                if model is TargetRecord and existing is None and identity.startswith("demo-"):
+                    raise ValueError("Workspace import cannot create public Demo Targets.")
+
+        def require(model: type[Any], value: object, *, optional: bool = False) -> None:
+            if optional and value is None:
+                return
+            if not isinstance(value, str) or not value:
+                raise ValueError("Workspace import contains an invalid reference.")
+            existing = session.get(model, value)
+            if existing is not None and not owned(model, value):
+                raise ValueError("Workspace import references an unavailable record.")
+            if value in incoming[model]:
+                return
+            # Replace removes owned conversation/evaluation records, but retains Targets.
+            if existing is None or (mode == "replace" and model is not TargetRecord):
+                raise ValueError("Workspace import has a reference outside its retained graph.")
+
+        for row in archive.character_cards:
+            require(TargetRecord, row.get("target_id"))
+        for row in archive.trial_runs:
+            require(TargetRecord, row.get("target_id"))
+            run_id = cast(str, row["id"])
+            if session.get(TrialRunRecord, run_id) is None and (
+                run_id not in incoming[RunSnapshotRecord]
+            ):
+                raise ValueError("Imported Runs require an owner-scoped snapshot.")
+        for row in archive.run_snapshots:
+            require(TrialRunRecord, row.get("run_id"))
+            require(CharacterCardRecord, row.get("character_card_id"), optional=True)
+            require(TestPackRecord, row.get("test_pack_id"), optional=True)
+            require(TrialRunRecord, row.get("rerun_of"), optional=True)
+        for row in archive.character_trials:
+            require(TrialRunRecord, row.get("run_id"))
+            require(CharacterCardRecord, row.get("character_card_id"))
+        for pack in archive.test_packs:
+            items = pack.get("items", [])
+            if not isinstance(items, list):
+                raise ValueError("Workspace import pack items must be a list.")
+            for item in items:
+                if not isinstance(item, dict) or item.get("pack_id") != pack["id"]:
+                    raise ValueError("Workspace import pack item has an invalid parent.")
+                require(TestPackRecord, item.get("pack_id"))
+                require(CustomScenarioRecord, item.get("scenario_id"))
+                stored_item = (
+                    session.get(TestPackItemRecord, item["id"])
+                    if isinstance(item.get("id"), int)
+                    else None
+                )
+                if stored_item is not None:
+                    require(TestPackRecord, stored_item.pack_id)
+        for model, rows in (
+            (TurnRecord, archive.turns),
+            (TrialEventRecord, archive.events),
+            (EvidenceRecord, archive.evidence),
+        ):
+            for row in rows:
+                require(TrialRunRecord, row.get("run_id"))
+                stored_child = (
+                    session.get(model, row["id"])
+                    if isinstance(row.get("id"), int)
+                    else None
+                )
+                if stored_child is not None:
+                    require(TrialRunRecord, stored_child.run_id)
+                # Built-in scenario IDs are evidence labels, not database references.
+                scenario_id = row.get("scenario_id")
+                if isinstance(scenario_id, str) and (
+                    scenario_id in incoming[CustomScenarioRecord]
+                    or session.get(CustomScenarioRecord, scenario_id) is not None
+                ):
+                    require(CustomScenarioRecord, scenario_id)
 
     @staticmethod
     def _scenario_columns(payload: ScenarioCreate | ScenarioUpdate) -> dict[str, object]:

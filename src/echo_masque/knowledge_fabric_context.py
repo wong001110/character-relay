@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from echo_masque.context_resolver_v3 import ContextTextHit
 from echo_masque.knowledge_fabric_epistemic_policy import (
     CharacterEpistemicPolicy,
+    PersistedCharacterEpistemicPolicy,
     evidence_may_enter_character_context,
 )
 from echo_masque.knowledge_fabric_query import (
@@ -103,6 +104,21 @@ class KnowledgeContextBuilder:
         if scope is None:
             return KnowledgeContext(result=None, hits=())
         try:
+            candidate_corpus_ids: frozenset[str] | None = None
+            if isinstance(self.epistemic_policy, PersistedCharacterEpistemicPolicy):
+                # Persisted Character policy is corpus-scoped.  Constrain the query before
+                # channel ranking so denied corpora cannot consume the top-k candidate budget.
+                # Evidence is still checked below before it becomes Character context.
+                candidate_corpus_ids = frozenset(
+                    item.corpus.id
+                    for item in self.fabric_repository.list_effective_corpora(scope.id)
+                    if self.epistemic_policy.allows(
+                        deployment_id=deployment_id,
+                        character_card_id=character_card_id,
+                        corpus_id=item.corpus.id,
+                        authority_profile=item.corpus.default_authority_profile,
+                    )
+                )
             result = self.query_engine.query(
                 KnowledgeQueryRequest(
                     server_scope_id=scope.id,
@@ -113,6 +129,7 @@ class KnowledgeContextBuilder:
                     # already-approved contract.
                     candidate_limit=result_limit,
                     result_limit=result_limit,
+                    candidate_corpus_ids=candidate_corpus_ids,
                 )
             )
         except Exception as exc:
@@ -140,7 +157,7 @@ class KnowledgeContextBuilder:
                 type(exc).__name__,
             )
             return KnowledgeContext(result=result, hits=())
-        return KnowledgeContext(result=result, hits=admitted_hits)
+        return KnowledgeContext(result=result, hits=admitted_hits[:result_limit])
 
 
 __all__ = ["KnowledgeContext", "KnowledgeContextBuilder"]

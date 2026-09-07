@@ -14,7 +14,7 @@ from echo_masque.image_generation import CANONICAL_ASPECT_RATIOS
 from echo_masque.internal_context import INTERNAL_CONTEXT_TOOL_IDS, InternalContextService
 from echo_masque.live_media import LiveMediaContextService, LiveMediaResult
 from echo_masque.persistence import DeploymentRepository, DiscordIdentityRepository
-from echo_masque.providers import ChatToolCall, ProviderError
+from echo_masque.providers import ChatToolCall, ChatToolDefinition, ProviderError
 from echo_masque.providers.trace import provider_trace_scope
 from echo_masque.server_time_tools import ServerAwareToolRegistry
 from echo_masque.tool_external import ExternalToolFailed, json_result
@@ -219,6 +219,19 @@ class MediaToolRegistry(ServerAwareToolRegistry):
 
         hidden = {_MEDIA_INSPECT_TOOL_ID, *INTERNAL_CONTEXT_TOOL_IDS}
         return tuple(item for item in super().catalog() if item.id not in hidden)
+
+    def provider_tools(
+        self,
+        enabled_tool_ids: tuple[str, ...],
+    ) -> tuple[ChatToolDefinition, ...]:
+        """Allow Runtime to expose explicitly injected internal reads to Roleplay.
+
+        Internal IDs remain absent from ``catalog()`` and therefore cannot be assigned
+        through the Deployment tool surface.  The connector adds them only from
+        ``internal_tool_ids()``, with the scoped execution context constructed per turn.
+        """
+
+        return super().provider_tools(enabled_tool_ids)
 
     def internal_tool_ids(self) -> tuple[str, ...]:
         if self.internal_context_service is None:

@@ -160,6 +160,38 @@ def _character_invite_available(context: ToolExecutionContext) -> bool:
     return any(item.kind == "character" for item in state.participants)
 
 
+def unavailable_assigned_side_effect_ids_for_turn(
+    registry: ToolRegistry,
+    enabled_tool_ids: tuple[str, ...],
+    context: ToolExecutionContext,
+) -> tuple[str, ...]:
+    """Return directly requested assigned side effects which Runtime cannot run now.
+
+    This is deliberately narrower than Tool selection: it never makes an unavailable
+    capability provider-visible, and it does not use semantic retrieval to infer a
+    request.  Runtime uses the result only to preserve a blocked action that the same
+    actor may later resume through the Runtime's scoped continuation checks.
+    """
+
+    assigned = tuple(dict.fromkeys(item for item in enabled_tool_ids if item))
+    if not assigned:
+        return ()
+    query = " ".join(context.trigger_text.split())[:4000]
+    if not query:
+        return ()
+    catalog = {item.id: item for item in registry.catalog()}
+    return tuple(
+        tool_id
+        for tool_id in assigned
+        if (
+            (item := catalog.get(tool_id)) is not None
+            and item.side_effect
+            and not item.available
+            and _explicit_intent(tool_id, query)
+        )
+    )
+
+
 def select_tool_ids_for_turn(
     registry: ToolRegistry,
     enabled_tool_ids: tuple[str, ...],
@@ -258,4 +290,5 @@ def select_tool_ids_for_turn(
 
 __all__ = [
     "select_tool_ids_for_turn",
+    "unavailable_assigned_side_effect_ids_for_turn",
 ]

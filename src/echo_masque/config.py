@@ -2,13 +2,17 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from echo_masque import __version__
+from echo_masque.target_endpoint_policy import (
+    DEFAULT_PROVIDER_ALLOWED_ORIGINS,
+    validated_operator_origin,
+)
 
 LangGraphMode = Literal["off", "condition_watch", "character_turn", "social_turn"]
 LangGraphWorkflow = Literal["condition_watch", "character_turn", "social_turn"]
@@ -40,6 +44,13 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./echo_masque.db"
     provider_trace_retention_days: int = 7
     provider_trace_max_records: int = 2000
+    # Production egress is origin-admitted before configurable target/provider clients send.
+    # Operator entries are exact credential-free HTTPS origins, supplied as a comma-separated
+    # CHARACTER_RELAY_* value.  The known provider origins cover the existing non-custom presets.
+    provider_allowed_origins: Annotated[tuple[str, ...], NoDecode] = (
+        DEFAULT_PROVIDER_ALLOWED_ORIGINS
+    )
+    http_target_allowed_origins: Annotated[tuple[str, ...], NoDecode] = ()
     knowledge_external_sync_report_retention_days: int = Field(default=7, ge=1, le=90)
     # Knowledge Fabric acquisition and derived-work maintenance are intentionally not part of
     # the HTTP API's default lifecycle. Run them through ``knowledge_fabric_worker`` instead so
@@ -178,6 +189,19 @@ class Settings(BaseSettings):
                 "Knowledge object-storage endpoint must be a credential-free HTTPS URL."
             )
         return value.rstrip("/")
+
+    @field_validator("provider_allowed_origins", "http_target_allowed_origins", mode="before")
+    @classmethod
+    def outbound_origins_are_exact_https_entries(cls, value: object) -> tuple[str, ...]:
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            values = tuple(item for item in value.split(",") if item.strip())
+        elif isinstance(value, (list, tuple)) and all(isinstance(item, str) for item in value):
+            values = tuple(value)
+        else:
+            raise ValueError("Allowed outbound origins must be comma-separated HTTPS origins.")
+        return tuple(dict.fromkeys(validated_operator_origin(item) for item in values))
 
     @field_validator("knowledge_object_storage_bucket", "knowledge_object_storage_prefix")
     @classmethod

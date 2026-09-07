@@ -41,6 +41,18 @@ only after it has a focused, fast test boundary.
 
 ## Commands
 
+The reliability review adds `target_endpoint_policy.py` and its focused tests to the configured
+Python scope. To run only the new outbound admission policy:
+
+```bash
+mutmut run 'echo_masque.target_endpoint_policy.*' --max-children 2
+mutmut results
+```
+
+Record surviving error-message/equivalent mutants separately from admission-behavior survivors;
+the latter block acceptance until corrected. This scope does not establish coverage for every
+network client, nor replace DNS/egress isolation tests.
+
 Python requires a platform with `fork` support. The scheduled GitHub workflow uses Ubuntu; WSL is
 also supported. Native Windows does not support mutmut execution, so run its scope under WSL or
 CI. Portal and Connector reports remain platform-specific Stryker evidence.

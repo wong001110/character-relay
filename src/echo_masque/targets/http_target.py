@@ -1,9 +1,10 @@
 """Adapter for complete external chatbots exposed over HTTP."""
 
-import os
+from __future__ import annotations
+
 from collections.abc import Callable, Mapping
 from time import perf_counter
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
 import httpx
@@ -16,6 +17,10 @@ from echo_masque.providers import (
     ProviderTimeoutError,
 )
 from echo_masque.security import redact
+from echo_masque.target_endpoint_policy import EndpointPolicyRejected, TargetEndpointPolicy
+
+if TYPE_CHECKING:
+    from echo_masque.config import Settings
 
 SecretLookup = Callable[[str], str | None]
 
@@ -48,13 +53,21 @@ class HttpTarget:
         client: httpx.AsyncClient | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         secret_lookup: SecretLookup | None = None,
+        settings: Settings | None = None,
     ) -> None:
         if client is not None and transport is not None:
             raise ValueError("Provide either client or transport, not both.")
         self.config = config
-        self._client = client or httpx.AsyncClient(transport=transport)
+        self._client = client or httpx.AsyncClient(transport=transport, trust_env=False)
         self._owns_client = client is None
-        self._secret_lookup = secret_lookup or os.getenv
+        # An untrusted persisted target may name a credential, but cannot read process env.
+        # Trusted standalone callers must explicitly inject their credential resolver.
+        self._secret_lookup = secret_lookup or (lambda _name: None)
+        if settings is None:
+            from echo_masque.config import get_settings
+
+            settings = get_settings()
+        self._endpoint_policy = TargetEndpointPolicy.from_settings(settings)
         self._session_id = str(uuid4())
         self._summary = TargetSummary(
             name=name,
@@ -127,12 +140,16 @@ class HttpTarget:
         *,
         expect_payload: bool,
     ) -> Mapping[str, object] | None:
+        try:
+            self._endpoint_policy.require_http_target_url(url)
+        except EndpointPolicyRejected as exc:
+            raise ProviderProtocolError("External target endpoint is not approved.") from exc
         headers: dict[str, str] = {}
         if self.config.auth_env:
             token = self._secret_lookup(self.config.auth_env)
             if not token:
                 raise ProviderAuthenticationError(
-                    f"Credential environment variable is missing: {self.config.auth_env}"
+                    "External target credential is unavailable."
                 )
             headers[self.config.auth_header] = f"{self.config.auth_scheme} {token}".strip()
         try:
@@ -141,11 +158,14 @@ class HttpTarget:
                 json=payload,
                 headers=headers,
                 timeout=self.config.timeout_seconds,
+                follow_redirects=False,
             )
         except httpx.TimeoutException as exc:
             raise ProviderTimeoutError("External target request timed out.") from exc
         if response.status_code in {401, 403}:
             raise ProviderAuthenticationError("External target rejected authentication.")
+        if 300 <= response.status_code < 400:
+            raise ProviderProtocolError("External target redirect was refused.")
         if response.is_error:
             raise ProviderProtocolError(
                 f"External target returned HTTP {response.status_code}."

@@ -7,7 +7,7 @@ from echo_masque.persistence.models import CharacterCardRecord, TargetRecord
 from echo_masque.targets import PromptModelConfig
 
 
-def test_environment_fallback_counts_as_ready(monkeypatch) -> None:
+def test_environment_does_not_substitute_for_owner_credential(monkeypatch) -> None:
     config = PromptModelConfig(
         name="Environment Demo",
         provider="deepseek",
@@ -31,7 +31,7 @@ def test_environment_fallback_counts_as_ready(monkeypatch) -> None:
     assert not _credential_ready(repository, credential_store, "public-demo", card)
 
     monkeypatch.setenv("ECHO_MASQUE_MODEL_API_KEY", "server-side-only")
-    assert _credential_ready(repository, credential_store, "public-demo", card)
+    assert not _credential_ready(repository, credential_store, "public-demo", card)
 
 
 def test_public_demo_readiness_scales_with_the_card_catalog() -> None:

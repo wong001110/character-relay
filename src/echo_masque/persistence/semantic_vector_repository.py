@@ -10,7 +10,7 @@ from sqlalchemy import delete, select
 
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.semantic_vector_models import SemanticVectorRecord
-from echo_masque.semantic_participation import _deserialize_vector, _serialize_vector
+from echo_masque.vector_serialization import deserialize_vector, serialize_vector
 
 
 class SemanticVectorRepository:
@@ -51,7 +51,7 @@ class SemanticVectorRepository:
             ):
                 return None
             try:
-                return _deserialize_vector(record.embedding_blob, record.dimension)
+                return deserialize_vector(record.embedding_blob, record.dimension)
             except ValueError:
                 return None
 
@@ -85,7 +85,7 @@ class SemanticVectorRepository:
                     semantic_text=semantic_text,
                     model_name=model_name,
                     dimension=dimension,
-                    embedding_blob=_serialize_vector(vector),
+                    embedding_blob=serialize_vector(vector),
                 )
                 session.add(record)
             else:
@@ -93,7 +93,7 @@ class SemanticVectorRepository:
                 record.semantic_text = semantic_text
                 record.model_name = model_name
                 record.dimension = dimension
-                record.embedding_blob = _serialize_vector(vector)
+                record.embedding_blob = serialize_vector(vector)
             session.commit()
 
     def delete_resource(self, *, owner_id: str, namespace: str, resource_id: str) -> int:

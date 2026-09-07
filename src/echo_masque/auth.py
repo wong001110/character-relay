@@ -10,14 +10,12 @@ from typing import Literal, cast
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 from pydantic import BaseModel
-from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from echo_masque.config import Settings
 from echo_masque.persistence.auth_repository import AuthRepository
 from echo_masque.persistence.models import (
     AuthSessionRecord,
-    InvitationRecord,
     UserRecord,
 )
 
@@ -222,30 +220,19 @@ class AuthService:
     ) -> UserRecord:
         now = datetime.now(UTC)
         code_hash = self._digest(invitation_code.strip())
+        user_id = secrets.token_hex(16)
         try:
             with self.repository.database.session() as session:
-                invitation = session.scalar(
-                    select(InvitationRecord).where(
-                        InvitationRecord.code_hash == code_hash
-                    )
+                invitation = self.repository.claim_invitation_for_registration(
+                    session=session,
+                    code_hash=code_hash,
+                    email=email,
+                    now=now,
                 )
                 if invitation is None:
                     raise InvitationError("Invitation is invalid or unavailable.")
-                if invitation.accepted_at is not None or invitation.revoked_at is not None:
-                    raise InvitationError("Invitation is invalid or unavailable.")
-                if self._utc(invitation.expires_at) <= now:
-                    raise InvitationError("Invitation is invalid or unavailable.")
-                if invitation.email is not None and invitation.email != email:
-                    raise InvitationError("Invitation is invalid or unavailable.")
-                existing = session.scalar(
-                    select(UserRecord).where(func.lower(UserRecord.email) == email)
-                )
-                if existing is not None:
-                    raise DuplicateAccountError(
-                        "An account with this email already exists."
-                    )
                 record = UserRecord(
-                    id=secrets.token_hex(16),
+                    id=user_id,
                     email=email,
                     display_name=display_name.strip(),
                     password_hash=self.passwords.hash(password),
@@ -253,12 +240,15 @@ class AuthService:
                     is_active=True,
                 )
                 session.add(record)
-                session.flush()
-                invitation.accepted_by = record.id
-                invitation.accepted_at = now
-                session.commit()
-                session.refresh(record)
-                invitation_id = invitation.id
+                try:
+                    session.flush()
+                    invitation.accepted_by = record.id
+                    session.commit()
+                    session.refresh(record)
+                    invitation_id = invitation.id
+                except IntegrityError:
+                    session.rollback()
+                    raise
         except IntegrityError as exc:
             raise DuplicateAccountError(
                 "An account with this email already exists."

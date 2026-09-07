@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import os
 from collections.abc import Callable
 from typing import Literal
 
@@ -73,7 +72,13 @@ class TrialService:
         self.workspace_repository = workspace_repository or WorkspaceRepository(
             repository.database
         )
-        self.provider_factory = provider_factory
+        self.provider_factory = (
+            provider_factory
+            if provider_factory is not default_provider_factory
+            else lambda base_url, api_key: OpenAICompatibleProvider(
+                base_url=base_url, api_key=api_key, settings=self.runtime_service.settings
+            )
+        )
         self.runner = TrialRunner()
         self._modes: dict[str, Literal["watch", "fast"]] = {}
         self._adaptive_configs: dict[str, AdaptiveTesterConfig] = {}
@@ -175,17 +180,16 @@ class TrialService:
                 )
 
         credential: SecretStr | None = None
-        if target_record.target_kind == "prompt_model":
-            config = PromptModelConfig.model_validate_json(target_record.config_json)
+        needs_credential = target_record.target_kind == "prompt_model" or (
+            target_record.target_kind == "http"
+            and bool(HttpTargetConfig.model_validate_json(target_record.config_json).auth_env)
+        )
+        if needs_credential:
             if card_id is not None:
                 credential = self.credential_store.get(owner_id, card_id)
             if credential is None:
-                environment_key = os.getenv(config.api_key_env)
-                if environment_key:
-                    credential = SecretStr(environment_key)
-            if credential is None:
                 raise ValueError(
-                    "This prompt-model Character Card needs an API key before testing."
+                    "This Character Card needs its own credential before testing."
                 )
 
         persisted_suite = encode_trial_request(
@@ -395,16 +399,19 @@ class TrialService:
         if target_kind == "fragile":
             return fragile_target()
         if target_kind == "http":
+            http_config = HttpTargetConfig.model_validate_json(config_json)
+            if http_config.auth_env and credential is None:
+                raise ValueError("The target credential is no longer available.")
             return HttpTarget(
                 name=target_name,
-                config=HttpTargetConfig.model_validate_json(config_json),
+                config=http_config,
+                settings=self.runtime_service.settings,
+                secret_lookup=lambda _name: (
+                    credential.get_secret_value() if credential is not None else None
+                ),
             )
         if target_kind == "prompt_model":
             config = PromptModelConfig.model_validate_json(config_json)
-            if credential is None:
-                environment_key = os.getenv(config.api_key_env)
-                if environment_key:
-                    credential = SecretStr(environment_key)
             if credential is None:
                 raise ValueError("The provider credential is no longer available.")
             return PromptModelTarget(

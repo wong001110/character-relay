@@ -1,22 +1,24 @@
 """Service health endpoints."""
 
-import os
 from typing import cast
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from echo_masque.config import Settings
 from echo_masque.credentials import CredentialStore
 from echo_masque.persistence import (
     AuthRepository,
+    Database,
     Repository,
     StorageStatus,
     WorkspaceRepository,
 )
 from echo_masque.persistence.models import CharacterCardRecord
 from echo_masque.public_demo import PUBLIC_DEMO_EMAIL
-from echo_masque.targets import PromptModelConfig
+from echo_masque.targets import HttpTargetConfig
 
 router = APIRouter(tags=["system"])
 
@@ -54,12 +56,18 @@ class PublicDemoStatusResponse(BaseModel):
 
 @router.get("/health", response_model=ServiceHealthResponse)
 def health(request: Request) -> ServiceHealthResponse:
-    """Report process and persistence health without touching external providers."""
+    """Report API readiness from a current database probe without touching providers."""
 
     settings = cast(Settings, request.app.state.settings)
     storage = cast(StorageStatus, request.app.state.storage_status)
+    database = cast(Database, request.app.state.database)
     if storage.storage_instance_id is None:
         raise RuntimeError("Storage identity is unavailable after database initialization.")
+    try:
+        with database.engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        raise HTTPException(status_code=503, detail="Database readiness check failed.") from None
     return ServiceHealthResponse(
         name=settings.app_name,
         version=settings.app_version,
@@ -84,12 +92,13 @@ def _credential_ready(
     target = repository.get_target(card.target_id)
     if target is None:
         return False
-    if target.target_kind != "prompt_model":
+    required = target.target_kind == "prompt_model" or (
+        target.target_kind == "http"
+        and bool(HttpTargetConfig.model_validate_json(target.config_json).auth_env)
+    )
+    if not required:
         return True
-    if credential_store.get(owner_id, card.id) is not None:
-        return True
-    config = PromptModelConfig.model_validate_json(target.config_json)
-    return bool(os.getenv(config.api_key_env))
+    return credential_store.get(owner_id, card.id) is not None
 
 
 def _public_demo_ready(

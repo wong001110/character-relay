@@ -18,8 +18,8 @@ from echo_masque.persistence.conversation_runtime_repository import (
 )
 from echo_masque.persistence.conversation_structure_repository import (
     ConversationStructureRepository,
-    ConversationThreadView,
 )
+from echo_masque.persistence.discord_identity_repository import DiscordIdentityRepository
 from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
 from echo_masque.semantic_participation import (
     FastEmbedSemanticEncoder,
@@ -29,7 +29,6 @@ from echo_masque.semantic_participation import (
 from echo_masque.tool_runtime import ToolExecutionContext
 
 _INTERNAL_BELIEF_NAMESPACE = "internal-belief-v3"
-_INTERNAL_THREAD_NAMESPACE = "internal-thread-v3"
 _INTERNAL_EPISODE_NAMESPACE = "internal-episode-v3"
 INTERNAL_CONTEXT_TOOL_IDS = (
     "memory.search",
@@ -74,10 +73,42 @@ class InternalContextService:
     settings: Settings | None = None
     encoder: SemanticEncoder | None = None
     knowledge_context: KnowledgeContextBuilder | None = None
+    identities: DiscordIdentityRepository | None = None
 
     def __post_init__(self) -> None:
         self.settings = self.settings or get_settings()
         self.vectors = SemanticVectorRepository(self.belief_repository.database)
+        self.identities = self.identities or DiscordIdentityRepository(
+            self.runtime_repository.database
+        )
+
+    @staticmethod
+    def _query_terms(query: str) -> tuple[str, ...]:
+        return tuple(
+            dict.fromkeys(token for token in semantic_tokens(query) if len(token) > 1)
+        )[:16]
+
+    def _episode_was_perceived(
+        self,
+        *,
+        context: ToolExecutionContext,
+        episode: ConversationEpisodeV3View,
+    ) -> bool:
+        """Use the same route-based deployment perception gate as automatic context."""
+
+        if not context.deployment_id or self.identities is None:
+            return False
+        return any(
+            (
+                route := self.identities.resolve_message_route(
+                    connection_id=context.connection_id,
+                    message_id=message_id,
+                )
+            )
+            is not None
+            and route.deployment_id == context.deployment_id
+            for message_id in episode.source_message_ids
+        )
 
     def _encoder(self) -> SemanticEncoder:
         if self.encoder is None:
@@ -164,12 +195,13 @@ class InternalContextService:
 
     def memory_search(self, arguments: dict[str, object], context: ToolExecutionContext) -> str:
         payload = InternalSearchInput.model_validate(arguments)
-        beliefs = self.belief_repository.recall(
+        beliefs = self.belief_repository.search_relevant(
             owner_id=context.owner_id,
             character_card_id=context.character_card_id,
             connection_id=context.connection_id,
             guild_id=context.guild_id,
-            limit=160,
+            query_terms=self._query_terms(payload.query),
+            limit=240,
         )
         belief_by_id = {item.id: item for item in beliefs}
         candidates = [
@@ -228,51 +260,6 @@ class InternalContextService:
             ensure_ascii=False,
         )
 
-    def _thread_hits(
-        self,
-        *,
-        query: str,
-        context: ToolExecutionContext,
-        limit: int,
-    ) -> list[dict[str, object]]:
-        records = self.structure_repository.recent_threads_for_server(
-            owner_id=context.owner_id,
-            connection_id=context.connection_id,
-            guild_id=context.guild_id,
-            limit=120,
-        )
-        by_id: dict[str, ConversationThreadView] = {item.id: item for item in records}
-        ranked = self._rank(
-            owner_id=context.owner_id,
-            namespace=_INTERNAL_THREAD_NAMESPACE,
-            query=query,
-            values=[
-                (
-                    item.id,
-                    f"{item.canonical_label} {item.anchor_summary} {item.working_summary}",
-                )
-                for item in records
-            ],
-            semantic_floor=0.28,
-            sparse_floor=0.08,
-        )
-        return [
-            {
-                "ref": item.id,
-                "kind": "thread",
-                "label": item.canonical_label,
-                "anchor_summary": item.anchor_summary[:900],
-                "working_summary": item.working_summary[:900],
-                "status": item.status,
-                "participant_refs": list(item.participant_ids[:12]),
-                "entity_refs": list(item.active_entity_ids[:12]),
-                "score": round(score, 4),
-                "last_active_at": item.last_active_at.isoformat(),
-            }
-            for score, item_id in ranked[:limit]
-            for item in (by_id[item_id],)
-        ]
-
     def _episode_hits(
         self,
         *,
@@ -280,11 +267,15 @@ class InternalContextService:
         context: ToolExecutionContext,
         limit: int,
     ) -> list[dict[str, object]]:
-        records = self.runtime_repository.recent_episodes(
+        records = self.runtime_repository.search_episodes(
             owner_id=context.owner_id,
             connection_id=context.connection_id,
             guild_id=context.guild_id,
-            limit=200,
+            query_terms=self._query_terms(query),
+            limit=240,
+        )
+        records = tuple(
+            item for item in records if self._episode_was_perceived(context=context, episode=item)
         )
         by_id: dict[str, ConversationEpisodeV3View] = {item.id: item for item in records}
         ranked = self._rank(
@@ -316,22 +307,16 @@ class InternalContextService:
         arguments: dict[str, object],
         context: ToolExecutionContext,
     ) -> str:
-        """Search both live conversation tracks and durable Episodes through one Tool."""
+        """Search only durable Episodes that the requesting deployment perceived."""
 
         payload = InternalSearchInput.model_validate(arguments)
-        threads = self._thread_hits(query=payload.query, context=context, limit=payload.limit)
         episodes = self._episode_hits(query=payload.query, context=context, limit=payload.limit)
-        merged = sorted(
-            [*threads, *episodes],
-            key=lambda item: float(item.get("score", 0.0)),
-            reverse=True,
-        )[: payload.limit]
         return json.dumps(
             {
                 "ok": True,
                 "scope": "current_discord_server_conversation",
-                "count": len(merged),
-                "results": merged,
+                "count": len(episodes),
+                "results": episodes,
             },
             ensure_ascii=False,
         )

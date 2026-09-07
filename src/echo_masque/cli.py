@@ -9,6 +9,7 @@ from pathlib import Path
 from echo_masque.comparison import RegressionPolicy, compare_results
 from echo_masque.config import get_settings
 from echo_masque.domain import TestKind, TrialSuiteResult
+from echo_masque.runtime_recovery import recover_after_all_workers_stopped
 from echo_masque.suites import scenarios_for
 from echo_masque.targets import fragile_target, stable_target
 from echo_masque.trials import TrialRunner
@@ -40,6 +41,15 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--max-score-drop", type=float, default=5.0)
     compare.add_argument("--max-latency-increase-percent", type=float, default=50.0)
     compare.add_argument("--allow-new-failures", action="store_true")
+    recovery = subparsers.add_parser(
+        "recover-interrupted",
+        help="Recover interrupted durable work after every API and worker has stopped.",
+    )
+    recovery.add_argument(
+        "--workers-stopped",
+        action="store_true",
+        help="Required acknowledgement that all processes sharing the database are stopped.",
+    )
     return parser
 
 
@@ -89,6 +99,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(comparison.model_dump_json(indent=2))
         return 0 if comparison.gate_passed else 3
+    if args.command == "recover-interrupted":
+        if not args.workers_stopped:
+            raise SystemExit(
+                "Refusing recovery: stop every API, connector, and worker sharing the database "
+                "then pass --workers-stopped."
+            )
+        print(json.dumps(recover_after_all_workers_stopped(get_settings()), indent=2))
+        return 0
     raise AssertionError(f"Unhandled command: {args.command}")
 
 

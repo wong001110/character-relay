@@ -19,6 +19,11 @@ Do not infer a missing endpoint, setting, field, metric, state, permission, or d
 
 ## Current baseline
 
+The reliability branch's exact state and validation are in `docs/active-development-plan.md`.
+The following Fabric phase narrative is historical context; it does not prove live dense
+retrieval or replace current source/verification. The former phase execution record is archived
+under `docs/history/knowledge-fabric-foundation-execution.md`.
+
 - Product: Character Relay; Echo Masque is its evaluation module.
 - Production platform connector: Discord.
 - API/runtime: FastAPI + Python under `src/echo_masque/`.

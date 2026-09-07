@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 from echo_masque.internal_context import InternalContextService
 from echo_masque.persistence.belief_repository import BeliefRepository
@@ -137,6 +138,13 @@ def test_internal_conversation_search_reads_v3_episodes_without_topic_scope() ->
         ConversationStructureRepository(database),
         runtime,
         encoder=_RecallEncoder(),
+    )
+    service.identities = SimpleNamespace(
+        resolve_message_route=lambda *, connection_id, message_id: (
+            SimpleNamespace(deployment_id="deployment-ann")
+            if connection_id == "connection-1" and message_id == "message-seed"
+            else None
+        )
     )
     context = ToolExecutionContext(
         owner_id="owner-1",

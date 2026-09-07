@@ -26,6 +26,15 @@ by a coherent phase—do not regenerate unrelated documentation.
 
 ## Required handoff record
 
+Reliability/security follow-up entry points: `knowledge_fabric_worker.py` and
+`runtime_recovery.py` own worker composition/offline recovery; `pending_actions_v3.py` and
+`connector_runtime.py` own scoped task continuation; `target_endpoint_policy.py` owns the
+configured HTTP/provider origin boundary; `WorkspaceRepository._validate_import_graph` and
+`AuthRepository.claim_invitation_for_registration` own import/admission invariants.
+The corresponding `tests/test_*_review.py` files prove the corrective behavior. Consult
+`docs/security-red-team-2026-09-07.md` for scope-wide assessed and unverified boundaries,
+and `docs/active-development-plan.md` for this branch's actual status and remaining stages.
+
 For every non-trivial phase, update the branch plan or relevant status document with:
 
 1. source, contract, and test evidence used;

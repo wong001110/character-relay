@@ -1,8 +1,15 @@
-# Character Relay — AI Agent Development Workflow
+# Character Relay — AI-Native Development Practice
 
-Status: **required workflow for AI-assisted coding**
+Status: **required development practice; updated for the 2026-09-07 reliability review**
 
-Character Relay is developed with multiple AI coding agents and parallel branches. The primary risk is not only code defects; it is **context drift**: an agent may confidently invent an endpoint, assume an old architecture is current, apply a proposal that was never accepted, or treat generated UI copy as real product data.
+Use the current coding harness's sessions, tools, version control and verification capabilities
+first. Delegate when task independence, context separation or independent review has a concrete
+benefit. Do not add Agent Lore as a mandatory dependency or prescribe a fixed Main/Sub topology.
+The human owns product direction and material tradeoffs; the integration agent autonomously
+advances authorized implementation, diagnosis, review, repair and handoff.
+
+The primary risk includes **context drift**: inventing endpoints, treating old designs as current,
+mistaking proposals for decisions, or treating generated UI copy as product data.
 
 This workflow uses a maintained agent navigation map while keeping code, tests, contracts, and accepted decision/status documents authoritative.
 
@@ -106,7 +113,9 @@ Long-lived or cross-cutting branches use `docs/active-development-plan.md` as a 
 - Group related source, schema, test, and canonical-document changes into one coherent phase batch.
 - Do not create a commit for each file, small refactor, or intermediate test repair.
 - During implementation, use the smallest checks that provide useful feedback after a coherent batch; do not rerun the full repository suite after every edit.
-- At the end of the phase, run the complete validation named by its gate, repair failures, review the integrated diff, then create at most one implementation commit for that phase.
+- At the end of a coherent change, run its relevant validation, repair failures, review the
+  integrated diff, and commit a reviewable result. Stages may split or change with evidence;
+  there is no mandatory one-phase/one-commit relationship.
 - A failed check is not a commit boundary. Keep the phase uncommitted until its gate passes or is explicitly recorded as blocked.
 - The final branch gate still requires the relevant cross-project checks even when each phase passed its own targeted suite.
 
@@ -132,10 +141,33 @@ The main agent must:
 - avoid overlapping edit ownership in the shared worktree;
 - reconcile conflicting findings against source and canonical contracts;
 - inspect all delegated diffs and test results;
-- integrate validation and create the phase's single implementation commit;
+- integrate validation and create coherent reviewed commits;
 - record material findings and remaining work in the active plan.
 
 Sub-agents should not commit shared-tree changes independently unless a separate branch/commit boundary is explicitly assigned.
+
+### Security and Red Team gates
+
+Threat analysis begins with design. Security checks identity/scope, secrets, tool authorization,
+external input, egress, durable effects and recovery. Red Team challenges those boundaries across
+components after there is executable behavior to assess. Reviewer/QA/Security/Red Team are
+responsibilities, not a required number of agents. Disclose self-review versus independent review.
+
+Apply verification to the actual risk: dialogue replay and calibrated human/judge assessment for
+quality; integration journeys for tool discovery and continuation; fault injection and restart
+checks for worker changes; negative authorization tests and applicable bounded mutation scopes
+for protected deterministic decisions. A failed check requires diagnosis, not weaker assertions.
+
+Use synthetic local data and approved destinations. Record exact scope and whether each result
+comes from executable tests, source inspection, model evaluation, or a real deployment. Missing
+credentials, unavailable Docker/PostgreSQL or an automatic risk-check rejection must be marked
+blocked/unverified. Do not relabel a defensive audit as a successful adversarial exercise.
+
+Completion requires formal wiring and behavior evidence, not just a class and isolated tests.
+Before a release, review unresolved high-severity findings; no unqualified production approval
+while blockers remain. Prepare concrete options before escalating product or irreversible choices.
+Across sessions, use repository plans and evidence for continuity; continuous unattended work
+requires a configured runner or CI, not assumed activity after a conversation ends.
 
 ---
 

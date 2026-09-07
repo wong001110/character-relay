@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, literal, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -413,6 +413,78 @@ class BeliefRepository:
             if changed:
                 session.commit()
         return tuple(self.view(record) for record in active)
+
+    def search_relevant(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        query_terms: tuple[str, ...],
+        character_card_id: str = "",
+        subject_refs: tuple[str, ...] = (),
+        limit: int = 240,
+        now: datetime | None = None,
+    ) -> tuple[BeliefV3View, ...]:
+        """Return query-matching Beliefs from the full authorized history.
+
+        The bound limits a SQL result set after scope and lexical relevance filtering.  It
+        is deliberately not a recency or importance window: callers may rank this bounded
+        candidate set with a dense encoder without making older matching records invisible.
+        """
+
+        terms = tuple(
+            dict.fromkeys(term.casefold().strip() for term in query_terms if term.strip())
+        )
+        if not terms:
+            return ()
+        current = now or datetime.now(UTC)
+        connection_scope, guild_scope = self._scope_filters(connection_id, guild_id)
+        fields = (
+            BeliefV3Record.subject_ref,
+            BeliefV3Record.subject_entity_id,
+            BeliefV3Record.predicate,
+            BeliefV3Record.value_text,
+        )
+        matches = [or_(*(field.ilike(f"%{term}%") for field in fields)) for term in terms[:16]]
+        relevance: ColumnElement[int] = literal(0)
+        for match in matches:
+            relevance = relevance + case((match, literal(1)), else_=literal(0))
+        with self.database.session() as session:
+            statement = select(BeliefV3Record).where(
+                BeliefV3Record.owner_id == owner_id,
+                connection_scope,
+                guild_scope,
+                BeliefV3Record.status.in_(("active", "provisional", "disputed")),
+                or_(BeliefV3Record.valid_to.is_(None), BeliefV3Record.valid_to > current),
+                or_(*matches),
+            )
+            if character_card_id:
+                statement = statement.where(
+                    (BeliefV3Record.character_card_id == "")
+                    | (BeliefV3Record.character_card_id == character_card_id)
+                )
+            if subject_refs:
+                statement = statement.where(BeliefV3Record.subject_ref.in_(subject_refs))
+            records = list(
+                session.scalars(
+                    statement.order_by(
+                        relevance.desc(),
+                        BeliefV3Record.importance.desc(),
+                        BeliefV3Record.updated_at.desc(),
+                    ).limit(max(1, min(limit, 400)))
+                )
+            )
+            changed = False
+            for record in records:
+                stale = self._aware(record.stale_after)
+                if stale is not None and stale <= current and record.status == "active":
+                    record.status = "provisional"
+                    record.updated_at = current
+                    changed = True
+            if changed:
+                session.commit()
+        return tuple(self.view(record) for record in records)
 
     def reinforce(
         self,

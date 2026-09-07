@@ -44,8 +44,6 @@ class DurableRuntimeRepository:
         self.database = database
         self.retention_days = max(1, min(retention_days, 30))
         self.maximum_trace_runs = max(200, min(maximum_trace_runs, 20000))
-        self.recover_interrupted()
-        self.prune()
 
     @staticmethod
     def _json(value: object) -> str:

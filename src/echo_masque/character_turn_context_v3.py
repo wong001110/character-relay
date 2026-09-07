@@ -23,6 +23,7 @@ from echo_masque.belief_revision_v3 import CorrectionShield
 from echo_masque.character_turn_context_types import (
     CharacterContextTraceView,
     CharacterTurnContext,
+    KnowledgeContextOmissionTraceItem,
 )
 from echo_masque.context_resolver_v3 import ContextBundleV3, ContextResolverV3
 from echo_masque.conversation_runtime import ConversationRuntimeCoordinator
@@ -482,9 +483,7 @@ class CharacterTurnContextV3Service:
                     guild_id=payload.guild_id,
                     speaker_ref=payload.author_id,
                     source_message_id=source_message_id,
-                    evidence_message_ids=tuple(
-                        item.message_id for item in payload.burst_messages
-                    ),
+                    evidence_message_ids=tuple(item.message_id for item in payload.burst_messages),
                     burst_id=payload.burst_id,
                 )
                 cached = revision.shield if revision is not None else CorrectionShield((), "", "")
@@ -806,29 +805,44 @@ class CharacterTurnContextV3Service:
             )
 
         query_result = knowledge_context.result
+        packed_refs = bundle.knowledge_packing.selected_refs
+        hits_by_ref = {f"evidence:{item.evidence_unit_id}": item for item in knowledge_context.hits}
+        packed_knowledge = tuple(
+            hits_by_ref[item_ref] for item_ref in packed_refs if item_ref in hits_by_ref
+        )
+        knowledge_section = next(
+            (item for item in bundle.prompt_sections() if item.startswith("KNOWLEDGE EVIDENCE\n")),
+            "",
+        )
+        if packed_knowledge:
+            rag_reason = "knowledge_fabric_prompt_packed"
+        elif knowledge_context.hits:
+            rag_reason = "knowledge_fabric_prompt_omitted"
+        else:
+            rag_reason = "knowledge_fabric_no_admitted_evidence"
         trace = CharacterContextTraceView(
             rag_status="completed" if knowledge_context.hits else "skipped",
-            rag_reason=(
-                "knowledge_fabric_admitted"
-                if knowledge_context.hits
-                else "knowledge_fabric_no_admitted_evidence"
-            ),
+            rag_reason=rag_reason,
             query_chars=len(payload.text),
             eligible_base_count=(query_result.accessible_corpus_count if query_result else 0),
             candidate_chunk_count=(len(query_result.hits) if query_result else 0),
-            selected_chunk_count=len(knowledge_context.hits),
-            selected_knowledge_tokens=sum(
-                max(1, len(item.text_content) // 4) for item in knowledge_context.hits
-            ),
+            selected_chunk_count=len(packed_knowledge),
+            selected_knowledge_tokens=(len(knowledge_section) + 3) // 4,
+            knowledge_token_budget=(self.context_resolver.budget.knowledge_chars + 3) // 4,
             conversation_message_count=min(30, len(payload.recent_messages) + 1),
             conversation_chars=sum(len(item) for item in self._live_context(payload)),
             conversation_thread_id=conversation_thread_id,
+            selected_knowledge_refs=list(packed_refs),
+            knowledge_omissions=[
+                KnowledgeContextOmissionTraceItem(ref=item_ref, reason=reason)
+                for item_ref, reason in bundle.knowledge_packing.omitted
+            ],
         )
         return CharacterTurnContextV3Result(
             bundle=bundle,
             turn_context=CharacterTurnContext(
                 smart_output=smart_output,
-                knowledge=knowledge_context.hits,
+                knowledge=packed_knowledge,
                 trace=trace,
             ),
         )

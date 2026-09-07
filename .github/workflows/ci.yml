@@ -47,6 +47,16 @@ jobs:
         with:
           name: mypy-${{ matrix.python-version }}
           path: mypy-report.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build Portal for Python route tests
+        # The separate web job has an isolated filesystem.
+        run: |
+          npm ci --prefix web
+          npm run build --prefix web
       - name: Pytest
         run: python -m pytest
       - name: Capture pytest diagnostics

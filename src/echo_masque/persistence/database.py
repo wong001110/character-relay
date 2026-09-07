@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from threading import Lock
 from uuid import uuid4
 
 from sqlite3 import Connection as SQLiteConnection
@@ -129,6 +130,9 @@ from echo_masque.persistence.social_intelligence_models import (
     SocialEventV3Record,
 )
 from echo_masque.persistence.utility_gateway_models import UtilityProviderQuotaRecord
+
+_SQLITE_INITIALIZE_LOCKS: dict[str, Lock] = {}
+_SQLITE_INITIALIZE_LOCKS_GUARD = Lock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,9 +279,9 @@ class Database:
         run_legacy_migrations: bool = True,
         allow_incomplete_data_migration: bool = False,
     ) -> None:
-        """Initialize schema and data migrations without cross-replica races."""
+        """Initialize schema and data migrations under the backend's bootstrap lock."""
 
-        with self._postgresql_initialize_lock():
+        with self._initialize_lock():
             self._initialize_unlocked(
                 run_legacy_migrations=run_legacy_migrations,
                 allow_incomplete_data_migration=allow_incomplete_data_migration,
@@ -449,8 +453,18 @@ class Database:
         self._ensure_sqlite_message_relation_author_snapshots()
 
     @contextmanager
-    def _postgresql_initialize_lock(self) -> Iterator[None]:
-        """Keep every bootstrap/migration ledger operation serial across replicas."""
+    def _initialize_lock(self) -> Iterator[None]:
+        """Serialize bootstrap/migration ledger writes for the current database topology."""
+
+        if self.engine.dialect.name == "sqlite":
+            # SQLite is development/test-only, but independent Database objects can still share
+            # one file in this process. Its migration ledgers are check-then-insert operations,
+            # so serialize the whole initialization sequence rather than retrying a partial run.
+            with _SQLITE_INITIALIZE_LOCKS_GUARD:
+                lock = _SQLITE_INITIALIZE_LOCKS.setdefault(self._url, Lock())
+            with lock:
+                yield
+            return
 
         if self.engine.dialect.name != "postgresql":
             yield
