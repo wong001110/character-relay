@@ -896,7 +896,7 @@ export function DeploymentCenter({
                 <article className="paper-sheet deployment-summary-card">
                   <span>{zh ? "已暂停" : "Paused"}</span>
                   <strong>{selectedWorkspaceProfile ? deploymentCounts.paused : "—"}</strong>
-                  <small>{zh ? "保留配置但不参与" : "Configured but not participating"}</small>
+                  <small>{zh ? "保留配置；Connector 不会让它参与" : "Configured; the connector will not let it participate"}</small>
                 </article>
                 <article className="paper-sheet deployment-summary-card">
                   <span>{zh ? "需要处理" : "Needs attention"}</span>
@@ -1185,15 +1185,15 @@ export function DeploymentCenter({
                                   </option>
                                 ))}
                               </select>
-                              <small>
-                                {connectionProfiles.length
-                                  ? zh
-                                    ? "Server ID 与 Channel 清单由 Connector 自动同步。"
-                                    : "The connector supplies the server ID and channel inventory."
+                            <small>
+                              {connectionProfiles.length
+                                ? zh
+                                    ? "先选已创建的 Server 配置；Server ID 与 Channel 清单由 Connector 同步，配置决定整个 Server 的默认范围。"
+                                    : "Choose an existing Server profile first. The connector supplies its Server ID and channel inventory; the profile sets the server-wide default scope."
                                   : zh
-                                    ? "请先在左侧建立 Discord Server 配置。"
-                                    : "Create a Discord server profile in the left panel first."}
-                              </small>
+                                    ? "请先在左侧认领或建立 Discord Server 配置；仅同步到 Connector 不会自动创建配置。"
+                                    : "Claim or create a Discord server profile in the left panel first; connector sync alone does not create one."}
+                            </small>
                             </label>
 
                             {selectedProfile && (

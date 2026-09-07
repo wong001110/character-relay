@@ -20,6 +20,7 @@ from echo_masque.provider_trace_classification import (
     provider_trace_category,
     provider_trace_tool_names,
 )
+from echo_masque.security import redact
 
 
 class ProviderTraceRepository:
@@ -40,6 +41,10 @@ class ProviderTraceRepository:
         self._backfill_indexes()
 
     def record_event(self, payload: dict[str, object]) -> None:
+        sanitized = redact(payload)
+        if not isinstance(sanitized, dict):
+            return
+        payload = {key: value for key, value in sanitized.items()}
         trace_id = str(payload.get("trace_id", "")).strip()
         event = str(payload.get("event", "")).strip()
         if not trace_id or event not in {
@@ -59,7 +64,9 @@ class ProviderTraceRepository:
                 session.add(record)
 
             record.updated_at = now
-            record.endpoint = str(payload.get("endpoint", record.endpoint or ""))
+            record.endpoint = self._redacted_text(
+                str(payload.get("endpoint", record.endpoint or ""))
+            )
             record.trace_mode = str(payload.get("trace_mode", record.trace_mode or "summary"))
 
             if event == "provider.request":
@@ -247,6 +254,7 @@ class ProviderTraceRepository:
             self._reconcile_stale_pending(session, now=datetime.now(UTC))
             records = list(session.scalars(select(ProviderTraceRecord)))
             for record in records:
+                self._sanitize_record(record)
                 if (
                     record.status != "error"
                     and self._request_has_failed_tool_result(record.request_json)
@@ -299,6 +307,27 @@ class ProviderTraceRepository:
             self._sync_index(session, record)
         session.flush()
         return len(stale)
+
+    @staticmethod
+    def _redacted_text(value: str) -> str:
+        result = redact(value)
+        return result if isinstance(result, str) else "[REDACTED]"
+
+    @classmethod
+    def _redacted_json(cls, value: str) -> str:
+        result = redact({"value_json": value})
+        if not isinstance(result, dict):
+            return "{}"
+        sanitized = result.get("value_json")
+        return sanitized if isinstance(sanitized, str) else "{}"
+
+    @classmethod
+    def _sanitize_record(cls, record: ProviderTraceRecord) -> None:
+        record.endpoint = cls._redacted_text(record.endpoint)
+        record.request_json = cls._redacted_json(record.request_json)
+        record.response_json = cls._redacted_json(record.response_json)
+        record.error_json = cls._redacted_json(record.error_json)
+        record.retries_json = cls._redacted_json(record.retries_json)
 
     def _sync_index(self, session: Session, record: ProviderTraceRecord) -> None:
         index = session.get(ProviderTraceIndexRecord, record.trace_id)

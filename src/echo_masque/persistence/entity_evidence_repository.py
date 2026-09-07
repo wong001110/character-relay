@@ -6,9 +6,11 @@ import json
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import cast
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 
 from echo_masque.pagination import (
@@ -22,6 +24,7 @@ from echo_masque.persistence.database import Database
 from echo_masque.persistence.entity_evidence_models import (
     EntityV3Record,
     EvidenceEdgeV3Record,
+    KnowledgeGapCandidateRecord,
     KnowledgeGapRecord,
 )
 
@@ -113,6 +116,31 @@ class KnowledgeGapView:
     updated_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class KnowledgeGapCandidateView:
+    """One Discovery result retained for a scoped, reviewable evidence handoff."""
+
+    id: str
+    gap_id: str
+    deployment_id: str
+    discovery_item_id: str
+    source: str
+    canonical_key: str
+    content_kind: str
+    title: str
+    creator: str
+    url: str
+    score: float
+    rank_reason: str
+    status: str
+    validation_method: str
+    validated_evidence_ref: str
+    reviewed_by: str
+    reviewed_at: datetime | None
+    expires_at: datetime
+    updated_at: datetime
+
+
 class EntityEvidenceRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -156,6 +184,30 @@ class EntityEvidenceRepository:
             source_model=record.source_model,
             valid_from=cls._aware(record.valid_from),
             valid_to=cls._aware(record.valid_to),
+            updated_at=cls._aware(record.updated_at) or record.updated_at,
+        )
+
+    @classmethod
+    def gap_candidate_view(cls, record: KnowledgeGapCandidateRecord) -> KnowledgeGapCandidateView:
+        return KnowledgeGapCandidateView(
+            id=record.id,
+            gap_id=record.gap_id,
+            deployment_id=record.deployment_id,
+            discovery_item_id=record.discovery_item_id,
+            source=record.source,
+            canonical_key=record.canonical_key,
+            content_kind=record.content_kind,
+            title=record.title,
+            creator=record.creator,
+            url=record.url,
+            score=record.score,
+            rank_reason=record.rank_reason,
+            status=record.status,
+            validation_method=record.validation_method,
+            validated_evidence_ref=record.validated_evidence_ref,
+            reviewed_by=record.reviewed_by,
+            reviewed_at=cls._aware(record.reviewed_at),
+            expires_at=cls._aware(record.expires_at) or record.expires_at,
             updated_at=cls._aware(record.updated_at) or record.updated_at,
         )
 
@@ -847,6 +899,447 @@ class EntityEvidenceRepository:
             session.refresh(record)
             return self.gap_view(record)
 
+    def persist_gap_candidates(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        deployment_id: str,
+        gap_id: str,
+        candidates: tuple[object, ...],
+        expires_at: datetime,
+        now: datetime | None = None,
+    ) -> tuple[KnowledgeGapCandidateView, ...]:
+        """Persist bounded Discovery previews as review inputs, never as evidence."""
+
+        current = now or datetime.now(UTC)
+        with self.database.session() as session:
+            gap = session.get(KnowledgeGapRecord, gap_id)
+            if (
+                gap is None
+                or gap.owner_id != owner_id
+                or gap.connection_id != connection_id
+                or gap.guild_id != guild_id
+            ):
+                raise KeyError("Knowledge Gap not found.")
+            stored: list[KnowledgeGapCandidateRecord] = []
+            for ranked in candidates:
+                discovery_item_id = str(getattr(ranked, "discovery_item_id", "")).strip()
+                candidate = getattr(ranked, "candidate", None)
+                if not discovery_item_id or candidate is None:
+                    continue
+                record = session.scalar(
+                    select(KnowledgeGapCandidateRecord).where(
+                        KnowledgeGapCandidateRecord.owner_id == owner_id,
+                        KnowledgeGapCandidateRecord.connection_id == connection_id,
+                        KnowledgeGapCandidateRecord.guild_id == guild_id,
+                        KnowledgeGapCandidateRecord.gap_id == gap_id,
+                        KnowledgeGapCandidateRecord.discovery_item_id == discovery_item_id,
+                    )
+                )
+                if record is None:
+                    record = KnowledgeGapCandidateRecord(
+                        id=str(uuid4()),
+                        owner_id=owner_id,
+                        connection_id=connection_id,
+                        guild_id=guild_id,
+                        deployment_id=deployment_id,
+                        gap_id=gap_id,
+                        discovery_item_id=discovery_item_id[:64],
+                        source=str(getattr(candidate, "source", ""))[:48],
+                        canonical_key=str(getattr(candidate, "canonical_key", ""))[:320],
+                        content_kind=str(getattr(candidate, "content_kind", ""))[:48],
+                        title=str(getattr(candidate, "title", ""))[:500],
+                        creator=str(getattr(candidate, "creator", ""))[:320],
+                        url=str(getattr(candidate, "url", ""))[:2000],
+                        score=max(0.0, min(float(getattr(ranked, "final_score", 0.0)), 1.0)),
+                        rank_reason=str(getattr(ranked, "reason", ""))[:240],
+                        expires_at=expires_at,
+                        created_at=current,
+                        updated_at=current,
+                    )
+                    session.add(record)
+                elif record.status == "ready":
+                    # A repeat of the same preview can extend review time, but cannot revive a
+                    # rejected/accepted result or change its stored provenance.
+                    record.expires_at = expires_at
+                    record.updated_at = current
+                stored.append(record)
+            session.commit()
+            for record in stored:
+                session.refresh(record)
+            return tuple(self.gap_candidate_view(record) for record in stored)
+
+    def _expire_gap_candidates(
+        self,
+        session: object,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        now: datetime,
+    ) -> None:
+        # Kept private so every read/transition observes terminal expiry even if no background
+        # cleanup worker ran. SQLAlchemy's Session API is intentionally used structurally here.
+        records = list(
+            session.scalars(  # type: ignore[attr-defined]
+                select(KnowledgeGapCandidateRecord).where(
+                    KnowledgeGapCandidateRecord.owner_id == owner_id,
+                    KnowledgeGapCandidateRecord.connection_id == connection_id,
+                    KnowledgeGapCandidateRecord.guild_id == guild_id,
+                    KnowledgeGapCandidateRecord.status == "ready",
+                    KnowledgeGapCandidateRecord.expires_at <= now,
+                )
+            )
+        )
+        for record in records:
+            record.status = "expired"
+            record.updated_at = now
+
+    def gap_candidate_for_scope(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        deployment_id: str,
+        gap_id: str,
+        candidate_id: str,
+        now: datetime | None = None,
+    ) -> KnowledgeGapCandidateView:
+        current = now or datetime.now(UTC)
+        with self.database.session() as session:
+            self._expire_gap_candidates(
+                session,
+                owner_id=owner_id,
+                connection_id=connection_id,
+                guild_id=guild_id,
+                now=current,
+            )
+            record = session.get(KnowledgeGapCandidateRecord, candidate_id)
+            if (
+                record is None
+                or record.owner_id != owner_id
+                or record.connection_id != connection_id
+                or record.guild_id != guild_id
+                or record.deployment_id != deployment_id
+                or record.gap_id != gap_id
+            ):
+                raise KeyError("Knowledge Gap candidate not found.")
+            session.commit()
+            session.refresh(record)
+            return self.gap_candidate_view(record)
+
+    def gap_candidates_for_scope(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        deployment_id: str,
+        gap_id: str,
+        include_terminal: bool = False,
+        limit: int = 20,
+        now: datetime | None = None,
+    ) -> tuple[KnowledgeGapCandidateView, ...]:
+        current = now or datetime.now(UTC)
+        with self.database.session() as session:
+            self._expire_gap_candidates(
+                session,
+                owner_id=owner_id,
+                connection_id=connection_id,
+                guild_id=guild_id,
+                now=current,
+            )
+            statement = select(KnowledgeGapCandidateRecord).where(
+                KnowledgeGapCandidateRecord.owner_id == owner_id,
+                KnowledgeGapCandidateRecord.connection_id == connection_id,
+                KnowledgeGapCandidateRecord.guild_id == guild_id,
+                KnowledgeGapCandidateRecord.deployment_id == deployment_id,
+                KnowledgeGapCandidateRecord.gap_id == gap_id,
+            )
+            if not include_terminal:
+                statement = statement.where(KnowledgeGapCandidateRecord.status == "ready")
+            records = list(
+                session.scalars(
+                    statement.order_by(
+                        KnowledgeGapCandidateRecord.score.desc(),
+                        KnowledgeGapCandidateRecord.created_at.desc(),
+                    ).limit(max(1, min(limit, 50)))
+                )
+            )
+            session.commit()
+        return tuple(self.gap_candidate_view(record) for record in records)
+
+    def accept_gap_candidate_evidence(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        deployment_id: str,
+        gap_id: str,
+        candidate_id: str,
+        reviewed_by: str,
+        validation_method: str,
+        confidence: float,
+        resolved_fields: tuple[str, ...],
+        entity_metadata: dict[str, str] | None = None,
+        canonical_entity: bool = False,
+        now: datetime | None = None,
+    ) -> tuple[KnowledgeGapView, KnowledgeGapCandidateView]:
+        """Atomically claim a ready candidate and create its scoped evidence edge.
+
+        Operator review derives the evidence reference from the persisted Discovery item. The
+        compare-and-set claim prevents a concurrent rejection from creating an orphaned edge.
+        """
+
+        current = now or datetime.now(UTC)
+        if validation_method not in {"operator_review", "content_understanding"}:
+            raise ValueError("Knowledge Gap candidate validation method is invalid.")
+        if not reviewed_by.strip():
+            raise ValueError("Knowledge Gap candidate reviewer is required.")
+        normalized_confidence = max(0.0, min(float(confidence), 1.0))
+        if normalized_confidence < 0.7:
+            raise ValueError(
+                "Accepted Knowledge Gap candidate requires confidence of at least 0.7."
+            )
+        with self.database.session() as session:
+            self._expire_gap_candidates(
+                session,
+                owner_id=owner_id,
+                connection_id=connection_id,
+                guild_id=guild_id,
+                now=current,
+            )
+            candidate = session.get(KnowledgeGapCandidateRecord, candidate_id)
+            gap = session.get(KnowledgeGapRecord, gap_id)
+            if (
+                candidate is None
+                or gap is None
+                or candidate.owner_id != owner_id
+                or candidate.connection_id != connection_id
+                or candidate.guild_id != guild_id
+                or candidate.deployment_id != deployment_id
+                or candidate.gap_id != gap_id
+                or gap.owner_id != owner_id
+                or gap.connection_id != connection_id
+                or gap.guild_id != guild_id
+            ):
+                raise KeyError("Knowledge Gap candidate not found.")
+            if gap.resolution_state not in {"unresolved", "searching"}:
+                raise ValueError("Knowledge Gap is not open for evidence acceptance.")
+            provenance_ref = f"discovery_item:{candidate.discovery_item_id}"
+            claimed = cast(
+                CursorResult[object],
+                session.execute(
+                    update(KnowledgeGapCandidateRecord)
+                    .execution_options(synchronize_session=False)
+                    .where(
+                        KnowledgeGapCandidateRecord.id == candidate_id,
+                        KnowledgeGapCandidateRecord.owner_id == owner_id,
+                        KnowledgeGapCandidateRecord.connection_id == connection_id,
+                        KnowledgeGapCandidateRecord.guild_id == guild_id,
+                        KnowledgeGapCandidateRecord.deployment_id == deployment_id,
+                        KnowledgeGapCandidateRecord.gap_id == gap_id,
+                        KnowledgeGapCandidateRecord.status == "ready",
+                        KnowledgeGapCandidateRecord.expires_at > current,
+                    )
+                    .values(
+                        status="accepted",
+                        validation_method=validation_method[:48],
+                        validated_evidence_ref=provenance_ref,
+                        reviewed_by=reviewed_by[:120],
+                        reviewed_at=current,
+                        updated_at=current,
+                    )
+                ),
+            )
+            if claimed.rowcount != 1:
+                session.refresh(candidate)
+                if candidate.status == "expired":
+                    raise ValueError("Knowledge Gap candidate has expired.")
+                raise ValueError("Knowledge Gap candidate is not available for acceptance.")
+            session.refresh(candidate)
+            projection_key = json.dumps(
+                {
+                    "owner_id": owner_id,
+                    "connection_id": connection_id,
+                    "guild_id": guild_id,
+                    "source_ref_type": "knowledge_gap_candidate",
+                    "source_ref": candidate.id,
+                    "relation_type": "SUPPORTS_ENTITY_KNOWLEDGE",
+                    "target_ref_type": "entity",
+                    "target_ref": gap.entity_id,
+                    "authority_class": "user_correction",
+                    "source_kind": "discovery_candidate",
+                    "evidence_refs": (provenance_ref,),
+                    "producer": validation_method,
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            edge_id = str(uuid5(NAMESPACE_URL, projection_key))
+            edge = session.get(EvidenceEdgeV3Record, edge_id)
+            if edge is None:
+                edge = EvidenceEdgeV3Record(
+                    id=edge_id,
+                    owner_id=owner_id,
+                    connection_id=connection_id,
+                    guild_id=guild_id,
+                    source_ref_type="knowledge_gap_candidate",
+                    source_ref=candidate.id,
+                    relation_type="SUPPORTS_ENTITY_KNOWLEDGE",
+                    target_ref_type="entity",
+                    target_ref=gap.entity_id,
+                    confidence=normalized_confidence,
+                    authority_class="user_correction",
+                    source_kind="discovery_candidate",
+                    evidence_refs_json=_list_json([provenance_ref]),
+                    status="active",
+                    producer=validation_method,
+                    valid_from=current,
+                    created_at=current,
+                    updated_at=current,
+                )
+                session.add(edge)
+            if canonical_entity and normalized_confidence >= 0.8:
+                entity = session.get(EntityV3Record, gap.entity_id)
+                if (
+                    entity is not None
+                    and entity.owner_id == owner_id
+                    and entity.connection_id == connection_id
+                    and entity.guild_id == guild_id
+                ):
+                    merged_metadata = _dict(entity.metadata_json)
+                    merged_metadata.update(entity_metadata or {})
+                    entity.status = "canonical"
+                    entity.metadata_json = _dict_json(merged_metadata)
+                    entity.source_refs_json = _list_json(
+                        [*_list(entity.source_refs_json), provenance_ref]
+                    )
+                    entity.updated_at = current
+            missing_fields = _list(gap.missing_fields_json)
+            remaining = tuple(
+                field for field in missing_fields if field not in set(resolved_fields)
+            )
+            gap.resolution_state = "unresolved" if remaining else "resolved"
+            gap.resolution_evidence_refs_json = _list_json(
+                [*_list(gap.resolution_evidence_refs_json), edge_id]
+            )
+            gap.updated_at = current
+            session.commit()
+            session.refresh(candidate)
+            session.refresh(gap)
+            return self.gap_view(gap), self.gap_candidate_view(candidate)
+
+    def review_gap_candidate(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        deployment_id: str,
+        gap_id: str,
+        candidate_id: str,
+        action: str,
+        reviewed_by: str,
+        validation_method: str = "",
+        validated_evidence_ref: str = "",
+        now: datetime | None = None,
+    ) -> KnowledgeGapCandidateView:
+        """Atomically reject a ready candidate without racing a successful acceptance."""
+
+        if action != "rejected" or validation_method or validated_evidence_ref:
+            raise ValueError("Knowledge Gap candidate acceptance must create evidence atomically.")
+        current = now or datetime.now(UTC)
+        with self.database.session() as session:
+            self._expire_gap_candidates(
+                session,
+                owner_id=owner_id,
+                connection_id=connection_id,
+                guild_id=guild_id,
+                now=current,
+            )
+            record = session.get(KnowledgeGapCandidateRecord, candidate_id)
+            if (
+                record is None
+                or record.owner_id != owner_id
+                or record.connection_id != connection_id
+                or record.guild_id != guild_id
+                or record.deployment_id != deployment_id
+                or record.gap_id != gap_id
+            ):
+                raise KeyError("Knowledge Gap candidate not found.")
+            rejected = cast(
+                CursorResult[object],
+                session.execute(
+                    update(KnowledgeGapCandidateRecord)
+                    .execution_options(synchronize_session=False)
+                    .where(
+                        KnowledgeGapCandidateRecord.id == candidate_id,
+                        KnowledgeGapCandidateRecord.status == "ready",
+                        KnowledgeGapCandidateRecord.expires_at > current,
+                    )
+                    .values(
+                        status="rejected",
+                        reviewed_by=reviewed_by[:120],
+                        reviewed_at=current,
+                        updated_at=current,
+                    )
+                ),
+            )
+            if rejected.rowcount != 1:
+                session.refresh(record)
+                if record.status == "expired":
+                    raise ValueError("Knowledge Gap candidate has expired.")
+                if record.status == "accepted":
+                    raise ValueError("Knowledge Gap candidate was already accepted.")
+                if record.status == "rejected":
+                    return self.gap_candidate_view(record)
+                raise ValueError("Knowledge Gap candidate is not available for rejection.")
+            session.refresh(record)
+            session.commit()
+            return self.gap_candidate_view(record)
+
+    def recover_stale_gap_searches(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        stale_before: datetime,
+        now: datetime | None = None,
+        limit: int = 100,
+    ) -> int:
+        """End abandoned ``searching`` states without silently triggering another search."""
+
+        current = now or datetime.now(UTC)
+        with self.database.session() as session:
+            records = list(
+                session.scalars(
+                    select(KnowledgeGapRecord)
+                    .where(
+                        KnowledgeGapRecord.owner_id == owner_id,
+                        KnowledgeGapRecord.connection_id == connection_id,
+                        KnowledgeGapRecord.guild_id == guild_id,
+                        KnowledgeGapRecord.resolution_state == "searching",
+                        KnowledgeGapRecord.updated_at <= stale_before,
+                    )
+                    .order_by(KnowledgeGapRecord.updated_at.asc())
+                    .limit(max(1, min(limit, 500)))
+                )
+            )
+            for record in records:
+                record.resolution_state = "unresolved"
+                # Preserve the attempted marker. Recovery must not turn a stale task into a
+                # per-message retry loop; an operator can explicitly create a fresh attempt.
+                record.updated_at = current
+            session.commit()
+            return len(records)
+
     def resolve_gap(
         self,
         *,
@@ -892,6 +1385,7 @@ __all__ = [
     "EntityEvidenceRepository",
     "EntityV3View",
     "EvidenceEdgeV3View",
+    "KnowledgeGapCandidateView",
     "KnowledgeGapView",
     "normalize_entity_name",
 ]

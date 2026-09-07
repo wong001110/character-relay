@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from uuid import uuid4
+from typing import cast
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, case, func, literal, or_, select, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.sql.elements import ColumnElement
 
 from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.conversation_runtime_models import (
@@ -83,6 +86,8 @@ class ThreadWorkingStateView:
 @dataclass(frozen=True, slots=True)
 class PendingActionV3View:
     id: str
+    channel_id: str
+    discord_thread_id: str
     source_message_id: str
     source_segment_id: str
     conversation_thread_id: str
@@ -148,6 +153,8 @@ class ConversationRuntimeRepository:
     def pending_action_view(cls, record: PendingActionV3Record) -> PendingActionV3View:
         return PendingActionV3View(
             id=record.id,
+            channel_id=record.channel_id,
+            discord_thread_id=record.discord_thread_id,
             source_message_id=record.source_message_id,
             source_segment_id=record.source_segment_id,
             conversation_thread_id=record.conversation_thread_id,
@@ -222,12 +229,32 @@ class ConversationRuntimeRepository:
             session.refresh(record)
             return self.working_state_view(record)
 
-    def working_state(self, *, owner_id: str, thread_id: str) -> ThreadWorkingStateView | None:
+    def working_state(
+        self,
+        *,
+        owner_id: str,
+        thread_id: str,
+        now: datetime | None = None,
+    ) -> ThreadWorkingStateView | None:
+        """Return only live scratch state, archiving an expired record on its first read.
+
+        Working state is a prompt-time convenience, rather than durable history.  The read
+        boundary therefore enforces both its lifecycle state and TTL instead of relying on a
+        best-effort maintenance loop to run before a Context Resolver call.
+        """
+
+        current = now or datetime.now(UTC)
         with self.database.session() as session:
             record = session.get(ThreadWorkingStateRecord, thread_id)
-        if record is None or record.owner_id != owner_id:
-            return None
-        return self.working_state_view(record)
+            if record is None or record.owner_id != owner_id or record.status != "active":
+                return None
+            expires_at = self._aware(record.expires_at)
+            if expires_at is not None and expires_at <= current:
+                record.status = "archived"
+                record.updated_at = current
+                session.commit()
+                return None
+            return self.working_state_view(record)
 
     def archive_working_state(
         self,
@@ -247,25 +274,86 @@ class ConversationRuntimeRepository:
             session.refresh(record)
             return self.working_state_view(record)
 
-    def expire_working_states(self, *, now: datetime | None = None) -> int:
+    def expire_working_states(
+        self,
+        *,
+        owner_id: str | None = None,
+        now: datetime | None = None,
+    ) -> int:
         current = now or datetime.now(UTC)
         changed = 0
         with self.database.session() as session:
-            records = list(
-                session.scalars(
-                    select(ThreadWorkingStateRecord).where(
-                        ThreadWorkingStateRecord.status == "active",
-                        ThreadWorkingStateRecord.expires_at.is_not(None),
-                        ThreadWorkingStateRecord.expires_at <= current,
-                    )
-                )
+            statement = select(ThreadWorkingStateRecord).where(
+                ThreadWorkingStateRecord.status == "active",
+                ThreadWorkingStateRecord.expires_at.is_not(None),
+                ThreadWorkingStateRecord.expires_at <= current,
             )
+            if owner_id is not None:
+                statement = statement.where(ThreadWorkingStateRecord.owner_id == owner_id)
+            records = list(session.scalars(statement))
             for record in records:
                 record.status = "archived"
                 record.updated_at = current
                 changed += 1
             session.commit()
         return changed
+
+    def owners_with_expired_working_states(
+        self, *, now: datetime | None = None
+    ) -> tuple[str, ...]:
+        """Return only owners with scratch that is due for an owner-scoped expiry pass."""
+
+        current = now or datetime.now(UTC)
+        with self.database.session() as session:
+            owners = list(
+                session.scalars(
+                    select(ThreadWorkingStateRecord.owner_id)
+                    .where(
+                        ThreadWorkingStateRecord.status == "active",
+                        ThreadWorkingStateRecord.expires_at.is_not(None),
+                        ThreadWorkingStateRecord.expires_at <= current,
+                    )
+                    .distinct()
+                )
+            )
+        return tuple(str(owner) for owner in owners if owner)
+
+    def expired_working_state_count(
+        self,
+        *,
+        owner_id: str,
+        now: datetime | None = None,
+    ) -> int:
+        """Count one owner's due scratch records before an owner-scoped transition."""
+
+        current = now or datetime.now(UTC)
+        with self.database.session() as session:
+            count = session.scalar(
+                select(func.count(ThreadWorkingStateRecord.thread_id)).where(
+                    ThreadWorkingStateRecord.owner_id == owner_id,
+                    ThreadWorkingStateRecord.status == "active",
+                    ThreadWorkingStateRecord.expires_at.is_not(None),
+                    ThreadWorkingStateRecord.expires_at <= current,
+                )
+            )
+        return int(count or 0)
+
+    def owners_with_active_episodes(self) -> tuple[str, ...]:
+        """Return owners that can have an inactivity checkpoint applied.
+
+        The lifecycle runner deliberately keeps the actual checkpoint operation owner-scoped;
+        this method only finds eligible owners and exposes no conversation content.
+        """
+
+        with self.database.session() as session:
+            owners = list(
+                session.scalars(
+                    select(ConversationEpisodeV3Record.owner_id)
+                    .where(ConversationEpisodeV3Record.status == "active")
+                    .distinct()
+                )
+            )
+        return tuple(str(owner) for owner in owners if owner)
 
     def active_episode(
         self,
@@ -387,7 +475,12 @@ class ConversationRuntimeRepository:
             record.key_events_json = _encode_list(events, limit=48)
             compact = " ".join(summary.split())[:4000]
             if compact:
-                record.summary = compact
+                # An Episode is a durable history projection.  Keep the earliest summary
+                # material when later segments checkpoint it, within the same persisted
+                # bound, so automatic context does not silently erase an early decision.
+                record.summary = " ".join(
+                    part for part in (record.summary, compact) if part
+                )[:4000]
             record.segment_count = len(_decode_list(record.segment_ids_json))
             record.ended_at = current
             record.updated_at = current
@@ -454,6 +547,46 @@ class ConversationRuntimeRepository:
             )
         return tuple(self.episode_view(record) for record in records)
 
+    def search_episodes(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        query_terms: tuple[str, ...],
+        limit: int = 240,
+    ) -> tuple[ConversationEpisodeV3View, ...]:
+        """Search scoped durable Episodes, including key events retained from early turns."""
+
+        terms = tuple(
+            dict.fromkeys(term.casefold().strip() for term in query_terms if term.strip())
+        )
+        if not terms:
+            return ()
+        fields = (
+            ConversationEpisodeV3Record.summary,
+            ConversationEpisodeV3Record.key_events_json,
+        )
+        matches = [or_(*(field.ilike(f"%{term}%") for field in fields)) for term in terms[:16]]
+        relevance: ColumnElement[int] = literal(0)
+        for match in matches:
+            relevance = relevance + case((match, literal(1)), else_=literal(0))
+        with self.database.session() as session:
+            records = list(
+                session.scalars(
+                    select(ConversationEpisodeV3Record)
+                    .where(
+                        ConversationEpisodeV3Record.owner_id == owner_id,
+                        ConversationEpisodeV3Record.connection_id == connection_id,
+                        ConversationEpisodeV3Record.guild_id == guild_id,
+                        or_(*matches),
+                    )
+                    .order_by(relevance.desc(), ConversationEpisodeV3Record.ended_at.desc())
+                    .limit(max(1, min(limit, 400)))
+                )
+            )
+        return tuple(self.episode_view(record) for record in records)
+
     def recent_episodes_page(
         self,
         *,
@@ -515,10 +648,11 @@ class ConversationRuntimeRepository:
         state: str = "pending",
         expires_at: datetime | None = None,
         now: datetime | None = None,
+        idempotency_key: str = "",
     ) -> PendingActionV3View:
         current = now or datetime.now(UTC)
         record = PendingActionV3Record(
-            id=str(uuid4()),
+            id=str(uuid5(NAMESPACE_URL, idempotency_key)) if idempotency_key else str(uuid4()),
             owner_id=owner_id,
             connection_id=connection_id,
             guild_id=guild_id,
@@ -539,9 +673,45 @@ class ConversationRuntimeRepository:
         )
         with self.database.session() as session:
             session.add(record)
-            session.commit()
-            session.refresh(record)
+            try:
+                session.commit()
+                session.refresh(record)
+            except IntegrityError:
+                session.rollback()
+                if not idempotency_key:
+                    raise
+                existing = session.get(PendingActionV3Record, record.id)
+                if existing is None or existing.owner_id != owner_id:
+                    raise
+                record = existing
         return self.pending_action_view(record)
+
+    def claim_pending_action_for_execution(
+        self,
+        *,
+        owner_id: str,
+        action_id: str,
+        now: datetime | None = None,
+    ) -> PendingActionV3View | None:
+        """Atomically move one pre-execution action into the non-resumable state."""
+
+        current = now or datetime.now(UTC)
+        with self.database.session() as session:
+            result = session.execute(
+                update(PendingActionV3Record)
+                .where(
+                    PendingActionV3Record.id == action_id,
+                    PendingActionV3Record.owner_id == owner_id,
+                    PendingActionV3Record.state.in_(("pending", "blocked_unavailable")),
+                )
+                .values(state="in_progress", updated_at=current)
+            )
+            if cast(int, getattr(result, "rowcount", 0)) != 1:
+                session.rollback()
+                return None
+            session.commit()
+            record = session.get(PendingActionV3Record, action_id)
+            return self.pending_action_view(record) if record is not None else None
 
     def active_pending_actions(
         self,
@@ -552,6 +722,9 @@ class ConversationRuntimeRepository:
         requested_by_user_id: str = "",
         target_character_card_id: str = "",
         deployment_id: str = "",
+        channel_id: str = "",
+        discord_thread_id: str = "",
+        match_discord_thread_id: bool = False,
         conversation_thread_id: str = "",
         now: datetime | None = None,
         limit: int = 20,
@@ -574,6 +747,12 @@ class ConversationRuntimeRepository:
                 )
             if deployment_id:
                 statement = statement.where(PendingActionV3Record.deployment_id == deployment_id)
+            if channel_id:
+                statement = statement.where(PendingActionV3Record.channel_id == channel_id)
+            if discord_thread_id or match_discord_thread_id:
+                statement = statement.where(
+                    PendingActionV3Record.discord_thread_id == discord_thread_id
+                )
             if conversation_thread_id:
                 statement = statement.where(
                     PendingActionV3Record.conversation_thread_id == conversation_thread_id

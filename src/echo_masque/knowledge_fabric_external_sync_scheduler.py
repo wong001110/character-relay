@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -17,6 +18,10 @@ from echo_masque.persistence.knowledge_fabric_external_sync_run_repository impor
 )
 
 type ExternalSourceSync = Callable[[ExternalSourceScheduleClaim], Awaitable[WebsiteSyncResult]]
+
+logger = logging.getLogger(__name__)
+_MAX_CONSECUTIVE_LOOP_FAILURES = 3
+_MAX_RETRY_SECONDS = 30.0
 
 
 class KnowledgeFabricExternalSyncScheduler:
@@ -44,10 +49,17 @@ class KnowledgeFabricExternalSyncScheduler:
         self._stopping = asyncio.Event()
 
     async def start(self) -> None:
-        if self._task is None:
-            self._stopping.clear()
-            await asyncio.to_thread(self.schedule_repository.recover_expired)
-            self._task = asyncio.create_task(self._run(), name="knowledge-fabric-external-sync")
+        if self._task is not None and not self._task.done():
+            return
+        if self._task is not None:
+            with suppress(asyncio.CancelledError, Exception):
+                self._task.result()
+            self._task = None
+        self._stopping.clear()
+        # This is lease-expiry recovery only. It never clears an unexpired claim owned by another
+        # process, so a newly started scheduler cannot reset active sync work.
+        await asyncio.to_thread(self.schedule_repository.recover_expired)
+        self._task = asyncio.create_task(self._run(), name="knowledge-fabric-external-sync")
 
     async def stop(self) -> None:
         if self._task is None:
@@ -58,6 +70,8 @@ class KnowledgeFabricExternalSyncScheduler:
             await self._task
         except asyncio.CancelledError:
             pass
+        except Exception:
+            logger.exception("External sync scheduler had already failed while stopping.")
         finally:
             self._task = None
 
@@ -74,10 +88,38 @@ class KnowledgeFabricExternalSyncScheduler:
         return len(claims)
 
     async def _run(self) -> None:
+        consecutive_failures = 0
         while not self._stopping.is_set():
-            await self.run_once()
+            try:
+                await self.run_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                consecutive_failures += 1
+                logger.exception(
+                    "Knowledge Fabric external sync loop failed (%s/%s).",
+                    consecutive_failures,
+                    _MAX_CONSECUTIVE_LOOP_FAILURES,
+                )
+                if consecutive_failures >= _MAX_CONSECUTIVE_LOOP_FAILURES:
+                    raise
+                retry_seconds = min(2 ** (consecutive_failures - 1), _MAX_RETRY_SECONDS)
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(self._stopping.wait(), timeout=retry_seconds)
+                continue
+            consecutive_failures = 0
             with suppress(TimeoutError):
                 await asyncio.wait_for(self._stopping.wait(), timeout=self.poll_seconds)
+
+    async def wait_for_failure(self) -> None:
+        """Wait for an exhausted retry budget so the process supervisor can restart us."""
+
+        task = self._task
+        if task is None:
+            raise RuntimeError("External sync scheduler has not started.")
+        await asyncio.shield(task)
+        if not self._stopping.is_set():
+            raise RuntimeError("External sync scheduler stopped unexpectedly.")
 
     async def _run_claim(self, claim: ExternalSourceScheduleClaim) -> None:
         started_at = datetime.now(UTC)

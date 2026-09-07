@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from echo_masque.api import create_app
 from echo_masque.config import Settings
 from echo_masque.matrix import MatrixStatus, MatrixTaskStatus
+from echo_masque.runtime_recovery import recover_after_all_workers_stopped
 
 
 def settings(path: Path) -> Settings:
@@ -245,7 +246,7 @@ def test_prompt_versions_are_immutable_diffable_and_restorable(tmp_path: Path) -
     assert next(item for item in after if item["id"] == second["id"])["is_active"] is False
 
 
-def test_matrix_restart_recovery_pauses_and_requeues_running_tasks(tmp_path: Path) -> None:
+def test_matrix_offline_recovery_pauses_and_requeues_running_tasks(tmp_path: Path) -> None:
     database_path = tmp_path / "recovery.db"
     first_app = create_app(settings(database_path))
     first = TestClient(first_app)
@@ -260,6 +261,10 @@ def test_matrix_restart_recovery_pauses_and_requeues_running_tasks(tmp_path: Pat
     task = repo.pending_tasks(matrix["id"], 1)[0]
     repo.mark_task_running(task.id)
 
+    # No worker was started by this fixture. Global recovery is now an explicit offline action,
+    # never a constructor side effect that could reset a different process's live task.
+    first_app.state.database.engine.dispose()
+    recover_after_all_workers_stopped(settings(database_path))
     restarted = TestClient(create_app(settings(database_path)))
     recovered = restarted.get(f"/api/matrices/{matrix['id']}").json()
     assert recovered["status"] == MatrixStatus.PAUSED.value

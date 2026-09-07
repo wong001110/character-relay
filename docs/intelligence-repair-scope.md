@@ -11,8 +11,10 @@ tests, and the current v3 contract remain authoritative.
 Phase 1 is implemented: Conversation and Discovery list contracts expose stable cursor
 continuation, and the Portal requests later pages instead of slicing one bounded response.
 Phase 2 is implemented conservatively: only already-persisted, same-scope Entity names/aliases
-are reused; provisional identity gaps may trigger the existing Discovery preview asynchronously,
-while candidates remain non-authoritative until Content Understanding accepts evidence. Phase 3
+are reused; provisional identity gaps may trigger the existing Discovery preview asynchronously.
+Ranked candidates are retained as expiring, scope-bound review inputs. An authorized operator or
+the Content Understanding contract must bind to a still-ready candidate's persisted Discovery
+source before an evidence edge is created; raw Discovery data remains non-authoritative. Phase 3
 adds bounded, evidence-backed self-claim extraction and revision idempotency without weakening
 the correction shield. Phase 4 carries opaque per-message media references through
 Burst/Segment into Episode and Thread Working State without turning planner summaries into
@@ -29,7 +31,7 @@ unrelated dirty changes; the main agent must perform the final diff split/commit
 | --- | --- | --- |
 | P1 | Server-side pagination | **Implemented.** Conversation and Discovery list APIs expose stable cursor continuation; the Portal requests later pages instead of slicing one bounded response locally. |
 | P1 | Entity grounding | **Implemented conservatively.** Conversation processing reuses only same-scope persisted Entities; unsupported new-name extraction remains intentionally absent. |
-| P1 | Knowledge Gap loop | **Implemented.** An eligible unresolved Gap can trigger existing Discovery, remains unresolved until Content Understanding accepts evidence, and records the transition. |
+| P1 | Knowledge Gap loop | **Implemented.** An eligible unresolved Gap can trigger existing Discovery; its bounded results persist as expiring, owner/server/deployment-scoped review inputs. An authorized operator or Content Understanding acceptance claims a ready candidate and its persisted Discovery source in one transaction before creating a provenance edge and resolving fields. Discovery candidates never resolve knowledge themselves. |
 | P1 | Belief expansion | **Implemented.** Explicit self-correction remains the fast path; conservative self-claim extraction includes evidence, scope, confidence, idempotency, revision, and fail-silent behavior. |
 | P1 | Multi-media Conversation provenance | **Implemented within the existing six-descriptor budget.** Multiple attachments/embeds/media descriptors retain message-scoped opaque refs through Segment, Episode, and Thread Working State without collapsing items or promoting planner content to perception. |
 | P2 | Social Impression lifecycle | **Contract verified.** Explicit interactions update Relationship State; scoped, revisable Impression projection has provenance and no semantic-target guessing. Rich semantic events remain unresolved until a target is confirmed. |
@@ -40,8 +42,9 @@ unrelated dirty changes; the main agent must perform the final diff split/commit
 - Do not reintroduce Topic authority, Topic fallback, or Topic-driven Discovery.
 - Keep `unresolved`, safe silence, and downgrade as valid outcomes when evidence is insufficient.
 - Preserve owner, Server, channel/thread, deployment, Character, credential, and relationship scopes.
-- Discovery candidates are not knowledge authority. A Gap is resolved only after explicit evidence
-  acceptance by the Content Understanding path.
+- Discovery candidates are not knowledge authority. Candidate previews expire and can be rejected;
+  a Gap is resolved only after authorized Content Understanding or operator-review acceptance
+  records the persisted candidate source and review provenance atomically.
 - Planner media descriptors are routing evidence; they do not by themselves establish Character
   perception of unseen media.
 - No raw Discord content, credentials, or provider secrets belong in ordinary logs or docs.

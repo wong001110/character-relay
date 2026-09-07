@@ -8,8 +8,10 @@ process restarts. Standalone/test usage remains in-memory only.
 
 from __future__ import annotations
 
+import hashlib
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from threading import RLock
 from typing import Literal, Protocol
 from urllib.parse import urlparse
@@ -44,6 +46,24 @@ class CapabilityObservation:
     status: CapabilityStatus
     source: CapabilityEvidenceSource
     detail: str = ""
+    observed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def current(self, *, now: datetime | None = None) -> bool:
+        return capability_observation_is_current(
+            self.status, self.observed_at, now or datetime.now(UTC)
+        )
+
+
+def capability_observation_is_current(
+    status: CapabilityStatus,
+    observed_at: datetime,
+    now: datetime,
+) -> bool:
+    """A negative capability expires at fifteen minutes and becomes probeable again."""
+    if status != "unsupported":
+        return True
+    observed = observed_at.replace(tzinfo=UTC) if observed_at.tzinfo is None else observed_at
+    return now < observed + timedelta(minutes=15)
 
 
 class CapabilityPersistence(Protocol):
@@ -69,9 +89,12 @@ class ProviderModelCapabilityRegistry:
     @staticmethod
     def endpoint_key(base_url: str) -> str:
         parsed = urlparse(base_url.strip())
-        host = (parsed.hostname or parsed.netloc or base_url).casefold().strip()
-        path = parsed.path.rstrip("/").casefold()
-        return f"{host}{path}"[:400]
+        scheme = parsed.scheme.casefold()
+        host = (parsed.hostname or "").casefold()
+        port = parsed.port or {"http": 80, "https": 443}.get(scheme, 0)
+        # Preserve case-sensitive path/query identity, but never persist URL credentials.
+        canonical = f"{scheme}://{host}:{port}{parsed.path.rstrip('/')}?{parsed.query}"
+        return "v2:" + hashlib.sha256(canonical.encode()).hexdigest()
 
     @classmethod
     def _key(
@@ -157,8 +180,11 @@ class ProviderModelCapabilityRegistry:
         with cls._lock:
             value = cls._values.get(key)
             persistence = cls._persistence
-        if value is not None:
+        if value is not None and value.current():
             return value.status
+        if value is not None:
+            with cls._lock:
+                cls._values.pop(key, None)
         if persistence is None:
             return "unknown"
         try:
@@ -171,7 +197,7 @@ class ProviderModelCapabilityRegistry:
         except Exception:
             logger.exception("Failed to load provider capability observation")
             return "unknown"
-        if loaded is None:
+        if loaded is None or not loaded.current():
             return "unknown"
         with cls._lock:
             cls._values[key] = loaded
@@ -212,6 +238,7 @@ class ProviderModelCapabilityRegistry:
             for item in values
             if (not provider_key or item.provider == provider_key)
             and (not model_key or item.model.casefold() == model_key)
+            and item.current()
         )
 
     @classmethod

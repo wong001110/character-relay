@@ -771,7 +771,7 @@ export function AdministrationSettingsPanel({ user }: Props) {
         </div>
       )}
 
-      {tab === "knowledge" && <KnowledgeFabricAdministrationPanel />}
+      {tab === "knowledge" && <KnowledgeFabricAdministrationPanel servers={servers} />}
     </div>
   );
 }

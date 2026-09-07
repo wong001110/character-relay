@@ -1,13 +1,66 @@
+# Disposable local integration environment. Never point this stack at a production database.
+# The password below belongs only to this loopback/private-network development stack.
+x-runtime: &runtime
+  build: .
+  init: true
+  volumes:
+    - echo-masque-data:/data
+  environment: &runtime-environment
+    CHARACTER_RELAY_ENVIRONMENT: development
+    CHARACTER_RELAY_DEBUG: "false"
+    CHARACTER_RELAY_DATABASE_URL: postgresql+psycopg://character_relay:local-review-only@database:5432/character_relay_review
+    CHARACTER_RELAY_PUBLIC_DEMO_ENABLED: "false"
+    CHARACTER_RELAY_SEMANTIC_PARTICIPATION_ENABLED: "false"
+    CHARACTER_RELAY_SEMANTIC_EMBEDDING_ENABLED: "false"
+    CHARACTER_RELAY_KNOWLEDGE_FABRIC_API_BACKGROUND_WORKERS_ENABLED: "false"
+    CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_PROVIDER: local_filesystem
+    CHARACTER_RELAY_KNOWLEDGE_OBJECT_STORAGE_FILESYSTEM_PATH: /data/knowledge
+  depends_on:
+    database:
+      condition: service_healthy
+
 services:
-  echo-masque:
-    build: .
-    ports:
-      - "8000:8000"
-    volumes:
-      - echo-masque-data:/data
+  database:
+    image: pgvector/pgvector:0.8.6-pg16-trixie
     environment:
-      CHARACTER_RELAY_ENVIRONMENT: production
-      CHARACTER_RELAY_DEBUG: "false"
+      POSTGRES_USER: character_relay
+      POSTGRES_PASSWORD: local-review-only
+      POSTGRES_DB: character_relay_review
+    volumes:
+      - echo-masque-review-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U character_relay -d character_relay_review"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+
+  echo-masque:
+    <<: *runtime
+    ports:
+      - "127.0.0.1:8000:8000"
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  fabric-worker:
+    <<: *runtime
+    environment:
+      <<: *runtime-environment
+      CHARACTER_RELAY_SERVICE_ROLE: knowledge-fabric-worker
+    mem_limit: 768m
+    cpus: 0.75
+    pids_limit: 128
+    restart: "on-failure:5"
 
 volumes:
   echo-masque-data:
+  echo-masque-review-postgres:

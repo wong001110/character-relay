@@ -365,6 +365,41 @@ export interface DiscordSocialTurnStepReply {
   delivery_required?: boolean;
 }
 
+export type DiscordTurnJobStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "timed_out"
+  | "stopped"
+  | "cancelled";
+
+export interface DiscordTurnProgressEvent {
+  id: number;
+  nonce: string;
+  text: string;
+}
+
+export interface DiscordTurnJobView {
+  job_id: string;
+  status: DiscordTurnJobStatus;
+  progress: DiscordTurnProgressEvent[];
+  reply: DiscordReply | null;
+  social_step: DiscordSocialTurnStepReply | null;
+  error_code: string | null;
+}
+
+export interface DiscordTurnJobDescriptor {
+  job_id: string;
+  kind: "message" | "social";
+  guild_id: string;
+  channel_id: string;
+  thread_id: string;
+  source_message_id: string;
+  deployment_id: string;
+  status: DiscordTurnJobStatus;
+}
+
 export interface DiscordReply {
   action: "silent" | "reply" | "expression";
   reason: string;

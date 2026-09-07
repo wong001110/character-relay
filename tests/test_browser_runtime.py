@@ -1,8 +1,10 @@
 import asyncio
+import gzip
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, cast
 
+import httpx
 import pytest
 
 from echo_masque.browser_runtime import (
@@ -55,6 +57,86 @@ def test_public_url_guard_caches_public_dns_and_blocks_private_targets() -> None
 
     asyncio.run(scenario())
     assert calls == 1
+
+
+def test_browser_route_is_fulfilled_by_the_controlled_transport() -> None:
+    class Request:
+        url = "https://public.example.test/page"
+        method = "GET"
+
+        async def all_headers(self) -> dict[str, str]:
+            return {"accept": "text/html"}
+
+    class Route:
+        request = Request()
+
+        def __init__(self) -> None:
+            self.fulfilled: dict[str, object] | None = None
+            self.continued = False
+            self.aborted = False
+
+        async def fulfill(self, **kwargs: object) -> None:
+            self.fulfilled = kwargs
+
+        async def continue_(self) -> None:
+            self.continued = True
+
+        async def abort(self) -> None:
+            self.aborted = True
+
+    async def scenario() -> None:
+        manager = BrowserCapabilityManager()
+        encoded = gzip.compress(b"ok")
+        manager._pinned_transport_factory = lambda: httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={"content-type": "text/html", "content-encoding": "gzip"},
+                content=encoded,
+            )
+        )
+        route = Route()
+        await manager._route_guard(cast(Route, route))
+        assert route.fulfilled == {
+            "status": 200,
+            "headers": {"content-type": "text/html"},
+            "body": b"ok",
+        }
+        assert route.continued is False
+        assert route.aborted is False
+
+    asyncio.run(scenario())
+
+
+def test_browser_context_installs_websocket_closure_and_active_channel_policy() -> None:
+    class Context:
+        def __init__(self) -> None:
+            self.routes: list[tuple[str, object]] = []
+            self.web_socket_routes: list[tuple[str, object]] = []
+            self.scripts: list[str] = []
+
+        async def route(self, pattern: str, handler: object) -> None:
+            self.routes.append((pattern, handler))
+
+        async def route_web_socket(self, pattern: str, handler: object) -> None:
+            self.web_socket_routes.append((pattern, handler))
+
+        async def add_init_script(self, script: str) -> None:
+            self.scripts.append(script)
+
+    async def handler(_route: object) -> None:
+        return None
+
+    async def scenario() -> None:
+        manager = BrowserCapabilityManager()
+        context = Context()
+        await manager._configure_context(cast(object, context), handler)  # type: ignore[arg-type]
+        assert context.routes == [("**/*", handler)]
+        assert context.web_socket_routes == [("**/*", manager._close_websocket)]
+        assert len(context.scripts) == 1
+        assert "RTCPeerConnection" in context.scripts[0]
+        assert "WebTransport" in context.scripts[0]
+
+    asyncio.run(scenario())
 
 
 def test_google_result_redirect_is_unwrapped_and_engine_links_are_rejected() -> None:

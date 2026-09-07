@@ -17,7 +17,7 @@ from PIL import Image
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pypdf import PdfReader
 
-from echo_masque.network_safety import PublicUrlGuard, PublicUrlRejected
+from echo_masque.network_safety import PinnedAsyncHTTPTransport, PublicUrlGuard, PublicUrlRejected
 
 _DISCORD_API_BASE = "https://discord.com/api/v10"
 _OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
@@ -210,8 +210,13 @@ class ExternalToolRuntime:
     def _client(self, *, timeout_seconds: float = 12.0) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             timeout=httpx.Timeout(timeout_seconds),
-            transport=self._http_transport,
+            # A supplied mock/test transport remains explicit.  Real Tool requests use a direct
+            # literal-address dial transport, so the URL guard and the actual connection share
+            # one DNS result and environment proxies cannot redirect a request.
+            transport=self._http_transport
+            or PinnedAsyncHTTPTransport(url_guard=self.url_guard),
             follow_redirects=False,
+            trust_env=False,
             headers={"User-Agent": "CharacterRelay/0.2 ToolRuntime"},
         )
 

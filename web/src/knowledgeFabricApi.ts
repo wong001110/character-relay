@@ -7,6 +7,12 @@ export interface KnowledgeFabricScope {
   updated_at: string;
 }
 
+export interface KnowledgeFabricScopeBootstrap {
+  platform: string;
+  connection_id: string;
+  workspace_id: string;
+}
+
 export interface KnowledgeFabricCorpus {
   id: string;
   name: string;
@@ -230,6 +236,11 @@ function scopePath(scopeId: string): string {
 
 export const knowledgeFabricApi = {
   listScopes: () => request<KnowledgeFabricScope[]>("/server-scopes"),
+  bootstrapServerScope: (payload: KnowledgeFabricScopeBootstrap) =>
+    request<KnowledgeFabricScope>("/admin/server-scopes", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   listGlobalCorpora: () => request<KnowledgeFabricCorpus[]>("/admin/corpora"),
   createGlobalCorpus: (payload: {
     name: string;

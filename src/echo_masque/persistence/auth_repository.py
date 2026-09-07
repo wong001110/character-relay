@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, cast
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.orm import Session
 
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.models import (
@@ -196,22 +198,51 @@ class AuthRepository:
         now = datetime.now(UTC)
         normalized = email.casefold().strip()
         with self.database.session() as session:
-            record = session.scalar(
-                select(InvitationRecord).where(InvitationRecord.code_hash == code_hash)
+            record = self.claim_invitation_for_registration(
+                session=session,
+                code_hash=code_hash,
+                email=normalized,
+                now=now,
             )
             if record is None:
                 return None
-            if record.accepted_at is not None or record.revoked_at is not None:
-                return None
-            if _utc(record.expires_at) <= now:
-                return None
-            if record.email is not None and record.email != normalized:
-                return None
             record.accepted_by = accepted_by
-            record.accepted_at = now
             session.commit()
             session.refresh(record)
             return record
+
+    def claim_invitation_for_registration(
+        self,
+        *,
+        session: Session,
+        code_hash: str,
+        email: str,
+        now: datetime,
+    ) -> InvitationRecord | None:
+        """Atomically reserve an invitation inside the caller's account-creation transaction."""
+
+        normalized = email.casefold().strip()
+        statement = (
+            update(InvitationRecord)
+            .where(
+                InvitationRecord.code_hash == code_hash,
+                InvitationRecord.accepted_at.is_(None),
+                InvitationRecord.revoked_at.is_(None),
+                InvitationRecord.expires_at > now,
+                or_(InvitationRecord.email.is_(None), InvitationRecord.email == normalized),
+            )
+            # ``accepted_by`` has a foreign key to the account that is created later in this
+            # transaction. Claim the invitation first, then attach the newly flushed user.
+            .values(accepted_at=now)
+        )
+        claim = cast(CursorResult[object], session.execute(statement))
+        if claim.rowcount != 1:
+            return None
+        return session.scalar(
+            select(InvitationRecord).where(
+                InvitationRecord.code_hash == code_hash,
+            )
+        )
 
     def save_credential(
         self,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -27,6 +26,7 @@ from echo_masque.credentials import CredentialStore
 from echo_masque.discord_event_safety import safe_runtime_error_classification
 from echo_masque.domain import TargetResponse
 from echo_masque.interaction_grounding import ground_interaction
+from echo_masque.pending_actions_v3 import PendingActionContinuation, PendingActionService
 from echo_masque.persistence import (
     DeploymentRepository,
     DeploymentToolRepository,
@@ -34,6 +34,7 @@ from echo_masque.persistence import (
 )
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.models import CharacterCardRecord, TargetRecord
+from echo_masque.prompt_budget import unavailable_assigned_side_effect_ids_for_turn
 from echo_masque.providers import (
     ChatProvider,
     ChatToolCall,
@@ -99,6 +100,8 @@ class PreparedCharacterTurn:
     prompt_manifest: dict[str, object]
     enabled_tools: tuple[str, ...]
     tool_context: ToolExecutionContext
+    pending_action: PendingActionContinuation | None = None
+    suppressed_side_effect_tool_ids: tuple[str, ...] = ()
     director_status: str = "not_considered"
     director_read_count: int = 0
 
@@ -134,6 +137,7 @@ class DiscordConnectorRuntime:
         deployment_tool_repository: DeploymentToolRepository | None = None,
         tool_registry: ToolRegistry | None = None,
         turn_director_gateway: UtilityGatewayRouter | None = None,
+        pending_action_service: PendingActionService | None = None,
     ) -> None:
         self.repository = repository
         self.deployment_repository = deployment_repository
@@ -143,6 +147,7 @@ class DiscordConnectorRuntime:
         self.deployment_tool_repository = deployment_tool_repository
         self.tool_registry = tool_registry or default_tool_registry()
         self.turn_director_gateway = turn_director_gateway
+        self.pending_action_service = pending_action_service
 
     def resolve_character_turn(
         self,
@@ -264,13 +269,14 @@ class DiscordConnectorRuntime:
             channel_id=payload.channel_id,
             thread_id=payload.thread_id,
             message_id=payload.message_id,
+            category_id=payload.category_id,
             trigger_text=payload.text,
             initiator_is_bot=payload.author_is_bot,
             initiator_user_id=payload.author_id,
             operation_id=payload.runtime_operation_id,
             step_id=payload.runtime_step_id,
         )
-        return PreparedCharacterTurn(
+        prepared = PreparedCharacterTurn(
             resolved=resolved,
             turn_context=turn_context,
             context_bundle=context_bundle,
@@ -281,6 +287,149 @@ class DiscordConnectorRuntime:
             enabled_tools=enabled_tools,
             tool_context=tool_context,
         )
+        self._prepare_pending_action(prepared)
+        return prepared
+
+    def _prepare_pending_action(self, prepared: PreparedCharacterTurn) -> None:
+        """Resolve one explicit-reply or unique-thread pending action after authorization."""
+
+        service = self.pending_action_service
+        if service is None:
+            return
+        resolved = prepared.resolved
+        payload = resolved.payload
+        deployment = resolved.deployment
+        bundle = prepared.context_bundle
+        conversation_thread_id = (
+            bundle.thread.id if bundle is not None and bundle.thread is not None else ""
+        )
+        continuation = service.resolve_continuation(
+            owner_id=deployment.owner_id,
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            current_message=payload.text,
+            requested_by_user_id=payload.author_id,
+            target_character_card_id=resolved.card.id,
+            deployment_id=deployment.id,
+            channel_id=payload.channel_id,
+            discord_thread_id=payload.thread_id,
+            reply_to_message_id=payload.reply_to_message_id,
+            conversation_thread_id=conversation_thread_id,
+            assigned_tool_ids=prepared.enabled_tools,
+        )
+        self._suppress_pending_side_effect_tools(prepared, continuation.suppressed_tool_ids)
+        if continuation.action is not None and continuation.source in {
+            "explicit_reply",
+            "same_thread",
+        }:
+            catalog = {item.id: item for item in self.tool_registry.catalog()}
+            item = catalog.get(continuation.tool_id)
+            if item is not None and item.available and continuation.tool_id in set(
+                prepared.enabled_tools
+            ):
+                claimed = service.repository.claim_pending_action_for_execution(
+                    owner_id=deployment.owner_id,
+                    action_id=continuation.action_id,
+                )
+                if claimed is not None:
+                    prepared.pending_action = PendingActionContinuation(
+                        claimed,
+                        continuation.source,
+                        continuation.confidence,
+                        continuation.reason,
+                    )
+                else:
+                    self._suppress_pending_side_effect_tools(
+                        prepared, (continuation.tool_id,)
+                    )
+            return
+        if continuation.source == "cancelled":
+            prepared.pending_action = continuation
+            return
+
+        # A known pending action was not safe to resume this turn.  Do not let
+        # ordinary tool selection expose that side effect as a fallback.
+        if continuation.suppressed_tool_ids:
+            return
+
+        # An unavailable side effect is preserved only when the user's current message
+        # directly names exactly one currently assigned capability. It remains
+        # provider-invisible until a later scoped continuation rechecks availability.
+        unavailable = unavailable_assigned_side_effect_ids_for_turn(
+            self.tool_registry,
+            prepared.enabled_tools,
+            prepared.tool_context,
+        )
+        if len(unavailable) != 1:
+            return
+        segment_id = bundle.segment.id if bundle is not None and bundle.segment is not None else ""
+        service.register(
+            owner_id=deployment.owner_id,
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            discord_thread_id=payload.thread_id,
+            source_message_id=payload.message_id,
+            source_segment_id=segment_id,
+            conversation_thread_id=conversation_thread_id,
+            requested_by_user_id=payload.author_id,
+            target_character_card_id=resolved.card.id,
+            deployment_id=deployment.id,
+            tool_id=unavailable[0],
+            intent_summary=payload.text,
+            state="blocked_unavailable",
+        )
+
+    def _suppress_pending_side_effect_tools(
+        self,
+        prepared: PreparedCharacterTurn,
+        tool_ids: tuple[str, ...],
+    ) -> None:
+        """Keep rejected pending side effects out of this provider turn."""
+
+        if not tool_ids:
+            return
+        catalog = {item.id: item for item in self.tool_registry.catalog()}
+        allowed = set(prepared.enabled_tools)
+        suppressed = {
+            tool_id
+            for tool_id in tool_ids
+            if tool_id in allowed
+            and (item := catalog.get(tool_id)) is not None
+            and item.side_effect
+        }
+        if suppressed:
+            prepared.suppressed_side_effect_tool_ids = tuple(
+                dict.fromkeys((*prepared.suppressed_side_effect_tool_ids, *suppressed))
+            )
+
+    def _forced_tool_ids(self, prepared: PreparedCharacterTurn) -> tuple[str, ...]:
+        """Expose Runtime-owned reads plus a unique, authorized continuation Tool."""
+
+        values = list(self._runtime_internal_tool_ids())
+        continuation = getattr(prepared, "pending_action", None)
+        suppressed = getattr(prepared, "suppressed_side_effect_tool_ids", ())
+        if (
+            continuation is not None
+            and continuation.source in {"explicit_reply", "same_thread"}
+            and continuation.tool_id
+            and continuation.tool_id not in suppressed
+        ):
+            values.append(continuation.tool_id)
+        return tuple(dict.fromkeys(values))
+
+    def _runtime_internal_tool_ids(self) -> tuple[str, ...]:
+        """Return Runtime-owned read tools without making them Deployment assignments."""
+
+        getter = getattr(self.tool_registry, "internal_tool_ids", None)
+        return tuple(getter()) if callable(getter) else ()
+
+    def _enabled_tools_for_turn(self, prepared: PreparedCharacterTurn) -> tuple[str, ...]:
+        suppressed = set(getattr(prepared, "suppressed_side_effect_tool_ids", ()))
+        external_tools = tuple(
+            tool_id for tool_id in prepared.enabled_tools if tool_id not in suppressed
+        )
+        return tuple(dict.fromkeys((*external_tools, *self._runtime_internal_tool_ids())))
 
     async def resolve_turn_director(self, prepared: PreparedCharacterTurn) -> None:
         """Optionally add a Runtime-validated utility brief and internal read results."""
@@ -414,13 +563,15 @@ class DiscordConnectorRuntime:
         deployment = prepared.resolved.deployment
         try:
             with provider_trace_scope(prompt_manifest=prepared.prompt_manifest):
-                if isinstance(target, PromptModelTarget) and prepared.enabled_tools:
+                enabled_tools = self._enabled_tools_for_turn(prepared)
+                if isinstance(target, PromptModelTarget) and enabled_tools:
                     return await target.send_with_tools(
                         prepared.prompt,
                         tool_registry=self.tool_registry,
-                        enabled_tool_ids=prepared.enabled_tools,
+                        enabled_tool_ids=enabled_tools,
                         tool_context=prepared.tool_context,
                         max_tool_rounds=2,
+                        forced_tool_ids=self._forced_tool_ids(prepared),
                     )
                 return await target.send(prepared.prompt)
         except Exception as exc:
@@ -437,16 +588,18 @@ class DiscordConnectorRuntime:
         """Start an explicit bounded Tool session for LangGraph orchestration."""
 
         target = prepared.resolved.target
-        if not isinstance(target, PromptModelTarget) or not prepared.enabled_tools:
+        enabled_tools = self._enabled_tools_for_turn(prepared)
+        if not isinstance(target, PromptModelTarget) or not enabled_tools:
             return None
         try:
             with provider_trace_scope(prompt_manifest=prepared.prompt_manifest):
                 return await target.start_tool_turn(
                     prepared.prompt,
                     tool_registry=self.tool_registry,
-                    enabled_tool_ids=prepared.enabled_tools,
+                    enabled_tool_ids=enabled_tools,
                     tool_context=prepared.tool_context,
                     max_tool_rounds=2,
+                    forced_tool_ids=self._forced_tool_ids(prepared),
                 )
         except Exception as exc:
             self.deployment_repository.record_deployment_error(
@@ -512,6 +665,7 @@ class DiscordConnectorRuntime:
         target_record = resolved.target_record
         smart_context = prepared.smart_context
         tool_traces = self._tool_traces(response.trace)
+        self._finalize_pending_action(prepared, tool_traces)
         final_response = response
         smart_output, smart_reason = smart_context.parse_and_resolve(
             response.text.strip(),
@@ -559,6 +713,42 @@ class DiscordConnectorRuntime:
             smart_reason=smart_reason,
             tool_traces=tool_traces,
         )
+
+    def _finalize_pending_action(
+        self,
+        prepared: PreparedCharacterTurn,
+        traces: list[ToolExecutionTrace],
+    ) -> None:
+        """Close only known-safe lifecycle transitions; uncertain side effects stay blocked."""
+
+        continuation = prepared.pending_action
+        service = self.pending_action_service
+        if (
+            continuation is None
+            or service is None
+            or continuation.source not in {"explicit_reply", "same_thread"}
+            or not continuation.action_id
+        ):
+            return
+        matching = [item for item in traces if item.tool_id == continuation.tool_id]
+        if not matching:
+            return
+        trace = matching[-1]
+        if trace.status == "completed":
+            service.repository.update_pending_action_state(
+                owner_id=prepared.resolved.deployment.owner_id,
+                action_id=continuation.action_id,
+                state="completed",
+            )
+        elif trace.status == "rejected" and trace.error == "tool_provider_not_configured":
+            # Rejected before Tool execution: it is safe to remain resumable after
+            # configuration changes. Failed/uncertain side effects deliberately remain
+            # in_progress so Runtime never repeats them automatically.
+            service.repository.update_pending_action_state(
+                owner_id=prepared.resolved.deployment.owner_id,
+                action_id=continuation.action_id,
+                state="blocked_unavailable",
+            )
 
     def authorize_character_output(
         self,
@@ -716,10 +906,6 @@ class DiscordConnectorRuntime:
 
         config = PromptModelConfig.model_validate_json(config_json)
         credential = self.credential_store.get(owner_id, character_card_id)
-        if credential is None:
-            environment_key = os.getenv(config.api_key_env)
-            if environment_key:
-                credential = SecretStr(environment_key)
         if credential is None:
             raise ConnectorRuntimeError("The deployed Character Card needs a provider credential.")
         compiled = compile_character_prompt(config.system_prompt, character_profile)

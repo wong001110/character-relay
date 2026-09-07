@@ -41,6 +41,9 @@ import {
   type DiscordV3ParticipationResult,
   type DiscordPlannerMediaResult
 } from "./relayClient.js";
+import {
+  TurnJobTerminalError
+} from "./turnJobs.js";
 import { RecoveryLoop } from "./recoveryLoop.js";
 import {
   buildDeploymentIndex,
@@ -80,6 +83,7 @@ import type {
   DiscordSocialPendingTurn,
   DiscordSocialTurnCursor,
   DiscordSocialTurnStepReply,
+  DiscordTurnJobDescriptor,
   DiscordStickerContent
 } from "./types.js";
 import type { ConversationBurst } from "./turnCollector.js";
@@ -90,13 +94,15 @@ import {
   decideTurnCollection,
   summarizeConversationBurst
 } from "./turnIngress.js";
+import { parseTurnControl } from "./turnControl.js";
 import { DiscordWebhookManager } from "./webhookManager.js";
 
 const config = loadConfig();
 const relay = new RelayClient(
   config.relayApiUrl,
   config.relayConnectorToken,
-  config.relayConnectionId
+  config.relayConnectionId,
+  config.turnJobMaxWaitMs
 );
 const webhookManager = new DiscordWebhookManager(config.discordBotToken, relay);
 const eventReporter = new DiscordEventReporter(async (events) => {
@@ -159,6 +165,8 @@ interface CollectedDiscordTurn {
 
 const context = new ContextBuffer(config.maxContextMessages);
 const queues = new Map<string, Promise<void>>();
+const queuedIngressByDestination = new Map<string, number>();
+let queuedIngressCount = 0;
 const latestHumanTurnByDestination = new Map<
   string,
   { epoch: number; messageId: string }
@@ -169,6 +177,11 @@ const sentCharacterRoutes = new Map<
   { deploymentId: string; seenAt: number }
 >();
 const observedWebhookIds = new Set<string>();
+const recoveringTurnJobIds = new Set<string>();
+const turnJobRecoveryTasks = new Set<Promise<void>>();
+const pendingTurnJobRecoveries = new Map<string, DiscordTurnJobDescriptor>();
+let shuttingDown = false;
+let turnJobRecoveryScan: Promise<void> | null = null;
 let deployments: DeploymentIndex = new Map();
 let lastDeploymentSyncAt: string | null = null;
 let lastCatalogSyncAt: string | null = null;
@@ -205,6 +218,19 @@ const turnIngress = new TurnIngressCoordinator<CollectedDiscordTurn>(
     log("Discord Turn Collector ingress failed.", {
       scopeKey,
       ...safeDiagnosticError(error)
+    });
+  },
+  {
+    maxPending: config.turnIngressMaxPending,
+    maxPendingPerScope: config.turnIngressMaxPendingPerDestination,
+    maxPreflightAgeMs: config.turnIngressMaxPreflightAgeMs
+  },
+  (scopeKey, reason) => {
+    log("Discord turn ingress rejected before Runtime submission.", {
+      scopeKey,
+      reason,
+      pending: queuedIngressCount,
+      destinationPending: queuedIngressByDestination.get(scopeKey) ?? 0
     });
   }
 );
@@ -659,7 +685,16 @@ async function resolveReplyTarget(
   }
 }
 
-function enqueue(destination: string, task: () => Promise<void>): void {
+function enqueue(destination: string, task: () => Promise<void>): boolean {
+  const destinationPending = queuedIngressByDestination.get(destination) ?? 0;
+  if (
+    queuedIngressCount >= config.turnIngressMaxPending ||
+    destinationPending >= config.turnIngressMaxPendingPerDestination
+  ) {
+    return false;
+  }
+  queuedIngressCount += 1;
+  queuedIngressByDestination.set(destination, destinationPending + 1);
   const previous = queues.get(destination) ?? Promise.resolve();
   let next: Promise<void>;
   next = previous
@@ -670,9 +705,14 @@ function enqueue(destination: string, task: () => Promise<void>): void {
       log("Discord message task failed.", { destination, ...safeDiagnosticError(error) });
     })
     .finally(() => {
+      queuedIngressCount = Math.max(0, queuedIngressCount - 1);
+      const remaining = (queuedIngressByDestination.get(destination) ?? 1) - 1;
+      if (remaining > 0) queuedIngressByDestination.set(destination, remaining);
+      else queuedIngressByDestination.delete(destination);
       if (queues.get(destination) === next) queues.delete(destination);
     });
   queues.set(destination, next);
+  return true;
 }
 
 async function sendSelectionHelp(
@@ -771,6 +811,72 @@ async function sendCharacterReply(
     replyText,
     delivery
   );
+}
+
+async function deliverCharacterTurnProgress(
+  source: Message<true>,
+  deployment: DiscordDeployment,
+  text: string,
+  botUserId: string,
+  contextKey: string
+): Promise<void> {
+  const visibleText = text.trim().slice(0, 500);
+  if (!visibleText) return;
+  const sentMessageIds = await sendCharacterReply(
+    source,
+    deployment,
+    visibleText,
+    botUserId
+  );
+  await rememberSentMessages(deployment, sentMessageIds, source.guildId);
+  if (sentMessageIds.length) {
+    context.push(contextKey, {
+      message_id: sentMessageIds[0]!,
+      author_id: `character:${deployment.character_card_id}`,
+      author_display_name: deploymentDisplayName(deployment),
+      text: visibleText,
+      emojis: [],
+      stickers: [],
+      created_at: new Date().toISOString(),
+      is_bot: true
+    });
+  }
+}
+
+async function deliverCharacterTurnFailure(
+  source: Message<true>,
+  deployment: DiscordDeployment,
+  botUserId: string,
+  contextKey: string
+): Promise<void> {
+  await deliverCharacterTurnProgress(
+    source,
+    deployment,
+    "I’m sorry, I couldn’t finish that response. Please try again in a moment.",
+    botUserId,
+    contextKey
+  );
+}
+
+async function claimTerminalTurnFailure(
+  error: TurnJobTerminalError
+): Promise<boolean> {
+  if (
+    error.errorCode === "connector_poll_budget_exhausted" ||
+    error.status === "cancelled"
+  ) return false;
+  try {
+    await relay.consumeTerminalTurnJob(error.jobId);
+    return true;
+  } catch (claimError) {
+    if (
+      claimError instanceof Error &&
+      claimError.message.includes("HTTP 409")
+    ) {
+      return false;
+    }
+    throw claimError;
+  }
 }
 
 async function rememberSentMessages(
@@ -1419,7 +1525,9 @@ async function continueBotTagConversation(
       recentMessages
     );
     await sourceMessage.channel.sendTyping();
-    const reply = await relay.processMessage({
+    let reply: DiscordReply;
+    try {
+      reply = await relay.processMessage({
       deployment_id: deployment.deployment_id,
       message_id: sourceDiscordMessageId,
       guild_id: sourceMessage.guildId,
@@ -1456,7 +1564,31 @@ async function continueBotTagConversation(
         .map(deploymentAddressAlias),
       mentionable_participants: mentionableParticipants,
       recent_messages: recentMessages
+    }, {
+      onProgress: (text) =>
+        deliverCharacterTurnProgress(
+          sourceMessage,
+          deployment,
+          text,
+          botUserId,
+          key
+        ),
+      onProgressDeliveryError: (error) => {
+        log("Character turn progress delivery is uncertain; waiting for the final reply.", {
+          deploymentId: deployment.deployment_id,
+          sourceMessageId: sourceDiscordMessageId,
+          ...safeDiagnosticError(error)
+        });
+      }
     });
+    } catch (error) {
+      if (error instanceof TurnJobTerminalError) {
+        if (!(await claimTerminalTurnFailure(error))) continue;
+        await deliverCharacterTurnFailure(sourceMessage, deployment, botUserId, key);
+        continue;
+      }
+      throw error;
+    }
     if (preparedExpression.retrieval) {
       await reportExpressionNode(preparedExpression.retrieval.run_id, {
         node_name: "model_select",
@@ -1620,7 +1752,9 @@ async function processInteractionSession(
           recentMessages
         );
         await sourceMessage.channel.sendTyping();
-        const reply = await relay.processMessage({
+        let reply: DiscordReply;
+        try {
+          reply = await relay.processMessage({
           deployment_id: deployment.deployment_id,
           message_id: sourceMessage.id,
           guild_id: sourceMessage.guildId,
@@ -1656,7 +1790,31 @@ async function processInteractionSession(
             session.target_display_name || authorDisplayName,
           expression_run_id: preparedExpression.retrieval?.run_id ?? "",
           expression_candidates: preparedExpression.retrieval?.candidates ?? []
+        }, {
+          onProgress: (text) =>
+            deliverCharacterTurnProgress(
+              sourceMessage,
+              deployment,
+              text,
+              botUserId,
+              key
+            ),
+          onProgressDeliveryError: (error) => {
+            log("Character turn progress delivery is uncertain; waiting for the final reply.", {
+              deploymentId: deployment.deployment_id,
+              sourceMessageId: sourceMessage.id,
+              ...safeDiagnosticError(error)
+            });
+          }
         });
+        } catch (error) {
+          if (error instanceof TurnJobTerminalError) {
+            if (await claimTerminalTurnFailure(error)) {
+              await deliverCharacterTurnFailure(sourceMessage, deployment, botUserId, key);
+            }
+          }
+          throw error;
+        }
         if (preparedExpression.retrieval) {
           await reportExpressionNode(preparedExpression.retrieval.run_id, {
             node_name: "model_select",
@@ -1845,7 +2003,7 @@ async function processMessage(
     managedBotRoleIds
   });
   const mentionedBot = mentionDetection.mentionedBot;
-  const originalText = normalizedText(
+  let originalText = normalizedText(
     guildMessage,
     botUser.id,
     mentionDetection.managedBotRoleIds
@@ -1943,6 +2101,74 @@ async function processMessage(
       });
     }
     return;
+  }
+  // Cancellation is deliberately a narrow, reply-based control.  It must name one
+  // deployment, be addressed to this Bot, and reply to the same human's original
+  // request.  New unrelated messages never cancel a turn.
+  if (!options?.recovery && mentionedBot && guildMessage.reference?.messageId) {
+    const control = parseTurnControl(originalText);
+    if (control) {
+      const audience = resolveAudience(
+        candidates,
+        control.audienceText,
+        null,
+        config.groupAddressAliases
+      );
+      const deployment = audience.deployments.length === 1 ? audience.deployments[0] : null;
+      if (deployment) {
+        try {
+          const referenced = await guildMessage.fetchReference();
+          if (!referenced.author.bot && referenced.author.id === guildMessage.author.id) {
+            const resolvedDeployment = resolveDeploymentLocation(deployment, location);
+            const cancelled = await relay.cancelTurnJobs({
+              deployment_id: resolvedDeployment.deployment_id,
+              guild_id: guildMessage.guildId,
+              channel_id: location.channelId,
+              thread_id: location.threadId,
+              category_id: location.categoryId,
+              source_message_id: referenced.id,
+              source_author_id: guildMessage.author.id,
+              reason: control.kind === "replace" ? "user_replaced" : "user_cancelled"
+            });
+            reportDiscordEvent({
+              level: "info",
+              eventType: control.kind === "replace" ? "turn_replaced" : "turn_cancelled",
+              message: "A user explicitly controlled their matching Character turn.",
+              guildId: guildMessage.guildId,
+              guildName: guildMessage.guild.name,
+              channelId: location.channelId,
+              channelName: location.channelName,
+              threadId: location.threadId,
+              threadName: location.threadName,
+              sourceMessageId: guildMessage.id,
+              deploymentId: resolvedDeployment.deployment_id,
+              characterName: deploymentDisplayName(resolvedDeployment),
+              details: {
+                target_message_id: referenced.id,
+                cancelled_job_ids: cancelled,
+                command: control.kind
+              }
+            });
+            if (control.kind === "cancel") {
+              await guildMessage.reply({
+                content: cancelled.length
+                  ? "Okay, I cancelled that request. Any work already sent to an external tool may still finish, but it will not be delivered as this reply."
+                  : "That request is no longer active.",
+                allowedMentions: { parse: [], repliedUser: false }
+              });
+              return;
+            }
+            originalText = control.replacementText;
+          }
+        } catch (error) {
+          log("Explicit Discord turn control could not be applied.", {
+            sourceMessageId: guildMessage.id,
+            deploymentId: deployment.deployment_id,
+            ...safeDiagnosticError(error)
+          });
+        }
+      }
+    }
   }
   const key = destinationKey(location.channelId, location.threadId);
   const previousHumanTurn = latestHumanTurnByDestination.get(key);
@@ -2832,20 +3058,83 @@ async function processMessage(
         recent_messages: recentMessages
       };
       let socialStep: DiscordSocialTurnStepReply | null = null;
-      const reply = socialTurnEnabled
-        ? (
-            (socialStep = await relay.processSocialTurnStep({
-              payload: inboundPayload,
-              initial_deployment_ids: socialInitialDeploymentIds,
-              available_deployment_ids: socialAvailableDeploymentIds,
-              continuation_budget: config.botTagMaxResponses,
-              max_depth: config.botTagMaxDepth,
-              cursor: socialCursor,
-              operation_id: durableOperationId
-            })),
-            socialStep.reply
-          )
-        : await relay.processMessage(inboundPayload);
+      let reply: DiscordReply;
+      try {
+        reply = socialTurnEnabled
+          ? (
+              (socialStep = await relay.processSocialTurnStep(
+                {
+                  payload: inboundPayload,
+                  initial_deployment_ids: socialInitialDeploymentIds,
+                  available_deployment_ids: socialAvailableDeploymentIds,
+                  continuation_budget: config.botTagMaxResponses,
+                  max_depth: config.botTagMaxDepth,
+                  cursor: socialCursor,
+                  operation_id: durableOperationId
+                },
+                {
+                  onProgress: (text) =>
+                    deliverCharacterTurnProgress(
+                      guildMessage,
+                      deployment,
+                      text,
+                      botUser.id,
+                      key
+                    ),
+                  onProgressDeliveryError: (error) => {
+                    log("Character turn progress delivery is uncertain; waiting for the final reply.", {
+                      deploymentId: deployment.deployment_id,
+                      sourceMessageId: guildMessage.id,
+                      ...safeDiagnosticError(error)
+                    });
+                  }
+                }
+              )),
+              socialStep.reply
+            )
+          : await relay.processMessage(inboundPayload, {
+              onProgress: (text) =>
+                deliverCharacterTurnProgress(
+                  guildMessage,
+                  deployment,
+                  text,
+                  botUser.id,
+                  key
+                ),
+              onProgressDeliveryError: (error) => {
+                log("Character turn progress delivery is uncertain; waiting for the final reply.", {
+                  deploymentId: deployment.deployment_id,
+                  sourceMessageId: guildMessage.id,
+                  ...safeDiagnosticError(error)
+                });
+              }
+            });
+      } catch (error) {
+        if (error instanceof TurnJobTerminalError) {
+          if (!(await claimTerminalTurnFailure(error))) continue;
+          await deliverCharacterTurnFailure(guildMessage, deployment, botUser.id, key);
+          reportDiscordEvent({
+            level: "warning",
+            eventType: "turn_job_terminal",
+            message: "Character Runtime could not complete the asynchronous turn.",
+            guildId: guildMessage.guildId,
+            guildName: guildMessage.guild.name,
+            channelId: location.channelId,
+            channelName: location.channelName,
+            threadId: location.threadId,
+            threadName: location.threadName,
+            sourceMessageId: guildMessage.id,
+            deploymentId: deployment.deployment_id,
+            characterName: deploymentDisplayName(deployment),
+            details: {
+              status: error.status,
+              error_code: error.errorCode
+            }
+          });
+          continue;
+        }
+        throw error;
+      }
       if (socialStep && !socialStep.delivery_required) {
         socialCursor = socialStep.cursor;
         socialNextTurn = socialStep.next_turn ?? null;
@@ -3220,6 +3509,22 @@ async function processMessage(
       : {}),
     execute: async (burst) => {
       await executeQueued(burst, preclaimedInteraction);
+    },
+    onRejected: (reason) => {
+      if (collectionDecision.collect || (!mentionedBot && !explicitAudience)) return;
+      const text = reason === "expired"
+        ? "That request waited too long before it could start. Please send it again."
+        : "I’m handling the maximum number of requests for this conversation. Please try again shortly.";
+      void guildMessage.reply({
+        content: text,
+        allowedMentions: { parse: [], repliedUser: false }
+      }).catch((error: unknown) => {
+        log("Unable to show explicit Discord turn ingress status.", {
+          sourceMessageId: guildMessage.id,
+          reason,
+          ...safeDiagnosticError(error)
+        });
+      });
     }
   });
 }
@@ -3261,6 +3566,208 @@ async function resumePendingSocialTurns(): Promise<void> {
         ...safeDiagnosticError(error)
       });
     }
+  }
+}
+
+async function resumeRecoverableMessageTurn(
+  job: DiscordTurnJobDescriptor
+): Promise<void> {
+  const botUser = client.user;
+  if (!botUser) throw new Error("Discord client is unavailable for Turn Job recovery.");
+  const guild =
+    client.guilds.cache.get(job.guild_id) ??
+    (await client.guilds.fetch(job.guild_id));
+  const sourceChannelId = job.thread_id || job.channel_id;
+  const channel = await guild.channels.fetch(sourceChannelId);
+  if (!channel || !channel.isTextBased() || !("messages" in channel)) {
+    throw new Error("Recoverable Character Turn source channel is unavailable.");
+  }
+  const source = await channel.messages.fetch(job.source_message_id);
+  if (!source.inGuild()) {
+    throw new Error("Recoverable Character Turn source message is not a Guild message.");
+  }
+  const location = channelLocation(source);
+  const candidates = deploymentsFor(
+    deployments,
+    location.channelId,
+    location.threadId,
+    source.guildId,
+    location.categoryId
+  );
+  const baseDeployment = candidates.find(
+    (item) => item.deployment_id === job.deployment_id
+  );
+  if (!baseDeployment) {
+    throw new Error("Recoverable Character Turn deployment is no longer active at its destination.");
+  }
+  const deployment = resolveDeploymentLocation(baseDeployment, location);
+  const key = destinationKey(location.channelId, location.threadId);
+  const recentMessages = context.get(key);
+  const mentionableParticipants = buildMentionableParticipants(
+    candidates,
+    recentMessages,
+    deployment
+  );
+  const preparedExpression: PreparedExpression = { retrieval: null, query: "" };
+  let reply: DiscordReply;
+  try {
+    reply = await relay.resumeMessageTurnJob(job.job_id, {
+      onProgress: (text) =>
+        deliverCharacterTurnProgress(source, deployment, text, botUser.id, key),
+      onProgressDeliveryError: (error) => {
+        log("Recovered Character Turn progress delivery is uncertain; waiting for the final reply.", {
+          jobId: job.job_id,
+          deploymentId: deployment.deployment_id,
+          sourceMessageId: source.id,
+          ...safeDiagnosticError(error)
+        });
+      }
+    });
+  } catch (error) {
+    if (error instanceof TurnJobTerminalError) {
+      if (!(await claimTerminalTurnFailure(error))) return;
+      await deliverCharacterTurnFailure(source, deployment, botUser.id, key);
+      reportDiscordEvent({
+        level: "warning",
+        eventType: "turn_job_recovery_terminal",
+        message: "A recovered Character Turn could not complete.",
+        guildId: job.guild_id,
+        guildName: guild.name,
+        channelId: job.channel_id,
+        channelName: location.channelName,
+        threadId: job.thread_id,
+        threadName: location.threadName,
+        sourceMessageId: job.source_message_id,
+        deploymentId: job.deployment_id,
+        characterName: deploymentDisplayName(deployment),
+        details: { status: error.status, error_code: error.errorCode, job_id: job.job_id }
+      });
+      return;
+    }
+    throw error;
+  }
+  if (
+    reply.action === "silent" ||
+    reply.smart_output?.action === "ignore" ||
+    (!reply.smart_output && !reply.text && reply.expression.action === "none")
+  ) {
+    return;
+  }
+
+  const durableDelivery = await claimCharacterTurnDelivery(reply);
+  if (durableDelivery === "already_delivered") return;
+  let execution: ExpressionExecutionResult | SmartOutputExecutionResult;
+  try {
+    execution = reply.smart_output
+      ? await executeSmartOutput(
+          source,
+          deployment,
+          reply.smart_output,
+          preparedExpression,
+          botUser.id,
+          candidates,
+          mentionableParticipants
+        )
+      : await executeCharacterOutput(
+          source,
+          deployment,
+          reply.text
+            ? normalizeBotTagReply(
+                candidates,
+                reply.text,
+                deployment.deployment_id,
+                config.groupAddressAliases
+              ).displayText.trim()
+            : "",
+          reply.expression,
+          preparedExpression,
+          botUser.id
+        );
+    await acknowledgeCharacterTurnDelivery(durableDelivery, execution.sentMessageIds);
+  } catch (error) {
+    await markCharacterTurnDeliveryUncertain(durableDelivery, error);
+    throw error;
+  }
+  await rememberSentMessages(deployment, execution.sentMessageIds, source.guildId);
+  if (execution.outgoingText || execution.sentMessageIds.length) {
+    context.push(key, {
+      message_id: execution.sentMessageIds[0] ?? `relay-recovered-${Date.now()}`,
+      author_id: `character:${deployment.character_card_id}`,
+      author_display_name: deploymentDisplayName(deployment),
+      text: execution.outgoingText,
+      emojis: [],
+      stickers: [],
+      created_at: new Date().toISOString(),
+      is_bot: true
+    });
+  }
+  reportDiscordEvent({
+    level: "info",
+    eventType: "turn_job_recovery_delivered",
+    message: "A recovered Character Turn reply was delivered to Discord.",
+    guildId: job.guild_id,
+    guildName: guild.name,
+    channelId: job.channel_id,
+    channelName: location.channelName,
+    threadId: job.thread_id,
+    threadName: location.threadName,
+    sourceMessageId: job.source_message_id,
+    deploymentId: job.deployment_id,
+    characterName: deploymentDisplayName(deployment),
+    details: { job_id: job.job_id, sent_message_ids: execution.sentMessageIds }
+  });
+}
+
+function scheduleRecoverableTurnJobs(): Promise<void> {
+  if (turnJobRecoveryScan) return turnJobRecoveryScan;
+  turnJobRecoveryScan = scanRecoverableTurnJobs().finally(() => {
+    turnJobRecoveryScan = null;
+  });
+  return turnJobRecoveryScan;
+}
+
+async function scanRecoverableTurnJobs(): Promise<void> {
+  const maximumQueued = config.turnJobRecoveryMaxConcurrent * 4;
+  const availableQueueCapacity = maximumQueued - pendingTurnJobRecoveries.size;
+  if (availableQueueCapacity <= 0 || shuttingDown) return;
+  const jobs = await relay.listRecoverableTurnJobs(availableQueueCapacity);
+  for (const job of jobs) {
+    if (
+      job.kind !== "message" ||
+      recoveringTurnJobIds.has(job.job_id) ||
+      pendingTurnJobRecoveries.has(job.job_id)
+    ) continue;
+    pendingTurnJobRecoveries.set(job.job_id, job);
+  }
+  startPendingTurnJobRecoveries();
+}
+
+function startPendingTurnJobRecoveries(): void {
+  while (
+    !shuttingDown &&
+    turnJobRecoveryTasks.size < config.turnJobRecoveryMaxConcurrent
+  ) {
+    const next = pendingTurnJobRecoveries.entries().next();
+    if (next.done) return;
+    const [jobId, job] = next.value;
+    pendingTurnJobRecoveries.delete(jobId);
+    if (recoveringTurnJobIds.has(jobId)) continue;
+    recoveringTurnJobIds.add(job.job_id);
+    let task: Promise<void>;
+    task = resumeRecoverableMessageTurn(job)
+      .catch((error: unknown) => {
+        log("Unable to resume recoverable Character Turn.", {
+          jobId: job.job_id,
+          sourceMessageId: job.source_message_id,
+          ...safeDiagnosticError(error)
+        });
+      })
+      .finally(() => {
+        recoveringTurnJobIds.delete(job.job_id);
+        turnJobRecoveryTasks.delete(task);
+        startPendingTurnJobRecoveries();
+      });
+    turnJobRecoveryTasks.add(task);
   }
 }
 
@@ -3383,6 +3890,10 @@ client.once(Events.ClientReady, (readyClient) => {
           log("Durable Social Turn recovery scan failed.", safeDiagnosticError(error));
         });
       }
+      void scheduleRecoverableTurnJobs().catch((error: unknown) => {
+        lastError = formatSafeDiagnosticError(error);
+        log("Recoverable Character Turn scan failed.", safeDiagnosticError(error));
+      });
     },
     failed: async (error: unknown) => {
       lastError = formatSafeDiagnosticError(error);
@@ -3463,11 +3974,15 @@ dedupeTimer = setInterval(() => {
 }, 10 * 60 * 1000);
 
 async function shutdown(signal: string): Promise<void> {
+  shuttingDown = true;
+  pendingTurnJobRecoveries.clear();
   ready = false;
   stateSynchronized = false;
   recoveryLoop?.stop();
   client.removeAllListeners(Events.MessageCreate);
+  relay.stopTurnJobs();
   await turnIngress.shutdown(true);
+  await Promise.all([...turnJobRecoveryTasks].map((task) => task.catch(() => undefined)));
   await Promise.all([...queues.values()].map((task) => task.catch(() => undefined)));
   await eventReporter.stop();
   if (heartbeatTimer) clearInterval(heartbeatTimer);

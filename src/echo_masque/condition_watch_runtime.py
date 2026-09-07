@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -106,10 +105,6 @@ class ConditionWatchEvaluatorRuntime:
             raise RuntimeError("Condition watches require a prompt-model Character target.")
         config = PromptModelConfig.model_validate_json(target_record.config_json)
         credential = self.credentials.get(watch.owner_id, watch.character_card_id)
-        if credential is None:
-            environment_key = os.getenv(config.api_key_env)
-            if environment_key:
-                credential = SecretStr(environment_key)
         if credential is None:
             raise RuntimeError(
                 "Condition watch Character provider credential is unavailable."

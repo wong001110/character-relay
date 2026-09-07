@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
-import struct
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -13,16 +12,18 @@ from datetime import datetime
 from pathlib import Path
 from threading import Lock
 from time import monotonic
-from typing import ClassVar, Literal, Protocol
+from typing import TYPE_CHECKING, ClassVar, Literal, Protocol
 
 from echo_masque.config import Settings
-from echo_masque.persistence.models import CharacterCardRecord
-from echo_masque.persistence.repository import Repository
-from echo_masque.persistence.smart_participation_models import SmartParticipationProfileRecord
-from echo_masque.persistence.smart_participation_repository import (
-    SmartParticipationRepository,
-    decode_strings,
-)
+from echo_masque.vector_serialization import deserialize_vector, serialize_vector
+
+if TYPE_CHECKING:
+    from echo_masque.persistence.models import CharacterCardRecord
+    from echo_masque.persistence.repository import Repository
+    from echo_masque.persistence.smart_participation_models import SmartParticipationProfileRecord
+    from echo_masque.persistence.smart_participation_repository import (
+        SmartParticipationRepository,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -86,12 +87,16 @@ class FastEmbedSemanticEncoder:
     def _build_model(self) -> object:
         """Build one heavy FastEmbed runtime. Separated for deterministic unit tests."""
 
+        import onnxruntime as ort  # type: ignore[import-untyped]
         from fastembed import TextEmbedding
         from fastembed.common.model_description import (
             ModelSource,
             PoolingType,
         )
 
+        # This is process-wide ONNX Runtime configuration and must happen before
+        # FastEmbed builds an inference session. It performs no model download.
+        ort.disable_telemetry_events()
         Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
         supported = {
             item["model"]
@@ -268,20 +273,10 @@ class CharacterSemanticProfileInspection:
     updated_at: datetime | None
 
 
-def _serialize_vector(vector: Sequence[float]) -> bytes:
-    if not vector:
-        raise ValueError("Embedding vector cannot be empty.")
-    return struct.pack(f"<{len(vector)}f", *vector)
-
-
-def _deserialize_vector(value: bytes, dimension: int) -> list[float]:
-    expected = dimension * 4
-    if len(value) != expected:
-        raise ValueError(
-            "Stored embedding has "
-            f"{len(value)} bytes; expected {expected} for {dimension} dimensions."
-        )
-    return list(struct.unpack(f"<{dimension}f", value))
+# Compatibility for existing semantic callers. Persistence imports the leaf codec directly to
+# avoid re-entering this module while it is initializing.
+_serialize_vector = serialize_vector
+_deserialize_vector = deserialize_vector
 
 
 def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
@@ -310,6 +305,9 @@ def participation_semantic_text(
     phrases, cooldowns, enablement, permissions, and other Runtime authority are deliberately not
     embedded.
     """
+
+    # Delayed to keep the shared encoder import independent from the broad persistence package.
+    from echo_masque.persistence.smart_participation_repository import decode_strings
 
     sections: list[tuple[str, str | None]] = [
         ("Character", card.display_name),

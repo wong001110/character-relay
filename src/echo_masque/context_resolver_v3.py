@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Literal
 
 from echo_masque.belief_revision_v3 import BeliefRevisionService, CorrectionShield
+from echo_masque.expression_retrieval import semantic_tokens
 from echo_masque.persistence.belief_repository import BeliefRepository, BeliefV3View
 from echo_masque.persistence.conversation_runtime_repository import (
     ConversationEpisodeV3View,
@@ -43,6 +45,14 @@ class ContextTextHit:
 
 
 @dataclass(frozen=True, slots=True)
+class KnowledgePackingResult:
+    """Final Knowledge Fabric admission after prompt-budget packing."""
+
+    selected_refs: tuple[str, ...] = ()
+    omitted: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class ContextBudget:
     live_chars: int = 2400
     belief_chars: int = 2200
@@ -71,6 +81,7 @@ class ContextBundleV3:
     sufficiency: SufficiencyState
     reason: str
     temporal_context: tuple[str, ...] = ()
+    knowledge_packing: KnowledgePackingResult = KnowledgePackingResult()
 
     def prompt_sections(self) -> tuple[str, ...]:
         sections: list[str] = []
@@ -224,6 +235,115 @@ class ContextResolverV3:
             remaining -= len(compact)
         return tuple(result)
 
+    @staticmethod
+    def _pack_knowledge_fabric_hit(
+        item: ContextTextHit,
+        remaining: int,
+    ) -> tuple[ContextTextHit | None, str]:
+        """Keep a complete Fabric trust envelope while trimming only untrusted JSON text."""
+
+        begin = "BEGIN UNTRUSTED EVIDENCE JSON\n"
+        end = "\nEND UNTRUSTED EVIDENCE JSON"
+        begin_index = item.text.find(begin)
+        end_index = item.text.rfind(end)
+        if begin_index < 0 or end_index < begin_index + len(begin):
+            return None, "invalid_trust_envelope"
+        prefix = item.text[: begin_index + len(begin)]
+        raw_json = item.text[begin_index + len(begin) : end_index]
+        try:
+            payload = json.loads(raw_json)
+        except (TypeError, ValueError):
+            return None, "invalid_trust_envelope"
+        required = {
+            "authority",
+            "evidence_unit_id",
+            "freshness",
+            "source_version_id",
+            "text",
+            "title",
+        }
+        if not isinstance(payload, dict) or not required.issubset(payload) or not isinstance(
+            payload["text"], str
+        ):
+            return None, "invalid_trust_envelope"
+
+        def render(text: str, *, truncated: bool) -> str:
+            bounded_payload = dict(payload)
+            bounded_payload["text"] = text
+            if truncated:
+                bounded_payload["truncated"] = True
+            return prefix + json.dumps(
+                bounded_payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ) + end
+
+        compact = render(payload["text"], truncated=False)
+        if len(compact) <= remaining:
+            return ContextTextHit(item.source, item.ref, compact, item.score), ""
+        if len(render("", truncated=True)) > remaining:
+            return None, "trust_envelope_exceeds_budget"
+        lower, upper = 0, len(payload["text"])
+        while lower < upper:
+            middle = (lower + upper + 1) // 2
+            if len(render(payload["text"][:middle], truncated=True)) <= remaining:
+                lower = middle
+            else:
+                upper = middle - 1
+        return (
+            ContextTextHit(
+                item.source,
+                item.ref,
+                render(payload["text"][:lower], truncated=True),
+                item.score,
+            ),
+            "truncated_to_budget",
+        )
+
+    @classmethod
+    def _bounded_knowledge(
+        cls,
+        values: tuple[ContextTextHit, ...],
+        limit: int,
+    ) -> tuple[tuple[ContextTextHit, ...], KnowledgePackingResult]:
+        selected: list[ContextTextHit] = []
+        omitted: list[tuple[str, str]] = []
+        # ``prompt_sections`` adds this heading plus one source label per hit.  Account for
+        # those trusted wrapper characters here so the evidence budget is a true section cap.
+        remaining = max(0, limit - len("KNOWLEDGE EVIDENCE\n"))
+        for item in sorted(values, key=lambda value: value.score, reverse=True):
+            if not item.text or remaining <= 0:
+                omitted.append((item.ref, "budget_exhausted"))
+                continue
+            wrapper = len(f"- [{item.source}] ") + (1 if selected else 0)
+            if wrapper > remaining:
+                omitted.append((item.ref, "budget_exhausted"))
+                continue
+            available = remaining - wrapper
+            if item.source == "knowledge_fabric":
+                packed, reason = cls._pack_knowledge_fabric_hit(item, available)
+                if packed is None:
+                    omitted.append((item.ref, reason))
+                    continue
+                selected.append(packed)
+                remaining -= wrapper + len(packed.text)
+                if reason:
+                    omitted.append((item.ref, reason))
+                continue
+            compact = " ".join(item.text.split())
+            if not compact or len(compact) > available:
+                omitted.append((item.ref, "budget_exhausted"))
+                continue
+            selected.append(ContextTextHit(item.source, item.ref, compact, item.score))
+            remaining -= wrapper + len(compact)
+        return (
+            tuple(selected),
+            KnowledgePackingResult(
+                selected_refs=tuple(item.ref for item in selected),
+                omitted=tuple(omitted),
+            ),
+        )
+
     def resolve(
         self,
         *,
@@ -283,12 +403,14 @@ class ContextResolverV3:
             else None
         )
         subject_refs = (actor_id,) if actor_id else ()
-        recalled = self.beliefs.recall(
+        query_compact = " ".join(query.split())[:4000]
+        recalled = self.beliefs.search_relevant(
             owner_id=owner_id,
             connection_id=connection_id,
             guild_id=guild_id,
             character_card_id=character_card_id,
             subject_refs=subject_refs,
+            query_terms=tuple(semantic_tokens(query_compact)),
             limit=60,
         )
         shield = correction_shield or CorrectionShield((), "", "")
@@ -303,11 +425,12 @@ class ContextResolverV3:
             belief_remaining -= min(cost, belief_remaining)
             if belief_remaining <= 0:
                 break
-        episodes = self.runtime.recent_episodes(
+        episodes = self.runtime.search_episodes(
             owner_id=owner_id,
             connection_id=connection_id,
             guild_id=guild_id,
-            limit=24,
+            query_terms=tuple(semantic_tokens(query_compact)),
+            limit=240,
         )
         episode_values: list[ConversationEpisodeV3View] = []
         episode_remaining = self.budget.episode_chars
@@ -370,8 +493,10 @@ class ContextResolverV3:
             )
 
         bounded_live = self._bounded_lines(live_context, self.budget.live_chars)
-        bounded_knowledge = self._bounded_hits(knowledge_hits, self.budget.knowledge_chars)
-        query_compact = " ".join(query.split())[:4000]
+        bounded_knowledge, knowledge_packing = self._bounded_knowledge(
+            knowledge_hits,
+            self.budget.knowledge_chars,
+        )
         unresolved_segment = bool(
             segment is not None
             and segment.membership_relation == "unresolved"
@@ -422,6 +547,7 @@ class ContextResolverV3:
             sufficiency=sufficiency,
             reason=reason,
             temporal_context=self._bounded_lines(temporal_context, 480),
+            knowledge_packing=knowledge_packing,
         )
 
 
@@ -430,5 +556,6 @@ __all__ = [
     "ContextBundleV3",
     "ContextResolverV3",
     "ContextTextHit",
+    "KnowledgePackingResult",
     "SufficiencyState",
 ]

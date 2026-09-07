@@ -19,6 +19,14 @@ def repository(path: Path) -> tuple[Database, DurableRuntimeRepository]:
     return database, DurableRuntimeRepository(database)
 
 
+def recover_offline(database: Database) -> DurableRuntimeRepository:
+    """Run global interruption recovery only after this test's simulated workers have stopped."""
+
+    runtime = DurableRuntimeRepository(database)
+    runtime.recover_interrupted()
+    return runtime
+
+
 def claim_operation(
     runtime: DurableRuntimeRepository, *, operation_id: str = "op" * 32
 ) -> RuntimeOperationRecord:
@@ -151,7 +159,7 @@ def test_normal_character_turn_identity_replays_without_request_text_hash(tmp_pa
         claim_nonce="character-claim-0001",
     )
     assert claim == "granted"
-    restarted = DurableRuntimeRepository(runtime.database)
+    restarted = recover_offline(runtime.database)
     assert restarted.get_operation(first.operation_id).status == "uncertain"  # type: ignore[union-attr]
 
 
@@ -219,7 +227,7 @@ def test_normal_character_generation_restart_becomes_uncertain(tmp_path: Path) -
         deployment_id="ann",
     )
 
-    restarted = DurableRuntimeRepository(database)
+    restarted = recover_offline(database)
     assert restarted.get_operation(operation.operation_id).status == "uncertain"  # type: ignore[union-attr]
     with pytest.raises(RuntimeError, match="reconciliation"):
         restarted.prepare_character_step(
@@ -349,7 +357,7 @@ def test_restart_after_delivery_claim_becomes_uncertain_instead_of_resending(
         claim_nonce="claim-nonce-0002",
     )
 
-    restarted = DurableRuntimeRepository(database)
+    restarted = recover_offline(database)
     recovered = restarted.get_operation(operation.operation_id)
     assert recovered is not None
     assert recovered.status == "uncertain"

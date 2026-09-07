@@ -28,7 +28,7 @@ describe("TurnIngressCoordinator", () => {
     const executed: Array<{ id: string; burstIds: string[] }> = [];
     const coordinator = new TurnIngressCoordinator<SampleTurn>(
       { quietWindowMs: 100, maxWaitMs: 400, maxMessages: 5, maxCharacters: 100 },
-      (_scope, task) => runtimeTasks.push(task)
+      (_scope, task) => { runtimeTasks.push(task); return true; }
     );
 
     for (const [id, text] of [
@@ -63,7 +63,7 @@ describe("TurnIngressCoordinator", () => {
     const order: string[] = [];
     const coordinator = new TurnIngressCoordinator<SampleTurn>(
       { quietWindowMs: 5_000, maxWaitMs: 10_000, maxMessages: 5, maxCharacters: 100 },
-      (_scope, task) => runtimeTasks.push(task)
+      (_scope, task) => { runtimeTasks.push(task); return true; }
     );
 
     coordinator.submit("channel", {
@@ -100,7 +100,7 @@ describe("TurnIngressCoordinator", () => {
     let receivedBurst: unknown = "unset";
     const coordinator = new TurnIngressCoordinator<SampleTurn>(
       { quietWindowMs: 5_000, maxWaitMs: 10_000, maxMessages: 5, maxCharacters: 100 },
-      (_scope, task) => runtimeTasks.push(task)
+      (_scope, task) => { runtimeTasks.push(task); return true; }
     );
 
     coordinator.submit("channel", {
@@ -133,7 +133,7 @@ describe("TurnIngressCoordinator", () => {
     });
     const coordinator = new TurnIngressCoordinator<SampleTurn>(
       { quietWindowMs: 5_000, maxWaitMs: 10_000, maxMessages: 5, maxCharacters: 100 },
-      (_scope, task) => runtimeTasks.push(task)
+      (_scope, task) => { runtimeTasks.push(task); return true; }
     );
 
     coordinator.submit("channel", {
@@ -152,6 +152,111 @@ describe("TurnIngressCoordinator", () => {
     release?.();
     await shuttingDown;
     expect(runtimeTasks).toHaveLength(1);
+  });
+
+  it("bounds preflight admission and expires stale work before Runtime", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const runtimeTasks: Array<() => Promise<void>> = [];
+    const rejected: string[] = [];
+    const coordinator = new TurnIngressCoordinator<SampleTurn>(
+      { enabled: false },
+      (_scope, task) => { runtimeTasks.push(task); return true; },
+      undefined,
+      { maxPending: 2, maxPendingPerScope: 2, maxPreflightAgeMs: 50 },
+      (_scope, reason) => { rejected.push(reason); }
+    );
+    expect(coordinator.submit("channel", {
+      id: "first", value: sample("first", "one"), characters: 3, collect: true,
+      prepareCollection: async () => { await gate; return true; }, execute: async () => undefined
+    })).toBe(true);
+    expect(coordinator.submit("channel", {
+      id: "second", value: sample("second", "two"), characters: 3, collect: false,
+      execute: async () => undefined
+    })).toBe(true);
+    expect(coordinator.submit("channel", {
+      id: "third", value: sample("third", "three"), characters: 5, collect: false,
+      execute: async () => undefined
+    })).toBe(false);
+    await vi.advanceTimersByTimeAsync(51);
+    release?.();
+    await vi.runAllTimersAsync();
+    expect(rejected).toEqual(["busy", "expired"]);
+    // The first accepted item may already have reached Runtime; the stale queued
+    // item did not add another task.
+    expect(runtimeTasks).toHaveLength(1);
+    await coordinator.shutdown(false);
+  });
+
+  it("rechecks expiry immediately before a delayed Runtime task executes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    const runtimeTasks: Array<() => Promise<void>> = [];
+    const rejected: string[] = [];
+    let executed = false;
+    const coordinator = new TurnIngressCoordinator<SampleTurn>(
+      { enabled: false },
+      (_scope, task) => {
+        runtimeTasks.push(task);
+        return true;
+      },
+      undefined,
+      { maxPending: 2, maxPendingPerScope: 2, maxPreflightAgeMs: 50 },
+      (_scope, reason) => rejected.push(reason)
+    );
+    coordinator.submit("channel", {
+      id: "delayed-runtime",
+      value: sample("delayed-runtime", "one"),
+      characters: 3,
+      collect: false,
+      execute: async () => {
+        executed = true;
+      }
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(runtimeTasks).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(51);
+    await runtimeTasks[0]?.();
+    expect(executed).toBe(false);
+    expect(rejected).toEqual(["expired"]);
+    await coordinator.shutdown(false);
+  });
+
+  it("keeps collector-held bursts within the same global ingress bound", async () => {
+    vi.useFakeTimers();
+    const rejected: string[] = [];
+    const coordinator = new TurnIngressCoordinator<SampleTurn>(
+      { enabled: true, quietWindowMs: 1_000, maxWaitMs: 2_000 },
+      () => true,
+      undefined,
+      { maxPending: 2, maxPendingPerScope: 2, maxPreflightAgeMs: 5_000 },
+      (_scope, reason) => rejected.push(reason)
+    );
+    for (const id of ["first", "second"]) {
+      expect(
+        coordinator.submit(id, {
+          id,
+          value: sample(id, id),
+          characters: id.length,
+          collect: true,
+          execute: async () => undefined
+        })
+      ).toBe(true);
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      coordinator.submit("third", {
+        id: "third",
+        value: sample("third", "third"),
+        characters: 5,
+        collect: true,
+        execute: async () => undefined
+      })
+    ).toBe(false);
+    expect(rejected).toEqual(["busy"]);
+    await coordinator.shutdown(false);
   });
 });
 

@@ -10,7 +10,7 @@ from pydantic import SecretStr
 
 from echo_masque.admin_runtime import UtilityProviderMember
 from echo_masque.media_runtime import MediaAnalysis, MediaAsset, MediaUnderstandingProvider
-from echo_masque.network_safety import PublicUrlGuard
+from echo_masque.network_safety import PinnedAsyncHTTPTransport, PublicUrlGuard
 from echo_masque.provider_capabilities import ModelCapability, ProviderModelCapabilityRegistry
 from echo_masque.provider_io import provider_dialect
 from echo_masque.providers.errors import ProviderError, ProviderProtocolError
@@ -72,8 +72,10 @@ class _DataUriMultimodalProvider(OpenAICompatibleMultimodalProvider):
         current = await self._url_guard.validate(uri)
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(30.0),
-            transport=self._media_transport,
+            transport=self._media_transport
+            or PinnedAsyncHTTPTransport(url_guard=self._url_guard),
             follow_redirects=False,
+            trust_env=False,
             headers={"User-Agent": "CharacterRelay/0.3 MediaTransport"},
         ) as client:
             for redirect_index in range(_MAX_REDIRECTS + 1):

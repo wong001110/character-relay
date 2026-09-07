@@ -12,6 +12,7 @@ from typing import Literal
 from uuid import uuid4
 
 from echo_masque.providers.base import ChatMessage
+from echo_masque.security import redact
 
 ProviderTraceMode = Literal["off", "metadata", "summary", "content"]
 ProviderTraceSink = Callable[[dict[str, object]], None]
@@ -243,7 +244,10 @@ def _emit(payload: dict[str, object]) -> None:
     if sink is None:
         return
     try:
-        sink(payload)
+        sanitized = redact(payload)
+        if not isinstance(sanitized, dict):
+            return
+        sink({key: value for key, value in sanitized.items()})
     except Exception:
         return
 

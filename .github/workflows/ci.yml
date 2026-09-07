@@ -47,6 +47,16 @@ jobs:
         with:
           name: mypy-${{ matrix.python-version }}
           path: mypy-report.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build Portal for Python route tests
+        # The separate web job has an isolated filesystem.
+        run: |
+          npm ci --prefix web
+          npm run build --prefix web
       - name: Pytest
         run: python -m pytest
       - name: Capture pytest diagnostics
@@ -94,6 +104,7 @@ jobs:
           tests/test_knowledge_fabric_hard_cutover.py::test_hard_cutover_removes_legacy_storage_on_disposable_postgresql
           tests/test_knowledge_fabric_phase2.py::test_postgresql_app_uses_fabric_and_has_no_legacy_knowledge_surface
           tests/test_knowledge_fabric_phase5.py::test_postgresql_fts_and_dense_channels_when_explicit_test_database_is_available
+          tests/test_capability_quota_closeout.py::test_postgresql_quota_and_owner_admission_on_disposable_database
 
   web:
     runs-on: ubuntu-latest
@@ -198,6 +209,10 @@ jobs:
           test "$(docker exec echo-masque-ci id -u)" != "0"
           docker exec echo-masque-ci test -w /data
           docker exec echo-masque-ci python -c "from playwright.sync_api import sync_playwright; playwright = sync_playwright().start(); browser = playwright.chromium.launch(headless=True); print(browser.version); browser.close(); playwright.stop()"
+      - name: Verify Portal first-use flow in the production image
+        run: |
+          docker cp scripts/verify_portal_closeout.py echo-masque-ci:/tmp/verify_portal_closeout.py
+          docker exec echo-masque-ci python /tmp/verify_portal_closeout.py --base-url http://127.0.0.1:8000
       - name: Verify storage identity survives container replacement
         run: |
           before=$(python -c 'import json; print(json.load(open("health-before.json"))["storage"]["storage_instance_id"])')

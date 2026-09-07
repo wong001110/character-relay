@@ -5,9 +5,9 @@ Use this section to connect Discord, deploy a Character, and diagnose a conversa
 ## First successful Discord reply
 
 1. [Prepare the Discord application and Bot](discord-setup.md#1-prepare-discord).
-2. Add the Discord Connection and Server Profile in Deployment Center.
-3. Create an Active Character Deployment for that Server.
-4. Start the Discord Connector with the Connection ID and shared secret.
+2. Add the Discord Connection and Server Profile in Deployment Center, then copy the internal Connection UUID from Connection details.
+3. Create a paused Character Deployment for that Server and activate it after checking the destination.
+4. Start the Discord Connector with that internal Connection UUID and the shared secret.
 5. Mention the Bot in an allowed Channel and confirm the Character replies.
 
 ## Common tasks

@@ -146,4 +146,180 @@ describe("RelayClient media enrichment", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("claims and acknowledges progress before returning a job reply", async () => {
+    const calls: string[] = [];
+    let progressClaimed = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "https://relay.test/api/connectors/discord/messages/jobs") {
+          calls.push("submit");
+          expect(JSON.parse(String(init?.body))).toMatchObject({ connection_id: "conn-1" });
+          return new Response(JSON.stringify({
+            job_id: "job-1", status: "running", progress: [], reply: null,
+            social_step: null, error_code: null
+          }), { status: 202, headers: { "Content-Type": "application/json" } });
+        }
+        if (url.includes("/progress/claim?connection_id=conn-1")) {
+          calls.push("claim");
+          const nonce = (JSON.parse(String(init?.body)) as { nonce: string }).nonce;
+          if (progressClaimed) {
+            return new Response(JSON.stringify({ event: null }), {
+              status: 200, headers: { "Content-Type": "application/json" }
+            });
+          }
+          progressClaimed = true;
+          return new Response(JSON.stringify({
+            event: { id: 3, nonce, text: "I’m checking that now." }
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (url.includes("/progress/3/ack?connection_id=conn-1")) {
+          calls.push("ack");
+          return new Response(null, { status: 204 });
+        }
+        if (url.includes("/turn-jobs/job-1?connection_id=conn-1")) {
+          calls.push("poll");
+          return new Response(JSON.stringify({
+            job_id: "job-1", status: "succeeded", progress: [], social_step: null,
+            error_code: null,
+            reply: {
+              action: "reply", reason: "done", text: "final reply",
+              expression: { action: "none", reason: "done" }, tool_calls: [],
+              generated_artifact_ids: []
+            }
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      })
+    );
+
+    const delivered: string[] = [];
+    const client = new RelayClient("https://relay.test", "connector-token", "conn-1");
+    const reply = await client.processMessage(payload, {
+      onProgress: async (text) => { delivered.push(text); }
+    });
+
+    expect(reply.text).toBe("final reply");
+    expect(delivered).toEqual(["I’m checking that now."]);
+    expect(calls).toEqual(["submit", "claim", "ack", "claim", "poll", "claim"]);
+  });
+
+  it("retries a transient job poll without submitting the accepted job again", async () => {
+    let submissions = 0;
+    let polls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url === "https://relay.test/api/connectors/discord/messages/jobs") {
+          submissions += 1;
+          return new Response(JSON.stringify({
+            job_id: "job-2", status: "running", progress: [], reply: null,
+            social_step: null, error_code: null
+          }), { status: 202, headers: { "Content-Type": "application/json" } });
+        }
+        if (url.includes("/progress/claim?connection_id=conn-1")) {
+          return new Response(JSON.stringify({ event: null }), {
+            status: 200, headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (url.includes("/turn-jobs/job-2?connection_id=conn-1")) {
+          polls += 1;
+          if (polls === 1) return new Response("temporarily unavailable", { status: 503 });
+          return new Response(JSON.stringify({
+            job_id: "job-2", status: "succeeded", progress: [], social_step: null,
+            error_code: null,
+            reply: {
+              action: "reply", reason: "done", text: "final reply",
+              expression: { action: "none", reason: "done" }, tool_calls: [],
+              generated_artifact_ids: []
+            }
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      })
+    );
+
+    const client = new RelayClient("https://relay.test", "connector-token", "conn-1");
+    await expect(client.processMessage(payload, { onProgress: async () => undefined }))
+      .resolves.toMatchObject({ text: "final reply" });
+
+    expect(submissions).toBe(1);
+    expect(polls).toBe(2);
+  });
+
+  it("reattaches to a listed job without submitting a duplicate turn", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        calls.push(url);
+        if (url === "https://relay.test/api/connectors/discord/turn-jobs?connection_id=conn-1&limit=50") {
+          return new Response(JSON.stringify({
+            items: [{
+              job_id: "job-recovered", kind: "message", guild_id: "guild-1",
+              channel_id: "channel-1", thread_id: "", source_message_id: "message-1",
+              deployment_id: "deployment-1", status: "succeeded"
+            }]
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (url === "https://relay.test/api/connectors/discord/turn-jobs/job-recovered?connection_id=conn-1") {
+          return new Response(JSON.stringify({
+            job_id: "job-recovered", status: "succeeded", progress: [], social_step: null,
+            error_code: null,
+            reply: {
+              action: "reply", reason: "done", text: "recovered final",
+              expression: { action: "none", reason: "done" }, tool_calls: [],
+              generated_artifact_ids: [], durable_status: "generated", delivery_required: true,
+              operation_id: "operation-1", step_id: "step-1"
+            }
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (url.includes("/progress/claim?connection_id=conn-1")) {
+          return new Response(JSON.stringify({ event: null }), {
+            status: 200, headers: { "Content-Type": "application/json" }
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      })
+    );
+
+    const client = new RelayClient("https://relay.test", "connector-token", "conn-1");
+    await expect(client.listRecoverableTurnJobs()).resolves.toHaveLength(1);
+    await expect(client.resumeMessageTurnJob("job-recovered", {
+      onProgress: async () => undefined
+    })).resolves.toMatchObject({ text: "recovered final", delivery_required: true });
+
+    expect(calls).not.toContain("https://relay.test/api/connectors/discord/messages/jobs");
+    expect(calls).toHaveLength(3);
+  });
+
+  it("advances recovery pages even when a page contains no usable jobs", async () => {
+    const urls: string[] = [];
+    let page = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        urls.push(String(input));
+        page += 1;
+        return new Response(JSON.stringify(
+          page === 1
+            ? { items: [], next_cursor: "job-50" }
+            : { items: [], next_cursor: null }
+        ), { status: 200, headers: { "Content-Type": "application/json" } });
+      })
+    );
+
+    const client = new RelayClient("https://relay.test", "connector-token", "conn-1");
+    await client.listRecoverableTurnJobs(3);
+    await client.listRecoverableTurnJobs(3);
+
+    expect(urls).toEqual([
+      "https://relay.test/api/connectors/discord/turn-jobs?connection_id=conn-1&limit=3",
+      "https://relay.test/api/connectors/discord/turn-jobs?connection_id=conn-1&limit=3&after_job_id=job-50"
+    ]);
+  });
 });

@@ -1,6 +1,8 @@
 # Character Relay — AI Coding Agent Contract
 
-Character Relay uses AI-assisted development across parallel branches. Do not rely on chat memory or plausible inference when repository evidence is available.
+Character Relay uses AI-Native Development Practice: native harness capabilities first,
+adaptive coherent stages, selective delegation, and risk-based evidence. Do not rely on chat
+memory or plausible inference when repository evidence is available.
 
 ## Required reading before coding
 
@@ -33,10 +35,24 @@ When `docs/active-development-plan.md` names the current branch, it is the branc
 - Work in coherent phase-sized batches. Do not commit or run the full validation suite after every small file edit.
 - Run focused checks after a coherent implementation batch and the phase's relevant complete checks before its commit gate.
 - For changed security, authorization, ownership, lifecycle, or other protected decision logic, run the applicable targeted mutation-test scope when one is configured. Treat surviving mutants as missing behavioral proof until they are killed or recorded as equivalent with evidence.
-- Create at most one implementation commit per phase. Fix validation failures before that commit instead of producing checkpoint/fixup commits.
+- Commit coherent, reviewable changes after relevant verification. Phase count does not mandate
+  commit count; do not delay necessary diagnosis or repair to satisfy a fixed topology or cadence.
 - Sub-agents may perform bounded research, verification, testing, or editing tasks. The main agent owns scope, evidence reconciliation, shared-tree integration, diff review, validation decisions, and the phase commit.
 - Sub-agents do not independently commit shared work unless the active plan explicitly delegates a separate branch and commit boundary.
 - Before changing phases, leave the active plan usable by an agent with no chat history.
+
+## Security and Red Team responsibilities
+
+- Identify trust boundaries and threats during design, before choosing the implementation.
+- Reviewer, QA, Security, and Red Team are distinct responsibilities; they need not each be a
+  permanent agent. Root owns integration; independent review must be identified honestly.
+- Security reviews authorization, credentials, data provenance, side effects, recovery and
+  deployment boundaries. Red Team challenges assumptions across user journeys and components.
+- Use authorized isolated environments and synthetic fixtures. Never attack production or
+  external systems merely because a development task includes a Red Team gate.
+- Record executed checks, static findings, blocked checks and residual risk separately. A tool
+  restriction or missing environment is not a pass. Fix release-blocking findings or keep the
+  PR/release explicitly blocked; ordinary coverage and an LLM judge do not prove security.
 
 ## Documentation synchronization
 

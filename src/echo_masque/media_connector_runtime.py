@@ -445,13 +445,13 @@ class MediaAwareDiscordConnectorRuntime(DiscordConnectorRuntime):
     def _enabled_tools_for_turn(self, prepared: PreparedCharacterTurn) -> tuple[str, ...]:
         """Roleplay receives only deployment tools and Runtime-owned media inspection."""
 
-        values = list(prepared.enabled_tools)
+        values = list(super()._enabled_tools_for_turn(prepared))
         if self._media_inspection_enabled(prepared):
             values.append(_MEDIA_INSPECT_TOOL_ID)
         return tuple(dict.fromkeys(values))
 
     def _forced_tool_ids(self, prepared: PreparedCharacterTurn) -> tuple[str, ...]:
-        values: list[str] = []
+        values = list(super()._forced_tool_ids(prepared))
         if self._media_inspection_enabled(prepared):
             values.append(_MEDIA_INSPECT_TOOL_ID)
         return tuple(dict.fromkeys(values))

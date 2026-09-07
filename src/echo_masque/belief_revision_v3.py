@@ -137,6 +137,7 @@ class BeliefRevisionService:
         source_message_id: str = "",
         dependency_edge_ids: tuple[str, ...] = (),
         explicit_correction: bool = False,
+        candidate_belief_ids: tuple[str, ...] = (),
         claim_confidence: float | None = None,
         importance: float = 0.6,
         scope: str = "server",
@@ -198,6 +199,9 @@ class BeliefRevisionService:
             predicate=predicate,
             character_card_id=character_card_id,
         )
+        if candidate_belief_ids:
+            permitted = set(candidate_belief_ids)
+            existing = tuple(item for item in existing if item.id in permitted)
         same = tuple(item for item in existing if self._same_value(item.value_text, compact_value))
         if same:
             chosen = max(same, key=lambda item: (item.authority_score, item.confidence))

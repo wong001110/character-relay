@@ -3,10 +3,10 @@
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -63,6 +63,7 @@ from echo_masque.condition_watch_service import ConditionWatchService
 from echo_masque.config import Settings, get_settings
 from echo_masque.context_resolver_v3 import ContextResolverV3
 from echo_masque.conversation_media import ConversationMediaReferenceService
+from echo_masque.conversation_runtime_maintenance import ConversationRuntimeMaintenanceService
 from echo_masque.conversation_structure_resolver import ConversationStructureResolver
 from echo_masque.coverage_analytics import CoverageAnalyticsService
 from echo_masque.credentials import CredentialVault
@@ -119,6 +120,7 @@ from echo_masque.orchestration import (
     ConditionWatchGraphRunner,
     SocialTurnGraphRunner,
 )
+from echo_masque.pending_actions_v3 import PendingActionService
 from echo_masque.persistence import (
     AuthoringRepository,
     AuthRepository,
@@ -181,20 +183,25 @@ from echo_masque.persistence.knowledge_fabric_visual_reference_repository import
     KnowledgeFabricVisualReferenceRepository,
 )
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
+from echo_masque.persistence.turn_job_repository import TurnJobRepository
 from echo_masque.planner_media import PlannerMediaDescriptorService
 from echo_masque.prompt_inspector import CharacterPromptInspector
 from echo_masque.provider_credentials import KeyGroupProviderCredentialResolver
+from echo_masque.providers import OpenAICompatibleProvider
 from echo_masque.providers.trace import configure_provider_trace_sink
 from echo_masque.public_demo import PublicDemoService
 from echo_masque.public_demo_middleware import PublicDemoReadOnlyMiddleware
 from echo_masque.public_demo_quota import PublicDemoQuotaService
 from echo_masque.recall_media_connector_runtime import RecallAwareMediaDiscordConnectorRuntime
+from echo_masque.runtime_maintenance import RuntimeMaintenance
+from echo_masque.runtime_trace_buffer import BufferedRuntimeTraceSink
 from echo_masque.scheduled_reminder_service import ScheduledReminderDeliveryService
 from echo_masque.semantic_participation import CharacterParticipationSemanticService
 from echo_masque.services import MatrixService, RuntimeService, TrialService
 from echo_masque.smart_participation_generation import SmartParticipationGenerationService
 from echo_masque.social_intelligence_v3 import SocialIntelligenceV3Service
 from echo_masque.template_sharing import EvaluationTemplateService
+from echo_masque.turn_jobs import TurnJobManager
 from echo_masque.utility_gateway_live import ExistingProviderUtilityCaller
 from echo_masque.utility_gateway_router import UtilityGatewayRouter
 from echo_masque.utility_media_provider import UtilityMediaUnderstandingProvider
@@ -236,6 +243,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     scheduled_reminder_repository = ScheduledReminderRepository(database)
     condition_watch_repository = ConditionWatchRepository(database)
     durable_runtime_repository = DurableRuntimeRepository(database)
+    buffered_runtime_trace = BufferedRuntimeTraceSink(durable_runtime_repository)
+    runtime_maintenance = RuntimeMaintenance(durable_runtime_repository)
     browser_runtime = BrowserCapabilityManager(
         BrowserRuntimeSettings(
             enabled=resolved.browser_tools_enabled,
@@ -389,12 +398,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     media_analysis_repository = MediaAnalysisRepository(database)
     conversation_media_repository = ConversationMediaReferenceRepository(database)
     generated_media_repository = GeneratedMediaArtifactRepository(database)
+    turn_job_repository = TurnJobRepository(
+        database, retention_hours=resolved.turn_job_retention_hours
+    )
     media_credential_resolver = KeyGroupProviderCredentialResolver(
         key_group_repository,
         credential_store,
     )
     conversation_media_service = ConversationMediaReferenceService(conversation_media_repository)
     image_creation_service = ImageCreationRuntimeService(
+        settings=resolved,
         credential_resolver=media_credential_resolver,
         conversation_media_repository=conversation_media_repository,
         artifact_repository=generated_media_repository,
@@ -415,8 +428,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         side_effect_store=durable_runtime_repository,
         image_creation_service=image_creation_service,
         internal_context_service=internal_context_service,
+        mcp_providers=resolved.mcp_providers,
+        deployment_repository=deployment_repository,
+        deployment_tool_repository=deployment_tool_repository,
     )
     live_media_service = KeyGroupScopedLiveMediaContextService(
+        settings=resolved,
         media_repository=media_analysis_repository,
         credential_resolver=media_credential_resolver,
         discord_bot_token=resolved.discord_tool_bot_token,
@@ -443,6 +460,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         deployment_tool_repository,
         credential_store,
         tool_registry,
+        provider_factory=lambda base_url, api_key: OpenAICompatibleProvider(
+            base_url=base_url, api_key=api_key, settings=resolved
+        ),
     )
     condition_watch_notifier = ConditionWatchReminderNotifier(
         scheduled_reminder_repository,
@@ -453,7 +473,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             condition_watch_repository,
             evaluator=condition_watch_evaluator,
             notifier=condition_watch_notifier,
-            trace_sink=durable_runtime_repository,
+            trace_sink=buffered_runtime_trace,
         )
         if resolved.langgraph_allows("condition_watch")
         else None
@@ -485,6 +505,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         conversation_runtime_repository,
         graph=EvidenceGraphService(entity_evidence_repository),
     )
+    conversation_runtime_maintenance = ConversationRuntimeMaintenanceService(
+        conversation_runtime_coordinator, conversation_runtime_repository
+    )
+    pending_action_service = PendingActionService(conversation_runtime_repository)
     context_resolver_v3 = ContextResolverV3(
         structure=conversation_structure_repository,
         runtime=conversation_runtime_repository,
@@ -513,10 +537,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repository,
         deployment_repository,
         credential_store,
+        provider_factory=lambda base_url, api_key: OpenAICompatibleProvider(
+            base_url=base_url, api_key=api_key, settings=resolved
+        ),
         context_service_v3=character_turn_context_v3_service,
         deployment_tool_repository=deployment_tool_repository,
         tool_registry=tool_registry,
         turn_director_gateway=planner_utility_gateway,
+        pending_action_service=pending_action_service,
         live_media_service=live_media_service,
         conversation_media_service=conversation_media_service,
         visual_identity_resolver=KnowledgeFabricVisualIdentityResolver(
@@ -528,7 +556,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     character_turn_graph_runner = (
         CharacterTurnGraphRunner(
             discord_connector_runtime,
-            trace_sink=durable_runtime_repository,
+            trace_sink=buffered_runtime_trace,
         )
         if resolved.langgraph_allows("character_turn")
         else None
@@ -536,7 +564,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     social_turn_graph_runner = (
         SocialTurnGraphRunner(
             character_turn_graph_runner,
-            trace_sink=durable_runtime_repository,
+            trace_sink=buffered_runtime_trace,
         )
         if (character_turn_graph_runner is not None and resolved.langgraph_allows("social_turn"))
         else None
@@ -576,21 +604,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         condition_watch_repository,
         conversation_media_repository,
         generated_media_repository,
+        turn_job_repository=turn_job_repository,
     )
-    recovered_matrices = matrix_repository.recover_interrupted()
-    if recovered_matrices:
-        logger.warning(
-            "Recovered %s interrupted Experiment Matrices as paused.",
-            recovered_matrices,
-        )
-    recovered_knowledge_ingestion_jobs = (
-        knowledge_fabric_ingestion_service.recover_interrupted_jobs()
-    )
-    if recovered_knowledge_ingestion_jobs:
-        logger.warning(
-            "Requeued %s interrupted Knowledge Fabric ingestion jobs.",
-            recovered_knowledge_ingestion_jobs,
-        )
     repository.seed_demo_targets()
     repository.remove_demo_character_cards()
     planner_media_service = PlannerMediaDescriptorService(
@@ -639,20 +654,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        async with limit_request_threads(resolved.api_thread_pool_limit):
+        async with (
+            limit_request_threads(resolved.api_thread_pool_limit),
+            AsyncExitStack() as cleanup,
+        ):
+            cleanup.push_async_callback(buffered_runtime_trace.stop)
+            await buffered_runtime_trace.start()
+            cleanup.push_async_callback(runtime_maintenance.stop)
+            await runtime_maintenance.start()
+            cleanup.push_async_callback(conversation_runtime_maintenance.stop)
+            await conversation_runtime_maintenance.start()
+            cleanup.push_async_callback(browser_runtime.stop)
             await browser_runtime.start()
+            cleanup.push_async_callback(character_turn_context_v3_service.shutdown)
+            cleanup.push_async_callback(scheduled_reminder_delivery.stop)
             await scheduled_reminder_delivery.start()
+            cleanup.push_async_callback(condition_watch_service.stop)
             await condition_watch_service.start()
+            cleanup.push_async_callback(turn_job_manager.stop)
+            await turn_job_manager.start()
             if resolved.knowledge_fabric_api_background_workers_enabled:
+                cleanup.push_async_callback(knowledge_fabric_background_runtime.stop)
                 await knowledge_fabric_background_runtime.start()
-            try:
-                yield
-            finally:
-                if resolved.knowledge_fabric_api_background_workers_enabled:
-                    await knowledge_fabric_background_runtime.stop()
-                await condition_watch_service.stop()
-                await scheduled_reminder_delivery.stop()
-                await browser_runtime.stop()
+            yield
 
     app = FastAPI(
         title=resolved.app_name,
@@ -672,9 +696,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.add_middleware(SensitiveAuditMiddleware, repository=auth_repository)
     app.add_middleware(PublicDemoReadOnlyMiddleware)
+
+    async def run_turn_job(kind: str, raw_request: str) -> str:
+        """Re-enter existing Runtime routes so scope and durable effects are revalidated."""
+        from echo_masque.api.connector_schemas import DiscordInboundMessage
+        from echo_masque.api.routes.connectors import (
+            _validated_character_turn_deployment,
+            process_discord_message,
+            process_social_turn_step,
+        )
+        from echo_masque.api.social_turn_schemas import DiscordSocialTurnStepRequest
+
+        synthetic_request = Request({"type": "http", "app": app, "headers": []})
+        connector_secret = resolved.connector_shared_secret
+        if connector_secret is None:
+            raise RuntimeError("connector_shared_secret_unavailable")
+        authorization = f"Bearer {connector_secret.get_secret_value()}"
+        if kind == "message":
+            message_payload = DiscordInboundMessage.model_validate_json(raw_request)
+            if _validated_character_turn_deployment(synthetic_request, message_payload) is None:
+                raise ValueError("discord_scope_inactive")
+            reply = await process_discord_message(message_payload, synthetic_request, authorization)
+            return reply.model_dump_json()
+        else:
+            social_payload = DiscordSocialTurnStepRequest.model_validate_json(raw_request)
+            if (
+                _validated_character_turn_deployment(synthetic_request, social_payload.payload)
+                is None
+            ):
+                raise ValueError("discord_scope_inactive")
+            social_step = await process_social_turn_step(
+                social_payload, synthetic_request, authorization
+            )
+            return social_step.model_dump_json()
+
+    turn_job_manager = TurnJobManager(
+        turn_job_repository,
+        run_turn_job,
+        max_queue=resolved.turn_job_max_queue,
+        max_concurrency=resolved.turn_job_max_concurrency,
+        deadline_seconds=resolved.turn_job_deadline_seconds,
+    )
     app.state.settings = resolved
     app.state.storage_status = storage_status
     app.state.database = database
+    app.state.turn_job_repository = turn_job_repository
+    app.state.turn_job_manager = turn_job_manager
     app.state.auth_repository = auth_repository
     app.state.auth_service = auth_service
     app.state.repository = repository
@@ -727,6 +794,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.utility_gateway_router_v3 = planner_utility_gateway
     app.state.provider_trace_repository = provider_trace_repository
     app.state.durable_runtime_repository = durable_runtime_repository
+    app.state.buffered_runtime_trace = buffered_runtime_trace
+    app.state.runtime_maintenance = runtime_maintenance
+    app.state.conversation_runtime_maintenance = conversation_runtime_maintenance
     app.state.key_group_repository = key_group_repository
     app.state.media_analysis_repository = media_analysis_repository
     app.state.conversation_media_repository = conversation_media_repository
@@ -736,6 +806,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.belief_repository = belief_repository
     app.state.conversation_structure_repository = conversation_structure_repository
     app.state.conversation_runtime_repository = conversation_runtime_repository
+    app.state.pending_action_service = pending_action_service
     app.state.internal_context_service = internal_context_service
     app.state.planner_media_service = planner_media_service
     app.state.discord_connector_runtime = discord_connector_runtime

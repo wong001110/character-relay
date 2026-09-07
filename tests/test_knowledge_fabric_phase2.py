@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from os import environ
 from pathlib import Path
 
@@ -800,10 +800,12 @@ def test_global_operational_source_view_exposes_expiring_redacted_sync_reports(
     )
     assert source.status_code == 201, source.text
     source_id = source.json()["id"]
+    completed_at = datetime.now(UTC).replace(microsecond=0)
+    started_at = completed_at - timedelta(seconds=9)
     app.state.knowledge_fabric_external_sync_run_repository.record_completed(
         source_id=source_id,
-        started_at=datetime(2026, 8, 28, tzinfo=UTC),
-        completed_at=datetime(2026, 8, 28, 0, 0, 9, tzinfo=UTC),
+        started_at=started_at,
+        completed_at=completed_at,
         result=WebsiteSyncResult(
             outcome="changed",
             discovered_page_count=2,
@@ -825,8 +827,8 @@ def test_global_operational_source_view_exposes_expiring_redacted_sync_reports(
         "source_id": source_id,
         "outcome": "changed",
         "error_code": None,
-        "started_at": "2026-08-28T00:00:00Z",
-        "completed_at": "2026-08-28T00:00:09Z",
+        "started_at": started_at.isoformat().replace("+00:00", "Z"),
+        "completed_at": completed_at.isoformat().replace("+00:00", "Z"),
         "discovered_page_count": 2,
         "changed_page_count": 1,
         "unchanged_page_count": 1,

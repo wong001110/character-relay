@@ -20,10 +20,18 @@ import type {
   DiscordSocialTurnStepRequest,
   DiscordStickerContent,
   DiscordStickerObservation,
+  DiscordTurnJobDescriptor,
+  DiscordTurnJobView,
   DiscordWebhookRegistration,
   DiscordWebhookRegistrationResult,
   DiscordWebhookStatusReport
 } from "./types.js";
+import {
+  consumeTurnJob,
+  TurnJobTerminalError,
+  type TurnJobConsumeOptions,
+  type TurnJobTransport
+} from "./turnJobs.js";
 import type { DiscordPortalParticipationProfile } from "./smartParticipation.js";
 import type {
   DiscordDeliveryAckRequest,
@@ -227,6 +235,12 @@ const RETRY_DELAYS_MS = [0, 1_000, 2_000, 4_000, 8_000, 15_000];
 const TRANSIENT_STATUS_CODES = new Set([502, 503, 504]);
 const DISCORD_API_BASE = "https://discord.com/api/v10";
 const ATTACHMENT_CACHE_MS = 5 * 60 * 1_000;
+const TURN_JOB_REQUEST_TIMEOUT_MS = 8_000;
+
+export interface TurnJobProgressOptions {
+  onProgress?: (text: string) => Promise<void>;
+  onProgressDeliveryError?: (error: unknown) => void;
+}
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -422,11 +436,14 @@ export class RelayClient {
   private readonly attachmentCache = new Map<string, AttachmentCacheEntry>();
   private readonly attachmentTasks = new Map<string, Promise<DiscordMessageMedia>>();
   private readonly deploymentCache = new Map<string, DiscordDeployment>();
+  private readonly turnJobAbortController = new AbortController();
+  private recoverableTurnJobCursor: string | null = null;
 
   constructor(
     private readonly baseUrl: string,
     private readonly token: string,
-    private readonly connectionId: string
+    private readonly connectionId: string,
+    private readonly turnJobTimeoutMs = 330_000
   ) {}
 
   async listDeployments(): Promise<DiscordDeployment[]> {
@@ -817,29 +834,211 @@ export class RelayClient {
   async processSocialTurnStep(
     request: Omit<DiscordSocialTurnStepRequest, "payload"> & {
       payload: Omit<DiscordInboundMessage, "connection_id">;
-    }
+    },
+    options?: TurnJobProgressOptions
   ): Promise<DiscordSocialTurnStepReply> {
     const payload = await this.withDiscordMedia(request.payload);
+    const body = {
+      ...request,
+      payload: { connection_id: this.connectionId, ...payload }
+    };
+    if (options?.onProgress) {
+      const view = await this.submitAndConsumeTurnJob(
+        "/api/connectors/discord/social-turns/jobs",
+        body,
+        {
+          onProgress: options.onProgress,
+          ...(options.onProgressDeliveryError
+            ? { onProgressDeliveryError: options.onProgressDeliveryError }
+            : {})
+        }
+      );
+      if (!view.social_step) {
+        throw new TurnJobTerminalError("failed", "missing_social_step", view.job_id);
+      }
+      return view.social_step;
+    }
     return this.request<DiscordSocialTurnStepReply>(
       "/api/connectors/discord/social-turns/step",
       {
         method: "POST",
-        body: JSON.stringify({
-          ...request,
-          payload: { connection_id: this.connectionId, ...payload }
-        })
+        body: JSON.stringify(body)
       }
     );
   }
 
+  stopTurnJobs(): void {
+    this.turnJobAbortController.abort();
+  }
+
+  async listRecoverableTurnJobs(limit = 50): Promise<DiscordTurnJobDescriptor[]> {
+    const boundedLimit = Number.isFinite(limit)
+      ? Math.max(1, Math.min(50, Math.floor(limit)))
+      : 50;
+    const query = new URLSearchParams({
+      connection_id: this.connectionId,
+      limit: String(boundedLimit)
+    });
+    if (this.recoverableTurnJobCursor) {
+      query.set("after_job_id", this.recoverableTurnJobCursor);
+    }
+    const result = await this.request<{
+      items: DiscordTurnJobDescriptor[];
+      next_cursor?: string | null;
+    }>(
+      `/api/connectors/discord/turn-jobs?${query.toString()}`
+    );
+    this.recoverableTurnJobCursor = result.next_cursor ?? null;
+    return result.items;
+  }
+
+  async consumeTerminalTurnJob(jobId: string): Promise<void> {
+    const query = new URLSearchParams({ connection_id: this.connectionId });
+    await this.request<void>(
+      `/api/connectors/discord/turn-jobs/${encodeURIComponent(jobId)}/consume?${query.toString()}`,
+      { method: "POST" },
+      false,
+      TURN_JOB_REQUEST_TIMEOUT_MS
+    );
+  }
+
+  async cancelTurnJobs(input: {
+    deployment_id: string;
+    guild_id: string;
+    channel_id: string;
+    thread_id: string;
+    category_id: string;
+    source_message_id: string;
+    source_author_id: string;
+    reason: "user_cancelled" | "user_replaced";
+  }): Promise<string[]> {
+    const query = new URLSearchParams({ connection_id: this.connectionId });
+    return this.request<string[]>(
+      `/api/connectors/discord/turn-jobs/cancel?${query.toString()}`,
+      { method: "POST", body: JSON.stringify(input) },
+      false,
+      TURN_JOB_REQUEST_TIMEOUT_MS
+    );
+  }
+
+  async resumeMessageTurnJob(
+    jobId: string,
+    options: Required<Pick<TurnJobProgressOptions, "onProgress">> & TurnJobProgressOptions
+  ): Promise<DiscordReply> {
+    const signal = this.turnJobAbortController.signal;
+    const view = await this.getTurnJob(jobId, signal);
+    const completed = await this.consumeExistingTurnJob(view, options, signal);
+    if (!completed.reply) {
+      throw new TurnJobTerminalError("failed", "missing_reply", completed.job_id);
+    }
+    return completed.reply;
+  }
+
   async processMessage(
-    payload: Omit<DiscordInboundMessage, "connection_id">
+    payload: Omit<DiscordInboundMessage, "connection_id">,
+    options?: TurnJobProgressOptions
   ): Promise<DiscordReply> {
     const enriched = await this.withDiscordMedia(payload);
+    const body = { connection_id: this.connectionId, ...enriched };
+    if (options?.onProgress) {
+      const view = await this.submitAndConsumeTurnJob(
+        "/api/connectors/discord/messages/jobs",
+        body,
+        {
+          onProgress: options.onProgress,
+          ...(options.onProgressDeliveryError
+            ? { onProgressDeliveryError: options.onProgressDeliveryError }
+            : {})
+        }
+      );
+      if (!view.reply) {
+        throw new TurnJobTerminalError("failed", "missing_reply", view.job_id);
+      }
+      return view.reply;
+    }
     return this.request<DiscordReply>("/api/connectors/discord/messages", {
       method: "POST",
-      body: JSON.stringify({ connection_id: this.connectionId, ...enriched })
+      body: JSON.stringify(body)
     });
+  }
+
+  private async submitAndConsumeTurnJob(
+    path: string,
+    body: Record<string, unknown>,
+    options: Required<Pick<TurnJobProgressOptions, "onProgress">> & TurnJobProgressOptions
+  ): Promise<DiscordTurnJobView> {
+    const signal = this.turnJobAbortController.signal;
+    const initial = await this.request<DiscordTurnJobView>(
+      path,
+      { method: "POST", body: JSON.stringify(body), signal },
+      false,
+      TURN_JOB_REQUEST_TIMEOUT_MS
+    );
+    return this.consumeExistingTurnJob(initial, options, signal);
+  }
+
+  private async consumeExistingTurnJob(
+    initial: DiscordTurnJobView,
+    options: Required<Pick<TurnJobProgressOptions, "onProgress">> & TurnJobProgressOptions,
+    signal: AbortSignal
+  ): Promise<DiscordTurnJobView> {
+    const transport: TurnJobTransport = {
+      poll: (jobId) => this.getTurnJob(jobId, signal),
+      claimProgress: (jobId, nonce) => this.claimTurnJobProgress(jobId, nonce, signal),
+      acknowledgeProgress: (jobId, progressId, nonce) =>
+        this.acknowledgeTurnJobProgress(jobId, progressId, nonce, signal)
+    };
+    const consumeOptions: TurnJobConsumeOptions = {
+      onProgress: options.onProgress,
+      timeoutMs: this.turnJobTimeoutMs,
+      signal,
+      ...(options.onProgressDeliveryError
+        ? { onProgressDeliveryError: options.onProgressDeliveryError }
+        : {})
+    };
+    return consumeTurnJob(initial, transport, consumeOptions);
+  }
+
+  private async getTurnJob(jobId: string, signal: AbortSignal): Promise<DiscordTurnJobView> {
+    const query = new URLSearchParams({ connection_id: this.connectionId });
+    return this.request<DiscordTurnJobView>(
+      `/api/connectors/discord/turn-jobs/${encodeURIComponent(jobId)}?${query.toString()}`,
+      { signal },
+      true,
+      TURN_JOB_REQUEST_TIMEOUT_MS
+    );
+  }
+
+  private async claimTurnJobProgress(
+    jobId: string,
+    nonce: string,
+    signal: AbortSignal
+  ): Promise<{ id: number; nonce: string; text: string } | null> {
+    const query = new URLSearchParams({ connection_id: this.connectionId });
+    const result = await this.request<{
+      event: { id: number; nonce: string; text: string } | null;
+    }>(
+      `/api/connectors/discord/turn-jobs/${encodeURIComponent(jobId)}/progress/claim?${query.toString()}`,
+      { method: "POST", body: JSON.stringify({ nonce }), signal },
+      false,
+      TURN_JOB_REQUEST_TIMEOUT_MS
+    );
+    return result.event;
+  }
+
+  private async acknowledgeTurnJobProgress(
+    jobId: string,
+    progressId: number,
+    nonce: string,
+    signal: AbortSignal
+  ): Promise<void> {
+    const query = new URLSearchParams({ connection_id: this.connectionId });
+    await this.request<void>(
+      `/api/connectors/discord/turn-jobs/${encodeURIComponent(jobId)}/progress/${progressId}/ack?${query.toString()}`,
+      { method: "POST", body: JSON.stringify({ nonce }), signal },
+      false,
+      TURN_JOB_REQUEST_TIMEOUT_MS
+    );
   }
 
   private async withDiscordMedia<T extends Omit<DiscordInboundMessage, "connection_id">>(
@@ -994,7 +1193,8 @@ export class RelayClient {
   private async request<T>(
     path: string,
     init?: RequestInit,
-    retryable = init?.method === "GET"
+    retryable = init?.method === "GET",
+    timeoutMs = 45_000
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     let response: Response | undefined;
@@ -1006,9 +1206,16 @@ export class RelayClient {
       if (wait) await delay(wait);
 
       try {
+        if (init?.signal?.aborted) {
+          throw new Error("Character Relay request was canceled during connector shutdown.");
+        }
+        const timeoutSignal = AbortSignal.timeout(timeoutMs);
+        const signal = init?.signal
+          ? AbortSignal.any([init.signal, timeoutSignal])
+          : timeoutSignal;
         response = await fetch(url, {
           ...init,
-          signal: AbortSignal.timeout(45_000),
+          signal,
           headers: {
             Authorization: `Bearer ${this.token}`,
             "Content-Type": "application/json",
@@ -1017,6 +1224,12 @@ export class RelayClient {
         });
       } catch (error) {
         lastNetworkError = error;
+        if (init?.signal?.aborted) {
+          throw new Error(
+            `Character Relay request was canceled at ${url}.`,
+            { cause: error }
+          );
+        }
         if (attempt < attempts - 1) continue;
         throw new Error(
           `Unable to reach Character Relay at ${url}: ${errorDetail(error)}`,

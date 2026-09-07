@@ -14,6 +14,36 @@ afterEach(() => {
 });
 
 describe("Knowledge Fabric Portal API", () => {
+  it("bootstraps an exact Discord server scope through the Super Admin endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      response({
+        id: "scope-1",
+        platform: "discord",
+        connection_id: "connection-uuid",
+        workspace_id: "guild-123"
+      }, 201)
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await knowledgeFabricApi.bootstrapServerScope({
+      platform: "discord",
+      connection_id: "connection-uuid",
+      workspace_id: "guild-123"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/knowledge-fabric/admin/server-scopes",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          platform: "discord",
+          connection_id: "connection-uuid",
+          workspace_id: "guild-123"
+        })
+      })
+    );
+  });
+
   it("keeps the selected server identity opaque and URL-encoded", async () => {
     const fetchMock = vi
       .fn()

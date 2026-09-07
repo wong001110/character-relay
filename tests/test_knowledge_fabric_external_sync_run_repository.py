@@ -30,7 +30,7 @@ def test_sync_run_reports_are_redacted_source_scoped_and_expire(tmp_path: Path) 
         authority_profile="official",
     )
     reports = KnowledgeFabricExternalSyncRunRepository(database, retention_days=1)
-    started = datetime(2026, 8, 28, tzinfo=UTC)
+    started = datetime.now(UTC).replace(microsecond=0)
     stored = reports.record_completed(
         source_id=source.id,
         started_at=started,
@@ -52,7 +52,9 @@ def test_sync_run_reports_are_redacted_source_scoped_and_expire(tmp_path: Path) 
     with database.session() as session:
         record = session.get(KnowledgeExternalSourceSyncRunRecord, stored.id)
         assert record is not None
-        assert record.expires_at == datetime(2026, 8, 29, 0, 0, 12)
+        assert record.expires_at == (
+            started + timedelta(days=1, seconds=12)
+        ).replace(tzinfo=None)
         assert session.get(
             DatabaseSchemaMigrationRecord, KNOWLEDGE_FABRIC_EXTERNAL_SYNC_RUN_REVISION
         ) is not None

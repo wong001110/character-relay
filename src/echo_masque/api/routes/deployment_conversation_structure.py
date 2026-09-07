@@ -1,17 +1,21 @@
 """Owner-facing observability for Intelligence Core v3 conversation and knowledge state."""
 
 import json
+from typing import Literal, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, or_, select
 
 from echo_masque.api.dependencies import CurrentUserDependency
+from echo_masque.belief_revision_v3 import BeliefRevisionService
+from echo_masque.knowledge_gap_discovery_v3 import KnowledgeGapEvidenceAcceptance
 from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.belief_models import (
     BeliefEvidenceDependencyRecord,
     BeliefV3Record,
 )
+from echo_masque.persistence.belief_repository import BeliefRepository, BeliefV3View
 from echo_masque.persistence.conversation_runtime_repository import (
     ConversationRuntimeRepository,
 )
@@ -19,7 +23,11 @@ from echo_masque.persistence.conversation_structure_repository import (
     ConversationStructureRepository,
 )
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
-from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository
+from echo_masque.persistence.entity_evidence_repository import (
+    EntityEvidenceRepository,
+    KnowledgeGapCandidateView,
+    KnowledgeGapView,
+)
 from echo_masque.persistence.social_intelligence_models import (
     ImpressionV3Record,
     SocialEventV3Record,
@@ -116,6 +124,45 @@ class EntityObservation(BaseModel):
     source_refs: list[str] = Field(default_factory=list)
 
 
+class KnowledgeGapCandidateObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    gap_id: str
+    discovery_item_id: str
+    source: str
+    canonical_key: str
+    content_kind: str
+    title: str
+    creator: str
+    url: str
+    score: float
+    rank_reason: str
+    status: str
+    validation_method: str
+    validated_evidence_ref: str
+    reviewed_by: str
+    reviewed_at: str | None
+    expires_at: str
+
+
+class KnowledgeGapCandidateListView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[KnowledgeGapCandidateObservation] = Field(default_factory=list)
+
+
+class KnowledgeGapCandidateReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["accept", "reject"]
+    validated_evidence_ref: str = Field(default="", min_length=0, max_length=320)
+    resolved_fields: list[str] = Field(default_factory=list, max_length=32)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    canonical_entity: bool = False
+    entity_metadata: dict[str, str] = Field(default_factory=dict)
+
+
 class KnowledgeGapObservation(BaseModel):
     id: str
     entity_id: str
@@ -125,6 +172,13 @@ class KnowledgeGapObservation(BaseModel):
     discovery_requested: bool
     possible_sources: list[str] = Field(default_factory=list)
     resolution_evidence_refs: list[str] = Field(default_factory=list)
+
+
+class KnowledgeGapCandidateReviewView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    gap: KnowledgeGapObservation
+    candidate: KnowledgeGapCandidateObservation
 
 
 class BeliefObservation(BaseModel):
@@ -143,6 +197,113 @@ class BeliefObservation(BaseModel):
     dependency_edge_ids: list[str] = Field(default_factory=list)
     supersedes_belief_id: str
     updated_at: str
+
+
+class ManagedBeliefView(BaseModel):
+    """One scoped Belief plus the fields needed for an owner review decision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    character_card_id: str
+    subject_entity_id: str
+    subject_ref: str
+    predicate: str
+    value_text: str
+    scope: str
+    authority_class: str
+    authority_score: float
+    origin: str
+    confidence: float
+    importance: float
+    status: str
+    authored: bool
+    evidence_refs: list[str] = Field(default_factory=list)
+    supersedes_belief_id: str
+    valid_from: str | None = None
+    valid_to: str | None = None
+    stale_after: str | None = None
+    updated_at: str
+
+    @classmethod
+    def from_belief(cls, belief: BeliefV3View) -> "ManagedBeliefView":
+        return cls(
+            id=belief.id,
+            character_card_id=belief.character_card_id,
+            subject_entity_id=belief.subject_entity_id,
+            subject_ref=belief.subject_ref,
+            predicate=belief.predicate,
+            value_text=belief.value_text,
+            scope=belief.scope,
+            authority_class=belief.authority_class,
+            authority_score=belief.authority_score,
+            origin=belief.origin,
+            confidence=belief.confidence,
+            importance=belief.importance,
+            status=belief.status,
+            authored=belief.authored,
+            evidence_refs=list(belief.evidence_refs),
+            supersedes_belief_id=belief.supersedes_belief_id,
+            valid_from=belief.valid_from.isoformat() if belief.valid_from is not None else None,
+            valid_to=belief.valid_to.isoformat() if belief.valid_to is not None else None,
+            stale_after=belief.stale_after.isoformat() if belief.stale_after is not None else None,
+            updated_at=belief.updated_at.isoformat(),
+        )
+
+
+class BeliefCorrectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value_text: str = Field(min_length=1, max_length=8000)
+    domain: Literal["personal", "canonical", "general"] = "general"
+    reason: str = Field(min_length=1, max_length=500)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+
+
+class BeliefReviewMutationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class BeliefMutationView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: str
+    belief: ManagedBeliefView
+    previous_belief_ids: list[str] = Field(default_factory=list)
+
+
+def _owned_deployment(
+    *, deployment_id: str, request: Request, owner_id: str
+) -> CharacterDeploymentRecord:
+    database = request.app.state.deployment_repository.database
+    with database.session() as session:
+        deployment = session.get(CharacterDeploymentRecord, deployment_id)
+    if deployment is None or deployment.owner_id != owner_id:
+        raise HTTPException(status_code=404, detail="Deployment not found.")
+    return cast(CharacterDeploymentRecord, deployment)
+
+
+def _scoped_belief(
+    *,
+    deployment: CharacterDeploymentRecord,
+    belief_id: str,
+    request: Request,
+    owner_id: str,
+) -> tuple[BeliefRepository, BeliefV3View]:
+    repository = BeliefRepository(request.app.state.deployment_repository.database)
+    belief = repository.get_for_deployment_scope(
+        owner_id=owner_id,
+        belief_id=belief_id,
+        character_card_id=deployment.character_card_id,
+        connection_id=deployment.connection_id,
+        guild_id=deployment.workspace_id,
+    )
+    if belief is None:
+        # The same response deliberately covers a foreign owner, Character, or server scope.
+        raise HTTPException(status_code=404, detail="Belief not found.")
+    return repository, belief
 
 
 class SocialEventObservation(BaseModel):
@@ -208,6 +369,321 @@ class DeploymentConversationStructureView(BaseModel):
     impressions: list[ImpressionObservation] = Field(default_factory=list)
     pagination: ConversationStructurePaginationView = Field(
         default_factory=ConversationStructurePaginationView
+    )
+
+
+@router.get(
+    "/deployments/{deployment_id}/beliefs/{belief_id}",
+    response_model=ManagedBeliefView,
+)
+def review_deployment_belief(
+    deployment_id: str,
+    belief_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+) -> ManagedBeliefView:
+    """Review one owner-owned Belief without widening deployment scope."""
+
+    deployment = _owned_deployment(deployment_id=deployment_id, request=request, owner_id=user.id)
+    _repository, belief = _scoped_belief(
+        deployment=deployment, belief_id=belief_id, request=request, owner_id=user.id
+    )
+    return ManagedBeliefView.from_belief(belief)
+
+
+@router.post(
+    "/deployments/{deployment_id}/beliefs/{belief_id}/correct",
+    response_model=BeliefMutationView,
+)
+def correct_deployment_belief(
+    deployment_id: str,
+    belief_id: str,
+    payload: BeliefCorrectionRequest,
+    request: Request,
+    user: CurrentUserDependency,
+) -> BeliefMutationView:
+    """Record an owner correction through the normal revisable-Belief authority policy."""
+
+    deployment = _owned_deployment(deployment_id=deployment_id, request=request, owner_id=user.id)
+    repository, belief = _scoped_belief(
+        deployment=deployment, belief_id=belief_id, request=request, owner_id=user.id
+    )
+    if belief.status not in {"active", "provisional", "disputed"}:
+        raise HTTPException(status_code=409, detail="Only current Beliefs can be corrected.")
+    result = BeliefRevisionService(repository).apply_claim(
+        owner_id=user.id,
+        character_card_id=deployment.character_card_id,
+        connection_id=deployment.connection_id,
+        guild_id=deployment.workspace_id,
+        subject_entity_id=belief.subject_entity_id,
+        subject_ref=belief.subject_ref,
+        predicate=belief.predicate,
+        value_text=payload.value_text,
+        domain=payload.domain,
+        source="user_correction",
+        # A management correction is recorded as a revision event.  Do not manufacture a raw
+        # evidence reference or claim that the old evidence supports the corrected value.
+        evidence_refs=(),
+        explicit_correction=True,
+        candidate_belief_ids=(belief.id,),
+        claim_confidence=payload.confidence,
+        importance=belief.importance,
+        scope=belief.scope,
+    )
+    if result.belief is None:
+        raise HTTPException(status_code=409, detail="Belief correction could not be applied.")
+    repository.record_revision_event(
+        owner_id=user.id,
+        belief_id=result.belief.id,
+        previous_belief_id=belief.id,
+        subject_ref=belief.subject_ref or belief.subject_entity_id,
+        predicate=belief.predicate,
+        action="owner_correct",
+        reason=payload.reason,
+    )
+    return BeliefMutationView(
+        action=result.action,
+        belief=ManagedBeliefView.from_belief(result.belief),
+        previous_belief_ids=list(result.previous_belief_ids),
+    )
+
+
+def _reject_or_forget_deployment_belief(
+    *,
+    action: Literal["reject", "forget"],
+    deployment_id: str,
+    belief_id: str,
+    payload: BeliefReviewMutationRequest,
+    request: Request,
+    user: CurrentUserDependency,
+) -> BeliefMutationView:
+    deployment = _owned_deployment(deployment_id=deployment_id, request=request, owner_id=user.id)
+    repository, belief = _scoped_belief(
+        deployment=deployment, belief_id=belief_id, request=request, owner_id=user.id
+    )
+    already_rejected = belief.status == "rejected"
+    try:
+        updated = repository.reject_for_deployment_scope(
+            owner_id=user.id,
+            belief_id=belief.id,
+            character_card_id=deployment.character_card_id,
+            connection_id=deployment.connection_id,
+            guild_id=deployment.workspace_id,
+            # Explicit owner forgetting is permitted for authored memories, but remains a
+            # non-destructive status transition.  Ordinary rejection still preserves authored
+            # Beliefs against automatic/evidence-derived invalidation.
+            allow_authored=action == "forget",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not already_rejected:
+        repository.record_revision_event(
+            owner_id=user.id,
+            belief_id=updated.id,
+            previous_belief_id="",
+            subject_ref=updated.subject_ref or updated.subject_entity_id,
+            predicate=updated.predicate,
+            action=f"owner_{action}",
+            reason=payload.reason,
+        )
+    return BeliefMutationView(
+        action=action,
+        belief=ManagedBeliefView.from_belief(updated),
+        previous_belief_ids=[],
+    )
+
+
+@router.post(
+    "/deployments/{deployment_id}/beliefs/{belief_id}/reject",
+    response_model=BeliefMutationView,
+)
+def reject_deployment_belief(
+    deployment_id: str,
+    belief_id: str,
+    payload: BeliefReviewMutationRequest,
+    request: Request,
+    user: CurrentUserDependency,
+) -> BeliefMutationView:
+    return _reject_or_forget_deployment_belief(
+        action="reject",
+        deployment_id=deployment_id,
+        belief_id=belief_id,
+        payload=payload,
+        request=request,
+        user=user,
+    )
+
+
+@router.post(
+    "/deployments/{deployment_id}/beliefs/{belief_id}/forget",
+    response_model=BeliefMutationView,
+)
+def forget_deployment_belief(
+    deployment_id: str,
+    belief_id: str,
+    payload: BeliefReviewMutationRequest,
+    request: Request,
+    user: CurrentUserDependency,
+) -> BeliefMutationView:
+    return _reject_or_forget_deployment_belief(
+        action="forget",
+        deployment_id=deployment_id,
+        belief_id=belief_id,
+        payload=payload,
+        request=request,
+        user=user,
+    )
+
+
+def _candidate_observation(item: KnowledgeGapCandidateView) -> KnowledgeGapCandidateObservation:
+    return KnowledgeGapCandidateObservation(
+        id=item.id,
+        gap_id=item.gap_id,
+        discovery_item_id=item.discovery_item_id,
+        source=item.source,
+        canonical_key=item.canonical_key,
+        content_kind=item.content_kind,
+        title=item.title,
+        creator=item.creator,
+        url=item.url,
+        score=item.score,
+        rank_reason=item.rank_reason,
+        status=item.status,
+        validation_method=item.validation_method,
+        validated_evidence_ref=item.validated_evidence_ref,
+        reviewed_by=item.reviewed_by,
+        reviewed_at=item.reviewed_at.isoformat() if item.reviewed_at is not None else None,
+        expires_at=item.expires_at.isoformat(),
+    )
+
+
+def _gap_observation(item: KnowledgeGapView) -> KnowledgeGapObservation:
+    return KnowledgeGapObservation(
+        id=str(item.id),
+        entity_id=str(item.entity_id),
+        missing_fields=list(item.missing_fields),
+        importance=float(item.importance),
+        resolution_state=str(item.resolution_state),
+        discovery_requested=bool(item.discovery_requested),
+        possible_sources=list(item.possible_sources),
+        resolution_evidence_refs=list(item.resolution_evidence_refs),
+    )
+
+
+def _owner_deployment(
+    request: Request, *, deployment_id: str, owner_id: str
+) -> CharacterDeploymentRecord:
+    database = request.app.state.deployment_repository.database
+    with database.session() as session:
+        deployment = session.get(CharacterDeploymentRecord, deployment_id)
+        if deployment is None or deployment.owner_id != owner_id:
+            raise HTTPException(status_code=404, detail="Deployment not found.")
+        return cast(CharacterDeploymentRecord, deployment)
+
+
+@router.get(
+    "/deployments/{deployment_id}/knowledge-gaps/{gap_id}/candidates",
+    response_model=KnowledgeGapCandidateListView,
+)
+def list_knowledge_gap_candidates(
+    deployment_id: str,
+    gap_id: str,
+    request: Request,
+    user: CurrentUserDependency,
+    include_terminal: bool = Query(default=False),
+) -> KnowledgeGapCandidateListView:
+    deployment = _owner_deployment(request, deployment_id=deployment_id, owner_id=user.id)
+    entities = EntityEvidenceRepository(request.app.state.database)
+    try:
+        entities.gap_for_scope(
+            owner_id=user.id,
+            connection_id=deployment.connection_id,
+            guild_id=deployment.workspace_id,
+            gap_id=gap_id,
+        )
+        candidates = entities.gap_candidates_for_scope(
+            owner_id=user.id,
+            connection_id=deployment.connection_id,
+            guild_id=deployment.workspace_id,
+            deployment_id=deployment.id,
+            gap_id=gap_id,
+            include_terminal=include_terminal,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Knowledge Gap not found.") from exc
+    return KnowledgeGapCandidateListView(
+        items=[_candidate_observation(item) for item in candidates]
+    )
+
+
+@router.post(
+    "/deployments/{deployment_id}/knowledge-gaps/{gap_id}/candidates/{candidate_id}/review",
+    response_model=KnowledgeGapCandidateReviewView,
+)
+def review_knowledge_gap_candidate(
+    deployment_id: str,
+    gap_id: str,
+    candidate_id: str,
+    body: KnowledgeGapCandidateReviewRequest,
+    request: Request,
+    user: CurrentUserDependency,
+) -> KnowledgeGapCandidateReviewView:
+    deployment = _owner_deployment(request, deployment_id=deployment_id, owner_id=user.id)
+    service = request.app.state.knowledge_gap_discovery_service
+    entities = EntityEvidenceRepository(request.app.state.database)
+    try:
+        gap = entities.gap_for_scope(
+            owner_id=user.id,
+            connection_id=deployment.connection_id,
+            guild_id=deployment.workspace_id,
+            gap_id=gap_id,
+        )
+        if body.action == "reject":
+            candidate = service.reject_candidate(
+                owner_id=user.id,
+                connection_id=deployment.connection_id,
+                guild_id=deployment.workspace_id,
+                deployment_id=deployment.id,
+                gap_id=gap.id,
+                candidate_id=candidate_id,
+                reviewed_by=user.id,
+            )
+            return KnowledgeGapCandidateReviewView(
+                gap=_gap_observation(gap),
+                candidate=_candidate_observation(candidate),
+            )
+        resolved_gap = service.accept_candidate_evidence(
+            owner_id=user.id,
+            connection_id=deployment.connection_id,
+            guild_id=deployment.workspace_id,
+            deployment_id=deployment.id,
+            gap=gap,
+            acceptance=KnowledgeGapEvidenceAcceptance(
+                candidate_id=candidate_id,
+                validation_method="operator_review",
+                validated_evidence_ref=body.validated_evidence_ref,
+                resolved_fields=tuple(body.resolved_fields),
+                confidence=body.confidence,
+                entity_metadata=body.entity_metadata,
+                canonical_entity=body.canonical_entity,
+            ),
+            reviewed_by=user.id,
+        )
+        candidate = entities.gap_candidate_for_scope(
+            owner_id=user.id,
+            connection_id=deployment.connection_id,
+            guild_id=deployment.workspace_id,
+            deployment_id=deployment.id,
+            gap_id=gap.id,
+            candidate_id=candidate_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Knowledge Gap candidate not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return KnowledgeGapCandidateReviewView(
+        gap=_gap_observation(resolved_gap),
+        candidate=_candidate_observation(candidate),
     )
 
 

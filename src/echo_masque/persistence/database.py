@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from threading import Lock
 from uuid import uuid4
 
 from sqlite3 import Connection as SQLiteConnection
@@ -57,10 +58,12 @@ from echo_masque.persistence.discovery_share_models import (
     DeploymentDiscoveryShareRecord,
 )
 from echo_masque.persistence.discord_identity_models import DiscordGuildActorIdentityRecord
+from echo_masque.persistence.turn_job_models import TurnJobProgressRecord, TurnJobRecord
 from echo_masque.persistence.entity_evidence_models import (
     EntityV3Record,
     EvidenceEdgeV3Record,
     KnowledgeGapRecord,
+    KnowledgeGapCandidateRecord,
 )
 from echo_masque.persistence.episodic_sql_rag_models import (
     CharacterEpisodeAccessRecord,
@@ -129,6 +132,9 @@ from echo_masque.persistence.social_intelligence_models import (
     SocialEventV3Record,
 )
 from echo_masque.persistence.utility_gateway_models import UtilityProviderQuotaRecord
+
+_SQLITE_INITIALIZE_LOCKS: dict[str, Lock] = {}
+_SQLITE_INITIALIZE_LOCKS_GUARD = Lock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,9 +281,9 @@ class Database:
         run_legacy_migrations: bool = True,
         allow_incomplete_data_migration: bool = False,
     ) -> None:
-        """Initialize schema and data migrations without cross-replica races."""
+        """Initialize schema and data migrations under the backend's bootstrap lock."""
 
-        with self._postgresql_initialize_lock():
+        with self._initialize_lock():
             self._initialize_unlocked(
                 run_legacy_migrations=run_legacy_migrations,
                 allow_incomplete_data_migration=allow_incomplete_data_migration,
@@ -301,6 +307,7 @@ class Database:
             EntityV3Record,
             EvidenceEdgeV3Record,
             KnowledgeGapRecord,
+            KnowledgeGapCandidateRecord,
             BeliefV3Record,
             BeliefEvidenceDependencyRecord,
             BeliefRevisionEventRecord,
@@ -319,6 +326,8 @@ class Database:
             ConversationEpisodeEntityRecord,
             CharacterEpisodeAccessRecord,
             DiscordGuildActorIdentityRecord,
+            TurnJobRecord,
+            TurnJobProgressRecord,
             DeploymentPresenceRecord,
             DeploymentPresenceNoticeRecord,
             DeploymentPresenceRhythmRecord,
@@ -410,6 +419,7 @@ class Database:
         KnowledgeFabricProjectionMigration(self).run()
         KnowledgeFabricExternalSyncMigration(self).run()
         KnowledgeFabricExternalScheduleMigration(self).run()
+        self._ensure_turn_job_author_scope()
 
         if not allow_incomplete_data_migration:
             self._assert_no_incomplete_data_migration()
@@ -448,9 +458,34 @@ class Database:
         self._ensure_postgresql_deployment_runtime_invariants()
         self._ensure_sqlite_message_relation_author_snapshots()
 
+    def _ensure_turn_job_author_scope(self) -> None:
+        """Add cancellation actor identity without guessing authors for historical jobs."""
+        from sqlalchemy import inspect, text
+
+        with self.engine.begin() as connection:
+            inspector = inspect(connection)
+            if not inspector.has_table("discord_turn_jobs"):
+                return
+            columns = {column["name"] for column in inspector.get_columns("discord_turn_jobs")}
+            if "source_author_id" not in columns:
+                connection.execute(text(
+                    "ALTER TABLE discord_turn_jobs ADD COLUMN source_author_id "
+                    "VARCHAR(200) NOT NULL DEFAULT ''"
+                ))
+
     @contextmanager
-    def _postgresql_initialize_lock(self) -> Iterator[None]:
-        """Keep every bootstrap/migration ledger operation serial across replicas."""
+    def _initialize_lock(self) -> Iterator[None]:
+        """Serialize bootstrap/migration ledger writes for the current database topology."""
+
+        if self.engine.dialect.name == "sqlite":
+            # SQLite is development/test-only, but independent Database objects can still share
+            # one file in this process. Its migration ledgers are check-then-insert operations,
+            # so serialize the whole initialization sequence rather than retrying a partial run.
+            with _SQLITE_INITIALIZE_LOCKS_GUARD:
+                lock = _SQLITE_INITIALIZE_LOCKS.setdefault(self._url, Lock())
+            with lock:
+                yield
+            return
 
         if self.engine.dialect.name != "postgresql":
             yield

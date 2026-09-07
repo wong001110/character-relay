@@ -468,6 +468,14 @@ synchronous dependency threads and Uvicorn request concurrency; an exceptional t
 API-side worker start requires the explicit
 `CHARACTER_RELAY_KNOWLEDGE_FABRIC_API_BACKGROUND_WORKERS_ENABLED=true` recovery switch.
 
+The dedicated worker uses a Fabric-only composition root, with the same production storage
+preflight as the API. Constructing either service does not reset active runtime/matrix/ingestion
+records. Global interrupted-work recovery requires the explicit offline CLI after all replicas
+stop. External sync and derived-work loops retry failures within a bounded budget; exhaustion
+fails the dedicated process so its service manager can restart it. API `/health` checks current
+DB connectivity, not worker freshness. The local Compose example separates API/worker CPU/RAM/PID
+budgets; production capacity and egress isolation require deployment-specific verification.
+
 `atom_public_https` is the first source-native adapter. It accepts bounded Atom 1.0 XML using
 `defusedxml`, rejects DTD/entity declarations, and preserves only bounded entry evidence and safe
 link provenance. It never follows feed or entry links.
@@ -513,10 +521,27 @@ Those bytes are appended only to the private root-page artifact. Within the alre
 budget, the worker may also discover root-relative or absolute HTTPS strings from generic
 URL-valued JSON fields (`href`, `url`, `uri`, `link`, or path variants). Each candidate must still
 pass canonical no-query/no-fragment validation and same-origin admission before it becomes a crawl
-locator. The worker traverses this bounded DOM/JSON same-origin graph (at most 100 pages and depth
+locator. The worker traverses this bounded DOM/JSON same-origin graph (at most 25 rendered pages and depth
 3), and stores its artifact privately with `rendered_browser` acquisition provenance. Rendered
 runs do not collect images, reuse browser tool sessions, transmit credentials, or relax
 corpus/Character access policy.
+
+Rendered discovery has a 45-second deadline before discovery-generation mutation, with external
+cancellation propagated. Failed/timed-out discovery preserves current published entries.
+Optional JSON capture requires a bounded Content-Length, no transfer encoding, and identity
+content encoding before reading a body; unknown-size bodies are skipped. A DOM-size preflight
+precedes transfer into Python. These are capture safeguards, not a hard Chromium memory bound.
+
+### Verified retrieval boundary after the reliability review
+
+Persisted Character corpus policy narrows candidates before ranking and is intersected with
+server-effective corpora. Denied results cannot exhaust the Character's entire top-k budget.
+Oversized evidence is excerpted inside its JSON trust/provenance envelope; final context traces
+record selected references and omission reasons after prompt packing.
+
+Dense query/schema support exists, but the app does not inject a Fabric embedder and ingestion
+does not populate embedding rows. Do not claim production Fabric dense retrieval is connected.
+Connecting and measuring a complete index→query→prompt path remains a subsequent stage.
 
 The private immutable artifact contains the approved raw page bytes. Each page creates exactly one
 canonical document/Evidence Unit, whose canonical page locator is also a stable current-entry key.

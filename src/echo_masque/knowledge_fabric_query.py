@@ -38,6 +38,7 @@ class KnowledgeQueryRequest:
     candidate_limit: int
     result_limit: int
     as_of: datetime | None = None
+    candidate_corpus_ids: frozenset[str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +85,10 @@ class KnowledgeQueryEngine:
         self._require_request(request)
         effective = self.fabric_repository.list_effective_corpora(request.server_scope_id)
         authorized_corpus_ids = frozenset(item.corpus.id for item in effective)
+        # Callers may only narrow the corpus set.  The server's effective corpus list
+        # remains the authority and is resolved before retrieval/ranking.
+        if request.candidate_corpus_ids is not None:
+            authorized_corpus_ids &= request.candidate_corpus_ids
         freshness_status = freshness_status_for_mode(request.mode)
         if not authorized_corpus_ids:
             return KnowledgeQueryResult(

@@ -21,6 +21,10 @@ Legacy header/token compatibility may exist only in non-production test/developm
 - User/provider and shared runtime credentials are stored through the encrypted Credential Vault.
 - Vault encryption uses configured Fernet keys and supports key rotation.
 - Some runtime settings support an explicit environment fallback; values remain server-side.
+- Target-controlled `api_key_env` and HTTP `auth_env` names never authorize process-environment
+  reads. Character providers, condition watches and evaluation trials require an owner/Card
+  credential. HTTP Cards declaring authentication use that same scoped credential endpoint;
+  standalone trusted HTTP adapter callers must explicitly inject their resolver.
 - API responses expose readiness/source/key metadata, never raw or encrypted credential values.
 - Workspace/account/authoring/share exports exclude keys, encrypted blobs, password hashes, Sessions, invitation codes, and authorization headers.
 - Logs, ordinary Discord events, Runtime Trace, Provider Trace, reports, snapshots, replay, and diagnostics must remain recursively redacted.
@@ -34,6 +38,10 @@ Token-usage fields such as input/output token counts are metrics, not credential
 - Owner, Discord Server, channel/thread, deployment, Character, and relationship scope must not widen by inference.
 - Derived Fabric Projection/Graph/summary/index data may stay at the source scope or become narrower, never automatically wider.
 - Raw messages, media references, completed Tool results, and external results are provenance evidence; derived state cannot silently replace or rewrite them.
+- Workspace imports validate the complete parent/child ownership graph in the transaction before
+  replace/delete/insert. Supplied owner fields and imported child links cannot grant access to
+  another owner's existing records. Incomplete historical archives with unverifiable parents
+  fail closed and need a complete source export.
 - Planner-only media information is not Character-visible perception.
 
 ## External targets and tools
@@ -43,6 +51,28 @@ Token-usage fields such as input/output token counts are metrics, not credential
 - External target configurations store an environment-variable name, not its value.
 - Runtime validates tool proposals, scope, expiry, and side effects; model output is not authorization.
 - Target/tool/provider failures are operational failures and must not be misclassified as behavioral evidence.
+- Production `OpenAICompatibleProvider` requests require an exact approved origin. Defaults are
+  `https://api.deepseek.com`, `https://api.openai.com`, and `https://openrouter.ai`;
+  `CHARACTER_RELAY_PROVIDER_ALLOWED_ORIGINS` replaces that list with comma-separated HTTPS origins;
+  include every existing approved provider when setting it.
+  Custom `HttpTarget` requests are denied by default; operators must configure
+  `CHARACTER_RELAY_HTTP_TARGET_ALLOWED_ORIGINS`. Entries cannot contain userinfo, paths, queries
+  or fragments. Configure existing custom/Cloudflare endpoints before rollout if required.
+- The same exact provider-origin admission applies to OpenAI-compatible multimodal analysis,
+  image generation, and OpenRouter's automatic image-model discovery. Redirects are disabled on
+  credential-bearing provider and discovery requests; HTTP clients also disable environment proxy
+  discovery. Development permits loopback HTTP models.
+- Public Tool downloads, generated-image materialization, live-media downloads, MCP Streamable
+  HTTP, static search, and Browser HTTP(S) subresources use a direct HTTP/1.1 transport that
+  resolves once, rejects a non-public address set, and dials the selected literal address while
+  retaining the configured hostname for Host/TLS SNI verification. Browser routes are fulfilled
+  from that transport rather than continued by Chromium, so redirects and each GET/HEAD
+  subresource are separately pinned. Browser non-GET/HEAD external requests are aborted;
+  WebSocket routes are closed and page scripts cannot construct WebRTC or WebTransport channels.
+  This is a process-level socket-binding control for these call sites, not a universal egress
+  firewall: unrelated libraries, non-HTTP protocols, an operator-added custom transport, and the
+  host platform's own network policy remain separate boundaries. Production still needs operating
+  system/container egress isolation for a complete Chromium sandbox boundary.
 
 ## Data retention and storage
 
@@ -64,3 +94,19 @@ The production topology uses managed PostgreSQL + pgvector. Confirm persistence 
 - run live account isolation, credential rotation, redaction, Demo read-only, and deployment smoke checks after security/runtime changes.
 
 See `docs/phase-15-security.md`, `docs/railway-deployment.md`, and `docs/manual-validation.md`.
+
+## Reliability review transition
+
+API/worker construction no longer performs global interrupted-job recovery. Recovery is an
+explicit offline operation after **all** replicas using the database stop; see the developer
+guide. Worker retries are bounded and exhausted loops terminate the dedicated process. `/health`
+now checks current database connectivity; it is not a heartbeat or a freshness claim for a
+separate worker. Process/DB availability does not prove a source sync succeeded.
+
+Provider trace emission/persistence and serialized JSON archive fields apply structured redaction
+and credential-bearing URL sanitization. Arbitrary prose is not guaranteed secret-free; never
+insert credentials into user messages and assume a redactor can discover them.
+
+The [2026-09-07 Security / Red Team assessment](security-red-team-2026-09-07.md) records the
+scope, evidence and residual limitations of this corrective branch. It is not a security
+certification and must be read before production rollout.

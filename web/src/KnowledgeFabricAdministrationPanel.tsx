@@ -19,8 +19,10 @@ import {
   type KnowledgeFabricImageAssetCandidate,
   type KnowledgeFabricOperationalSource,
   type KnowledgeFabricRenderedCollectionAnalysis,
+  type KnowledgeFabricScope,
   type KnowledgeFabricVisualReference
 } from "./knowledgeFabricApi";
+import type { AdminServerAccess } from "./serverAccessApi";
 
 const SOURCE_OPTIONS = [
   {
@@ -53,12 +55,18 @@ function syncOutcome(source: KnowledgeFabricOperationalSource): string {
   return source.external_sync?.last_outcome ?? "Waiting for the first sync";
 }
 
-export function KnowledgeFabricAdministrationPanel() {
+interface Props {
+  servers: AdminServerAccess[];
+}
+
+export function KnowledgeFabricAdministrationPanel({ servers }: Props) {
   const [corpora, setCorpora] = useState<KnowledgeFabricCorpus[]>([]);
   const [sources, setSources] = useState<KnowledgeFabricOperationalSource[]>([]);
   const [entities, setEntities] = useState<KnowledgeFabricCanonicalEntity[]>([]);
   const [candidates, setCandidates] = useState<KnowledgeFabricImageAssetCandidate[]>([]);
   const [references, setReferences] = useState<KnowledgeFabricVisualReference[]>([]);
+  const [scopes, setScopes] = useState<KnowledgeFabricScope[]>([]);
+  const [selectedServerKey, setSelectedServerKey] = useState("");
   const [selectedCorpusId, setSelectedCorpusId] = useState("");
   const [loading, setLoading] = useState(true);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
@@ -93,6 +101,33 @@ export function KnowledgeFabricAdministrationPanel() {
   const collectionSources = sources.filter(
     (source) => source.source_type === "website_collection_public_https"
   );
+  const selectedServer = servers.find(
+    (server) => `${server.connection_id}:${server.guild_id}` === selectedServerKey
+  );
+  const selectedScope = selectedServer
+    ? scopes.find(
+        (scope) =>
+          scope.platform === "discord" &&
+          scope.connection_id === selectedServer.connection_id &&
+          scope.workspace_id === selectedServer.guild_id
+      )
+    : undefined;
+
+  useEffect(() => {
+    setSelectedServerKey((current) =>
+      servers.some((server) => `${server.connection_id}:${server.guild_id}` === current)
+        ? current
+        : servers[0] ? `${servers[0].connection_id}:${servers[0].guild_id}` : ""
+    );
+  }, [servers]);
+
+  async function loadScopes() {
+    try {
+      setScopes(await knowledgeFabricApi.listScopes());
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }
 
   async function loadCorpora() {
     const version = ++corpusRequestVersion.current;
@@ -118,7 +153,24 @@ export function KnowledgeFabricAdministrationPanel() {
 
   useEffect(() => {
     void loadCorpora();
+    void loadScopes();
   }, []);
+
+  async function bootstrapScope(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedServer || selectedScope) return;
+    await run(async () => {
+      const created = await knowledgeFabricApi.bootstrapServerScope({
+        platform: "discord",
+        connection_id: selectedServer.connection_id,
+        workspace_id: selectedServer.guild_id
+      });
+      setScopes((current) => [
+        ...current.filter((scope) => scope.id !== created.id),
+        created
+      ]);
+    });
+  }
 
   function setScheduleFields(source: KnowledgeFabricOperationalSource | undefined) {
     setScheduleEnabled(source?.external_schedule?.enabled ? "true" : "false");
@@ -331,6 +383,57 @@ export function KnowledgeFabricAdministrationPanel() {
           <li><span>3</span> Review references</li>
         </ol>
         {error && <Toast tone="danger" title="Knowledge Fabric operation failed">{error}</Toast>}
+      </section>
+
+      <section className="settings-paper-card">
+        <div className="settings-card-heading">
+          <span className="settings-card-icon settings-card-icon-mint"><StickyLabel variant="memory">SCOPE</StickyLabel></span>
+          <div>
+            <p className="settings-card-kicker">Discord server boundary</p>
+            <h3>Bootstrap a Knowledge Fabric server scope</h3>
+            <p>Choose a Server reported by the shared connector. The exact Discord connection ID and Server ID become the Fabric boundary.</p>
+          </div>
+        </div>
+        {servers.length === 0 ? (
+          <EmptyState
+            title="No synchronized Discord servers"
+            description="Bring the shared connector online and wait for a Server catalog entry before creating a Fabric scope."
+          />
+        ) : (
+          <form className="knowledge-fabric-create-library" onSubmit={bootstrapScope}>
+            <ol className="knowledge-fabric-steps" aria-label="Knowledge Fabric server setup checks">
+              <li className="is-active"><span>1</span> {servers.length} synchronized Server{servers.length === 1 ? "" : "s"}</li>
+              <li className={selectedScope ? "is-active" : ""}><span>2</span> {selectedScope ? "Fabric scope ready" : "Scope not yet bootstrapped"}</li>
+              <li><span>3</span> Explicit Fabric administrators only</li>
+            </ol>
+            <FormField label="Synchronized Discord server">
+              <Select
+                aria-label="Synchronized Discord server"
+                value={selectedServerKey}
+                disabled={working}
+                onChange={(event) => setSelectedServerKey(event.currentTarget.value)}
+              >
+                {servers.map((server) => (
+                  <option key={`${server.connection_id}:${server.guild_id}`} value={`${server.connection_id}:${server.guild_id}`}>
+                    {server.guild_name} · {server.guild_id}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+            <div className="knowledge-fabric-selection-note">
+              <StickyLabel variant={selectedScope ? "success" : "warning"}>{selectedScope ? "READY" : "NOT BOOTSTRAPPED"}</StickyLabel>
+              <strong>{selectedScope ? "Scope exists for this server" : "Scope has not been created"}</strong>
+              <span>
+                {selectedScope
+                  ? `Fabric scope ${selectedScope.id}`
+                  : "Creating a scope does not grant Fabric access to Discord members or Server Access members. Add Fabric administrators separately when access is needed."}
+              </span>
+            </div>
+            <Button type="submit" variant="primary" disabled={working || !selectedServer || Boolean(selectedScope)}>
+              {selectedScope ? "Scope ready" : "Bootstrap server scope"}
+            </Button>
+          </form>
+        )}
       </section>
 
       <section className="settings-paper-card knowledge-fabric-library-card">

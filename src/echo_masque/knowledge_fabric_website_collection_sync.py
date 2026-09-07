@@ -77,6 +77,7 @@ _JSON_ROUTE_FIELD_NAMES = frozenset(
     {"href", "url", "uri", "link", "path", "web_path", "deeplink"}
 )
 _MAX_RENDERED_JSON_ROUTE_NODES = 10_000
+_RENDERED_COLLECTION_DISCOVERY_TIMEOUT_SECONDS = 45.0
 
 
 class RenderedCollectionFetcher(Protocol):
@@ -361,6 +362,20 @@ class KnowledgeFabricWebsiteCollectionSyncService:
     ) -> tuple[tuple[_DiscoveredPage, ...], dict[str, WebsiteFetchResponse]]:
         """Traverse a bounded same-origin DOM link graph with one private browser page per entry."""
 
+        try:
+            async with asyncio.timeout(_RENDERED_COLLECTION_DISCOVERY_TIMEOUT_SECONDS):
+                return await self._discover_rendered_pages_within_budget(root=root, profile=profile)
+        except TimeoutError as exc:
+            # Discovery completes before a generation is opened, so this failure cannot retract
+            # previously published collection entries.
+            raise RenderedCollectionRejected("Rendered collection discovery timed out.") from exc
+
+    async def _discover_rendered_pages_within_budget(
+        self,
+        *,
+        root: str,
+        profile: RenderedCollectionProfile,
+    ) -> tuple[tuple[_DiscoveredPage, ...], dict[str, WebsiteFetchResponse]]:
         if self.rendered_fetcher is None:
             raise RenderedCollectionRejected("Rendered collection support is unavailable.")
         root_host = urlsplit(root).hostname

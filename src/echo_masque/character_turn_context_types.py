@@ -24,6 +24,15 @@ class KnowledgeContextTraceItem(BaseModel):
     score: float
 
 
+class KnowledgeContextOmissionTraceItem(BaseModel):
+    """Privacy-safe record of a final prompt-packing omission."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ref: str = Field(max_length=128)
+    reason: str = Field(max_length=80)
+
+
 class CharacterContextTraceView(BaseModel):
     """Privacy-safe Character-turn context trace for Connector observability."""
 
@@ -59,6 +68,11 @@ class CharacterContextTraceView(BaseModel):
     continuation_tool_ids: list[str] = Field(default_factory=list, max_length=8)
     blocked_side_effect_intents: list[str] = Field(default_factory=list, max_length=8)
     selected: list[KnowledgeContextTraceItem] = Field(default_factory=list, max_length=8)
+    selected_knowledge_refs: list[str] = Field(default_factory=list, max_length=8)
+    knowledge_omissions: list[KnowledgeContextOmissionTraceItem] = Field(
+        default_factory=list,
+        max_length=8,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,5 +116,6 @@ class CharacterTurnContext:
 __all__ = [
     "CharacterContextTraceView",
     "CharacterTurnContext",
+    "KnowledgeContextOmissionTraceItem",
     "KnowledgeContextTraceItem",
 ]

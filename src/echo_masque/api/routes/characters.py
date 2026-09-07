@@ -1,6 +1,5 @@
 """Character Card collection and provider credential endpoints."""
 
-import os
 from typing import Literal, cast
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -36,7 +35,7 @@ from echo_masque.persistence.models import CharacterCardRecord
 from echo_masque.providers import ProviderError
 from echo_masque.security_controls import QuotaExceeded
 from echo_masque.semantic_participation import CharacterParticipationSemanticService
-from echo_masque.targets import PromptModelConfig
+from echo_masque.targets import HttpTargetConfig, PromptModelConfig
 
 router = APIRouter(prefix="/api/characters", tags=["characters"])
 
@@ -173,17 +172,18 @@ def _status_for(
     target = repo.get_target(card.target_id)
     if target is None:
         raise HTTPException(status_code=404, detail="Target binding not found.")
-    if target.target_kind != "prompt_model":
+    required = target.target_kind == "prompt_model" or (
+        target.target_kind == "http"
+        and bool(HttpTargetConfig.model_validate_json(target.config_json).auth_env)
+    )
+    if not required:
         return CredentialStatus(required=False, configured=True, source="not_required")
-    config = PromptModelConfig.model_validate_json(target.config_json)
     if credential_store(request).has(owner_id, card_id):
         return CredentialStatus(
             required=True,
             configured=True,
             source=credential_source(request),
         )
-    if os.getenv(config.api_key_env):
-        return CredentialStatus(required=True, configured=True, source="environment")
     return CredentialStatus(required=True, configured=False, source="missing")
 
 

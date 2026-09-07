@@ -41,6 +41,18 @@ only after it has a focused, fast test boundary.
 
 ## Commands
 
+The reliability review adds `target_endpoint_policy.py` and its focused tests to the configured
+Python scope. To run only the new outbound admission policy:
+
+```bash
+mutmut run 'echo_masque.target_endpoint_policy.*' --max-children 2
+mutmut results
+```
+
+Record surviving error-message/equivalent mutants separately from admission-behavior survivors;
+the latter block acceptance until corrected. This scope does not establish coverage for every
+network client, nor replace DNS/egress isolation tests.
+
 Python requires a platform with `fork` support. The scheduled GitHub workflow uses Ubuntu; WSL is
 also supported. Native Windows does not support mutmut execution, so run its scope under WSL or
 CI. Portal and Connector reports remain platform-specific Stryker evidence.
@@ -110,3 +122,19 @@ that exact printed directory manually. Normal runs must leave this variable unse
 
 The active plan records each command, result, accepted equivalent mutant, deliberate exclusion,
 and remaining scope. It must not claim a mutation score for code that was not actually mutated.
+
+## Controlled MCP grant scope
+
+`mcp_config.py` and `test_mcp_gateway.py` are in the configured Python scope. The bounded command `mutmut run '*McpProviderConfig*granted_tool_names*' --max-children 2` exercised four owner/deployment grant-lookup mutants: all four killed, none survived. Gateway tests distinguish wrong owner, wrong deployment, and both. This result applies only to the selected grant method; it is not a mutation score for the full gateway, transport, job lifecycle, or the other generated configuration mutants.
+
+## Capability observation expiry
+
+`provider_capabilities.py` and `test_capability_quota_closeout.py` are in the configured scope.
+`mutmut run '*capability_observation_is_current*' --max-children 2` killed all **11 selected
+mutants**, with zero survivors, on fresh coverage statistics. Tests cover the exact 900-second
+negative expiry boundary, persistent re-observation, naive UTC timestamps and supported status.
+The first incremental run after extracting the helper used stale test-selection statistics and
+missed the supported-status test. Its survivor was not classified as equivalent; moving the old
+analysis cache aside and recollecting statistics selected the existing meaningful test and killed
+it. No production mutation was excluded to obtain this result. This is not a score for all quota,
+network, repository or other generated provider mutants.

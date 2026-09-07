@@ -2,7 +2,13 @@ import asyncio
 
 import httpx
 
+from echo_masque.network_safety import PublicUrlGuard
 from echo_masque.platform_media import YtDlpMediaResolver
+
+
+async def fixture_public_host(_hostname: str) -> tuple[str, ...]:
+    # Transport and extractor are already fake; DNS must be deterministic too.
+    return ("1.1.1.1",)
 
 
 class FakeYtDlpMediaResolver(YtDlpMediaResolver):
@@ -61,7 +67,10 @@ def test_ytdlp_resolver_returns_direct_media_and_transcript_without_video_downlo
             ),
         )
 
-    resolver = FakeYtDlpMediaResolver(http_transport=httpx.MockTransport(handler))
+    resolver = FakeYtDlpMediaResolver(
+        url_guard=PublicUrlGuard(resolver=fixture_public_host),
+        http_transport=httpx.MockTransport(handler),
+    )
     result = asyncio.run(
         resolver.resolve(
             "https://www.youtube.com/watch?v=abc123",
@@ -96,7 +105,10 @@ def test_ytdlp_resolver_reuses_one_hour_resolution_cache() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=b"WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nCached.\n")
 
-    resolver = CountingResolver(http_transport=httpx.MockTransport(handler))
+    resolver = CountingResolver(
+        url_guard=PublicUrlGuard(resolver=fixture_public_host),
+        http_transport=httpx.MockTransport(handler),
+    )
 
     async def run():
         first = await resolver.resolve(

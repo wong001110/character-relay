@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, literal, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -360,6 +360,71 @@ class BeliefRepository:
             )
         return tuple(self.view(record) for record in records)
 
+    def get_for_deployment_scope(
+        self,
+        *,
+        owner_id: str,
+        belief_id: str,
+        character_card_id: str,
+        connection_id: str,
+        guild_id: str,
+    ) -> BeliefV3View | None:
+        """Return one Belief only when it belongs to this exact deployment scope.
+
+        Owner checks alone are insufficient for an owner with multiple Characters or Discord
+        servers.  Management endpoints use this exact match before any mutation and deliberately
+        do not treat character-global Beliefs as implicitly mutable from a deployment route.
+        """
+
+        with self.database.session() as session:
+            record = session.scalar(
+                select(BeliefV3Record).where(
+                    BeliefV3Record.id == belief_id,
+                    BeliefV3Record.owner_id == owner_id,
+                    BeliefV3Record.character_card_id == character_card_id,
+                    BeliefV3Record.connection_id == connection_id,
+                    BeliefV3Record.guild_id == guild_id,
+                )
+            )
+        return self.view(record) if record is not None else None
+
+    def reject_for_deployment_scope(
+        self,
+        *,
+        owner_id: str,
+        belief_id: str,
+        character_card_id: str,
+        connection_id: str,
+        guild_id: str,
+        allow_authored: bool = False,
+        now: datetime | None = None,
+    ) -> BeliefV3View:
+        """Reject a learned Belief after checking owner and deployment scope atomically."""
+
+        current = now or datetime.now(UTC)
+        with self.database.session() as session:
+            record = session.scalar(
+                select(BeliefV3Record).where(
+                    BeliefV3Record.id == belief_id,
+                    BeliefV3Record.owner_id == owner_id,
+                    BeliefV3Record.character_card_id == character_card_id,
+                    BeliefV3Record.connection_id == connection_id,
+                    BeliefV3Record.guild_id == guild_id,
+                )
+            )
+            if record is None:
+                raise KeyError("Belief not found.")
+            if record.authored and not allow_authored:
+                raise ValueError("Authored Belief cannot be auto-rejected.")
+            if record.status == "rejected":
+                return self.view(record)
+            record.status = "rejected"
+            record.valid_to = current
+            record.updated_at = current
+            session.commit()
+            session.refresh(record)
+            return self.view(record)
+
     def recall(
         self,
         *,
@@ -413,6 +478,78 @@ class BeliefRepository:
             if changed:
                 session.commit()
         return tuple(self.view(record) for record in active)
+
+    def search_relevant(
+        self,
+        *,
+        owner_id: str,
+        connection_id: str,
+        guild_id: str,
+        query_terms: tuple[str, ...],
+        character_card_id: str = "",
+        subject_refs: tuple[str, ...] = (),
+        limit: int = 240,
+        now: datetime | None = None,
+    ) -> tuple[BeliefV3View, ...]:
+        """Return query-matching Beliefs from the full authorized history.
+
+        The bound limits a SQL result set after scope and lexical relevance filtering.  It
+        is deliberately not a recency or importance window: callers may rank this bounded
+        candidate set with a dense encoder without making older matching records invisible.
+        """
+
+        terms = tuple(
+            dict.fromkeys(term.casefold().strip() for term in query_terms if term.strip())
+        )
+        if not terms:
+            return ()
+        current = now or datetime.now(UTC)
+        connection_scope, guild_scope = self._scope_filters(connection_id, guild_id)
+        fields = (
+            BeliefV3Record.subject_ref,
+            BeliefV3Record.subject_entity_id,
+            BeliefV3Record.predicate,
+            BeliefV3Record.value_text,
+        )
+        matches = [or_(*(field.ilike(f"%{term}%") for field in fields)) for term in terms[:16]]
+        relevance: ColumnElement[int] = literal(0)
+        for match in matches:
+            relevance = relevance + case((match, literal(1)), else_=literal(0))
+        with self.database.session() as session:
+            statement = select(BeliefV3Record).where(
+                BeliefV3Record.owner_id == owner_id,
+                connection_scope,
+                guild_scope,
+                BeliefV3Record.status.in_(("active", "provisional", "disputed")),
+                or_(BeliefV3Record.valid_to.is_(None), BeliefV3Record.valid_to > current),
+                or_(*matches),
+            )
+            if character_card_id:
+                statement = statement.where(
+                    (BeliefV3Record.character_card_id == "")
+                    | (BeliefV3Record.character_card_id == character_card_id)
+                )
+            if subject_refs:
+                statement = statement.where(BeliefV3Record.subject_ref.in_(subject_refs))
+            records = list(
+                session.scalars(
+                    statement.order_by(
+                        relevance.desc(),
+                        BeliefV3Record.importance.desc(),
+                        BeliefV3Record.updated_at.desc(),
+                    ).limit(max(1, min(limit, 400)))
+                )
+            )
+            changed = False
+            for record in records:
+                stale = self._aware(record.stale_after)
+                if stale is not None and stale <= current and record.status == "active":
+                    record.status = "provisional"
+                    record.updated_at = current
+                    changed = True
+            if changed:
+                session.commit()
+        return tuple(self.view(record) for record in records)
 
     def reinforce(
         self,
@@ -478,6 +615,8 @@ class BeliefRepository:
                 raise KeyError("Belief not found.")
             if record.authored:
                 raise ValueError("Authored Belief cannot be auto-rejected.")
+            if record.status == "rejected":
+                return self.view(record)
             record.status = "rejected"
             record.valid_to = current
             record.updated_at = current

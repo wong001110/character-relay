@@ -540,7 +540,7 @@ def test_runtime_owned_media_tool_is_hidden_from_manual_tool_catalog() -> None:
     assert registry.tool_id_for_provider_name("media_inspect") == "media.inspect"
 
 
-def test_roleplay_does_not_receive_runtime_owned_internal_context_tools() -> None:
+def test_roleplay_receives_only_runtime_owned_scoped_internal_read_tools() -> None:
     service = FakeLiveMediaService()
 
     class InternalOnlyRegistry:
@@ -560,8 +560,19 @@ def test_roleplay_does_not_receive_runtime_owned_internal_context_tools() -> Non
     prepared = prepared_turn(prompt_target(SkipMediaProvider()))
     prepared.enabled_tools = ("image.generate",)
 
-    assert runtime._enabled_tools_for_turn(cast(Any, prepared)) == ("image.generate",)
-    assert runtime._forced_tool_ids(cast(Any, prepared)) == ()
+    # Deployment authorization stays unchanged; Runtime adds only scoped read IDs.
+    assert prepared.enabled_tools == ("image.generate",)
+    assert runtime._enabled_tools_for_turn(cast(Any, prepared)) == (
+        "image.generate",
+        "memory.search",
+        "conversation.search",
+        "knowledge.search",
+    )
+    assert runtime._forced_tool_ids(cast(Any, prepared)) == (
+        "memory.search",
+        "conversation.search",
+        "knowledge.search",
+    )
 
 
 def test_transient_provider_failure_returns_silent_control_without_disabling_deployment() -> None:

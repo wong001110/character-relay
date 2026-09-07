@@ -1,11 +1,14 @@
 """Minimal OpenAI-compatible chat provider."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import re
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from time import perf_counter
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import httpx
@@ -38,6 +41,10 @@ from echo_masque.providers.errors import (
     ProviderUnavailableError,
 )
 from echo_masque.providers.trace import ProviderTrace
+from echo_masque.target_endpoint_policy import EndpointPolicyRejected, TargetEndpointPolicy
+
+if TYPE_CHECKING:
+    from echo_masque.config import Settings
 
 _DURATION_PART = re.compile(r"(?P<value>\d+(?:\.\d+)?)(?P<unit>ms|s|m|h)", re.I)
 
@@ -208,12 +215,18 @@ class OpenAICompatibleProvider:
         timeout_seconds: float = 30.0,
         max_retries: int = 2,
         transport: httpx.AsyncBaseTransport | None = None,
+        settings: Settings | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._timeout = timeout_seconds
         self._max_retries = max_retries
         self._transport = transport
+        if settings is None:
+            from echo_masque.config import get_settings
+
+            settings = get_settings()
+        self._endpoint_policy = TargetEndpointPolicy.from_settings(settings)
 
     def __repr__(self) -> str:
         return (
@@ -293,6 +306,10 @@ class OpenAICompatibleProvider:
         max_output_tokens: int | None,
         response_format: dict[str, object] | None,
     ) -> ProviderCompletion:
+        try:
+            self._endpoint_policy.require_provider_url(self.endpoint)
+        except EndpointPolicyRejected as exc:
+            raise ProviderProtocolError("Model provider endpoint is not approved.") from exc
         tool_payloads = [item.model_dump() for item in tools]
         tool_schema_chars = (
             len(json.dumps(tool_payloads, ensure_ascii=False, separators=(",", ":")))
@@ -334,7 +351,12 @@ class OpenAICompatibleProvider:
             async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
                 for attempt in range(self._max_retries + 1):
                     try:
-                        response = await client.post(self.endpoint, json=payload, headers=headers)
+                        response = await client.post(
+                            self.endpoint,
+                            json=payload,
+                            headers=headers,
+                            follow_redirects=False,
+                        )
                     except httpx.TimeoutException as exc:
                         trace.error(
                             reason=ProviderTimeoutError.reason_code,
