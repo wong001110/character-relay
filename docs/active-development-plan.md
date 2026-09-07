@@ -1,6 +1,6 @@
 # Active development plan — AI-native reliability review
 
-Status: **remaining-gap implementation and offline gates complete; new CI gates pending; Draft PR #204 open; not merged**
+Status: **remaining-gap implementation and offline gates complete; PostgreSQL CI passed; browser follow-up implemented; final CI on Draft PR #204; not merged**
 Branch: `codex/ai-native-reliability-review`
 PR: https://github.com/wong001110/character-relay/pull/204
 Implementation commit: `3b334a8e78bf1ce64cc25d8253afc2efe2ac4d1b`
@@ -241,6 +241,12 @@ PostgreSQL CI adds real quota/advisory-lock contention. Their local absence is e
 pass. The new `source_author_id` additive migration preserves old job data, and candidate storage
 is registered without rewriting source evidence. Root publishes the coherent diff on existing
 Draft PR #204. Exact commit is recorded by Git history/PR rather than a self-referential hash.
+
+Published implementation `d718bca` CI run `34133361179` passed six PostgreSQL tests, Web and
+Connector jobs. Docker started with PostgreSQL and launched Chromium; its Portal journey reached
+Belief correction after UUID/candidate success, then exposed a form-label locator mismatch. The
+follow-up repairs that contract and fills synthetic API fixtures without relaxing business checks.
+Final published-head status is recorded on PR #204.
 
 Remaining external gates: published-head CI, configured MCP/Discord preview, measured natural
 dialogue quality and production incident evidence. Production Demo credentials were not changed.

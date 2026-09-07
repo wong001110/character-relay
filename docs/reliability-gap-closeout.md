@@ -3,8 +3,9 @@
 Date: 2026-09-07. Branch: `codex/ai-native-reliability-review`, Draft PR #204.
 Baseline: `8c30540338ce6799068f6c36ceb8730090993c60`. This document supersedes the
 unimplemented status of R10–R17 in the [product review](reviewer-product-runtime-2026-09-07.md).
-Implementation and offline verification are complete; newly added browser/PostgreSQL CI gates
-must pass before release. Live model quality and production incident causality are not established.
+Implementation and offline verification are complete. PostgreSQL CI has passed; the browser
+check exposed a form-label test mismatch, corrected in the CI follow-up. Current CI status is
+attached to PR #204. Live model quality and incident causality are not established.
 
 ## Disposition and evidence
 
@@ -79,7 +80,14 @@ The Docker CI job now executes actual built Portal navigation and form actions u
 and synthetic API fixtures. The script accepts loopback origins only and intercepts every API
 request. PostgreSQL CI additionally exercises parallel quota consumption and same-owner advisory
 lock serialization in the explicitly designated disposable test database. Local Docker,
-PostgreSQL and Chromium are unavailable; these executions await CI rather than being called passes.
+PostgreSQL and Chromium are unavailable. Published implementation `d718bca` CI run `34133361179`
+passed all **six PostgreSQL tests**, Web and Connector gates. The production image started and
+passed its non-root Chromium launch; actual Portal UUID/candidate actions passed before the
+Belief form locator failed. Playwright label text includes the required marker even when its
+span is hidden from the accessible name. The follow-up uses exact accessible textbox names in
+the named correction form, adds explicit field linkage, and fills the complete synthetic
+API fixture set while retaining console-error and request-contract assertions. A partial browser
+journey is not recorded as a pass; consult the PR's final run for the corrected browser gate.
 
 ## Remaining external validation and deliberate deferrals
 

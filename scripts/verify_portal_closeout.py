@@ -169,7 +169,11 @@ def local_base_url(value: str) -> str:
     return value.rstrip("/")
 
 
-def install_api_fixtures(page: Page, writes: list[tuple[str, dict[str, Any]]]) -> None:
+def install_api_fixtures(
+    page: Page,
+    writes: list[tuple[str, dict[str, Any]]],
+    unmatched_requests: list[str],
+) -> None:
     data = fixture_data()
     candidate_review_path = (
         f"/api/deployments/{DEPLOYMENT_ID}/knowledge-gaps/{GAP_ID}/candidates/{CANDIDATE_ID}/review"
@@ -229,6 +233,16 @@ def install_api_fixtures(page: Page, writes: list[tuple[str, dict[str, Any]]]) -
                     "default_judge_mode": "rules",
                 },
             )
+        elif path == "/api/admin/runtime":
+            # The always-mounted dock checks this before deciding whether to render.
+            fulfill(route, {"config": {}, "status": {}})
+        elif path == "/api/admin/runtime/utility-credentials":
+            fulfill(route, [])
+        elif path in {
+            "/api/admin/runtime/utility-gateway/snapshot",
+            "/api/admin/runtime/conversation-burst/snapshot",
+        }:
+            fulfill(route, None)
         elif path == "/api/connections":
             fulfill(route, [data["connection"]])
         elif path == "/api/discord/server-profiles":
@@ -254,6 +268,27 @@ def install_api_fixtures(page: Page, writes: list[tuple[str, dict[str, Any]]]) -
                     }
                 ],
             )
+        elif path == "/api/discord/logs":
+            fulfill(
+                route,
+                {"items": [], "page": 1, "page_size": 8, "total": 0, "pages": 1},
+            )
+        elif path == "/api/scheduler/reminders/page":
+            fulfill(
+                route,
+                {
+                    "items": [],
+                    "next_cursor": None,
+                    "has_more": False,
+                    "counts": {
+                        "pending": 0,
+                        "processing": 0,
+                        "completed": 0,
+                        "failed": 0,
+                        "cancelled": 0,
+                    },
+                },
+            )
         elif path == f"/api/discord/server-profiles/{PROFILE_ID}/runtime":
             fulfill(route, {"profile_id": PROFILE_ID, "timezone": "Asia/Kuala_Lumpur"})
         elif path == "/api/deployment-identities":
@@ -276,6 +311,45 @@ def install_api_fixtures(page: Page, writes: list[tuple[str, dict[str, Any]]]) -
             fulfill(route, [data["deployment"]])
         elif path == f"/api/deployments/{DEPLOYMENT_ID}/tools":
             fulfill(route, {"deployment_id": DEPLOYMENT_ID, "enabled_tools": []})
+        elif path == f"/api/deployments/{DEPLOYMENT_ID}/presence":
+            fulfill(
+                route,
+                {
+                    "deployment_id": DEPLOYMENT_ID,
+                    "state": "idle",
+                    "activity_type": "",
+                    "source": "default",
+                    "reason": "fixture",
+                    "version": 1,
+                    "started_at": NOW,
+                    "expected_end_at": None,
+                    "updated_at": NOW,
+                    "persisted": True,
+                    "available_for_character_runtime": True,
+                    "discovery_allowed": True,
+                },
+            )
+        elif path == f"/api/deployments/{DEPLOYMENT_ID}/presence/rhythm":
+            fulfill(
+                route,
+                {
+                    "deployment_id": DEPLOYMENT_ID,
+                    "enabled": False,
+                    "preferred_sleep_start_minute": 0,
+                    "sleep_duration_min_minutes": 0,
+                    "sleep_duration_max_minutes": 0,
+                    "variation_minutes": 0,
+                    "config_version": 1,
+                    "schedule_local_date": "2026-09-07",
+                    "schedule_timezone": "Asia/Kuala_Lumpur",
+                    "scheduled_sleep_at": None,
+                    "scheduled_wake_at": None,
+                    "next_transition_at": None,
+                    "next_state": "",
+                    "last_transition_at": None,
+                    "last_transition_reason": "fixture",
+                },
+            )
         elif path == f"/api/deployments/{DEPLOYMENT_ID}/conversation-structure":
             fulfill(route, data["structure"])
         elif path == f"/api/deployments/{DEPLOYMENT_ID}/knowledge-gaps/{GAP_ID}/candidates":
@@ -305,6 +379,7 @@ def install_api_fixtures(page: Page, writes: list[tuple[str, dict[str, Any]]]) -
                 },
             )
         else:
+            unmatched_requests.append(f"{method} {path}")
             fulfill(route, {"detail": f"No local fixture for {method} {path}"}, status=404)
 
     page.route("**/api/**", handler)
@@ -325,6 +400,7 @@ def require_write(
 
 def run(base_url: str) -> None:
     writes: list[tuple[str, dict[str, Any]]] = []
+    unmatched_requests: list[str] = []
     console_errors: list[str] = []
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
@@ -337,7 +413,7 @@ def run(base_url: str) -> None:
                 console_errors.append(message.text) if message.type == "error" else None
             ),
         )
-        install_api_fixtures(page, writes)
+        install_api_fixtures(page, writes, unmatched_requests)
 
         page.goto(base_url, wait_until="networkidle")
         page.get_by_role("button", name="Deployments", exact=True).click()
@@ -388,9 +464,12 @@ def run(base_url: str) -> None:
         page.get_by_role("button", name="Manage belief", exact=True).click()
         belief_drawer = page.get_by_role("dialog", name="Manage belief", exact=True)
         belief_drawer.get_by_text("lives_in", exact=True).wait_for()
-        belief_drawer.get_by_label("New value", exact=True).fill("Corrected place")
-        belief_drawer.get_by_label("Reason", exact=True).fill("Confirmed in the source")
-        belief_drawer.get_by_role("button", name="Save correction", exact=True).click()
+        correction_form = belief_drawer.get_by_role("form", name="Correct belief", exact=True)
+        correction_form.get_by_role("textbox", name="New value", exact=True).fill("Corrected place")
+        correction_form.get_by_role("textbox", name="Reason", exact=True).fill(
+            "Confirmed in the source"
+        )
+        correction_form.get_by_role("button", name="Save correction", exact=True).click()
         belief_drawer.get_by_text("Corrected place", exact=True).wait_for()
         require_write(
             writes,
@@ -405,6 +484,8 @@ def run(base_url: str) -> None:
 
         if console_errors:
             raise AssertionError(f"Portal emitted console errors: {console_errors}")
+        if unmatched_requests:
+            raise AssertionError(f"Portal requested unmocked API paths: {unmatched_requests}")
         context.close()
         browser.close()
     print(

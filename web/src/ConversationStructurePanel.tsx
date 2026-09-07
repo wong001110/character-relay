@@ -967,12 +967,12 @@ export function ConversationStructurePanel({ deployments, zh, fixture }: Props) 
               <p>{zh ? "只有 authored Belief 可在这里管理；运行时会继续执行所有权与范围检查。" : "Only authored Beliefs are managed here; the runtime still enforces ownership and scope."}</p>
             ) : (
               <>
-                <form className="conversation-evidence-card" onSubmit={(event) => void submitBeliefAction(event, "correct")}>
+                <form aria-label={zh ? "更正 Belief" : "Correct belief"} className="conversation-evidence-card" onSubmit={(event) => void submitBeliefAction(event, "correct")}>
                   <strong>{zh ? "更正" : "Correct"}</strong>
-                  <FormField label={zh ? "新值" : "New value"} required><Textarea name="value_text" rows={2} defaultValue={selectedBelief.value_text} required /></FormField>
+                  <FormField htmlFor="belief-correction-value" label={zh ? "新值" : "New value"} required><Textarea id="belief-correction-value" name="value_text" rows={2} defaultValue={selectedBelief.value_text} required /></FormField>
                   <FormField label={zh ? "领域" : "Domain"}><Select name="domain" defaultValue="general"><option value="general">General</option><option value="personal">Personal</option><option value="canonical">Canonical</option></Select></FormField>
                   <FormField label={zh ? "置信度" : "Confidence"}><Input name="confidence" type="number" min="0" max="1" step="0.01" defaultValue={String(selectedBelief.confidence)} /></FormField>
-                  <FormField label={zh ? "原因" : "Reason"} required><Textarea name="reason" rows={2} required /></FormField>
+                  <FormField htmlFor="belief-correction-reason" label={zh ? "原因" : "Reason"} required><Textarea id="belief-correction-reason" name="reason" rows={2} required /></FormField>
                   <Button type="submit" size="sm" variant="primary" disabled={managementBusy}>{zh ? "保存更正" : "Save correction"}</Button>
                 </form>
                 <form className="conversation-evidence-card" onSubmit={(event) => void submitBeliefAction(event, "forget")}>
