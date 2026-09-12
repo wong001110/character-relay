@@ -2,8 +2,8 @@
 
 Semantic relevance answers whether a Character is related to a topic. This module answers a
 separate question: how is the latest group-chat message socially addressed? It is intentionally
-deterministic for common cases so profession/background relevance cannot by itself become an
-interview, accusation, challenge, or request for professional advice.
+conservative: ambiguous conversational semantics should remain revisable by the Character model
+instead of being promoted into a strong interrogation/challenge posture by a cheap heuristic.
 """
 
 from __future__ import annotations
@@ -47,6 +47,12 @@ _QUESTION = re.compile(
     r"\bwhy\b|\bwhat\b|\bhow\b|\bcan\b|\bcould\b|\bwould\b|\bshould\b)",
     re.IGNORECASE,
 )
+_GROUP_ACTION_REQUEST = re.compile(
+    r"(?:大家|各位|你们|你們|everyone|everybody|you\s+all).{0,12}"
+    r"(?:帮|幫|看看|看一下|说说|說說|聊聊|告诉|告訴|试试|試試|"
+    r"please|take\s+a\s+look|tell\s+me|share|try)",
+    re.IGNORECASE,
+)
 _CHALLENGE = re.compile(
     r"(?:不是你说|不是你說|你刚才说|你剛才說|你不是说|你不是說|怎么解释|怎麼解釋|"
     r"凭什么|憑什麼|你确定|你確定|\byou\s+said\b|\bdidn['’]?t\s+you\s+say\b|"
@@ -57,6 +63,9 @@ _ROLE_GROUP_DIRECTION = re.compile(
     r"(?:你们这些|你們這些|你们做|你們做|你们当|你們當|做.+的|当.+的|當.+的|"
     r"people\s+in|those\s+of\s+you|you\s+(?:developers|engineers|lawyers|doctors|designers))",
     re.IGNORECASE,
+)
+_QUOTED_SPAN = re.compile(
+    r'(?:"[^"\n]*"|“[^”\n]*”|「[^」\n]*」|『[^』\n]*』|‘[^’\n]*’|\'[^\'\n]*\')'
 )
 _TOKEN = re.compile(r"[\w\u3400-\u9fff]+", re.UNICODE)
 
@@ -76,23 +85,41 @@ def _role_terms(role_hint: str) -> tuple[str, ...]:
 
 
 def _name_addressed(text: str, character_name: str) -> bool:
+    """Recognize a real name address without prefix-matching longer words/names."""
+
     name = _normalize(character_name)
     if not name:
         return False
     normalized = _normalize(text)
-    position = normalized.find(name)
-    if position < 0:
+    match = re.search(
+        rf"(?<![\w\u3400-\u9fff])@?{re.escape(name)}(?![\w\u3400-\u9fff])",
+        normalized,
+        re.IGNORECASE,
+    )
+    if match is None:
         return False
-    tail = normalized[position + len(name) : position + len(name) + 4]
+    position = match.start()
+    tail = normalized[match.end() : match.end() + 4]
     head = normalized[max(0, position - 2) : position]
     # Prefer vocative punctuation/placement. A bare name embedded in a factual sentence should not
     # automatically turn ambient discussion into a direct interrogation.
-    return position == 0 or any(mark in tail for mark in (",", "，", ":", "：", "?", "？")) or "@" in head
+    return (
+        position == 0
+        or any(mark in tail for mark in (",", "，", ":", "：", "?", "？"))
+        or "@" in match.group(0)
+        or "@" in head
+    )
 
 
 def _role_relevant(text: str, role_hint: str) -> bool:
     normalized = _normalize(text)
     return any(term and term in normalized for term in _role_terms(role_hint))
+
+
+def _unquoted_text(text: str) -> str:
+    """Remove common quoted spans before applying strong conversational-act heuristics."""
+
+    return _QUOTED_SPAN.sub(" ", text)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,7 +162,10 @@ class InteractionGrounding:
                 ),
             )
         if self.interaction_type == "direct_challenge":
-            return (*common, "The latest message directly challenges or asks you to account for a prior position; respond to that challenge naturally.")
+            return (
+                *common,
+                "Visible, unquoted text appears to challenge a prior position. Respond to the visible evidence only; do not infer hostility beyond it.",
+            )
         if self.audience == "direct_character":
             return (*common, "The latest message is directly addressed to you; answer according to the visible request and your persona.")
         return (*common, "Address is ambiguous. Avoid assuming hostility, interrogation, or professional consultation without stronger evidence.")
@@ -147,10 +177,11 @@ def ground_interaction(
     character_name: str,
     role_hint: str = "",
 ) -> InteractionGrounding:
-    """Resolve common group-chat address modes without an LLM call."""
+    """Resolve high-confidence group-chat address modes without an LLM call."""
 
     text = payload.text.strip()
-    question = bool(_QUESTION.search(text))
+    unquoted_text = _unquoted_text(text)
+    question = bool(_QUESTION.search(unquoted_text))
     role_relevant = _role_relevant(text, role_hint)
     explicit_direct = bool(
         payload.mentioned_bot
@@ -158,7 +189,10 @@ def ground_interaction(
         or _name_addressed(text, character_name)
     )
     if explicit_direct:
-        challenged = bool(_CHALLENGE.search(text))
+        # Challenge is intentionally evaluated only over the speaker's own visible words. A quoted
+        # "are you sure?" should not force a defensive posture merely because the Character is the
+        # addressee of the surrounding message.
+        challenged = bool(_CHALLENGE.search(unquoted_text))
         return InteractionGrounding(
             audience="direct_character",
             interaction_type="direct_challenge" if challenged else "direct_request",
@@ -175,9 +209,7 @@ def ground_interaction(
         )
 
     # A profession/group-qualified "you all" is more specific than a generic group invitation.
-    # Resolve it first so "你們做律師的..." is grounded as role-group address rather than as a
-    # request to every participant in the room.
-    if role_relevant and _ROLE_GROUP_DIRECTION.search(text):
+    if role_relevant and _ROLE_GROUP_DIRECTION.search(unquoted_text):
         return InteractionGrounding(
             audience="role_group_directed",
             interaction_type="role_group_discussion",
@@ -189,7 +221,11 @@ def ground_interaction(
             reason="role_group_address",
         )
 
-    if _GROUP_INVITATION.search(text):
+    # A broad group word is not enough. Declarative text such as "大家都下線了" is ambient; the
+    # group must also be asked a question or receive an explicit action request.
+    if _GROUP_INVITATION.search(unquoted_text) and (
+        question or _GROUP_ACTION_REQUEST.search(unquoted_text)
+    ):
         return InteractionGrounding(
             audience="group_invited",
             interaction_type="group_request",
@@ -197,13 +233,13 @@ def ground_interaction(
             expertise_relevant=role_relevant,
             expertise_requested=bool(role_relevant and question),
             response_posture="group_participant",
-            confidence=0.94,
+            confidence=0.92,
             reason="explicit_group_invitation",
         )
 
     # A question about a relevant profession is still ambient unless the message addresses the
-    # Character or that profession group. E5/Smart Participation may decide the Character is a good
-    # participant; this layer prevents that semantic match from becoming a false direct address.
+    # Character or that profession group. Smart Participation may decide the Character is a good
+    # candidate; this layer must not promote relevance into a false direct address.
     return InteractionGrounding(
         audience="ambient",
         interaction_type="casual_discussion",
