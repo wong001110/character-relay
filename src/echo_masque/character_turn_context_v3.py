@@ -24,7 +24,6 @@ from echo_masque.belief_revision_v3 import CorrectionShield
 from echo_masque.character_turn_context_types import (
     CharacterContextTraceView,
     CharacterTurnContext,
-    KnowledgeContextOmissionTraceItem,
 )
 from echo_masque.context_resolver_v3 import ContextBundleV3, ContextResolverV3
 from echo_masque.conversation_runtime import ConversationRuntimeCoordinator
@@ -102,6 +101,8 @@ class CharacterTurnContextV3Service:
         self.structure_resolver = structure_resolver
         self.runtime_coordinator = runtime_coordinator
         self.context_resolver = context_resolver
+        # Retained for the Runtime-owned knowledge.search service. Ordinary turns no longer invoke
+        # Fabric retrieval eagerly during context assembly.
         self.knowledge_context = knowledge_context
         self.corrections = corrections
         self.entity_grounding = entity_grounding
@@ -428,7 +429,7 @@ class CharacterTurnContextV3Service:
         owner_id: str,
         deployment_characters: tuple[tuple[str, str], ...],
     ) -> ParticipationCorrectionV3Result:
-        """Apply the same idempotent current-turn correction path during planning."""
+        """Apply the same idempotent current-turn correction path for selected participants."""
 
         source_message_id = payload.message_id or (
             payload.burst_messages[-1].message_id if payload.burst_messages else "current-turn"
@@ -553,24 +554,60 @@ class CharacterTurnContextV3Service:
         return shield
 
     @staticmethod
-    def _live_context(payload: DiscordInboundMessage) -> tuple[str, ...]:
+    def _live_context(
+        payload: DiscordInboundMessage,
+        segment: ConversationSegmentView,
+    ) -> tuple[str, ...]:
+        """Keep only raw visible messages that belong to the selected Segment."""
+
+        selected_ids = set(segment.message_ids)
         values = [
             f"{item.author_display_name}: {item.text}"
             for item in payload.recent_messages
-            if item.text.strip()
+            if item.message_id in selected_ids and item.text.strip()
         ]
-        if payload.text.strip() and not any(
-            item.message_id == payload.message_id for item in payload.recent_messages
+        if (
+            payload.message_id in selected_ids
+            and payload.text.strip()
+            and not any(item.message_id == payload.message_id for item in payload.recent_messages)
         ):
             values.append(f"{payload.author_display_name}: {payload.text}")
-        return tuple(values[-30:])
+        if values:
+            return tuple(values[-8:])
+        summary = " ".join(segment.summary.split())
+        return (f"Selected conversation summary: {summary}",) if summary else ()
+
+    @classmethod
+    def _segment_query(
+        cls,
+        payload: DiscordInboundMessage,
+        segment: ConversationSegmentView,
+    ) -> str:
+        selected_ids = set(segment.message_ids)
+        values = [
+            " ".join(item.text.split())
+            for item in payload.recent_messages
+            if item.message_id in selected_ids and item.text.strip()
+        ]
+        if (
+            payload.message_id in selected_ids
+            and payload.text.strip()
+            and not any(item.message_id == payload.message_id for item in payload.recent_messages)
+        ):
+            values.append(" ".join(payload.text.split()))
+        if values:
+            return "\n".join(values)[-4000:]
+        summary = " ".join(segment.summary.split())
+        if summary:
+            return summary[:4000]
+        return " ".join(payload.text.split())[:4000]
 
     @staticmethod
     def _explicit_existing_entity_reference(text: str, name: str) -> bool:
         """Recognize only an exact reference to an already scoped Entity.
 
-        The inbound Conversation contracts do not carry Entity extraction output.  In particular,
-        this deliberately does not promote arbitrary message tokens into Entity names.  A stored
+        The inbound Conversation contracts do not carry Entity extraction output. In particular,
+        this deliberately does not promote arbitrary message tokens into Entity names. A stored
         Entity may be reused only when its canonical name or alias appears explicitly in the
         current message.
         """
@@ -622,9 +659,6 @@ class CharacterTurnContextV3Service:
         service = self.knowledge_gap_discovery
         if service is None:
             return
-        # A process may stop after marking the Gap searching but before the task can publish a
-        # terminal result. Reconcile that stale state when the scope is next observed; preserving
-        # discovery_requested prevents this recovery from becoming a per-message retry loop.
         now = datetime.now(UTC)
         try:
             service.entities.recover_stale_gap_searches(
@@ -642,9 +676,6 @@ class CharacterTurnContextV3Service:
             )
         except KeyError:
             return
-        # A previous runtime attempt owns the open Gap until Content Understanding accepts
-        # evidence or the Discovery service explicitly reopens it.  Do not re-dispatch on a
-        # repeated Character turn.
         if (
             getattr(gap, "resolution_state", "") != "unresolved"
             or bool(getattr(gap, "discovery_requested", False))
@@ -654,8 +685,6 @@ class CharacterTurnContextV3Service:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            # Synchronous callers (including narrow maintenance/test paths) have no safe task
-            # lifecycle.  The Gap remains unresolved and can be handled by a later runtime turn.
             return
 
         async def search_safely() -> None:
@@ -670,8 +699,6 @@ class CharacterTurnContextV3Service:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                # Discovery is optional and must never block context construction.  Do not log
-                # message text, candidate content, or credential-derived details here.
                 logger.warning(
                     "Knowledge Gap Discovery dispatch failed deployment=%s gap=%s",
                     resolved.deployment.id,
@@ -712,9 +739,6 @@ class CharacterTurnContextV3Service:
         )
         if not evidence_refs:
             return
-        # `recent_entities` is already owner/connection/guild scoped.  The only missing-field
-        # contract currently supported by this runtime is a provisional Entity's canonical
-        # identity; ordinary canonical records do not imply unknown fields.
         for entity in grounding.repository.recent_entities(
             owner_id=owner_id,
             connection_id=payload.connection_id,
@@ -742,7 +766,7 @@ class CharacterTurnContextV3Service:
                 self._dispatch_knowledge_gap_search(resolved=resolved, gap=result.knowledge_gap)
 
     def build(self, resolved: ResolvedCharacterTurn) -> CharacterTurnContextV3Result:
-        """Build authoritative v3 context without consulting any old context path."""
+        """Build focused v3 context; durable recall is delegated to internal read tools."""
 
         payload = resolved.payload
         deployment = resolved.deployment
@@ -764,16 +788,10 @@ class CharacterTurnContextV3Service:
                 "Interpret dates and times without an explicit timezone in this Server timezone.",
             )
             segment, conversation_thread_id = self._resolve_segment(resolved)
+            focused_live = self._live_context(payload, segment)
+            context_query = self._segment_query(payload, segment)
             self._ground_existing_entity_references(resolved=resolved, segment=segment)
             shield = self.correction_for_turn(resolved)
-            knowledge_context = self.knowledge_context.build(
-                platform=deployment.platform,
-                connection_id=payload.connection_id,
-                workspace_id=payload.guild_id,
-                deployment_id=deployment.id,
-                character_card_id=resolved.card.id,
-                query=payload.text,
-            )
             social_target_type, social_target_key = self._social_target(resolved)
             bundle = self.context_resolver.resolve(
                 owner_id=deployment.owner_id,
@@ -781,14 +799,13 @@ class CharacterTurnContextV3Service:
                 guild_id=payload.guild_id,
                 channel_id=payload.channel_id,
                 discord_thread_id=payload.thread_id,
-                query=payload.text,
+                query=context_query,
                 character_card_id=resolved.card.id,
                 deployment_id=deployment.id,
                 actor_id=payload.author_id,
                 segment_id=segment.id,
                 conversation_thread_id=conversation_thread_id,
-                live_context=self._live_context(payload),
-                knowledge_hits=knowledge_context.prompt_hits(),
+                live_context=focused_live,
                 correction_shield=shield,
                 social_target_type=social_target_type,
                 social_target_key=social_target_key,
@@ -836,45 +853,26 @@ class CharacterTurnContextV3Service:
                 error_reason=reason,
             )
 
-        query_result = knowledge_context.result
-        packed_refs = bundle.knowledge_packing.selected_refs
-        hits_by_ref = {f"evidence:{item.evidence_unit_id}": item for item in knowledge_context.hits}
-        packed_knowledge = tuple(
-            hits_by_ref[item_ref] for item_ref in packed_refs if item_ref in hits_by_ref
-        )
-        knowledge_section = next(
-            (item for item in bundle.prompt_sections() if item.startswith("KNOWLEDGE EVIDENCE\n")),
-            "",
-        )
-        if packed_knowledge:
-            rag_reason = "knowledge_fabric_prompt_packed"
-        elif knowledge_context.hits:
-            rag_reason = "knowledge_fabric_prompt_omitted"
-        else:
-            rag_reason = "knowledge_fabric_no_admitted_evidence"
         trace = CharacterContextTraceView(
-            rag_status="completed" if knowledge_context.hits else "skipped",
-            rag_reason=rag_reason,
-            query_chars=len(payload.text),
-            eligible_base_count=(query_result.accessible_corpus_count if query_result else 0),
-            candidate_chunk_count=(len(query_result.hits) if query_result else 0),
-            selected_chunk_count=len(packed_knowledge),
-            selected_knowledge_tokens=(len(knowledge_section) + 3) // 4,
-            knowledge_token_budget=(self.context_resolver.budget.knowledge_chars + 3) // 4,
-            conversation_message_count=min(30, len(payload.recent_messages) + 1),
-            conversation_chars=sum(len(item) for item in self._live_context(payload)),
+            rag_status="skipped",
+            rag_reason="internal_context_tools_on_demand",
+            query_chars=len(bundle.query),
+            eligible_base_count=0,
+            candidate_chunk_count=0,
+            selected_chunk_count=0,
+            selected_knowledge_tokens=0,
+            knowledge_token_budget=0,
+            conversation_message_count=min(30, len(focused_live)),
+            conversation_chars=sum(len(item) for item in focused_live),
             conversation_thread_id=conversation_thread_id,
-            selected_knowledge_refs=list(packed_refs),
-            knowledge_omissions=[
-                KnowledgeContextOmissionTraceItem(ref=item_ref, reason=reason)
-                for item_ref, reason in bundle.knowledge_packing.omitted
-            ],
+            selected_knowledge_refs=[],
+            knowledge_omissions=[],
         )
         return CharacterTurnContextV3Result(
             bundle=bundle,
             turn_context=CharacterTurnContext(
                 smart_output=smart_output,
-                knowledge=packed_knowledge,
+                knowledge=(),
                 trace=trace,
             ),
         )
