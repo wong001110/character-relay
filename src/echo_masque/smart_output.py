@@ -270,8 +270,12 @@ class SmartOutputContext:
         elif self.proactive_candidate:
             lines.extend(
                 (
-                    "Runtime nominated this character as a possible proactive participant, not an obligated speaker.",
-                    "Use ignore when the visible conversation is unclear, already adequately answered, off-topic for you, or you have no useful social contribution.",
+                    "Runtime nominated this character as a possible proactive participant, "
+                    "not an obligated speaker.",
+                    (
+                        "Use ignore when the visible conversation is unclear, already adequately "
+                        "answered, off-topic for you, or you have no useful social contribution."
+                    ),
                 )
             )
         else:
@@ -323,7 +327,7 @@ class SmartOutputContext:
                 '[[CR_OUTPUT {"action":"short_message","content":[{"text":"嗯。"}]}]]',
                 (
                     '[[CR_OUTPUT {"action":"message","reply_to":"trigger","content":'
-                    '[{"text":"補充一點： "},{"emoji":"e1"},'
+                    '[{"text":"補充一點: "},{"emoji":"e1"},'
                     '{"text":" "},{"mention":"p1"}]}]]'
                 ),
                 '[[CR_OUTPUT {"action":"react","target":"trigger","emoji":"e1"}]]',
