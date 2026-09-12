@@ -160,7 +160,10 @@ def test_relationship_does_not_change_candidate_score() -> None:
         signals={"relationship": 1.0},
     )
 
-    assert ParticipationPlannerV3._score(view, without_relationship) == ParticipationPlannerV3._score(
+    assert ParticipationPlannerV3._score(
+        view,
+        without_relationship,
+    ) == ParticipationPlannerV3._score(
         view,
         with_relationship,
     )
