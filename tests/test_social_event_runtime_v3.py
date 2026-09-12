@@ -114,7 +114,7 @@ def test_unresolved_semantic_interpretation_does_not_change_relationship_state()
     assert applied.relationship is None
 
 
-def test_impression_remains_available_to_character_prompt_context() -> None:
+def test_impression_remains_available_as_bounded_subjective_tone_context() -> None:
     database, _, deployment_id = _seed()
     service = SocialIntelligenceV3Service(database)
     service.revise_impression(
@@ -135,10 +135,12 @@ def test_impression_remains_available_to_character_prompt_context() -> None:
         target_key="user-1",
     )
 
-    assert any("Current impression: Responds well to direct answers." in item for item in guidance)
+    text = "\n".join(guidance)
+    assert "Subjective impression: Responds well to direct answers." in text
+    assert "does not require a reply" in text
 
 
-def test_relationship_prompt_context_uses_qualitative_posture_without_scores() -> None:
+def test_relationship_prompt_context_exposes_only_coarse_tier_and_tone_hints() -> None:
     database, _, deployment_id = _seed()
     service = SocialIntelligenceV3Service(database)
     service.record_event(
@@ -161,7 +163,10 @@ def test_relationship_prompt_context_uses_qualitative_posture_without_scores() -
     )
 
     text = "\n".join(guidance)
-    assert "Suggested social posture:" in text
+    assert "Relationship:" in text
+    assert any(tier in text for tier in ("stranger", "acquaintance", "familiar", "close"))
+    assert "tone hints:" in text
+    assert "Suggested social posture:" not in text
     assert "familiarity=" not in text
     assert "affinity=" not in text
     assert "trust=" not in text
