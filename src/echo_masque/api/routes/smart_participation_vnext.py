@@ -28,6 +28,7 @@ from echo_masque.api.smart_participation_vnext_schemas import (
     ReplyTargetRouteView,
     SmartParticipationResolveVNextView,
 )
+from echo_masque.belief_revision_v3 import CorrectionShield
 from echo_masque.character_turn_context_v3 import CharacterTurnContextV3Service
 from echo_masque.config import Settings
 from echo_masque.context_resolver_v3 import ContextBundleV3, ContextResolverV3
@@ -520,7 +521,7 @@ def resolve_smart_participation_vnext(
         for item in plan.speakers
         if item.deployment_id in record_by_id
     )
-    correction_shields: dict[str, object] = {}
+    correction_shields: dict[str, CorrectionShield] = {}
     correction_utility_used = False
     if selected_records:
         try:
@@ -588,7 +589,9 @@ def resolve_smart_participation_vnext(
         if item.deployment_id in contexts
     ]
     guidance_by_id = {item.deployment_id: item.guidance for item in plan.speakers}
-    authoritative_ids = {item.deployment_id for item in plan.speakers if item.deployment_id in contexts}
+    authoritative_ids = {
+        item.deployment_id for item in plan.speakers if item.deployment_id in contexts
+    }
     with suppress(Exception):
         _persist_reply_targets(
             payload=payload,
