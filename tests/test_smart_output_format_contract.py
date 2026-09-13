@@ -40,15 +40,15 @@ def test_compact_smart_output_prompt_requires_separate_inline_emoji_items() -> N
 
     assert "Each item must contain exactly one of: text, emoji, mention" in guidance
     assert "custom Server Emoji in message content must use an Emoji alias" in guidance
-    assert '{"text":"这句我不同意。 "},{"emoji":"e1"}' in guidance
+    assert '{"text":"補充一點： "},{"emoji":"e1"}' in guidance
     assert "Do not emit reasoning" in guidance
 
 
-def test_compact_admitted_prompt_removes_ignore_and_offers_short_message() -> None:
+def test_compact_direct_response_prompt_removes_ignore_and_offers_short_message() -> None:
     guidance = "\n".join(_context(admitted=True).prompt_guidance([]))
 
     assert "Available actions: message, short_message." in guidance
-    assert "already admitted" in guidance
+    assert "visible conversation directly expects this character to respond" in guidance
     assert "Silence/ignore is not an available action" in guidance
     assert '"action":"ignore"' not in guidance
     assert '"action":"short_message"' in guidance
