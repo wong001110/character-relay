@@ -144,14 +144,13 @@ def test_memory_search_finds_low_importance_belief_beyond_old_candidate_window()
     )
 
 
-def test_episode_recall_reaches_old_history_and_never_returns_unperceived_or_cross_scope_records(
-) -> None:
+def test_episode_recall_reaches_old_history_and_stays_on_demand_and_scoped() -> None:
     database = Database("sqlite://")
     database.initialize()
     runtime = ConversationRuntimeRepository(database)
     structure = ConversationStructureRepository(database)
     now = datetime(2026, 9, 1, tzinfo=UTC)
-    # The former thread window stopped at 100.  Aggregate Thread prose is deliberately not
+    # The former thread window stopped at 100. Aggregate Thread prose is deliberately not
     # returned at any depth because its full message provenance cannot be proven perceived.
     for index in range(101):
         structure.create_thread(
@@ -239,7 +238,7 @@ def test_episode_recall_reaches_old_history_and_never_returns_unperceived_or_cro
         deployment_id="deployment-1",
         actor_id="actor-1",
     )
-    assert [item.id for item in bundle.episodes] == [old_visible.id]
+    assert bundle.episodes == ()
 
 
 def test_episode_checkpoint_keeps_early_summary_within_the_existing_bound() -> None:
