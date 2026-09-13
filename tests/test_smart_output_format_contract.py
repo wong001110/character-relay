@@ -40,7 +40,7 @@ def test_compact_smart_output_prompt_requires_separate_inline_emoji_items() -> N
 
     assert "Each item must contain exactly one of: text, emoji, mention" in guidance
     assert "custom Server Emoji in message content must use an Emoji alias" in guidance
-    assert '{"text":"補充一點： "},{"emoji":"e1"}' in guidance
+    assert '{"text":"補充一點: "},{"emoji":"e1"}' in guidance
     assert "Do not emit reasoning" in guidance
 
 
