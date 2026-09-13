@@ -718,7 +718,7 @@ def test_selected_character_turn_uses_on_demand_knowledge_instead_of_eager_fabri
     assert result.bundle.knowledge_hits == ()
     assert result.turn_context.knowledge == ()
     assert result.turn_context.trace.rag_status == "skipped"
-    assert result.turn_context.trace.rag_reason == "on_demand_context_tools"
+    assert result.turn_context.trace.rag_reason == "internal_context_tools_on_demand"
     assert "UNTRUSTED KNOWLEDGE EVIDENCE" not in prompt
     assert "VISIBLE KNOWLEDGE" not in prompt
     assert "must-not-reach-prompt" not in prompt
