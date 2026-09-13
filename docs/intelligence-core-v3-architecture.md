@@ -1,30 +1,34 @@
 # Intelligence Core v3 Architecture Contract
 
-Status: **merged canonical architecture contract**
-Merged: PR #201, squash commit `34796457c5e110de5b09923d0ca25304a34d2f73`
+Status: **canonical architecture contract**
 
-This document is the canonical architecture contract for the merged Intelligence Core v3 hard cutover. Repository source, schemas, migrations, and tests remain authoritative for implemented details; OpenWiki is derived navigation/context.
+This document is the canonical architecture contract for Intelligence Core v3. Repository source, schemas, migrations, and tests remain authoritative for implemented details; OpenWiki is derived navigation/context.
 
 ## Goal
 
-Replace the current Topic-centric and overlapping Intelligence runtime with a smaller set of explicit authorities:
+The ordinary Character-turn path is intentionally small:
 
 ```text
 Raw Evidence
     ↓
 Conversation Structure
     ↓
-Episode
+Participation Planner (speaker + Segment)
     ↓
-Entity + Evidence Graph
-    ↓
-Belief + Social State
-    ↓
-Context Resolver
-    ↓
-Participation Planner
+Focused Context Resolver
     ↓
 Character / Tool Runtime
+```
+
+Durable interpretation and recall remain separate from that hot path:
+
+```text
+Raw Evidence → Episode / Entity / Belief / Social State
+                           ↓
+          Runtime-owned on-demand read tools
+ memory.search / conversation.search / knowledge.search
+                           ↓
+                 Character when needed
 ```
 
 Derived/behavioral loops remain separate:
@@ -50,6 +54,9 @@ External Search → turn-local evidence
 10. Media Observation is objective perception. Entity identity/association is a separate revisable relation.
 11. Planner-only hidden media information may route a turn, but cannot silently become Character perception.
 12. `unresolved` is a valid result. The runtime must not force a low-confidence identity, relation, thread membership, or social target.
+13. Relationship closeness is style context, not speaker-admission authority.
+14. A proactive Smart Participation nomination is permission to consider speaking, not an obligation to produce a visible message.
+15. The Segment selected for a turn is the authority for downstream visible conversation focus; unrelated simultaneous Burst discussion must not leak in through a second context path.
 
 ## Explicitly forbidden reintroductions
 
@@ -179,9 +186,13 @@ Episode
 
 Episode formation may be triggered by thread cooling, explicit event end, inactivity, or size checkpoint. Raw messages remain provenance truth and are never rewritten when later interpretation changes.
 
+Episodes are not automatically inserted into every Character prompt. When older conversational history is actually needed, the Runtime-owned `conversation.search` read tool performs scoped recall and applies the existing perception contract.
+
 ## Thread Working State
 
 Transient conversational state such as unresolved questions, pending upload references, current media objects, or short-lived intentions belongs in `ThreadWorkingState`. It is not durable Belief/Memory and expires or archives with the conversation line.
+
+Active, unexpired Thread Working State may enter focused turn context because it describes the currently selected conversation line rather than broad historical recall.
 
 ## Pending Action
 
@@ -235,14 +246,16 @@ Belief
 
 Author/Core Memory becomes high-authority authored Belief rather than a separate retrieval universe. Conversation-derived beliefs use lower authority based on evidence class.
 
+Beliefs are not bulk-scanned into ordinary Character turns. The Runtime-owned `memory.search` read tool performs scoped, current-status recall when the model actually needs durable remembered information.
+
 ### Current-turn belief revision
 
-Explicit correction/contradiction handling must run before final Character reply:
+Explicit correction/contradiction handling must run before final Character reply for a selected Character:
 
 ```text
-Incoming message
+Incoming selected turn
 → Correction/Contradiction Detector
-→ related Belief retrieval
+→ related Belief revision path
 → support / contradict / correct / unrelated
 → revision
 → Correction Shield
@@ -254,6 +267,8 @@ Explicit self-correction can supersede lower-authority claims immediately. Third
 Belief authority is domain-sensitive; personal self-report rules do not automatically apply to game canon or external factual domains.
 
 Evidence dependency invalidation must support cascade revision. If an image-to-entity association is rejected, beliefs whose only support depended on that association must be re-evaluated.
+
+Correction extraction/revision is not a reason to admit every Smart Participation candidate. Planning selects the Character first; Character-specific correction work is then performed only for selected participants.
 
 ## Media epistemic contract
 
@@ -273,20 +288,40 @@ Media identity relations such as `Media DEPICTS Entity` are evidence graph inter
 
 ## Context Resolver
 
-Replace scattered internal Memory/Topic/Conversation/Wiki/Knowledge routing decisions with a unified Context Resolver. It receives the selected Character/Segment/Thread/speaker/entity/media/social context and returns a bounded ContextBundle containing live context, belief hits, episode hits, entity context, knowledge hits, social context, and a knowledge sufficiency state. Character-facing Knowledge now enters through the Fabric Query/Context boundary rather than a separate Wiki-hit channel.
+The Context Resolver is a focused turn-context assembler, not a mandatory pre-generation RAG pipeline.
 
-Sufficiency states:
+For ordinary Character turns it receives the already selected Character + Segment + Thread and returns a bounded ContextBundle containing only immediate context that is justified on every turn:
+
+- raw visible messages belonging to the selected Segment (or a bounded Segment summary fallback),
+- the selected Conversation Thread and active Thread Working State,
+- current-turn Correction Shield,
+- relevant standalone Pending Action state,
+- server-time context,
+- lightweight subjective social tone context,
+- explicitly supplied evidence from a specialized caller, if any.
+
+It does **not** automatically scan and inject Beliefs, Episodes, Entities, Knowledge Fabric results, or Knowledge Gaps on every ordinary reply. Durable recall is available on demand through Runtime-owned read tools:
+
+- `memory.search` — scoped current Belief recall,
+- `conversation.search` — scoped perceived Episode/history recall,
+- `knowledge.search` — epistemically admitted Knowledge Fabric evidence.
+
+These internal tools are visible to the Character Runtime without becoming Deployment-granted side-effect authority. The selected visible conversation remains primary context; the model should call a recall tool only when older information is actually necessary.
+
+Sufficiency states remain part of the compatibility contract:
 
 - `sufficient`
 - `insufficient_nonblocking`
 - `external_lookup_needed`
 - `unresolved`
 
-Existing sparse/E5 Knowledge routing algorithms can be reused inside the resolver, but `topic.search` and Topic-scoped Memory retrieval must disappear.
+Ordinary focused context normally resolves to `sufficient`, `insufficient_nonblocking`, or `unresolved`; `external_lookup_needed` is reserved for an explicit specialized path rather than being inferred from an automatically scanned Knowledge Gap.
+
+`topic.search` and Topic-scoped Memory retrieval remain forbidden.
 
 ## Social Intelligence
 
-Keep the dedicated Social Model.
+Keep the dedicated Social Model and its evidence/provenance, but separate stored detail from provider-visible chat behavior.
 
 ### Canonical Relationship
 
@@ -294,9 +329,20 @@ Author-controlled Character Relationship Prior is immutable to ordinary chat. Ca
 
 ### Lived Relationship State
 
-Keep directional familiarity, affinity, trust, and comfort with baseline + delta + decay. Support Character→user (`actor`) and Character→Character (`deployment`).
+Directional familiarity, affinity, trust, and comfort may remain internally persisted with baseline + delta + decay for compatibility, evidence history, and future analysis. Support Character→user (`actor`) and Character→Character (`deployment`).
 
-Do not update Relationship merely because Smart Participation admitted a Character. Actual interpreted Social Events provide evidence.
+Ordinary Character prompts must **not** expose the multidimensional score model as a decision system. Project it to a coarse relationship tier:
+
+- `stranger`
+- `acquaintance`
+- `familiar`
+- `close`
+
+and at most a few bounded tone hints such as warm, reserved, relaxed, measured, or cautious.
+
+Relationship state must not increase Smart Participation admission probability, select a Segment, create factual Memory, or obligate a reply. It only influences style after participation has independently been justified.
+
+Do not update Relationship merely because Smart Participation nominated or admitted a Character. Actual interpreted Social Events provide evidence.
 
 ### SocialEvent
 
@@ -306,7 +352,7 @@ Address target and semantic target must be resolved separately before durable so
 
 ### Impression
 
-Person Impression remains directional subjective interpretation, not factual Belief. Add version/supersession/provenance semantics and inject relevant Impression into live Character context for both bot→user and bot→bot turns.
+Person Impression remains directional subjective interpretation, not factual Belief. Keep version/supersession/provenance semantics. Ordinary live context may include at most a short high-confidence subjective impression, explicitly labeled as subjective tone context rather than canon.
 
 Remove the legacy scalar `CharacterLearnedState.relationship`; Relationship truth belongs only to Social Intelligence.
 
@@ -316,7 +362,24 @@ Retain decaying behavioral signals such as interest, expertise, stance, salience
 
 ## Participation Planner
 
-Consolidate overlapping speaker/admission/segment-selection responsibilities into a bounded Participation Planner. It decides which eligible Character participates, which Segment is targeted, non-binding guidance, and reply grounding. It may use direct address, segment relevance, relationship/social context, interest, fatigue, conversation ownership, and media dependency as evidence.
+The bounded Participation Planner decides which eligible Character may participate and which Segment is targeted before Character-specific context recall.
+
+Admission evidence may include:
+
+- direct address / explicit mention,
+- immediate conversational continuation,
+- strong semantic relevance between the Character profile and the candidate Segment,
+- bounded behavior/conversation-ownership signals,
+- participation fatigue,
+- media dependency and epistemic grounding.
+
+Relationship closeness and Impression are **not** participation evidence.
+
+For proactive participation, the mere existence of an active discussion is insufficient. The planner requires actual Segment relevance rather than a generic baseline score. Direct-address/continuation evidence may select the current Segment even without a strong semantic profile match.
+
+Planner admission remains a nomination. Smart Output may still choose `ignore` for a proactive candidate when the final visible context is unclear, already adequately answered, off-topic, or does not warrant a useful contribution. Explicit mention/reply and an active interaction session retain their visible-response obligation.
+
+The Segment chosen by the planner must be reused by downstream context resolution. A second independent “current segment” calculation must not silently switch the model to another simultaneous discussion.
 
 Character final visible behavior remains controlled by the Character runtime/model within deterministic safety/runtime authority.
 
@@ -324,7 +387,7 @@ Character final visible behavior remains controlled by the Character runtime/mod
 
 Deployment Discovery remains autonomous curiosity/content discovery. It is not a fallback for current-turn factual lookup. Rewire Discovery seeds away from Topic and toward recent Entities, Threads, Episodes, Behavior State interests, and Character definition priors.
 
-Existing Web/Image Search tools serve current-turn epistemic need when Context Resolver reports insufficient internal knowledge and the required external Tool is available.
+Existing Web/Image Search tools serve current-turn epistemic need when they are assigned/available and the Character determines that fresh external evidence is actually required. Ordinary Context Resolver construction does not need to pre-classify every turn as an external lookup before the model can use an authorized read tool.
 
 ## Projection Layer and Wiki compatibility
 
@@ -335,6 +398,8 @@ Fabric Projections are materialized readable caches with explicit SourceVersion/
 No shadow mode, Topic fallback, compatibility UI, or dual runtime.
 
 Preserve useful raw evidence, Episodes where still meaningful, media, authored Memory meaning/evidence, Relationship priors/state/impressions, and Behavior evidence. Do not migrate old Topic identity or Topic-message/Topic-Episode/Topic-Wiki associations into new Threads.
+
+This conversation-core simplification is deliberately non-destructive: existing Belief/Episode/Relationship data remains persisted and queryable. The hot path stops eagerly injecting it; no destructive schema migration is required.
 
 New Conversation Threads begin from the cutover runtime.
 

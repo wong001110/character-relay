@@ -12,14 +12,20 @@ not an Episode, Belief, or replacement for source evidence.
 Episodes describe what happened and Beliefs describe what is currently believed. Both retain their
 own provenance and revision history. Archiving scratch never deletes or rewrites either one.
 
+Ordinary Character turns do not bulk-inject durable Beliefs or Episodes. The selected conversation
+line and active Thread Working State form the default live context. When older information is
+actually needed, Runtime-owned read tools perform scoped recall: `memory.search` for current
+Beliefs and `conversation.search` for perceived Episodes/history. Removing a durable item from the
+ordinary prompt does not delete or weaken its provenance or owner-management lifecycle.
+
 ## Retention matrix
 
 | Record | Current lifecycle | Prompt/recall eligibility | Deployment deletion | Account deletion |
 | --- | --- | --- | --- | --- |
-| `ThreadWorkingState` | Active scratch expires after six hours; expiry or checkpoint archives it. Archived records remain derived lifecycle history. | Only active and unexpired state can enter `ContextResolverV3`. | Unchanged; deleting a deployment removes delivery configuration, not server/thread source state. | Deleted with the Intelligence v3 owner lifecycle. |
-| `ConversationEpisode` | Active Episodes close on inactivity (30 minutes) or explicit/size checkpoints. Closed Episode provenance remains durable. | Episode retrieval remains separately scope and perception checked. | Unchanged; an Episode can record a server conversation independently of a deployment's current delivery target. | Deleted with the Intelligence v3 owner lifecycle. |
-| `Belief` | Active/provisional/disputed claims are revisable. Superseded, rejected, and expired versions remain history. | Only current, valid claims are eligible; rejected/superseded/expired records do not become current facts. | Unchanged; a scoped Belief is not silently destroyed when a deployment is removed. | Deleted with the Intelligence v3 owner lifecycle. |
-| Raw message/media evidence | Source provenance, outside derived scratch cleanup. | Recalled only through existing scoped/perception contracts. | Unchanged. | Governed by its owning source/account lifecycle, not this maintenance service. |
+| `ThreadWorkingState` | Active scratch expires after six hours; expiry or checkpoint archives it. Archived records remain derived lifecycle history. | Only active and unexpired state can enter focused `ContextResolverV3` context. | Unchanged; deleting a deployment removes delivery configuration, not server/thread source state. | Deleted with the Intelligence v3 owner lifecycle. |
+| `ConversationEpisode` | Active Episodes close on inactivity (30 minutes) or explicit/size checkpoints. Closed Episode provenance remains durable. | Recalled on demand through `conversation.search`, with the existing scope and Character-perception checks. It is not injected into every ordinary Character turn. | Unchanged; an Episode can record a server conversation independently of a deployment's current delivery target. | Deleted with the Intelligence v3 owner lifecycle. |
+| `Belief` | Active/provisional/disputed claims are revisable. Superseded, rejected, and expired versions remain history. | Only current, valid claims are eligible for scoped `memory.search`; rejected/superseded/expired records do not become current facts. Beliefs are not bulk-injected into ordinary turns. | Unchanged; a scoped Belief is not silently destroyed when a deployment is removed. | Deleted with the Intelligence v3 owner lifecycle. |
+| Raw message/media evidence | Source provenance, outside derived scratch cleanup. | Immediate selected-Segment evidence may enter focused turn context; older history is recalled only through scoped runtime paths. | Unchanged. | Governed by its owning source/account lifecycle, not this maintenance service. |
 
 The stated deployment behavior is deliberately non-destructive. A future product decision to
 purge a Character × server scope needs an explicit impact preview and a dedicated lifecycle path;

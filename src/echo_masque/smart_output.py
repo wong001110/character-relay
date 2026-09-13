@@ -47,13 +47,17 @@ def _expression_aliases(
 
 
 def _payload_requires_visible_action(payload: DiscordInboundMessage) -> bool:
-    """Return whether Runtime has already admitted this Character for the turn."""
+    """Return whether the conversation directly expects this Character to answer.
+
+    Smart Participation is only a nomination signal. A proactive candidate must retain the option
+    to stay silent after seeing the final conversation context; explicit mentions, replies, and an
+    active interaction session still require a visible response.
+    """
 
     return bool(
         getattr(payload, "interaction_session_id", "")
         or getattr(payload, "mentioned_bot", False)
         or getattr(payload, "replied_to_bot", False)
-        or getattr(payload, "smart_candidate", False)
     )
 
 
@@ -151,6 +155,7 @@ class SmartOutputContext:
     participant_alias_descriptions: tuple[str, ...]
     invite_turn_token: str | None = None
     participation_required: bool = False
+    proactive_candidate: bool = False
 
     @classmethod
     def from_payload(
@@ -222,6 +227,7 @@ class SmartOutputContext:
             participant_alias_descriptions=tuple(descriptions),
             invite_turn_token=invite_turn_token,
             participation_required=_payload_requires_visible_action(payload),
+            proactive_candidate=bool(getattr(payload, "smart_candidate", False)),
         )
 
     def message_alias(self, message_id: str) -> str:
@@ -257,8 +263,19 @@ class SmartOutputContext:
         if self.participation_required:
             lines.extend(
                 (
-                    "Runtime has already admitted this character for this turn.",
+                    "The visible conversation directly expects this character to respond.",
                     "Produce one visible social action. Silence/ignore is not an available action.",
+                )
+            )
+        elif self.proactive_candidate:
+            lines.extend(
+                (
+                    "Runtime nominated this character as a possible proactive participant, "
+                    "not an obligated speaker.",
+                    (
+                        "Use ignore when the visible conversation is unclear, already adequately "
+                        "answered, off-topic for you, or you have no useful social contribution."
+                    ),
                 )
             )
         else:
@@ -305,12 +322,12 @@ class SmartOutputContext:
                 "Examples (copy the shape, not unavailable sample aliases):",
                 (
                     '[[CR_OUTPUT {"action":"message","content":'
-                    '[{"text":"你 😂 真的认真的?"}]}]]'
+                    '[{"text":"我懂你的意思。"}]}]]'
                 ),
-                '[[CR_OUTPUT {"action":"short_message","content":[{"text":"哈?"}]}]]',
+                '[[CR_OUTPUT {"action":"short_message","content":[{"text":"嗯。"}]}]]',
                 (
                     '[[CR_OUTPUT {"action":"message","reply_to":"trigger","content":'
-                    '[{"text":"这句我不同意。 "},{"emoji":"e1"},'
+                    '[{"text":"補充一點: "},{"emoji":"e1"},'
                     '{"text":" "},{"mention":"p1"}]}]]'
                 ),
                 '[[CR_OUTPUT {"action":"react","target":"trigger","emoji":"e1"}]]',
