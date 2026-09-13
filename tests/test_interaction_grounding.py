@@ -81,3 +81,49 @@ def test_explicit_group_invitation_is_group_request() -> None:
     assert result.audience == "group_invited"
     assert result.interaction_type == "group_request"
     assert result.directed_at_character is False
+
+
+def test_longer_name_prefix_does_not_address_character() -> None:
+    result = ground_interaction(
+        payload=_payload("Annabelle 今天沒有上線。"),
+        character_name="Ann",
+        role_hint="",
+    )
+
+    assert result.audience == "ambient"
+    assert result.directed_at_character is False
+    assert result.interaction_type == "casual_discussion"
+
+
+def test_quoted_challenge_does_not_force_challenge_posture() -> None:
+    result = ground_interaction(
+        payload=_payload("Ann，他剛才問我「你確定嗎」，我覺得很好笑。"),
+        character_name="Ann",
+        role_hint="",
+    )
+
+    assert result.audience == "direct_character"
+    assert result.interaction_type == "direct_request"
+    assert result.response_posture == "informed_response"
+
+
+def test_declarative_group_reference_is_not_group_request() -> None:
+    result = ground_interaction(
+        payload=_payload("大家都下線了，我也準備睡了。"),
+        character_name="Ann",
+        role_hint="",
+    )
+
+    assert result.audience == "ambient"
+    assert result.interaction_type == "casual_discussion"
+
+
+def test_group_imperative_without_question_mark_remains_group_request() -> None:
+    result = ground_interaction(
+        payload=_payload("大家幫我看一下這個版本。"),
+        character_name="Ann",
+        role_hint="",
+    )
+
+    assert result.audience == "group_invited"
+    assert result.interaction_type == "group_request"

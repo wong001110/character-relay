@@ -196,28 +196,47 @@ def test_ignore_remains_valid_for_non_admitted_legacy_context() -> None:
     assert output.action == "ignore"
 
 
-def test_admitted_turn_rejects_ignore_and_prompt_does_not_offer_it() -> None:
+def test_proactive_smart_candidate_can_choose_ignore() -> None:
     context = SmartOutputContext.from_payload(payload(admitted=True), character_name="Ann")
     guidance = "\n".join(context.prompt_guidance([]))
 
-    assert context.participation_required is True
-    assert "Silence/ignore is not an available action" in guidance
-    assert '"action":"ignore"' not in guidance
-    assert "Available actions: message, short_message." in guidance
+    assert context.proactive_candidate is True
+    assert context.participation_required is False
+    assert "possible proactive participant, not an obligated speaker" in guidance
+    assert '"action":"ignore"' in guidance
 
     output, reason = context.parse_and_resolve('[[CR_OUTPUT {"action":"ignore"}]]', [])
-    assert output is None
-    assert reason == "admitted_turn_requires_visible_action"
+    assert reason == "ok"
+    assert output is not None
+    assert output.action == "ignore"
 
 
-def test_explicit_mention_and_reply_are_direct_admission_signals() -> None:
-    mentioned = payload()
+def test_explicit_mention_and_reply_still_require_visible_action() -> None:
+    mentioned = payload(admitted=True)
     mentioned.mentioned_bot = True
-    replied = payload()
+    replied = payload(admitted=True)
     replied.replied_to_bot = True
 
-    assert SmartOutputContext.from_payload(mentioned, character_name="Ann").participation_required
-    assert SmartOutputContext.from_payload(replied, character_name="Ann").participation_required
+    mentioned_context = SmartOutputContext.from_payload(mentioned, character_name="Ann")
+    replied_context = SmartOutputContext.from_payload(replied, character_name="Ann")
+
+    assert mentioned_context.participation_required is True
+    assert replied_context.participation_required is True
+    for context in (mentioned_context, replied_context):
+        guidance = "\n".join(context.prompt_guidance([]))
+        assert "Silence/ignore is not an available action" in guidance
+        assert '"action":"ignore"' not in guidance
+        output, reason = context.parse_and_resolve('[[CR_OUTPUT {"action":"ignore"}]]', [])
+        assert output is None
+        assert reason == "admitted_turn_requires_visible_action"
+
+
+def test_interaction_session_still_requires_visible_action() -> None:
+    active = payload(admitted=True)
+    active.interaction_session_id = "session-1"
+    context = SmartOutputContext.from_payload(active, character_name="Ann")
+
+    assert context.participation_required is True
 
 
 def test_terminal_control_recovers_provider_prose_and_one_missing_bracket() -> None:

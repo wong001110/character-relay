@@ -1,4 +1,10 @@
-"""Unified bounded Context Resolver for Intelligence Core v3."""
+"""Focused Context Resolver for Intelligence Core v3.
+
+Ordinary Character turns receive the selected conversation line, transient working state,
+correction/pending-action context and lightweight social tone. Durable Belief, Episode and
+Knowledge recall remains available through Runtime-owned internal search tools instead of being
+bulk-injected before every reply.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +12,7 @@ import json
 from dataclasses import dataclass
 from typing import Literal
 
-from echo_masque.belief_revision_v3 import BeliefRevisionService, CorrectionShield
-from echo_masque.expression_retrieval import semantic_tokens
+from echo_masque.belief_revision_v3 import CorrectionShield
 from echo_masque.persistence.belief_repository import BeliefRepository, BeliefV3View
 from echo_masque.persistence.conversation_runtime_repository import (
     ConversationEpisodeV3View,
@@ -46,7 +51,7 @@ class ContextTextHit:
 
 @dataclass(frozen=True, slots=True)
 class KnowledgePackingResult:
-    """Final Knowledge Fabric admission after prompt-budget packing."""
+    """Final explicit Knowledge Fabric admission after prompt-budget packing."""
 
     selected_refs: tuple[str, ...] = ()
     omitted: tuple[tuple[str, str], ...] = ()
@@ -54,12 +59,12 @@ class KnowledgePackingResult:
 
 @dataclass(frozen=True, slots=True)
 class ContextBudget:
-    live_chars: int = 2400
-    belief_chars: int = 2200
-    episode_chars: int = 1800
-    entity_chars: int = 1600
+    live_chars: int = 2200
+    belief_chars: int = 2200  # compatibility budget for explicit/specialized callers
+    episode_chars: int = 1800  # compatibility budget for explicit/specialized callers
+    entity_chars: int = 1600  # compatibility budget for explicit/specialized callers
     knowledge_chars: int = 2600
-    social_chars: int = 900
+    social_chars: int = 360
     action_chars: int = 800
 
 
@@ -108,6 +113,9 @@ class ContextBundleV3:
                 sections.append("THREAD WORKING STATE\n" + "\n".join(values))
         if self.live_context:
             sections.append("LIVE CONTEXT\n" + "\n".join(self.live_context))
+        # The fields below remain part of the bundle contract for specialized callers and
+        # backwards-compatible observability. Ordinary chat resolution leaves them empty and
+        # relies on memory.search / conversation.search / knowledge.search on demand.
         if self.beliefs:
             lines: list[str] = []
             for belief in self.beliefs:
@@ -162,7 +170,7 @@ class ContextBundleV3:
 
 
 class ContextResolverV3:
-    """Select runtime context across conversation, knowledge, and social state."""
+    """Resolve only immediate context; durable recall is model-initiated through read tools."""
 
     def __init__(
         self,
@@ -177,6 +185,8 @@ class ContextResolverV3:
     ) -> None:
         self.structure = structure
         self.runtime = runtime
+        # Retained as injected dependencies because specialized/internal search services share the
+        # same repositories. Ordinary resolve() deliberately does not scan them.
         self.entities = entities
         self.beliefs = beliefs
         self.social = social
@@ -190,6 +200,8 @@ class ContextResolverV3:
         deployment_id: str,
         episode: ConversationEpisodeV3View,
     ) -> bool:
+        """Compatibility helper used by callers that explicitly work with Episode recall."""
+
         if not deployment_id:
             return False
         return any(
@@ -227,8 +239,6 @@ class ContextResolverV3:
             compact = " ".join(item.text.split())
             if not compact or remaining <= 0:
                 continue
-            # Knowledge evidence has a closing trust boundary. Omitting an oversized hit is
-            # fail-closed; truncating it could remove that boundary while leaving its data.
             if len(compact) > remaining:
                 continue
             result.append(ContextTextHit(item.source, item.ref, compact, item.score))
@@ -308,8 +318,6 @@ class ContextResolverV3:
     ) -> tuple[tuple[ContextTextHit, ...], KnowledgePackingResult]:
         selected: list[ContextTextHit] = []
         omitted: list[tuple[str, str]] = []
-        # ``prompt_sections`` adds this heading plus one source label per hit.  Account for
-        # those trusted wrapper characters here so the evidence budget is a true section cap.
         remaining = max(0, limit - len("KNOWLEDGE EVIDENCE\n"))
         for item in sorted(values, key=lambda value: value.score, reverse=True):
             if not item.text or remaining <= 0:
@@ -365,6 +373,14 @@ class ContextResolverV3:
         social_target_key: str = "",
         temporal_context: tuple[str, ...] = (),
     ) -> ContextBundleV3:
+        """Resolve immediate turn context without eager durable-memory scans.
+
+        ``knowledge_hits`` is retained for specialized callers that have already made an explicit
+        epistemic decision. Ordinary Character turns pass no hits and use internal read tools when
+        older Memory, Episodes, or Fabric evidence becomes necessary.
+        """
+
+        del channel_id, discord_thread_id, character_card_id  # scope already enforced by callers
         segment: ConversationSegmentView | None = None
         if segment_id:
             recent_segments = self.structure.recent_segments(
@@ -402,76 +418,6 @@ class ContextResolverV3:
             if thread_id
             else None
         )
-        subject_refs = (actor_id,) if actor_id else ()
-        query_compact = " ".join(query.split())[:4000]
-        recalled = self.beliefs.search_relevant(
-            owner_id=owner_id,
-            connection_id=connection_id,
-            guild_id=guild_id,
-            character_card_id=character_card_id,
-            subject_refs=subject_refs,
-            query_terms=tuple(semantic_tokens(query_compact)),
-            limit=60,
-        )
-        shield = correction_shield or CorrectionShield((), "", "")
-        recalled = BeliefRevisionService.apply_shield(recalled, shield)
-        belief_values: list[BeliefV3View] = []
-        belief_remaining = self.budget.belief_chars
-        for belief in recalled:
-            cost = len(belief.value_text) + len(belief.predicate) + len(belief.subject_ref) + 16
-            if cost > belief_remaining and belief_values:
-                continue
-            belief_values.append(belief)
-            belief_remaining -= min(cost, belief_remaining)
-            if belief_remaining <= 0:
-                break
-        episodes = self.runtime.search_episodes(
-            owner_id=owner_id,
-            connection_id=connection_id,
-            guild_id=guild_id,
-            query_terms=tuple(semantic_tokens(query_compact)),
-            limit=240,
-        )
-        episode_values: list[ConversationEpisodeV3View] = []
-        episode_remaining = self.budget.episode_chars
-        for episode in episodes:
-            if not self._episode_was_perceived(
-                connection_id=connection_id,
-                deployment_id=deployment_id,
-                episode=episode,
-            ):
-                continue
-            if thread_id and episode.conversation_thread_id not in {"", thread_id}:
-                continue
-            cost = len(episode.summary)
-            if cost > episode_remaining and episode_values:
-                continue
-            episode_values.append(episode)
-            episode_remaining -= min(cost, episode_remaining)
-            if episode_remaining <= 0:
-                break
-        entities = self.entities.recent_entities(
-            owner_id=owner_id,
-            connection_id=connection_id,
-            guild_id=guild_id,
-            limit=30,
-        )
-        active_ids = set(thread.active_entity_ids if thread is not None else ())
-        if working is not None:
-            active_ids.update(working.active_entity_ids)
-        if active_ids:
-            entities = tuple(item for item in entities if item.id in active_ids) or entities[:8]
-        else:
-            entities = entities[:8]
-        gaps = self.entities.unresolved_gaps(
-            owner_id=owner_id,
-            connection_id=connection_id,
-            guild_id=guild_id,
-            minimum_importance=0.55,
-            limit=16,
-        )
-        if active_ids:
-            gaps = tuple(item for item in gaps if item.entity_id in active_ids)
         pending = self.runtime.active_pending_actions(
             owner_id=owner_id,
             connection_id=connection_id,
@@ -497,38 +443,31 @@ class ContextResolverV3:
             knowledge_hits,
             self.budget.knowledge_chars,
         )
+        query_compact = " ".join(query.split())[:4000]
+        shield = correction_shield or CorrectionShield((), "", "")
         unresolved_segment = bool(
             segment is not None
             and segment.membership_relation == "unresolved"
             and not segment.thread_id
         )
-        blocking_gap = bool(
-            gaps
-            and any(item.importance >= 0.75 for item in gaps)
-            and ("?" in query_compact or "\uff1f" in query_compact)
-        )
         if unresolved_segment:
             sufficiency: SufficiencyState = "unresolved"
             reason = "conversation_membership_unresolved"
-        elif blocking_gap and not bounded_knowledge:
-            sufficiency = "external_lookup_needed"
-            reason = "high_importance_entity_knowledge_gap"
         elif not any(
             (
                 bounded_live,
-                belief_values,
-                episode_values,
-                entities,
+                thread,
+                working,
                 bounded_knowledge,
                 social_context,
                 pending,
             )
         ):
             sufficiency = "insufficient_nonblocking"
-            reason = "no_relevant_context"
+            reason = "no_immediate_context"
         else:
             sufficiency = "sufficient"
-            reason = "bounded_context_ready"
+            reason = "focused_context_ready"
 
         return ContextBundleV3(
             query=query_compact,
@@ -536,13 +475,13 @@ class ContextResolverV3:
             segment=segment,
             working_state=working,
             live_context=bounded_live,
-            beliefs=tuple(belief_values),
-            episodes=tuple(episode_values),
-            entities=entities,
+            beliefs=(),
+            episodes=(),
+            entities=(),
             knowledge_hits=bounded_knowledge,
             social_context=social_context,
             pending_actions=pending,
-            knowledge_gaps=gaps,
+            knowledge_gaps=(),
             correction_notice=shield.notice,
             sufficiency=sufficiency,
             reason=reason,

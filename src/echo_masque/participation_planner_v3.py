@@ -1,4 +1,4 @@
-"""Unified Participation Planner v3 with Segment targeting and media epistemic grounding."""
+"""Conservative Participation Planner v3 with Segment targeting and media grounding."""
 
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ _PREVIEW_STATES = {
     "preview_grounded",
     "thumbnail",
 }
+_PROACTIVE_SEGMENT_RELEVANCE_FLOOR = 0.76
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,10 +97,8 @@ class MediaEpistemicContract:
             )
         content = tuple(item for item in descriptors if self._state(item) in _CONTENT_STATES)
         if content:
-            # These descriptors come from the planner-only media endpoint. They may affect
-            # candidate routing, but they are not evidence that the eventual Character has
-            # inspected the media. Character perception is established later by the Runtime
-            # media-inspection path and must never be asserted by this pre-generation plan.
+            # Planner media analysis is routing-only. Character perception is established later
+            # by the Runtime media path and cannot be asserted here.
             if payload.media_dependency == "required":
                 return MediaGroundingDecision(
                     "context_only",
@@ -150,7 +149,7 @@ class MediaEpistemicContract:
 
 
 class ParticipationPlannerV3:
-    """Own final speaker admission, primary Segment selection, and reply grounding."""
+    """Own final speaker admission and Segment selection without social-score promotion."""
 
     def __init__(
         self,
@@ -171,8 +170,9 @@ class ParticipationPlannerV3:
         candidate: SmartParticipationResolveCandidateView,
         requested: SmartParticipationResolveCandidate,
     ) -> float:
+        """Rank eligible candidates using topic/turn evidence, never relationship closeness."""
+
         score = float(candidate.final_evidence_score)
-        score += cls._bounded_signal(requested, "relationship")
         score += cls._bounded_signal(requested, "behavior") * 0.5
         score += cls._bounded_signal(requested, "conversation_ownership") * 0.5
         score -= cls._bounded_signal(requested, "participation_fatigue")
@@ -181,11 +181,32 @@ class ParticipationPlannerV3:
     @staticmethod
     def _direct_pressure(signals: dict[str, float]) -> float:
         return max(
-            float(signals.get("name_match", 0.0)),
-            float(signals.get("recent_turn_match", 0.0)),
-            float(signals.get("lightweight_follow_up", 0.0)),
-            float(signals.get("trigger_phrase", 0.0)),
+            max(0.0, min(1.0, float(signals.get("name_match", 0.0)))),
+            max(0.0, min(1.0, float(signals.get("recent_turn_match", 0.0)))),
+            max(0.0, min(1.0, float(signals.get("lightweight_follow_up", 0.0)))),
+            max(0.0, min(1.0, float(signals.get("trigger_phrase", 0.0)))),
         )
+
+    def _segment_relevance(
+        self,
+        *,
+        deployment: CharacterDeploymentRecord,
+        segment: ConversationSegmentView,
+    ) -> float:
+        if not segment.summary.strip() or not self.semantic.enabled:
+            return 0.0
+        try:
+            _, _, semantic_scores = self.semantic.score(
+                message=segment.summary,
+                deployments=[
+                    (deployment.id, deployment.owner_id, deployment.character_card_id)
+                ],
+            )
+        except (SemanticEmbeddingUnavailable, KeyError, ValueError, RuntimeError):
+            return 0.0
+        if not semantic_scores or not semantic_scores[0].profile_ready:
+            return 0.0
+        return max(0.0, min(1.0, float(semantic_scores[0].relevance)))
 
     def _select_segment(
         self,
@@ -210,28 +231,29 @@ class ParticipationPlannerV3:
         candidates = direct_segments or segments
         scores: list[tuple[float, ConversationSegmentView]] = []
         for segment in candidates:
-            score = 0.05 if segment.kind in {"reaction", "side_comment"} else 0.20
+            semantic_relevance = self._segment_relevance(
+                deployment=deployment,
+                segment=segment,
+            )
             if direct_segments:
-                score += min(0.55, direct_pressure / 10.0)
-            if segment.summary.strip() and self.semantic.enabled:
-                try:
-                    _, _, semantic_scores = self.semantic.score(
-                        message=segment.summary,
-                        deployments=[
-                            (deployment.id, deployment.owner_id, deployment.character_card_id)
-                        ],
-                    )
-                    if semantic_scores and semantic_scores[0].profile_ready:
-                        score += max(0.0, semantic_scores[0].relevance)
-                except (SemanticEmbeddingUnavailable, KeyError, ValueError, RuntimeError):
-                    pass
-            if segment.thread_evidence:
-                score += 0.05
+                # Explicit address / immediate continuity is enough to target the current Segment.
+                score = 1.0 + direct_pressure * 0.5 + semantic_relevance * 0.25
+            else:
+                # Proactive participation requires actual semantic evidence for this Segment.
+                # Generic activity, relationship closeness, or the mere existence of a discussion
+                # is not sufficient evidence to interrupt it.
+                if semantic_relevance < _PROACTIVE_SEGMENT_RELEVANCE_FLOOR:
+                    continue
+                score = semantic_relevance
+                if segment.thread_evidence:
+                    score += 0.05
+            if segment.kind in {"reaction", "side_comment"}:
+                score -= 0.08
             scores.append((score, segment))
-        scores.sort(key=lambda item: item[0], reverse=True)
-        value, selected = scores[0]
-        if value < 0.12:
+        if not scores:
             return None
+        scores.sort(key=lambda item: item[0], reverse=True)
+        _value, selected = scores[0]
         summary = " ".join(selected.summary.split())[:150]
         return _SegmentTarget(
             segment_id=selected.id,
@@ -249,8 +271,11 @@ class ParticipationPlannerV3:
         deployments: tuple[CharacterDeploymentRecord, ...],
         candidate_views: tuple[SmartParticipationResolveCandidateView, ...],
         segments: tuple[ConversationSegmentView, ...],
-        context_by_deployment: dict[str, ContextBundleV3],
+        context_by_deployment: dict[str, ContextBundleV3] | None = None,
     ) -> ParticipationPlanV3:
+        """Plan speakers before context recall; context is not an admission authority."""
+
+        del context_by_deployment  # Compatibility input; deliberately not used for admission.
         grounding = self.media_contract.resolve(payload)
         if not grounding.can_reply:
             return ParticipationPlanV3(
@@ -284,9 +309,6 @@ class ParticipationPlannerV3:
             if chosen is None:
                 continue
             guidance_parts = [chosen.guidance]
-            context = context_by_deployment.get(candidate.deployment_id)
-            if context is not None and context.social_context:
-                guidance_parts.append(" ".join(context.social_context)[:600])
             if grounding.guidance:
                 guidance_parts.append(grounding.guidance)
             selected.append(

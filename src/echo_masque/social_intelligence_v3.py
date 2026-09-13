@@ -61,18 +61,42 @@ def _encode(values: tuple[str, ...], *, limit: int = 32) -> str:
     return json.dumps(clean, ensure_ascii=False)
 
 
-def _social_posture(state: RelationshipStateView) -> str:
-    """Render relationship state as a bounded social cue, never as prompt-visible scores."""
+def _relationship_tier(state: RelationshipStateView) -> str:
+    """Project detailed stored state into one coarse provider-visible relationship tier."""
 
-    familiarity = "newly acquainted" if state.familiarity < 0.3 else "familiar"
-    if state.familiarity >= 0.7:
-        familiarity = "well acquainted"
-    warmth = "reserved" if state.affinity < 0.35 else "warm"
-    if state.affinity >= 0.7:
-        warmth = "very warm"
-    trust = "careful" if state.trust < 0.35 else "open"
-    comfort = "keep some distance" if state.comfort < 0.35 else "easygoing"
-    return f"{familiarity}; {warmth}; {trust}; {comfort}."
+    familiarity = float(state.familiarity)
+    if familiarity < 0.18:
+        return "stranger"
+    if familiarity < 0.45:
+        return "acquaintance"
+    if familiarity < 0.75:
+        return "familiar"
+    return "close"
+
+
+def _tone_hints(state: RelationshipStateView) -> tuple[str, ...]:
+    """Return at most two small style hints; these never authorize participation or facts."""
+
+    hints: list[str] = []
+    if state.affinity >= 0.68:
+        hints.append("warm")
+    elif state.affinity < 0.30:
+        hints.append("reserved")
+    if state.comfort >= 0.68:
+        hints.append("relaxed")
+    elif state.comfort < 0.30:
+        hints.append("measured")
+    if state.trust < 0.30 and "measured" not in hints:
+        hints.append("cautious")
+    return tuple(hints[:2])
+
+
+def _social_posture(state: RelationshipStateView) -> str:
+    """Render only a coarse relationship tier and bounded tone hints."""
+
+    tier = _relationship_tier(state)
+    hints = _tone_hints(state)
+    return f"{tier}; tone hints: {', '.join(hints) if hints else 'neutral'}."
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,7 +143,7 @@ class SocialEventApplication:
 
 
 class SocialIntelligenceV3Service:
-    """Only lived, target-resolved interaction evidence can change relationship state."""
+    """Store social evidence, but expose only lightweight tone context to ordinary chat."""
 
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -315,9 +339,6 @@ class SocialIntelligenceV3Service:
             if record is None or record.owner_id != owner_id:
                 raise KeyError("Social Event not found.")
             if record.status == "active":
-                # Relationship state is evidence-accumulated and decaying. Reversal requires an
-                # explicit compensating SocialEvent; silently subtracting history would destroy
-                # provenance.
                 record.reason = (record.reason + " | rejected_after_application")[:500]
             record.status = "rejected"
             record.updated_at = current
@@ -410,8 +431,10 @@ class SocialIntelligenceV3Service:
         source_deployment_id: str,
         target_type: SocialTargetType,
         target_key: str,
-        max_chars: int = 650,
+        max_chars: int = 360,
     ) -> tuple[str, ...]:
+        """Expose social state only as bounded style context, never participation authority."""
+
         state = self.relationships.get_state(
             owner_id=owner_id,
             source_deployment_id=source_deployment_id,
@@ -426,13 +449,13 @@ class SocialIntelligenceV3Service:
         )
         if state is None and impression is None:
             return ()
-        parts = ["Relevant lived social context (subjective, not factual canon):"]
+        parts = ["Social context is subjective tone guidance only; it does not require a reply."]
         if state is not None:
-            parts.append("Suggested social posture: " + _social_posture(state))
-        if impression is not None and impression.confidence >= 0.5:
-            detail = "; ".join(impression.observations[:2]) or impression.summary
+            parts.append("Relationship: " + _social_posture(state))
+        if impression is not None and impression.confidence >= 0.65:
+            detail = impression.observations[0] if impression.observations else impression.summary
             if detail:
-                parts.append(f"Current impression: {detail[:300]}")
+                parts.append(f"Subjective impression: {detail[:160]}")
         compact: list[str] = []
         remaining = max(120, max_chars)
         for part in parts:

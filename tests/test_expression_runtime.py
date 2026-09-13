@@ -113,7 +113,7 @@ def test_smart_output_prompt_explains_social_actions_and_hides_raw_ids() -> None
     )
 
     assert "Available actions: message, short_message, react, sticker" in prompt
-    assert "Runtime has already admitted this character for this turn" in prompt
+    assert "visible conversation directly expects this character to respond" in prompt
     assert "Unicode Emoji may appear directly inside a text value" in prompt
     assert "exactly one of: text, emoji, mention" in prompt
     assert "omit reply_to to send directly to the channel" in prompt

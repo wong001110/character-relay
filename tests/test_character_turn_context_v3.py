@@ -1,5 +1,4 @@
 import asyncio
-from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -697,74 +696,12 @@ def test_unavailable_knowledge_gap_discovery_reopens_unresolved(tmp_path: Path) 
     assert result.gap.discovery_requested is True
 
 
-def test_selected_character_turn_injects_only_epistemically_admitted_fabric_evidence(
+def test_selected_character_turn_uses_on_demand_knowledge_instead_of_eager_fabric_query(
     tmp_path: Path,
 ) -> None:
     database = Database(f"sqlite:///{tmp_path / 'fabric-character-context.db'}")
     database.initialize()
     engine = _RecordingKnowledgeQueryEngine(_knowledge_result())
-    knowledge_context, scope_id = _knowledge_context(database, query_engine=engine, allow=True)
-    service = _service(
-        database,
-        structure_resolver=_ResolveOnce(_entity_segment()),
-        runtime_coordinator=_ObserveOnce(),
-        knowledge_context=knowledge_context,
-    )
-
-    result = service.build(_resolved())
-    prompt = "\n".join(result.bundle.prompt_sections())
-
-    assert result.error_reason == ""
-    assert len(engine.requests) == 1
-    assert engine.requests[0].server_scope_id == scope_id
-    assert engine.requests[0].mode == "overview"
-    assert "UNTRUSTED KNOWLEDGE EVIDENCE" in prompt
-    assert "VISIBLE KNOWLEDGE" in prompt
-    assert "evidence-visible" in prompt
-    assert "source-version-visible" in prompt
-    assert "must-not-reach-prompt" not in prompt
-    assert result.turn_context.knowledge[0].evidence_unit_id == "evidence-visible"
-
-
-def test_default_epistemic_gate_keeps_fabric_evidence_out_of_prompt_and_trace(
-    tmp_path: Path,
-) -> None:
-    database = Database(f"sqlite:///{tmp_path / 'fabric-epistemic-deny.db'}")
-    database.initialize()
-    engine = _RecordingKnowledgeQueryEngine(_knowledge_result())
-    knowledge_context, _scope_id = _knowledge_context(database, query_engine=engine, allow=False)
-    service = _service(
-        database,
-        structure_resolver=_ResolveOnce(_entity_segment()),
-        runtime_coordinator=_ObserveOnce(),
-        knowledge_context=knowledge_context,
-    )
-
-    result = service.build(_resolved())
-    prompt = "\n".join(result.bundle.prompt_sections())
-    trace = result.turn_context.trace.model_dump_json()
-
-    assert result.error_reason == ""
-    assert len(engine.requests) == 1
-    assert result.bundle.knowledge_hits == ()
-    assert result.turn_context.knowledge == ()
-    assert result.turn_context.trace.selected_chunk_count == 0
-    assert "Visible title" not in prompt
-    assert "VISIBLE KNOWLEDGE" not in prompt
-    assert "evidence-visible" not in trace
-    assert "source-version-visible" not in trace
-    assert "must-not-reach-prompt" not in trace
-
-
-def test_fabric_trace_uses_only_evidence_that_survives_prompt_packing(tmp_path: Path) -> None:
-    database = Database(f"sqlite:///{tmp_path / 'fabric-packed-trace.db'}")
-    database.initialize()
-    original = _knowledge_result()
-    long_hit = replace(
-        original.hits[0],
-        text_content="VISIBLE KNOWLEDGE " + ("hostile instruction text " * 180),
-    )
-    engine = _RecordingKnowledgeQueryEngine(replace(original, hits=(long_hit,)))
     knowledge_context, _scope_id = _knowledge_context(database, query_engine=engine, allow=True)
     service = _service(
         database,
@@ -775,27 +712,16 @@ def test_fabric_trace_uses_only_evidence_that_survives_prompt_packing(tmp_path: 
 
     result = service.build(_resolved())
     prompt = "\n".join(result.bundle.prompt_sections())
-    trace = result.turn_context.trace
 
     assert result.error_reason == ""
-    assert result.bundle.knowledge_packing.selected_refs == ("evidence:evidence-visible",)
-    assert ("evidence:evidence-visible", "truncated_to_budget") in (
-        result.bundle.knowledge_packing.omitted
-    )
-    assert trace.rag_status == "completed"
-    assert trace.rag_reason == "knowledge_fabric_prompt_packed"
-    assert trace.selected_chunk_count == 1
-    assert trace.selected_knowledge_refs == ["evidence:evidence-visible"]
-    assert [(item.ref, item.reason) for item in trace.knowledge_omissions] == [
-        ("evidence:evidence-visible", "truncated_to_budget")
-    ]
-    assert trace.selected_knowledge_tokens <= trace.knowledge_token_budget
-    knowledge_section = next(
-        item for item in result.bundle.prompt_sections() if item.startswith("KNOWLEDGE EVIDENCE\n")
-    )
-    assert len(knowledge_section) <= service.context_resolver.budget.knowledge_chars
-    assert "BEGIN UNTRUSTED EVIDENCE JSON" in prompt
-    assert "END UNTRUSTED EVIDENCE JSON" in prompt
+    assert engine.requests == []
+    assert result.bundle.knowledge_hits == ()
+    assert result.turn_context.knowledge == ()
+    assert result.turn_context.trace.rag_status == "skipped"
+    assert result.turn_context.trace.rag_reason == "internal_context_tools_on_demand"
+    assert "UNTRUSTED KNOWLEDGE EVIDENCE" not in prompt
+    assert "VISIBLE KNOWLEDGE" not in prompt
+    assert "must-not-reach-prompt" not in prompt
 
 
 def test_unknown_fabric_scope_neither_creates_state_nor_queries(tmp_path: Path) -> None:
@@ -821,50 +747,6 @@ def test_unknown_fabric_scope_neither_creates_state_nor_queries(tmp_path: Path) 
     assert engine.requests == []
     assert result.bundle.knowledge_hits == ()
     assert fabric.list_server_scopes() == []
-
-
-def test_fabric_query_failure_keeps_selected_character_turn_available(tmp_path: Path) -> None:
-    database = Database(f"sqlite:///{tmp_path / 'fabric-query-failure.db'}")
-    database.initialize()
-    engine = _UnavailableKnowledgeQueryEngine()
-    knowledge_context, _scope_id = _knowledge_context(database, query_engine=engine, allow=True)
-    service = _service(
-        database,
-        structure_resolver=_ResolveOnce(_entity_segment()),
-        runtime_coordinator=_ObserveOnce(),
-        knowledge_context=knowledge_context,
-    )
-
-    result = service.build(_resolved())
-
-    assert result.error_reason == ""
-    assert len(engine.requests) == 1
-    assert result.bundle.knowledge_hits == ()
-    assert result.turn_context.trace.rag_status == "skipped"
-    assert any("LIVE CONTEXT" in item for item in result.bundle.prompt_sections())
-
-
-def test_epistemic_policy_failure_fails_closed_without_silencing_character_turn(
-    tmp_path: Path,
-) -> None:
-    database = Database(f"sqlite:///{tmp_path / 'fabric-policy-failure.db'}")
-    database.initialize()
-    engine = _RecordingKnowledgeQueryEngine(_knowledge_result())
-    knowledge_context, _scope_id = _knowledge_context(database, query_engine=engine, allow=True)
-    knowledge_context.epistemic_policy = _UnavailableKnowledgePolicy()
-    service = _service(
-        database,
-        structure_resolver=_ResolveOnce(_entity_segment()),
-        runtime_coordinator=_ObserveOnce(),
-        knowledge_context=knowledge_context,
-    )
-
-    result = service.build(_resolved())
-
-    assert result.error_reason == ""
-    assert len(engine.requests) == 1
-    assert result.bundle.knowledge_hits == ()
-    assert result.turn_context.knowledge == ()
 
 
 def test_smart_participation_correction_path_does_not_run_fabric_query_for_candidates(

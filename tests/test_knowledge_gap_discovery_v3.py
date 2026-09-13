@@ -137,6 +137,7 @@ def test_search_persists_scoped_candidates_and_authorized_acceptance_creates_evi
         guild_id="guild-1",
         deployment_id="deployment-1",
         gap_id=gap.id,
+        now=now,
     ) == (candidate,)
     with pytest.raises(ValueError, match="persisted candidate source"):
         service.accept_candidate_evidence(
