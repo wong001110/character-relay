@@ -9,33 +9,19 @@ jobs:
   tools:
     if: github.repository == 'wong001110/character-relay' && github.event.pull_request.number == 207 && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/discord-group-chat-core-takeover'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Acquire public package tools without production credentials
+      - name: Acquire public test packages only
         run: |
           mkdir -p /tmp/verification/wheels
-          python -m pip download --only-binary=:all: -d /tmp/verification/wheels 'langgraph>=1.2.9,<2' 'mcp>=2,<3' 'psycopg[binary]>=3.2,<4' 'mypy>=1.15,<2' 'ruff>=0.9,<1' 'pytest-xdist>=3.6,<4' 'yt-dlp>=2026.6,<2027' 'uvicorn>=0.34,<1' 'fastapi>=0.115,<1' 'boto3>=1.36,<2' 'argon2-cffi>=25,<26' 'cryptography>=45,<51'
-          npm ci --prefix connectors/discord
-          npm ci --prefix web
-          tar -czf /tmp/verification/node-tools.tar.gz connectors/discord/node_modules web/node_modules
-          cp "$(command -v node)" /tmp/verification/node
-          git archive --format=tar.gz HEAD > /tmp/verification/source.tar.gz
-          git rev-parse HEAD > /tmp/verification/commit.txt
-          git rev-parse 'HEAD^{tree}' > /tmp/verification/tree.txt
+          python -m pip download --only-binary=:all: -d /tmp/verification/wheels 'fastembed>=0.8,<0.9' 'mutmut>=3,<4'
           cd /tmp/verification
-          sha256sum source.tar.gz node-tools.tar.gz node wheels/* > SHA256SUMS
+          sha256sum wheels/* > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: group-chat-verification-tools-${{ github.run_id }}
+          name: group-chat-extra-tools-${{ github.run_id }}
           path: /tmp/verification
           retention-days: 1
