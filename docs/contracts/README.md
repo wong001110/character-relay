@@ -1,18 +1,26 @@
-# Canonical contracts
+# Product and safety contracts
 
-These documents define current product or architecture boundaries. Source, schemas/types, migrations, and tests remain the strongest evidence of implemented behavior.
+Source, schemas, migrations and tests establish implemented behavior. The accepted
+[group-chat plan](../plans/discord-group-chat-core.md) establishes the next intended behavior;
+its status and execution authorization are in [PROJECT_STATE.md](../../PROJECT_STATE.md).
+Do not confuse design acceptance with deployed functionality.
 
-| Boundary | Canonical reading |
+For this initiative, explicit plan decisions supersede older requirements for automatic memory,
+relationship simulation, fixed role-turn rules and Roast. They do not relax privacy, source
+provenance, credentials, tool grants, delivery integrity or evaluation approval.
+
+| Boundary | Reference |
 | --- | --- |
-| Service ownership and data authority | [Architecture](../architecture.md) |
-| Intelligence/runtime authority and no-Topic cutover | [Intelligence Core v3](../intelligence-core-v3-architecture.md) |
-| Authentication, credentials, privacy, Public Demo | [Security](../security.md), [Phase 15 security](../phase-15-security.md) |
-| Discord Server scope and deployments | [Discord Server Workspace](../discord-server-workspace.md) |
-| Temporary raw Discord debugging | [Discord debug capture](../discord-debug-capture.md) |
-| Production topology and persistence | [Railway deployment](../railway-deployment.md), [storage safety](../storage-safety.md) |
-| Portal behavior and composition | [UI/UX contract](../ui-ux-contract.md), [component library](../ui-component-library.md), [page migration plan](../ui-page-migration-plan.md) |
-| External HTTP targets | [HTTP target contract](../http-target-contract.md) |
-| Server-local time | [Server timezone runtime](../server-timezone-runtime.md) |
-| Evaluation approval and calibration | [Evaluation authoring](../phase-16-authoring.md), [calibration](../phase-16-calibration.md), [release acceptance](../phase-16-release.md) |
+| Current source and target ownership | [Architecture](../architecture.md) |
+| Accepted group-chat behavior / acceptance | [Group-chat core plan](../plans/discord-group-chat-core.md) |
+| Existing intelligence/source authority | [Intelligence v3](../intelligence-core-v3-architecture.md), [memory lifecycle](../memory-lifecycle-contract.md) |
+| Authentication, privacy, credentials, Public Demo | [Security](../security.md), [Phase 15 evidence](../phase-15-security.md) |
+| Discord scope and raw diagnostics | [Workspace](../discord-server-workspace.md), [debug capture](../discord-debug-capture.md) |
+| Tools and durable operations | [MCP/jobs](../mcp-conversation-jobs.md), [HTTP targets](../http-target-contract.md) |
+| Production storage | [Deployment](../railway-deployment.md), [storage safety](../storage-safety.md) |
+| Portal and accessibility | [UI/UX](../ui-ux-contract.md), [components](../ui-component-library.md), [reference rules](../ui-page-migration-plan.md) |
+| Time interpretation | [Server time](../server-timezone-runtime.md) |
+| Evaluation approval and immutable evidence | [Authoring](../phase-16-authoring.md), [calibration](../phase-16-calibration.md), [release evidence](../phase-16-release.md) |
 
-Subsystem documents such as Context/RAG, media epistemics, provider tracing, Smart Output, and tool calling apply only where current source/tests still implement their stated boundary. If a contract and implementation conflict, surface the conflict; do not manufacture compatibility behavior.
+When migrating a boundary, update its specialized contract and proving tests in the same coherent
+implementation phase. Do not silently claim the old code already satisfies the new design.

@@ -1,40 +1,20 @@
 # Contributing
 
-Character Relay changes should belong to one clearly scoped feature/phase or defect fix. Avoid combining unrelated runtime, data-contract, and visual changes in one PR unless the coupling is necessary and documented.
+Follow [AGENTS.md](AGENTS.md), the single AI-Native Development policy, and begin from
+[PROJECT_STATE.md](PROJECT_STATE.md). Use [architecture.md](docs/architecture.md) to locate the
+owning service and [the developer guide](docs/developer/README.md) for setup and check commands.
 
-## AI-assisted development
+Keep PRs coherent and scoped. An accepted plan is not evidence of implemented behavior. Explicit
+documentation-only work changes neither feature code nor runtime wiring. Later implementation
+must include behavior evidence and remove replaced consumers rather than retain a second system.
 
-AI coding agents and AI-assisted contributors must follow:
+Use native tools and optional bounded delegation; no generated wiki or fixed agent-role workflow
+is required. Keep secrets and raw private captures out of commits. Protected boundaries, Public
+Demo read-only behavior and evaluation approval rules remain server-owned.
 
-- `AGENTS.md`
-- `docs/ai-agent-development-workflow.md`
-- `openwiki/INSTRUCTIONS.md`
+For UI changes, follow the existing UI/data/accessibility contracts and approved references where
+applicable. Reference images determine composition, not fabricated product metrics or endpoints.
 
-For approved UI renovation work, also follow `docs/ui-page-migration-plan.md` and the matching image under `docs/ui-references/`. Generated reference art controls composition only; current code/API/tests control real data and behavior.
-
-## Local setup
-
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
-```
-
-## Run the API
-
-```bash
-make run
-```
-
-The OpenAPI document is available at `http://127.0.0.1:8000/docs`.
-
-## Required checks
-
-```bash
-make check
-```
-
-This runs Ruff, mypy, and pytest. Model credentials must not be required by the default test suite and must never be committed.
-
-For web changes also run the relevant commands from `web/package.json`, including typecheck/tests/build before merge.
+Before requesting review, use [CHECKLIST.md](CHECKLIST.md) and the PR template. Report checks actually
+run, missing verification, deviations and self versus independent review. Commit coherent batches;
+do not create per-file commits. Squash merge requires a separate user merge instruction.
