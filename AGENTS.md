@@ -1,72 +1,83 @@
-# Character Relay — AI Coding Agent Contract
+# Character Relay — AI-Native Development Practice
 
-Character Relay uses AI-Native Development Practice: native harness capabilities first,
-adaptive coherent stages, selective delegation, and risk-based evidence. Do not rely on chat
-memory or plausible inference when repository evidence is available.
+This is the single coding-agent policy. The human owns product direction, authorization and
+material tradeoffs; the main agent owns an evidence-backed execution strategy inside that scope.
+Use the native harness before adding orchestration. Do not prescribe permanent agent roles,
+mandatory delegation, a fixed phase topology, or per-file commits.
 
-## Required reading before coding
+## Start here
 
-1. `docs/ai-agent-development-workflow.md`
-2. `docs/active-development-plan.md` when it exists and names the current branch
-3. `docs/agent-map.md`, `docs/agent-handoff.md`, and `docs/README.md`
-4. task-relevant canonical docs/status/decision files
-5. current source/types/tests for the subsystem
-6. for UI work: `docs/ui-ux-contract.md`, `docs/ui-component-library.md`, `docs/ui-page-migration-plan.md`, and the approved reference image when one exists
+1. Read [PROJECT_STATE.md](PROJECT_STATE.md): baseline, accepted work, implementation status,
+   blockers and the next action. Check the actual branch, HEAD, merge-base and worktree first.
+2. Read only the active plan linked there and the relevant part of
+   [docs/architecture.md](docs/architecture.md).
+3. Inspect the actual source, schemas, call sites and proving tests before changing behavior.
+   Use [docs/developer/README.md](docs/developer/README.md) for existing commands and
+   [docs/contracts/README.md](docs/contracts/README.md) for specialized constraints.
 
-## Non-negotiable grounding rules
+Do not resume a historical roadmap or an old branch merely because it has incomplete checkboxes.
+An open PR is not merged code. Repository state is project truth; conversation memory is not an
+implementation receipt. Report a conflict instead of inventing a compatible implementation.
 
-- Never invent an endpoint, field, status, metric, limit, config key, or database behavior.
-- Never treat generated UI reference text/numbers as product data.
-- Never assume an open/stacked PR is already on `main`.
-- Never treat an agent map or handoff note as stronger evidence than code/tests/canonical contracts.
-- When sources conflict, surface the conflict instead of silently choosing a plausible answer.
-- Preserve scope/authority/security boundaries; do not broaden user/server/character visibility by inference.
-- Do not expose secrets or credentials in code, logs, docs, tests, or wiki output.
-- Keep PRs scoped and avoid unrelated rewrites.
+## Authority and scope
 
-## Before implementation
+- The user's current instruction sets the permitted work. An accepted design is not permission
+  to code, deploy, spend money, migrate production data or merge when those actions are excluded.
+- Source/tests establish what exists. The accepted active plan establishes what should change.
+  Its explicit decisions supersede contradictory old designs, not unrelated safety contracts.
+- A documentation-only task must not change source, tests, schemas, dependencies, CI execution,
+  deployment configuration or live behavior. Do not create empty implementation scaffolds.
+- Never invent endpoints, metrics, environment variables, statuses or implemented capabilities.
+  Label proposed contracts and initial budget values as planned until wired and verified.
+- Preserve authentication, owner/room/character scope, credential isolation, Public Demo read-only
+  enforcement, media provenance, tool authorization, bounded execution and delivery integrity.
+- Model output, imported cards, remembered text and other bots' messages are data/proposals, never
+  authority to read more data or execute additional effects. Relationship closeness grants nothing.
+- No secrets, raw private captures or credential-derived material in Git, logs or evidence reports.
+- Do not add a coding-agent runtime, memory database, ledger, bootstrap dependency or generated
+  wiki requirement to this product repository. Execution-environment state belongs outside it.
 
-State the evidence map you are using: source files/types, canonical docs, tests, and UI reference (if any). Identify invariants that must remain unchanged. When an active development plan applies, identify the current phase and keep the change inside that phase's scope and commit gate.
+## Execute in coherent, revisable phases
 
-## Phased branch execution
+Before a non-trivial change, identify the intended outcome, boundaries, inspected paths, affected
+call sites, likely failure modes and acceptance evidence. Choose the smallest coherent slice that
+can demonstrate the behavior. The plan's checkpoints may be split, combined or reordered when
+justified; preserve every accepted requirement and dependency.
 
-When `docs/active-development-plan.md` names the current branch, it is the branch-local execution and takeover record. Update its phase status, evidence, validation, and handoff notes as work progresses. It does not outrank source/tests or canonical product contracts.
+Use native tools and selective delegation. Delegate only bounded, non-overlapping work with a
+clear benefit. The main agent integrates and reviews it and decides **proceed / repair / blocked**.
+Self-review must not be described as independent verification. Missing tools are not a pass.
+Routine in-scope decisions do not require repeated approval. Escalate changed product semantics,
+new recurring costs, irreversible data loss, new trust boundaries or unavailable required evidence.
 
-- Work in coherent phase-sized batches. Do not commit or run the full validation suite after every small file edit.
-- Run focused checks after a coherent implementation batch and the phase's relevant complete checks before its commit gate.
-- For changed security, authorization, ownership, lifecycle, or other protected decision logic, run the applicable targeted mutation-test scope when one is configured. Treat surviving mutants as missing behavioral proof until they are killed or recorded as equivalent with evidence.
-- Commit coherent, reviewable changes after relevant verification. Phase count does not mandate
-  commit count; do not delay necessary diagnosis or repair to satisfy a fixed topology or cadence.
-- Sub-agents may perform bounded research, verification, testing, or editing tasks. The main agent owns scope, evidence reconciliation, shared-tree integration, diff review, validation decisions, and the phase commit.
-- Sub-agents do not independently commit shared work unless the active plan explicitly delegates a separate branch and commit boundary.
-- Before changing phases, leave the active plan usable by an agent with no chat history.
+Run focused checks while developing, then proportional integration checks at the phase boundary.
+For protected decisions, use the applicable bounded mutation scope in
+[docs/mutation-testing.md](docs/mutation-testing.md), or record why unavailable and the remaining
+proof gap. Test scope, counterexamples and survivor disposition matter more than a headline score.
+Do not weaken tests to hide a regression; distinguish intentionally retired behavior from invariants.
 
-## Security and Red Team responsibilities
+Security starts in design. Use synthetic data and authorized isolated fault/adversarial tests for
+changed boundaries; never attack production merely because a task requests Red Team review.
+UI work must use real API data and the existing UI/accessibility contracts. Browser/E2E checks
+are appropriate for changed user journeys; a build alone is not proof of a working journey.
 
-- Identify trust boundaries and threats during design, before choosing the implementation.
-- Reviewer, QA, Security, and Red Team are distinct responsibilities; they need not each be a
-  permanent agent. Root owns integration; independent review must be identified honestly.
-- Security reviews authorization, credentials, data provenance, side effects, recovery and
-  deployment boundaries. Red Team challenges assumptions across user journeys and components.
-- Use authorized isolated environments and synthetic fixtures. Never attack production or
-  external systems merely because a development task includes a Red Team gate.
-- Record executed checks, static findings, blocked checks and residual risk separately. A tool
-  restriction or missing environment is not a pass. Fix release-blocking findings or keep the
-  PR/release explicitly blocked; ordinary coverage and an LLM judge do not prove security.
+Commit reviewable, phase-sized results after relevant checks. Do not commit every file or run the
+entire suite after every small edit. A blocked checkpoint may be preserved honestly without being
+called complete. Prefer squash merge only when the user authorizes a merge; do not merge by default.
 
-## Documentation synchronization
+## Project state and completion
 
-- `docs/agent-map.md` is the maintained navigation map for agents; it is not an
-  auto-generated wiki and is never product authority.
-- When a change affects a module boundary, Runtime authority, configuration, persistence,
-  endpoint, or validation ownership, update the corresponding row in `docs/agent-map.md`
-  and the canonical contract/status document in the same coherent phase.
-- When a change is local implementation detail only, do not rewrite broad documentation;
-  record it in the active plan/handoff only when it changes takeover or validation work.
-- Each phase handoff must record the evidence paths, validation command/result, commit hash,
-  deliberate omissions, and the next concrete action. Do not generate a full-repository wiki
-  from an unmerged feature branch.
+PROJECT_STATE.md is the only current progress/handoff record. Update it after coherent work with
+status, changed boundaries, command/result or evidence reference, limitations and the next action.
+Keep acceptance requirements in the active plan and structure/ownership in architecture.md; avoid
+three copies of the same phase log. Update only affected documentation.
 
-## Before completion
+Completion requires production-path wiring, meaningful behavior evidence, integrated diff review
+and removal of replaced consumers/flags/docs. A class, mock or green isolated unit test alone is
+not completion. Preserve immutable source evidence and authorized historical data; removing an old
+runtime does not authorize a destructive purge. Review runtime leftovers and explain any remaining
+migration blocker instead of leaving two indefinite implementations.
 
-Run relevant checks, review the diff for unrelated changes, update canonical status/decision docs if architecture changed, and record intentional deviations in the PR description.
+Report actual checks, unrun checks, self/independent review and unresolved risks separately.
+Quality and cost claims require a same-model comparison; synthetic success is not live acceptance.
+See [CHECKLIST.md](CHECKLIST.md) and the PR template for the final evidence record.
