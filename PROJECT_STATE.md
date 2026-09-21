@@ -9,66 +9,76 @@ Updated: **2026-09-21**. Single current progress and takeover record.
 | Repository | `wong001110/character-relay` |
 | Merged runtime baseline | `3cd183d460812d16cfb0c6d8dbae305d8ef61363` (PR #205) |
 | Accepted planning baseline | `be7a8c01e45662a8d68abbefccce46f07e6a7110`, open PR #206 |
-| Implementation branch | `feat/discord-group-chat-core-takeover` |
+| Implementation branch / PR | `feat/discord-group-chat-core-takeover` / Draft #207 |
 | Authorization | User requested execution takeover after Work quota was exhausted |
-| Policy / accepted requirements | [AGENTS.md](AGENTS.md), [group-chat plan](docs/plans/discord-group-chat-core.md) |
-| Execution status | P1 — baseline verification and source acquisition in progress |
+| Policy / requirements | [AGENTS.md](AGENTS.md), [accepted plan](docs/plans/discord-group-chat-core.md) |
+| Current checkpoint | First foundation slice implemented and locally checked; full CI gate required |
 | Merge / deployment | **NOT AUTHORIZED** |
 
-Remote branch inventory and PR #206 were re-read at takeover. No new Work implementation branch
-or updated project-state commit was present in that inventory. Unpushed Work changes are unknown,
-not assumed empty or imported. This separate branch preserves the planning PR and does not change
-main or unrelated PR #203. Reconcile any later Work patch before integrating it.
-
-## Accepted scope
-
-All D01–D11 decisions and A01–A22 scenarios in the accepted plan remain required. Keep bounded
-multi-role dialogue with valid silence and A-B-A, scoped source/Reply provenance, private drafts
-with send-time freshness, explicit notes, lightweight relationships, reliable Discord delivery,
-metadata-first observation and runtime authorization. Retire Roast and replaced automatic writers,
-not merely their UI. No new dependency/platform migration or perfect cognition requirement.
-Initial 3-role / 6-turn / 2-per-role limits are ceilings and validation starting points.
+At takeover, remote inventory contained no newer Work implementation or state commit. Unpushed
+Work changes remain unknown, not assumed empty. Reconcile a later Work patch before integrating it.
+This branch includes PR #206 as an ancestor; it does not alter main, the planning branch or PR #203.
+The plan's original NOT_STARTED label describes its planning baseline; this file alone records
+subsequent execution. All D01-D11 and A01-A22 remain required; this slice is not the full initiative.
 
 ## Phase state
 
-Phase boundaries may change with evidence without dropping accepted requirements.
+| Phase | Status and remaining gate |
+| --- | --- |
+| P0 | Accepted documentation baseline available in PR #206 |
+| P1 | IN_PROGRESS: three Connector defects reproduced; privacy negative cases added. Full group-chat characterization and live call/token baseline not complete |
+| P2 | IN_PROGRESS: immutable bounded context snapshots, participant priority and fail-closed selection handoff implemented. Reply metadata, partial/uncertain delivery, edit/delete/restart and non-blocking ingress remain |
+| P3 | NOT_STARTED: bounded A-B-A, attempt/room limits and send-time draft refresh still required |
+| P4 | NOT_STARTED: explicit scoped notes, relationship replacement, writer/Discovery and Roast retirement still required |
+| P5 | IN_PROGRESS: metadata-default trace slice moved forward as a small privacy prerequisite. Scoped expiring raw capture, unified observation and Portal work remain |
+| P6 | NOT_STARTED: full integration, actual source decomposition and retirement audit remain |
 
-| Phase | Outcome | Status |
-| --- | --- | --- |
-| P0 | Accepted decisions and single-policy/state handoff | Documentation baseline available in PR #206 |
-| P1 | Reproduce baseline failures, scope/threat fixtures, execution environment | IN_PROGRESS |
-| P2 | Reply/source transport, updates/restart, safe delivery and ingress | NOT_STARTED |
-| P3 | Optional bounded roles and draft freshness | NOT_STARTED |
-| P4 | Explicit notes, lightweight relationships, simulation/Roast retirement | NOT_STARTED |
-| P5 | Observation, Portal operations and justified adapter reuse | NOT_STARTED |
-| P6 | Full integration, physical cleanup and retirement audit | NOT_STARTED |
+The early P5 slice adds no new model calls, service, vendor or background task. Phase boundaries
+are adaptive; it does not waive later privacy acceptance. Existing numerical relations, automatic
+writers, Roast and unique-role guards still exist. No claim of full simplification or live readiness.
 
-## Evidence and execution environment
+## Implemented foundation slice
 
-- Read exact planning-head AGENTS, PROJECT_STATE, accepted plan, architecture and current CI.
-- Connected GitHub read/write is available. Local public Git clone failed with DNS resolution;
-  no complete local checkout is claimed yet. The local container has Python 3.13.5 and Node 22.16.
-- A temporary branch-only, read-only CI snapshot job exports only tracked repository source from
-  the exact PR head, with no credentials or production data. Its artifact expires after one day.
-  Remove the temporary workflow once the local source snapshot is verified; it is not a product
-  dependency, a new agent runtime or a permanent CI requirement.
-- Existing CI remains the integrated validation gate. No runtime/model/live test pass is claimed
-  until observed for the relevant revision. Self-review only; no independent agent is claimed.
+- ContextBuffer replaces repeated/enriched messages in place and deep-copies both inputs and returned
+  snapshots. A generation snapshot or renderer cannot mutate another consumer's room history.
+- Mention aliases prioritize recent humans, then unambiguous known speaking roles, then other roles.
+  Stable IDs distinguish same-named people; display names cannot identify a bot. Existing allowlist,
+  self-mention and total-size restrictions remain. This is not full Reply/recipient pinning yet.
+- Failed persistence of the selected participation source returns an authoritative empty plan with
+  `reply_target_persistence_failed`, instead of admitting a turn that may reload a different source.
+  The old regression demanding admission after failed persistence was intentionally replaced.
+- Provider tracing defaults to metadata, including invalid/empty mode configuration; free-form
+  request/response/error prose is not emitted by that default. Safe category and failed-tool counts
+  are computed before dropping content; repository filtering retains those diagnostics.
+- Trace categorization failure cannot stop generation; diagnostic incompleteness is explicit.
+  Existing summary/content modes and their redaction tests remain explicit opt-ins. No production
+  environment setting or historical stored trace was changed, and raw-capture expiry is not done.
+- Removed the temporary source-acquisition workflow. No new enduring CI/bootstrap dependency remains.
+
+## Verification and evidence
+
+Receipt: [foundation verification](docs/reviews/group-chat-foundation-2026-09-21.md).
+Checks are self-executed/self-reviewed, not independent review or production acceptance.
+
+- Exact source artifact at `efb66eda828726cfda9cda6e3b952e0ad32153fd` was extracted; its local Git
+  tree matched remote `11a048a950cb0bc9b2f10a2b08c1552b416fbe00` (1,066 source files).
+- Baseline probes reproduced duplicate-message reorder, mutable snapshot aliasing and human alias
+  crowding; all three reversed after fixes. Initial related Python baseline: 23 passed.
+- Focused Python regression: **50 passed**, real source with synthetic data/HTTP transports.
+- Standalone Node assertions against transpiled actual Connector modules: **12 passed**. These are
+  not a substitute for the committed Vitest suite on the supported CI Node version.
+- Focused TypeScript strict/noUncheckedIndexedAccess/exactOptionalPropertyTypes source check: passed.
+- Eight manually selected mutation probes: eight assertion failures (killed). This is a bounded
+  probe set, not a complete Stryker/mutmut run or general security certification.
+- Full local route collection is blocked by missing `langgraph`; local Ruff/mypy/Vitest installation
+  is unavailable because dependency-network resolution fails. Those gates require exact-head CI.
+- `git diff --check` passed; tests do not call real Discord/providers, change live grants or spend
+  model tokens. PostgreSQL, browser, live quality/cost and deployment checks were not run locally.
 
 ## Next concrete action
 
-Verify the exact-head source snapshot, inspect group-chat ingress/Reply/delivery consumers and
-existing regression tests, reproduce the selected baseline defects, then implement a coherent P2
-slice. First priorities: source/participant correctness and partial/uncertain-send safety. Preserve
-source scope, requester authority and delivery receipts. Update this file with executed commands,
-results, exact tested revisions and remaining requirements before ending the execution slice.
-
-## Inherited limitations
-
-PR #205 reduced eager context injection, but ordinary claim/entity-gap writers and numerical
-social state still exist. Historical schemas lack per-message Reply edges; source selection and
-fallback can diverge; unique-role guards block same-role re-entry; recall and logs need tighter scope.
-These are previous source-review findings, not evidence of reproduced live incidents. The full
-accepted plan and current owning files must guide each change. Existing private data must not be
-purged without authorization. Production permissions, Message Content availability and real-model
-quality/cost still require separately authorized evidence.
+Check Draft #207's exact-head CI, especially Python route tests and full Connector typecheck/Vitest.
+Repair failures without weakening invariants. Then continue P2 with actual per-message Reply/source
+metadata and webhook partial/uncertain-send state; follow the full A07/A16/A17 cases before P3.
+Preserve source permissions, original requester authority, receipts and prior tool results. Update
+this file at coherent checkpoints, not an additional agent ledger. Do not merge or deploy.

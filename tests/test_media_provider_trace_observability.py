@@ -3,6 +3,7 @@ import json
 
 import httpx
 from pydantic import SecretStr
+from pytest import MonkeyPatch
 
 from echo_masque.media_runtime import MediaAsset
 from echo_masque.provider_trace_classification import (
@@ -16,7 +17,8 @@ from echo_masque.providers.trace import (
 )
 
 
-def test_image_understanding_emits_scoped_media_provider_trace() -> None:
+def test_image_understanding_emits_scoped_media_provider_trace(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("CHARACTER_RELAY_PROVIDER_TRACE_MODE", "summary")
     events: list[dict[str, object]] = []
 
     def handler(_: httpx.Request) -> httpx.Response:
@@ -111,7 +113,8 @@ def test_image_understanding_emits_scoped_media_provider_trace() -> None:
     assert "tabby kitten" in str(response.get("response_text", ""))
 
 
-def test_media_trace_redacts_data_uri_body() -> None:
+def test_media_trace_redacts_data_uri_body(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("CHARACTER_RELAY_PROVIDER_TRACE_MODE", "summary")
     assert OpenAICompatibleMultimodalProvider._trace_source_uri(
         "data:image/png;base64,AAAA"
     ) == "data:<redacted>"

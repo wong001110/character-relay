@@ -15,7 +15,7 @@ class ProviderTraceRecord(Base):
 
     trace_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
-    trace_mode: Mapped[str] = mapped_column(String(24), default="summary")
+    trace_mode: Mapped[str] = mapped_column(String(24), default="metadata")
     endpoint: Mapped[str] = mapped_column(Text, default="")
     request_model: Mapped[str] = mapped_column(String(200), default="", index=True)
     response_model: Mapped[str] = mapped_column(String(200), default="")

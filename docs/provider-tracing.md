@@ -36,8 +36,10 @@ CHARACTER_RELAY_PROVIDER_TRACE_MODE=content
 ```
 
 - `off`: do not persist provider traces.
-- `metadata`: model, endpoint, roles, character counts, latency, status, and token usage only.
-- `summary` (default): metadata plus the latest non-system request message and response text.
+- `metadata` (default, including invalid/empty mode settings): model, endpoint, roles, character
+  counts, category, structured failed-tool count, latency, status and token usage. Request/response
+  prose, provider error bodies and free-form exception detail are omitted.
+- `summary` (explicit opt-in): metadata plus the latest non-system request message and response text.
 - `content`: metadata plus the full request message sequence and response text, bounded by the configured character limit.
 
 Set the per-event text budget with:
@@ -58,3 +60,16 @@ CHARACTER_RELAY_PROVIDER_TRACE_MAX_RECORDS=2000
 ```
 
 Retention is bounded to 1–90 days and 100–10000 records. Oldest traces are pruned automatically when new requests are recorded. The Super Admin may also clear all traces from the Portal.
+
+## Group-chat privacy transition
+
+Unset/invalid configuration and new default trace records now use metadata. Explicit existing
+`summary`/`content` configuration still opts into persistent bounded prose; this patch does not
+change deployment variables or delete historical traces. It also does not yet implement the
+accepted room-scoped expiring provider-content capture: that remains P5 work in PROJECT_STATE.md.
+Do not label global content mode as the future scoped debug feature. Endpoint/model/identity fields
+must still contain operational identifiers, not user prose or secrets.
+
+Category and structured tool-failure counts are derived in memory before content is discarded, so
+removing prose does not remove basic failure/category filtering. These diagnostics are not tool
+authorization or a claim that a model's answer was correct. Unknown token usage remains unknown.

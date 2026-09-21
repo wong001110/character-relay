@@ -31,16 +31,10 @@ export function buildMentionableParticipants(
 ): DiscordActionParticipant[] {
   const participants = new Map<string, DiscordActionParticipant>();
 
-  for (const deployment of deployments) {
-    if (deployment.deployment_id === currentDeployment.deployment_id) continue;
-    participants.set(`deployment:${deployment.deployment_id}`, {
-      ref: `deployment:${deployment.deployment_id}`,
-      display_name: addressName(deployment),
-      kind: "character"
-    });
-  }
-
-  for (const message of recentMessages) {
+  // Recent humans must not be crowded out by a room full of deployed roles.
+  // Newest first preserves the latest name for a stable ID, never name identity.
+  const newestFirst = [...recentMessages].reverse();
+  for (const message of newestFirst) {
     if (message.is_bot || !message.author_id || !message.author_display_name) continue;
     const ref = `user:${message.author_id}`;
     if (!participants.has(ref)) {
@@ -48,6 +42,37 @@ export function buildMentionableParticipants(
         ref,
         display_name: message.author_display_name,
         kind: "human"
+      });
+    }
+  }
+
+  for (const message of newestFirst) {
+    if (!message.is_bot || !message.author_id) continue;
+    // Existing synthetic role messages use Character Card IDs. Never infer a
+    // role from a display name or pick one when a Card has multiple deployments.
+    const matches = deployments.filter(
+      (item) => message.author_id === `character:${item.character_card_id}`
+    );
+    const role = matches.length === 1 ? matches[0] : undefined;
+    if (!role || role.deployment_id === currentDeployment.deployment_id) continue;
+    const ref = `deployment:${role.deployment_id}`;
+    if (!participants.has(ref)) {
+      participants.set(ref, {
+        ref,
+        display_name: addressName(role),
+        kind: "character"
+      });
+    }
+  }
+
+  for (const deployment of deployments) {
+    if (deployment.deployment_id === currentDeployment.deployment_id) continue;
+    const ref = `deployment:${deployment.deployment_id}`;
+    if (!participants.has(ref)) {
+      participants.set(ref, {
+        ref,
+        display_name: addressName(deployment),
+        kind: "character"
       });
     }
   }

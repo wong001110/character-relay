@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
@@ -11,12 +12,13 @@ from time import perf_counter
 from typing import Literal
 from uuid import uuid4
 
+from echo_masque.provider_trace_classification import provider_trace_category, tool_content_failed
 from echo_masque.providers.base import ChatMessage
 from echo_masque.security import redact
 
 ProviderTraceMode = Literal["off", "metadata", "summary", "content"]
 ProviderTraceSink = Callable[[dict[str, object]], None]
-_DEFAULT_TRACE_MODE: ProviderTraceMode = "summary"
+_DEFAULT_TRACE_MODE: ProviderTraceMode = "metadata"
 _DEFAULT_MAX_CHARS = 4000
 _TRACE_SINK: ProviderTraceSink | None = None
 _PROMPT_MANIFEST_COUNTERS = frozenset(
@@ -320,6 +322,25 @@ class ProviderTrace:
             "trace_mode": mode,
             **trace._scope_payload(),
         }
+        # Compute safe outcomes/category before discarding message content. Metadata
+        # tracing must not make tool failures or media/role categories disappear.
+        try:
+            event["failed_tool_result_count"] = sum(
+                1 for item in messages if item.role == "tool" and tool_content_failed(item.content)
+            )
+            latest = next((item for item in reversed(messages) if item.role != "system"), None)
+            classification_input = {
+                **event,
+                "latest_message": (
+                    {"role": latest.role, "content": latest.content} if latest is not None else None
+                ),
+            }
+            event["category"] = provider_trace_category(json.dumps(classification_input), "{}")
+        except Exception:
+            # Diagnostics must not abort generation on malformed/deep tool content.
+            event["failed_tool_result_count"] = None
+            event["category"] = "model_call"
+            event["classification_incomplete"] = True
         if scope.prompt_manifest is not None:
             event["prompt_manifest"] = scope.prompt_manifest
         event.update(_message_content(messages, mode=mode, maximum=trace.max_chars))
@@ -397,7 +418,7 @@ class ProviderTrace:
             "trace_mode": self.mode,
             **self._scope_payload(),
         }
-        if detail:
+        if detail and self.mode in {"summary", "content"}:
             event["detail"] = _preview(detail, min(self.max_chars, 1000))
         if response_body and self.mode in {"summary", "content"}:
             event["response_body"] = _preview(response_body, self.max_chars)

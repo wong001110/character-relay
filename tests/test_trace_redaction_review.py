@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+from pytest import MonkeyPatch
+
 from echo_masque.persistence import Database
 from echo_masque.persistence.provider_trace_repository import ProviderTraceRepository
 from echo_masque.providers.base import ChatMessage
@@ -46,7 +48,11 @@ def test_structured_redaction_handles_embedded_json_and_credential_bearing_urls(
     assert json.loads(str(result["response_body"])) == {"error": {"secret": "[REDACTED]"}}
 
 
-def test_provider_trace_emission_redacts_preview_endpoint_and_structured_error() -> None:
+def test_provider_trace_emission_redacts_preview_endpoint_and_structured_error(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    # Content redaction is still tested explicitly; the default no longer captures prose.
+    monkeypatch.setenv("CHARACTER_RELAY_PROVIDER_TRACE_MODE", "summary")
     synthetic_value = "synthetic-trace-value"
     events: list[dict[str, object]] = []
     configure_provider_trace_sink(events.append)

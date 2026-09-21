@@ -98,16 +98,63 @@ describe("Smart Output V1 compiler", () => {
     const participants = buildMentionableParticipants([ann, ning], recent, ann);
     expect(participants).toEqual([
       {
-        ref: "deployment:ning",
-        display_name: "Ning",
-        kind: "character"
-      },
-      {
         ref: "user:123456789012345678",
         display_name: "Juen",
         kind: "human"
+      },
+      {
+        ref: "deployment:ning",
+        display_name: "Ning",
+        kind: "character"
       }
     ]);
+  });
+
+
+  it("does not crowd out a speaking member with unrelated deployed roles", () => {
+    const roles = Array.from({ length: 30 }, (_,index) => deployment(`extra-${index}`, `Role ${index}`));
+    const participants = buildMentionableParticipants([ann, ...roles], recent, ann);
+    expect(participants).toHaveLength(12);
+    expect(participants[0]?.ref).toBe("user:123456789012345678");
+    expect(participants.some((item) => item.ref === "deployment:ann")).toBe(false);
+  });
+
+  it("keeps same-named humans distinct and uses the latest name for each stable ID", () => {
+    const history: DiscordContextMessage[] = [
+      { ...recent[0]!, author_display_name: "Old name" },
+      { ...recent[0]!, message_id: "message-2", author_id: "987654321012345678", author_display_name: "Same" },
+      { ...recent[0]!, message_id: "message-3", author_display_name: "Same" }
+    ];
+    const original = structuredClone(history);
+    const participants = buildMentionableParticipants([ann, ning], history, ann);
+    expect(participants.slice(0, 2)).toEqual([
+      { ref: "user:123456789012345678", display_name: "Same", kind: "human" },
+      { ref: "user:987654321012345678", display_name: "Same", kind: "human" }
+    ]);
+    expect(history).toEqual(original);
+  });
+
+  it("prioritizes a known speaking role, never a display-name impersonation", () => {
+    const roles = Array.from({ length: 20 }, (_,index) => deployment(`extra-${index}`, `Role ${index}`));
+    const history: DiscordContextMessage[] = [
+      ...recent,
+      { ...recent[0]!, message_id: "role-message", author_id: "character:card-ning", author_display_name: "Ning", is_bot: true }
+    ];
+    const participants = buildMentionableParticipants([ann, ...roles, ning], history, ann);
+    expect(participants[0]?.ref).toBe("user:123456789012345678");
+    expect(participants[1]?.ref).toBe("deployment:ning");
+    history[1] = { ...history[1]!, author_id: "unknown-bot", author_display_name: "Ning" };
+    expect(buildMentionableParticipants([ann, ...roles, ning], history, ann)
+      .some((item) => item.ref === "deployment:ning")).toBe(false);
+  });
+
+  it("does not identify a speaking role when its Card belongs to multiple deployments", () => {
+    const ambiguous = { ...deployment("ning-second", "Other"), character_card_id: ning.character_card_id };
+    const roles = Array.from({ length: 20 }, (_,index) => deployment(`extra-${index}`, `Role ${index}`));
+    const history = [{ ...recent[0]!, author_id: "character:card-ning", is_bot: true }];
+    const participants = buildMentionableParticipants([ann, ...roles, ning, ambiguous], history, ann);
+    expect(participants.some((item) => item.ref === "deployment:ning")).toBe(false);
+    expect(participants.some((item) => item.ref === "deployment:ning-second")).toBe(false);
   });
 
   it("reserves every character at most once across one shared bot chain", () => {

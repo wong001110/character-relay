@@ -19,6 +19,7 @@ from echo_masque.provider_trace_classification import (
     ProviderTraceCategory,
     provider_trace_category,
     provider_trace_tool_names,
+    tool_content_failed,
 )
 from echo_masque.security import redact
 
@@ -67,7 +68,7 @@ class ProviderTraceRepository:
             record.endpoint = self._redacted_text(
                 str(payload.get("endpoint", record.endpoint or ""))
             )
-            record.trace_mode = str(payload.get("trace_mode", record.trace_mode or "summary"))
+            record.trace_mode = str(payload.get("trace_mode", record.trace_mode or "metadata"))
 
             if event == "provider.request":
                 record.status = (
@@ -368,11 +369,18 @@ class ProviderTraceRepository:
 
     @classmethod
     def _payload_has_failed_tool_result(cls, payload: dict[str, object]) -> bool:
+        failed_count = payload.get("failed_tool_result_count")
+        if (
+            isinstance(failed_count, int)
+            and not isinstance(failed_count, bool)
+            and failed_count > 0
+        ):
+            return True
         latest = payload.get("latest_message")
         if (
             isinstance(latest, dict)
             and latest.get("role") == "tool"
-            and cls._tool_content_failed(latest.get("content"))
+            and tool_content_failed(latest.get("content"))
         ):
             return True
         messages = payload.get("messages")
@@ -381,24 +389,9 @@ class ProviderTraceRepository:
         return any(
             isinstance(message, dict)
             and message.get("role") == "tool"
-            and cls._tool_content_failed(message.get("content"))
+            and tool_content_failed(message.get("content"))
             for message in messages
         )
-
-    @staticmethod
-    def _tool_content_failed(content: object) -> bool:
-        if not isinstance(content, str) or not content.strip():
-            return False
-        try:
-            decoded = json.loads(content)
-        except json.JSONDecodeError:
-            return False
-        if not isinstance(decoded, dict):
-            return False
-        if decoded.get("ok") is False:
-            return True
-        status = decoded.get("status")
-        return isinstance(status, str) and status.casefold() in {"failed", "rejected", "error"}
 
     def _prune(self, session: Session, *, now: datetime) -> None:
         cutoff = now - timedelta(days=self.retention_days)

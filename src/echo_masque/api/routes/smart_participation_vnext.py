@@ -592,7 +592,7 @@ def resolve_smart_participation_vnext(
     authoritative_ids = {
         item.deployment_id for item in plan.speakers if item.deployment_id in contexts
     }
-    with suppress(Exception):
+    try:
         _persist_reply_targets(
             payload=payload,
             request=request,
@@ -602,6 +602,10 @@ def resolve_smart_participation_vnext(
             guidance_by_id=guidance_by_id,
             authoritative_ids=authoritative_ids,
         )
+    except Exception:
+        # Generation reloads this decision to recover its selected source. Returning
+        # an admitted plan without the handoff would silently retarget to the trigger.
+        return _base_result(base, source="reply_target_persistence_failed")
 
     return SmartParticipationResolveVNextView.model_validate(
         {

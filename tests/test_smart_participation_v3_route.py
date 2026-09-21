@@ -387,7 +387,7 @@ def test_participation_planner_failure_is_authoritative_silent_plan(
     _assert_authoritative_empty_plan(response.json(), "participation_planner_failed")
 
 
-def test_reply_target_persistence_failure_keeps_authoritative_plan(
+def test_reply_target_persistence_failure_stops_admission_without_retargeting(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -411,6 +411,4 @@ def test_reply_target_persistence_failure_keeps_authoritative_plan(
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["speaker_plan_authoritative"] is True
-    assert body["speaker_plan"][0]["deployment_id"] == deployment_id
-    assert body["reply_targets"][0]["deployment_id"] == deployment_id
+    _assert_authoritative_empty_plan(body, "reply_target_persistence_failed")

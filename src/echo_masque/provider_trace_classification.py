@@ -47,6 +47,18 @@ def _positive_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
+def tool_content_failed(content: object) -> bool:
+    """Inspect a structured tool outcome without persisting its private content."""
+
+    if not isinstance(content, str) or not content.strip():
+        return False
+    decoded = _object(content)
+    if decoded.get("ok") is False:
+        return True
+    status = decoded.get("status")
+    return isinstance(status, str) and status.casefold() in {"failed", "rejected", "error"}
+
+
 def _request_text(request: dict[str, object]) -> str:
     latest = request.get("latest_message")
     if isinstance(latest, dict):
@@ -210,6 +222,11 @@ def provider_trace_tool_names(request_json: str, response_json: str) -> list[str
 
 def provider_trace_category(request_json: str, response_json: str) -> ProviderTraceCategory:
     request = _object(request_json)
+    category = request.get("category")
+    if isinstance(category, str) and category in {
+        "media_attention", "media_understanding", "image_generation",
+    }:
+        return cast(ProviderTraceCategory, category)
     text = _request_text(request).strip()
     if text.startswith(_MEDIA_ATTENTION_MARKER):
         return "media_attention"
@@ -222,13 +239,15 @@ def provider_trace_category(request_json: str, response_json: str) -> ProviderTr
     tool_names = provider_trace_tool_names(request_json, response_json)
     if (
         tool_names
+        or category == "tool_calling"
         or "tool" in roles
         or _positive_int(request.get("tool_result_count"))
     ):
         return "tool_calling"
 
     if (
-        "real Discord group conversation through Character Relay" in text
+        category == "character_turn"
+        or "real Discord group conversation through Character Relay" in text
         or "Return Smart Output now." in text
     ):
         return "character_turn"
@@ -242,4 +261,5 @@ __all__ = [
     "provider_trace_media_attention",
     "provider_trace_media_input",
     "provider_trace_tool_names",
+    "tool_content_failed",
 ]

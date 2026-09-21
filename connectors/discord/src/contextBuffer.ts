@@ -1,5 +1,6 @@
 import type { DiscordContextMessage } from "./types.js";
 
+/** Bounded room history. Returned values are snapshots, not shared mutable state. */
 export class ContextBuffer {
   private readonly values = new Map<string, DiscordContextMessage[]>();
 
@@ -7,13 +8,22 @@ export class ContextBuffer {
 
   push(destinationKey: string, message: DiscordContextMessage): void {
     const current = this.values.get(destinationKey) ?? [];
-    const deduplicated = current.filter((item) => item.message_id !== message.message_id);
-    deduplicated.push(message);
-    this.values.set(destinationKey, deduplicated.slice(-this.maximumMessages));
+    const stored = structuredClone(message);
+    const index = current.findIndex((item) => item.message_id === message.message_id);
+    if (index >= 0) {
+      // Enrichment or a repeated Gateway event is not a new conversational turn.
+      // Preserve the original position instead of moving an older source to the end.
+      const updated = [...current];
+      updated[index] = stored;
+      this.values.set(destinationKey, updated);
+      return;
+    }
+    this.values.set(destinationKey, [...current, stored].slice(-this.maximumMessages));
   }
 
   get(destinationKey: string): DiscordContextMessage[] {
-    return [...(this.values.get(destinationKey) ?? [])];
+    // A generation snapshot, renderer or caller must not mutate another role's history.
+    return structuredClone(this.values.get(destinationKey) ?? []);
   }
 
   clear(destinationKey?: string): void {
