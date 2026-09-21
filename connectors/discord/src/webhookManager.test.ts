@@ -184,13 +184,13 @@ describe("DiscordWebhookManager", () => {
 
     const manager = new DiscordWebhookManager("bot-token", relay);
     await expect(manager.send(item, ["private outgoing text"], "bot-1")).rejects.toThrow(
-      "Discord webhook returned HTTP 500."
+      "Discord delivery uncertain (HTTP 500)."
     );
 
     expect(reportWebhookStatus).toHaveBeenCalledWith({
       deployment_id: "deployment-1",
       status: "error",
-      last_error: "kind=Error status=500"
+      last_error: "kind=DiscordDeliveryError status=500"
     });
     expect(JSON.stringify(reportWebhookStatus.mock.calls)).not.toContain(privateBody);
   });

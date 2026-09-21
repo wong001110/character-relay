@@ -1,11 +1,11 @@
 # Architecture and codebase ownership
 
-**Current source map + accepted target boundaries; not a claim of completed relocation.**
+**Current source map + accepted target boundaries; incremental implementation on PR #207.**
 The merged runtime baseline is recorded in [PROJECT_STATE.md](../PROJECT_STATE.md).
 The [group-chat plan](plans/discord-group-chat-core.md) is the accepted target for the next change.
 Source and tests prove current behavior; the plan supersedes conflicting old target designs.
 
-## Existing physical layout (unchanged by the planning PR)
+## Existing physical layout (P2a adds the focused delivery policy module)
 
 ```text
 AGENTS.md                     one AI-Native Development policy
@@ -60,7 +60,7 @@ Paths in one table cell after a directory-qualified path share that area's root 
 qualified otherwise. Verify file existence and call sites in the checkout; this is navigation,
 not an exhaustive dependency graph or test execution receipt.
 
-## Target organization for Work (proposed, not present yet)
+## Target organization (proposed unless recorded below)
 
 Organize by stable responsibilities rather than phase numbers, agent roles or additional versions.
 Preserve the three deployable surfaces; do not split them into new services just to rename folders.
@@ -109,3 +109,12 @@ The former agent map, handoff, workflow and active-branch-plan files contain **l
 old policy, stale branch status and execution instructions have been removed. Existing historical
 links remain navigable, but cannot start another workflow. Old content remains in Git history.
 No OpenWiki generation/bootstrap or fixed Main/Sub topology is part of the current practice.
+
+## Implemented boundary extraction: P2a
+
+`connectors/discord/src/delivery.ts` now owns confirmed-receipt accumulation and the
+unsent/partial/uncertain fallback decision. Both `webhookManager.ts` and native split delivery in
+`index.ts` use it; there is no second active send policy. The existing durability repository stores
+partial receipts and keeps the entire operation uncertain without treating the draft as dialogue.
+`ContextBuffer` owns bounded snapshots and edit/delete invalidation; this is not a memory database.
+The remaining target moves and runtime retirements are pending in PROJECT_STATE.md.

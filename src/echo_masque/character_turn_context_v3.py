@@ -165,7 +165,9 @@ class CharacterTurnContextV3Service:
                 text=item.text[:4000],
                 created_at=item.created_at.isoformat() if item.created_at is not None else "",
                 reply_to_message_id=(
-                    payload.reply_to_message_id if item.message_id == payload.message_id else ""
+                    payload.reply_to_message_id
+                    if item.message_id == payload.message_id
+                    else item.reply_to_message_id
                 ),
             )
             for item in values[-5:]

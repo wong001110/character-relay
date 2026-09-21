@@ -51,7 +51,9 @@ export function buildMentionableParticipants(
     // Existing synthetic role messages use Character Card IDs. Never infer a
     // role from a display name or pick one when a Card has multiple deployments.
     const matches = deployments.filter(
-      (item) => message.author_id === `character:${item.character_card_id}`
+      (item) => message.author_deployment_id
+      ? item.deployment_id === message.author_deployment_id
+      : message.author_id === `character:${item.character_card_id}`
     );
     const role = matches.length === 1 ? matches[0] : undefined;
     if (!role || role.deployment_id === currentDeployment.deployment_id) continue;

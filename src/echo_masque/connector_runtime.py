@@ -1029,8 +1029,12 @@ class DiscordConnectorRuntime:
             (
                 f"[{smart_context.message_alias(item.message_id)} | "
                 f"{'Character' if item.is_bot else 'Member'}: "
-                f"{item.author_display_name}]: "
-                f"{DiscordConnectorRuntime._context_message_content(item)}"
+                f"{item.author_display_name}]"
+                + (
+                    f" [reply to {smart_context.message_alias(item.reply_to_message_id)}]"
+                    if item.reply_to_message_id else ""
+                )
+                + f": {DiscordConnectorRuntime._context_message_content(item)}"
             )
             for item in readable_transcript_messages
         )

@@ -8,6 +8,7 @@ const SAFE_ERROR_KINDS = new Set([
   "AbortError",
   "AggregateError",
   "DiscordAPIError",
+  "DiscordDeliveryError",
   "Error",
   "FetchError",
   "HTTPError",

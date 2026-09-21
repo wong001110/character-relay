@@ -1,3 +1,4 @@
+import { DiscordDeliveryError, readDeliveryReceipt, sendChunks } from "./delivery.js";
 import type { RelayClient } from "./relayClient.js";
 import { formatSafeDiagnosticError } from "./safeDiagnosticError.js";
 import type { DiscordDeployment } from "./types.js";
@@ -8,10 +9,6 @@ interface DiscordApiWebhook {
   name?: string | null;
   token?: string | null;
   user?: { id: string } | null;
-}
-
-interface DiscordApiMessage {
-  id: string;
 }
 
 const DISCORD_API = "https://discord.com/api/v10";
@@ -83,42 +80,31 @@ export class DiscordWebhookManager {
     allowedUserIds: string[] = []
   ): Promise<string[]> {
     try {
-      let binding = await this.ensure(deployment, botUserId);
-      let response = await this.executeWebhookAsset(
-        binding,
-        deployment,
-        content,
-        assetUrl,
-        filename,
-        allowedUserIds
-      );
-      if (response.status === 401 || response.status === 404) {
-        deployment.webhook_id = null;
-        deployment.webhook_token = null;
-        deployment.webhook_status = "pending";
+      let binding: { id: string; token: string };
+      let form: FormData;
+      try {
         binding = await this.ensure(deployment, botUserId);
-        response = await this.executeWebhookAsset(
-          binding,
-          deployment,
-          content,
-          assetUrl,
-          filename,
-          allowedUserIds
-        );
+        form = await this.prepareAsset(deployment, content, assetUrl, filename, allowedUserIds);
+      } catch {
+        // Provisioning/downloading is not the visible-message side effect.
+        throw new DiscordDeliveryError("unsent");
       }
-      if (!response.ok) {
-        throw discordHttpError("Discord webhook attachment", response.status);
-      }
-      const message = (await response.json()) as DiscordApiMessage;
+      const ids = await sendChunks(["asset"], async () => {
+        let response = await this.executeWebhookAsset(binding, deployment, form);
+        if (response.status === 401 || response.status === 404) {
+          deployment.webhook_id = null;
+          deployment.webhook_token = null;
+          deployment.webhook_status = "pending";
+          binding = await this.ensure(deployment, botUserId);
+          response = await this.executeWebhookAsset(binding, deployment, form);
+        }
+        return readDeliveryReceipt(response);
+      });
       deployment.webhook_status = "active";
-      await this.relay
-        .reportWebhookStatus({
-          deployment_id: deployment.deployment_id,
-          status: "active",
-          last_error: ""
-        })
-        .catch(() => undefined);
-      return [message.id];
+      await this.relay.reportWebhookStatus({
+        deployment_id: deployment.deployment_id, status: "active", last_error: ""
+      }).catch(() => undefined);
+      return ids;
     } catch (error) {
       deployment.webhook_status = "error";
       await this.relay
@@ -160,12 +146,13 @@ export class DiscordWebhookManager {
     botUserId: string,
     allowedUserIds: string[]
   ): Promise<string[]> {
-    let binding = await this.ensure(deployment, botUserId);
-    const messageIds: string[] = [];
-
-    for (let index = 0; index < chunks.length; index += 1) {
-      const chunk = chunks[index];
-      if (!chunk) continue;
+    let binding: { id: string; token: string };
+    try {
+      binding = await this.ensure(deployment, botUserId);
+    } catch {
+      throw new DiscordDeliveryError("unsent");
+    }
+    const messageIds = await sendChunks(chunks, async (chunk, index) => {
       let response = await this.executeWebhook(binding, deployment, chunk, allowedUserIds);
       if ((response.status === 401 || response.status === 404) && index === 0) {
         deployment.webhook_id = null;
@@ -174,12 +161,8 @@ export class DiscordWebhookManager {
         binding = await this.ensure(deployment, botUserId);
         response = await this.executeWebhook(binding, deployment, chunk, allowedUserIds);
       }
-      if (!response.ok) {
-        throw discordHttpError("Discord webhook", response.status);
-      }
-      const message = (await response.json()) as DiscordApiMessage;
-      messageIds.push(message.id);
-    }
+      return readDeliveryReceipt(response);
+    });
 
     deployment.webhook_status = "active";
     await this.relay
@@ -192,14 +175,13 @@ export class DiscordWebhookManager {
     return messageIds;
   }
 
-  private async executeWebhookAsset(
-    binding: { id: string; token: string },
+  private async prepareAsset(
     deployment: DiscordDeployment,
     content: string,
     assetUrl: string,
     filename: string,
     allowedUserIds: string[]
-  ): Promise<Response> {
+  ): Promise<FormData> {
     const asset = await fetch(assetUrl, {
       signal: AbortSignal.timeout(30_000)
     });
@@ -226,6 +208,14 @@ export class DiscordWebhookManager {
     );
     form.append("files[0]", new Blob([bytes], { type: mediaType }), filename);
 
+    return form;
+  }
+
+  private executeWebhookAsset(
+    binding: { id: string; token: string },
+    deployment: DiscordDeployment,
+    form: FormData
+  ): Promise<Response> {
     const url = new URL(`${DISCORD_API}/webhooks/${binding.id}/${binding.token}`);
     url.searchParams.set("wait", "true");
     if (deployment.thread_id) {
@@ -233,6 +223,7 @@ export class DiscordWebhookManager {
     }
     return fetch(url, {
       method: "POST",
+      redirect: "error",
       signal: AbortSignal.timeout(30_000),
       body: form
     });
@@ -252,6 +243,7 @@ export class DiscordWebhookManager {
     const avatarUrl = identityAvatarUrl(deployment);
     return fetch(url, {
       method: "POST",
+      redirect: "error",
       signal: AbortSignal.timeout(30_000),
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

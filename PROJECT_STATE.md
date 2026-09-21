@@ -12,7 +12,7 @@ Updated: **2026-09-21**. Single current progress and takeover record.
 | Implementation branch / PR | `feat/discord-group-chat-core-takeover` / Draft #207 |
 | Authorization | User requested execution takeover after Work quota was exhausted |
 | Policy / requirements | [AGENTS.md](AGENTS.md), [accepted plan](docs/plans/discord-group-chat-core.md) |
-| Current checkpoint | First foundation slice implemented and locally checked; full CI gate required |
+| Current checkpoint | Foundation plus P2a source/delivery integration; exact-head gates required |
 | Merge / deployment | **NOT AUTHORIZED** |
 
 At takeover, remote inventory contained no newer Work implementation or state commit. Unpushed
@@ -27,7 +27,7 @@ subsequent execution. All D01-D11 and A01-A22 remain required; this slice is not
 | --- | --- |
 | P0 | Accepted documentation baseline available in PR #206 |
 | P1 | IN_PROGRESS: three Connector defects reproduced; privacy negative cases added. Full group-chat characterization and live call/token baseline not complete |
-| P2 | IN_PROGRESS: immutable bounded context snapshots, participant priority and fail-closed selection handoff implemented. Reply metadata, partial/uncertain delivery, edit/delete/restart and non-blocking ingress remain |
+| P2 | IN_PROGRESS: foundation plus Reply/edit/role metadata, live buffer changes and partial/uncertain delivery implemented; full integration, ancestor fetching, restart rehydration, response-source persistence and slow-job separation remain |
 | P3 | NOT_STARTED: bounded A-B-A, attempt/room limits and send-time draft refresh still required |
 | P4 | NOT_STARTED: explicit scoped notes, relationship replacement, writer/Discovery and Roast retirement still required |
 | P5 | IN_PROGRESS: metadata-default trace slice moved forward as a small privacy prerequisite. Scoped expiring raw capture, unified observation and Portal work remain |
@@ -75,10 +75,35 @@ Checks are self-executed/self-reviewed, not independent review or production acc
 - `git diff --check` passed; tests do not call real Discord/providers, change live grants or spend
   model tokens. PostgreSQL, browser, live quality/cost and deployment checks were not run locally.
 
+## P2a source and delivery batch
+
+Reconciles a separately verified local patch with foundation commit `458534bec0489583cb48d5c6d0c901ce5946da98`.
+The foundation's trace-privacy implementation, tests and fail-closed source handoff are preserved.
+ContextBuffer extends the deep-copy fix with chronological insert/edit/delete/invalidation and bounded
+tombstones. Gateway ingestion updates human context before slow processing; running-draft freshness
+is still P3. Reply/edit/real deployment metadata reaches schemas, historical bursts and prompts.
+
+`delivery.ts` separates definitely-unsent, partial and uncertain sends. Native/webhook chunks retain
+confirmed message IDs; unknown or partial sends cannot fall back by resending the entire answer.
+Asset and expression branches preserve the same boundary. Uncertainty reports bind to the exact
+operation, step and claim, keep receipt IDs and do not advance the conversation. No schema migration.
+
+Local evidence before integration: 20 real Python tests, 17 Node behavioral tests against transpiled
+actual source, and six explicitly selected manual mutation probes caught by assertions. Five seed
+regressions failed on the original snapshot and passed after changes. These are not full Vitest,
+Ruff/mypy, PostgreSQL, live Discord or independent-security acceptance. Local package DNS access
+failed; full route collection requires unavailable LangGraph. The integrated source must be checked
+by the actual configured CI. Do not add these counts to the foundation's counts as a unique total.
+
+Temporary patch-transfer files and workflow remove themselves in this batch. The patch SHA256 is
+`b72eb14d190f710e6437deceffa4198691daf0e0611d2a89d4c61d10f9aacb37`; the pre-reconciliation
+source tree was verified as `825065b9be3b127accf34d9835afc448ea379149`. This transport is not
+a permanent coding-agent runtime, live deployment or production-data operation.
+
 ## Next concrete action
 
-Check Draft #207's exact-head CI, especially Python route tests and full Connector typecheck/Vitest.
-Repair failures without weakening invariants. Then continue P2 with actual per-message Reply/source
-metadata and webhook partial/uncertain-send state; follow the full A07/A16/A17 cases before P3.
-Preserve source permissions, original requester authority, receipts and prior tool results. Update
-this file at coherent checkpoints, not an additional agent ledger. Do not merge or deploy.
+Read exact-head integration/CI results and repair failures without weakening protected invariants.
+Finish P2's scoped Reply ancestor fetching, persistent response-source links, restart handling and
+non-blocking slow-job scheduling. P3 multi-role budgets/re-entry/freshness, P4 explicit notes and
+relationship/Roast/writer retirement, P5 unified observation/Portal and P6 remain incomplete.
+No merge or deployment. Unpushed Work changes remain unknown; reconcile new remote changes first.

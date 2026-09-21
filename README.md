@@ -10,10 +10,10 @@ The accepted next direction is **bounded multi-character group conversation**, p
 notes and relationships, optional recall, reliable Discord delivery and understandable diagnostics.
 Perfect human cognition is not the goal. Zero bot participation is a valid outcome.
 
-The [group-chat core plan](docs/plans/discord-group-chat-core.md) is accepted but **not implemented
-by this documentation PR**. Existing runtime behavior is still the PR #205 baseline. The
-[project state](PROJECT_STATE.md) separates that baseline, remaining work and verification.
-Source movement and feature changes belong to the later Work implementation, not this PR.
+The [group-chat core plan](docs/plans/discord-group-chat-core.md) was accepted in documentation
+PR #206. Implementation is now in progress on PR #207; P2a adds source metadata and safer delivery.
+The [project state](PROJECT_STATE.md) separates verified changes, remaining work and integration
+gates. The full group-chat, notes, relationship and retirement plan is not complete.
 
 ## Existing product foundation
 

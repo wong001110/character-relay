@@ -871,6 +871,7 @@ def mark_social_turn_delivery_uncertain(
         step_id=payload.step_id,
         claim_nonce=payload.claim_nonce,
         error=payload.error,
+        sent_message_ids=payload.sent_message_ids,
     )
 
 
@@ -958,6 +959,7 @@ def mark_character_turn_delivery_uncertain(
         step_id=payload.step_id,
         claim_nonce=payload.claim_nonce,
         error=payload.error,
+        sent_message_ids=payload.sent_message_ids,
     )
 
 

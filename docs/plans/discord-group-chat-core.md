@@ -1,12 +1,12 @@
 # Discord group-chat core simplification
 
-Status: **ACCEPTED DESIGN / IMPLEMENTATION NOT_STARTED**.
+Status: **ACCEPTED DESIGN / IMPLEMENTATION IN_PROGRESS — see PROJECT_STATE.md**.
 Planning baseline: `3cd183d460812d16cfb0c6d8dbae305d8ef61363` (PR #205).
 Accepted discussion consolidated on 2026-09-21. Progress belongs only in
 [PROJECT_STATE.md](../../PROJECT_STATE.md); coding policy is [AGENTS.md](../../AGENTS.md).
 
-This PR records requirements and source organization, not implementation. Work starts only when
-the user explicitly instructs it to execute. This plan supersedes older target designs for the
+The original PR #206 recorded requirements only. The user has now authorized execution on the
+separate PR #207 branch; current evidence is in PROJECT_STATE.md. This plan supersedes older target designs for the
 behaviors below. Existing safety, deployment and evaluation contracts remain unless explicitly
 changed with equivalent or stronger verified protection.
 

@@ -537,3 +537,82 @@ def test_early_silent_character_trace_is_completed(tmp_path: Path) -> None:
     record = runtime.get_trace_run("graph-run-silent")
     assert record is not None
     assert record.status == "completed"
+
+
+def test_uncertain_delivery_preserves_partial_receipts_without_advancing(tmp_path: Path) -> None:
+    database, runtime = repository(tmp_path / "partial-receipts.db")
+    operation = claim_operation(runtime)
+    _, step = runtime.prepare_social_step(
+        operation_id=operation.operation_id, step_index=0,
+        deployment_id="ann", request_hash="partial-request",
+    )
+    runtime.complete_social_step_generation(
+        step_id=step.step_id, response_json='{"reply":"not all sent"}',
+        cursor_json=cursor_after_ann(), delivery_required=True,
+    )
+    runtime.claim_delivery(
+        operation_id=operation.operation_id, step_id=step.step_id,
+        claim_nonce="claim-nonce-0001",
+    )
+    for ids in (["sent-1"], [], ["sent-1", "sent-2"]):
+        runtime.mark_delivery_uncertain(
+            operation_id=operation.operation_id, step_id=step.step_id,
+            claim_nonce="claim-nonce-0001", error="partial_or_uncertain",
+            sent_message_ids=ids,
+        )
+        with database.session() as session:
+            interim = session.get(RuntimeStepRecord, step.step_id)
+            assert interim is not None
+            assert "sent-1" in json.loads(interim.sent_message_ids_json)
+    with database.session() as session:
+        stored = session.get(RuntimeStepRecord, step.step_id)
+        assert stored is not None
+        assert stored.status == "uncertain"
+        assert json.loads(stored.sent_message_ids_json) == ["sent-1", "sent-2"]
+        assert stored.delivered_at is None
+        assert stored.outgoing_text == ""
+    current = runtime.get_operation(operation.operation_id)
+    assert current is not None and current.status == "uncertain"
+    assert current.sources_json == "[]"
+    status, _ = runtime.claim_delivery(
+        operation_id=operation.operation_id, step_id=step.step_id,
+        claim_nonce="claim-nonce-0001",
+    )
+    assert status == "uncertain"
+
+
+@pytest.mark.parametrize("invalid", ["other_operation", "wrong_nonce", "no_claim"])
+def test_uncertainty_report_cannot_mutate_an_unowned_delivery(
+    tmp_path: Path, invalid: str,
+) -> None:
+    database, runtime = repository(tmp_path / f"invalid-{invalid}.db")
+    operation = claim_operation(runtime)
+    other = claim_operation(runtime, operation_id="other".ljust(64, "0"))
+    _, step = runtime.prepare_social_step(
+        operation_id=operation.operation_id, step_index=0,
+        deployment_id="ann", request_hash="guard-request",
+    )
+    runtime.complete_social_step_generation(
+        step_id=step.step_id, response_json='{}',
+        cursor_json=cursor_after_ann(), delivery_required=True,
+    )
+    if invalid != "no_claim":
+        runtime.claim_delivery(
+            operation_id=operation.operation_id, step_id=step.step_id,
+            claim_nonce="claim-nonce-0001",
+        )
+    runtime.mark_delivery_uncertain(
+        operation_id=other.operation_id if invalid == "other_operation" else operation.operation_id,
+        step_id=step.step_id,
+        claim_nonce="wrong-nonce-0001" if invalid == "wrong_nonce" else "claim-nonce-0001",
+        error="must_not_apply", sent_message_ids=["injected-receipt"],
+    )
+    with database.session() as session:
+        stored = session.get(RuntimeStepRecord, step.step_id)
+        assert stored is not None
+        assert stored.status == ("generated" if invalid == "no_claim" else "delivery_claimed")
+        assert stored.sent_message_ids_json == "[]"
+    current = runtime.get_operation(operation.operation_id)
+    assert current is not None and current.status == "awaiting_delivery"
+    current_other = runtime.get_operation(other.operation_id)
+    assert current_other is not None and current_other.status == "active"

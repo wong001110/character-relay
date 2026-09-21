@@ -75,6 +75,7 @@ export interface DiscordDeliveryAckRequest {
 }
 
 export interface DiscordDeliveryFailureRequest {
+  sent_message_ids?: string[];
   operation_id: string;
   step_id: string;
   claim_nonce: string;

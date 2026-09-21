@@ -252,3 +252,16 @@ characters and by Interaction Sessions.
 ## Slow tools and recoverable turns
 
 Formal Character/social turn calls submit bounded API jobs, deliver model-authored progress while polling, and reuse durable final-delivery claims. Message-job recovery scans paginated results after successful state sync, without resubmitting generation. Configure `DISCORD_TURN_JOB_MAX_WAIT_MS` above the API deadline and `DISCORD_TURN_JOB_RECOVERY_MAX_CONCURRENT` for recovery concurrency (default 4). Per-destination conversation ordering stays serial. See [the MCP/job contract](../../docs/mcp-conversation-jobs.md) for setup, recovery, and known limitations.
+
+## P2a source and delivery boundary
+
+Recent human messages now retain Reply references/edit times and enter the room buffer before
+slow preflight/model work. Message edits/deletes update that bounded buffer. Returned snapshots
+are copied, and queued older content cannot restore a deleted source. Source-chain rehydration
+and send-time draft refresh remain later phases; this buffer is not durable long-term memory.
+
+`delivery.ts` preserves confirmed split-message receipts. Only a definitely-unsent attempt may
+switch from webhook to the shared bot identity; unknown/partial/rate-limited attempts never use
+whole-answer fallback. The uncertainty ledger keeps confirmed message IDs for diagnosis without
+claiming the remaining chunks succeeded or automatically retrying them. A failed acknowledgement
+after a successful send still needs operator reconciliation; this does not promise exactly once.
