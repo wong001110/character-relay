@@ -1,0 +1,191 @@
+name: P2a source integration
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/p2a-transfer/**'
+      - '.github/workflows/group-chat-apply-p2a.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  integrate:
+    if: >-
+      github.repository == 'wong001110/character-relay' &&
+      github.event.pull_request.number == 207 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feat/discord-group-chat-core-takeover'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      SOURCE_HEAD: ${{ github.event.pull_request.head.sha }}
+      TARGET_BRANCH: feat/discord-group-chat-core-takeover
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Reconcile fixed reviewed source with the newer foundation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
+          test "$(git rev-parse HEAD^)" = 458534bec0489583cb48d5c6d0c901ce5946da98
+          mkdir -p "$RUNNER_TEMP/p2a-proof"
+          cat .github/p2a-transfer/{0,1,2,3}.part > "$RUNNER_TEMP/p2a.patch.gz"
+          echo "b72eb14d190f710e6437deceffa4198691daf0e0611d2a89d4c61d10f9aacb37  $RUNNER_TEMP/p2a.patch.gz" | sha256sum --check
+          gzip -dc "$RUNNER_TEMP/p2a.patch.gz" > "$RUNNER_TEMP/p2a.patch"
+          git worktree add --detach "$RUNNER_TEMP/p2a-reviewed" efb66eda828726cfda9cda6e3b952e0ad32153fd
+          git -C "$RUNNER_TEMP/p2a-reviewed" apply --check "$RUNNER_TEMP/p2a.patch"
+          git -C "$RUNNER_TEMP/p2a-reviewed" apply --index "$RUNNER_TEMP/p2a.patch"
+          test "$(git -C "$RUNNER_TEMP/p2a-reviewed" write-tree)" = 825065b9be3b127accf34d9835afc448ea379149
+          python - <<'PY'
+          import os, shutil, subprocess
+          from pathlib import Path
+          root = Path.cwd()
+          reviewed = Path(os.environ['RUNNER_TEMP']) / 'p2a-reviewed'
+          paths = subprocess.check_output(['git', '-C', str(reviewed), 'diff', '--cached', '--name-only'], text=True).splitlines()
+          # Keep the concurrent foundation's privacy changes, new tests and equivalent
+          # persistence fix. Extend its source metadata rather than overwrite those changes.
+          keep = {
+              'PROJECT_STATE.md',
+              '.github/workflows/group-chat-takeover-snapshot.yml',
+              'connectors/discord/src/smartOutput.ts',
+              'connectors/discord/src/smartOutput.test.ts',
+              'src/echo_masque/api/routes/smart_participation_vnext.py',
+              'tests/test_smart_participation_v3_route.py',
+          }
+          for name in paths:
+              if name in keep:
+                  continue
+              source, destination = reviewed / name, root / name
+              if not source.is_file():
+                  raise RuntimeError('Unexpected deletion in reviewed transfer: ' + name)
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, destination)
+          path = root / 'connectors/discord/src/smartOutput.ts'
+          text = path.read_text()
+          old = '(item) => message.author_id === `character:${item.character_card_id}`'
+          new = '''(item) => message.author_deployment_id
+                ? item.deployment_id === message.author_deployment_id
+                : message.author_id === `character:${item.character_card_id}`'''
+          assert text.count(old) == 1
+          path.write_text(text.replace(old, new))
+          state = root / 'PROJECT_STATE.md'
+          text = state.read_text()
+          text = text.replace('First foundation slice implemented and locally checked; full CI gate required', 'Foundation plus P2a source/delivery integration; exact-head gates required')
+          old = '| P2 | IN_PROGRESS: immutable bounded context snapshots, participant priority and fail-closed selection handoff implemented. Reply metadata, partial/uncertain delivery, edit/delete/restart and non-blocking ingress remain |'
+          new = '| P2 | IN_PROGRESS: foundation plus Reply/edit/role metadata, live buffer changes and partial/uncertain delivery implemented; full integration, ancestor fetching, restart rehydration, response-source persistence and slow-job separation remain |'
+          assert old in text
+          text = text.replace(old, new)
+          text = text.split('## Next concrete action')[0]
+          text += '''## P2a source and delivery batch
+
+          Reconciles a separately verified local patch with foundation commit `458534bec0489583cb48d5c6d0c901ce5946da98`.
+          The foundation's trace-privacy implementation, tests and fail-closed source handoff are preserved.
+          ContextBuffer extends the deep-copy fix with chronological insert/edit/delete/invalidation and bounded
+          tombstones. Gateway ingestion updates human context before slow processing; running-draft freshness
+          is still P3. Reply/edit/real deployment metadata reaches schemas, historical bursts and prompts.
+
+          `delivery.ts` separates definitely-unsent, partial and uncertain sends. Native/webhook chunks retain
+          confirmed message IDs; unknown or partial sends cannot fall back by resending the entire answer.
+          Asset and expression branches preserve the same boundary. Uncertainty reports bind to the exact
+          operation, step and claim, keep receipt IDs and do not advance the conversation. No schema migration.
+
+          Local evidence before integration: 20 real Python tests, 17 Node behavioral tests against transpiled
+          actual source, and six explicitly selected manual mutation probes caught by assertions. Five seed
+          regressions failed on the original snapshot and passed after changes. These are not full Vitest,
+          Ruff/mypy, PostgreSQL, live Discord or independent-security acceptance. Local package DNS access
+          failed; full route collection requires unavailable LangGraph. The integrated source must be checked
+          by the actual configured CI. Do not add these counts to the foundation's counts as a unique total.
+
+          Temporary patch-transfer files and workflow remove themselves in this batch. The patch SHA256 is
+          `b72eb14d190f710e6437deceffa4198691daf0e0611d2a89d4c61d10f9aacb37`; the pre-reconciliation
+          source tree was verified as `825065b9be3b127accf34d9835afc448ea379149`. This transport is not
+          a permanent coding-agent runtime, live deployment or production-data operation.
+
+          ## Next concrete action
+
+          Read exact-head integration/CI results and repair failures without weakening protected invariants.
+          Finish P2's scoped Reply ancestor fetching, persistent response-source links, restart handling and
+          non-blocking slow-job scheduling. P3 multi-role budgets/re-entry/freshness, P4 explicit notes and
+          relationship/Roast/writer retirement, P5 unified observation/Portal and P6 remain incomplete.
+          No merge or deployment. Unpushed Work changes remain unknown; reconcile new remote changes first.
+          '''
+          state.write_text(text)
+          # Assert all concurrent foundation files not intentionally extended remain identical.
+          incoming = set(subprocess.check_output(['git', 'diff', '--name-only', 'efb66eda828726cfda9cda6e3b952e0ad32153fd', '458534bec0489583cb48d5c6d0c901ce5946da98'], text=True).splitlines())
+          preserved = sorted(incoming - {'PROJECT_STATE.md', 'connectors/discord/src/contextBuffer.ts', 'connectors/discord/src/smartOutput.ts'})
+          subprocess.run(['git', 'diff', '--exit-code', '458534bec0489583cb48d5c6d0c901ce5946da98', '--', *preserved], check=True)
+          PY
+          git rm -r .github/p2a-transfer .github/workflows/group-chat-apply-p2a.yml
+          git add -A
+          git diff --cached --check
+          git diff --cached --stat > "$RUNNER_TEMP/p2a-proof/changes.txt"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: preserve group-chat sources and uncertain delivery receipts' -m 'Integrate P2a with the newer privacy foundation without overwriting its tests. Local focused evidence recorded; configured integration remains pending. Remove temporary patch transfer. No merge or deployment.'
+          git rev-parse HEAD > "$RUNNER_TEMP/p2a-proof/commit.txt"
+          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/p2a-proof/tree.txt"
+          git archive --format=tar.gz HEAD > "$RUNNER_TEMP/p2a-proof/source.tar.gz"
+      - name: Publish reviewed checkpoint without overwriting concurrent work
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$SOURCE_HEAD"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
+          echo "P2a checkpoint: $(git rev-parse HEAD). Gates below are still required; not a completed phase." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Connector configured validation
+        id: connector
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          { npm ci --prefix connectors/discord; npm run typecheck --prefix connectors/discord; npm test --prefix connectors/discord; npm run build --prefix connectors/discord; } 2>&1 | tee "$RUNNER_TEMP/p2a-proof/connector.txt"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Python dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Ruff
+        id: ruff
+        continue-on-error: true
+        run: set -o pipefail; python -m ruff check . 2>&1 | tee "$RUNNER_TEMP/p2a-proof/ruff.txt"
+      - name: Mypy
+        id: mypy
+        continue-on-error: true
+        run: set -o pipefail; python -m mypy src 2>&1 | tee "$RUNNER_TEMP/p2a-proof/mypy.txt"
+      - name: Focused Python integration
+        id: pytest
+        continue-on-error: true
+        run: >-
+          set -o pipefail; python -m pytest tests/test_runtime_durability.py
+          tests/test_group_chat_source_contract.py tests/test_smart_participation_v3_route.py
+          tests/test_character_turn_context_v3.py --tb=short 2>&1 |
+          tee "$RUNNER_TEMP/p2a-proof/pytest.txt"
+      - name: Retain exact source and results for reconciliation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2a-integration-${{ github.run_id }}
+          path: ${{ runner.temp }}/p2a-proof/
+          retention-days: 1
+      - name: Require all configured gates
+        if: always()
+        env:
+          CONNECTOR_RESULT: ${{ steps.connector.outcome }}
+          RUFF_RESULT: ${{ steps.ruff.outcome }}
+          MYPY_RESULT: ${{ steps.mypy.outcome }}
+          PYTEST_RESULT: ${{ steps.pytest.outcome }}
+        run: |
+          test "$CONNECTOR_RESULT" = success
+          test "$RUFF_RESULT" = success
+          test "$MYPY_RESULT" = success
+          test "$PYTEST_RESULT" = success
