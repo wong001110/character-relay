@@ -1,152 +1,77 @@
 # Character Relay
 
-Character Relay is a creator-oriented studio for building, testing, deploying, and observing persistent AI characters in group chat. Echo Masque is the evaluation module inside the wider product.
+A creator-oriented studio for building, testing, deploying and observing AI characters in group
+chat. Echo Masque is the evaluation module within the product. Discord guild channels and Threads
+are the supported platform surface; other connectors are not implied implementations.
 
-The current production connector is Discord. Telegram and WhatsApp are directions, not equivalent implemented connectors.
+## Project direction and implementation status
 
-## What is implemented
+The accepted next direction is **bounded multi-character group conversation**, practical scoped
+notes and relationships, optional recall, reliable Discord delivery and understandable diagnostics.
+Perfect human cognition is not the goal. Zero bot participation is a valid outcome.
 
-- Character Cards, prompt/model configuration, portraits, credentials, and versioned evaluation inputs.
-- Discord server workspaces, deployments, per-character webhook identities, Smart Participation, social turns, tools, media handling, and durable delivery boundaries.
-- Intelligence Core v3: conversation structure, episodes, evidence-backed beliefs, entity/evidence graph, context resolution, social state, and participation planning.
-- LangGraph Character Turn and Social Turn orchestration with runtime and provider traces.
-- Echo Masque evaluation: scenarios, test packs, matrices, calibration datasets, authoring drafts, reports, and prompt inspection.
-- Session authentication, owner isolation, encrypted credentials, audit controls, quotas, and a server-enforced read-only Public Demo.
+The [group-chat core plan](docs/plans/discord-group-chat-core.md) was accepted in documentation
+PR #206. Implementation is now in progress on PR #207; P2a adds source metadata and safer delivery.
+The [project state](PROJECT_STATE.md) separates verified changes, remaining work and integration
+gates. The full group-chat, notes, relationship and retirement plan is not complete.
 
-## Runtime shape
+## Existing product foundation
 
-```text
-Discord
-  -> connectors/discord
-  -> audience and participation routing
-  -> Social Turn
-  -> Character Turn
-       -> context / belief / episode / knowledge / media resolution
-       -> provider model
-       -> optional tool loop
-       -> Smart Output
-       -> runtime authority
-  -> Discord rendering and delivery
-```
+Character Cards, model/prompt configuration, portraits, deployments and webhook identities;
+Smart Output and role orchestration; scoped internal recall; tools/media/jobs and delivery state;
+provider/runtime diagnostics; and the Echo Masque evaluation/authoring/calibration surfaces exist.
+Authentication, owner isolation, encrypted credentials, quotas and read-only Public Demo boundaries
+remain. Advanced intelligence and Roast still exist at the baseline until explicitly retired.
 
-The runtime owns identity, scope, permissions, lifecycle, and side effects. Model output may propose semantic choices, but it cannot create IDs, widen visibility, or authorize operations.
+Ordinary context no longer bulk-injects Beliefs, Episodes or Fabric evidence after PR #205, but
+some automatic writers, social simulation and group-chat edge cases remain. Do not infer the whole
+simplification is complete from the earlier merge or a short provider-visible relationship hint.
 
-Topic authority was removed by the Intelligence Core v3 hard cutover. Do not reintroduce Topic fallback, `topic_id` continuation authority, Topic-scoped durable memory, or Topic-driven Wiki/Discovery behavior. See [`docs/intelligence-core-v3-architecture.md`](docs/intelligence-core-v3-architecture.md).
+## Repository and development entry
 
-## Repository map
+| Need | Entry |
+| --- | --- |
+| AI-Native Development policy | [AGENTS.md](AGENTS.md) |
+| Current status and Work takeover | [PROJECT_STATE.md](PROJECT_STATE.md) |
+| Source ownership and target organization | [Architecture](docs/architecture.md) |
+| Accepted behavior and acceptance cases | [Active group-chat plan](docs/plans/discord-group-chat-core.md) |
+| Setup and validation commands | [Developer guide](docs/developer/README.md) |
+| User / operator / specialized contracts | [Documentation index](docs/README.md) |
 
-| Area | Implementation | Primary tests/docs |
-| --- | --- | --- |
-| Python API/runtime | `src/echo_masque/` | `tests/`, `docs/architecture.md` |
-| API composition/routes | `src/echo_masque/api/` | API/phase tests under `tests/` |
-| Web Portal | `web/src/` | `web/src/*.test.ts`, UI contracts under `docs/` |
-| Discord Connector | `connectors/discord/src/` | `connectors/discord/src/**/*.test.ts`, connector README |
-| Persistence | `src/echo_masque/persistence/` | repository and lifecycle tests under `tests/` |
-| Deployment | root `Dockerfile`, `railway.toml`, `compose.yaml` | CI workflows, `docs/railway-deployment.md` |
-| Agent orientation | `AGENTS.md`, `docs/README.md`, `docs/agent-handoff.md` | `openwiki/INSTRUCTIONS.md` |
-
-For a source-to-test map by subsystem, start at [`docs/agent-handoff.md`](docs/agent-handoff.md). The documentation authority index is [`docs/README.md`](docs/README.md).
+The Python API/runtime stays under `src/echo_masque/`, the Portal under `web/src/`, and the
+Discord Connector under `connectors/discord/`. Tests and existing deployment infrastructure remain.
+No generated wiki, fixed multi-agent topology or product-embedded coding-agent ledger is required.
 
 ## Local setup
 
-Requirements:
-
-- Python 3.12+
-- Node.js 22+ for the Portal
-- Node.js 24.17+ for the Discord Connector
-
-Start the API and Portal:
+Use the toolchain versions declared in the current Python and Node manifests. The existing launcher
+prepares the environment and starts API/Portal:
 
 ```bash
 python run.py
+# Existing variants: --install, --no-install, --api-only, --no-reload
 ```
 
-The launcher prepares `.venv` and installs dependencies unless told otherwise.
+Local Portal: `http://127.0.0.1:5173`; API docs: `http://127.0.0.1:8000/docs`;
+health: `http://127.0.0.1:8000/health`. See the developer guide for isolated PostgreSQL, connector,
+focused checks and full surface validation. Model credentials are not required by ordinary tests.
 
-```bash
-python run.py --install
-python run.py --no-install
-python run.py --api-only
-python run.py --no-reload
-```
+## Production and authority
 
-Default local endpoints:
+Runtime owns identity, permissions, source scope, tool authorization, lifecycle and delivery.
+A model may propose a reply, silence or tool call; it cannot manufacture authority. Retired Topic
+fallback/Topic-scoped memory is not reintroduced by this plan.
 
-- Portal: `http://127.0.0.1:5173`
-- API documentation: `http://127.0.0.1:8000/docs`
-- Health: `http://127.0.0.1:8000/health`
+The existing production contract requires PostgreSQL + pgvector. SQLite is for local development,
+tests or approved offline migration inputs, not production Fabric. Application settings use
+`CHARACTER_RELAY_*`. Keep provider credentials, connector secrets and encryption keys outside Git.
+Public Demo mutations remain denied server-side.
 
-## Validation
-
-Python:
-
-```bash
-python -m ruff check .
-python -m mypy src
-python -m pytest
-```
-
-Portal:
-
-```bash
-cd web
-npm ci
-npm run typecheck
-npm test
-npm run build
-```
-
-Discord Connector:
-
-```bash
-cd connectors/discord
-npm ci
-npm run typecheck
-npm test
-npm run build
-```
-
-CI is the complete merge gate; select targeted tests while iterating, then run the relevant full checks before handoff.
-
-## Production deployment
-
-Knowledge Fabric production requires PostgreSQL with pgvector. SQLite is supported only for local development, tests, and as an offline migration source; an application configured with production SQLite fails closed before startup.
-
-Application settings use only the `CHARACTER_RELAY_*` prefix. A minimal production configuration includes:
-
-```text
-CHARACTER_RELAY_ENVIRONMENT=production
-CHARACTER_RELAY_DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>:5432/<database>
-CHARACTER_RELAY_LEGACY_LOCAL_USER_ENABLED=false
-CHARACTER_RELAY_PUBLIC_REGISTRATION_ENABLED=false
-CHARACTER_RELAY_BOOTSTRAP_ADMIN_EMAIL=<admin email>
-CHARACTER_RELAY_BOOTSTRAP_ADMIN_PASSWORD=<long unique password>
-CHARACTER_RELAY_CREDENTIAL_ENCRYPTION_KEYS=<Fernet key>
-CHARACTER_RELAY_CONNECTOR_SHARED_SECRET=<long random secret>
-```
-
-Keep credentials and encryption material outside Git. The shared Public Demo is intentionally read-only; server-side mutation checks remain authoritative even when a client is incorrect.
-
-See [`docs/railway-deployment.md`](docs/railway-deployment.md) and [`docs/security.md`](docs/security.md) before production changes.
-
-## AI coding agents
-
-Read in this order:
-
-1. [`AGENTS.md`](AGENTS.md)
-2. [`docs/ai-agent-development-workflow.md`](docs/ai-agent-development-workflow.md)
-3. `openwiki/quickstart.md` only when it was generated by OpenWiki and exists
-4. [`docs/agent-handoff.md`](docs/agent-handoff.md) and [`docs/README.md`](docs/README.md)
-5. task-relevant canonical docs, source/types, and tests
-
-Generated OpenWiki pages are navigation, not product contracts. Important claims must be traced to current source, tests, schemas, or an accepted canonical document.
+Read [deployment](docs/railway-deployment.md), [storage safety](docs/storage-safety.md) and
+[security](docs/security.md) before rollout. A merge is not a production-health or security receipt.
 
 ## Documentation
 
-- [`docs/user/README.md`](docs/user/README.md) — Discord setup and everyday use
-- [`docs/operator/README.md`](docs/operator/README.md) — deployment, storage, security, and incident entry points
-- [`docs/developer/README.md`](docs/developer/README.md) — local setup, validation, and evidence-first development
-- [`docs/contracts/README.md`](docs/contracts/README.md) — current product and architecture authority
-- [`docs/history/README.md`](docs/history/README.md) — superseded designs and delivery records
-- [`docs/README.md`](docs/README.md) — complete audience and authority index
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution workflow
+[User guide](docs/user/README.md) · [Operator guide](docs/operator/README.md) ·
+[Developer guide](docs/developer/README.md) · [Contracts](docs/contracts/README.md) ·
+[Historical references](docs/history/README.md) · [Contributing](CONTRIBUTING.md)

@@ -302,6 +302,9 @@ class DiscordEmbedContent(BaseModel):
 
 
 class DiscordContextMessage(BaseModel):
+    reply_to_message_id: str = Field(default="", max_length=200)
+    edited_at: datetime | None = None
+    author_deployment_id: str = Field(default="", max_length=64)
     message_id: str = Field(min_length=1, max_length=200)
     author_id: str = Field(min_length=1, max_length=200)
     author_display_name: str = Field(min_length=1, max_length=160)

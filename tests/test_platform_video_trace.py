@@ -3,13 +3,17 @@ import json
 
 import httpx
 from pydantic import SecretStr
+from pytest import MonkeyPatch
 
 from echo_masque.media_runtime import MediaAsset
 from echo_masque.providers.openai_multimodal import OpenAICompatibleMultimodalProvider
 from echo_masque.providers.trace import configure_provider_trace_sink
 
 
-def test_keyframe_video_trace_marks_local_delivery_without_frame_or_cdn_data() -> None:
+def test_keyframe_video_trace_marks_local_delivery_without_frame_or_cdn_data(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CHARACTER_RELAY_PROVIDER_TRACE_MODE", "summary")
     events: list[dict[str, object]] = []
 
     def handler(_: httpx.Request) -> httpx.Response:

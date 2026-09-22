@@ -14,6 +14,9 @@ import { resolveExplicitAudiencePreflight } from "./audiencePreflight.js";
 import { loadConfig } from "./config.js";
 import { ContextBuffer } from "./contextBuffer.js";
 import {
+  canFallbackDelivery, deliverWithFallback, deliveryFailure, sendChunks
+} from "./delivery.js";
+import {
   socialOperationId,
   type DiscordSocialOperationClaim,
   type DiscordSocialOperationClaimRequest
@@ -497,7 +500,7 @@ async function sendHeartbeat(
   });
 }
 
-function channelLocation(message: Message<true>): {
+function channelLocation(message: Pick<Message<true>, "channel">): {
   channelId: string;
   channelName: string;
   categoryId: string;
@@ -747,37 +750,19 @@ async function sendBotFallback(
     `**${safeName}**\n${replyText}`
   );
   if (!firstChunk) return [];
-  const messageIds: string[] = [];
-  const allowedUserIds = options.allowedUserIds ?? [];
   const allowedMentions = {
-    parse: [] as [],
-    users: allowedUserIds,
-    repliedUser: false
+    parse: [] as [], users: options.allowedUserIds ?? [], repliedUser: false
   };
-  let first: Message<true>;
-  if (options.replyToMessageId) {
-    const target = await resolveSmartOutputTargetMessage(
-      source,
-      options.replyToMessageId
-    );
-    if (!target) {
-      throw new Error("Smart Output reply target is unavailable.");
-    }
-    first = await target.reply({ content: firstChunk, allowedMentions });
-  } else {
-    const sent = await source.channel.send({ content: firstChunk, allowedMentions });
-    if (!sent.inGuild()) throw new Error("Discord returned a non-guild message.");
-    first = sent;
-  }
-  messageIds.push(first.id);
-  for (const chunk of remainingChunks) {
-    const sent = await source.channel.send({
-      content: chunk,
-      allowedMentions: { parse: [], users: allowedUserIds }
-    });
-    messageIds.push(sent.id);
-  }
-  return messageIds;
+  // Resolve the target before any visible send; failures later are never whole-message retries.
+  const target = options.replyToMessageId
+    ? await resolveSmartOutputTargetMessage(source, options.replyToMessageId) : null;
+  if (options.replyToMessageId && !target) throw new Error("Smart Output reply target is unavailable.");
+  return sendChunks([firstChunk, ...remainingChunks], async (content, index) => {
+    const sent = index === 0 && target
+      ? await target.reply({ content, allowedMentions })
+      : await source.channel.send({ content, allowedMentions });
+    return sent.id;
+  });
 }
 
 async function sendCharacterReply(
@@ -788,29 +773,30 @@ async function sendCharacterReply(
   options?: CharacterDeliveryOptions
 ): Promise<string[]> {
   const delivery = options ?? { replyToMessageId: source.id, allowedUserIds: [] };
-  if (deployment.identity_mode === "webhook") {
-    try {
+  const fallback = () => sendBotFallback(
+    source, deployment.identity_display_name || deployment.character_display_name, replyText, delivery
+  );
+  if (deployment.identity_mode !== "webhook") return fallback();
+  try {
+    return await deliverWithFallback(async () => {
       const ids = await webhookManager.send(
-        deployment,
-        splitDiscordMessage(replyText),
-        botUserId,
-        delivery.allowedUserIds ?? []
+        deployment, splitDiscordMessage(replyText), botUserId, delivery.allowedUserIds ?? []
       );
       if (deployment.webhook_id) observedWebhookIds.add(deployment.webhook_id);
       return ids;
-    } catch (error) {
-      log("Falling back to the shared Bot identity.", {
-        deploymentId: deployment.deployment_id,
-        ...safeDiagnosticError(error)
+    }, async () => {
+      log("Webhook was definitely unsent; using the shared Bot identity.", {
+        deploymentId: deployment.deployment_id
       });
+      return fallback();
+    });
+  } catch (error) {
+    const failure = deliveryFailure(error);
+    if (failure.sentMessageIds.length) {
+      await rememberSentMessages(deployment, [...failure.sentMessageIds], source.guildId);
     }
+    throw failure;
   }
-  return sendBotFallback(
-    source,
-    deployment.identity_display_name || deployment.character_display_name,
-    replyText,
-    delivery
-  );
 }
 
 async function deliverCharacterTurnProgress(
@@ -833,6 +819,7 @@ async function deliverCharacterTurnProgress(
     context.push(contextKey, {
       message_id: sentMessageIds[0]!,
       author_id: `character:${deployment.character_card_id}`,
+      author_deployment_id: deployment.deployment_id,
       author_display_name: deploymentDisplayName(deployment),
       text: visibleText,
       emojis: [],
@@ -1161,19 +1148,16 @@ async function executeCharacterOutput(
       outgoingText = [visibleText, renderCustomEmoji(candidate)].filter(Boolean).join(" ");
       sentMessageIds = await sendCharacterReply(source, deployment, outgoingText, botUserId);
     } else if (decision.action === "reaction" && candidate.resource_type === "emoji") {
+      let reacted = false;
       try {
         await source.react(`${candidate.name}:${candidate.resource_id}`);
-        if (visibleText) {
-          sentMessageIds = await sendCharacterReply(source, deployment, visibleText, botUserId);
-        }
-      } catch {
-        fallback = "reaction_to_inline";
-        outgoingText = [visibleText, renderCustomEmoji(candidate)].filter(Boolean).join(" ");
-        if (outgoingText) {
-          sentMessageIds = await sendCharacterReply(source, deployment, outgoingText, botUserId);
-        } else {
-          throw new Error("Reaction failed and no visible text was available for inline fallback.");
-        }
+        reacted = true;
+      } catch (error) {
+        // A transport failure may have applied the reaction. Do not publish a second action.
+        throw deliveryFailure(error);
+      }
+      if (reacted && visibleText) {
+        sentMessageIds = await sendCharacterReply(source, deployment, visibleText, botUserId);
       }
     } else if (decision.action === "sticker" && candidate.resource_type === "sticker") {
       let webhookAssetError: unknown = null;
@@ -1195,6 +1179,7 @@ async function executeCharacterOutput(
           );
           fallback = "webhook_attachment";
         } catch (error) {
+          if (!canFallbackDelivery(error)) throw error;
           webhookAssetError = error;
           fallback = "webhook_attachment_to_native_sticker";
           log("Webhook Sticker-like attachment failed; trying native Bot Sticker.", {
@@ -1214,6 +1199,7 @@ async function executeCharacterOutput(
           sentMessageIds = [sent.id];
           if (!fallback || fallback === "none") fallback = "native_bot_sticker";
         } catch (nativeStickerError) {
+          if (!canFallbackDelivery(nativeStickerError)) throw deliveryFailure(nativeStickerError);
           fallback = "sticker_to_text";
           if (!visibleText) {
             throw webhookAssetError ?? nativeStickerError;
@@ -1372,8 +1358,8 @@ async function executeSmartOutput(
     if (!target) return skippedSmartOutput("react", "reaction_target_unavailable");
     try {
       await target.react(`${candidate.name}:${candidate.resource_id}`);
-    } catch {
-      return skippedSmartOutput("react", "reaction_failed");
+    } catch (error) {
+      throw deliveryFailure(error);
     }
     return {
       sentMessageIds: [],
@@ -1410,7 +1396,8 @@ async function executeSmartOutput(
       fallback = output.reply_to_message_id
         ? "webhook_reply_to_direct"
         : "webhook_attachment";
-    } catch {
+    } catch (error) {
+      if (!canFallbackDelivery(error)) throw error;
       fallback = "webhook_attachment_to_native_sticker";
     }
   }
@@ -1425,8 +1412,8 @@ async function executeSmartOutput(
         : await source.channel.send(options);
       sentMessageIds = [sent.id];
       if (fallback === "none") fallback = "native_bot_sticker";
-    } catch {
-      return skippedSmartOutput("sticker", "sticker_delivery_failed");
+    } catch (error) {
+      throw deliveryFailure(error);
     }
   }
   return {
@@ -1654,6 +1641,7 @@ async function continueBotTagConversation(
     context.push(key, {
       message_id: sentMessageIds[0] ?? `relay-bot-tag-${Date.now()}`,
       author_id: `character:${deployment.character_card_id}`,
+      author_deployment_id: deployment.deployment_id,
       author_display_name: deploymentDisplayName(deployment),
       text: outgoingText,
       emojis: [],
@@ -1880,6 +1868,7 @@ async function processInteractionSession(
         context.push(key, {
           message_id: sentMessageIds[0] ?? `relay-interaction-${Date.now()}`,
           author_id: `character:${deployment.character_card_id}`,
+      author_deployment_id: deployment.deployment_id,
           author_display_name: deploymentDisplayName(deployment),
           text: outgoingText,
           emojis: [],
@@ -1972,6 +1961,7 @@ async function markCharacterTurnDeliveryUncertain(
       operation_id: claim.operationId,
       step_id: claim.stepId,
       claim_nonce: claim.claimNonce,
+      sent_message_ids: [...deliveryFailure(error).sentMessageIds],
       error: formatSafeDiagnosticError(error)
     })
     .catch(() => undefined);
@@ -2242,6 +2232,8 @@ async function processMessage(
       for (const item of burst.items.slice(0, -1)) {
         context.push(key, {
           message_id: item.source.id,
+          reply_to_message_id: item.source.reference?.messageId ?? "",
+          ...(item.source.editedAt ? { edited_at: item.source.editedAt.toISOString() } : {}),
           author_id: item.source.author.id,
           author_display_name: item.authorDisplayName,
           text: item.originalText,
@@ -2258,6 +2250,8 @@ async function processMessage(
     ]);
     const contextMessage: DiscordContextMessage = {
       message_id: guildMessage.id,
+      reply_to_message_id: guildMessage.reference?.messageId ?? "",
+      ...(guildMessage.editedAt ? { edited_at: guildMessage.editedAt.toISOString() } : {}),
       author_id: guildMessage.author.id,
       author_display_name: authorDisplayName,
       text: originalText,
@@ -3287,6 +3281,7 @@ async function processMessage(
               operation_id: durableOperationId,
               step_id: socialStep.step_id,
               claim_nonce: deliveryClaimNonce,
+              sent_message_ids: [...deliveryFailure(error).sentMessageIds],
               error: formatSafeDiagnosticError(error)
             })
             .catch(() => undefined);
@@ -3322,6 +3317,7 @@ async function processMessage(
         context.push(key, {
           message_id: sentMessageIds[0] ?? `relay-expression-${Date.now()}`,
           author_id: `character:${deployment.character_card_id}`,
+      author_deployment_id: deployment.deployment_id,
           author_display_name: deploymentDisplayName(deployment),
           text: outgoingText,
           emojis: [],
@@ -3693,6 +3689,7 @@ async function resumeRecoverableMessageTurn(
     context.push(key, {
       message_id: execution.sentMessageIds[0] ?? `relay-recovered-${Date.now()}`,
       author_id: `character:${deployment.character_card_id}`,
+      author_deployment_id: deployment.deployment_id,
       author_display_name: deploymentDisplayName(deployment),
       text: execution.outgoingText,
       emojis: [],
@@ -3918,7 +3915,53 @@ client.once(Events.ClientReady, (readyClient) => {
   }, config.heartbeatSeconds * 1000);
 });
 
+function observeIncomingMessage(message: Message): void {
+  const botUserId = client.user?.id;
+  if (!botUserId || !message.inGuild() || message.author.bot) return;
+  const location = channelLocation(message);
+  if (!location.channelId || !deploymentsFor(deployments, location.channelId,
+      location.threadId, message.guildId, location.categoryId).length) return;
+  context.push(destinationKey(location.channelId, location.threadId), {
+    message_id: message.id,
+    reply_to_message_id: message.reference?.messageId ?? "",
+    author_id: message.author.id,
+    author_display_name: message.member?.displayName ?? message.author.globalName ?? message.author.username,
+    text: normalizedText(message, botUserId, []),
+    emojis: [], stickers: [], created_at: message.createdAt.toISOString(),
+    ...(message.editedAt ? { edited_at: message.editedAt.toISOString() } : {}),
+    is_bot: false
+  }, true);
+}
+
+client.on(Events.MessageUpdate, (_previous, current) => {
+  // Partial events cannot supply trustworthy replacement text. Remove stale buffered content;
+  // a future authorized history read can rehydrate it. Do not regenerate a reply on every edit.
+  if (!current.inGuild()) return;
+  const location = channelLocation(current);
+  const key = destinationKey(location.channelId, location.threadId);
+  if (current.partial) {
+    context.invalidate(key, current.id);
+    return;
+  }
+  observeIncomingMessage(current);
+});
+
+client.on(Events.MessageDelete, message => {
+  if (!message.inGuild()) return;
+  const location = channelLocation(message);
+  context.remove(destinationKey(location.channelId, location.threadId), message.id);
+});
+
+client.on(Events.MessageBulkDelete, messages => {
+  for (const message of messages.values()) {
+    if (!message.inGuild()) continue;
+    const location = channelLocation(message);
+    context.remove(destinationKey(location.channelId, location.threadId), message.id);
+  }
+});
+
 client.on(Events.MessageCreate, (message) => {
+  observeIncomingMessage(message);
   void processMessage(message).catch((error: unknown) => {
     lastError = formatSafeDiagnosticError(error);
     if (message.inGuild()) {
@@ -3980,6 +4023,9 @@ async function shutdown(signal: string): Promise<void> {
   stateSynchronized = false;
   recoveryLoop?.stop();
   client.removeAllListeners(Events.MessageCreate);
+  client.removeAllListeners(Events.MessageUpdate);
+  client.removeAllListeners(Events.MessageDelete);
+  client.removeAllListeners(Events.MessageBulkDelete);
   relay.stopTurnJobs();
   await turnIngress.shutdown(true);
   await Promise.all([...turnJobRecoveryTasks].map((task) => task.catch(() => undefined)));

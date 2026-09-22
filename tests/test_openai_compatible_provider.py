@@ -159,7 +159,7 @@ def test_native_tool_call_allows_null_content_and_preserves_call() -> None:
 
 
 def test_empty_content_is_retried_before_returning_success(monkeypatch: Any) -> None:
-    monkeypatch.setenv("ECHO_MASQUE_PROVIDER_TRACE_MODE", "summary")
+    monkeypatch.setenv("CHARACTER_RELAY_PROVIDER_TRACE_MODE", "summary")
     events: list[dict[str, object]] = []
     configure_provider_trace_sink(events.append)
     calls = 0
@@ -246,7 +246,8 @@ def test_repeated_empty_content_raises_protocol_error() -> None:
     assert calls == 2
 
 
-def test_read_timeout_is_terminal_and_records_reason() -> None:
+def test_read_timeout_is_terminal_and_records_reason(monkeypatch: Any) -> None:
+    monkeypatch.setenv("CHARACTER_RELAY_PROVIDER_TRACE_MODE", "summary")
     events: list[dict[str, object]] = []
     configure_provider_trace_sink(events.append)
     calls = 0
@@ -275,7 +276,8 @@ def test_read_timeout_is_terminal_and_records_reason() -> None:
     assert "ReadTimeout" in str(error["detail"])
 
 
-def test_network_failure_retries_then_records_terminal_unavailable() -> None:
+def test_network_failure_retries_then_records_terminal_unavailable(monkeypatch: Any) -> None:
+    monkeypatch.setenv("CHARACTER_RELAY_PROVIDER_TRACE_MODE", "summary")
     events: list[dict[str, object]] = []
     configure_provider_trace_sink(events.append)
     calls = 0

@@ -545,16 +545,34 @@ class DurableRuntimeRepository:
         step_id: str,
         claim_nonce: str,
         error: str,
+        sent_message_ids: list[str] | None = None,
     ) -> None:
         with self.database.session() as session:
-            step = session.get(RuntimeStepRecord, step_id)
+            step = session.scalar(
+                select(RuntimeStepRecord)
+                .where(
+                    RuntimeStepRecord.step_id == step_id,
+                    RuntimeStepRecord.operation_id == operation_id,
+                )
+                .with_for_update()
+            )
             operation = session.get(RuntimeOperationRecord, operation_id)
             if step is None or operation is None:
                 return
-            if step.status == "delivered" or operation.status == "completed":
+            if operation.status == "completed" or step.status not in {
+                "delivery_claimed", "uncertain"
+            }:
                 return
-            if step.delivery_claim_nonce and step.delivery_claim_nonce != claim_nonce:
+            if not claim_nonce or step.delivery_claim_nonce != claim_nonce:
                 return
+            # Keep confirmed chunks without pretending the whole answer was delivered.
+            # Repeated uncertainty reports cannot erase receipts or create source dialogue.
+            previous = self._list(step.sent_message_ids_json)
+            receipts = dict.fromkeys(
+                item for item in [*previous, *(sent_message_ids or [])]
+                if isinstance(item, str) and 0 < len(item) <= 200
+            )
+            step.sent_message_ids_json = self._json(list(receipts)[:20])
             step.status = "uncertain"
             step.last_error = error[:1000]
             operation.status = "uncertain"

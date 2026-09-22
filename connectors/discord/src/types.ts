@@ -256,6 +256,9 @@ export interface DiscordInteractionRunComplete {
 }
 
 export interface DiscordContextMessage {
+  reply_to_message_id?: string;
+  edited_at?: string;
+  author_deployment_id?: string;
   message_id: string;
   author_id: string;
   author_display_name: string;

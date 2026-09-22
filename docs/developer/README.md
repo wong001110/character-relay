@@ -1,16 +1,21 @@
 # Developer guide
 
-## Start locally
+Policy: [AGENTS.md](../../AGENTS.md). Current work: [PROJECT_STATE.md](../../PROJECT_STATE.md).
+Ownership: [architecture.md](../architecture.md). This page contains setup/check commands, not a
+second phase plan. The accepted group-chat design is pending implementation; do not alter runtime
+code in the planning-only PR.
 
-Requirements are Python 3.12+, Node.js 22+ for the Portal, and Node.js 24.17+ for the Discord Connector.
+## Local setup
+
+Use the current manifests for exact supported Python/Node versions. The existing launcher prepares
+the Python environment and starts API/Portal:
 
 ```bash
 python run.py
+# Existing variants: --install, --no-install, --api-only, --no-reload
 ```
 
-The launcher prepares the Python environment and starts the API and Portal. Useful variants are `--install`, `--no-install`, `--api-only`, and `--no-reload`.
-
-For isolated integration testing with PostgreSQL + pgvector and a separate Fabric worker:
+For an isolated PostgreSQL + pgvector stack and the separate Fabric worker:
 
 ```bash
 docker compose up --build -d
@@ -18,14 +23,11 @@ docker compose logs --tail=100 echo-masque fabric-worker
 docker compose stop
 ```
 
-This is a **local development** stack, bound to `127.0.0.1:8000`, with a private database service,
-development-only password and separate API/worker CPU, RAM and PID budgets. The resource values
-are starting limits, not measured production sizing. The existing named `/data` volume is retained;
-the review database has a separate named volume. No real provider or Discord credential is
-injected. PostgreSQL behavior, process restart and browser resource testing require Docker; SQLite
-unit tests do not replace those checks. Do not reuse this configuration for public hosting.
+This is a local development stack bound to loopback, with a private database, development-only
+password and separate resource budgets. Do not use it as public production configuration or insert
+live credentials into fixtures. SQLite unit tests do not replace PostgreSQL/restart validation.
 
-Never run recovery while another API/worker sharing its database is alive. Recovery is explicit:
+Offline recovery requires **all** processes/replicas sharing the database to stop first:
 
 ```bash
 docker compose stop echo-masque fabric-worker
@@ -33,98 +35,79 @@ docker compose run --rm --no-deps echo-masque echo-masque recover-interrupted --
 docker compose up -d echo-masque fabric-worker
 ```
 
-The acknowledgement is an operator assertion, not automatic proof that every remote replica has
-stopped. Stop remote replicas too if they share the database. This command conservatively marks
-uncertain external effects and requeues interrupted ingestion; review those effects before retry.
-Do not delete volumes to recover a stalled job.
-
-Before any later production rollout, validate the disposable PostgreSQL stack, configure the
-operator endpoint origins and owner-scoped credentials, and stop all replicas before invoking
-offline recovery. Retain a database backup and reconcile uncertain external effects. This review
-adds no schema migration, but reverting to the baseline also restores its startup-recovery and
-authorization defects; it is not an automatically safe rollback target. Keep the PR unreleased
-until the deployment and security limitations in `docs/security-red-team-2026-09-07.md` have an
-explicit disposition.
+The acknowledgement is an operator assertion, not proof remote replicas stopped. Back up data and
+reconcile uncertain external effects before retrying. Do not delete volumes to recover a job. Read
+[storage safety](../storage-safety.md), [deployment](../railway-deployment.md) and
+[security](../security.md) before production work; a docs PR or old green CI is not rollout approval.
 
 For the Discord worker:
 
 ```bash
 cd connectors/discord
-npm install
+npm ci
 npm run dev
 ```
 
-## Validate a batch
+## Validation by changed surface
+
+Use focused tests after coherent edits. Relevant complete checks belong at the phase/PR boundary,
+not after every file. Validate commands against the checkout if manifests have changed.
 
 ```bash
+# Repository root: Python
 python -m ruff check .
 python -m mypy src
+# Python Portal route tests require the built artifact first.
+npm ci --prefix web
+npm run build --prefix web
 python -m pytest
+# Optional existing two-worker variant: python -m pytest -n 2 --tb=short
 ```
 
-For a faster local full regression, `python -m pytest -n 2 --tb=short` runs the same configured
-suite across two workers using the development dependency `pytest-xdist`. Build `web/dist` first
-with `npm ci --prefix web` and `npm run build --prefix web`; Python Portal route tests serve that
-artifact. The Python CI job performs this build itself.
-
 ```bash
+# Portal
 cd web
+npm ci
 npm run typecheck
 npm test
 npm run build
 ```
 
 ```bash
+# Discord Connector
 cd connectors/discord
+npm ci
 npm run typecheck
 npm test
 npm run build
 ```
 
-Use focused tests while editing and run the relevant complete surface gate before handoff. CI remains the merge gate.
+Ordinary pytest uses deterministic/unavailable encoders rather than real embedding downloads.
+An approved live-model environment may use the existing `pytest --live-embeddings` option; record
+that separately. Offline tests do not prove live model, embedding or Discord quality.
 
-Default pytest runs use injected deterministic encoders or the unavailable-embedding fallback;
-they do not initialize real embedding models. This prevents accidental model downloads and
-third-party runtime telemetry during regressions. An approved live-model environment may opt in
-with `pytest --live-embeddings`; record that separately from deterministic results. Runtime model
-initialization disables ONNX telemetry explicitly. Passing offline tests does not prove embedding
-quality or live provider behavior.
+Use applicable bounded mutation scopes for changed protected decisions; see
+[mutation testing](../mutation-testing.md). Python scopes use supported Ubuntu/WSL facilities;
+`scripts/run_mutmut_wsl.sh` and package-local `test:mutation` scripts are existing entry points.
+Record equivalent survivors, tool failures, timeouts and missing environments honestly. Do not
+weaken coverage/exclusions to make a badge pass. Browser checks apply to changed Portal journeys;
+Docker/PostgreSQL/fault tests apply to changed deployment/worker/storage boundaries.
 
-## Mutation testing
+## Documentation-only validation
 
-Use the bounded mutation scope for changed authorization, ownership, lifecycle, safety, and
-deterministic decision logic when it is configured for that module. Python mutation runs require
-Ubuntu CI or an installed WSL distribution. From a Windows checkout, invoke
-`scripts/run_mutmut_wsl.sh` through WSL; it runs a temporary WSL-native copy so mutmut does not
-stall writing its cache under `/mnt/<drive>`. Portal and Connector runs use the package-local
-`test:mutation` scripts. Native Windows Stryker output is diagnostic only while its worker-cleanup
-permission issue remains; use the scheduled/manual Ubuntu workflow as gate evidence.
-The scheduled/manual workflow carries the initial smoke scopes, while a phase records the exact
-scope and any reviewed survivor. See [Mutation testing](../mutation-testing.md) before adding an
-exclusion or treating a score as proof of untested code.
+Check Markdown links/statuses, accepted-requirement coverage, retired development pointers and
+changed-path scope. Compare runtime/dependency/workflow subtrees with the reviewed baseline. No
+source moves, placeholder packages, tests or workflow execution changes belong in a planning PR.
+Record self-review and unrun runtime/live checks. CI conclusions must name the actual checked head.
 
-## Before changing behavior
+## UI and evaluation
 
-1. Read repository `AGENTS.md` and the [AI agent workflow](../ai-agent-development-workflow.md).
-2. Use the maintained [agent map](../agent-map.md), [five-minute handoff](../agent-handoff.md), and [canonical contract index](../contracts/README.md).
-3. Read current source, types, migrations, tests, and the task-relevant contract.
-4. Record the evidence map and invariants before implementation.
+For UI work use [UI/UX](../ui-ux-contract.md), [components](../ui-component-library.md) and
+[approved reference rules](../ui-page-migration-plan.md). Real APIs/types determine data; reference
+art supplies composition only. Keep accessibility, responsive behavior and overlay rules.
 
-The active branch ledger is [active-development-plan.md](../active-development-plan.md) only when its header matches the checked-out branch. The agent map is navigation, not product authority.
-
-## Conversation runtime implementation record
-
-The phased record for focused Roleplay prompts, conditional Utility Turn Direction,
-Segment-first context, and qualitative social posture is in [Turn Director and Focused Roleplay
-Prompt](../turn-director-prompt-implementation.md). It must be read alongside the current
-[Intelligence Core v3 contract](../intelligence-core-v3-architecture.md). Check the recorded
-branch/commit and current source before relying on it as merged behavior.
-
-## Evaluation and calibration
-
-Use [Experiment Matrix](../phase-14-experiment-matrix.md) to run and compare retained
-experiments. For datasets and rubrics, follow [evaluation authoring](../phase-16-authoring.md),
-[AI-assisted authoring](../phase-16-ai-authoring.md),
-[calibration](../phase-16-calibration.md), [rubric coverage](../phase-16-rubric-coverage.md),
-then [release acceptance](../phase-16-release.md). AI may draft authoring material, but human
-approval and immutable dataset/version boundaries remain authoritative.
+For offline evaluation follow [Matrix](../phase-14-experiment-matrix.md),
+[authoring](../phase-16-authoring.md), [AI-assisted drafts](../phase-16-ai-authoring.md),
+[calibration](../phase-16-calibration.md), [coverage](../phase-16-rubric-coverage.md) and
+[release evidence](../phase-16-release.md). AI may draft; approvals and immutable evaluation
+snapshots remain authoritative. These capabilities need not run on every group-chat message.

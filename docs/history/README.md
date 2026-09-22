@@ -1,26 +1,32 @@
 # Historical and reference documents
 
-These files explain past decisions, staged delivery, experiments, or superseded designs. A checked box, PR reference, branch name, or future-tense roadmap is not proof of current implementation.
+History explains previous decisions and evidence, not the current work queue. Only
+[PROJECT_STATE.md](../../PROJECT_STATE.md) names active work. Current policy is
+[AGENTS.md](../../AGENTS.md); the accepted next direction is the
+[group-chat plan](../plans/discord-group-chat-core.md).
 
-## Superseded intelligence designs
+The former agent handoff/map/workflow/active-plan contents have been replaced by link-only pointers.
+Their old branch status and execution instructions remain available through Git history, not as
+another coding method to follow. Completed phase checklists do not prove a new checkout is tested.
 
-- `conversation-intelligence-architecture.md`
-- `conversation-intelligence-decisions.md`
-- `conversation-intelligence-research-notes.md`
-- `conversation-intelligence-v4-roadmap.md`
-- `product-roadmap-rag-and-smart-participation.md`
-- `smart-participation-v3.md`
-- `context-rag-v1.md` (retired by the [Knowledge Fabric contract](../knowledge-fabric-architecture.md))
+## Retained design and evidence references
 
-When these conflict with the [Intelligence Core v3 contract](../intelligence-core-v3-architecture.md), v3 and current source/tests win. Do not restore Topic authority or fallback from historical documents.
+Historical intelligence designs include `conversation-intelligence-architecture.md`,
+`conversation-intelligence-decisions.md`, `conversation-intelligence-research-notes.md`,
+`conversation-intelligence-v4-roadmap.md`, `product-roadmap-rag-and-smart-participation.md`,
+`smart-participation-v3.md` and `context-rag-v1.md` in the parent docs directory. They cannot restore
+retired Topic authority, automatic context filling or a conflicting new cognitive-simulation scope.
 
-## Delivery and evaluation records
+Prior delivery records include LangGraph/Character/Social/durable-runtime phase documents,
+Discovery/presence roadmaps, stabilization/control-plane reviews, Utility proposals, Site Collection
+plans and UI reviews. Keep them for provenance, not automatic phase resumption. Unmerged local
+execution/embodiment work is separate and is not included in the group-chat initiative.
 
-- LangGraph: `langgraph-roadmap.md`, `phase-3-character-turn.md`, `phase-4-social-turn.md`, `phase-5-durable-runtime.md`, `phase-5-implementation-status.md`.
-- Evaluation and authoring: `phase-14-experiment-matrix.md`, `phase-16-*.md`.
-- Discovery and presence: `character-discovery-roadmap.md`, `deployment-presence-discovery-acceptance.md`.
-- Stabilization and control plane: `stabilization-vnext-*.md`, `conversation-intelligence-control-plane-*.md`.
-- Held utility gateway proposal: `ai-utility-gateway-roadmap.md`.
-- UI delivery reviews: `ui-phase2-character-workflow.md`, `ui-complete-migration-review.md`.
+Evaluation/authoring/calibration phase documents remain useful specialized contract and evidence
+references where current source still implements them. Security assessments and lifecycle records
+retain their original scope and limitations; the new plan does not erase unresolved risks.
 
-Files remain at their original paths to preserve existing links. Start from [docs/README.md](../README.md) or the [contract index](../contracts/README.md) for current work.
+Original product-reference paths are retained to avoid breaking source/operator references. Read
+[the contract index](../contracts/README.md) for surviving boundaries and the active plan for
+explicitly superseding decisions. Update usage/operator docs when behavior actually changes in Work,
+not before, so a planning PR does not misdescribe today's product.

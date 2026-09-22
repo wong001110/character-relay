@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -148,6 +148,10 @@ class DiscordDeliveryAckRequest(BaseModel):
 
 class DiscordDeliveryFailureRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    sent_message_ids: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
+        default_factory=list, max_length=20
+    )
 
     connection_id: str = Field(min_length=1, max_length=64)
     operation_id: str = Field(min_length=32, max_length=64)
