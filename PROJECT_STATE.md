@@ -1,95 +1,111 @@
 # Project state
 
-Updated: **2026-09-21**. This is the only current progress and takeover record.
+Updated: **2026-09-22**. This is the only current progress and takeover record.
 
-## Current execution
+## Current scope and authorization
 
 | Item | State |
 | --- | --- |
 | Repository | `wong001110/character-relay` |
-| Merged runtime baseline | `3cd183d460812d16cfb0c6d8dbae305d8ef61363` (PR #205) |
-| Accepted planning baseline | `be7a8c01e45662a8d68abbefccce46f07e6a7110`, open PR #206 |
-| Implementation branch / PR | `feat/discord-group-chat-core-takeover` / Draft #207 |
-| Current implemented source | `53d53d0cd99f7f59b518fc367ab619ed412a10a4` |
-| Authorization | Execution takeover requested after Work quota exhaustion |
-| Policy / requirements | [AGENTS.md](AGENTS.md), [accepted plan](docs/plans/discord-group-chat-core.md) |
-| Gate | P2a configured integration passed; complete final-head CI still separate |
-| Merge / deployment | **NOT AUTHORIZED** |
+| Previous main | `3cd183d460812d16cfb0c6d8dbae305d8ef61363` (PR #205) |
+| Accepted design | PR #206 / `be7a8c01e45662a8d68abbefccce46f07e6a7110` |
+| Implementation checkpoint | PR #207 / `feat/discord-group-chat-core-takeover` |
+| Verified product source | `53d53d0cd99f7f59b518fc367ab619ed412a10a4` (foundation and P2a) |
+| Verified remote head before closeout | `219ad921539b8d04cd6b3db990ac62e6932cbb0c` |
+| Current instruction | Generate an HTML summary/checklist, then squash merge to main |
+| Merge authority | User explicitly authorized squash merge on 2026-09-22; actual receipt is PR #207's merged SHA |
+| Deployment / production data | Not authorized or performed by this task |
+| Full initiative | **INCOMPLETE: this is a foundation/P2a checkpoint, not P1-P6 completion** |
 
-PR #206 is an ancestor, not assumed merged. No unrelated PR #203 work is incorporated.
-Unpushed Work changes remain unknown. At publication a newer foundation commit `458534b` was
-found and reconciled before P2a publication; its privacy changes and regression tests are preserved.
-Always read the actual remote head before writing. Local source anchors are verified snapshots,
-not a substitute for fetched remote Git history.
+PR #206's documents are included as ancestors; no unrelated PR #203 implementation is incorporated.
+This closeout changes documentation and removes the temporary dependency-acquisition workflow only.
+It does not introduce the missing P3-P6 implementation, alter runtime source, or weaken normal CI.
+A merge receipt must not be described as proof that the full accepted design has shipped.
 
-All D01-D11 / A01-A22 remain required. Optional participation includes valid silence; retain bounded
-A-B-A, stable group-chat identities, scoped explicit notes, lightweight relationships and tool
-boundaries. Remove replaced writers and Roast rather than hiding UI. Initial 3-role / 6-speaking-turn
-/ 2-per-role values are ceilings, not quotas or measured optima. No new service/vendor is required.
+## Important continuity correction
+
+The previous conversation reported extensive unpushed changes in `/mnt/data/character-relay`.
+On 2026-09-22 that directory was not present in the active environment. The available source
+archives, connected branch inventory and PR #207 still contain the foundation/P2a source only.
+No matching later patch, source archive or Git bundle was recovered. The 1084-test Python log,
+150-test Connector log and 14-mutant policy log survive, but do not reproduce or attest code
+that is not in the repository. They are not merge evidence for this checkpoint.
+
+Do not assume those changes were pushed, complete, or available in this branch. Also do not
+assume unpushed Work changes are empty: reconcile any independently recovered workspace before
+integrating it. The missing source remains an implementation/recovery task, not a production
+validation task that the user can resolve by checking a box.
 
 ## Phase state
 
-| Phase | Status |
+All D01-D11 and A01-A22 in the accepted plan remain requirements. Initial 3-role / 6-speaking-turn
+/ 2-per-role limits are target ceilings, NOT implemented settings in this checkpoint.
+
+| Phase | Repository-backed status |
 | --- | --- |
-| P0 | Accepted documentation baseline available in PR #206 |
-| P1 | IN_PROGRESS: source verified, initial behavior/privacy/receipt counterexamples covered; broader replay and real call/token baseline pending |
-| P2 | IN_PROGRESS: P2a source metadata, live buffer updates and partial/uncertain delivery integrated; ancestor fetching, persistent response-source links, restart and slow-job separation remain |
-| P3 | NOT_STARTED: bounded role re-entry, attempts/room budgets and final-draft freshness |
-| P4 | NOT_STARTED: explicit scoped notes, relationship replacement, automatic-writer/Discovery and Roast retirement |
-| P5 | IN_PROGRESS: metadata-first trace foundation only; expiring provider raw capture, unified observation and Portal work remain |
-| P6 | NOT_STARTED: full integration, dependency audit, actual source cleanup and retirement audit |
+| P0 | Accepted plan and AI-Native policy/state/source navigation available |
+| P1 | PARTIAL: selected source/privacy/delivery defects characterized; full quality/cost baseline still pending |
+| P2 | PARTIAL: P2a metadata, buffer and uncertain-delivery work verified; ancestor fetching, persistent response-source links, restart rehydration and slow-job separation remain |
+| P3 | NOT DELIVERED: bounded A-B-A, attempt/room budgets and send-time draft refresh must be recovered or implemented |
+| P4 | NOT DELIVERED: explicit scoped notes, short relationship replacement, automatic-writer/Discovery and Roast retirement remain |
+| P5 | PARTIAL: metadata-default trace foundation exists; unified observation, Portal and controlled provider raw capture remain |
+| P6 | NOT COMPLETE: checkpoint merge preparation is not the full integration, source-cleanup or retirement audit |
 
-This is not completion of the programme. Numerical relationships, ordinary automatic writers,
-Roast and unique-role guards still exist until their phases replace them.
+## What the verified source actually implements
 
-## Implemented and retained foundation
+- Deep-copied chronological room snapshots; repeat/enrichment updates preserve position.
+- Gateway create/edit/delete updates the human buffer before slow processing; bounded tombstones
+  and invalidation prevent stale queued content replacing newer buffer state.
+- Per-message Reply/edit/real deployment metadata through Connector/Python contracts and prompt
+  reconstruction. This is not a send-time draft refresh or complete restart history solution.
+- Recent humans precede unrelated roles in mention aliases; stable IDs, not display names,
+  distinguish humans and actual role identities.
+- Selected-source persistence failure returns `reply_target_persistence_failed` rather than
+  admitting a turn that could silently choose a different source.
+- `connectors/discord/src/delivery.ts` separates definitely-unsent, partial and uncertain outcomes.
+  Confirmed IDs survive errors; unknown/partial sends and 429 do not cause whole-answer fallback.
+- Uncertainty reports bind to operation/step/claim, preserve receipts and do not advance dialogue
+  or replay effects. Existing columns are reused; this source batch adds no schema migration.
+- Provider trace defaults to metadata, retaining safe category/usage/error diagnostics. Existing
+  explicit summary/content configuration and historical traces are not automatically changed.
 
-- Immutable-by-copy room snapshots; recent human aliases before unrelated roles; stable identity,
-  no name-based impersonation. Selected-source persistence failure returns an authoritative empty
-  plan rather than admitting a potentially retargeted turn.
-- Provider trace defaults to metadata, preserving safe failure/category/usage diagnostics without
-  default free-form request/response/error prose. Existing opt-in redaction tests remain; live
-  overrides and historical traces are not changed. Raw capture expiry is not implemented yet.
-- Added per-message Reply/edit/deployment metadata through Connector/Python schemas, historical
-  burst reconstruction and role transcripts. Gateway create/edit/delete events update the human
-  buffer before slow processing; chronological edits and bounded invalidation/deletion markers
-  reject stale queued enrichment. This does not yet implement send-time draft refresh.
-- Extracted `connectors/discord/src/delivery.ts`. Native/webhook chunks preserve confirmed receipt
-  IDs; missing acknowledgements, partial sends, unknown errors and 429s cannot trigger a blind
-  whole-answer identity fallback. Asset and expression branches preserve the same boundary.
-- Durable uncertainty reports bind to the exact operation/step/claim, preserve receipt IDs and do
-  not advance dialogue or replay effects. Existing database columns are reused; no migration.
-- Temporary source-acquisition and patch-transfer workflows/parts are removed. They are not a
-  permanent runner, coding-agent dependency or product service.
+Numerical relationships, ordinary automatic writers, Roast, unique-role guards and remaining
+legacy consumers are still present. Do not describe them as removed or hide this limitation.
 
 ## Evidence and limitations
 
-Receipts: [foundation](docs/reviews/group-chat-foundation-2026-09-21.md) and
-[P2a transport](docs/reviews/group-chat-transport-2026-09-21.md). Review is self-review only.
+- Re-queried `219ad92`: CI run **35606369134**, Railway Smoke **35606369053** and Public Demo
+  Status Check **35606369084** completed successfully. These are existing exact-head results,
+  not new production acceptance or a claim that this version has been deployed.
+- P2a configured run **35599133605** attests source `53d53d0`, tree
+  `8a88bee627c525c47f660cf80663ff990692dce5`: Node 24 typecheck/build, **135 Connector tests in
+  21 files**, Ruff, mypy **403 source files**, and **42 Python integration tests** passed.
+- Recovered archive `group-chat-verification-tools.zip` has source commit `5035dd7`; its local
+  reconstructed Git tree equals `e153694728d318106011a04b17bfca9d1287aa8a`. The connected comparison
+  from that commit to `219ad92` changes only two documents and the temporary tool workflow.
+- Earlier foundation/local/manual mutation counts overlap these scopes; do not sum them.
+- The remaining temporary `group-chat-local-tools.yml` is removed in this closeout. No permanent
+  coding-agent bootstrap/runtime or package-download workflow remains from this transport.
+- The generated HTML provides 29 human checks with steps, expectations, stop criteria, and a
+  separate not-delivered list. Static structure/anchors/control counts and JavaScript syntax
+  were checked. Browser file navigation was blocked by environment policy; no visual/browser
+  interaction pass is claimed. No policy was disabled to obtain a pass.
+- Four previously reported moderate dependency advisories remain unclassified. No force-upgrade
+  or clean audit is claimed. No live Discord/model quality, measured savings, production recovery
+  or independent security certification is claimed.
 
-Configured P2a run **35599133605** tested actual source `53d53d0` / tree
-`8a88bee627c525c47f660cf80663ff990692dce5`: Node 24 typecheck, **135 Vitest tests / 21 files**,
-Connector build, Ruff, mypy (**403 source files**) and **42 Python integration tests / 1 warning**
-all passed. The run's event was a temporary transfer commit; its artifact records the actual tested
-commit/tree. Artifact `10637609238` was downloaded, hash verified and extracted; its tracked source
-recreated that exact Git tree locally. Complete CI of the final PR head remains a separate gate.
+Receipts: [foundation](docs/reviews/group-chat-foundation-2026-09-21.md),
+[P2a transport](docs/reviews/group-chat-transport-2026-09-21.md),
+[2026-09-22 merge/checklist snapshot](docs/reviews/group-chat-checkpoint-2026-09-22.md).
+Checks are self-reviewed unless a specific independent result is recorded. Final closeout CI and
+actual squash receipt are recorded on PR #207; do not infer them from earlier head results.
 
-Before reconciliation: **20 local Python tests**, **17 transpiled Node behavioral tests**, and six
-manually selected mutation probes caught by assertions. Five seed regressions failed on the
-original source. These are overlapping scopes, not additive unique test counts or a full mutation
-score. Local package DNS prevented full LangGraph/API/Ruff/mypy/Vitest execution; configured CI
-provided the listed integration evidence without fake dependencies or weakened assertions.
+## Next concrete action after this checkpoint
 
-`npm ci` reported **4 moderate dependency advisories**. Do not force-upgrade or claim a clean audit;
-classify affected packages, runtime reachability and remediation before release. The Python warning
-is a dependency deprecation. No live Discord, model naturalness/cost, PostgreSQL contention,
-independent security review, merge or deployment is claimed. No production data was purged.
-
-## Next concrete action
-
-Read complete PR CI results, repair failures, then finish P2: permission-scoped Reply ancestors,
-persistent generated-response/source links, bounded restart rehydration and non-blocking slow jobs.
-Continue P3 only with the actual ingress/delivery boundaries; a fresh cache alone does not make a
-running model request fresh. Preserve requester authority and completed/uncertain tool work.
-P4-P6 remain as listed in the accepted plan. Update this state after coherent verified batches;
-do not introduce another active ledger or keep an indefinite legacy runtime fallback.
+Start a new implementation branch from the actual merged main. Recover the missing workspace if
+available, otherwise implement the remaining accepted scope without claiming the logs restore it.
+Begin with P2 permission-scoped source/history and request/queue separation, then P3-P6. Preserve
+original requester authority, scoped evidence and completed/uncertain tool work. Use mocks for
+external/live dependencies as the user requested; keep production checks separate from missing
+implementation. Commit coherent source/test batches before ending a session and retain a source
+patch/archive when work cannot be pushed. Update this file, not a second status ledger.
