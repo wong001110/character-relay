@@ -94,3 +94,17 @@ changed boundaries. Browser evidence applies to real changed journeys, not build
 `ContextBuffer` owns bounded deep snapshots and edit/delete invalidation. These foundation/P2a
 protections exist; the full refactor and lost P3-P6 work do not. Record subsequent implementation
 facts in PROJECT_STATE.md and update this map only when ownership actually changes.
+
+
+## R1 offline routing boundary (not production-wired)
+
+`room_routing.py` owns normalized source/rule contracts; `room_director.py` owns bounded public
+input, strict proposal parsing and an injected one-call seam. Neither authorizes tools or sends.
+`room_routing_replay.py` owns fixture/recording validation and failure-aware metrics. The three
+`scripts/*room_routing*` / `scripts/replay_legacy_planner.py` commands are offline evaluation,
+not application fallback. Tests and the reproducible synthetic corpus live under `tests/`.
+
+No existing route/graph/Connector consumer imports this path yet. Production integration must
+supply authenticated context-action actors, normalized platform mention IDs, current permissions,
+aggregate budgets and delivered source links. The provider callback does not itself implement a
+Free Token Pool qualification/deadline policy. Do not infer those capabilities from its type seam.
