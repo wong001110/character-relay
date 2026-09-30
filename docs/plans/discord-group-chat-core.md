@@ -1,300 +1,300 @@
-# Discord group-chat core simplification
+# Discord group-chat core: lightweight Room Director refactor
 
-Status: **ACCEPTED DESIGN / IMPLEMENTATION IN_PROGRESS — see PROJECT_STATE.md**.
-Planning baseline: `3cd183d460812d16cfb0c6d8dbae305d8ef61363` (PR #205).
-Accepted discussion consolidated on 2026-09-21. Progress belongs only in
-[PROJECT_STATE.md](../../PROJECT_STATE.md); coding policy is [AGENTS.md](../../AGENTS.md).
+Status: **ACCEPTED DIRECTION; EXECUTION AUTHORIZED; IMPLEMENTATION NOT YET COMPLETE**.
+Source baseline: `2812d79b314b25aa31fe0632dcbdd7da205b0bf0` (merged PR #207).
+Direction accepted and execution reconfirmed in the current user request, 2026-10-01.
+Progress and handoff: [PROJECT_STATE.md](../../PROJECT_STATE.md). Policy: [AGENTS.md](../../AGENTS.md).
 
-The original PR #206 recorded requirements only. The user has now authorized execution on the
-separate PR #207 branch; current evidence is in PROJECT_STATE.md. This plan supersedes older target designs for the
-behaviors below. Existing safety, deployment and evaluation contracts remain unless explicitly
-changed with equivalent or stronger verified protection.
+This revision replaces the old participation/semantic-thread design, not its safety requirements.
+The lost, unpushed P3-P6 work is not implemented evidence. R0-R6 below identify this refactor,
+not completion of the previous P0-P6. Keep one supported production path at completion.
 
-## Product goal and exclusions
+## Goal, scope and authority
 
-Build maintainable, affordable, distinct characters that participate appropriately in Discord
-**guild group channels and native Threads**, not perfect human cognition. Multiple humans and
-multiple roles share a room without becoming one user, one preference profile or one authority.
-Occasional clarification and imperfect long-term recall are acceptable; wrong-person answers,
-forced participation, private-data mixing and replayed external effects are not acceptable shortcuts.
+Prioritize correct participation, silence when appropriate, correct source/recipient, isolation,
+stable personality, useful on-demand recall, bounded costs and brief bot-to-bot interaction.
+Do not simulate complete human cognition. Support guild channels and native Discord Threads;
+DM/group-DM delivery, voice, embodiment, a new orchestration platform and new service topology
+are out of scope. Preserve the existing Python, Discord connector and Portal surfaces.
 
-Keep character authoring/versioning, Discord identities, bounded proactive participation, tools,
-notes, practical observation and offline evaluation. Remove Roast-specific activities and
-unnecessary mandatory pre-generation/background intelligence. Do not add group-DM/DM delivery,
-voice/realtime streaming, local embodiment, a new multi-agent platform, a memory vendor, or a new
-database/service topology in this initiative. Existing private data still requires isolation;
-privacy examples are not authorization to add an unsupported connector.
+The user authorized writing this direction first, then phased implementation, tests, commits and
+an implementation PR. Routine in-scope choices need no repeated confirmation. No merge or live
+deployment is authorized by this instruction. Data compatibility is not a requirement: old
+conversation, belief, relation, episode and vector data may be discarded at a controlled cutover.
+Prefer preserving portable character-card content; do not retain old schemas/runtime to preserve
+cards. Auth, credentials, billing and infrastructure configuration are not conversation data to
+silently erase. Actual production reset belongs to the separately controlled release/cutover.
+
+Use Agent Continuity v0.4.0 outside the checkout for this assignment's execution state and evidence.
+Do not install a continuity runtime, database, manifest, CI job or bootstrap dependency in the repo.
+PROJECT_STATE.md remains the only current project progress record. Commit coherent batches,
+not each edit; preserve recoverable source before ending an execution session.
+
+## Target responsibility split
+
+```text
+Discord events -> bounded room buffer + message versions/provenance
+  -> runtime eligibility / permissions / capacity
+  -> explicit mention, Reply or selected-context action: direct route
+     otherwise: one bounded Room Director decision via existing Free Token Pool
+  -> runtime validates NONE or (speaker, target_message_id, mode)
+  -> focused source context + selected Character card + small relevant notes
+  -> Character Agent (content, optional recall/tools/expression, or ignore)
+  -> sparse expression resolution + draft freshness + current grants
+  -> existing safe delivery / receipts
+```
+
+Director output is a proposal, never authorization. Director has no tools, private per-character
+memory, persistent chat session or full private cards. Input is a bounded permission-filtered
+room snapshot, eligible public role summaries and relevant delivered-interaction state. Runtime
+builds eligibility before the request and revalidates the result and current grants afterward.
+
+Planned wire decision (strict fields, no rationale or chain-of-thought):
+
+```json
+{"speaker":null,"target_message_id":null,"mode":"none"}
+```
+
+A speaking decision requires an eligible deployment ID, a visible supplied message ID and a mode
+from `direct_answer`, `supplement`, `reaction`, `continuation`. Runtime metadata (snapshot revision,
+provider/model/attempts/outcome) is separate from model output. Only add bounded supporting source
+IDs if replay demonstrates that target plus Reply ancestors/recent context is insufficient.
 
 ## Accepted decisions
 
-### D01 — Optional participation, not an obligation
+### D01 — One participation authority; optional silence
 
-- Zero bots joining is a valid successful outcome. Candidate nomination is not a command to speak.
-- Prefer explicit mentions, Reply sources and message-selection actions. Natural unthreaded chat
-  remains supported using a small recent room window; do not require people to use Reply every time.
-- For ambient discussion, cheap eligibility/cooldown checks may propose one candidate. That role
-  uses its normal generation to choose a contribution or `ignore`; no extra mandatory judge.
-- If that candidate declines, end this ambient attempt. Do not cycle through all roles until
-  somebody speaks, randomly fill an empty selection, or announce silence to the room.
-- Direct requests should be answered or clarified within authority/budget limits; failure or
-  overload must not masquerade as deliberate character silence or silently erase the request.
-- Interests and relationships may contextualize expression, but do not create a duty to interrupt.
+Hard rules route clear requests without a Director call. Multiple explicit targets form bounded,
+tracked requests; conflicting target signals must not silently discard or arbitrarily retarget one.
+Names in quotations, prefixes, untrusted card text and mentions alone do not confer authority.
+Ambiguous room bursts, not every raw Gateway event, may use the Room Director. No embedding
+relevance, semantic candidate ranking or old Planner precedes/follows it. NONE is a successful
+semantic choice, not a provider error. Do not randomly fill silence or try each role until one speaks.
+The selected Character may still ignore; end that optional attempt without selecting another role.
+Direct requests need answer/clarification or explicit operational status, not silent disappearance.
 
 ### D02 — Bounded multi-role interaction
 
-Allow role-to-role invitations and A -> B -> A. Initial configurable validation values are
-**3 distinct roles, 6 visible speaking turns, 2 speaking turns per role** within a bounded
-interaction before human re-engagement. These are upper bounds, not quotas or measured optima.
-A platform-split long message is still one speaking turn. Reactions/stickers also consume an
-appropriate visible-action/rate budget and cannot bypass anti-spam limits.
+Support A -> B -> A based only on successfully delivered messages, not planned drafts. Initial
+validation ceilings remain 3 distinct roles, 6 visible speaking turns, 2 per role, plus independent
+attempt/tool-loop, room and requester budgets. These are proposed ceilings, not shipped settings
+or measured optima. Reactions/stickers consume visible-action budgets; ignores, retries and failed
+work consume attempt budgets. New room events cannot indefinitely reset cost limits. Human pending
+requests take priority. A bot invitation grants discussion only, never new tools, spend or consent.
 
-Choose the next role against actual delivered messages; do not pre-generate an entire conversation.
-Use a separate bounded generation-attempt/tool-loop budget, counting ignores, retries, repairs and
-failed work. Add room-wide and requester-level rate/cost limits across interactions so new messages
-cannot reset costs indefinitely. Explicit requests exceeding capacity need orderly bounded handling,
-not an uncontrolled fan-out. Pending human requests take precedence over optional bot continuation.
+### D03 — Provenance, not mandatory permanent semantic topics
 
-### D03 — Group-chat provenance and fair attribution
+Keep stable owner/connection/guild/channel/native-Thread/message/human/deployment IDs, timestamps,
+Reply edges, edit/delete revisions and actual delivered-response-to-source links. Keep trigger,
+selected source, addressees, semantic subjects and tool requester distinct. Display names are not IDs.
+Retire the permanent embedding-based Segment/ConversationThread graph as a prerequisite to turns.
+Native Discord Threads and source visibility remain real boundaries. Build a bounded current-turn
+focus from target, permitted raw Reply ancestors and relevant recent messages. Missing sources
+stay missing; no silent fallback to unrelated room content or summary-invented ancestry. Alias
+budgets must prioritize actually involved humans and roles rather than unrelated deployments.
 
-Preserve stable human/role IDs, per-message Reply source, timestamps, edits/deletion status and
-actual generated-response-to-source links. Display names are not identity. A webhook author is
-resolved to the actual deployed role; another bot or a quoted message is not a human requester.
+### D04 — Fresh drafts without replaying effects
 
-Keep trigger, selected response source, addressed participants, semantic subject and tool initiator
-separate. Select relevant raw reply ancestors plus a bounded recent room window; missing/deleted or
-inaccessible sources remain missing, not invented from a summary. Do not flatten simultaneous
-conversations into a single user message or use the latest author as everybody's subject.
+Keep ingress active during queued/running generation and slow tools. Bind drafts to input/source
+revisions; drafts are not delivered dialogue, shared knowledge or relationship evidence. Check
+freshness immediately before sending. Related corrections/resolution may refresh or drop an
+ambient draft; unrelated messages must not cancel direct work. At most one ambient contextual
+refresh by the same Character, with no separate judge. Further obsolescence drops that optional
+attempt with reason/cooldown. Direct work retains requester, bounded deadline/retry and status.
+Stop/edit/cancel needs matching actor/source authority. Never rerun completed or uncertain tool
+work to refresh wording. Cancellation of generation, tool execution and publication are distinct.
+Typing is optional and cannot starve requests; no promise of perfect ordering after the final check.
 
-Prioritize actually involved people and roles in prompt aliases before unrelated deployed roles;
-lists must not crowd out humans. Selection persistence/transfer must be reliable: failure cannot
-silently change the response target or restore all unrelated recent messages. Legacy Topic authority
-and a permanent semantic thread graph are not prerequisites for ordinary direct replies.
+### D05 — Small explicit notes and on-demand recall
 
-### D04 — Receive continuously; publish only fresh-enough drafts
+Rebuild each turn's context from the selected card, bounded raw context, relevant small notes and
+necessary job/temporal state. No ever-growing prompt, automatic per-message permanent extraction,
+per-role rolling summaries or shared global brain. Character decides whether to use memory.search,
+conversation.search or knowledge.search. Results are scoped, capped, deduplicated, source-linked;
+no unrelated filler on no-result. Preserve tool-call/result pairing and effect receipts when trimming.
+Provide remember/correct/forget and operator editing with actor/subject/scope/version checks.
+Third-party reports and bot guesses cannot overwrite another person's note. Authored facts cannot
+be overwritten by ordinary chat. Searchable history can use bounded equal-visibility source chunks;
+Episode-as-searchable-history survives as a capability, not a required old Segment-derived schema.
+Optional source-linked summaries require measured need, not a timer or recursive summary pipeline.
 
-1. Record the input snapshot/source revision used for generation; continue receiving/updating the
-   room buffer while model work is queued or running.
-2. Keep ordinary chat generation private as a draft. A draft is not delivered history, shared
-   knowledge, social evidence or a reason to update relationships.
-3. Immediately before delivery, inspect newly received relevant messages and source changes.
-   A later source message cannot retroactively enter an already-running model request.
-4. Clearly unrelated new discussion does not cancel the old request. Material clarification,
-   correction or resolution may require an update or abandoning an optional contribution.
-5. Coalesce relevant additions. At most **one contextual refresh** for an ambient attempt: the same
-   role can directly revise the answer or ignore using the draft, source and new evidence. Do not
-   run separate judge/writer/reviewer calls. No relevant change means no extra model call.
-6. If an ambient draft becomes obsolete again, drop it and respect cooldown. A direct request stays
-   tracked, with bounded retry/deadline and appropriate acknowledgement/failure handling; do not
-   apply the ambient drop policy to silently lose a human request.
-7. Stop/edit/cancel requires a matching source and authorized actor. Human priority pauses bot
-   continuation; it does not give one member ownership of another member's task.
-8. Never rerun completed or uncertain side effects to refresh wording. Preserve work/result IDs.
-   Canceling generation, canceling a tool job and suppressing delivery are distinct transitions.
+### D06 — Relationship notes, not numeric psychology
 
-Typing indicators are optional hints, not content. V1 may ignore them. Any later courtesy wait is
-bounded and must not permit starvation. Perfect ordering against a message arriving after the
-final check is not promised; explicit source links and a later correction handle unavoidable races.
+Replace familiarity/affinity/trust/comfort, baselines, deltas, decay and event simulations with short
+directional notes. Load only relationships relevant to addressed participants. Preserve scope,
+source, edit/clear and version checks; notes never affect permissions or participation authority.
+Initial updates are explicit user/operator corrections, not an all-pairs writer. Any later ordinary-
+output update must be bounded, source-backed and validated without another model call; bot-only
+repetition is not independent evidence or a reason to upgrade closeness.
 
-### D05 — Practical memory and bounded context
+### D07 — Remove duplicated ordinary-chat intelligence
 
-Ordinary context is the current role card, recent relevant raw messages, small explicit notes and
-required runtime state. Rebuild/select it each turn rather than append every prior prompt/search
-result forever. Cap and deduplicate retrieval results and tool loops; preserve valid tool-call/result
-pairing and durable effect receipts when trimming context.
+Retire per-message permanent extraction, social simulation/event producers and mandatory
+Entity -> Knowledge Gap -> Discovery dispatch from ordinary chat. Keep supported knowledge
+retrieval/ingestion optional. Remove Roast UI/API/settings/prompts/scheduler, not just visibility.
+Remove the old character-internal Turn Director's reply/recall planning role: Character owns those
+choices. Reuse Utility Gateway transport/quota/provider capabilities for the Room Director, not
+its old TurnDirectorProposal behavior. No second supervisor framework or continuous inner thoughts.
 
-Stop automatic permanent self-fact extraction on every ordinary utterance. Support explicit
-remember/correct/forget and operator editing with actor/scope checks. Preserve current corrections
-without keeping the old always-on extraction pipeline under a new name. Third-party assertions
-cannot overwrite somebody else's personal note; quotations and bot guesses are not self-reports.
+### D08 — Transport, jobs and user controls
 
-Retain model-initiated memory/history/knowledge reads. History search must expose enough permitted
-raw provenance to resolve Reply references, not pretend an Episode summary is a verbatim transcript.
-Do not make a separate semantic judge, full entity graph or Knowledge Gap workflow mandatory.
-A valid no-result is preferable to unrelated entities or recent memories as filler.
+Keep permission-aware bounded source fetching/rehydration, edit/delete invalidation and duplicate-
+event protection. Webhooks need actual response-source mapping; do not assume native Reply support.
+Retain definitely-unsent/partial/delivered/uncertain distinctions. A later-chunk error or timeout
+cannot resend a whole answer. Slow accepted tools cannot block room ingress; original requester,
+job/result IDs and grants survive resumption. Reuse existing command auth for chosen-message/role,
+pause/status/cancel operations. Apply explicit allowed-mention lists to all output paths, including
+progress/fallback; no implicit everyone/role pings. Missing Message Content is an operational state.
 
-No periodic per-role summaries or global rolling "shared brain" in the initial implementation.
-Add one small source-linked summary per equal-visibility room only if measured long-dialogue failures
-justify it; size/interaction boundaries, not elapsed time alone, trigger it. Source evidence remains
-rebuildable. Summaries cannot mix permissions, turn opinions into facts or recursively erase corrections.
-This optional experiment is not a required prerequisite for P6.
+### D09 — Observable outcomes and bounded provider routing
 
-### D06 — Keep relationships as short notes
+Reuse turn/operation/job/provider/delivery IDs. Distinguish semantic NONE, rules silence, Character
+ignore, unavailable/timeout/malformed/invalid decisions, stale drafts, cancellation, capacity and
+uncertain delivery. A failure is not a semantic abstention. Log model identity, prompt revision,
+provider attempts, usage, latency, snapshot/target IDs and costs; unknown usage/cost is not zero.
+One logical Director call may have multiple transport attempts; bound aggregate deadline/attempts
+and count them all. Use only an evaluated Free Token Pool candidate set. No silent paid fallback.
+Director failure ends optional ambient participation; it never revives the old Planner. Clear
+requests remain on the direct path. Diagnostic failure must not corrupt authoritative execution.
+Metadata is default. Raw captures require explicit scope/expiry/access/redaction/audit; no CoT.
 
-Preserve authored relationships and small directional role -> person / role -> role notes, scoped
-to their allowed room/context. No affinity/trust/comfort simulation, decay, permanent psychological
-inference or closeness automatically derived from message counts. Do not generate an all-pairs matrix.
-Only load notes relevant to the actually addressed participants, not every user or the last trigger.
+### D10 — Runtime-enforced isolation and safety
 
-Allow explicit preferences/corrections and an optional, low-frequency candidate update attached to
-the normal role output. It is not a separate model call or background reflection service. Limit to
-one update per relationship per interaction; validate visible source references, actor/target,
-length and current record version. Invalid candidates are dropped without regenerating chat.
+Enforce owner, connection, room/native-Thread, character, requester and destination scope before
+prompt construction and again at effects/delivery. Equal-room history is not shared preferences
+or shared authority. Notes/summaries/indexes inherit visibility; explicit allowed global background
+is distinct. Imported cards, recalled text, webpages and other bots are untrusted data. Preserve
+credential isolation, MCP grants/schema validation, outbound URL/DNS protections, idempotency,
+resource limits and Public Demo server-side read-only enforcement. Never rely on prompt secrecy.
 
-Auto-updates initially cover clear preferences and resolved interaction facts, not inferred dislike,
-hostility or trust. Author-defined facts cannot be overwritten by ordinary chat. Bot repetition is
-not independent evidence, and bot-only chatter must not upgrade closeness by volume. Keep simple
-edit/clear/previous-version recovery. Relationship text influences expression, not admission,
-authorization, data visibility or truth.
+### D11 — One supported runtime and practical Portal
 
-### D07 — Retire redundant ordinary-chat machinery
+Keep daily authoring/deployments/room controls/notes/tools/diagnostics understandable. Preserve
+real-data APIs and UI/accessibility contracts. Remove retired imports/composition, routes, scheduled
+producers, settings/env flags, help/docs and tests of intentionally removed behavior; retain negative
+security tests and replace correctness tests before removing old ones. No indefinite dual-engine
+mode or forwarding modules. R1-only benchmark adapters are evaluation code, never production fallback.
 
-Remove automatic relation-score/event simulation writers, per-message memory extraction and
-Entity -> Knowledge Gap -> Discovery dispatch from the ordinary chat path. Stop their scheduled or
-background producers where no other explicitly supported use remains; hiding prompt output alone
-is not retirement. Necessary current corrections, explicit notes and scoped recall must still work.
+### D12 — Embeddings only behind retrieval
 
-Make advanced Knowledge Fabric ingestion/sync, curiosity/discovery and research views optional,
-not dependencies for a normal reply. Preserve useful existing knowledge tools, data lifecycle,
-media handling, authoring and offline evaluation. No expansion of speculative cognitive modules.
-Remove Roast creation UI, intensity settings, prompts, session APIs and dedicated scheduling after
-safely ending existing sessions. Reuse general multi-role budgets, cancellation and delivery; do
-not remove those with the activity. Historical records do not require destructive deletion.
+Remove semantic participation, conversation-structure and expression embedding from ordinary turns.
+Do not merely replace FastEmbed with a remote client: existing query-time candidate cache misses
+can create many passage embeddings. Raw message ingress stores text without per-message embedding.
+Explicit note/history chunk ingestion may batch index. Retrieval filters scope first, uses exact/FTS/
+sparse paths, and dense retrieval when appropriate; no-result is valid. Cold/incomplete indexes may
+return sparse results and visible indexing status, not synchronously bulk-embed a history backlog.
+Provider/model/dimension/version namespaces must not mix. Old vectors can be discarded; re-index into
+new namespaces. Audit Tool Retrieval, RAG, Media Recall and other shared encoder consumers before
+removing production FastEmbed dependencies. No unapproved provider subscription or hosting topology.
 
-### D08 — Discord transport and user operations
+### D13 — Expression intent before catalog selection
 
-- Persist/fetch bounded Reply ancestors and actual response-source links, including webhook role
-  output. Do not assume webhooks support native Reply just because bot messages do.
-- Add a message-selection operation to ask a chosen role to answer, plus minimal pause/status/cancel
-  affordances backed by existing APIs. Do not create a second command authorization engine.
-- Distinguish definitely-unsent, partially-sent, delivered and uncertain outcomes. A webhook timeout
-  or later-chunk failure cannot trigger a whole-message fallback that duplicates completed sends.
-- Slow accepted tool work must not block ingress or the whole room queue. Keep generation/publication
-  ordered where necessary and bounded; correlate asynchronous results to the original requester.
-- Apply effective channel/private-Thread permissions to source fetching and output. Missing Message
-  Content data is an operational condition, not a model comprehension failure; direct requests and
-  ambient mode may require different fallback behavior.
-- Update recent context on message edit/delete; rehydrate only bounded permitted history after restart.
-- Apply explicit allowed-mention lists across bot, webhook, tool/progress and fallback output. No
-  implicit everyone/role pings. Prefer brief contextual replies; do not spam progress updates.
+Character first chooses no expression or a kind/intent/emotion/action. Runtime selects an allowed,
+room-available emoji/sticker using names, aliases, intent/emotion, tags, semantic metadata and
+recent-use penalty. No preloaded candidate catalog in every prompt, dense embedding or per-use
+vision call. No good match means omit expression. Optional one-time cheap vision ingestion fills
+missing catalog metadata; metadata/character output never creates permission to use an asset.
 
-### D09 — One interaction-level observation view
+### D14 — Clean data reset and portable cards
 
-Reuse operation/turn/provider/job/delivery identifiers and existing trace stores. Show source/target,
-input revision, involved roles, per-role outcome, retrieval source IDs, note changes, model attempts,
-tool work, usage and delivered message IDs. No extra observer agent, mandatory trace SaaS or chain-of-
-thought capture. Runtime reason codes are evidence; a model's optional reason is only self-report.
+Do not implement conversions for old relation scores, Belief state machines, semantic Thread IDs,
+Episodes or vectors just for compatibility. Prefer a small card-content export/import boundary,
+using existing format/spec support where suitable. Preserve authored content, not runtime authority,
+secrets or incompatible schemas. If a field is unmappable, report it rather than retain old machinery.
+Before any separately released reset: stop all old ingress/producers, settle or quarantine pending/
+uncertain effects, identify exact stores and reset boundary, verify card export, then start only the
+new supported path. Old messages must not replay as new tasks on restart. New source evidence and
+new delivery receipts remain required even when historical data is discarded. No live purge in R0/R1.
 
-Distinguish no candidate, role ignore, capacity stop, stale draft, replacement, canceled request,
-provider/tool failure and delivery uncertainty. Record keep/refresh/drop plus extra calls for D04.
-Correlate parallel human requests rather than overwrite the room with the most recent one.
-Count all attributable generation/repair/fallback/tool-follow-up work. Unknown usage is not zero;
-provider usage and estimated monetary cost are separate. Show trace loss/incompleteness without
-letting diagnostic failures alter authoritative job/delivery state.
+## Reuse / reference decisions
 
-Daily default is metadata-first, not truncated prose disguised as summary. Raw prompt/transcript,
-arguments/results and error bodies require explicit bounded debug scope, expiry, permissions,
-view/export audit and redaction. Treat captures as multiple people's data. Avoid capturing raw data
-at all when unnecessary; retention and note-forgetting are distinct operations.
+Checked against primary references on 2026-10-01; patterns are not copied code or new dependencies.
 
-### D10 — Shared-room security, not human-cognition simulation
-
-- Runtime enforces owner, connection, guild, channel/native Thread, role, requester and destination
-  scope. Same-room shared history is allowed; shared preferences or shared authority are not assumed.
-- Author-allowed global background must be explicit. Reject cross-room/private data before it enters
-  prompts, not by asking the model to keep a secret it already received. Summaries/indexes inherit scope.
-- Ordinary members can manage their own eligible notes/jobs; room configuration and others' work
-  require the corresponding authority. A relationship or a claim of being admin grants nothing.
-- Bot-to-bot invitations authorize discussion only. Tool grants and cost approvals bind to the real
-  requester and operation; check current grants before effects and sensitive delivery.
-- Preserve Vault/credential boundaries, deny-by-default MCP grants/schema checks, outbound URL/DNS
-  protections, resource limits, idempotency and Public Demo read-only enforcement.
-- Imported cards, memory notes, webpages, tool results and other bots' text are untrusted data. No
-  prompt-only security, self-promoted authority or paid-tool escalation through another role.
-- Do not replace missing perception/authority evidence with broad server matches or an any-source
-  summary check. Validate the actual permitted evidence unit and disclosure destination.
-
-### D11 — Maintenance and Portal simplification
-
-Daily surfaces should focus on characters, deployments/room controls, explicit notes/relationships,
-tools and understandable diagnostics. Keep advanced research/evaluation accessible without making
-it setup overhead for basic chat. Retain existing UI/data/accessibility contracts and real values.
-
-Use feature ownership in [architecture.md](../architecture.md), not duplicate V-next runtimes.
-Remove old imports, composition wiring, writers, scheduled tasks, routes, flags, help text and tests
-that only enforce intentionally retired behavior. Preserve negative security tests and add a
-replacement acceptance test before retiring an old correctness contract. Finishing with two active
-systems or hidden legacy defaults is not completion; historical data may remain inert with a policy.
-
-## Integration dispositions (not dependencies installed by this PR)
-
-These are accepted research directions from the discussion, not promises about current upstream
-versions. Work must check pinned versions, compatibility, maintenance and licenses before copying
-code or adding a dependency; justify new services or recurring cost separately.
-
-| Candidate / primary reference | Disposition |
+| Reference | Adopt / reject |
 | --- | --- |
-| [discord.js WebhookClient](https://discord.js.org/docs/packages/discord.js/main/WebhookClient:Class) | Prefer reuse of the existing SDK for standard transport; test retry/partial-send semantics, do not assume exactly-once delivery |
-| [llmcord](https://github.com/jakobdylanc/llmcord) | Borrow bounded Reply-chain/context strategy; retain Character Relay identity, webhook source links and scope checks |
-| [SillyTavern group chat](https://docs.sillytavern.app/usage/core-concepts/groupchats/) | Borrow shared history/current-speaker card and manual role controls; do not copy mandatory/random filler participation |
-| [Kindroid customization](https://kindroid.ai/v2/docs/customizing-personality/) | Design reference for short relationship/background text, not a runtime/service integration |
-| [AstrBot Favour Ultra](https://github.com/nuomicici/astrbot_plugin_Favour_Ultra) | Borrow only the optional update-in-normal-response idea; no numerical affection, punishment, exclusivity or separate plugin runtime |
-| [Character Card V2](https://github.com/malfoyslastname/character-card-spec-v2) | Thin draft import/export adapter when justified; preserve unknown data safely and never import tool authority |
-| [SearXNG API](https://docs.searxng.org/dev/search_api.html) | Optional controlled search provider adapter; public-instance JSON availability and hosting cost must be verified |
-| [LiteLLM](https://docs.litellm.ai/) | SDK only if measured provider-adapter duplication warrants it; no automatic second proxy/auth/quota platform |
-| [AstrBot](https://docs.astrbot.app/en/platform/discord.html) | Replacement research only, not layered into the current runtime |
-| [OpenTelemetry GenAI](https://github.com/open-telemetry/semantic-conventions-genai) | Reuse useful metadata conventions; no mandatory collector/backend or raw content logging |
-| [Discord messages](https://docs.discord.com/developers/resources/message), [Threads](https://docs.discord.com/developers/topics/threads), [commands](https://docs.discord.com/developers/interactions/application-commands) | Verify native capabilities/permissions against current official docs before implementation |
+| [AutoGen SelectorGroupChat](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/selector-group-chat.html) | Adopt bounded shared-view selection and public candidate descriptions. Do not adopt runtime; selector_func None invokes model selection, not our NONE contract. |
+| [SillyTavern group chats](https://docs.sillytavern.app/usage/core-concepts/groupchats/) | Adopt selected-speaker card/shared history. Reject random last-resort speaker and forced participation. |
+| [llmcord](https://github.com/jakobdylanc/llmcord) | Reference Reply-chain context; keep our webhook identity, grants and visibility. Does not solve all unthreaded ambiguity. |
+| [LangGraph Supervisor](https://github.com/langchain-ai/langgraph-supervisor-py) | Borrow responsibility split only; keep existing LangGraph runtime, no supervisor package. |
+| [Character Card V2](https://github.com/malfoyslastname/character-card-spec-v2) | Evaluate thin portable authored-content adapter; never import tool grants/credentials. |
+| Existing discord.js, pytest, Utility Gateway, jobs/outbox and PostgreSQL | Reuse SDKs, tests and owned safety code before adding services or frameworks. |
 
-## Checkpoints and evidence gates
+Before adding any dependency or copying upstream code, inspect actual pinned version, license,
+maintenance and compatibility. A reference does not warrant replacing our safety boundary.
 
-These are suggested coherent checkpoints, not fixed agent topology or a detailed function blueprint.
-The main agent chooses how to execute, delegates selectively and revises boundaries with evidence.
-Progress and branch-specific receipts are recorded only in PROJECT_STATE.md.
+## Refactor phases and gates
 
-| Phase | Outcome / requirement coverage | Gate |
+The main agent may split/reorder coherent slices with evidence, preserving all acceptance below.
+No phase labels constitute permission to deploy, spend new money or silently lose source changes.
+
+| Phase | Outcome | Exit evidence |
 | --- | --- | --- |
-| P1 | Baseline characterization, room/request provenance and threat boundaries (D03, D10); measured call/token baseline | Reproducible interleaved-human cases, scoped fixtures, unchanged/changed contract distinction; no invented baseline scores |
-| P2 | Reply/source transport, event updates, restart and delivery/slow-work integrity (D03, D08, D10) | Connector + Python schema/route integration; duplicate/partial/uncertain send and isolation fault tests |
-| P3 | Optional bounded multi-role flow and send-time draft checks (D01-D04) | Positive direct-response and negative ambient cases; A-B-A, concurrent additions, budget/fairness and no-effect-replay tests |
-| P4 | Explicit memory, short relationship notes and actual retirement (D05-D07, D10-D11) | Actor/room note CRUD and candidate-update validation; no ordinary extraction/simulation/discovery calls; Roast entry points retired with history policy |
-| P5 | Single observation view, practical Portal operations and justified reuse (D08-D11) | Correlated outcomes/cost, metadata default/raw debug auditing, real-data UI and affected browser journeys; record each adapter's adopt/defer rationale |
-| P6 | Integration, physical ownership cleanup and retirement audit (all D01-D11) | Relevant full surface CI, targeted protected-logic mutation, same-model dialogue/cost comparison, failure/restart evidence, no obsolete active consumers |
+| R0 | Direction, replacement map, baseline, data/card policy and source/evidence boundaries committed before implementation | Docs link/coverage review; no source/dependency/runtime change in this commit |
+| R1 | Offline replay harness, strict decision/rules/validation spike, baseline adapters and 200-500 decision points | Rules/Planner/Director distinguished; synthetic vs human-reviewed labels distinguished; negative tests and metrics tested; real provider quality gate remains explicit |
+| R2 | Source-focused context and direct routing, continuous ingress, permitted ancestry/restart and safe slow-job handling | Source/actor/destination isolation, conflicts, interleaved humans, edit/delete/restart, no duplicate/uncertain effects; direct route has zero Director calls |
+| R3 | Replace selection with evaluated Room Director; retire old Planner/semantic participation/inner Turn Director; bounded bot continuation/freshness | Real pool model replay gate before ambient activation; A-B-A, attempts/cooldowns, target validation, one refresh and direct-request fairness; no old fallback |
+| R4 | Explicit notes/history, note relationships, retrieval-only encoder boundary and sparse expressions | Scoped CRUD/recall/indexing tests; no eager extraction/social/discovery/embed on normal chat; cold-index and namespace tests; no extra expression calls |
+| R5 | Portal/observation simplification and complete runtime/config/UI retirement | Real APIs/affected browser journeys; failure-vs-NONE/usage diagnostics; Roast and dead settings removed |
+| R6 | Integration, deletion audit, card export/reset dry run and release preparation | Python/Connector/Portal/PostgreSQL and applicable mutation/fault checks; one runtime; clean start and card import on isolated store; no live release inferred |
 
-Existing command reference: [developer guide](../developer/README.md),
-[mutation testing](../mutation-testing.md), [manual/live validation](../manual-validation.md).
-Use relevant tests and isolated environments; unavailable credentials, PostgreSQL, browser tools,
-independent review or live permissions are recorded as unverified/blocked, never simulated passes.
-Do not invent a numeric quality or savings target before measuring baseline. No production merge
-or deployment is implied by this planning approval.
+An unqualified Director does not block independent safety/source work, but blocks ambient activation.
+If quality is insufficient, use explicit routing/ambient disabled, not a permanent old Planner fallback.
 
-## Acceptance scenarios
+## Replay design and promotion criteria
 
-Use synthetic fixtures with stable IDs, actual Reply links and multiple roles/humans. Add/locate the
-proving tests during P1; these scenario IDs are requirements, not names of tests that already exist.
+Compare (A) pinned current Planner, (B) deterministic direct routing only, (C) the same rules plus
+Room Director. A deterministic fake encoder is not the production FastEmbed baseline; report it as
+such. Fixtures include explicit/multiple/conflicting targets, NONE, interleaved topics, same names,
+quotes, private scopes, missing content, bot-only loops, corrections, errors and capacity. Split by
+whole conversation, never by near-duplicate message slices. Allow multiple valid (speaker,target)
+pairs. Label provenance and review status must be recorded; generated labels are not human labels.
+
+Measure speaker/target/joint accuracy, NONE precision/recall with explicit denominators, wrong-topic
+participation, missed direct response, error rate, logical calls/message and per decision, physical
+attempts, input/output tokens, p50/p95 including queue/retry, monetary cost with unknowns, cold/warm
+retrieval separately and per-model drift. Report uncertainty and scenario groups, not just a mean.
+Never exclude failures to inflate silence precision. Strict fixtures require zero cross-scope
+admission, zero valid-direct-request loss, and zero uncontrolled retries/paid fallback. Compare model
+quality on a held-out, human-reviewed set before claiming superiority; model suitability needs an
+explicit report of tradeoffs and actual latency/budget, not a universal guessed threshold.
+
+## Acceptance scenarios (carried forward; extended)
 
 | ID | Scenario | Required observation |
 | --- | --- | --- |
-| A01 | Two humans discuss lunch; no bot is needed | Zero participation is valid; no round-robin attempts until someone talks |
-| A02 | Explicitly ask Ann; unrelated Ning is present | Ann answers/clarifies, Ning need not speak; errors are not reported as chosen silence |
-| A03 | Ann -> Ning -> Ann with useful new content | Re-entry works inside distinct-role, speaking-turn, attempt and room limits; may end early |
-| A04 | Many deployed roles and two same-named humans | Real interlocutors retain aliases; stable identity and individual preferences do not merge |
-| A05 | Interleaved game/lunch messages, with and without Reply | Correct source/recipient, bounded raw context, no last-trigger relationship substitution |
-| A06 | Quoted "are you sure?", name-prefix collision, declarative "everyone" | No invented challenge or group invitation; direct requests still work |
-| A07 | Selected-source persistence fails or required ancestor is inaccessible | No silent retargeting, no fallback to unrelated room content; explicit safe outcome |
-| A08 | Related correction arrives during generation | Ingress updates immediately; original draft is not published unchanged; one ambient refresh maximum |
-| A09 | Unrelated message/typing arrives during a direct task | No blind cancel/restart; typing has bounded/no effect; original requester/work preserved |
-| A10 | Humans resolve the question before ambient send; revisions keep arriving | Optional draft can drop with a distinct reason and cooldown; direct request is not silently lost |
-| A11 | Draft refresh follows a completed or uncertain paid tool | No duplicate tool side effect; draft text never becomes shared memory/evidence |
-| A12 | Public room asks about private Thread/another owner's note | No unauthorized recall/disclosure; derived summaries and related artifacts obey the same boundary |
-| A13 | One member reports another member's preferences or asks to cancel their job | No unauthorized overwrite/cancellation; attributed public discussion may still be read |
-| A14 | Role asks another role to run paid tools / claims human approval | No authority laundering; current real requester grants and quotas apply |
-| A15 | Legitimate relationship clarification, malformed candidate, bot-only repetition | Bounded source-linked update or safe rejection; no extra judge/retry and no volume-driven closeness |
-| A16 | Multi-chunk webhook partially sends or times out after receipt | No whole-message resend on fallback; partial/uncertain state is explicit and recoverable |
-| A17 | Restart, duplicate Gateway event, source edit/delete, permission revocation | Bounded permitted rehydration; deduplication and fresh source/grant checks; no duplicate publication |
-| A18 | Missing Message Content data vs genuine irrelevant topic | Operational limitation distinguishable from semantic ignore |
-| A19 | One visible answer required multiple calls and a format repair | All attributable attempts/usage counted; unknown is not zero; source-to-delivery correlation |
-| A20 | Trace persistence failure and raw capture view/export | Diagnostic loss visible without corrupting job/delivery state; scope/expiry/audit enforced |
-| A21 | Ordinary chat after retirement | No eager entity-gap/discovery, permanent self-extraction or social simulation; explicit note/recall still usable |
-| A22 | Roast removed, ordinary multi-role chat retained | No active Roast UI/API/prompt/scheduler; general invitations, tools, cancellation and history still work |
+| A01 | Human lunch chat | NONE valid; no forced role or iterate-until-speaks |
+| A02 | Explicit Ann, unrelated Ning | Ann response/clarification or tracked error; zero Director calls |
+| A03 | Ann -> Ning -> Ann | Delivered evidence only; bounded roles/turns/attempts/room costs |
+| A04 | Many roles, same-named humans | Stable identity and involved-human aliases; no preference merging |
+| A05 | Interleaved topics with/without Reply | Correct speaker/target/focus; no permanent semantic-thread prerequisite |
+| A06 | Quoted name/challenge, prefix collision, declarative everyone | No invented direct request, challenge or group invitation |
+| A07 | Source persistence failure/inaccessible ancestor | Distinct safe failure; no silent retarget/context widening |
+| A08 | Related correction during generation | Ingress active; stale draft not sent unchanged; one ambient refresh |
+| A09 | Unrelated arrival/typing during direct task | No blind restart/cancel; original requester and work survive |
+| A10 | Human resolution/repeated revision | Ambient drop has reason/cooldown; direct request remains tracked |
+| A11 | Refresh after completed/uncertain tool | No duplicate effects; draft is not shared evidence |
+| A12 | Private Thread/other owner note | Scope applied before prompts, summaries and retrieval results |
+| A13 | Third-party preference/cancel claim | No unauthorized overwrite/cancel; public attributed text remains data |
+| A14 | Bot claims consent or asks paid tool | No authority laundering or new grants |
+| A15 | Relationship edit/malformed update/bot repetition | Validated short note or rejection; no numeric or repetition-driven inference |
+| A16 | Partial webhook/timeout after receipt | No whole-answer resend; confirmed receipts and uncertainty survive |
+| A17 | Restart/duplicate/edit/delete/revocation | Bounded permitted rehydration, source/grant recheck, no replay |
+| A18 | Missing Message Content | Operational failure distinct from irrelevant-topic silence |
+| A19 | Multiple attempts/repair for one reply | All attempts counted; unknown usage/cost not zero |
+| A20 | Diagnostic write failure/raw capture | Job truth unaffected; scoped/expiring/audited access |
+| A21 | Ordinary chat after retirement | No eager entity-gap/discovery/self-fact/social/semantic embed calls |
+| A22 | Roast removal | No UI/API/prompt/scheduler entry; general role interaction survives |
+| A23 | Invalid/timeout/empty/unavailable Director | Not semantic NONE; bounded attempts/deadline; no Planner/paid fallback |
+| A24 | Multi-target/conflicting direct request | Deterministic documented handling; no lost target or arbitrary fan-out |
+| A25 | Cold retrieval index/model switch | No query-time bulk backfill; sparse/no-result valid; spaces not mixed |
+| A26 | Expression unused/no match/forbidden asset | Zero catalog work when absent; sparse choice only; invalid/no match omitted |
+| A27 | Card export + clean isolated reset | Authored content portable, no grants/secrets imported; no schema lock-in |
+| A28 | Pool model changes/failover | Actual model/attempts logged; only evaluated candidates; drift visible |
+| A29 | Replay labels/splits/missing predictions | No test leakage, no fake human review, omissions/failures not scored as NONE |
 
-## Done means one supported path, not renamed complexity
+## Completion
 
-Map every decision and scenario to evidence or an explicit blocker. Remove old consumers and update
-architecture.md to the actual moved source, not the proposed tree. Keep no second progress ledger,
-mandatory wiki, fixed agent-role process or permanent legacy runtime fallback. Review changed API,
-operator/UI docs and scheduled producers as well as prompt contents. Preserve evidence, backups and
-safe lifecycle semantics; obtain explicit approval for any irreversible production purge.
-
-The final report must separate code verification, deterministic replay, model/human quality evidence,
-cost estimates and live deployment validation. Passing tests is not proof of perfect naturalness;
-getting quieter is not proof of fewer wrong answers if direct human requests are being dropped.
+Production wiring, regression/fault/mutation evidence, removed consumers/config/docs and updated
+architecture are required. Isolated classes/mocks/green synthetic tests alone are not completion.
+Report actual source commit, local/CI/live checks, self vs independent review, limitations and
+release state separately. All current progress belongs in PROJECT_STATE.md, not a second roadmap.

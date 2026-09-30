@@ -1,111 +1,62 @@
 # Project state
 
-Updated: **2026-09-22**. This is the only current progress and takeover record.
+Updated: **2026-10-01**. This is the only current progress and takeover record.
 
-## Current scope and authorization
+## Current scope and authority
 
 | Item | State |
 | --- | --- |
-| Repository | `wong001110/character-relay` |
-| Previous main | `3cd183d460812d16cfb0c6d8dbae305d8ef61363` (PR #205) |
-| Accepted design | PR #206 / `be7a8c01e45662a8d68abbefccce46f07e6a7110` |
-| Implementation checkpoint | PR #207 / `feat/discord-group-chat-core-takeover` |
-| Verified product source | `53d53d0cd99f7f59b518fc367ab619ed412a10a4` (foundation and P2a) |
-| Verified remote head before closeout | `219ad921539b8d04cd6b3db990ac62e6932cbb0c` |
-| Current instruction | Generate an HTML summary/checklist, then squash merge to main |
-| Merge authority | User explicitly authorized squash merge on 2026-09-22; actual receipt is PR #207's merged SHA |
-| Deployment / production data | Not authorized or performed by this task |
-| Full initiative | **INCOMPLETE: this is a foundation/P2a checkpoint, not P1-P6 completion** |
+| Repository / baseline | `wong001110/character-relay` / `2812d79b314b25aa31fe0632dcbdd7da205b0bf0` (merged PR #207) |
+| Active direction | [Lightweight Room Director refactor](docs/plans/discord-group-chat-core.md) |
+| Current instruction | Write direction first, then develop in execution mode by coherent phases using external Agent Continuity |
+| Development branch | `refactor/lightweight-room-director` (created from verified main) |
+| Merge / production deploy | Not authorized by this assignment |
+| Old application data | May be discarded in a controlled future cutover; do not maintain compatibility for its own sake |
+| Character cards | Prefer portable authored-content preservation; old schema must not block the refactor |
+| Full refactor | **INCOMPLETE**; accepted target is not current production behavior |
 
-PR #206's documents are included as ancestors; no unrelated PR #203 implementation is incorporated.
-This closeout changes documentation and removes the temporary dependency-acquisition workflow only.
-It does not introduce the missing P3-P6 implementation, alter runtime source, or weaken normal CI.
-A merge receipt must not be described as proof that the full accepted design has shipped.
+## Baseline correction
 
-## Important continuity correction
+Only Git-backed source is implementation evidence. PR #207 delivered foundation/P2a provenance,
+room-buffer and partial/uncertain delivery protections, not the lost unpushed P3-P6 work. Historical
+logs for that missing code cannot be attributed to main or this branch. The prior checkpoint and
+receipts remain in [the merge review](docs/reviews/group-chat-checkpoint-2026-09-22.md) and Git history.
 
-The previous conversation reported extensive unpushed changes in `/mnt/data/character-relay`.
-On 2026-09-22 that directory was not present in the active environment. The available source
-archives, connected branch inventory and PR #207 still contain the foundation/P2a source only.
-No matching later patch, source archive or Git bundle was recovered. The 1084-test Python log,
-150-test Connector log and 14-mutant policy log survive, but do not reproduce or attest code
-that is not in the repository. They are not merge evidence for this checkpoint.
+At this direction commit the existing Planner, semantic participation/structure, numerical social
+state, character-internal Turn Director, ordinary automatic writers and Roast remain present.
+No runtime/dependency/schema changes or data deletion are part of the direction commit.
 
-Do not assume those changes were pushed, complete, or available in this branch. Also do not
-assume unpushed Work changes are empty: reconcile any independently recovered workspace before
-integrating it. The missing source remains an implementation/recovery task, not a production
-validation task that the user can resolve by checking a box.
+## Refactor progress
 
-## Phase state
+R0-R6 are the new initiative's checkpoints; they are not old P0-P6 completion claims.
 
-All D01-D11 and A01-A22 in the accepted plan remain requirements. Initial 3-role / 6-speaking-turn
-/ 2-per-role limits are target ceilings, NOT implemented settings in this checkpoint.
-
-| Phase | Repository-backed status |
+| Phase | Status / evidence |
 | --- | --- |
-| P0 | Accepted plan and AI-Native policy/state/source navigation available |
-| P1 | PARTIAL: selected source/privacy/delivery defects characterized; full quality/cost baseline still pending |
-| P2 | PARTIAL: P2a metadata, buffer and uncertain-delivery work verified; ancestor fetching, persistent response-source links, restart rehydration and slow-job separation remain |
-| P3 | NOT DELIVERED: bounded A-B-A, attempt/room budgets and send-time draft refresh must be recovered or implemented |
-| P4 | NOT DELIVERED: explicit scoped notes, short relationship replacement, automatic-writer/Discovery and Roast retirement remain |
-| P5 | PARTIAL: metadata-default trace foundation exists; unified observation, Portal and controlled provider raw capture remain |
-| P6 | NOT COMPLETE: checkpoint merge preparation is not the full integration, source-cleanup or retirement audit |
+| R0 | Direction written: responsibility split, replacement/data/card policy, phases and A01-A29 acceptance. Documentation source/link/coverage self-review; runtime unchanged. |
+| R1 | NEXT: build offline rules/Planner/Director replay spike and metrics; no fabricated model-quality baseline. |
+| R2 | NOT STARTED: focused source/direct routing and transport/job integration. |
+| R3 | NOT STARTED: evaluated Room Director production replacement, bounded continuation and freshness. |
+| R4 | NOT STARTED: explicit notes/history, relationships, retrieval and expressions. |
+| R5 | NOT STARTED: Portal/observation and actual retired-consumer cleanup. |
+| R6 | NOT STARTED: complete integration/deletion audit, isolated card/reset rehearsal and release preparation. |
 
-## What the verified source actually implements
+## Environment and evidence boundaries
 
-- Deep-copied chronological room snapshots; repeat/enrichment updates preserve position.
-- Gateway create/edit/delete updates the human buffer before slow processing; bounded tombstones
-  and invalidation prevent stale queued content replacing newer buffer state.
-- Per-message Reply/edit/real deployment metadata through Connector/Python contracts and prompt
-  reconstruction. This is not a send-time draft refresh or complete restart history solution.
-- Recent humans precede unrelated roles in mention aliases; stable IDs, not display names,
-  distinguish humans and actual role identities.
-- Selected-source persistence failure returns `reply_target_persistence_failed` rather than
-  admitting a turn that could silently choose a different source.
-- `connectors/discord/src/delivery.ts` separates definitely-unsent, partial and uncertain outcomes.
-  Confirmed IDs survive errors; unknown/partial sends and 429 do not cause whole-answer fallback.
-- Uncertainty reports bind to operation/step/claim, preserve receipts and do not advance dialogue
-  or replay effects. Existing columns are reused; this source batch adds no schema migration.
-- Provider trace defaults to metadata, retaining safe category/usage/error diagnostics. Existing
-  explicit summary/content configuration and historical traces are not automatically changed.
+- Railway plugin read calls succeed. Character Relay has `character-relay`, `discord-connector`
+  and `pgvector` services in production. Both application services follow `main`; no Railway
+  configuration, deployment, database or secret values were changed/read in this inspection.
+- Agent Continuity v0.4.0 was read from the user's Library. Assignment state/evidence stays outside
+  the checkout; no project continuity infrastructure is added. Self-review is not independent review.
+- The execution sandbox cannot directly resolve GitHub for clone. Connected GitHub tools can read
+  and commit source. Source acquisition/verification limitations must be recorded, not disguised as
+  a complete local checkout or a passed integration run.
+- No new runtime tests, live model comparison, real Discord acceptance, savings or latency claims
+  are made by this documentation checkpoint. Existing main CI is not evidence for future changes.
 
-Numerical relationships, ordinary automatic writers, Roast, unique-role guards and remaining
-legacy consumers are still present. Do not describe them as removed or hide this limitation.
+## Next concrete action
 
-## Evidence and limitations
-
-- Re-queried `219ad92`: CI run **35606369134**, Railway Smoke **35606369053** and Public Demo
-  Status Check **35606369084** completed successfully. These are existing exact-head results,
-  not new production acceptance or a claim that this version has been deployed.
-- P2a configured run **35599133605** attests source `53d53d0`, tree
-  `8a88bee627c525c47f660cf80663ff990692dce5`: Node 24 typecheck/build, **135 Connector tests in
-  21 files**, Ruff, mypy **403 source files**, and **42 Python integration tests** passed.
-- Recovered archive `group-chat-verification-tools.zip` has source commit `5035dd7`; its local
-  reconstructed Git tree equals `e153694728d318106011a04b17bfca9d1287aa8a`. The connected comparison
-  from that commit to `219ad92` changes only two documents and the temporary tool workflow.
-- Earlier foundation/local/manual mutation counts overlap these scopes; do not sum them.
-- The remaining temporary `group-chat-local-tools.yml` is removed in this closeout. No permanent
-  coding-agent bootstrap/runtime or package-download workflow remains from this transport.
-- The generated HTML provides 29 human checks with steps, expectations, stop criteria, and a
-  separate not-delivered list. Static structure/anchors/control counts and JavaScript syntax
-  were checked. Browser file navigation was blocked by environment policy; no visual/browser
-  interaction pass is claimed. No policy was disabled to obtain a pass.
-- Four previously reported moderate dependency advisories remain unclassified. No force-upgrade
-  or clean audit is claimed. No live Discord/model quality, measured savings, production recovery
-  or independent security certification is claimed.
-
-Receipts: [foundation](docs/reviews/group-chat-foundation-2026-09-21.md),
-[P2a transport](docs/reviews/group-chat-transport-2026-09-21.md),
-[2026-09-22 merge/checklist snapshot](docs/reviews/group-chat-checkpoint-2026-09-22.md).
-Checks are self-reviewed unless a specific independent result is recorded. Final closeout CI and
-actual squash receipt are recorded on PR #207; do not infer them from earlier head results.
-
-## Next concrete action after this checkpoint
-
-Start a new implementation branch from the actual merged main. Recover the missing workspace if
-available, otherwise implement the remaining accepted scope without claiming the logs restore it.
-Begin with P2 permission-scoped source/history and request/queue separation, then P3-P6. Preserve
-original requester authority, scoped evidence and completed/uncertain tool work. Use mocks for
-external/live dependencies as the user requested; keep production checks separate from missing
-implementation. Commit coherent source/test batches before ending a session and retain a source
-patch/archive when work cannot be pushed. Update this file, not a second status ledger.
+Implement the R1 spike with current source/API contracts, deterministic negative fixtures and a
+reproducible comparison interface. Test the harness and validator before any production selection
+cutover. Keep rule-only, mocked/fake-encoder, real Planner, real Director and human-label evidence
+separate. Continue independent authorized safety work when a model-quality dependency is unavailable;
+never promote ambient behavior or mark the complete refactor done on synthetic evidence alone.
