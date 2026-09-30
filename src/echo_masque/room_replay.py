@@ -47,7 +47,6 @@ class ReplayCase(Contract):
     source_kind: Literal["synthetic", "redacted", "public"]
     reviewed_by: Identifier | None = None
     snapshot: RoomInput
-    # Each alternative is a complete acceptable speaker/target set. Empty means NONE.
     acceptable: Annotated[tuple[tuple[RoomDecision, ...], ...], Field(min_length=1)]
     required_direct: tuple[RoomDecision, ...] = ()
     tags: tuple[Identifier, ...] = ()
@@ -163,7 +162,7 @@ def compare(
         if record.outcome.source_revision != case.snapshot.revision:
             raise ValueError("Stale source revision")
         if record.case_id in by_arm[record.arm]:
-            raise ValueError("Duplicate arm/case prediction")
+            raise ValueError("Duplicate arm/case entry")
         run = (record.run_id, record.source_commit, record.execution)
         if record.arm in runs and runs[record.arm] != run:
             raise ValueError("Mixed source/run/execution identities within one arm")
@@ -190,11 +189,11 @@ def compare(
             none_optional += int(may_none and not must_none)
             required = _pairs(case.required_direct)
             required_direct += len(required)
-            record = available.get(case.case_id)
-            if record is None:
+            entry = available.get(case.case_id)
+            if entry is None:
                 missed_direct += len(required)
                 continue
-            outcome = record.outcome
+            outcome = entry.outcome
             success = outcome.status in {"selected", "partial", "none"}
             predicted = _pairs(outcome.decisions) if success else frozenset()
             missed_direct += len(required - predicted)
@@ -228,17 +227,17 @@ def compare(
                     unknown_cost += 1
                 else:
                     known_cost += attempt.cost_usd
-            known_input += record.auxiliary_input_tokens or 0
-            known_output += record.auxiliary_output_tokens or 0
+            known_input += entry.auxiliary_input_tokens or 0
+            known_output += entry.auxiliary_output_tokens or 0
             unknown_usage += int(
-                record.auxiliary_input_tokens is None or record.auxiliary_output_tokens is None
+                entry.auxiliary_input_tokens is None or entry.auxiliary_output_tokens is None
             )
-            if record.auxiliary_cost_usd is None:
+            if entry.auxiliary_cost_usd is None:
                 unknown_cost += 1
             else:
-                known_cost += record.auxiliary_cost_usd
-            if record.latency_ms is not None:
-                latencies.append(record.latency_ms)
+                known_cost += entry.auxiliary_cost_usd
+            if entry.latency_ms is not None:
+                latencies.append(entry.latency_ms)
         complete = len(available) == len(cases)
         arm_reports[arm] = {
             "records": len(available), "missing": len(cases) - len(available),

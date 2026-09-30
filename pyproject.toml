@@ -27,7 +27,9 @@ dependencies = [
   "pydantic-settings>=2.7,<3.0",
   "psycopg[binary]>=3.2,<4.0",
   "pypdf>=5,<7",
-  "sqlalchemy>=2.0,<3.0",
+  # Current explicit query annotations use SQLAlchemy 2.0 tuple-shaped generics.
+  # Review the 2.1 PEP 646 migration separately from the room-routing refactor.
+  "sqlalchemy>=2.0,<2.1",
   "tzdata>=2025,<2027",
   "uvicorn[standard]>=0.34,<1.0",
   "yt-dlp[default,curl-cffi]>=2026.6,<2027",

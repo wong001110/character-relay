@@ -50,7 +50,6 @@ class RoomMessage(Contract):
     text: Annotated[str, Field(max_length=4000)] = ""
     revision: NonNegative = 0
     reply_to_id: Identifier | None = None
-    # These IDs must come from verified connector identity, never name matching.
     mentioned_deployment_ids: Annotated[tuple[Identifier, ...], Field(max_length=16)] = ()
     visible_to: Annotated[tuple[Identifier, ...], Field(max_length=16)] = ()
     deleted: bool = False
@@ -146,9 +145,11 @@ class RoutingResult(Contract):
             raise ValueError("Partial status requires deferred direct work")
         if self.origin != "director" and self.attempts:
             raise ValueError("Direct/rules routing makes no Director provider calls")
-        if self.origin == "director" and self.status in {"selected", "none"}:
-            if not self.attempts or self.attempts[-1].status != "ok":
-                raise ValueError("Director success requires an actual valid attempt")
+        if (
+            self.origin == "director" and self.status in {"selected", "none"}
+            and (not self.attempts or self.attempts[-1].status != "ok")
+        ):
+            raise ValueError("Director success requires an actual valid attempt")
         return self
 
 
@@ -301,7 +302,7 @@ def _prompt(
     # even when several newer messages have already arrived during queueing.
     selected = messages[-policy.max_messages:]
     if trigger not in selected:
-        selected = ([trigger] + selected)[-policy.max_messages:]
+        selected = [trigger, *selected][-policy.max_messages:]
         if trigger not in selected:
             selected[0] = trigger
     while selected:
@@ -350,9 +351,10 @@ def parse_decision(content: str, role_ids: set[str], target_ids: set[str]) -> Ro
         raise ValueError("Director output too large")
     parsed = json.loads(content, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
     decision = RoomDecision.model_validate(parsed)
-    if decision.mode != "none":
-        if decision.speaker not in role_ids or decision.target_message_id not in target_ids:
-            raise ValueError("Director chose a non-visible or ineligible target")
+    if decision.mode != "none" and (
+        decision.speaker not in role_ids or decision.target_message_id not in target_ids
+    ):
+        raise ValueError("Director chose a non-visible or ineligible target")
     return decision
 
 

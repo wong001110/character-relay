@@ -11,6 +11,7 @@ Updated: **2026-09-30**. This is the only current progress and takeover record.
 | Active direction | [Lightweight Room Director refactor](docs/plans/discord-group-chat-core.md), accepted 2026-09-30 |
 | Branch / PR | `refactor/room-director-core`, draft PR #208 |
 | Documentation-first commit | `24797e9377668594c806761f64bbc37dc783a83f` |
+| First source checkpoint | `ef2e9b0b16359523f6212600cd91caca0dc554e6`; this follow-up repairs its lint/type/dependency diagnostics |
 | User instruction | Commit direction first, then develop in coherent phases using Agent Continuity |
 | Mode | Execution: source, tests, ordinary documentation and a review branch/PR authorized |
 | Merge / deployment | Not authorized by this instruction; do not merge or deploy |
@@ -61,7 +62,7 @@ Commands and adapter limitations: [replay guide](docs/developer/room-routing-rep
 Executed locally on Python 3.13 / Pydantic 2.13.4:
 
 - `PYTHONPATH=src python -m pytest -q tests/test_room_routing.py tests/test_room_replay.py`:
-  **61 passed**, including JSON/CLI roundtrip and malformed-input diagnostics.
+  **61 passed**, including JSON/CLI roundtrip and malformed-input diagnostics. Rerun after repairs.
 - Eight bounded manual mutation checks killed: message scope, per-role visibility, free-only
   qualification, attempt limit, target validation, explicit capacity, dataset hash and heldout
   family isolation. Original source restored and 61 tests rerun successfully. This is implementing-
@@ -70,11 +71,26 @@ Executed locally on Python 3.13 / Pydantic 2.13.4:
   synthetic calibration cases in eight families**, not independent/human/heldout benchmark data.
   Missing current-planner and real-Director arms remain explicit; no quality/savings claim.
 
+### Initial CI findings and repair
+
+CI run `36724704912` on `ef2e9b0...` passed the Portal, Discord Connector, PostgreSQL foundation
+and Docker jobs, but Python checks reported three Ruff simplifications in `room_routing.py` and
+one new mypy optional-variable assignment in `room_replay.py`. These are corrected in this batch.
+No lint ignores or mypy error suppressions were added.
+
+The same type report contained 18 errors in existing `provider_trace_repository.py` and
+`media_singleflight.py` query annotations. The unconstrained `<3.0` dependency can resolve to
+SQLAlchemy 2.1, whose PEP 646 query generics differ from 2.0 tuple-shaped annotations. Constrain
+SQLAlchemy to `>=2.0,<2.1` for the current source; review a 2.1 migration as a separate change.
+Reference: [SQLAlchemy 2.1 migration](https://docs.sqlalchemy.org/en/21/changelog/migration_21.html).
+The rest of pyproject.toml, including every existing lint/type policy, is unchanged.
+
 Full repository Ruff/mypy/Python/Connector/Portal/PostgreSQL/Docker CI must be checked against the
-exact new PR head. Local Ruff/mypy and full product dependencies are unavailable. This source
-checkpoint does not pre-claim CI success; PR checks are the authoritative remote receipt.
-No production entry consumes these modules yet; no existing runtime or security tests were removed,
-no dependencies/CI/deployment configuration changed, and no database schema/data was changed.
+corrected PR head. Local Ruff/mypy and full product dependencies are unavailable. This commit does
+not pre-claim its future CI result; exact-head PR checks and the linked receipt are authoritative.
+No production entry consumes these modules yet; no existing runtime or security tests were removed.
+No new dependencies, CI/deployment configuration or database schema/data changes were introduced;
+the only dependency change is the SQLAlchemy compatibility bound above.
 
 ## Railway inspection
 
