@@ -34,7 +34,7 @@ its SQLite state, snapshots, Library storage, bootstrap or private ledger. Do no
 | Participation | `participation_planner_v3.py`, `semantic_participation.py`, `api/routes/smart_participation_vnext.py`, `orchestration/social_turn_graph.py` | REPLACE scoring/embedding selection with runtime rules and one Room Director; no permanent planner fallback |
 | Structure | `conversation_structure_resolver.py`, `conversation_runtime.py`, structure/runtime repositories | REPLACE mandatory inferred Segment/Thread with message provenance; retain native Discord Thread identity |
 | Character context | `context_resolver_v3.py`, `character_turn_context_v3.py`, `connector_runtime.py` | SIMPLIFY focused current evidence plus relevant explicit notes; Character owns recall/tool/expression choices |
-| Existing Turn Director | `turn_director.py`, `utility_gateway_contracts.py`, `orchestration/character_turn_graph.py` | RETIRE post-admission reply/recall planning; distinct from the new room-level selector |
+| Existing Turn Director | `connector_runtime.py` method `resolve_turn_director`, `utility_gateway_contracts.py`, `orchestration/character_turn_graph.py` | RETIRE post-admission reply/recall planning; distinct from the new room-level selector |
 | Provider infrastructure | `utility_gateway_router.py`, provider adapters, quotas/credentials | KEEP and reuse Free Token Pool; strict free-only bounded room-selection task; no Jev or second gateway |
 | Memory/history | `internal_context.py`, `current_turn_belief_v3.py`, Belief and conversation runtime repositories | REPLACE ordinary automatic writers / lifecycle dependency with explicit notes and source-linked searchable history |
 | Relationships | `social_intelligence_v3.py`, `social_event_runtime.py`, relationship repositories/routes | REPLACE numerical state, decay and event/impression simulation with scoped directional notes |
@@ -47,6 +47,8 @@ its SQLite state, snapshots, Library storage, bootstrap or private ledger. Do no
 Python paths are relative to `src/echo_masque/` unless otherwise qualified. Inspect actual call sites
 and tests before deleting modules: a shared encoder may still serve tool/RAG/media retrieval.
 Renaming `echo_masque` or reorganizing every import is not required to deliver this refactor.
+There is no `src/echo_masque/turn_director.py` at the baseline. The earlier source-map path was
+incorrect; the existing graph calls the runtime method listed above.
 
 ## Target responsibilities
 
@@ -66,6 +68,19 @@ uses backend authority rather than enforcing it only in UI.
 No mandatory semantic topic graph, additional supervisor runtime, old Turn Director, pre-selection
 embedding relevance, per-role inner-thought loop or rolling summary engine in the target.
 The isolated replay harness is evaluation tooling, not a second production orchestration path.
+
+## Implemented offline selection/replay boundary
+
+`src/echo_masque/room_routing.py` now owns strict snapshot/proposal/outcome contracts, replayable
+explicit routing and a bounded qualified-free-provider Director interface. It does not replace the
+existing production entry, build permissions from the database, retrieve credentials, queue deferred
+work, execute tools or publish responses. The production adapter must use the existing Free Token
+Pool and revalidate source/authority; no legacy fallback is introduced by this offline module.
+
+`src/echo_masque/room_replay.py` executes the rules-only arm and validates/reports normalized
+three-arm captures with case/dataset/source identities. Missing A/C runs stay missing. The seed
+script and tests are synthetic harness checks, not human/model quality evidence. Commands and
+adapter limitations are in [the replay guide](developer/room-routing-replay.md).
 
 ## Data and cutover boundaries
 
