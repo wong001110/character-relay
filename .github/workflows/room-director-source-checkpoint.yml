@@ -1,4 +1,4 @@
-name: Temporary room-director source checkpoint
+name: Temporary room-director fixture checkpoint
 
 on:
   push:
@@ -10,32 +10,44 @@ permissions:
 
 jobs:
   checkpoint:
+    if: github.repository == 'wong001110/character-relay'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
-      - name: Export exact source and identity without credentials
+          python-version: '3.13.5'
+      - name: Install fixture schema only
+        run: python -m pip install 'pydantic==2.13.5'
+      - name: Reproduce synthetic fixture and verify content identity
+        env:
+          PYTHONPATH: src
         run: |
-          mkdir -p /tmp/relay-checkpoint
-          git archive --format=tar.gz --output=/tmp/relay-checkpoint/source.tar.gz HEAD
-          git rev-parse HEAD > /tmp/relay-checkpoint/commit.txt
-          git rev-parse HEAD^{tree} > /tmp/relay-checkpoint/tree.txt
-          git cat-file commit HEAD > /tmp/relay-checkpoint/commit-object.txt
-          sha256sum /tmp/relay-checkpoint/source.tar.gz > /tmp/relay-checkpoint/SHA256SUMS
-      - name: Collect offline test wheels
-        continue-on-error: true
+          mkdir -p /tmp/relay-fixture
+          python scripts/build_room_routing_corpus.py /tmp/relay-fixture/corpus.jsonl.gz
+          python - <<'PYCODE'
+          import base64, gzip, hashlib, json
+          from pathlib import Path
+          raw = Path('/tmp/relay-fixture/corpus.jsonl.gz').read_bytes()
+          assert hashlib.sha256(gzip.decompress(raw)).hexdigest() == '7711a706d68d5e3e0f596802c200adef4b95aba8c106dbc4ebb19412f23fcf48'
+          Path('/tmp/relay-blob.json').write_text(json.dumps({
+              'encoding': 'base64', 'content': base64.b64encode(raw).decode('ascii')
+          }))
+          PYCODE
+      - name: Store one verified fixture blob without updating any branch
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p /tmp/relay-checkpoint/wheels
-          python -m pip wheel '.[dev]' --wheel-dir /tmp/relay-checkpoint/wheels > /tmp/relay-checkpoint/wheel-build.log 2>&1
-      - name: Upload temporary reproduction archive
-        if: always()
-        uses: actions/upload-artifact@v4
+          gh api --method POST repos/wong001110/character-relay/git/blobs \
+            --input /tmp/relay-blob.json --jq '.sha' > /tmp/relay-fixture/blob.txt
+          cat /tmp/relay-fixture/blob.txt
+      - uses: actions/upload-artifact@v4
         with:
-          name: room-director-source-${{ github.sha }}
-          path: /tmp/relay-checkpoint/
+          name: room-director-fixture-${{ github.sha }}
+          path: /tmp/relay-fixture/
           retention-days: 3
