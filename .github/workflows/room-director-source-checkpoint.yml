@@ -1,0 +1,41 @@
+name: Temporary room-director source checkpoint
+
+on:
+  push:
+    branches: [refactor/lightweight-room-director]
+    paths: [.github/workflows/room-director-source-checkpoint.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  checkpoint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Export exact source and identity without credentials
+        run: |
+          mkdir -p /tmp/relay-checkpoint
+          git archive --format=tar.gz --output=/tmp/relay-checkpoint/source.tar.gz HEAD
+          git rev-parse HEAD > /tmp/relay-checkpoint/commit.txt
+          git rev-parse HEAD^{tree} > /tmp/relay-checkpoint/tree.txt
+          git cat-file commit HEAD > /tmp/relay-checkpoint/commit-object.txt
+          sha256sum /tmp/relay-checkpoint/source.tar.gz > /tmp/relay-checkpoint/SHA256SUMS
+      - name: Collect offline test wheels
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/relay-checkpoint/wheels
+          python -m pip wheel '.[dev]' --wheel-dir /tmp/relay-checkpoint/wheels > /tmp/relay-checkpoint/wheel-build.log 2>&1
+      - name: Upload temporary reproduction archive
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-director-source-${{ github.sha }}
+          path: /tmp/relay-checkpoint/
+          retention-days: 3
