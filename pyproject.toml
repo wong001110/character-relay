@@ -50,7 +50,7 @@ echo-masque = "echo_masque.cli:main"
 where = ["src"]
 
 [tool.pytest.ini_options]
-addopts = "-q --strict-markers --strict-config --ignore=tests/test_utility_gateway_phase2.py"
+addopts = "-q --strict-markers --strict-config"
 testpaths = ["tests"]
 
 [tool.mutmut]

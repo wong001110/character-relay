@@ -10,9 +10,10 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import bindparam, delete, exists, or_, select, text
+from sqlalchemy import bindparam, delete, exists, func, or_, select, text
 from sqlalchemy.orm import Session
 
+from echo_masque.embedding_space import EmbeddingSpace
 from echo_masque.knowledge_fabric_external_policy import source_uses_current_entries
 from echo_masque.knowledge_fabric_query_policy import interpretation_is_available_as_of
 from echo_masque.knowledge_retrieval import KnowledgeResource, score_sparse_knowledge_resources
@@ -125,12 +126,13 @@ class KnowledgeFabricIndexRepository:
         self,
         *,
         retrieval_entry_id: str,
-        embedding_model: str,
+        space: EmbeddingSpace,
         vector: Sequence[float],
     ) -> KnowledgeEvidenceEmbeddingRecord:
         """Store a deterministic derived dense representation; the source hash is immutable."""
 
-        self._require_embedding_profile(embedding_model, vector)
+        space.validate(vector)
+        embedding_model = space.namespace
         normalized_vector = [float(value) for value in vector]
         encoded_vector = json.dumps(normalized_vector, separators=(",", ":"))
         with self.database.session() as session:
@@ -156,6 +158,7 @@ class KnowledgeFabricIndexRepository:
                 )
                 session.add(record)
                 session.flush()
+            record.embedding_json = encoded_vector
             if self.database.engine.dialect.name == "postgresql":
                 session.execute(
                     text(
@@ -168,6 +171,32 @@ class KnowledgeFabricIndexRepository:
             session.commit()
             session.refresh(record)
             return record
+
+    def dense_index_status(
+        self, *, authorized_corpus_ids: frozenset[str], space: EmbeddingSpace
+    ) -> str:
+        """Inspect only permitted, current entries before any query-provider request."""
+        if not authorized_corpus_ids:
+            return "empty"
+        with self.database.session() as session:
+            permitted = self._candidate_select().where(
+                KnowledgeEvidenceRetrievalEntryRecord.corpus_id.in_(authorized_corpus_ids)
+            )
+            total = session.scalar(select(func.count()).select_from(permitted.subquery())) or 0
+            prepared = permitted.join(
+                KnowledgeEvidenceEmbeddingRecord,
+                KnowledgeEvidenceEmbeddingRecord.retrieval_entry_id
+                == KnowledgeEvidenceRetrievalEntryRecord.id,
+            ).where(
+                KnowledgeEvidenceEmbeddingRecord.embedding_model == space.namespace,
+                KnowledgeEvidenceEmbeddingRecord.embedding_dimension == space.dimension,
+                KnowledgeEvidenceEmbeddingRecord.source_hash
+                == KnowledgeEvidenceRetrievalEntryRecord.content_sha256,
+            )
+            ready = session.scalar(select(func.count()).select_from(prepared.subquery())) or 0
+        if not total:
+            return "empty"
+        return "cold" if not ready else "ready" if ready == total else "partial"
 
     def search_sparse(
         self,
@@ -210,14 +239,15 @@ class KnowledgeFabricIndexRepository:
         self,
         *,
         authorized_corpus_ids: frozenset[str],
-        embedding_model: str,
+        space: EmbeddingSpace,
         query_vector: Sequence[float],
         candidate_limit: int,
     ) -> list[KnowledgeIndexCandidate]:
         """Search dense projections with the same corpus filter supplied before ranking."""
 
         self._require_search_inputs(authorized_corpus_ids, "dense", candidate_limit)
-        self._require_embedding_profile(embedding_model, query_vector)
+        space.validate(query_vector)
+        embedding_model = space.namespace
         normalized_vector = [float(value) for value in query_vector]
         with self.database.session() as session:
             if self.database.engine.dialect.name == "postgresql":
@@ -242,6 +272,8 @@ class KnowledgeFabricIndexRepository:
                         KnowledgeEvidenceEmbeddingRecord.embedding_model == embedding_model,
                         KnowledgeEvidenceEmbeddingRecord.embedding_dimension
                         == len(normalized_vector),
+                        KnowledgeEvidenceEmbeddingRecord.source_hash
+                        == KnowledgeEvidenceRetrievalEntryRecord.content_sha256,
                     )
                 )
             )
@@ -256,7 +288,9 @@ class KnowledgeFabricIndexRepository:
                 continue
             if not isinstance(stored_vector, list) or len(stored_vector) != len(normalized_vector):
                 continue
-            if not all(isinstance(value, int | float) for value in stored_vector):
+            try:
+                space.validate(stored_vector)
+            except ValueError:
                 continue
             scores[candidate.retrieval_entry_id] = self._cosine(normalized_vector, stored_vector)
         return self._with_scores(candidates, scores, candidate_limit)
@@ -474,6 +508,7 @@ class KnowledgeFabricIndexRepository:
             "WHERE entry.corpus_id IN :corpus_ids "
             "AND embedding.embedding_model = :embedding_model "
             "AND embedding.embedding_dimension = :embedding_dimension "
+            "AND embedding.source_hash = entry.content_sha256 "
             "AND embedding.embedding IS NOT NULL "
             "AND evidence.status = 'available' AND version.status = 'available' "
             "AND source.enabled IS TRUE "
@@ -699,13 +734,6 @@ class KnowledgeFabricIndexRepository:
             raise ValueError("Knowledge search query is required.")
         if candidate_limit <= 0:
             raise ValueError("Knowledge candidate limit must be positive.")
-
-    @staticmethod
-    def _require_embedding_profile(embedding_model: str, vector: Sequence[float]) -> None:
-        if not embedding_model.strip():
-            raise ValueError("Knowledge embedding model is required.")
-        if not vector or not all(math.isfinite(float(value)) for value in vector):
-            raise ValueError("Knowledge embedding vector must contain finite values.")
 
     @staticmethod
     def _cosine(left: Sequence[float], right: Sequence[object]) -> float:

@@ -13,7 +13,6 @@ from echo_masque.expression_retrieval import (
     ExpressionCandidate,
     ExpressionResource,
     rank_expression_resources,
-    semantic_tokens,
 )
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
@@ -28,6 +27,7 @@ from echo_masque.persistence.expression_models import (
 )
 from echo_masque.persistence.interaction_models import DiscordStickerSemanticRecord
 from echo_masque.persistence.models import utcnow
+from echo_masque.sparse_retrieval import semantic_tokens
 
 
 def _encode(values: list[str]) -> str:

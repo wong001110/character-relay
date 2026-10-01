@@ -18,6 +18,7 @@ from echo_masque.persistence.models import (
     TrialRunRecord,
     TurnRecord,
 )
+from echo_masque.persistence.note_models import CharacterNoteRecord, NoteCreationReceiptRecord
 from echo_masque.security import redact
 
 DEMO_CARD_IDS = ("card-stable-ann", "card-fragile-ann")
@@ -255,6 +256,10 @@ class Repository:
                     CharacterKeyGroupAssignmentRecord.character_card_id == card_id
                 )
             )
+            for model in (CharacterNoteRecord, NoteCreationReceiptRecord):
+                session.execute(delete(model).where(
+                    model.owner_id == owner_id, model.character_card_id == card_id,
+                ))
             session.delete(card)
             session.commit()
             return True

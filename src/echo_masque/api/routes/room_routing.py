@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Request
+from pydantic import Field
 
 from echo_masque.api.room_schemas import (
     DraftPreflightRequest,
@@ -19,6 +20,7 @@ from echo_masque.api.room_schemas import (
 from echo_masque.api.routes.connectors import _authorize_connector
 from echo_masque.draft_runtime import DraftPreflightView, DraftRuntime
 from echo_masque.model_attempt_budget import ModelAttemptBudget
+from echo_masque.notes import NoteAccessDenied, NoteConflict, NoteInput, NoteView
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
     PlatformConnectionRecord,
@@ -400,3 +402,86 @@ async def preflight_draft(
         )
     except (SourceUnavailable, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class RoomNoteAction(RoomEventsRequest):
+    deployment_id: str = Field(min_length=1, max_length=200)
+    actor_id: str = Field(min_length=1, max_length=200)
+    actor_is_bot: bool = False
+    action: Literal["remember", "correct", "forget", "list"]
+    kind: Literal["note", "relationship"] = "note"
+    text: str = Field(default="", max_length=800)
+    source_message_id: str = Field(default="", max_length=200)
+    request_id: str = Field(min_length=1, max_length=200)
+    note_id: str = Field(default="", max_length=64)
+    expected_version: int = Field(default=0, ge=0)
+
+
+@router.post("/notes", response_model=list[NoteView])
+def explicit_note_action(
+    payload: RoomNoteAction,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> list[NoteView]:
+    """Only a genuine SDK command/context action calls this, never ordinary generated prose."""
+    _authorize_connector(request, authorization)
+    if payload.actor_is_bot or not payload.readable:
+        raise HTTPException(status_code=403, detail="human_note_action_required")
+    records = _deployments(request, payload)
+    role = next((item for item in records if item.id == payload.deployment_id), None)
+    if role is None:
+        raise HTTPException(status_code=404, detail="note_character_unavailable")
+    _observe(request, payload, records)
+    scope = _scope(payload, role.owner_id)
+    repo = request.app.state.character_note_repository
+    try:
+        if payload.action == "list":
+            return [
+                item
+                for item in repo.list(
+                    owner_id=role.owner_id,
+                    card_id=role.character_card_id,
+                    scope=scope,
+                    subjects=(f"user:{payload.actor_id}",),
+                    include_background=False,
+                    limit=256,
+                )
+                if not item.authored and item.actor_id == payload.actor_id
+            ]
+        if payload.action == "remember":
+            return [
+                repo.create(
+                    owner_id=role.owner_id,
+                    card_id=role.character_card_id,
+                    scope=scope,
+                    actor_id=payload.actor_id,
+                    source_message_id=payload.source_message_id,
+                    request_id=payload.request_id,
+                    payload=NoteInput(
+                        subject_ref=f"user:{payload.actor_id}",
+                        text=payload.text,
+                        kind=payload.kind,
+                    ),
+                )
+            ]
+        if not payload.note_id or payload.expected_version < 1:
+            raise NoteConflict("note_identity_and_version_required")
+        result = repo.change(
+            owner_id=role.owner_id,
+            card_id=role.character_card_id,
+            scope=scope,
+            actor_id=payload.actor_id,
+            note_id=payload.note_id,
+            expected_version=payload.expected_version,
+            source_message_id=payload.source_message_id,
+            payload=NoteInput(
+                subject_ref=f"user:{payload.actor_id}", text=payload.text, kind=payload.kind
+            )
+            if payload.action == "correct"
+            else None,
+        )
+        return [result] if result is not None else []
+    except (NoteAccessDenied, NoteConflict) as exc:
+        raise HTTPException(
+            status_code=409 if isinstance(exc, NoteConflict) else 403, detail=str(exc)
+        ) from exc

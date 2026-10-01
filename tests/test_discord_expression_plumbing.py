@@ -15,12 +15,12 @@ def test_expression_limit_is_per_character_reply_not_per_trigger() -> None:
     assert "expression_max_per_character_reply: 1" in INDEX
 
 
-def test_bot_follow_up_gets_candidates_and_executes_expression_decision() -> None:
+def test_bot_follow_up_executes_output_without_eager_expression_retrieval() -> None:
     section = between(
         "async function continueBotTagConversation(",
         "async function processInteractionSession(",
     )
-    assert "await prepareExpression(" in section
+    assert "await prepareExpression(" not in section
     assert "resolveExpressionSourceMessage(" in section
     assert 'expression_run_id: preparedExpression.retrieval?.run_id ?? ""' in section
     assert "expression_candidates: preparedExpression.retrieval?.candidates ?? []" in section
@@ -28,12 +28,12 @@ def test_bot_follow_up_gets_candidates_and_executes_expression_decision() -> Non
     assert "await executeCharacterOutput(" in section
 
 
-def test_interaction_participants_get_independent_expression_decisions() -> None:
+def test_interaction_participants_do_not_eagerly_retrieve_expressions() -> None:
     section = between(
         "async function processInteractionSession(",
         "async function processMessage(",
     )
-    assert "await prepareExpression(" in section
+    assert "await prepareExpression(" not in section
     assert 'expression_run_id: preparedExpression.retrieval?.run_id ?? ""' in section
     assert "expression_candidates: preparedExpression.retrieval?.candidates ?? []" in section
     assert 'node_name: "model_select"' in section

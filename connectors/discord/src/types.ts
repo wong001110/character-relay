@@ -138,6 +138,9 @@ export type DiscordSmartOutputPart =
   | { mention: string };
 
 export interface DiscordSmartOutput {
+  expression_resource?: DiscordExpressionCandidate | null;
+  expression_resolution?: "not_requested" | "resolved" | "no_match" | "scope_unavailable";
+  fallback_text?: string;
   action: "ignore" | "message" | "react" | "sticker";
   content: DiscordSmartOutputPart[];
   reply_to_message_id: string | null;

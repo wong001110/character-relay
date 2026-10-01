@@ -39,7 +39,7 @@ R0-R6 are this initiative's checkpoints, not old P0-P6 completion claims.
 | R1 | OFFLINE SLICE VERIFIED: rules, strict decision/input validation, replay metrics, recorded-provider and native Planner seams, 240 synthetic/unreviewed cases. Actual Free Token Pool qualification, human-reviewed labels and complete old-pipeline comparison remain **NOT RUN**. |
 | R2 | IMPLEMENTED / OFFLINE VERIFIED: Room source/selection records, origin-scoped SDK ancestry/history, canonical requester binding, ordered permission observations, continuous edits/deletes, separate bounded work/publication queues, atomic delivered-response source links. Recovered R2 full suite: 1,433 passed, 7 skipped; see R3 review for current source/claim checks. |
 | R3 | RUNTIME SAFETY IMPLEMENTED: delivery-bound re-entry, attempt/room/member limits, server-owned preflight and one tool-free refresh, atomic delivery claim. Existing Free Pool caller remains qualification-gated; user-owned real-model validation is DEFERRED. Old-selector/composition retirement remains to be completed with R4/R5. |
-| R4 | NOT STARTED: explicit notes/history, relationships, retrieval-only encoders and sparse expressions. |
+| R4 | IMPLEMENTED / OFFLINE VERIFIED: explicit scoped notes, source-linked raw-history/media recall, retrieval-only index contracts and intent-first sparse expressions. Old composition/API/configuration is explicitly pending R5 removal. |
 | R5 | NOT STARTED: Portal/observation and retired-consumer cleanup. |
 | R6 | NOT STARTED: complete integration/deletion audit, isolated card/reset rehearsal and release preparation. |
 
@@ -72,9 +72,9 @@ describes the actual entry points and missing live adapter.
 
 ## Next concrete action
 
-Continue R4 scoped explicit notes and raw-history recall, short directional relationships,
-retrieval-only embeddings and intent-first sparse expressions. Then remove replaced runtime,
-configuration, API and Portal consumers in R5 and perform the R6 integration/reset/card rehearsal.
+Continue R5: remove replaced runtime, configuration, API and Portal consumers; extract only
+required pending-action/effect state and complete requester-bound controls. Then perform the
+R6 integration/reset/card rehearsal.
 Live Discord/model quality tests are explicitly user-owned and deferred, not an implementation
 blocker or a claimed pass. Keep ambient unqualified by default; provide the evaluated-member setup
 for later testing. No merge, deployment or live data deletion is authorized.
@@ -99,3 +99,14 @@ Discord/model qualification or production rollout is claimed at this checkpoint.
 
 Unpublished source and exact evidence are preserved externally as an Agent Continuity snapshot;
 GitHub remains the delivery truth. R3-R6 acceptance must not be inferred from the new classes.
+
+## R4 implementation checkpoint (2026-10-01)
+
+From R3 `e7d4731519047fccda25078dfd44354a8ca79127`, explicit notes replace ordinary
+Belief/relationship injection and raw room messages replace summary-as-evidence recall.
+Post-generation expression intents resolve sparsely; model prompts no longer receive catalogs.
+See [R4 review](docs/reviews/room-director-r4-2026-10-01.md) for the tested boundaries.
+Whole Python: **1,514 passed, 7 skipped**; Ruff and mypy (**424 files**) passed. Connector:
+**162 tests**, typecheck and build passed. Eight targeted manual mutants were killed after two
+initial surviving test gaps were strengthened and rerun. These are self-reviewed offline results;
+no live model, PostgreSQL, browser, full retirement or cost/quality superiority is claimed.

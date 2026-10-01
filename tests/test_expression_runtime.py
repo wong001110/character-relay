@@ -1,158 +1,52 @@
+"""The Character receives meaning, not a preloaded resource catalogue or IDs."""
+
 from echo_masque.api.connector_schemas import DiscordInboundMessage
-from echo_masque.api.expression_schemas import ExpressionCandidate
 from echo_masque.connector_runtime import DiscordConnectorRuntime
 from echo_masque.smart_output import DiscordActionParticipant, SmartOutputContext
 
 
-def candidate(
-    *,
-    key: str = "emoji:123456789012345678",
-    actions: list[str] | None = None,
-) -> ExpressionCandidate:
-    resource_type, resource_id = key.split(":", maxsplit=1)
-    return ExpressionCandidate(
-        resource_key=key,
-        resource_type=resource_type,
-        resource_id=resource_id,
-        name="peek",
-        animated=False,
-        available=True,
-        enabled=True,
-        allowed_actions=actions or ["inline", "reaction"],
-        semantic_intent="curious_peek",
-        semantic_emotion="curious",
-        semantic_description="A curious and playful peek.",
-        semantic_source="manual",
-        semantic_confidence=1.0,
-        asset_url="",
-        format_type="emoji",
-        score=0.9,
-        signals={"semantic": 0.9},
-    )
-
-
-def test_expression_control_is_removed_from_visible_text() -> None:
-    """Keep the legacy parser while older observability paths still reference it."""
-    item = candidate()
-    text, decision = DiscordConnectorRuntime._parse_expression_decision(
-        'I am listening.\n[[CR_EXPRESSION {"action":"reaction",'
-        '"resource_key":"emoji:123456789012345678","reason":"brief acknowledgement"}]]',
-        [item],
-    )
-    assert text == "I am listening."
-    assert decision.action == "reaction"
-    assert decision.resource_key == item.resource_key
-
-
-def test_expression_control_rejects_unknown_or_disallowed_resource() -> None:
-    item = candidate(actions=["inline"])
-    text, decision = DiscordConnectorRuntime._parse_expression_decision(
-        'Hello\n[[CR_EXPRESSION {"action":"reaction",'
-        '"resource_key":"emoji:123456789012345678","reason":"not allowed"}]]',
-        [item],
-    )
-    assert text == "Hello"
-    assert decision.action == "none"
-    assert decision.reason == "expression_candidate_not_allowed"
-
-
-def test_missing_or_invalid_control_defaults_to_none() -> None:
-    plain_text, plain = DiscordConnectorRuntime._parse_expression_decision(
-        "Plain reply ✨",
-        [],
-    )
-    assert plain_text == "Plain reply ✨"
-    assert plain.action == "none"
-    assert plain.reason == "model_omitted_expression_control"
-
-    invalid_text, invalid = DiscordConnectorRuntime._parse_expression_decision(
-        "Reply\n[[CR_EXPRESSION not-json]]",
-        [],
-    )
-    assert invalid_text == "Reply"
-    assert invalid.action == "none"
-    assert invalid.reason == "invalid_expression_control"
-
-
-def test_smart_output_prompt_explains_social_actions_and_hides_raw_ids() -> None:
-    emoji = candidate()
-    sticker = candidate(
-        key="sticker:987654321098765432",
-        actions=["sticker"],
-    )
-    payload = DiscordInboundMessage(
+def request() -> DiscordInboundMessage:
+    return DiscordInboundMessage(
         connection_id="connection-1",
         deployment_id="deployment-1",
         message_id="message-1",
         guild_id="guild-1",
-        guild_name="Test Guild",
         channel_id="channel-1",
-        channel_name="general",
         author_id="123456789012345678",
         author_display_name="Juen",
-        text="你能使用一个 emoji 看看吗?",
+        text="What do you think?",
         mentioned_bot=True,
-        expression_candidates=[emoji, sticker],
         mentionable_participants=[
             DiscordActionParticipant(
-                ref="user:123456789012345678",
-                display_name="Juen",
-                kind="human",
+                ref="user:123456789012345678", display_name="Juen", kind="human"
             ),
             DiscordActionParticipant(
-                ref="deployment:deployment-2",
-                display_name="Ning",
-                kind="character",
+                ref="deployment:deployment-2", display_name="Ning", kind="character"
             ),
         ],
     )
 
-    prompt = DiscordConnectorRuntime._social_prompt(
-        character_name="Serena Vale",
-        payload=payload,
-    )
 
-    assert "Available actions: message, short_message, react, sticker" in prompt
-    assert "visible conversation directly expects this character to respond" in prompt
-    assert "Unicode Emoji may appear directly inside a text value" in prompt
-    assert "exactly one of: text, emoji, mention" in prompt
-    assert "omit reply_to to send directly to the channel" in prompt
-    assert "Return exactly one line in the form [[CR_OUTPUT {...}]]" in prompt
+def test_prompt_hides_ids_and_does_not_preload_resources() -> None:
+    prompt = DiscordConnectorRuntime._social_prompt(character_name="Ann", payload=request())
     assert '"action":"short_message"' in prompt
     assert '"action":"react"' in prompt
     assert '"action":"sticker"' in prompt
     assert '"action":"ignore"' not in prompt
-    assert "e1; type=emoji; name=peek" in prompt
-    assert "s1; type=sticker; name=peek" in prompt
-    assert "emoji:123456789012345678" not in prompt
-    assert "sticker:987654321098765432" not in prompt
-    assert "p1: Juen (human)" in prompt
-    assert "p2: Ning (character)" in prompt
-    assert "123456789012345678" not in prompt
-    assert "deployment:deployment-2" not in prompt
-    assert "legacy CR_EXPRESSION controls" in prompt
-    assert "never omit the CR_EXPRESSION decision" not in prompt
+    assert "An expression is optional" in prompt
+    assert "p1: Juen (human)" in prompt and "p2: Ning (character)" in prompt
+    assert "123456789012345678" not in prompt and "deployment:deployment-2" not in prompt
+    assert "CR_EXPRESSION" not in prompt
+    assert "e1; type=" not in prompt
 
 
-def test_expression_prompt_prefers_short_intent_over_long_description() -> None:
-    emoji = candidate()
-    emoji = emoji.model_copy(
-        update={"semantic_description": "This is a deliberately much longer description."}
+def test_legacy_resource_control_is_not_executed_as_a_modern_proposal() -> None:
+    context = SmartOutputContext.from_payload(request(), character_name="Ann")
+    output, reason = context.parse_and_resolve(
+        '[[CR_EXPRESSION {"action":"reaction","resource_key":"emoji:123"}]]'
     )
-
-    prompt = "\n".join(SmartOutputContext.from_payload(
-        DiscordInboundMessage(
-            connection_id="connection-1",
-            deployment_id="deployment-1",
-            message_id="message-1",
-            guild_id="guild-1",
-            channel_id="channel-1",
-            author_id="user-1",
-            author_display_name="Juen",
-            text="hello",
-        ),
-        character_name="Ann",
-    ).prompt_guidance([emoji]))
-
-    assert "intent=curious_peek" in prompt
-    assert "deliberately much longer description" not in prompt
+    assert output is None and reason == "missing_smart_output_control"
+    output, reason = context.parse_and_resolve(
+        '[[CR_OUTPUT {"action":"react","target":"trigger","emoji":"e1"}]]'
+    )
+    assert output is None and reason == "invalid_smart_output_control"

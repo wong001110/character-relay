@@ -1,18 +1,10 @@
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 
-from echo_masque.internal_context import InternalContextService
-from echo_masque.persistence.belief_repository import BeliefRepository
 from echo_masque.persistence.conversation_runtime_repository import ConversationRuntimeRepository
-from echo_masque.persistence.conversation_structure_repository import (
-    ConversationStructureRepository,
-)
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.episodic_sql_rag_repository import EpisodicSqlRagRepository
-from echo_masque.tool_runtime import ToolExecutionContext
 
 
 class _RecallEncoder:
@@ -118,47 +110,5 @@ def test_sql_rag_expands_related_v3_episode_but_never_unperceived_episode() -> N
     assert unseen.id not in expanded
 
 
-def test_internal_conversation_search_reads_v3_episodes_without_topic_scope() -> None:
-    database = Database("sqlite://")
-    database.initialize()
-    runtime = ConversationRuntimeRepository(database)
-    now = datetime(2026, 8, 18, 1, 0, tzinfo=UTC)
-    seed = _episode(
-        runtime, key="seed", summary="salary target is 10000 MYR", channel_id="career", now=now
-    )
-    related = _episode(
-        runtime,
-        key="related",
-        summary="company offer is 5800 MYR",
-        channel_id="offers",
-        now=now + timedelta(minutes=5),
-    )
-    service = InternalContextService(
-        BeliefRepository(database),
-        ConversationStructureRepository(database),
-        runtime,
-        encoder=_RecallEncoder(),
-    )
-    service.identities = SimpleNamespace(
-        resolve_message_route=lambda *, connection_id, message_id: (
-            SimpleNamespace(deployment_id="deployment-ann")
-            if connection_id == "connection-1" and message_id == "message-seed"
-            else None
-        )
-    )
-    context = ToolExecutionContext(
-        owner_id="owner-1",
-        deployment_id="deployment-ann",
-        character_card_id="character-ann",
-        platform="discord",
-        connection_id="connection-1",
-        guild_id="guild-1",
-        channel_id="career",
-    )
-    result = json.loads(
-        service.conversation_search({"query": "salary target", "limit": 5}, context)
-    )
-    refs = {item["ref"] for item in result["results"] if item["kind"] == "episode"}
-    assert result["scope"] == "current_discord_server_conversation"
-    assert seed.id in refs
-    assert related.id not in refs
+# The Internal Context Episode entry point is retired. Its privacy/reachability replacements
+# are test_memory_recall_review.py (exact-room raw evidence and no eager recall).

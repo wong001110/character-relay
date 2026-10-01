@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -14,7 +12,6 @@ from echo_masque.api.connector_schemas import (
     DiscordContextMessage,
     DiscordInboundMessage,
 )
-from echo_masque.api.expression_schemas import ExpressionCandidate, ExpressionDecision
 from echo_masque.character_prompts import (
     CharacterPromptProfile,
     compile_character_prompt,
@@ -23,6 +20,7 @@ from echo_masque.character_turn_context_types import CharacterTurnContext
 from echo_masque.credentials import CredentialStore
 from echo_masque.discord_event_safety import safe_runtime_error_classification
 from echo_masque.domain import TargetResponse
+from echo_masque.expression_intent import ExpressionIntentResolver
 from echo_masque.pending_actions_v3 import PendingActionContinuation, PendingActionService
 from echo_masque.persistence import (
     DeploymentRepository,
@@ -138,6 +136,7 @@ class DiscordConnectorRuntime:
         self.deployment_tool_repository = deployment_tool_repository
         self.tool_registry = tool_registry or default_tool_registry()
         self.pending_action_service = pending_action_service
+        self.expression_resolver: ExpressionIntentResolver | None = None
 
     def resolve_character_turn(
         self,
@@ -541,10 +540,7 @@ class DiscordConnectorRuntime:
         tool_traces = self._tool_traces(response.trace)
         self._finalize_pending_action(prepared, tool_traces)
         final_response = response
-        smart_output, smart_reason = smart_context.parse_and_resolve(
-            response.text.strip(),
-            payload.expression_candidates,
-        )
+        smart_output, smart_reason = smart_context.parse_and_resolve(response.text.strip())
         if smart_output is None and target_record.target_kind == "prompt_model":
             retry_prompt = PromptModelTarget._compact_format_repair(
                 "\n".join(
@@ -565,8 +561,7 @@ class DiscordConnectorRuntime:
                     retry_response = await target.send(retry_prompt)
                 final_response = retry_response
                 smart_output, smart_reason = smart_context.parse_and_resolve(
-                    retry_response.text.strip(),
-                    payload.expression_candidates,
+                    retry_response.text.strip()
                 )
             except Exception as exc:
                 self.deployment_repository.record_deployment_error(
@@ -639,6 +634,10 @@ class DiscordConnectorRuntime:
         deployment = resolved.deployment
         card = resolved.card
         smart_output = output.smart_output
+        if smart_output.expression_intent is not None:
+            if self.expression_resolver is None:
+                self.expression_resolver = ExpressionIntentResolver(self.repository.database)
+            smart_output = self.expression_resolver.resolve(smart_output, prepared.tool_context)
         primary = resolved.payload.runtime_target_message_id or resolved.payload.message_id
         if smart_output.action == "message":
             smart_output = smart_output.model_copy(update={"reply_to_message_id": primary})
@@ -651,7 +650,11 @@ class DiscordConnectorRuntime:
             return DiscordConnectorReplyView(
                 action="silent",
                 reason=(
-                    output.smart_reason if output.smart_reason != "ok" else "character_chose_ignore"
+                    "expression_" + smart_output.expression_resolution
+                    if smart_output.expression_resolution in {"no_match", "scope_unavailable"}
+                    else output.smart_reason
+                    if output.smart_reason != "ok"
+                    else "character_chose_ignore"
                 ),
                 deployment_id=deployment.id,
                 character_display_name=card.display_name,
@@ -720,30 +723,6 @@ class DiscordConnectorRuntime:
             except ValidationError:
                 continue
         return results
-
-    @staticmethod
-    def _parse_expression_decision(
-        text: str,
-        candidates: list[ExpressionCandidate],
-    ) -> tuple[str, ExpressionDecision]:
-        marker = re.search(r"\[\[CR_EXPRESSION\s+(.*?)\s*\]\]\s*$", text, re.DOTALL)
-        if marker is None:
-            return text.strip(), ExpressionDecision(reason="model_omitted_expression_control")
-        clean_text = text[: marker.start()].rstrip()
-        try:
-            value = json.loads(marker.group(1))
-            decision = ExpressionDecision.model_validate(value)
-        except (json.JSONDecodeError, ValueError):
-            return clean_text, ExpressionDecision(reason="invalid_expression_control")
-        if decision.action == "none":
-            return clean_text, decision
-        candidate = next(
-            (item for item in candidates if item.resource_key == decision.resource_key),
-            None,
-        )
-        if candidate is None or decision.action not in candidate.allowed_actions:
-            return clean_text, ExpressionDecision(reason="expression_candidate_not_allowed")
-        return clean_text, decision
 
     @staticmethod
     def _should_reply(
@@ -960,9 +939,7 @@ class DiscordConnectorRuntime:
                 (admission_guidance, source_guidance, *participation_guidance)
             ),
             "interaction": "\n".join((*grounding_guidance, *interaction_guidance)),
-            "output_contract": "\n".join(
-                smart_context.prompt_guidance(payload.expression_candidates)
-            ),
+            "output_contract": "\n".join(smart_context.prompt_guidance()),
             "source_context": "\n".join(knowledge_guidance),
             "safety": "\n".join(
                 (

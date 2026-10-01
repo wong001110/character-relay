@@ -3,26 +3,15 @@
 from __future__ import annotations
 
 import re
-from threading import Lock
 from typing import TYPE_CHECKING
 
 from echo_masque.character_invite_runtime import current_character_invite_turn
-from echo_masque.config import Settings, get_settings
-from echo_masque.semantic_participation import (
-    FastEmbedSemanticEncoder,
-    SemanticEmbeddingUnavailable,
-    SemanticEncoder,
-    _cosine,
-)
+from echo_masque.sparse_retrieval import sparse_score
 
 if TYPE_CHECKING:
     from echo_masque.tool_runtime import ToolExecutionContext, ToolRegistry
 
-_TOOL_DENSE_MINIMUM = 0.48
-_TOOL_DENSE_MAX_SELECTED = 4
-_TOOL_VECTOR_CACHE: dict[tuple[str, str, int, str], list[float]] = {}
-_TOOL_ENCODER: SemanticEncoder | None = None
-_TOOL_ENCODER_LOCK = Lock()
+_TOOL_MAX_SELECTED = 8
 
 _TOOL_USAGE_HINTS: dict[str, str] = {
     "utility.calculator": "arithmetic calculate math numeric equation sum percentage",
@@ -109,21 +98,6 @@ _EXPLICIT_INTENT_PATTERNS: dict[str, re.Pattern[str]] = {
 }
 
 
-def _tool_encoder(settings: Settings) -> SemanticEncoder:
-    global _TOOL_ENCODER
-    if _TOOL_ENCODER is not None:
-        return _TOOL_ENCODER
-    with _TOOL_ENCODER_LOCK:
-        if _TOOL_ENCODER is None:
-            _TOOL_ENCODER = FastEmbedSemanticEncoder(
-                model_name=settings.semantic_embedding_model,
-                model_file=settings.semantic_embedding_model_file,
-                cache_dir=settings.semantic_embedding_cache_dir,
-                dimension=settings.semantic_embedding_dimension,
-            )
-        return _TOOL_ENCODER
-
-
 def _tool_profile_text(
     tool_id: str,
     display_name: str,
@@ -196,20 +170,12 @@ def select_tool_ids_for_turn(
     registry: ToolRegistry,
     enabled_tool_ids: tuple[str, ...],
     context: ToolExecutionContext,
-    *,
-    settings: Settings | None = None,
-    encoder: SemanticEncoder | None = None,
 ) -> tuple[str, ...]:
     """Select a bounded provider-visible subset without changing Deployment authorization."""
 
     assigned = tuple(dict.fromkeys(item for item in enabled_tool_ids if item))
     if not assigned:
         return ()
-    resolved = settings or get_settings()
-    # Development/test and explicit semantic-runtime disablement retain legacy Tool exposure.
-    if not resolved.semantic_embedding_runtime_enabled:
-        return assigned
-
     catalog = {
         item.id: item for item in registry.catalog() if item.id in assigned and item.available
     }
@@ -219,11 +185,13 @@ def select_tool_ids_for_turn(
 
     query = " ".join(context.trigger_text.split())[:4000]
     if not query:
-        return (
-            ("character.invite",)
-            if "character.invite" in available and _character_invite_available(context)
-            else ()
-        )
+        # Some non-Discord callers supply their request only in the model prompt. Keep
+        # bounded assigned reads available; missing intent must never expose writes.
+        return tuple(
+            tool_id for tool_id in available
+            if not catalog[tool_id].side_effect
+            or (tool_id == "character.invite" and _character_invite_available(context))
+        )[:_TOOL_MAX_SELECTED]
 
     forced: list[str] = []
     for tool_id in available:
@@ -240,51 +208,28 @@ def select_tool_ids_for_turn(
         if explicit:
             forced.append(tool_id)
 
-    try:
-        active_encoder = encoder or _tool_encoder(resolved)
-        query_vector = active_encoder.embed_query(query)
-    except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
-        # Embedding outages must not remove capabilities; fall back to assigned/available tools.
-        return available
-
     scored: list[tuple[float, str]] = []
     for tool_id in available:
         item = catalog[tool_id]
         if item.side_effect and tool_id not in forced:
             continue
-        semantic_text = _tool_profile_text(
-            tool_id,
-            item.display_name,
-            item.description,
-            item.category,
-            item.operation,
+        profile = _tool_profile_text(
+            tool_id, item.display_name, item.description, item.category, item.operation
         )
-        cache_key = (
-            active_encoder.model_name,
-            tool_id,
-            active_encoder.dimension,
-            semantic_text,
-        )
-        vector = _TOOL_VECTOR_CACHE.get(cache_key)
-        if vector is None:
-            try:
-                vector = active_encoder.embed_passage(semantic_text)
-            except (SemanticEmbeddingUnavailable, ValueError, RuntimeError):
-                return available
-            _TOOL_VECTOR_CACHE[cache_key] = vector
-        dense = _cosine(query_vector, vector)
-        if dense >= _TOOL_DENSE_MINIMUM:
-            scored.append((dense, tool_id))
-
+        score = sparse_score(query, profile)
+        if score > 0.04:
+            scored.append((score, tool_id))
     scored.sort(key=lambda item: (-item[0], item[1]))
     selected = list(dict.fromkeys(forced))
     for _, tool_id in scored:
         if tool_id not in selected:
             selected.append(tool_id)
-        if len(selected) >= _TOOL_DENSE_MAX_SELECTED:
+        if len(selected) >= _TOOL_MAX_SELECTED:
             break
 
-    selected_set = set(selected[:_TOOL_DENSE_MAX_SELECTED])
+    if not selected:
+        selected = [tool_id for tool_id in available if not catalog[tool_id].side_effect]
+    selected_set = set(selected[:_TOOL_MAX_SELECTED])
     return tuple(tool_id for tool_id in available if tool_id in selected_set)
 
 

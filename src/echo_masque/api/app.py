@@ -44,6 +44,7 @@ from echo_masque.api.routes import (
     trials_router,
     workspace_router,
 )
+from echo_masque.api.routes.character_notes import router as character_notes_router
 from echo_masque.api.routes.discord_debug_captures import (
     router as discord_debug_captures_router,
 )
@@ -183,6 +184,7 @@ from echo_masque.persistence.knowledge_fabric_site_collection_repository import 
 from echo_masque.persistence.knowledge_fabric_visual_reference_repository import (
     KnowledgeFabricVisualReferenceRepository,
 )
+from echo_masque.persistence.note_repository import CharacterNoteRepository
 from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.persistence.turn_job_repository import TurnJobRepository
@@ -416,12 +418,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         conversation_media_repository=conversation_media_repository,
         artifact_repository=generated_media_repository,
     )
+    room_repository = RoomRepository(database)
+    character_note_repository = CharacterNoteRepository(database)
     internal_context_service = InternalContextService(
-        belief_repository=belief_repository,
-        structure_repository=conversation_structure_repository,
-        runtime_repository=conversation_runtime_repository,
-        settings=resolved,
-        knowledge_context=knowledge_context_builder,
+        notes=character_note_repository, rooms=room_repository,
+        deployments=deployment_repository, knowledge_context=knowledge_context_builder,
     )
     tool_registry = MediaToolRegistry(
         browser_runtime=browser_runtime,
@@ -537,8 +538,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     knowledge_fabric_visual_reference_repository = KnowledgeFabricVisualReferenceRepository(
         database
     )
-    room_repository = RoomRepository(database)
-    room_context_service = RoomContextService(room_repository)
+    room_context_service = RoomContextService(room_repository, notes=character_note_repository)
     discord_connector_runtime = RecallAwareMediaDiscordConnectorRuntime(
         repository,
         deployment_repository,
@@ -816,6 +816,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.room_repository = room_repository
     app.state.room_context_service = room_context_service
     app.state.internal_context_service = internal_context_service
+    app.state.character_note_repository = character_note_repository
     app.state.planner_media_service = planner_media_service
     app.state.discord_connector_runtime = discord_connector_runtime
     app.state.character_turn_graph_runner = character_turn_graph_runner
@@ -856,6 +857,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(coverage_router)
     app.include_router(templates_router)
     app.include_router(characters_router)
+    app.include_router(character_notes_router)
     app.include_router(deployments_router)
     app.include_router(tools_router)
     app.include_router(scheduled_reminders_router)

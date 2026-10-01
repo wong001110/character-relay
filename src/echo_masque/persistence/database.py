@@ -71,6 +71,7 @@ from echo_masque.persistence.episodic_sql_rag_models import (
     ConversationEpisodeEntityRecord,
 )
 from echo_masque.persistence.models import Base, StorageMetadataRecord
+from echo_masque.persistence.note_models import CharacterNoteRecord, NoteCreationReceiptRecord
 from echo_masque.persistence.intelligence_v3_migration_models import (
     IntelligenceV3HardCutoverMigrationRecord,
 )
@@ -302,6 +303,8 @@ class Database:
     ) -> None:
         # Explicitly touch authority/runtime model classes so schema creation is deterministic.
         _ = (
+            CharacterNoteRecord,
+            NoteCreationReceiptRecord,
             RoomRouteRecord,
             ModelAttemptBucketRecord,
             RoomStateRecord,
@@ -430,6 +433,7 @@ class Database:
         KnowledgeFabricExternalSyncMigration(self).run()
         KnowledgeFabricExternalScheduleMigration(self).run()
         self._ensure_turn_job_author_scope()
+        self._ensure_media_source_fingerprint()
 
         if not allow_incomplete_data_migration:
             self._assert_no_incomplete_data_migration()
@@ -467,6 +471,20 @@ class Database:
         self._ensure_sqlite_deployment_runtime_invariants()
         self._ensure_postgresql_deployment_runtime_invariants()
         self._ensure_sqlite_message_relation_author_snapshots()
+
+    def _ensure_media_source_fingerprint(self) -> None:
+        """Old media perceptions are not silently attributed to a current source revision."""
+        from sqlalchemy import inspect
+
+        with self.engine.begin() as connection:
+            columns = {item["name"] for item in inspect(connection).get_columns(
+                "conversation_media_references"
+            )}
+            if "source_fingerprint" not in columns:
+                connection.execute(text(
+                    "ALTER TABLE conversation_media_references ADD COLUMN source_fingerprint "
+                    "VARCHAR(64) NOT NULL DEFAULT ''"
+                ))
 
     def _ensure_turn_job_author_scope(self) -> None:
         """Add cancellation actor identity without guessing authors for historical jobs."""

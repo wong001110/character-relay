@@ -232,16 +232,11 @@ def test_character_invite_is_materialized_as_one_runtime_character_mention(
         SmartOutputProposal(
             action="message",
             content=[SmartTextPart(text="I will ask her to weigh in.")],
-        ),
-        [],
+        )
     )
     assert reason == "ok"
     assert output is not None
-    mentions = [
-        part.mention
-        for part in output.content
-        if isinstance(part, SmartMentionPart)
-    ]
+    mentions = [part.mention for part in output.content if isinstance(part, SmartMentionPart)]
     assert mentions == ["deployment:candidate"]
     assert smart_context.legacy_visible_text(output).endswith("@Selena")
 
@@ -307,16 +302,11 @@ def test_character_invite_does_not_expand_conflicting_character_mentions(
                 SmartTextPart(text="Other should see this."),
                 SmartMentionPart(mention="p2"),
             ],
-        ),
-        [],
+        )
     )
     assert reason == "ok"
     assert output is not None
-    mentions = [
-        part.mention
-        for part in output.content
-        if isinstance(part, SmartMentionPart)
-    ]
+    mentions = [part.mention for part in output.content if isinstance(part, SmartMentionPart)]
     assert mentions == ["deployment:other"]
 
 
@@ -343,8 +333,7 @@ def test_character_invite_proposal_does_not_leak_into_a_new_turn(tmp_path: Path)
         SmartOutputProposal(
             action="message",
             content=[SmartTextPart(text="A new turn starts cleanly.")],
-        ),
-        [],
+        )
     )
     assert reason == "ok"
     assert output is not None

@@ -52,15 +52,12 @@ from echo_masque.persistence.evaluation_models import (
     JudgePredictionRecord,
 )
 from echo_masque.persistence.evaluation_repository import EvaluationRepository
-from echo_masque.persistence.expression_hybrid_repository import HybridExpressionRepository
-from echo_masque.persistence.expression_hybrid_repository import (
-    HybridExpressionRepository as ExpressionRepository,
-)
 from echo_masque.persistence.expression_models import (
     DiscordExpressionNodeRecord,
     DiscordExpressionRunRecord,
     DiscordExpressionSemanticRecord,
 )
+from echo_masque.persistence.expression_repository import ExpressionRepository
 from echo_masque.persistence.generated_media_models import GeneratedMediaArtifactRecord
 from echo_masque.persistence.generated_media_repository import GeneratedMediaArtifactRepository
 from echo_masque.persistence.interaction_models import (
@@ -198,7 +195,6 @@ __all__ = [
     "ExpressionRepository",
     "GeneratedMediaArtifactRecord",
     "GeneratedMediaArtifactRepository",
-    "HybridExpressionRepository",
     "InteractionConflict",
     "InteractionRepository",
     "JudgeEvaluationRecord",

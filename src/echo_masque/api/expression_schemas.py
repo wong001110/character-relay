@@ -5,17 +5,34 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ExpressionResourceType = Literal["emoji", "sticker"]
 ExpressionAction = Literal["none", "inline", "reaction", "sticker"]
 ExpressionNodeStatus = Literal["running", "completed", "failed", "skipped"]
 ExpressionRunStatus = Literal["running", "completed", "failed", "skipped"]
-ExpressionRetrievalBackend = Literal["hybrid_sparse_v1", "hybrid_dense_sparse_v2"]
+ExpressionRetrievalBackend = Literal["hybrid_sparse_v1"]
 
 
 def default_expression_actions() -> list[Literal["inline", "reaction", "sticker"]]:
     return ["inline", "reaction", "sticker"]
+
+
+class ExpressionIntent(BaseModel):
+    """Model describes meaning; only the runtime can resolve an actual guild resource."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["emoji", "sticker"]
+    intent: str = Field(min_length=1, max_length=80)
+    emotion: str = Field(default="", max_length=80)
+
+    @field_validator("intent", "emotion")
+    @classmethod
+    def trim_meaning(cls, value: str, info: object) -> str:
+        value = value.strip()
+        if getattr(info, "field_name", "") == "intent" and not value:
+            raise ValueError("expression intent must be nonblank")
+        return value
 
 
 class DiscordCatalogEmoji(BaseModel):
@@ -117,12 +134,6 @@ class ExpressionRetrievalView(BaseModel):
     attempt: int
     retrieval_backend: ExpressionRetrievalBackend = "hybrid_sparse_v1"
     candidates: list[ExpressionCandidate]
-
-    @model_validator(mode="after")
-    def infer_retrieval_backend(self) -> ExpressionRetrievalView:
-        if any("dense" in item.signals for item in self.candidates):
-            self.retrieval_backend = "hybrid_dense_sparse_v2"
-        return self
 
 
 class ExpressionNodeReport(BaseModel):

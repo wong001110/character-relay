@@ -108,3 +108,15 @@ No existing route/graph/Connector consumer imports this path yet. Production int
 supply authenticated context-action actors, normalized platform mention IDs, current permissions,
 aggregate budgets and delivered source links. The provider callback does not itself implement a
 Free Token Pool qualification/deadline policy. Do not infer those capabilities from its type seam.
+
+## Implemented R4 boundaries
+
+`notes.py` and `persistence/note_repository.py` own explicit scoped notes, versioned edits and
+source-linked invalidation; `api/routes/character_notes.py` is the authenticated operator
+surface. `internal_context.py` uses these notes, raw room message search and existing scoped
+Knowledge Fabric reads. It no longer depends on Belief/Episode state for ordinary recall.
+`conversation_media.py` uses explicit current Reply/source fingerprints rather than a graph.
+`expression_intent.py` is the lazy post-generation sparse resolver; `smart_output.py` keeps
+model intent separate from runtime-resolved resources. `embedding_space.py` binds optional
+prepared knowledge vectors to their full space identity; no runtime backfill is introduced.
+The remaining old composition is not an accepted fallback and is scheduled for R5 deletion.

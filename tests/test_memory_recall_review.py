@@ -1,278 +1,112 @@
+"""R4 replacements for the old Belief/Episode recall regression cases."""
+
 from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 
-from echo_masque.context_resolver_v3 import ContextResolverV3
-from echo_masque.internal_context import InternalContextService
-from echo_masque.persistence import Database
-from echo_masque.persistence.belief_repository import BeliefRepository
-from echo_masque.persistence.conversation_runtime_repository import ConversationRuntimeRepository
-from echo_masque.persistence.conversation_structure_repository import (
-    ConversationStructureRepository,
-)
-from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository
-from echo_masque.social_intelligence_v3 import SocialIntelligenceV3Service
-from echo_masque.tool_runtime import ToolExecutionContext
+import pytest
+import test_explicit_notes as note_tests
+
+from echo_masque.notes import NoteInput
+
+SCOPE = note_tests.SCOPE
+context = note_tests.context
+env = note_tests.env
+message = note_tests.message
 
 
-class _Routes:
-    def __init__(self, visible_message_ids: set[str]) -> None:
-        self.visible_message_ids = visible_message_ids
 
-    def resolve_message_route(self, *, connection_id: str, message_id: str) -> object | None:
-        if connection_id == "connection-1" and message_id in self.visible_message_ids:
-            return SimpleNamespace(deployment_id="deployment-1")
-        return None
-
-
-def _context() -> ToolExecutionContext:
-    return ToolExecutionContext(
-        owner_id="owner-1",
-        deployment_id="deployment-1",
-        character_card_id="character-1",
-        platform="discord",
-        connection_id="connection-1",
-        guild_id="guild-1",
-        channel_id="general",
-        initiator_user_id="actor-1",
-    )
-
-
-def _belief(
-    repository: BeliefRepository,
-    *,
-    value: str,
-    importance: float,
-    owner: str = "owner-1",
-    guild: str = "guild-1",
-    character: str = "character-1",
-) -> None:
-    repository.create(
-        owner_id=owner,
-        character_card_id=character,
-        connection_id="connection-1",
-        guild_id=guild,
-        subject_entity_id="",
-        subject_ref="actor-1",
-        predicate="personal.note",
-        value_text=value,
-        scope="character_server",
-        authority_class="conversation",
-        authority_score=0.8,
-        origin="conversation",
-        confidence=0.8,
-        importance=importance,
-        status="active",
-        evidence_refs=("message:test",),
-    )
-
-
-def _episode(
-    runtime: ConversationRuntimeRepository,
-    *,
-    key: str,
-    summary: str,
-    message_id: str,
-    now: datetime,
-    owner: str = "owner-1",
-    guild: str = "guild-1",
-) -> object:
-    created = runtime.append_episode_segment(
-        owner_id=owner,
-        connection_id="connection-1",
-        guild_id=guild,
-        channel_id="general",
-        discord_thread_id="",
-        conversation_thread_id=f"thread-{key}",
-        segment_id=f"segment-{key}",
-        source_message_ids=(message_id,),
-        participant_ids=("actor-1",),
-        summary=summary,
-        key_events=(summary,),
-        now=now,
-    )
-    return runtime.close_episode(
-        owner_id=owner,
-        conversation_thread_id=f"thread-{key}",
-        reason="test",
-        now=now,
-    ) or created
-
-
-def test_memory_search_finds_low_importance_belief_beyond_old_candidate_window() -> None:
-    database = Database("sqlite://")
-    database.initialize()
-    beliefs = BeliefRepository(database)
+def test_memory_search_finds_old_note_beyond_recent_context_without_embeddings(env):
+    _, _rooms, notes, service = env
     for index in range(160):
-        _belief(beliefs, value=f"routine note {index}", importance=0.99)
-    _belief(
-        beliefs,
-        value="The moonlit orchid is the actor's private recall phrase.",
-        importance=0.01,
+        notes.create(
+            owner_id="owner",
+            card_id="card",
+            authored=True,
+            payload=NoteInput(text=f"routine entry {index}"),
+        )
+    notes.create(
+        owner_id="owner",
+        card_id="card",
+        authored=True,
+        payload=NoteInput(text="The moonlit orchid is an explicit recall phrase."),
     )
-    _belief(
-        beliefs,
-        value="moonlit orchid from another owner",
-        importance=1.0,
-        owner="owner-2",
+    notes.create(
+        owner_id="owner",
+        card_id="other-card",
+        authored=True,
+        payload=NoteInput(text="moonlit orchid from another role"),
     )
-    _belief(
-        beliefs,
-        value="moonlit orchid from another server",
-        importance=1.0,
-        guild="guild-2",
-    )
-    _belief(
-        beliefs,
-        value="moonlit orchid for another character",
-        importance=1.0,
-        character="character-2",
-    )
-    service = InternalContextService(
-        beliefs,
-        ConversationStructureRepository(database),
-        ConversationRuntimeRepository(database),
-    )
-
-    result = json.loads(service.memory_search({"query": "moonlit orchid", "limit": 5}, _context()))
-
+    result = json.loads(service.memory_search({"query": "moonlit orchid"}, context()))
     assert result["count"] == 1
-    assert result["memories"][0]["value"] == (
-        "The moonlit orchid is the actor's private recall phrase."
+    assert result["memories"][0]["value"] == "The moonlit orchid is an explicit recall phrase."
+    assert result["retrieval_backend"] == "sparse_v1"
+
+
+def test_raw_history_recall_reaches_old_evidence_without_aggregate_thread_disclosure(env):
+    _, rooms, _, service = env
+    now = datetime.now(UTC)
+    old = message("old").model_copy(
+        update={"text": "Choose the moonlit orchid.", "created_at": now - timedelta(days=60)}
     )
-
-
-def test_episode_recall_reaches_old_history_and_stays_on_demand_and_scoped() -> None:
-    database = Database("sqlite://")
-    database.initialize()
-    runtime = ConversationRuntimeRepository(database)
-    structure = ConversationStructureRepository(database)
-    now = datetime(2026, 9, 1, tzinfo=UTC)
-    # The former thread window stopped at 100. Aggregate Thread prose is deliberately not
-    # returned at any depth because its full message provenance cannot be proven perceived.
-    for index in range(101):
-        structure.create_thread(
-            owner_id="owner-1",
-            connection_id="connection-1",
-            guild_id="guild-1",
-            channel_id="general",
-            discord_thread_id="",
-            canonical_label=(
-                "moonlit orchid private thread" if index == 100 else f"routine thread {index}"
-            ),
-            anchor_summary="unperceived aggregate",
-            working_summary="unperceived aggregate",
-            now=now + timedelta(minutes=index),
+    rooms.observe(SCOPE, [old])
+    for start in range(0, 300, 60):
+        rooms.observe(
+            SCOPE,
+            [
+                message(f"recent-{i}").model_copy(update={"text": f"routine message {i}"})
+                for i in range(start, start + 60)
+            ],
         )
-    old_visible = _episode(
-        runtime,
-        key="old-visible",
-        summary="moonlit orchid was chosen for the release plan",
-        message_id="visible-old",
-        now=now,
+    private = SCOPE.model_copy(update={"thread_id": "private"})
+    rooms.observe(
+        private, [old.model_copy(update={"thread_id": "private", "text": "PRIVATE moonlit orchid"})]
     )
-    for index in range(200):
-        _episode(
-            runtime,
-            key=f"recent-{index}",
-            summary=f"routine status update {index}",
-            message_id=f"visible-recent-{index}",
-            now=now + timedelta(minutes=index + 1),
-        )
-    _episode(
-        runtime,
-        key="hidden",
-        summary="moonlit orchid hidden from this character",
-        message_id="hidden-message",
-        now=now + timedelta(days=1),
-    )
-    _episode(
-        runtime,
-        key="other-owner",
-        summary="moonlit orchid other owner",
-        message_id="other-owner-message",
-        now=now,
-        owner="owner-2",
-    )
-    _episode(
-        runtime,
-        key="other-server",
-        summary="moonlit orchid other server",
-        message_id="other-server-message",
-        now=now,
-        guild="guild-2",
-    )
-    routes = _Routes({"visible-old"})
-    service = InternalContextService(
-        BeliefRepository(database),
-        structure,
-        runtime,
-        identities=routes,  # type: ignore[arg-type]
-    )
-
-    result = json.loads(
-        service.conversation_search({"query": "moonlit orchid", "limit": 5}, _context())
-    )
-
-    assert [item["ref"] for item in result["results"]] == [old_visible.id]
-    assert all(item["kind"] == "episode" for item in result["results"])
-
-    resolver = ContextResolverV3(
-        structure=structure,
-        runtime=runtime,
-        entities=EntityEvidenceRepository(database),
-        beliefs=BeliefRepository(database),
-        social=SocialIntelligenceV3Service(database),
-        identities=routes,  # type: ignore[arg-type]
-    )
-    bundle = resolver.resolve(
-        owner_id="owner-1",
-        connection_id="connection-1",
-        guild_id="guild-1",
-        channel_id="general",
-        discord_thread_id="",
-        query="moonlit orchid",
-        character_card_id="character-1",
-        deployment_id="deployment-1",
-        actor_id="actor-1",
-    )
-    assert bundle.episodes == ()
+    result = json.loads(service.conversation_search({"query": "moonlit orchid"}, context()))
+    assert [hit["ref"] for hit in result["results"]] == ["old"]
+    assert result["results"][0]["kind"] == "raw_message"
+    assert "PRIVATE" not in str(result)
+    assert "old" not in rooms.focus(SCOPE, "recent-299").message_ids
 
 
-def test_episode_checkpoint_keeps_early_summary_within_the_existing_bound() -> None:
-    database = Database("sqlite://")
-    database.initialize()
-    runtime = ConversationRuntimeRepository(database)
-    now = datetime(2026, 9, 1, tzinfo=UTC)
-    runtime.append_episode_segment(
-        owner_id="owner-1",
-        connection_id="connection-1",
-        guild_id="guild-1",
-        channel_id="general",
-        discord_thread_id="",
-        conversation_thread_id="thread-summary",
-        segment_id="segment-first",
-        source_message_ids=("first",),
-        participant_ids=("actor-1",),
-        summary="Early decision: choose the moonlit orchid.",
-        now=now,
+def test_history_search_keeps_real_author_reply_and_edit_revision(env):
+    _, rooms, _, service = env
+    original = message("reply").model_copy(
+        update={"text": "moonlit orchid", "reply_to_message_id": "missing-parent"}
     )
-    updated = runtime.append_episode_segment(
-        owner_id="owner-1",
-        connection_id="connection-1",
-        guild_id="guild-1",
-        channel_id="general",
-        discord_thread_id="",
-        conversation_thread_id="thread-summary",
-        segment_id="segment-later",
-        source_message_ids=("later",),
-        participant_ids=("actor-1",),
-        summary="Later update: publication is scheduled.",
-        now=now + timedelta(minutes=1),
+    rooms.observe(SCOPE, [original])
+    rooms.observe(
+        SCOPE,
+        [
+            original.model_copy(
+                update={
+                    "text": "moonlit orchid correction",
+                    "edited_at": datetime.now(UTC) + timedelta(seconds=1),
+                }
+            )
+        ],
     )
+    result = json.loads(service.conversation_search({"query": "orchid"}, context()))["results"][0]
+    assert result["revision"] == 2 and result["author_id"] == "alice"
+    assert result["reply_to_message_ref"] == "missing-parent"
+    assert result["source_message_refs"] == ["reply"]
+    assert result["content"] == "moonlit orchid correction"
 
-    assert "Early decision" in updated.summary
-    assert "Later update" in updated.summary
-    assert len(updated.summary) <= 4000
+
+@pytest.mark.parametrize(
+    "query", ["不存在的月餅", "nothing matching", "'; DROP TABLE room_sources; --"]
+)
+def test_no_match_does_not_fill_with_irrelevant_memory(env, query):
+    _, rooms, _, service = env
+    rooms.observe(SCOPE, [message()])
+    assert json.loads(service.conversation_search({"query": query}, context()))["count"] == 0
+
+
+def test_cjk_query_and_bounded_history_snippets(env):
+    _, rooms, _, service = env
+    rooms.observe(SCOPE, [message().model_copy(update={"text": "喜歡茉莉花茶。" * 500})])
+    result = json.loads(service.conversation_search({"query": "茉莉花茶"}, context()))
+    assert result["count"] == 1
+    assert len(result["results"][0]["content"]) <= 1200
+    assert result["results"][0]["content_truncated"] is True

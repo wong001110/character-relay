@@ -1,4 +1,3 @@
-from echo_masque.api.expression_schemas import ExpressionCandidate
 from echo_masque.smart_output import SmartOutputContext
 from echo_masque.targets.prompt_model import PromptModelTarget
 
@@ -14,47 +13,25 @@ def _context(*, admitted: bool = False) -> SmartOutputContext:
     )
 
 
-def _emoji() -> ExpressionCandidate:
-    return ExpressionCandidate(
-        resource_key="emoji:plead",
-        resource_type="emoji",
-        resource_id="plead",
-        name="plead",
-        animated=False,
-        available=True,
-        enabled=True,
-        allowed_actions=["inline", "reaction"],
-        semantic_intent="pleading",
-        semantic_emotion="nervous",
-        semantic_description="tearful pleading reaction",
-        semantic_source="manual",
-        semantic_confidence=1.0,
-        asset_url="https://cdn.example.test/plead.png",
-        format_type="png",
-        score=0.9,
-    )
+def test_prompt_uses_optional_intent_not_resource_aliases() -> None:
+    guidance = "\n".join(_context().prompt_guidance())
+    assert "An expression is optional" in guidance
+    assert "Never invent aliases or resource IDs" in guidance
+    assert '"expression":{"kind":"emoji","intent":"tease"' in guidance
+    assert '"emoji":"e1"' not in guidance
+    assert "without explanations or reasoning" in guidance
 
 
-def test_compact_smart_output_prompt_requires_separate_inline_emoji_items() -> None:
-    guidance = "\n".join(_context().prompt_guidance([_emoji()]))
-
-    assert "Each item must contain exactly one of: text, emoji, mention" in guidance
-    assert "custom Server Emoji in message content must use an Emoji alias" in guidance
-    assert '{"text":"補充一點: "},{"emoji":"e1"}' in guidance
-    assert "Do not emit reasoning" in guidance
-
-
-def test_compact_direct_response_prompt_removes_ignore_and_offers_short_message() -> None:
-    guidance = "\n".join(_context(admitted=True).prompt_guidance([]))
-
-    assert "Available actions: message, short_message." in guidance
-    assert "visible conversation directly expects this character to respond" in guidance
-    assert "Silence/ignore is not an available action" in guidance
+def test_direct_response_requires_visible_action_with_text_fallback() -> None:
+    guidance = "\n".join(_context(admitted=True).prompt_guidance())
     assert '"action":"ignore"' not in guidance
     assert '"action":"short_message"' in guidance
+    assert "fallback_text" in guidance
+    output, reason = _context(admitted=True).parse_and_resolve('[[CR_OUTPUT {"action":"ignore"}]]')
+    assert output is None and reason == "admitted_turn_requires_visible_action"
 
 
-def test_format_retry_is_compact_and_explicitly_forbids_rewriting_answer() -> None:
+def test_format_retry_is_compact_and_forbids_rewriting_or_resource_authority() -> None:
     original = "\n".join(
         (
             "FULL CHARACTER PROMPT",
@@ -63,12 +40,11 @@ def test_format_retry_is_compact_and_explicitly_forbids_rewriting_answer() -> No
             "Regenerate once. Return exactly one valid [[CR_OUTPUT {...}]] line and nothing else.",
         )
     )
-
     repaired = PromptModelTarget._compact_format_repair(original)
-
     assert "FULL CHARACTER PROMPT" not in repaired
     assert "Formatting repair only" in repaired
     assert "do not add reasoning, facts, or a new answer" in repaired
-    assert '{"emoji":"eN"}' in repaired
-    assert "Never place an Emoji or Mention JSON object inside a text string" in repaired
+    assert '"emoji":"eN"' not in repaired
+    assert "Never invent resource IDs" in repaired
+    assert "fallback_text" in repaired
     assert len(repaired) < 500

@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from echo_masque.api.connector_schemas import DiscordContextMessage, DiscordInboundMessage
 from echo_masque.character_turn_context_types import CharacterContextTraceView, CharacterTurnContext
+from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
+from echo_masque.persistence.note_repository import CharacterNoteRepository
 from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.room_routing import RoomScope
@@ -16,7 +18,6 @@ from echo_masque.smart_output import SmartOutputContext
 
 if TYPE_CHECKING:
     from echo_masque.connector_runtime import ResolvedCharacterTurn
-    from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 
 
 def payload_scope(payload: DiscordInboundMessage, owner_id: str) -> RoomScope:
@@ -114,8 +115,11 @@ class RoomContextResult:
 
 
 class RoomContextService:
-    def __init__(self, repository: RoomRepository) -> None:
+    def __init__(
+        self, repository: RoomRepository, *, notes: CharacterNoteRepository | None = None
+    ) -> None:
         self.repository = repository
+        self.notes = notes
         self.server_runtime = ServerRuntimeRepository(repository.database)
 
     def build(self, resolved: ResolvedCharacterTurn) -> RoomContextResult:
@@ -194,9 +198,35 @@ class RoomContextService:
                 owner_id=scope.owner_id, connection_id=scope.connection_id, guild_id=scope.guild_id
             )
             activate_server_timezone(timezone)
+            note_lines: tuple[str, ...] = ()
+            if self.notes is not None:
+                subjects = {f"user:{payload.runtime_requester_id}"}
+                with self.repository.database.session() as session:
+                    for source in focus.sources:
+                        if source.message.message_id not in focus.anchor_ids:
+                            continue
+                        if not source.message.author_is_bot:
+                            subjects.add(f"user:{source.message.author_id}")
+                        elif source.message.author_deployment_id:
+                            role = session.get(
+                                CharacterDeploymentRecord, source.message.author_deployment_id
+                            )
+                            if role is not None:
+                                subjects.add(f"character:{role.character_card_id}")
+                note_lines = tuple(
+                    note.prompt_text()
+                    for note in self.notes.list(
+                        owner_id=scope.owner_id,
+                        card_id=resolved.card.id,
+                        scope=scope,
+                        subjects=tuple(sorted(subjects))[:24],
+                        limit=8,
+                    )
+                )
             bundle = RoomContextBundle(
                 query=target.message.text,
                 focus=focus,
+                notes=note_lines,
                 temporal_context=(
                     f"Default timezone: {timezone} (IANA).",
                     "Current local datetime: "

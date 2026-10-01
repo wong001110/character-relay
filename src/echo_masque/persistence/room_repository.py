@@ -14,12 +14,14 @@ from threading import RLock
 from uuid import uuid4
 from weakref import WeakKeyDictionary
 
-from sqlalchemy import Engine, func, select
+from sqlalchemy import JSON, Engine, cast, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
+from echo_masque.persistence.conversation_media_models import ConversationMediaReferenceRecord
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.note_models import CharacterNoteRecord
 from echo_masque.persistence.room_models import (
     RoomDeliverySourceRecord,
     RoomRouteRecord,
@@ -37,6 +39,7 @@ from echo_masque.room_sources import (
     evidence_key,
     scope_key,
 )
+from echo_masque.sparse_retrieval import semantic_tokens
 
 _LOCKS: WeakKeyDictionary[Engine, RLock] = WeakKeyDictionary()
 _LOCKS_GUARD = RLock()
@@ -129,6 +132,25 @@ class RoomRepository:
                         )
                     if old == item:
                         continue
+                session.execute(
+                    delete(CharacterNoteRecord).where(
+                        CharacterNoteRecord.scope_id == room.id,
+                        CharacterNoteRecord.source_message_id == item.message_id,
+                        CharacterNoteRecord.authored.is_(False),
+                        CharacterNoteRecord.source_hash != item.draft_fingerprint(),
+                    )
+                )
+                # Erase stale derived perception as well as notes. Other rooms/cards retain
+                # their own source checks; no broad guild-level "any source visible" fallback.
+                session.execute(delete(ConversationMediaReferenceRecord).where(
+                    ConversationMediaReferenceRecord.owner_id == scope.owner_id,
+                    ConversationMediaReferenceRecord.guild_id == scope.guild_id,
+                    ConversationMediaReferenceRecord.channel_id == scope.channel_id,
+                    ConversationMediaReferenceRecord.thread_id == scope.thread_id,
+                    ConversationMediaReferenceRecord.message_id == item.message_id,
+                    ConversationMediaReferenceRecord.context_json != "",
+                    ConversationMediaReferenceRecord.source_fingerprint != item.draft_fingerprint(),
+                ))
                 room.revision += 1
                 if record is None:
                     record = RoomSourceRecord(
@@ -177,6 +199,60 @@ class RoomRepository:
                 return None
             record = session.get(RoomSourceRecord, evidence_key(scope, message_id))
             return _stored(record) if record is not None else None
+
+    def can_read(self, scope: RoomScope, *, max_age_seconds: int | None = None) -> bool:
+        with self._lock, self.database.session() as session:
+            room = session.get(RoomStateRecord, scope_key(scope))
+            if room is None or not room.readable:
+                return False
+            return max_age_seconds is None or (
+                room.permission_checked_at is not None
+                and 0
+                <= (datetime.now(UTC) - _aware(room.permission_checked_at)).total_seconds()
+                <= max_age_seconds
+            )
+
+    def search(
+        self, scope: RoomScope, query: str, *, candidate_limit: int = 240
+    ) -> tuple[StoredSource, ...]:
+        """SQL sparse prefilter of this exact room before bounded in-process ranking.
+
+        Old evidence is searchable even after it leaves recent context. No automatic
+        embedding, semantic Thread, Episode summary or all-room scan is involved.
+        """
+        if not 1 <= candidate_limit <= 240 or not query.strip() or len(query) > 800:
+            raise ValueError("invalid_history_query")
+        terms = tuple(dict.fromkeys(semantic_tokens(query)))[:16]
+        if not terms:
+            return ()
+        with self._lock, self.database.session() as session:
+            room = session.get(RoomStateRecord, scope_key(scope))
+            if room is None or not room.readable:
+                return ()
+            text = (
+                cast(RoomSourceRecord.content_json, JSON)["text"].as_string()
+                if self.database.engine.dialect.name == "postgresql"
+                else func.json_extract(RoomSourceRecord.content_json, "$.text")
+            )
+            rows = session.scalars(
+                select(RoomSourceRecord)
+                .where(
+                    RoomSourceRecord.scope_id == room.id,
+                    or_(
+                        *(
+                            func.lower(text).contains(term.casefold(), autoescape=True)
+                            for term in terms
+                        )
+                    ),
+                )
+                .order_by(RoomSourceRecord.created_at.desc(), RoomSourceRecord.id)
+                .limit(candidate_limit)
+            ).all()
+            return tuple(
+                item
+                for row in rows
+                if not (item := _stored(row)).message.deleted and item.message.content_available
+            )
 
     def recent(self, scope: RoomScope, *, limit: int = 24) -> tuple[StoredSource, ...]:
         if not 1 <= limit <= 64:

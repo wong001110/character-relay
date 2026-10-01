@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.expression_models import ExpressionUsageRecord
 from echo_masque.persistence.room_models import RoomDeliverySourceRecord
 from echo_masque.persistence.runtime_durability_models import (
     RuntimeOperationRecord,
@@ -22,7 +23,7 @@ from echo_masque.persistence.runtime_durability_models import (
     RuntimeTraceRunRecord,
 )
 from echo_masque.room_routing import RoomScope
-from echo_masque.room_sources import delivery_key
+from echo_masque.room_sources import delivery_key, scope_key
 from echo_masque.runtime_trace import RuntimeTraceEvent
 
 OperationStatus = Literal["active", "awaiting_delivery", "completed", "uncertain", "failed"]
@@ -667,6 +668,34 @@ class DurableRuntimeRepository:
                 cursor_json = self._json(projected)
                 step.cursor_json = cursor_json
             self._record_room_delivery(session, operation, step, sent_message_ids, complete=True)
+            if applied:
+                response = self._object(step.response_json)
+                reply = response.get("reply", response)
+                smart_output = reply.get("smart_output") if isinstance(reply, dict) else None
+                resource = (
+                    smart_output.get("expression_resource")
+                    if isinstance(smart_output, dict)
+                    else None
+                )
+                key = resource.get("resource_key") if isinstance(resource, dict) else None
+                if isinstance(key, str) and 0 < len(key) <= 240:
+                    scope = RoomScope(
+                        owner_id=operation.owner_id,
+                        connection_id=operation.connection_id,
+                        guild_id=operation.guild_id,
+                        channel_id=operation.channel_id,
+                        thread_id=operation.thread_id,
+                    )
+                    session.add(
+                        ExpressionUsageRecord(
+                            step_id=step.step_id,
+                            owner_id=operation.owner_id,
+                            scope_id=scope_key(scope),
+                            deployment_id=deployment_id,
+                            resource_key=key,
+                        )
+                    )
+
             step.status = "delivered" if visible else "silent"
             step.last_error = "" if visible else "not_delivered"
             step.sent_message_ids_json = self._json(sent_message_ids)

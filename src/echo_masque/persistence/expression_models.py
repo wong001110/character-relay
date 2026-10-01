@@ -115,3 +115,13 @@ class DiscordExpressionNodeRecord(Base):
     error: Mapped[str] = mapped_column(Text, default="", nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ExpressionUsageRecord(Base):
+    __tablename__ = "expression_usage"
+    step_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    deployment_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    resource_key: Mapped[str] = mapped_column(String(240), nullable=False)
+    used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

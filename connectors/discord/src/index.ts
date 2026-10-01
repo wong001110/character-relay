@@ -920,62 +920,6 @@ interface ExpressionExecutionResult {
   fallback: string;
 }
 
-async function prepareExpression(
-  source: Message<true>,
-  deployment: DiscordDeployment,
-  text: string,
-  stickers: DiscordStickerContent[],
-  emojis: DiscordExpressionContent[],
-  recentMessages: DiscordContextMessage[]
-): Promise<PreparedExpression> {
-  const query = expressionQuery({
-    text,
-    stickerMeanings: stickers.map((item) => item.semantic_description),
-    emojiMeanings: emojis.map((item) => item.semantic_description),
-    recentText: recentMessages.map((item) => item.text)
-  });
-  try {
-    const retrieval = await relay.retrieveExpressions({
-      guild_id: source.guildId,
-      channel_id: deployment.channel_id,
-      source_message_id: source.id,
-      deployment_id: deployment.deployment_id,
-      query,
-      allowed_actions: ["inline", "reaction", "sticker"],
-      excluded_resource_keys: [],
-      top_k: 6
-    });
-    reportDiscordEvent({
-      level: "info",
-      eventType: "expression_candidates",
-      message: "Server expressions were retrieved for an optional character expression.",
-      guildId: source.guildId,
-      guildName: source.guild.name,
-      channelId: deployment.channel_id,
-      channelName: deployment.channel_name,
-      threadId: deployment.thread_id,
-      threadName: deployment.thread_name,
-      sourceMessageId: source.id,
-      deploymentId: deployment.deployment_id,
-      characterName: deploymentDisplayName(deployment),
-      details: {
-        run_id: retrieval.run_id,
-        retrieval_backend: retrieval.retrieval_backend,
-        candidate_count: retrieval.candidates.length,
-        candidate_keys: retrieval.candidates.map((item) => item.resource_key)
-      }
-    });
-    return { retrieval, query };
-  } catch (error) {
-    log("Expression retrieval failed; continuing without a custom expression.", {
-      deploymentId: deployment.deployment_id,
-      sourceMessageId: source.id,
-      ...safeDiagnosticError(error)
-    });
-    return { retrieval: null, query };
-  }
-}
-
 async function reportExpressionNode(
   runId: string,
   payload: Parameters<RelayClient["reportExpressionNode"]>[1]
@@ -1284,23 +1228,26 @@ async function executeSmartOutput(
     return skippedSmartOutput("ignore", "ignore");
   }
 
-  const expressionCandidates = prepared.retrieval?.candidates ?? [];
+  const expressionCandidates = output.expression_resource ? [output.expression_resource] : [];
   if (output.action === "message") {
+    const usableExpressions: typeof expressionCandidates = [];
+    for (const candidate of expressionCandidates) {
+      if (await validateExpressionResource(source, candidate)) usableExpressions.push(candidate);
+    }
+    const messageOutput = {
+      ...output,
+      content: output.content.filter((part) => !("emoji" in part) ||
+        usableExpressions.some((candidate) => candidate.resource_key === part.emoji))
+    };
     const compiled = compileSmartMessage(
-      output,
+      messageOutput,
       candidates,
       deployment,
-      expressionCandidates,
+      usableExpressions,
       mentionableParticipants
     );
     if (!compiled.ok) {
       return skippedSmartOutput("message", compiled.error);
-    }
-    for (const resourceKey of compiled.customEmojiResourceKeys) {
-      const candidate = expressionCandidate(expressionCandidates, resourceKey);
-      if (!candidate || !(await validateExpressionResource(source, candidate))) {
-        return skippedSmartOutput("message", "inline_emoji_unavailable");
-      }
     }
     if (output.reply_to_message_id) {
       const target = await resolveSmartOutputTargetMessage(
@@ -1337,6 +1284,14 @@ async function executeSmartOutput(
 
   const candidate = smartOutputResourceCandidate(output, expressionCandidates);
   if (!candidate || !(await validateExpressionResource(source, candidate))) {
+    if (output.fallback_text?.trim()) {
+      const ids = await sendCharacterReply(source, deployment, output.fallback_text, botUserId, {
+        replyToMessageId: output.reply_to_message_id ?? output.target_message_id
+      });
+      return { sentMessageIds: ids, outgoingText: output.fallback_text, action: "none",
+        resourceKey: "", applied: false, fallback: "resource_unavailable_text",
+        smartAction: "message", mentionedDeploymentIds: [] };
+    }
     return skippedSmartOutput(output.action, "resource_unavailable");
   }
 
@@ -1492,14 +1447,7 @@ async function continueBotTagConversation(
       recentMessages,
       deployment
     );
-    const preparedExpression = await prepareExpression(
-      expressionSource,
-      deployment,
-      audience.text || sourceText,
-      [],
-      [],
-      recentMessages
-    );
+    const preparedExpression: PreparedExpression = { retrieval: null, query: "" };
     await sourceMessage.channel.sendTyping();
     let reply: DiscordReply;
     try {
@@ -1720,14 +1668,7 @@ async function processInteractionSession(
           recentMessages,
           deployment
         ).filter((participant) => participant.kind === "human");
-        const preparedExpression = await prepareExpression(
-          sourceMessage,
-          deployment,
-          originalText,
-          stickers,
-          emojis,
-          recentMessages
-        );
+        const preparedExpression: PreparedExpression = { retrieval: null, query: "" };
         await sourceMessage.channel.sendTyping();
         let reply: DiscordReply;
         try {
@@ -2770,14 +2711,7 @@ async function processMessage(
         recentMessages,
         deployment
       );
-      const preparedExpression = await prepareExpression(
-        expressionSource,
-        deployment,
-        turnText,
-        socialSource ? [] : stickers,
-        socialSource ? [] : emojis,
-        recentMessages
-      );
+      const preparedExpression: PreparedExpression = { retrieval: null, query: "" };
       await expressionSource.channel.sendTyping();
       const inboundPayload = {
         deployment_id: deployment.deployment_id,

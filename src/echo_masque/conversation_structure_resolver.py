@@ -21,7 +21,6 @@ from echo_masque.api.smart_participation_v3_schemas import (
     SmartParticipationResolveRequest,
 )
 from echo_masque.config import Settings
-from echo_masque.expression_retrieval import semantic_tokens
 from echo_masque.persistence.conversation_structure_repository import (
     ConversationSegmentView,
     ConversationStructureRepository,
@@ -32,6 +31,7 @@ from echo_masque.semantic_participation import (
     SemanticEmbeddingUnavailable,
     SemanticEncoder,
 )
+from echo_masque.sparse_retrieval import semantic_tokens
 from echo_masque.utility_gateway_contracts import UtilityGatewayUnavailable
 from echo_masque.utility_gateway_router import UtilityGatewayRouter
 
