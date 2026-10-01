@@ -1,0 +1,33 @@
+name: Temporary isolated refactor dependencies
+on:
+  push:
+    branches: [chore/room-refactor-verification-20261001]
+    paths: [.github/workflows/room-refactor-tools.yml]
+permissions:
+  contents: read
+jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --prefix web && npm ci --prefix connectors/discord
+      - run: npm run build --prefix web
+      - name: Package verification inputs only
+        run: |
+          mkdir -p /tmp/refactor-inputs
+          cp "$(command -v node)" /tmp/refactor-inputs/node
+          tar -czf /tmp/refactor-inputs/node-dependencies.tar.gz web/node_modules connectors/discord/node_modules web/dist
+          git rev-parse HEAD > /tmp/refactor-inputs/commit.txt
+          sha256sum web/package-lock.json connectors/discord/package-lock.json > /tmp/refactor-inputs/lockfiles.sha256
+          cd /tmp/refactor-inputs && sha256sum node node-dependencies.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: isolated-refactor-node-inputs
+          path: /tmp/refactor-inputs
+          retention-days: 3
