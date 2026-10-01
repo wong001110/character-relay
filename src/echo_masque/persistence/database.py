@@ -94,10 +94,10 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeEvidenceUnitRecord,
     KnowledgeExternalHostRateRecord,
     KnowledgeExternalSourceCollectionStateRecord,
-            KnowledgeExternalSourcePageStateRecord,
-            KnowledgeExternalSourceScheduleRecord,
-            KnowledgeExternalSourceSyncRunRecord,
-            KnowledgeExternalSourceSyncStateRecord,
+    KnowledgeExternalSourcePageStateRecord,
+    KnowledgeExternalSourceScheduleRecord,
+    KnowledgeExternalSourceSyncRunRecord,
+    KnowledgeExternalSourceSyncStateRecord,
     KnowledgeExtractedAssertionRecord,
     KnowledgeIngestionCheckpointRecord,
     KnowledgeIngestionJobRecord,
@@ -132,6 +132,12 @@ from echo_masque.persistence.social_intelligence_models import (
     SocialEventV3Record,
 )
 from echo_masque.persistence.utility_gateway_models import UtilityProviderQuotaRecord
+from echo_masque.persistence.room_models import (
+    RoomStateRecord,
+    RoomSourceRecord,
+    RoomSelectionRecord,
+    RoomRouteRecord,
+)
 
 _SQLITE_INITIALIZE_LOCKS: dict[str, Lock] = {}
 _SQLITE_INITIALIZE_LOCKS_GUARD = Lock()
@@ -240,9 +246,7 @@ FOR EACH ROW EXECUTE FUNCTION cr_delete_deployment_runtime()
 """
 
 
-def _enable_sqlite_foreign_keys(
-    dbapi_connection: SQLiteConnection, _: ConnectionPoolEntry
-) -> None:
+def _enable_sqlite_foreign_keys(dbapi_connection: SQLiteConnection, _: ConnectionPoolEntry) -> None:
     """Enable SQLite foreign-key checks for every newly opened DB-API connection."""
 
     cursor = dbapi_connection.cursor()
@@ -297,6 +301,10 @@ class Database:
     ) -> None:
         # Explicitly touch authority/runtime model classes so schema creation is deterministic.
         _ = (
+            RoomRouteRecord,
+            RoomStateRecord,
+            RoomSourceRecord,
+            RoomSelectionRecord,
             ConversationThreadRecord,
             ConversationSegmentV3Record,
             ThreadMembershipRecord,
@@ -468,10 +476,12 @@ class Database:
                 return
             columns = {column["name"] for column in inspector.get_columns("discord_turn_jobs")}
             if "source_author_id" not in columns:
-                connection.execute(text(
-                    "ALTER TABLE discord_turn_jobs ADD COLUMN source_author_id "
-                    "VARCHAR(200) NOT NULL DEFAULT ''"
-                ))
+                connection.execute(
+                    text(
+                        "ALTER TABLE discord_turn_jobs ADD COLUMN source_author_id "
+                        "VARCHAR(200) NOT NULL DEFAULT ''"
+                    )
+                )
 
     @contextmanager
     def _initialize_lock(self) -> Iterator[None]:
@@ -594,7 +604,9 @@ class Database:
         with self.engine.begin() as connection:
             columns = {
                 str(row[1])
-                for row in connection.exec_driver_sql("PRAGMA table_info(message_relations_v3)").all()
+                for row in connection.exec_driver_sql(
+                    "PRAGMA table_info(message_relations_v3)"
+                ).all()
             }
             for name, definition in required.items():
                 if columns and name not in columns:

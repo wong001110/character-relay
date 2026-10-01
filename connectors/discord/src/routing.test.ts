@@ -173,7 +173,7 @@ describe("Discord deployment routing", () => {
     const ann = deployment("mention_and_reply", "", "Ann");
     const ning = deployment("mention_and_reply", "", "宁 · Ning");
 
-    const chinese = resolveAudience([ann, ning], "你们好呀");
+    const chinese = resolveAudience([ann, ning], "你们，好呀");
     expect(chinese.reason).toBe("selected_all");
     expect(chinese.deployments).toHaveLength(2);
     expect(chinese.text).toBe("好呀");
@@ -203,7 +203,7 @@ describe("Discord deployment routing", () => {
     expect(selected.text).toBe("hello");
   });
 
-  it("routes replies by persisted deployment id before parsing aliases", () => {
+  it("explicit recipient overrides the Reply recipient; ancestry is still context", () => {
     const ann = deployment("mention_and_reply", "", "Ann");
     const ning = deployment("mention_and_reply", "", "宁");
     const selected = resolveAudience(
@@ -212,8 +212,8 @@ describe("Discord deployment routing", () => {
       ning.deployment_id
     );
 
-    expect(selected.deployments[0]?.deployment_id).toBe(ning.deployment_id);
-    expect(selected.reason).toBe("selected_reply");
+    expect(selected.deployments[0]?.deployment_id).toBe(ann.deployment_id);
+    expect(selected.reason).toBe("selected_alias");
   });
 
   it("requires disambiguation when multiple characters have no audience signal", () => {
@@ -271,7 +271,7 @@ it("uses explicit aliases independently of the Discord display name", () => {
     address_aliases: ["宁", "Ning"]
   });
 
-  const selected = resolveAudience([ann, ning], "Ann ping");
+  const selected = resolveAudience([ann, ning], "Ann, ping");
   expect(selected.deployments[0]?.deployment_id).toBe(ann.deployment_id);
   expect(selected.text).toBe("ping");
 });
@@ -452,5 +452,18 @@ it("applies explicit trigger modes", () => {
     const chunks = splitDiscordMessage("one two three four five", 10);
     expect(chunks.every((item) => item.length <= 10)).toBe(true);
     expect(chunks.join(" ")).toBe("one two three four five");
+  });
+});
+
+
+describe("explicit participation boundaries", () => {
+  it.each(["everyone is busy today", "Ann is busy today", "Annabelle, help", "> Ann, help", "\"Ann, help\"", "* ordinary Markdown bullet", "你们今天很忙"])('does not promote prose to a direct request: %s', text => {
+    const result = resolveAudience([deployment("smart"), deployment("smart", "", "Ning")], text);
+    expect(result.deployments).toEqual([]);
+  });
+  it("explicit tags and vocatives work; ordinary Reply still works without an explicit override", () => {
+    const ann = deployment("smart"); const ning = deployment("smart", "", "Ning");
+    expect(resolveAudience([ann, ning], "@Ann help", ning.deployment_id).deployments).toEqual([ann]);
+    expect(resolveAudience([ann, ning], "An example?", ning.deployment_id).deployments).toEqual([ning]);
   });
 });

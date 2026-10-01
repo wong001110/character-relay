@@ -1,3 +1,4 @@
+import type { RoomEvidence, RoomRoutingRequest, RoomRoutingResult } from "./roomEvidence.js";
 import type {
   ConnectorHeartbeat,
   DiscordConnectorEvent,
@@ -604,6 +605,18 @@ export class RelayClient {
         body: JSON.stringify({ connection_id: this.connectionId, ...payload })
       }
     );
+  }
+
+  async observeRoom(evidence: RoomEvidence): Promise<{ accepted: boolean; revision: number }> {
+    return this.request("/api/connectors/discord/rooms/events", {
+      method: "POST", body: JSON.stringify({ ...evidence, connection_id: this.connectionId })
+    });
+  }
+
+  async resolveRoom(input: RoomRoutingRequest): Promise<RoomRoutingResult> {
+    return this.request("/api/connectors/discord/rooms/resolve", {
+      method: "POST", body: JSON.stringify({ ...input, connection_id: this.connectionId })
+    });
   }
 
   async resolveSmartParticipation(

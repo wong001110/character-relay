@@ -81,6 +81,8 @@ from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.deployment_repository import decode_ids
 from echo_masque.persistence.expression_models import DiscordExpressionSemanticRecord
 from echo_masque.persistence.expression_repository import expression_key
+from echo_masque.room_context import bind_requester
+from echo_masque.room_sources import SourceUnavailable
 
 router = APIRouter(prefix="/api/connectors/discord", tags=["connectors"])
 _WEBHOOK_SCOPE = "discord_webhook"
@@ -1110,6 +1112,10 @@ async def process_discord_message(
             reason="no_active_deployment",
             deployment_id=payload.deployment_id,
         )
+    try:
+        payload = bind_requester(payload, deployment, request.app.state.room_repository)
+    except SourceUnavailable as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     repository = durable_runtime_repository(request)
     try:
         operation = repository.claim_character_operation(
@@ -1118,7 +1124,7 @@ async def process_discord_message(
             guild_id=payload.guild_id,
             channel_id=payload.channel_id,
             thread_id=payload.thread_id,
-            source_message_id=payload.message_id,
+            source_message_id=payload.runtime_request_id,
             deployment_id=deployment.id,
         )
         if operation.status == "completed":
@@ -1169,15 +1175,6 @@ async def process_discord_message(
         runtime_operation_id=operation.operation_id,
         runtime_step_id=step.step_id,
     )
-    # This projection is independent of whether the current Character is admitted to reply.
-    # A known explicit reply is interaction evidence; admission and semantic interpretation are not.
-    try:
-        from echo_masque.social_event_runtime import ExplicitReplySocialEventProjector
-
-        ExplicitReplySocialEventProjector(request.app.state.database).observe(payload)
-    except Exception:
-        # Social observation must not turn a valid Character turn into an unavailable reply.
-        pass
     try:
         runner = character_turn_graph_runner(request)
         if runner is not None:

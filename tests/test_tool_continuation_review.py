@@ -161,8 +161,7 @@ def _prepared(
         turn_context=None,
         context_bundle=(
             SimpleNamespace(
-                thread=SimpleNamespace(id=conversation_thread_id),
-                segment=None,
+                native_context_id=conversation_thread_id,
             )
             if conversation_thread_id
             else None

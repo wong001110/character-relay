@@ -9,9 +9,11 @@ from typing import Literal
 
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.room_models import RoomDeliverySourceRecord
 from echo_masque.persistence.runtime_durability_models import (
     RuntimeOperationRecord,
     RuntimeSideEffectRecord,
@@ -19,6 +21,8 @@ from echo_masque.persistence.runtime_durability_models import (
     RuntimeTraceEventRecord,
     RuntimeTraceRunRecord,
 )
+from echo_masque.room_routing import RoomScope
+from echo_masque.room_sources import delivery_key
 from echo_masque.runtime_trace import RuntimeTraceEvent
 
 OperationStatus = Literal["active", "awaiting_delivery", "completed", "uncertain", "failed"]
@@ -508,7 +512,11 @@ class DurableRuntimeRepository:
     ) -> RuntimeOperationRecord:
         now = datetime.now(UTC)
         with self.database.session() as session:
-            step = session.get(RuntimeStepRecord, step_id)
+            step = session.scalar(
+                select(RuntimeStepRecord)
+                .where(RuntimeStepRecord.step_id == step_id)
+                .with_for_update()
+            )
             operation = session.get(RuntimeOperationRecord, operation_id)
             if step is None or operation is None or step.operation_id != operation_id:
                 raise KeyError("Durable delivery operation was not found.")
@@ -517,6 +525,13 @@ class DurableRuntimeRepository:
             if step.status != "delivery_claimed" or step.delivery_claim_nonce != claim_nonce:
                 raise ValueError("Durable delivery acknowledgement does not own the active claim.")
 
+            if step.deployment_id != deployment_id or self._object(cursor_json) != self._object(
+                step.cursor_json
+            ):
+                raise ValueError(
+                    "Delivery acknowledgement cannot replace the persisted generation cursor."
+                )
+            self._record_room_delivery(session, operation, step, sent_message_ids, complete=True)
             step.status = "delivered"
             step.sent_message_ids_json = self._json(sent_message_ids)
             step.outgoing_text = outgoing_text
@@ -560,7 +575,8 @@ class DurableRuntimeRepository:
             if step is None or operation is None:
                 return
             if operation.status == "completed" or step.status not in {
-                "delivery_claimed", "uncertain"
+                "delivery_claimed",
+                "uncertain",
             }:
                 return
             if not claim_nonce or step.delivery_claim_nonce != claim_nonce:
@@ -569,8 +585,12 @@ class DurableRuntimeRepository:
             # Repeated uncertainty reports cannot erase receipts or create source dialogue.
             previous = self._list(step.sent_message_ids_json)
             receipts = dict.fromkeys(
-                item for item in [*previous, *(sent_message_ids or [])]
+                item
+                for item in [*previous, *(sent_message_ids or [])]
                 if isinstance(item, str) and 0 < len(item) <= 200
+            )
+            self._record_room_delivery(
+                session, operation, step, list(receipts)[:20], complete=False
             )
             step.sent_message_ids_json = self._json(list(receipts)[:20])
             step.status = "uncertain"
@@ -581,6 +601,67 @@ class DurableRuntimeRepository:
             step.updated_at = now
             operation.updated_at = now
             session.commit()
+
+    def _record_room_delivery(
+        self,
+        session: Session,
+        operation: RuntimeOperationRecord,
+        step: RuntimeStepRecord,
+        message_ids: list[str],
+        *,
+        complete: bool,
+    ) -> None:
+        """Persist source links atomically with receipts, before generated text is scrubbed.
+
+        The target comes only from the persisted runtime context trace. Neither the
+        model output nor Connector acknowledgement may choose a different target.
+        Confirmed partial chunks are evidence, not completed dialogue/continuation.
+        """
+        response = self._object(step.response_json)
+        reply = response.get("reply")
+        if not isinstance(reply, dict):
+            reply = response
+        trace = reply.get("context_trace")
+        if not isinstance(trace, dict):
+            return  # A historical receipt without source evidence stays unlinked.
+        target = trace.get("source_target_message_id")
+        if not isinstance(target, str) or not 0 < len(target) <= 200:
+            return
+        scope = RoomScope(
+            owner_id=operation.owner_id,
+            connection_id=operation.connection_id,
+            guild_id=operation.guild_id,
+            channel_id=operation.channel_id,
+            thread_id=operation.thread_id,
+        )
+        if len(message_ids) > 20 or any(
+            not isinstance(mid, str) or not 0 < len(mid) <= 200 for mid in message_ids
+        ):
+            raise ValueError("invalid_delivery_receipt")
+        for message_id in dict.fromkeys(message_ids):
+            key = delivery_key(scope, message_id)
+            existing = session.get(RoomDeliverySourceRecord, key)
+            if existing is not None:
+                if existing.step_id != step.step_id or existing.target_message_id != target:
+                    raise ValueError("delivery_receipt_conflict")
+                existing.complete = existing.complete or complete
+                continue
+            session.add(
+                RoomDeliverySourceRecord(
+                    id=key,
+                    owner_id=operation.owner_id,
+                    connection_id=operation.connection_id,
+                    guild_id=operation.guild_id,
+                    channel_id=operation.channel_id,
+                    thread_id=operation.thread_id,
+                    message_id=message_id,
+                    target_message_id=target,
+                    deployment_id=step.deployment_id,
+                    operation_id=operation.operation_id,
+                    step_id=step.step_id,
+                    complete=complete,
+                )
+            )
 
     def _advance_operation(
         self,

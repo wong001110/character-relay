@@ -38,6 +38,10 @@ class CharacterContextTraceView(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    source_target_message_id: str = ""
+    source_snapshot_revision: int = Field(default=0, ge=0)
+    source_fingerprint: str = ""
+    source_revisions: dict[str, int] = Field(default_factory=dict)
     rag_status: Literal["skipped", "completed", "failed"] = "skipped"
     rag_reason: str = ""
     rag_gate_status: Literal[

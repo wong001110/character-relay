@@ -256,6 +256,9 @@ export interface DiscordInteractionRunComplete {
 }
 
 export interface DiscordContextMessage {
+  channel_id?: string;
+  thread_id?: string;
+  content_available?: boolean;
   reply_to_message_id?: string;
   edited_at?: string;
   author_deployment_id?: string;
@@ -270,6 +273,9 @@ export interface DiscordContextMessage {
 }
 
 export interface DiscordInboundMessage {
+  source_selection_id?: string;
+  source_created_at?: string;
+  source_edited_at?: string;
   connection_id: string;
   deployment_id: string;
   message_id: string;

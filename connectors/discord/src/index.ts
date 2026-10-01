@@ -1,3 +1,6 @@
+import { RoomEventPublisher } from "./roomEventPublisher.js";
+import { RoomPublicationLock, RoomWorkQueue } from "./roomWorkQueue.js";
+import { discordEvidence, rawRoomSource, roomLocation, sourceContext, checkRoomAccess, type RoomRoutingResult } from "./roomEvidence.js";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 
@@ -41,7 +44,6 @@ import {
 } from "./serverCatalog.js";
 import {
   RelayClient,
-  type DiscordV3ParticipationResult,
   type DiscordPlannerMediaResult
 } from "./relayClient.js";
 import {
@@ -62,7 +64,6 @@ import {
 } from "./routing.js";
 import {
   markExplicitSmartSelections,
-  markV3SmartParticipationSelections,
   preflightSmartParticipationRuntime
 } from "./smartParticipation.js";
 import {
@@ -167,9 +168,22 @@ interface CollectedDiscordTurn {
 }
 
 const context = new ContextBuffer(config.maxContextMessages);
-const queues = new Map<string, Promise<void>>();
-const queuedIngressByDestination = new Map<string, number>();
-let queuedIngressCount = 0;
+const roomEvents = new RoomEventPublisher(
+  evidence => relay.observeRoom(evidence),
+  (error, room) => log("Raw room evidence update failed; publication still requires a fresh read.", {
+    room, ...safeDiagnosticError(error)
+  })
+);
+const roomPublications = new RoomPublicationLock();
+const workQueue = new RoomWorkQueue({
+  maximumPending: config.turnIngressMaxPending,
+  maximumPerRoom: config.turnIngressMaxPendingPerDestination,
+  concurrency: 4,
+  concurrencyPerRoom: 2
+}, (error, destination) => {
+  lastError = formatSafeDiagnosticError(error);
+  log("Discord message task failed.", { destination, ...safeDiagnosticError(error) });
+});
 const latestHumanTurnByDestination = new Map<
   string,
   { epoch: number; messageId: string }
@@ -232,8 +246,8 @@ const turnIngress = new TurnIngressCoordinator<CollectedDiscordTurn>(
     log("Discord turn ingress rejected before Runtime submission.", {
       scopeKey,
       reason,
-      pending: queuedIngressCount,
-      destinationPending: queuedIngressByDestination.get(scopeKey) ?? 0
+      pending: workQueue.pending,
+      destinationPending: workQueue.pendingFor(scopeKey)
     });
   }
 );
@@ -689,33 +703,7 @@ async function resolveReplyTarget(
 }
 
 function enqueue(destination: string, task: () => Promise<void>): boolean {
-  const destinationPending = queuedIngressByDestination.get(destination) ?? 0;
-  if (
-    queuedIngressCount >= config.turnIngressMaxPending ||
-    destinationPending >= config.turnIngressMaxPendingPerDestination
-  ) {
-    return false;
-  }
-  queuedIngressCount += 1;
-  queuedIngressByDestination.set(destination, destinationPending + 1);
-  const previous = queues.get(destination) ?? Promise.resolve();
-  let next: Promise<void>;
-  next = previous
-    .catch(() => undefined)
-    .then(task)
-    .catch((error: unknown) => {
-      lastError = formatSafeDiagnosticError(error);
-      log("Discord message task failed.", { destination, ...safeDiagnosticError(error) });
-    })
-    .finally(() => {
-      queuedIngressCount = Math.max(0, queuedIngressCount - 1);
-      const remaining = (queuedIngressByDestination.get(destination) ?? 1) - 1;
-      if (remaining > 0) queuedIngressByDestination.set(destination, remaining);
-      else queuedIngressByDestination.delete(destination);
-      if (queues.get(destination) === next) queues.delete(destination);
-    });
-  queues.set(destination, next);
-  return true;
+  return workQueue.enqueue(destination, task);
 }
 
 async function sendSelectionHelp(
@@ -2231,6 +2219,7 @@ async function processMessage(
     if (burst) {
       for (const item of burst.items.slice(0, -1)) {
         context.push(key, {
+          channel_id: location.channelId, thread_id: location.threadId,
           message_id: item.source.id,
           reply_to_message_id: item.source.reference?.messageId ?? "",
           ...(item.source.editedAt ? { edited_at: item.source.editedAt.toISOString() } : {}),
@@ -2249,6 +2238,7 @@ async function processMessage(
       resolveMessageStickers(guildMessage)
     ]);
     const contextMessage: DiscordContextMessage = {
+      channel_id: location.channelId, thread_id: location.threadId,
       message_id: guildMessage.id,
       reply_to_message_id: guildMessage.reference?.messageId ?? "",
       ...(guildMessage.editedAt ? { edited_at: guildMessage.editedAt.toISOString() } : {}),
@@ -2335,66 +2325,6 @@ async function processMessage(
         })
       : [];
 
-    let plannerMedia: DiscordPlannerMediaResult | null = null;
-    const hasPlannerMediaInput =
-      guildMessage.attachments.size > 0 ||
-      guildMessage.embeds.length > 0 ||
-      /https?:\/\//iu.test(guildMessage.content) ||
-      burstMediaMessageIds.length > 0;
-    if (hasPlannerMediaInput) {
-      try {
-        plannerMedia = await relay.resolvePlannerMedia({
-          message_id: guildMessage.id,
-          guild_id: guildMessage.guildId,
-          channel_id: location.channelId,
-          thread_id: location.threadId,
-          text: originalText || guildMessage.content,
-          burst_media_message_ids: burstMediaMessageIds
-        });
-        reportDiscordEvent({
-          level: "info",
-          eventType: "planner_media_resolved",
-          message: "Planner-only media context was resolved before Smart Participation.",
-          guildId: guildMessage.guildId,
-          guildName: guildMessage.guild.name,
-          channelId: location.channelId,
-          channelName: location.channelName,
-          threadId: location.threadId,
-          threadName: location.threadName,
-          sourceMessageId: guildMessage.id,
-          details: {
-            descriptor_count: plannerMedia.descriptors.length,
-            resolved_descriptor_count: plannerMedia.descriptors.filter(
-              (item) => item.state === "resolved" && Boolean(item.subject || item.summary)
-            ).length,
-            media_dependency: plannerMedia.dependency,
-            dependency_locked: plannerMedia.dependency_locked
-          }
-        });
-      } catch (error) {
-        reportDiscordEvent({
-          level: "warning",
-          eventType: "planner_media_failed",
-          message: "Planner-only media resolution failed; routing continued without guessed content.",
-          guildId: guildMessage.guildId,
-          guildName: guildMessage.guild.name,
-          channelId: location.channelId,
-          channelName: location.channelName,
-          threadId: location.threadId,
-          threadName: location.threadName,
-          sourceMessageId: guildMessage.id,
-          details: safeDiagnosticError(error)
-        });
-      }
-    }
-    const participationAnalysisText = [
-      participationText,
-      plannerMedia?.planning_text ?? ""
-    ]
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-
     let interactionClaim: DiscordInteractionClaim = interactionClaimOverride ?? {
       claimed: false,
       run_id: null,
@@ -2465,214 +2395,59 @@ async function processMessage(
       config.groupAddressAliases
     );
     const explicitAudience = audience.deployments.length > 0;
-    let v3Participation: DiscordV3ParticipationResult | null = null;
-    let v3HardEligibleIds = new Set<string>();
-    const smartRuntimeScopeKey = [
-      config.relayConnectionId,
-      guildMessage.guildId,
-      location.channelId,
-      location.threadId
-    ].join(":");
-    if (
-      config.smartParticipationEnabled && participationAnalysisText.trim() && candidates.length
-    ) {
-      const resolverPreflightNow = Date.now();
-      const resolverPreflight = preflightSmartParticipationRuntime(
-        candidates,
-        participationAnalysisText,
-        resolverPreflightNow,
-        smartRuntimeScopeKey
-      );
-      const hardEligibleIds = new Set(resolverPreflight.eligibleDeploymentIds);
-      v3HardEligibleIds = hardEligibleIds;
-      const explicitIds = new Set(audience.deployments.map((item) => item.deployment_id));
-      const resolverDeploymentIds = explicitAudience
-        ? candidates.map((item) => item.deployment_id)
-        : [...hardEligibleIds];
-      if (resolverDeploymentIds.length && (explicitAudience || !resolverPreflight.skipResolver)) {
-        try {
-          v3Participation = await relay.resolveSmartParticipation({
-            message: participationAnalysisText,
-            deployment_ids: resolverDeploymentIds,
-            guild_id: guildMessage.guildId,
-            channel_id: location.channelId,
-            thread_id: location.threadId,
-            message_id: guildMessage.id,
-            author_id: guildMessage.author.id,
-            author_display_name: authorDisplayName,
-            reply_to_message_id: guildMessage.reference?.messageId ?? "",
-            reply_to_author_id: replyAuthorByMessageId.get(guildMessage.id)?.id ?? "",
-            reply_to_author_display_name: replyAuthorByMessageId.get(guildMessage.id)?.displayName ?? "",
-            burst_id: participationBurstId,
-            burst_messages: participationBurstMessages,
-            channel_cooldown_seconds: config.smartParticipationChannelCooldownSeconds,
-            window_seconds: config.smartParticipationWindowSeconds,
-            max_replies_per_window: config.smartParticipationMaxRepliesPerWindow,
-            media_descriptors: plannerMedia?.descriptors ?? [],
-            media_dependency: plannerMedia?.dependency ?? "none",
-            media_dependency_locked: plannerMedia?.dependency_locked ?? false,
-            candidate_preflight: resolverDeploymentIds.map((deploymentId) => {
-              return {
-                deployment_id: deploymentId,
-                eligible: explicitAudience
-                  ? explicitIds.has(deploymentId)
-                  : hardEligibleIds.has(deploymentId),
-                deterministic_score: 0,
-                minimum_score: 0,
-                signals: {}
-              };
-            })
-          });
-          reportDiscordEvent({
-            level: v3Participation.available ? "info" : "warning",
-            eventType: "smart_participation_v3_resolved",
-            message: v3Participation.available
-              ? "Conversation Intelligence v3 resolved participation provenance."
-              : "Conversation Intelligence v3 returned a safe silent participation result.",
-            guildId: guildMessage.guildId,
-            guildName: guildMessage.guild.name,
-            channelId: location.channelId,
-            channelName: location.channelName,
-            threadId: location.threadId,
-            threadName: location.threadName,
-            sourceMessageId: guildMessage.id,
-            details: {
-              resolver_version: v3Participation.resolver_version,
-              available: v3Participation.available,
-              reason: v3Participation.reason,
-              candidate_count: v3Participation.candidates.length,
-              burst_id: burstTelemetry?.burstId ?? null,
-              burst_message_count: burstTelemetry?.messageCount ?? 1,
-              collapsed_message_count: burstTelemetry?.collapsedMessageCount ?? 0,
-              turn_collector_flush_reason: burstTelemetry?.flushReason ?? null,
-              resolver_preflight_reason: resolverPreflight.reason,
-              segmentation_used: v3Participation.segmentation_used,
-              segment_ids: v3Participation.conversation_segments.map((item) => item.id),
-              conversation_thread_ids: v3Participation.conversation_segments.map(
-                (item) => item.conversation_thread_id
-              ).filter(Boolean),
-              speaker_deployment_ids: v3Participation.speaker_plan.map(
-                (item) => item.deployment_id
-              ),
-              reply_target_deployment_ids: v3Participation.reply_targets.map(
-                (item) => item.deployment_id
-              ),
-              media_grounding_level: v3Participation.media_grounding_level,
-              context_sufficiency: v3Participation.context_sufficiency
-            }
-          });
-        } catch (error) {
-          reportDiscordEvent({
-            level: "warning",
-            eventType: "smart_participation_v3_failed",
-            message: "Conversation Intelligence v3 failed; ordinary participation remains silent.",
-            guildId: guildMessage.guildId,
-            guildName: guildMessage.guild.name,
-            channelId: location.channelId,
-            channelName: location.channelName,
-            threadId: location.threadId,
-            threadName: location.threadName,
-            sourceMessageId: guildMessage.id,
-            details: {
-              ...safeDiagnosticError(error),
-              candidate_count: resolverDeploymentIds.length,
-              burst_id: burstTelemetry?.burstId ?? null,
-              burst_message_count: burstTelemetry?.messageCount ?? 1,
-              turn_collector_flush_reason: burstTelemetry?.flushReason ?? null
-            }
-          });
-        }
-      } else if (!explicitAudience && resolverPreflight.skipResolver) {
-        reportDiscordEvent({
-          level: "info",
-          eventType: "smart_participation_v3_hard_gate_blocked",
-          message: "A deterministic participation hard gate blocked resolver admission.",
-          guildId: guildMessage.guildId,
-          guildName: guildMessage.guild.name,
-          channelId: location.channelId,
-          channelName: location.channelName,
-          threadId: location.threadId,
-          threadName: location.threadName,
-          sourceMessageId: guildMessage.id,
-          details: {
-            reason: resolverPreflight.reason,
-            burst_id: burstTelemetry?.burstId ?? null,
-            burst_message_count: burstTelemetry?.messageCount ?? 1,
-            collapsed_message_count: burstTelemetry?.collapsedMessageCount ?? 0
-          }
-        });
+    let roomRouting: RoomRoutingResult;
+    try {
+      const evidence = await discordEvidence(guildMessage, config.messageContentIntent);
+      for (const raw of evidence.messages) context.push(key, sourceContext(raw), true);
+      roomRouting = await relay.resolveRoom({
+        ...evidence,
+        request_id: guildMessage.id,
+        trigger_message_id: guildMessage.id,
+        deployment_ids: candidates.map(item => item.deployment_id),
+        // A Reply is resolved from the canonical raw parent by Runtime, not forged as a mention.
+        explicit_deployment_ids: audience.reason === "selected_reply" ? [] :
+          audience.deployments.map(item => item.deployment_id),
+        ambient_requested: config.smartParticipationEnabled
+      });
+    } catch (error) {
+      reportDiscordEvent({
+        level: "warning", eventType: "room_routing_failed",
+        message: "Room routing failed; no legacy selector or random speaker will run.",
+        guildId: guildMessage.guildId, channelId: location.channelId,
+        threadId: location.threadId, sourceMessageId: guildMessage.id,
+        details: safeDiagnosticError(error)
+      });
+      if (explicitAudience || mentionedBot || replyTarget.characterMessage) {
+        await guildMessage.reply({ content: "I could not resolve this request safely. Please try again.",
+          allowedMentions: { parse: [], repliedUser: false } });
       }
+      return;
     }
-    if (!explicitAudience) {
-      const planned = (v3Participation?.speaker_plan ?? [])
-        .flatMap((item) => {
-          const deployment = candidates.find(
-            (candidate) => candidate.deployment_id === item.deployment_id
-          );
-          return deployment &&
-            deployment.participation_mode === "smart" &&
-            v3HardEligibleIds.has(deployment.deployment_id)
-            ? [deployment]
-            : [];
-        });
-      markV3SmartParticipationSelections(planned, Date.now(), smartRuntimeScopeKey);
-      audience = {
-        deployments: planned,
-        text: participationText.trim(),
-        reason:
-          planned.length > 1
-            ? "selected_smart_multiple"
-            : planned.length === 1
-              ? "selected_smart"
-              : "not_found",
-        options: audience.options
-      };
+    reportDiscordEvent({
+      level: ["direct", "decision", "none"].includes(roomRouting.outcome) ? "info" : "warning",
+      eventType: "room_routing_resolved", message: "Room routing completed.",
+      guildId: guildMessage.guildId, channelId: location.channelId,
+      threadId: location.threadId, sourceMessageId: guildMessage.id,
+      details: {
+        route_id: roomRouting.route_id, outcome: roomRouting.outcome, reason: roomRouting.reason,
+        snapshot_revision: roomRouting.snapshot_revision, attempts: roomRouting.attempts,
+        prompt_version: roomRouting.prompt_version,
+        choices: roomRouting.choices.map(item => ({ deployment_id: item.deployment_id,
+          target_message_id: item.target_message_id }))
+      }
+    });
+    const roomChoices = new Map(roomRouting.choices.map(item => [item.deployment_id, item]));
+    const selected = candidates.filter(item => roomChoices.has(item.deployment_id));
+    if (!selected.length && roomRouting.outcome !== "none" &&
+        (explicitAudience || mentionedBot || replyTarget.characterMessage)) {
+      await guildMessage.reply({ content: roomRouting.reason === "capacity"
+          ? "Too many characters were requested at once. Please address up to three."
+          : "This request is unavailable or blocked; it was not treated as deliberate silence.",
+        allowedMentions: { parse: [], repliedUser: false } });
     }
-    const actualSmartDeploymentIds =
-      audience.reason === "selected_smart" || audience.reason === "selected_smart_multiple"
-        ? audience.deployments.map((deployment) => deployment.deployment_id)
-        : [];
-    if (actualSmartDeploymentIds.length) {
-      void relay
-        .observeSmartParticipationOutcome({
-          guild_id: guildMessage.guildId,
-          channel_id: location.channelId,
-          thread_id: location.threadId,
-          message_id: guildMessage.id,
-          burst_id: participationBurstId,
-          author_id: guildMessage.author.id,
-          author_display_name: authorDisplayName,
-          author_global_name: guildMessage.author.globalName ?? "",
-          author_username: guildMessage.author.username,
-          author_avatar_url:
-            guildMessage.member?.displayAvatarURL({ extension: "png", size: 128 }) ??
-            guildMessage.author.displayAvatarURL({ extension: "png", size: 128 }),
-          author_is_bot: guildMessage.author.bot,
-          reply_to_message_id: guildMessage.reference?.messageId ?? "",
-          selected_deployment_ids: actualSmartDeploymentIds,
-          candidate_deployment_ids: candidates
-            .filter((candidate) => candidate.participation_mode === "smart")
-            .map((candidate) => candidate.deployment_id)
-        })
-        .catch((error) => {
-          reportDiscordEvent({
-            level: "warning",
-            eventType: "smart_participation_outcome_failed",
-            message: "Server could not persist Smart Participation outcome state.",
-            guildId: guildMessage.guildId,
-            guildName: guildMessage.guild.name,
-            channelId: location.channelId,
-            channelName: location.channelName,
-            threadId: location.threadId,
-            threadName: location.threadName,
-            sourceMessageId: guildMessage.id,
-            details: {
-              ...safeDiagnosticError(error),
-              selected_deployment_ids: actualSmartDeploymentIds
-            }
-          });
-        });
-    }
+    audience = { ...audience, deployments: selected,
+      reason: roomRouting.outcome === "decision" ? (selected.length > 1
+        ? "selected_smart_multiple" : "selected_smart") : audience.reason };
     if (!audience.deployments.length) {
       if (mentionedBot || replyTarget.characterMessage) {
         reportDiscordEvent({
@@ -2707,19 +2482,7 @@ async function processMessage(
     }
 
     const isReplyToCharacter = audience.reason === "selected_reply";
-    const eligibleDeployments = audience.deployments.filter((deployment) =>
-      shouldSubmitMessage(
-        deployment,
-        {
-          mentionedBot,
-          repliedToBot: isReplyToCharacter,
-          hasReadableText: Boolean(
-            audience.text || originalText || emojis.length || stickers.length
-          )
-        },
-        config.smartParticipationEnabled
-      )
-    );
+    const eligibleDeployments = audience.deployments;
     if (!eligibleDeployments.length) {
       if (mentionedBot || isReplyToCharacter) {
         reportDiscordEvent({
@@ -2927,14 +2690,9 @@ async function processMessage(
           audience_reason: audience.reason,
           response_index: responseIndex + 1,
           response_count: eligibleDeployments.length,
-          resolver_version: v3Participation?.resolver_version ?? null,
-          participation_plan_reason: v3Participation?.participation_plan_reason ?? null,
-          reply_target_segment_id: v3Participation?.reply_targets.find(
-            (item) => item.deployment_id === deployment.deployment_id
-          )?.segment_id ?? null,
-          reply_target_thread_id: v3Participation?.reply_targets.find(
-            (item) => item.deployment_id === deployment.deployment_id
-          )?.conversation_thread_id ?? null
+          route_id: roomRouting.route_id,
+          selection_id: roomChoices.get(deployment.deployment_id)?.selection_id ?? "",
+          target_message_id: roomChoices.get(deployment.deployment_id)?.target_message_id ?? ""
         }
       });
       const recentMessages = context.get(key);
@@ -3012,12 +2770,10 @@ async function processMessage(
           : guildMessage.author.id,
         author_display_name: sourceDisplayName,
         text: turnText,
-        participation_guidance:
-          !socialSource && smartParticipationAudience
-            ? (v3Participation?.speaker_plan ?? []).find(
-                (item) => item.deployment_id === deployment.deployment_id
-              )?.guidance ?? ""
-            : "",
+        source_selection_id: socialSource ? "" :
+          roomChoices.get(deployment.deployment_id)?.selection_id ?? "",
+        source_created_at: expressionSource.createdAt.toISOString(),
+        ...(expressionSource.editedAt ? { source_edited_at: expressionSource.editedAt.toISOString() } : {}),
         mentioned_bot: socialSource ? true : mentionedBot,
         replied_to_bot: socialSource ? false : isReplyToCharacter,
         reply_to_message_id: socialSource ? "" : (guildMessage.reference?.messageId ?? ""),
@@ -3028,7 +2784,7 @@ async function processMessage(
         author_is_bot: Boolean(sourceDeployment),
         emojis: socialSource ? [] : emojis,
         stickers: socialSource ? [] : stickers,
-        media_descriptors: socialSource ? [] : (plannerMedia?.descriptors ?? []),
+        media_descriptors: [],
         burst_media_message_ids: socialSource ? [] : burstMediaMessageIds,
         conversation_burst_id: socialSource ? "" : participationBurstId,
         burst_source_message_ids: socialSource
@@ -3201,6 +2957,7 @@ async function processMessage(
         | { operationId: string; stepId: string; claimNonce: string }
         | "already_delivered"
         | null = null;
+      const releasePublication = await roomPublications.acquire(key);
       try {
         if (
           socialTurnEnabled &&
@@ -3305,6 +3062,8 @@ async function processMessage(
           details: safeDiagnosticError(error)
         });
         throw error;
+      } finally {
+        releasePublication();
       }
       const sentMessageIds = execution.sentMessageIds;
       const outgoingText = execution.outgoingText;
@@ -3369,8 +3128,8 @@ async function processMessage(
           latency_ms: reply.latency_ms ?? null,
           input_tokens: reply.input_tokens ?? null,
           output_tokens: reply.output_tokens ?? null,
-          resolver_version: v3Participation?.resolver_version ?? null,
-          participation_plan_reason: v3Participation?.participation_plan_reason ?? null,
+          route_id: roomRouting.route_id,
+          participation_reason: roomRouting.reason,
           identity_mode: deployment.identity_mode,
           webhook_status: deployment.webhook_status
         }
@@ -3916,21 +3675,13 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 function observeIncomingMessage(message: Message): void {
-  const botUserId = client.user?.id;
-  if (!botUserId || !message.inGuild() || message.author.bot) return;
+  if (!client.user || !message.inGuild()) return;
   const location = channelLocation(message);
   if (!location.channelId || !deploymentsFor(deployments, location.channelId,
       location.threadId, message.guildId, location.categoryId).length) return;
-  context.push(destinationKey(location.channelId, location.threadId), {
-    message_id: message.id,
-    reply_to_message_id: message.reference?.messageId ?? "",
-    author_id: message.author.id,
-    author_display_name: message.member?.displayName ?? message.author.globalName ?? message.author.username,
-    text: normalizedText(message, botUserId, []),
-    emojis: [], stickers: [], created_at: message.createdAt.toISOString(),
-    ...(message.editedAt ? { edited_at: message.editedAt.toISOString() } : {}),
-    is_bot: false
-  }, true);
+  const source = rawRoomSource(message, config.messageContentIntent);
+  context.push(destinationKey(location.channelId, location.threadId), sourceContext(source), true);
+  roomEvents.publish(roomLocation(message), source, () => checkRoomAccess(message));
 }
 
 client.on(Events.MessageUpdate, (_previous, current) => {
@@ -3941,23 +3692,35 @@ client.on(Events.MessageUpdate, (_previous, current) => {
   const key = destinationKey(location.channelId, location.threadId);
   if (current.partial) {
     context.invalidate(key, current.id);
+    // Never manufacture replacement text from a partial Gateway update.
+    void current.fetch().then(fresh => observeIncomingMessage(fresh)).catch(error => {
+      log("Partial source edit needs a fresh read before publication.", {
+        messageId: current.id, ...safeDiagnosticError(error)
+      });
+    });
     return;
   }
   observeIncomingMessage(current);
 });
 
-client.on(Events.MessageDelete, message => {
+function observeDeletedMessage(message: Message | import("discord.js").PartialMessage): void {
   if (!message.inGuild()) return;
   const location = channelLocation(message);
   context.remove(destinationKey(location.channelId, location.threadId), message.id);
-});
+  if (!deploymentsFor(deployments, location.channelId, location.threadId,
+      message.guildId, location.categoryId).length) return;
+  roomEvents.publish({ guild_id: message.guildId, channel_id: location.channelId,
+    thread_id: location.threadId, category_id: location.categoryId }, {
+    message_id: message.id, channel_id: location.channelId, thread_id: location.threadId,
+    author_id: "", author_display_name: "", author_is_bot: false, author_deployment_id: "",
+    text: "", reply_to_message_id: "", created_at: message.createdAt.toISOString(),
+    edited_at: null, deleted: true, content_available: false, has_unseen_media: false
+  }, () => checkRoomAccess(message));
+}
 
+client.on(Events.MessageDelete, observeDeletedMessage);
 client.on(Events.MessageBulkDelete, messages => {
-  for (const message of messages.values()) {
-    if (!message.inGuild()) continue;
-    const location = channelLocation(message);
-    context.remove(destinationKey(location.channelId, location.threadId), message.id);
-  }
+  for (const message of messages.values()) observeDeletedMessage(message);
 });
 
 client.on(Events.MessageCreate, (message) => {
@@ -4029,7 +3792,8 @@ async function shutdown(signal: string): Promise<void> {
   relay.stopTurnJobs();
   await turnIngress.shutdown(true);
   await Promise.all([...turnJobRecoveryTasks].map((task) => task.catch(() => undefined)));
-  await Promise.all([...queues.values()].map((task) => task.catch(() => undefined)));
+  await workQueue.drain();
+  await roomEvents.stop();
   await eventReporter.stop();
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   if (dedupeTimer) clearInterval(dedupeTimer);

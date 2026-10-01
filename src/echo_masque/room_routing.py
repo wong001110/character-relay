@@ -39,6 +39,8 @@ class RoomMessage(FrozenModel):
     text: str = Field(default="", max_length=4000)
     version: int = Field(default=1, ge=1)
     reply_to_message_id: Identifier | None = None
+    response_to_message_id: Identifier | None = None
+    response_delivery_complete: bool | None = None
     # Actual normalized platform mention IDs; never inferred from names or quoted prose.
     mentioned_deployment_ids: tuple[Identifier, ...] = Field(default=(), max_length=24)
     deleted: bool = False

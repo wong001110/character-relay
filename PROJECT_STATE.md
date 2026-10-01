@@ -15,7 +15,7 @@ Updated: **2026-10-01**. This is the only current progress and takeover record.
 | Merge / production deploy | Not authorized by this assignment; not performed |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
 | Character cards | Prefer portable authored content; old schema must not block the refactor |
-| Full refactor | **INCOMPLETE**; new routing is an offline spike, not the production path |
+| Full refactor | **INCOMPLETE**; source-focused production routing is wired; continuation/freshness and retirement are still in progress |
 
 ## Baseline correction
 
@@ -24,10 +24,10 @@ room-buffer and partial/uncertain delivery protections, not the lost unpushed P3
 logs for that missing code cannot attest main or this branch. The old checkpoint remains in
 [the merge review](docs/reviews/group-chat-checkpoint-2026-09-22.md) and Git history.
 
-The current application still uses the old Planner, semantic participation/structure, numerical
-social state, inner Turn Director, automatic writers and Roast. This R1 slice installs no new
-production caller, route, graph, database schema or Connector/Portal behavior. Do not describe
-these old consumers as removed. The new modules have executable offline contracts/tests only.
+The ordinary Discord Connector now calls the Room Routing API, and Character context uses raw
+source focus rather than a semantic Thread prerequisite. The inner Character Turn Director has
+been removed from the generation path. Old selection APIs/composition and cognitive consumers
+still exist pending their explicit retirement; this checkpoint does not claim that cleanup is done.
 
 ## Refactor progress
 
@@ -37,8 +37,8 @@ R0-R6 are this initiative's checkpoints, not old P0-P6 completion claims.
 | --- | --- |
 | R0 | COMPLETE: direction/replacement/data/card policy and A01-A29 acceptance committed first; three documentation paths only. |
 | R1 | OFFLINE SLICE VERIFIED: rules, strict decision/input validation, replay metrics, recorded-provider and native Planner seams, 240 synthetic/unreviewed cases. Actual Free Token Pool qualification, human-reviewed labels and complete old-pipeline comparison remain **NOT RUN**. |
-| R2 | NOT STARTED: source-focused production direct routing, permitted ancestry/restart and slow-job integration. |
-| R3 | NOT STARTED: evaluated Room Director production replacement, old selection retirement, continuation/freshness. |
+| R2 | IMPLEMENTED / INTEGRATION VERIFYING: Room source/selection records, origin-scoped SDK ancestry/history, canonical requester binding, ordered permission observations, continuous edits/deletes, separate bounded work/publication queues, atomic delivered-response source links. Full suite rerun and mutation evidence pending. |
+| R3 | IN PROGRESS: Free Token Pool adapter and strict qualification seam wired, default ambient disabled; inner Director removed. No real qualification installed. Bounded continuation, freshness and complete old-selector retirement remain. |
 | R4 | NOT STARTED: explicit notes/history, relationships, retrieval-only encoders and sparse expressions. |
 | R5 | NOT STARTED: Portal/observation and retired-consumer cleanup. |
 | R6 | NOT STARTED: complete integration/deletion audit, isolated card/reset rehearsal and release preparation. |
@@ -80,3 +80,16 @@ fallback and honest missing-usage accounting. Existing utility JSON salvage/usag
 silently weaken the new contract. Obtain actual model/label evidence before ambient activation.
 Retire old consumers at the planned production replacement boundary, not while the offline spike
 is the only replacement. Keep every A01-A29 check visible; update this file after coherent work.
+
+## R2 checkpoint (2026-10-01)
+
+Source/test checkpoint follows verified R1 head `5870748009e86a741d7c39679799277ef9460b74`.
+Connector **156 tests** passed; backend source/delivery subset **62 passed**. Whole-source mypy
+passed across **414 files**, Ruff passed. The first full Python run was **19 failed, 1414 passed,
+7 skipped**; failures were reviewed, contract fixtures/reproducible corpus corrected, and the
+61-test affected subset passed. A subsequent full run is still required. Counts overlap and are
+not additive. This is self-review. No new protected-boundary mutation, PostgreSQL, browser/live
+Discord/model qualification or production rollout is claimed at this checkpoint.
+
+Unpublished source and exact evidence are preserved externally as an Agent Continuity snapshot;
+GitHub remains the delivery truth. R3-R6 acceptance must not be inferred from the new classes.

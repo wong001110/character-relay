@@ -55,6 +55,7 @@ from echo_masque.persistence.models import CharacterCardRecord, TargetRecord
 from echo_masque.persistence.smart_participation_state_models import (
     SmartParticipationReplyDecisionRecord,
 )
+from echo_masque.room_context import RoomContextService
 from echo_masque.smart_output import SmartOutputContext
 from echo_masque.social_intelligence_v3 import SocialIntelligenceV3Service
 from echo_masque.targets import stable_target
@@ -422,7 +423,7 @@ def test_resolve_correction_cache_prevents_normal_turn_reapplication(tmp_path: P
     assert corrections.apply_calls == 1
 
 
-def test_v3_bundle_sections_reach_the_provider_prompt(tmp_path: Path) -> None:
+def test_source_bundle_sections_reach_the_provider_prompt(tmp_path: Path) -> None:
     database = Database(f"sqlite:///{tmp_path / 'provider-prompt.db'}")
     database.initialize()
     target = _PromptCaptureTarget()
@@ -460,12 +461,14 @@ def test_v3_bundle_sections_reach_the_provider_prompt(tmp_path: Path) -> None:
         trace=None,
     )
     bundle = SimpleNamespace(
-        prompt_sections=lambda: ("V3 BUNDLE SENTINEL",),
-        segment=SimpleNamespace(message_ids=("segment-message", "message-1")),
+        prompt_sections=lambda: ("SOURCE BUNDLE SENTINEL",),
+        focused_message_ids=("segment-message", "message-1"),
+        native_context_id="",
     )
     context_service = SimpleNamespace(
         build=lambda _: SimpleNamespace(
             bundle=bundle,
+            payload=resolved.payload,
             turn_context=turn_context,
             error_reason="",
         )
@@ -474,14 +477,14 @@ def test_v3_bundle_sections_reach_the_provider_prompt(tmp_path: Path) -> None:
         Repository(database),
         DeploymentRepository(database),
         CredentialStore(),
-        context_service_v3=cast(CharacterTurnContextV3Service, context_service),
+        context_service=cast(RoomContextService, context_service),
     )
 
     prepared = runtime.prepare_character_turn(resolved)
     asyncio.run(runtime.invoke_character_model(prepared))
 
-    assert "V3 BUNDLE SENTINEL" in prepared.prompt
-    assert "V3 BUNDLE SENTINEL" in target.prompt
+    assert "SOURCE BUNDLE SENTINEL" in prepared.prompt
+    assert "SOURCE BUNDLE SENTINEL" in target.prompt
     assert "Selected discussion." in prepared.prompt
     assert "What did we decide?" in prepared.prompt
     assert "Unrelated simultaneous discussion." not in prepared.prompt

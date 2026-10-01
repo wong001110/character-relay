@@ -62,7 +62,6 @@ class CharacterTurnGraphState(TypedDict, total=False):
     resolve_status: StageStatus
     context_status: StageStatus
     rag_status: StageStatus
-    director_status: StageStatus
     model_status: StageStatus
     tool_status: StageStatus
     tool_rounds: int
@@ -271,59 +270,15 @@ def _build_context(
         node_kind="context",
         status="completed",
         changed_keys=("context_status", "rag_status"),
-        metadata=(("rag_pipeline", "v3" if prepared.context_bundle is not None else "none"),),
+        metadata=(
+            ("rag_pipeline", "source_focus" if prepared.context_bundle is not None else "none"),
+        ),
     )
     return {"context_status": "completed", "rag_status": rag_status}
 
 
 def _route_after_context(state: CharacterTurnGraphState) -> str:
-    return "end" if state.get("outcome") == "silent" else "director"
-
-
-async def _resolve_turn_director(
-    state: CharacterTurnGraphState,
-    runtime: Runtime[CharacterTurnGraphContext],
-) -> CharacterTurnGraphState:
-    context = runtime.context
-    prepared = context.prepared
-    if prepared is None:
-        raise RuntimeError("Character Turn graph lost prepared context before Turn Director.")
-    _emit(state, context, node_name="turn_director", node_kind="decision", status="started")
-    try:
-        deployment = prepared.resolved.deployment
-        with provider_trace_scope(
-            owner_id=deployment.owner_id,
-            deployment_id=deployment.id,
-            character_card_id=prepared.resolved.card.id,
-            operation_id=state.get("operation_id", ""),
-            graph_run_id=state.get("graph_run_id", ""),
-            runtime_node="turn_director",
-        ):
-            await context.runtime.resolve_turn_director(prepared)
-    except Exception as exc:
-        _emit(
-            state,
-            context,
-            node_name="turn_director",
-            node_kind="decision",
-            status="failed",
-            changed_keys=("director_status",),
-            error=str(exc),
-        )
-        raise
-    _emit(
-        state,
-        context,
-        node_name="turn_director",
-        node_kind="decision",
-        status="completed",
-        changed_keys=("director_status",),
-        metadata=(
-            ("status", prepared.director_status),
-            ("verified_read_count", str(prepared.director_read_count)),
-        ),
-    )
-    return {"director_status": "completed"}
+    return "end" if state.get("outcome") == "silent" else "model"
 
 
 async def _invoke_model(
@@ -391,9 +346,7 @@ async def _invoke_model(
     context.response = response
     turn = context.tool_turn
     tool_count = (
-        len(turn.traces)
-        if turn is not None
-        else len(context.runtime._tool_traces(response.trace))
+        len(turn.traces) if turn is not None else len(context.runtime._tool_traces(response.trace))
     )
     tool_rounds = turn.tool_rounds if turn is not None else 0
     _emit(
@@ -596,7 +549,6 @@ def build_character_turn_graph() -> Any:
     )
     builder.add_node("turn_resolve", _resolve_turn)
     builder.add_node("turn_context", _build_context)
-    builder.add_node("turn_director", _resolve_turn_director)
     builder.add_node("turn_model", _invoke_model)
     builder.add_node("turn_tool_execution", _execute_tools)
     builder.add_node("turn_smart_output", _resolve_smart_output)
@@ -610,9 +562,8 @@ def build_character_turn_graph() -> Any:
     builder.add_conditional_edges(
         "turn_context",
         _route_after_context,
-        {"director": "turn_director", "end": END},
+        {"model": "turn_model", "end": END},
     )
-    builder.add_edge("turn_director", "turn_model")
     builder.add_conditional_edges(
         "turn_model",
         _route_after_model,
@@ -658,7 +609,6 @@ class CharacterTurnGraphRunner:
             "resolve_status": "not_started",
             "context_status": "not_started",
             "rag_status": "not_started",
-            "director_status": "not_started",
             "model_status": "not_started",
             "tool_status": "not_started",
             "tool_rounds": 0,
@@ -680,13 +630,11 @@ class CharacterTurnGraphRunner:
             mentioned = tuple(
                 part.mention.removeprefix("deployment:")
                 for part in smart_output.content
-                if isinstance(part, SmartMentionPart)
-                and part.mention.startswith("deployment:")
+                if isinstance(part, SmartMentionPart) and part.mention.startswith("deployment:")
             )
             proposal = (
                 context.invite_turn_state.proposals[0]
-                if context.invite_turn_state is not None
-                and context.invite_turn_state.proposals
+                if context.invite_turn_state is not None and context.invite_turn_state.proposals
                 else None
             )
             if proposal is not None and proposal.candidate_deployment_id in mentioned:

@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
+from echo_masque.room_director_policy import RoomDirectorPolicy
+
 ProviderId = Literal["deepseek", "openai", "openrouter", "custom"]
 JudgeModeValue = Literal["rules", "semantic", "hybrid"]
 CredentialSource = Literal["vault", "memory", "environment", "missing"]
@@ -22,7 +24,7 @@ UtilityProviderId = Literal[
 ]
 UtilityCapability = Literal[
     "semantic_judge",
-    "turn_director",
+    "room_director",
     "memory_intelligence",
     "tool_continuation",
     "context_compiler",
@@ -202,6 +204,7 @@ class ConversationBurstRuntimeProfile(BaseModel):
 class AdminRuntimeConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    room_director: RoomDirectorPolicy = Field(default_factory=RoomDirectorPolicy)
     adaptive: AdaptiveRuntimeProfile = Field(default_factory=AdaptiveRuntimeProfile)
     judge: JudgeRuntimeProfile = Field(default_factory=JudgeRuntimeProfile)
     semantic_routing: SemanticRoutingJudgeProfile = Field(
@@ -238,7 +241,8 @@ class AdminRuntimeConfig(BaseModel):
             capabilities = member.get("capabilities")
             if isinstance(capabilities, (list, tuple)):
                 retained = [
-                    item for item in capabilities if item != "participation_tiebreak"
+                    ("room_director" if item == "turn_director" else item)
+                    for item in capabilities if item != "participation_tiebreak"
                 ]
                 if not retained:
                     continue

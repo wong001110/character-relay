@@ -1,7 +1,6 @@
 import { groupAddressAliases } from "./audienceAliases.js";
 import {
-  consumeSmartSelection,
-  markExplicitSmartSelections
+  consumeSmartSelection
 } from "./smartParticipation.js";
 import type { DiscordDeployment } from "./types.js";
 
@@ -139,14 +138,13 @@ function withoutNameAlias(value: string, alias: string, requireTag = false): str
     "iu"
   );
   let trimmed = value.trimStart();
-  if (requireTag) {
-    const tag = trimmed.match(/^[@＠]\s*/u);
-    if (!tag) return null;
-    trimmed = trimmed.slice(tag[0].length);
-  }
+  const tag = trimmed.match(/^[@＠]\s*/u);
+  if (requireTag && !tag) return null;
+  if (tag) trimmed = trimmed.slice(tag[0].length);
   const match = trimmed.match(pattern);
   if (!match) return null;
-  return trimmed.slice(match[0].length);
+  const remainder = trimmed.slice(match[0].length);
+  return remainder;
 }
 
 interface NameMatch {
@@ -191,24 +189,21 @@ function requiresAsciiBoundary(alias: string): boolean {
   return /[A-Za-z0-9]$/u.test(alias);
 }
 
-function stripGroupAddress(value: string, additionalAliases: string[]): string | null {
-  const trimmed = value.trimStart();
-  const explicitAll = trimmed.match(/^\*(?:\s*[:：,，-])?\s*/u);
-  if (explicitAll) return trimmed.slice(explicitAll[0].length).trimStart();
-
+function stripGroupAddress(value: string, additionalAliases: string[], explicitlyTagged = false): string | null {
+  let trimmed = value.trimStart();
+  const tag = trimmed.match(/^[@＠]\s*/u);
+  if (tag) { explicitlyTagged = true; trimmed = trimmed.slice(tag[0].length); }
+  const allCommand = trimmed.match(/^\*\s*[:：]\s*/u);
+  if (allCommand) return trimmed.slice(allCommand[0].length);
+  // An ordinary Markdown bullet or a declarative "everyone is ..." is not a group invitation.
+  if (explicitlyTagged && /^\*(?=$|[\s:：,，])/u.test(trimmed)) {
+    return stripLeadingPunctuation(trimmed.slice(1));
+  }
   for (const alias of groupAddressAliases(additionalAliases)) {
-    const lowerValue = trimmed.toLocaleLowerCase();
-    const lowerAlias = alias.toLocaleLowerCase();
-    if (!lowerValue.startsWith(lowerAlias)) continue;
-
+    if (!trimmed.toLocaleLowerCase().startsWith(alias.toLocaleLowerCase())) continue;
     const remainder = trimmed.slice(alias.length);
-    if (
-      requiresAsciiBoundary(alias) &&
-      remainder &&
-      !/^[\s:：,，、.。?？!！\-—–/／+]/u.test(remainder)
-    ) {
-      continue;
-    }
+    if (requiresAsciiBoundary(alias) && remainder && !/^[\s:：,，、?？!！]/u.test(remainder)) continue;
+    if (!explicitlyTagged && remainder.trim() && !/^[：:,，、?？!！]/u.test(remainder)) continue;
     return stripLeadingPunctuation(remainder);
   }
   return null;
@@ -218,7 +213,7 @@ function stripTaggedGroupAddress(value: string, additionalAliases: string[]): st
   const trimmed = value.trimStart();
   const tag = trimmed.match(/^[@＠]\s*/u);
   if (!tag) return null;
-  return stripGroupAddress(trimmed.slice(tag[0].length), additionalAliases);
+  return stripGroupAddress(trimmed.slice(tag[0].length), additionalAliases, true);
 }
 
 function namedAudience(
@@ -229,6 +224,7 @@ function namedAudience(
 ): AudienceResolution | null {
   const selected = new Map<string, DiscordDeployment>();
   let remaining = text.trim();
+  let explicitlyAddressed = /^[@＠]/u.test(remaining);
 
   while (remaining) {
     const match = matchNamePrefix(candidates, remaining, requireTag);
@@ -240,6 +236,7 @@ function namedAudience(
     const deployment = match.deployments[0];
     if (!deployment) break;
     selected.set(deployment.deployment_id, deployment);
+    explicitlyAddressed ||= !match.remainder.trim() || /^[：:,，、?？!！]/u.test(match.remainder);
 
     const afterPunctuation = stripLeadingPunctuation(match.remainder);
     const directNext = matchNamePrefix(candidates, afterPunctuation, requireTag);
@@ -259,7 +256,7 @@ function namedAudience(
   }
 
   const deployments = [...selected.values()];
-  if (!deployments.length) return null;
+  if (!deployments.length || !explicitlyAddressed) return null;
   return {
     deployments,
     text: remaining,
@@ -275,35 +272,15 @@ export function resolveAudience(
   additionalGroupAliases: string[] = []
 ): AudienceResolution {
   const options = [...new Set(candidates.map(displayName))];
-  if (!candidates.length) {
-    return { deployments: [], text, reason: "not_found", options };
-  }
-
-  if (replyDeploymentId) {
-    const replyTarget = candidates.find((item) => item.deployment_id === replyDeploymentId);
-    if (replyTarget) {
-      markExplicitSmartSelections([replyTarget]);
-      return { deployments: [replyTarget], text: text.trim(), reason: "selected_reply", options };
-    }
-  }
-
+  if (!candidates.length) return { deployments: [], text, reason: "not_found", options };
   const groupText = stripGroupAddress(text, additionalGroupAliases);
-  if (groupText !== null) {
-    markExplicitSmartSelections(candidates);
-    return { deployments: [...candidates], text: groupText, reason: "selected_all", options };
-  }
-
+  if (groupText !== null) return { deployments: [...candidates], text: groupText, reason: "selected_all", options };
   const named = namedAudience(candidates, text, options);
-  if (named) {
-    if (named.deployments.length === 1) {
-      return named;
-    }
-    markExplicitSmartSelections(named.deployments);
-    return named;
+  if (named) return named; // Explicit current recipient takes precedence over Reply ancestry.
+  if (replyDeploymentId) {
+    const replyTarget = candidates.find(item => item.deployment_id === replyDeploymentId);
+    if (replyTarget) return { deployments: [replyTarget], text: text.trim(), reason: "selected_reply", options };
   }
-
-  // Ordinary messages are selected only by the authoritative v3 resolver in index.ts.
-  // This deterministic router intentionally remains silent when no direct address exists.
   return { deployments: [], text: text.trim(), reason: "ambiguous", options };
 }
 

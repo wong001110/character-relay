@@ -54,6 +54,8 @@ def _payload_requires_visible_action(payload: DiscordInboundMessage) -> bool:
     active interaction session still require a visible response.
     """
 
+    if payload.runtime_selection_origin:
+        return payload.runtime_selection_origin in {"direct", "context_action"}
     return bool(
         getattr(payload, "interaction_session_id", "")
         or getattr(payload, "mentioned_bot", False)
@@ -171,8 +173,9 @@ class SmartOutputContext:
         for item in messages[-10:]:
             if item.message_id:
                 unique[item.message_id] = item
-        message_alias_to_id: dict[str, str] = {"trigger": payload.message_id}
-        older_ids = [item_id for item_id in unique if item_id != payload.message_id]
+        primary_id = payload.runtime_target_message_id or payload.message_id
+        message_alias_to_id: dict[str, str] = {"trigger": primary_id}
+        older_ids = [item_id for item_id in unique if item_id != primary_id]
         for index, message_id in enumerate(older_ids[-8:], start=1):
             message_alias_to_id[f"m{index}"] = message_id
         message_id_to_alias = {value: key for key, value in message_alias_to_id.items()}

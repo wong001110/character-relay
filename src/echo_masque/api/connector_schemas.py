@@ -305,6 +305,9 @@ class DiscordContextMessage(BaseModel):
     reply_to_message_id: str = Field(default="", max_length=200)
     edited_at: datetime | None = None
     author_deployment_id: str = Field(default="", max_length=64)
+    channel_id: str = Field(default="", max_length=200)
+    thread_id: str = Field(default="", max_length=200)
+    content_available: bool = True
     message_id: str = Field(min_length=1, max_length=200)
     author_id: str = Field(min_length=1, max_length=200)
     author_display_name: str = Field(min_length=1, max_length=160)
@@ -316,6 +319,15 @@ class DiscordContextMessage(BaseModel):
 
 
 class DiscordInboundMessage(BaseModel):
+    source_selection_id: str = Field(default="", max_length=64)
+    source_created_at: datetime | None = None
+    source_edited_at: datetime | None = None
+    # Replaced by backend binding, never copied into authority from client hints.
+    runtime_request_id: str = Field(default="", max_length=200)
+    runtime_requester_id: str = Field(default="", max_length=200)
+    runtime_requester_is_bot: bool = True
+    runtime_target_message_id: str = Field(default="", max_length=200)
+    runtime_selection_origin: str = Field(default="", max_length=24)
     connection_id: str = Field(min_length=1, max_length=64)
     deployment_id: str = Field(min_length=1, max_length=64)
     message_id: str = Field(min_length=1, max_length=200)

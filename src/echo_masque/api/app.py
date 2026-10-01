@@ -47,6 +47,7 @@ from echo_masque.api.routes import (
 from echo_masque.api.routes.discord_debug_captures import (
     router as discord_debug_captures_router,
 )
+from echo_masque.api.routes.room_routing import router as room_routing_router
 from echo_masque.api.runtime_thread_limiter import limit_request_threads
 from echo_masque.audit_middleware import SensitiveAuditMiddleware
 from echo_masque.auth import AuthService
@@ -182,6 +183,7 @@ from echo_masque.persistence.knowledge_fabric_site_collection_repository import 
 from echo_masque.persistence.knowledge_fabric_visual_reference_repository import (
     KnowledgeFabricVisualReferenceRepository,
 )
+from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.persistence.turn_job_repository import TurnJobRepository
 from echo_masque.planner_media import PlannerMediaDescriptorService
@@ -193,6 +195,8 @@ from echo_masque.public_demo import PublicDemoService
 from echo_masque.public_demo_middleware import PublicDemoReadOnlyMiddleware
 from echo_masque.public_demo_quota import PublicDemoQuotaService
 from echo_masque.recall_media_connector_runtime import RecallAwareMediaDiscordConnectorRuntime
+from echo_masque.room_context import RoomContextService
+from echo_masque.room_director_pool import RoomDirectorPool
 from echo_masque.runtime_maintenance import RuntimeMaintenance
 from echo_masque.runtime_trace_buffer import BufferedRuntimeTraceSink
 from echo_masque.scheduled_reminder_service import ScheduledReminderDeliveryService
@@ -533,6 +537,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     knowledge_fabric_visual_reference_repository = KnowledgeFabricVisualReferenceRepository(
         database
     )
+    room_repository = RoomRepository(database)
+    room_context_service = RoomContextService(room_repository)
     discord_connector_runtime = RecallAwareMediaDiscordConnectorRuntime(
         repository,
         deployment_repository,
@@ -540,10 +546,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         provider_factory=lambda base_url, api_key: OpenAICompatibleProvider(
             base_url=base_url, api_key=api_key, settings=resolved
         ),
-        context_service_v3=character_turn_context_v3_service,
+        context_service=room_context_service,
         deployment_tool_repository=deployment_tool_repository,
         tool_registry=tool_registry,
-        turn_director_gateway=planner_utility_gateway,
         pending_action_service=pending_action_service,
         live_media_service=live_media_service,
         conversation_media_service=conversation_media_service,
@@ -807,6 +812,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.conversation_structure_repository = conversation_structure_repository
     app.state.conversation_runtime_repository = conversation_runtime_repository
     app.state.pending_action_service = pending_action_service
+    app.state.room_director = RoomDirectorPool(planner_utility_gateway)
+    app.state.room_repository = room_repository
+    app.state.room_context_service = room_context_service
     app.state.internal_context_service = internal_context_service
     app.state.planner_media_service = planner_media_service
     app.state.discord_connector_runtime = discord_connector_runtime
@@ -856,6 +864,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(smart_participation_router)
     app.include_router(knowledge_fabric_router)
     app.include_router(connectors_router)
+    app.include_router(room_routing_router)
     app.include_router(prompt_inspector_router)
     app.include_router(targets_router)
     app.include_router(trials_router)

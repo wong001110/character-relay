@@ -42,6 +42,8 @@ def payload(*, admitted: bool = False) -> SimpleNamespace:
     return SimpleNamespace(
         deployment_id="ann",
         message_id="message-trigger",
+        runtime_target_message_id="",
+        runtime_selection_origin="",
         interaction_session_id="",
         mentioned_bot=False,
         replied_to_bot=False,

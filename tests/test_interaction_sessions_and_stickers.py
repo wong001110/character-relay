@@ -214,7 +214,7 @@ def test_sticker_metadata_is_observed_and_manual_semantics_win(tmp_path: Path) -
     assert resolved_again.json()["semantic_source"] == "manual"
 
 
-def test_social_prompt_explains_stickers_and_bounded_roast() -> None:
+def test_social_prompt_explains_stickers_without_legacy_roast_instructions() -> None:
     sticker = {
         "sticker_id": "sticker-1",
         "name": "side_eye_cat",
@@ -260,9 +260,8 @@ def test_social_prompt_explains_stickers_and_bounded_roast() -> None:
     prompt = DiscordConnectorRuntime._social_prompt(character_name="Ann", payload=payload)
     assert "intent: playful_disbelief" in prompt
     assert "playfully expressing disbelief" not in prompt
-    assert "Portal-configured Roast Interaction Session" in prompt
-    assert "Never target identity traits" in prompt
-    assert "speaker 1 of 2" in prompt
+    assert "Portal-configured Roast Interaction Session" not in prompt
+    assert "speaker 1 of 2" not in prompt
 
 
 def test_social_prompt_keeps_prior_sticker_only_messages() -> None:
