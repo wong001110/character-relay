@@ -1,0 +1,43 @@
+name: Temporary public-source checkpoint transfer
+on:
+  push:
+    branches: [chore/room-refactor-verification-20261001]
+    paths: [.github/workflows/room-refactor-source-transfer.yml]
+permissions:
+  contents: write
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5870748009e86a741d7c39679799277ef9460b74
+          fetch-depth: 1
+      - name: Verify source-only transfer and exact Git identities
+        env:
+          # Expiring source-only artifact, deliberately destined for this public repository.
+          # Contains only source.patch and commit.txt, never continuity state or credentials.
+          SOURCE_URL: 'https://sdmntprnznorth.oaiusercontent.com/files/00000000-c4d4-820b-aadf-bbdace52757d/raw?se=2026-10-01T04%3A03%3A09Z&sp=r&sv=2026-02-06&sr=b&scid=c56419e4-3d3f-5b37-a0ef-9fa63c3bde7d&skoid=d5627e4c-566b-4761-a954-54993b0ed17b&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-01T03%3A48%3A59Z&ske=2026-10-02T03%3A48%3A59Z&sks=b&skv=2026-02-06&sig=%2BNBjBJ1qZ4RJ6AAQW/x2d5Eg%2Bz5QDcnSl1ZokSpnXAc%3D'
+        run: |
+          echo "::add-mask::$SOURCE_URL"
+          curl --fail --silent --show-error --max-time 60 "$SOURCE_URL" -o /tmp/source.zip
+          echo '078e89cbb4fd3ed32d91b633aea4352dd32b860ba8037616eed24a90b23aeb82  /tmp/source.zip' | sha256sum -c -
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          with zipfile.ZipFile('/tmp/source.zip') as z:
+              assert sorted(z.namelist()) == ['commit.txt', 'source.patch']
+              for name in z.namelist():
+                  Path('/tmp/' + name).write_bytes(z.read(name))
+          PY
+          git apply --check --index /tmp/source.patch
+          git apply --index /tmp/source.patch
+          test "$(git write-tree)" = cd9d26d3c941d5b292794d17b5fb5f4d69b6ed23
+          sha=$(git hash-object -t commit -w --stdin < /tmp/commit.txt)
+          test "$sha" = 2c7ce413f4c6930fbb8ee837978f0482355849dc
+          test "$(git show -s --format=%P "$sha")" = 5870748009e86a741d7c39679799277ef9460b74
+          # Do not update main or the implementation branch here. The connected app performs
+          # the separately checked fast-forward so normal PR CI is actually triggered.
+          git push origin "$sha:refs/heads/chore/room-refactor-source-r2"
+          echo "Verified source commit: $sha"
