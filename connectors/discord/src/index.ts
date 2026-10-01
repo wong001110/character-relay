@@ -1,3 +1,4 @@
+import { preflightDiscordDraft, type DraftPreflightResult } from "./draftPreflight.js";
 import { RoomEventPublisher } from "./roomEventPublisher.js";
 import { RoomPublicationLock, RoomWorkQueue } from "./roomWorkQueue.js";
 import { discordEvidence, rawRoomSource, roomLocation, sourceContext, checkRoomAccess, type RoomRoutingResult } from "./roomEvidence.js";
@@ -1588,8 +1589,8 @@ async function continueBotTagConversation(
     ) {
       continue;
     }
-    const durableDelivery = await claimCharacterTurnDelivery(reply);
-    if (durableDelivery === "already_delivered") continue;
+    const durableDelivery = await claimCharacterTurnDelivery(reply, expressionSource);
+    if (durableDelivery === "already_delivered" || durableDelivery === "suppressed") continue;
     let execution: ExpressionExecutionResult | SmartOutputExecutionResult;
     try {
       execution = reply.smart_output
@@ -1617,7 +1618,7 @@ async function continueBotTagConversation(
           preparedExpression,
             botUserId
           );
-      await acknowledgeCharacterTurnDelivery(durableDelivery, execution.sentMessageIds);
+      await acknowledgeCharacterTurnDelivery(durableDelivery, execution.sentMessageIds, execution.applied);
     } catch (error) {
       await markCharacterTurnDeliveryUncertain(durableDelivery, error);
       throw error;
@@ -1815,8 +1816,8 @@ async function processInteractionSession(
         ) {
           continue;
         }
-        const durableDelivery = await claimCharacterTurnDelivery(reply);
-        if (durableDelivery === "already_delivered") continue;
+        const durableDelivery = await claimCharacterTurnDelivery(reply, sourceMessage);
+        if (durableDelivery === "already_delivered" || durableDelivery === "suppressed") continue;
         let execution: ExpressionExecutionResult | SmartOutputExecutionResult;
         try {
           execution = reply.smart_output
@@ -1844,7 +1845,7 @@ async function processInteractionSession(
               preparedExpression,
                 botUserId
               );
-          await acknowledgeCharacterTurnDelivery(durableDelivery, execution.sentMessageIds);
+          await acknowledgeCharacterTurnDelivery(durableDelivery, execution.sentMessageIds, execution.applied);
         } catch (error) {
           await markCharacterTurnDeliveryUncertain(durableDelivery, error);
           throw error;
@@ -1902,13 +1903,35 @@ type CharacterDeliveryClaim = {
   claimNonce: string;
 };
 
+async function preflightReply(
+  source: Message<true>, reply: DiscordReply, operationId: string, stepId: string
+): Promise<DraftPreflightResult> {
+  const result = await preflightDiscordDraft({ source, reply, transport: relay,
+    operationId, stepId, contentIntent: config.messageContentIntent });
+  if (result.disposition === "in_progress") throw new Error("draft_preflight_in_progress");
+  if (result.reply) Object.assign(reply, result.reply);
+  reportDiscordEvent({
+    level: result.disposition === "blocked" ? "warning" : "info",
+    eventType: `draft_${result.disposition}`,
+    message: "Runtime evaluated the unpublished draft against current source evidence.",
+    guildId: source.guildId, channelId: roomLocation(source).channel_id,
+    threadId: roomLocation(source).thread_id, sourceMessageId: source.id,
+    deploymentId: reply.deployment_id ?? "",
+    details: { operation_id: operationId, step_id: stepId, reason: result.reason,
+      target_message_id: reply.context_trace?.source_target_message_id ?? "" }
+  });
+  return result;
+}
+
 async function claimCharacterTurnDelivery(
-  reply: DiscordReply
-): Promise<CharacterDeliveryClaim | "already_delivered" | null> {
+  reply: DiscordReply, source: Message<true>
+): Promise<CharacterDeliveryClaim | "already_delivered" | "suppressed" | null> {
   if (!reply.delivery_required) return null;
   if (!reply.operation_id || !reply.step_id) {
     throw new Error("Durable Character Turn response is missing a server-derived delivery identity.");
   }
+  const check = await preflightReply(source, reply, reply.operation_id, reply.step_id);
+  if (check.disposition === "drop" || check.disposition === "blocked") return "suppressed";
   const claimNonce = randomUUID();
   const claim = await relay.claimCharacterTurnDelivery({
     operation_id: reply.operation_id,
@@ -1928,14 +1951,15 @@ async function claimCharacterTurnDelivery(
 
 async function acknowledgeCharacterTurnDelivery(
   claim: CharacterDeliveryClaim | null,
-  sentMessageIds: string[]
+  sentMessageIds: string[], applied = false
 ): Promise<void> {
   if (!claim) return;
   await relay.acknowledgeCharacterTurnDelivery({
     operation_id: claim.operationId,
     step_id: claim.stepId,
     claim_nonce: claim.claimNonce,
-    sent_message_ids: sentMessageIds
+    sent_message_ids: sentMessageIds,
+    applied
   });
 }
 
@@ -2603,7 +2627,7 @@ async function processMessage(
       (!socialTurnEnabled && legacyQueue.length)
     ) {
       const supersedingTurn = supersedingHumanTurn();
-      if (supersedingTurn) {
+      if (supersedingTurn && socialTurnEnabled && socialNextTurn?.origin !== "selected") {
         if (socialTurnEnabled && durableOperationId) {
           try {
             await relay.cancelSocialTurnOperation({
@@ -2637,7 +2661,7 @@ async function processMessage(
         reportDiscordEvent({
           level: "info",
           eventType: "participation_plan_interrupted",
-          message: "A newer human message superseded the remaining sequential Character plan.",
+          message: "New human input paused optional bot continuation; direct requests remain tracked.",
           guildId: guildMessage.guildId,
           guildName: guildMessage.guild.name,
           channelId: location.channelId,
@@ -2956,6 +2980,7 @@ async function processMessage(
       let normalDelivery:
         | { operationId: string; stepId: string; claimNonce: string }
         | "already_delivered"
+        | "suppressed"
         | null = null;
       const releasePublication = await roomPublications.acquire(key);
       try {
@@ -2965,6 +2990,12 @@ async function processMessage(
           socialStep.step_id &&
           socialClaimRequest
         ) {
+          const check = await preflightReply(guildMessage, reply, durableOperationId, socialStep.step_id);
+          if (check.cursor) socialStep.cursor = check.cursor;
+          if (check.disposition === "drop" || check.disposition === "blocked") {
+            applyDurableOperation(await relay.claimSocialTurnOperation(socialClaimRequest));
+            continue;
+          }
           deliveryClaimNonce = randomUUID();
           const deliveryClaim = await relay.claimSocialTurnDelivery({
             operation_id: durableOperationId,
@@ -2983,8 +3014,8 @@ async function processMessage(
           deliveryClaimed = true;
         }
         if (!socialTurnEnabled) {
-          normalDelivery = await claimCharacterTurnDelivery(reply);
-          if (normalDelivery === "already_delivered") continue;
+          normalDelivery = await claimCharacterTurnDelivery(reply, guildMessage);
+          if (normalDelivery === "already_delivered" || normalDelivery === "suppressed") continue;
         }
         execution = reply.smart_output
           ? await executeSmartOutput(
@@ -3028,8 +3059,8 @@ async function processMessage(
           });
           applyDurableOperation(acknowledged);
         }
-        if (normalDelivery) {
-          await acknowledgeCharacterTurnDelivery(normalDelivery, execution.sentMessageIds);
+        if (normalDelivery && typeof normalDelivery !== "string") {
+          await acknowledgeCharacterTurnDelivery(normalDelivery, execution.sentMessageIds, execution.applied);
         }
       } catch (error) {
         if (deliveryClaimed && socialStep?.step_id) {
@@ -3043,7 +3074,7 @@ async function processMessage(
             })
             .catch(() => undefined);
         }
-        if (normalDelivery && normalDelivery !== "already_delivered") {
+        if (normalDelivery && typeof normalDelivery !== "string") {
           await markCharacterTurnDeliveryUncertain(normalDelivery, error);
         }
         reportDiscordEvent({
@@ -3072,7 +3103,7 @@ async function processMessage(
         sentMessageIds,
         guildMessage.guildId
       );
-      if (outgoingText || sentMessageIds.length) {
+      if (sentMessageIds.length) {
         context.push(key, {
           message_id: sentMessageIds[0] ?? `relay-expression-${Date.now()}`,
           author_id: `character:${deployment.character_card_id}`,
@@ -3109,8 +3140,10 @@ async function processMessage(
       });
       reportDiscordEvent({
         level: "info",
-        eventType: "delivery_success",
-        message: "Character reply was delivered to Discord.",
+        eventType: sentMessageIds.length || execution.applied ? "delivery_success" : "delivery_not_applied",
+        message: sentMessageIds.length || execution.applied
+          ? "Character output was delivered to Discord."
+          : "No Discord output was applied; the draft did not become dialogue history.",
         guildId: guildMessage.guildId,
         guildName: guildMessage.guild.name,
         channelId: location.channelId,
@@ -3154,7 +3187,7 @@ async function processMessage(
       });
       if (socialTurnEnabled) {
         if (!durableOperationId) {
-          if (outgoingText || sentMessageIds.length) {
+          if (sentMessageIds.length) {
             socialSources.set(deployment.deployment_id, {
               text: outgoingText,
               sentMessageIds
@@ -3409,8 +3442,8 @@ async function resumeRecoverableMessageTurn(
     return;
   }
 
-  const durableDelivery = await claimCharacterTurnDelivery(reply);
-  if (durableDelivery === "already_delivered") return;
+  const durableDelivery = await claimCharacterTurnDelivery(reply, source);
+  if (durableDelivery === "already_delivered" || durableDelivery === "suppressed") return;
   let execution: ExpressionExecutionResult | SmartOutputExecutionResult;
   try {
     execution = reply.smart_output
@@ -3438,7 +3471,7 @@ async function resumeRecoverableMessageTurn(
           preparedExpression,
           botUser.id
         );
-    await acknowledgeCharacterTurnDelivery(durableDelivery, execution.sentMessageIds);
+    await acknowledgeCharacterTurnDelivery(durableDelivery, execution.sentMessageIds, execution.applied);
   } catch (error) {
     await markCharacterTurnDeliveryUncertain(durableDelivery, error);
     throw error;

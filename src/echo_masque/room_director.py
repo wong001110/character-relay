@@ -186,6 +186,7 @@ class DirectorUnavailable(RuntimeError):
 
 
 class DirectorResult(FrozenModel):
+    failure_code: str = Field(default="", max_length=64)
     outcome: Literal["decision", "none", "unavailable", "invalid"]
     decision: DirectorDecision | None = None
     attempts: tuple[AttemptReceipt, ...] = ()

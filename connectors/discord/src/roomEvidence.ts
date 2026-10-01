@@ -1,4 +1,5 @@
 /** Raw Discord evidence. No semantic segmentation, model calls, or cross-room ancestry. */
+import { createHash } from "node:crypto";
 import { ChannelType, PermissionFlagsBits, type Message } from "discord.js";
 import type { DiscordContextMessage } from "./types.js";
 
@@ -24,6 +25,7 @@ export interface RoomSource {
   deleted: boolean;
   content_available: boolean;
   has_unseen_media: boolean;
+  media_fingerprint?: string;
 }
 
 export interface RoomEvidence extends RoomLocation {
@@ -95,7 +97,13 @@ export function rawRoomSource(message: Message<true>, contentIntent: boolean): R
     edited_at: message.editedAt?.toISOString() ?? null,
     deleted: false,
     content_available: contentAvailable,
-    has_unseen_media: Boolean(message.attachments.size || message.embeds.length || message.stickers.size)
+    has_unseen_media: Boolean(message.attachments.size || message.embeds.length || message.stickers.size),
+    media_fingerprint: createHash("sha256").update(JSON.stringify({
+      attachments: [...message.attachments.values()].map(a => [a.id, a.name, a.size, a.contentType]),
+      stickers: [...message.stickers.keys()],
+      embeds: message.embeds.map(e => [e.title, e.description, e.fields,
+        e.image?.url?.split("?")[0], e.thumbnail?.url?.split("?")[0]])
+    })).digest("hex")
   };
 }
 

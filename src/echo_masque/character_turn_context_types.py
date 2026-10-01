@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -42,6 +43,13 @@ class CharacterContextTraceView(BaseModel):
     source_snapshot_revision: int = Field(default=0, ge=0)
     source_fingerprint: str = ""
     source_revisions: dict[str, int] = Field(default_factory=dict)
+    source_content_hashes: dict[str, str] = Field(default_factory=dict)
+    source_anchor_ids: list[str] = Field(default_factory=list, max_length=9)
+    source_requester_id: str = ""
+    source_origin: str = ""
+    source_category_id: str = ""
+    source_refresh_count: int = Field(default=0, ge=0, le=1)
+    publication_checked_at: datetime | None = None
     rag_status: Literal["skipped", "completed", "failed"] = "skipped"
     rag_reason: str = ""
     rag_gate_status: Literal[

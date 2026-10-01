@@ -248,3 +248,82 @@ def test_no_shared_secret_no_ingest_or_routing(setup: tuple) -> None:
         "/api/connectors/discord/rooms/resolve", json=routing(connection, deployment)
     )
     assert response.status_code in (401, 403)
+
+
+def test_real_generated_reply_needs_current_preflight_before_delivery(setup: tuple) -> None:
+    from test_character_turn_graph import payload
+
+    _app, client, connection, deployment = setup
+    body = routing(connection, deployment)
+    choice = call(client, body)["choices"][0]
+    incoming = payload(connection, deployment, mentioned_bot=True).model_dump(mode="json")
+    incoming.update(
+        message_id="m1",
+        author_id="alice",
+        text="Ann, help me plan a game.",
+        source_selection_id=choice["selection_id"],
+    )
+    # Field name is an actual schema contract, not a caller-specified context trace.
+    response = client.post("/api/connectors/discord/messages", headers=HEADERS, json=incoming)
+    assert response.status_code == 200, response.text
+    reply = response.json()
+    assert reply["delivery_required"]
+    claim = dict(
+        connection_id=connection["id"],
+        operation_id=reply["operation_id"],
+        step_id=reply["step_id"],
+        claim_nonce="current-preflight-test",
+    )
+    denied = client.post(
+        "/api/connectors/discord/messages/delivery/claim", headers=HEADERS, json=claim
+    )
+    assert denied.status_code == 409 and "draft_preflight_required" in denied.text
+    evidence = {
+        key: body[key]
+        for key in ("connection_id", "guild_id", "channel_id", "messages", "permission_checked_at")
+    }
+    check = client.post(
+        "/api/connectors/discord/rooms/drafts/preflight",
+        headers=HEADERS,
+        json={
+            **evidence,
+            "operation_id": reply["operation_id"],
+            "step_id": reply["step_id"],
+            "writable": True,
+        },
+    )
+    assert check.status_code == 200, check.text
+    assert check.json()["disposition"] == "keep"
+    assert (
+        client.post(
+            "/api/connectors/discord/messages/delivery/claim", headers=HEADERS, json=claim
+        ).status_code
+        == 200
+    )
+
+
+def test_preflight_rejects_client_draft_or_cross_room_operation(setup: tuple) -> None:
+    _app, client, connection, deployment = setup
+    evidence = routing(connection, deployment)
+    data = {
+        key: evidence[key]
+        for key in ("connection_id", "guild_id", "channel_id", "messages", "permission_checked_at")
+    }
+    data.update(operation_id="x" * 64, step_id="y" * 64, writable=True)
+    assert (
+        client.post(
+            "/api/connectors/discord/rooms/drafts/preflight", headers=HEADERS, json=data
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            "/api/connectors/discord/rooms/drafts/preflight",
+            headers=HEADERS,
+            json={**data, "reply": {"text": "client-made"}},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post("/api/connectors/discord/rooms/drafts/preflight", json=data).status_code == 401
+    )

@@ -61,3 +61,9 @@ class RoomRoutingView(BaseModel):
     snapshot_revision: int = 0
     prompt_version: str = ""
     input_fingerprint: str = ""
+
+
+class DraftPreflightRequest(RoomEventsRequest):
+    operation_id: str = Field(min_length=32, max_length=64)
+    step_id: str = Field(min_length=32, max_length=64)
+    writable: bool

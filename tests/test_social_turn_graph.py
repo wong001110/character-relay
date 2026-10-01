@@ -108,9 +108,7 @@ def test_social_turn_preserves_initial_order_across_delivery_steps() -> None:
     fake = FakeCharacterRunner({"a": character_result("a"), "b": character_result("b")})
     runner = SocialTurnGraphRunner(fake)  # type: ignore[arg-type]
 
-    first = asyncio.run(
-        runner.run(request("a", initial=["a", "b"], available=["a", "b"]))
-    )
+    first = asyncio.run(runner.run(request("a", initial=["a", "b"], available=["a", "b"])))
     assert first.view.current_deployment_id == "a"
     assert first.view.next_turn is not None
     assert first.view.next_turn.deployment_id == "b"
@@ -134,97 +132,81 @@ def test_social_turn_preserves_initial_order_across_delivery_steps() -> None:
     assert fake.calls == ["a", "b"]
 
 
-def test_validated_invite_and_mentions_expand_before_remaining_selected_turns() -> None:
-    fake = FakeCharacterRunner(
-        {
-            "a": character_result("a", invite="c", mentions=("c", "d", "b")),
-        }
-    )
+def test_direct_requests_precede_continuation_and_distinct_roles_are_bounded() -> None:
+    fake = FakeCharacterRunner({"a": character_result("a", invite="c", mentions=("c", "d", "b"))})
     runner = SocialTurnGraphRunner(fake)  # type: ignore[arg-type]
-
     result = asyncio.run(
-        runner.run(
-            request(
-                "a",
-                initial=["a", "b"],
-                available=["a", "b", "c", "d"],
-                budget=2,
-            )
-        )
+        runner.run(request("a", initial=["a", "b"], available=["a", "b", "c", "d"], budget=2))
     )
-
-    assert [item.deployment_id for item in result.view.cursor.pending_turns] == ["c", "d", "b"]
-    assert [item.origin for item in result.view.cursor.pending_turns] == [
-        "invite",
-        "mention",
-        "selected",
-    ]
-    assert result.view.next_turn is not None
-    assert result.view.next_turn.deployment_id == "c"
-    assert result.view.cursor.continuation_budget_remaining == 0
-    assert result.state["continuation_candidate_ids"] == ("c", "d")
+    assert [p.deployment_id for p in result.view.cursor.pending_turns] == ["b", "c"]
+    assert [p.origin for p in result.view.cursor.pending_turns] == ["selected", "invite"]
+    assert result.view.cursor.continuation_budget_remaining == 1
+    assert result.state["continuation_candidate_ids"] == ("c",)
 
 
-def test_social_turn_blocks_duplicate_and_recursive_invite_expansion() -> None:
+def test_bounded_reentry_a_b_a_is_allowed_without_repeating_forever() -> None:
     fake = FakeCharacterRunner(
-        {
-            "a": character_result("a", invite="b", mentions=("b", "c")),
-            "c": character_result("c", invite="d", mentions=("d",)),
-            "d": character_result("d", mentions=("a",)),
-        }
+        {"a": character_result("a", mentions=("b",)), "b": character_result("b", mentions=("a",))}
     )
-    traces = TraceCollector()
-    runner = SocialTurnGraphRunner(fake, trace_sink=traces)  # type: ignore[arg-type]
-
-    first = asyncio.run(
-        runner.run(
-            request(
-                "a",
-                initial=["a", "b"],
-                available=["a", "b", "c", "d"],
-                budget=3,
-                max_depth=2,
+    trace = TraceCollector()
+    runner = SocialTurnGraphRunner(fake, trace_sink=trace)  # type: ignore[arg-type]
+    cursor = None
+    for role in ("a", "b", "a", "b"):
+        result = asyncio.run(
+            runner.run(
+                request(
+                    role,
+                    initial=["a"],
+                    available=["a", "b"],
+                    cursor=cursor,
+                    author_is_bot=cursor is not None,
+                    max_depth=5,
+                )
             )
         )
-    )
-    # b was already pending, so it is never duplicated. c is inserted as an explicit mention.
-    assert [item.deployment_id for item in first.view.cursor.pending_turns] == ["c", "b"]
-    assert first.view.cursor.continuation_budget_remaining == 2
+        cursor = result.view.cursor.model_dump()
+    assert result.view.cursor.completed_deployment_ids == ["a", "b", "a", "b"]
+    assert result.view.cursor.attempts_used == 4
+    assert result.view.done
+    assert fake.calls == ["a", "b", "a", "b"]
+    assert "private social turn text" not in repr(trace.events)
 
-    second = asyncio.run(
-        runner.run(
-            request(
-                "c",
-                initial=["a", "b"],
-                available=["a", "b", "c", "d"],
-                cursor=first.view.cursor.model_dump(),
-                budget=3,
-                max_depth=2,
-                author_is_bot=True,
-            )
-        )
-    )
-    # Fake output tries to claim an invite from a bot-authored continuation. The graph ignores
-    # the invite signal but still permits the already Runtime-resolved normal Character mention.
-    assert [item.deployment_id for item in second.view.cursor.pending_turns] == ["d", "b"]
-    assert second.view.cursor.pending_turns[0].origin == "mention"
-    assert second.view.cursor.pending_turns[0].depth == 2
 
-    third = asyncio.run(
-        runner.run(
-            request(
-                "d",
-                initial=["a", "b"],
-                available=["a", "b", "c", "d"],
-                cursor=second.view.cursor.model_dump(),
-                budget=3,
-                max_depth=2,
-                author_is_bot=True,
-            )
-        )
+def test_ignored_draft_never_counts_or_schedules_another_speaker() -> None:
+    ignored = character_result("a", mentions=("b",))
+    ignored.reply.action = "silent"
+    fake = FakeCharacterRunner({"a": ignored})
+    runner = SocialTurnGraphRunner(fake)  # type: ignore[arg-type]
+    result = asyncio.run(runner.run(request("a", initial=["a"], available=["a", "b"])))
+    assert not result.view.cursor.completed_deployment_ids
+    assert result.view.cursor.attempts_used == 1
+    assert result.view.done
+
+
+def test_bot_invite_claim_does_not_launder_human_authority() -> None:
+    fake = FakeCharacterRunner({"a": character_result("a", invite="b")})
+    runner = SocialTurnGraphRunner(fake)  # type: ignore[arg-type]
+    result = asyncio.run(
+        runner.run(request("a", initial=["a"], available=["a", "b"], author_is_bot=True))
     )
-    # d is already at max depth, so its mention cannot expand another Character turn.
-    assert third.view.next_turn is not None
-    assert third.view.next_turn.deployment_id == "b"
-    assert third.view.cursor.continuation_budget_remaining == 1
-    assert "private social turn text" not in repr(traces.events)
+    assert result.view.done
+
+
+def test_exhausted_attempts_or_speaking_limits_stop_before_model() -> None:
+    import pytest
+
+    fake = FakeCharacterRunner({"a": character_result("a")})
+    runner = SocialTurnGraphRunner(fake)  # type: ignore[arg-type]
+    for cursor in (
+        {"attempts_used": 12},
+        {"completed_deployment_ids": ["a", "b", "a"]},
+        {"completed_deployment_ids": ["b", "c", "d"]},
+    ):
+        cursor["pending_turns"] = [{"deployment_id": "a"}]
+        with pytest.raises(ValueError, match="budget"):
+            asyncio.run(
+                runner.run(
+                    request("a", initial=["a"], available=["a", "b", "c", "d"], cursor=cursor)
+                )
+            )
+    assert not fake.calls

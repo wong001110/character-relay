@@ -1,14 +1,18 @@
 """Delivery receipts, not guessed recency or model text, establish response provenance."""
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from test_runtime_durability import repository
 
+from echo_masque.character_turn_context_types import CharacterContextTraceView
+from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.persistence.runtime_durability_models import RuntimeStepRecord
 from echo_masque.room_routing import RoomScope
+from echo_masque.room_sources import SourceMessage
 
 
 def prepared(path: Path, *, source: str = "target-not-latest") -> tuple:
@@ -25,6 +29,53 @@ def prepared(path: Path, *, source: str = "target-not-latest") -> tuple:
     _, step = runtime.prepare_character_step(
         operation_id=operation.operation_id, deployment_id="ann"
     )
+    scope = RoomScope(
+        owner_id="owner",
+        connection_id="conn",
+        guild_id="guild",
+        channel_id="channel",
+        thread_id="thread",
+    )
+    rooms = RoomRepository(db)
+    rooms.set_access(scope, readable=True)
+    if source:
+        rooms.observe(
+            scope,
+            [
+                SourceMessage(
+                    message_id=source,
+                    channel_id="channel",
+                    thread_id="thread",
+                    author_id="user",
+                    text="Source",
+                )
+            ],
+        )
+    with db.session() as session:
+        session.add(
+            CharacterDeploymentRecord(
+                id="ann",
+                owner_id="owner",
+                character_card_id="card",
+                connection_id="conn",
+                platform="discord",
+                workspace_id="guild",
+                channel_id="channel",
+                thread_id="thread",
+                channel_name="room",
+                status="active",
+            )
+        )
+        session.commit()
+    focus = rooms.focus(scope, source) if source else None
+    trace = CharacterContextTraceView(
+        source_target_message_id=source,
+        source_origin="direct",
+        source_requester_id="user",
+        source_snapshot_revision=focus.room_revision if focus else 0,
+        source_revisions={s.message.message_id: s.revision for s in focus.sources} if focus else {},
+        publication_checked_at=datetime.now(UTC),
+    )
     runtime.complete_social_step_generation(
         step_id=step.step_id,
         response_json=json.dumps(
@@ -32,7 +83,7 @@ def prepared(path: Path, *, source: str = "target-not-latest") -> tuple:
                 "action": "reply",
                 "text": "A private draft until confirmed",
                 "reply_to_message_id": "model-tried-other-source",
-                "context_trace": {"source_target_message_id": source},
+                "context_trace": trace.model_dump(mode="json"),
             }
         ),
         cursor_json='{"pending_turns":[]}',

@@ -9,6 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from echo_masque.api.room_schemas import (
+    DraftPreflightRequest,
     RoomChoiceView,
     RoomEventsRequest,
     RoomLocation,
@@ -16,11 +17,14 @@ from echo_masque.api.room_schemas import (
     RoomRoutingView,
 )
 from echo_masque.api.routes.connectors import _authorize_connector
+from echo_masque.draft_runtime import DraftPreflightView, DraftRuntime
+from echo_masque.model_attempt_budget import ModelAttemptBudget
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
     PlatformConnectionRecord,
 )
 from echo_masque.persistence.room_repository import RoomRepository
+from echo_masque.persistence.runtime_durability_models import RuntimeStepRecord
 from echo_masque.room_director import build_director_input
 from echo_masque.room_routing import (
     ContextAction,
@@ -286,11 +290,16 @@ async def resolve_room(
                     )
                     choices = ()
                 else:
-                    decision = await director.decide(director_input)
+                    with ModelAttemptBudget(request.app.state.database).scope(
+                        scope,
+                        requester_id=rules.requester_id or current.author_id,
+                        operation_id=receipt.id,
+                    ):
+                        decision = await director.decide(director_input)
                     result = result.model_copy(
                         update={
                             "outcome": decision.outcome,
-                            "reason": "director_" + decision.outcome,
+                            "reason": "director_" + (decision.failure_code or decision.outcome),
                             "attempts": list(decision.attempts),
                             "prompt_version": decision.prompt_version,
                             "input_fingerprint": decision.input_fingerprint,
@@ -349,5 +358,45 @@ async def resolve_room(
             receipt.id, status=result.outcome, result_json=result.model_dump_json()
         )
         return result
+    except (SourceUnavailable, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/drafts/preflight", response_model=DraftPreflightView)
+async def preflight_draft(
+    payload: DraftPreflightRequest,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> DraftPreflightView:
+    _authorize_connector(request, authorization)
+    durable = request.app.state.durable_runtime_repository
+    operation = durable.get_operation(payload.operation_id)
+    if operation is None or (
+        operation.connection_id,
+        operation.guild_id,
+        operation.channel_id,
+        operation.thread_id,
+    ) != (payload.connection_id, payload.guild_id, payload.channel_id, payload.thread_id):
+        raise HTTPException(status_code=404, detail="draft_not_found")
+    with request.app.state.database.session() as session:
+        step = session.get(RuntimeStepRecord, payload.step_id)
+        if step is None or step.operation_id != operation.operation_id:
+            raise HTTPException(status_code=404, detail="draft_not_found")
+    records = _deployments(request, payload)
+    try:
+        # Never accept client draft text, revisions, generation status or a replacement cursor.
+        scope, _ = _observe(request, payload, records)
+        runtime = DraftRuntime(
+            request.app.state.discord_connector_runtime,
+            request.app.state.room_repository,
+            durable,
+        )
+        return await runtime.preflight(
+            scope=scope,
+            operation_id=operation.operation_id,
+            step_id=step.step_id,
+            deployment=next((r for r in records if r.id == step.deployment_id), None),
+            writable=payload.readable and payload.writable,
+        )
     except (SourceUnavailable, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

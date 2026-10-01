@@ -213,6 +213,13 @@ class RoomContextService:
                 source_target_message_id=focus.target_message_id,
                 source_snapshot_revision=focus.room_revision,
                 source_fingerprint=focus.fingerprint,
+                source_anchor_ids=list(focus.anchor_ids),
+                source_requester_id=payload.runtime_requester_id,
+                source_origin=payload.runtime_selection_origin,
+                source_category_id=payload.category_id,
+                source_content_hashes={
+                    s.message.message_id: s.message.draft_fingerprint() for s in focus.sources
+                },
                 source_revisions={
                     source.message.message_id: source.revision for source in focus.sources
                 },

@@ -173,6 +173,7 @@ class DiscordCharacterDeliveryAckRequest(BaseModel):
     step_id: str = Field(min_length=32, max_length=64)
     claim_nonce: str = Field(min_length=16, max_length=64)
     sent_message_ids: list[str] = Field(default_factory=list, max_length=20)
+    applied: bool = False
 
 
 class RuntimeTraceEventView(BaseModel):

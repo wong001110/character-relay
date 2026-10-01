@@ -1,3 +1,4 @@
+import type { DraftPreflightRequest, DraftPreflightResult } from "./draftPreflight.js";
 import type { RoomEvidence, RoomRoutingRequest, RoomRoutingResult } from "./roomEvidence.js";
 import type {
   ConnectorHeartbeat,
@@ -607,6 +608,12 @@ export class RelayClient {
     );
   }
 
+  async preflightDraft(body: DraftPreflightRequest): Promise<DraftPreflightResult> {
+    return this.request("/api/connectors/discord/rooms/drafts/preflight", {
+      method: "POST", body: JSON.stringify({ ...body, connection_id: this.connectionId })
+    });
+  }
+
   async observeRoom(evidence: RoomEvidence): Promise<{ accepted: boolean; revision: number }> {
     return this.request("/api/connectors/discord/rooms/events", {
       method: "POST", body: JSON.stringify({ ...evidence, connection_id: this.connectionId })
@@ -796,6 +803,7 @@ export class RelayClient {
     step_id: string;
     claim_nonce: string;
     sent_message_ids: string[];
+    applied?: boolean;
   }): Promise<void> {
     await this.request<void>(
       "/api/connectors/discord/messages/delivery/ack",

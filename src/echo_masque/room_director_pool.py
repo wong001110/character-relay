@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from time import perf_counter
 from typing import Literal
 
+from echo_masque.providers.attempts import ModelAttemptBudgetExceeded
 from echo_masque.providers.base import ChatMessage, ProviderCompletion
 from echo_masque.providers.errors import ProviderError, ProviderTimeoutError
 from echo_masque.providers.openai_compatible import OpenAICompatibleProvider
@@ -90,6 +91,14 @@ class RoomDirectorPool:
                     and completion.finish_reason != "length"
                 )
                 outcome = "success" if valid_envelope else "invalid"
+            except ModelAttemptBudgetExceeded:
+                # Admission was denied before HTTP, so do not fabricate a provider attempt.
+                return DirectorResult(
+                    outcome="unavailable",
+                    attempts=tuple(attempts),
+                    input_fingerprint=view.fingerprint,
+                    failure_code="budget_exhausted",
+                )
             except (TimeoutError, ProviderTimeoutError):
                 outcome = "timeout"
             except ProviderError as exc:

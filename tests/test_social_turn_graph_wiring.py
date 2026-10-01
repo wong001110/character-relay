@@ -107,14 +107,39 @@ def test_social_endpoint_dispatches_to_runner(tmp_path: Path) -> None:
             )
 
     app.state.social_turn_graph_runner = FakeSocialRunner()
+    app.state.durable_runtime_repository.claim_social_operation(
+        operation_id="op" * 32,
+        owner_id="owner",
+        connection_id="connection-1",
+        guild_id="guild-1",
+        channel_id="channel-1",
+        thread_id="",
+        source_message_id="message-1",
+        initial_deployment_ids=["deployment-a"],
+        available_deployment_ids=["deployment-a"],
+        continuation_budget=5,
+        max_depth=4,
+    )
     client = TestClient(app)
     response = client.post(
         "/api/connectors/discord/social-turns/step",
         headers={"Authorization": f"Bearer {CONNECTOR_SECRET}"},
-        json=request_payload(),
+        json={**request_payload(), "operation_id": "op" * 32},
     )
 
     assert response.status_code == 200, response.text
     assert response.json()["reply"]["reason"] == "social-graph-dispatch"
     assert response.json()["done"] is True
     assert called == ["deployment-a"]
+
+
+def test_stateless_social_endpoint_cannot_bypass_durable_budgets(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path / "stateless.db", mode="social_turn"))
+    client = TestClient(app)
+    response = client.post(
+        "/api/connectors/discord/social-turns/step",
+        headers={"Authorization": f"Bearer {CONNECTOR_SECRET}"},
+        json=request_payload(),
+    )
+    assert response.status_code == 409
+    assert "claimed first" in response.json()["detail"]

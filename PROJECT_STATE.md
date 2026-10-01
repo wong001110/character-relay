@@ -8,7 +8,7 @@ Updated: **2026-10-01**. This is the only current progress and takeover record.
 | --- | --- |
 | Repository / baseline | `wong001110/character-relay` / `2812d79b314b25aa31fe0632dcbdd7da205b0bf0` (merged PR #207) |
 | Active direction | [Lightweight Room Director refactor](docs/plans/discord-group-chat-core.md) |
-| Current instruction | Direction first, then execution-mode phased development with external Agent Continuity |
+| Current instruction | Finish the accepted refactor in Execution mode; user will perform live testing afterward. External Agent Continuity stays outside the checkout. |
 | Development branch | `refactor/lightweight-room-director` |
 | Direction receipt | `94be0361ef5c4c77bdbf180146beb6f49a5dc6d2`; documentation only, before implementation |
 | R1 source receipt | `f3933d01f43cfe40d42369db0e927d0151f1480f`; final fixture/docs/dependency guard are in its follow-up commit |
@@ -37,8 +37,8 @@ R0-R6 are this initiative's checkpoints, not old P0-P6 completion claims.
 | --- | --- |
 | R0 | COMPLETE: direction/replacement/data/card policy and A01-A29 acceptance committed first; three documentation paths only. |
 | R1 | OFFLINE SLICE VERIFIED: rules, strict decision/input validation, replay metrics, recorded-provider and native Planner seams, 240 synthetic/unreviewed cases. Actual Free Token Pool qualification, human-reviewed labels and complete old-pipeline comparison remain **NOT RUN**. |
-| R2 | IMPLEMENTED / INTEGRATION VERIFYING: Room source/selection records, origin-scoped SDK ancestry/history, canonical requester binding, ordered permission observations, continuous edits/deletes, separate bounded work/publication queues, atomic delivered-response source links. Full suite rerun and mutation evidence pending. |
-| R3 | IN PROGRESS: Free Token Pool adapter and strict qualification seam wired, default ambient disabled; inner Director removed. No real qualification installed. Bounded continuation, freshness and complete old-selector retirement remain. |
+| R2 | IMPLEMENTED / OFFLINE VERIFIED: Room source/selection records, origin-scoped SDK ancestry/history, canonical requester binding, ordered permission observations, continuous edits/deletes, separate bounded work/publication queues, atomic delivered-response source links. Recovered R2 full suite: 1,433 passed, 7 skipped; see R3 review for current source/claim checks. |
+| R3 | RUNTIME SAFETY IMPLEMENTED: delivery-bound re-entry, attempt/room/member limits, server-owned preflight and one tool-free refresh, atomic delivery claim. Existing Free Pool caller remains qualification-gated; user-owned real-model validation is DEFERRED. Old-selector/composition retirement remains to be completed with R4/R5. |
 | R4 | NOT STARTED: explicit notes/history, relationships, retrieval-only encoders and sparse expressions. |
 | R5 | NOT STARTED: Portal/observation and retired-consumer cleanup. |
 | R6 | NOT STARTED: complete integration/deletion audit, isolated card/reset rehearsal and release preparation. |
@@ -72,14 +72,20 @@ describes the actual entry points and missing live adapter.
 
 ## Next concrete action
 
-Implement R2 source/direct-route integration in the existing supported runtime: authenticated
-normalized inputs, source persistence, permission-aware ancestry, requester/selected-author separation
-and current grants at execution/delivery. Do not expose the spike's normalized schema as authority.
-In parallel, prepare an evaluated Free Token Pool caller with bounded deadlines/attempts, no paid
-fallback and honest missing-usage accounting. Existing utility JSON salvage/usage defaults must not
-silently weaken the new contract. Obtain actual model/label evidence before ambient activation.
-Retire old consumers at the planned production replacement boundary, not while the offline spike
-is the only replacement. Keep every A01-A29 check visible; update this file after coherent work.
+Continue R4 scoped explicit notes and raw-history recall, short directional relationships,
+retrieval-only embeddings and intent-first sparse expressions. Then remove replaced runtime,
+configuration, API and Portal consumers in R5 and perform the R6 integration/reset/card rehearsal.
+Live Discord/model quality tests are explicitly user-owned and deferred, not an implementation
+blocker or a claimed pass. Keep ambient unqualified by default; provide the evaluated-member setup
+for later testing. No merge, deployment or live data deletion is authorized.
+
+## R3 implementation checkpoint (2026-10-01)
+
+Resumed from exact remote R2 `2c7ce413f4c6930fbb8ee837978f0482355849dc`; the prior unpublished
+R3 did not survive and was rebuilt, not assumed recovered. The implemented guards are documented
+in [the R3 review](docs/reviews/room-director-r3-2026-10-01.md). Bounded manual mutation checks:
+8/8 killed, each with a passing unmutated counterpart. Connector typecheck, 162 tests and build
+passed; mypy passed over 418 sources. Whole Python: **1,457 passed, 7 skipped**; exact checks are recorded in the review. This remains self-review, not independent signoff or full-refactor completion.
 
 ## R2 checkpoint (2026-10-01)
 

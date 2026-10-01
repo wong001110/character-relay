@@ -19,6 +19,7 @@ from echo_masque.provider_failure_classifier import (
     NormalizedProviderFailure,
     classify_provider_response,
 )
+from echo_masque.providers.attempts import reserve_model_attempt
 from echo_masque.providers.base import (
     ChatMessage,
     ChatToolCall,
@@ -348,8 +349,11 @@ class OpenAICompatibleProvider:
         requested = _requested_capabilities(tools=tools, response_format=response_format)
 
         try:
-            async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
+            async with httpx.AsyncClient(
+                timeout=self._timeout, transport=self._transport
+            ) as client:
                 for attempt in range(self._max_retries + 1):
+                    reserve_model_attempt()
                     try:
                         response = await client.post(
                             self.endpoint,
@@ -374,7 +378,9 @@ class OpenAICompatibleProvider:
                             reason=ProviderUnavailableError.reason_code,
                             detail=self._request_error_detail(exc),
                         )
-                        raise ProviderUnavailableError("Model provider could not be reached.") from exc
+                        raise ProviderUnavailableError(
+                            "Model provider could not be reached."
+                        ) from exc
 
                     quota_observations = _quota_observations(response.headers)
                     if response.status_code == 408:
@@ -393,7 +399,11 @@ class OpenAICompatibleProvider:
                         requested_capabilities=requested,
                     )
                     if failure is not None:
-                        retryable_failure = failure.kind in {"rate_limited", "temporary_unavailable", "model_unavailable"}
+                        retryable_failure = failure.kind in {
+                            "rate_limited",
+                            "temporary_unavailable",
+                            "model_unavailable",
+                        }
                         if retryable_failure and attempt < self._max_retries:
                             trace.retry(
                                 attempt=attempt + 1,
@@ -436,7 +446,9 @@ class OpenAICompatibleProvider:
                             raw_tool_calls = []
                         if not isinstance(raw_tool_calls, list):
                             raise TypeError("Chat-completion tool_calls must be a list.")
-                        tool_calls = tuple(ChatToolCall.model_validate(item) for item in raw_tool_calls)
+                        tool_calls = tuple(
+                            ChatToolCall.model_validate(item) for item in raw_tool_calls
+                        )
                         usage = body.get("usage", {})
                         if not isinstance(usage, dict):
                             raise TypeError("Chat-completion usage must be an object.")

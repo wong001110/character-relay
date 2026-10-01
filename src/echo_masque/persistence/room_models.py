@@ -92,3 +92,11 @@ class RoomDeliverySourceRecord(Base):
     step_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     complete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ModelAttemptBucketRecord(Base):
+    __tablename__ = "room_model_attempt_buckets"
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    used: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

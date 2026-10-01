@@ -1,4 +1,4 @@
-"""Connector contracts for Phase 4 Social Turn continuation."""
+"""Delivery-delimited, bounded group interaction contracts."""
 
 from __future__ import annotations
 
@@ -26,14 +26,17 @@ class DiscordSocialPendingTurn(BaseModel):
 
 
 class DiscordSocialTurnCursor(BaseModel):
-    """Stateless continuation cursor; raw Discord content stays outside this object."""
+    """Durably checkpointed continuation cursor; raw Discord content stays outside this object."""
 
     model_config = ConfigDict(extra="forbid")
 
     pending_turns: list[DiscordSocialPendingTurn] = Field(default_factory=list, max_length=30)
-    completed_deployment_ids: list[str] = Field(default_factory=list, max_length=30)
+    # Chronological visible-turn projection; duplicates permit bounded A -> B -> A.
+    # The durable operation adopts this projection only after a confirmed delivery.
+    completed_deployment_ids: list[str] = Field(default_factory=list, max_length=6)
+    attempts_used: int = Field(default=0, ge=0, le=12)
     continuation_budget_remaining: int = Field(default=0, ge=0, le=30)
-    max_depth: int = Field(default=4, ge=1, le=12)
+    max_depth: int = Field(default=5, ge=0, le=12)
     step_index: int = Field(default=0, ge=0, le=60)
 
 
@@ -46,7 +49,7 @@ class DiscordSocialTurnStepRequest(BaseModel):
     initial_deployment_ids: list[str] = Field(min_length=1, max_length=3)
     available_deployment_ids: list[str] = Field(min_length=1, max_length=30)
     continuation_budget: int = Field(default=8, ge=0, le=30)
-    max_depth: int = Field(default=4, ge=1, le=12)
+    max_depth: int = Field(default=5, ge=0, le=12)
     cursor: DiscordSocialTurnCursor | None = None
     operation_id: str = Field(default="", max_length=64)
     runtime_step_id: str = Field(default="", max_length=64)

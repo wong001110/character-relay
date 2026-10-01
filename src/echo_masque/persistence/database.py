@@ -134,6 +134,7 @@ from echo_masque.persistence.social_intelligence_models import (
 from echo_masque.persistence.utility_gateway_models import UtilityProviderQuotaRecord
 from echo_masque.persistence.room_models import (
     RoomStateRecord,
+    ModelAttemptBucketRecord,
     RoomSourceRecord,
     RoomSelectionRecord,
     RoomRouteRecord,
@@ -302,6 +303,7 @@ class Database:
         # Explicitly touch authority/runtime model classes so schema creation is deterministic.
         _ = (
             RoomRouteRecord,
+            ModelAttemptBucketRecord,
             RoomStateRecord,
             RoomSourceRecord,
             RoomSelectionRecord,

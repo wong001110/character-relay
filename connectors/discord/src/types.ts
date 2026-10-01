@@ -155,6 +155,15 @@ export interface DiscordContextTraceItem {
 }
 
 export interface DiscordContextTrace {
+  source_target_message_id?: string;
+  source_revisions?: Record<string, number>;
+  source_anchor_ids?: string[];
+  source_snapshot_revision?: number;
+  source_fingerprint?: string;
+  source_origin?: string;
+  source_requester_id?: string;
+  source_refresh_count?: number;
+  publication_checked_at?: string | null;
   rag_status: "skipped" | "completed" | "failed";
   rag_reason: string;
   retrieval_mode: "current" | "contextual_fallback";
@@ -340,6 +349,7 @@ export interface DiscordSocialPendingTurn {
 }
 
 export interface DiscordSocialTurnCursor {
+  attempts_used?: number;
   pending_turns: DiscordSocialPendingTurn[];
   completed_deployment_ids: string[];
   continuation_budget_remaining: number;

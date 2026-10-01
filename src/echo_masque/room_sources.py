@@ -38,6 +38,7 @@ class SourceMessage(BaseModel):
     deleted: bool = False
     content_available: bool = True
     has_unseen_media: bool = False
+    media_fingerprint: str = Field(default="", max_length=64)
 
     @model_validator(mode="after")
     def validate_observation(self) -> SourceMessage:
@@ -53,6 +54,22 @@ class SourceMessage(BaseModel):
             if timestamp is not None and timestamp.tzinfo is None:
                 raise ValueError("Source timestamps must include their original timezone.")
         return self
+
+    def draft_fingerprint(self) -> str:
+        """Content/identity changes matter; display-name or timestamp enrichment does not."""
+        payload = [
+            self.author_id,
+            self.author_is_bot,
+            self.author_deployment_id,
+            self.text,
+            self.reply_to_message_id,
+            self.response_to_message_id,
+            self.deleted,
+            self.content_available,
+            self.has_unseen_media,
+            self.media_fingerprint,
+        ]
+        return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
 
     def effective_time(self) -> datetime:
         return self.edited_at or self.created_at or datetime.min.replace(tzinfo=UTC)

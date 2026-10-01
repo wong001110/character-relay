@@ -245,18 +245,21 @@ def test_in_memory_store_prunes_ttl_stops_deduplicates_and_evicts_fifo() -> None
     assert stopped.record_count == 2
     stopped_current = store.current_session(owner_id="owner", server_profile_id="profile")
     assert stopped_current is not None and stopped_current.id == stopped.id
-    assert store.capture(
-        connection_id="connection",
-        guild_id="guild",
-        source_message_id="message-4",
-        channel_id="channel",
-        thread_id="",
-        deployment_id="deployment",
-        runtime_operation_id="operation-4",
-        runtime_step_id="step",
-        character_count=1,
-        payload={"text": "not captured"},
-    ) is None
+    assert (
+        store.capture(
+            connection_id="connection",
+            guild_id="guild",
+            source_message_id="message-4",
+            channel_id="channel",
+            thread_id="",
+            deployment_id="deployment",
+            runtime_operation_id="operation-4",
+            runtime_step_id="step",
+            character_count=1,
+            payload={"text": "not captured"},
+        )
+        is None
+    )
 
     expiring = store.start_session(
         owner_id="owner",
@@ -454,10 +457,13 @@ def test_capture_api_authorization_scope_dedupe_no_store_and_payload_free_audit(
         json=inbound_message(connection_id, deployment_id, message_id="disabled"),
     )
     assert disabled.status_code == 200, disabled.text
-    assert super_admin.get(
-        "/api/admin/discord-debug-captures/sessions/current",
-        params={"server_profile_id": profile_id},
-    ).json() is None
+    assert (
+        super_admin.get(
+            "/api/admin/discord-debug-captures/sessions/current",
+            params={"server_profile_id": profile_id},
+        ).json()
+        is None
+    )
 
     started = super_admin.post(
         "/api/admin/discord-debug-captures/sessions",
@@ -490,9 +496,7 @@ def test_capture_api_authorization_scope_dedupe_no_store_and_payload_free_audit(
     )
     assert spoofed.status_code == 200, spoofed.text
 
-    page = super_admin.get(
-        f"/api/admin/discord-debug-captures/sessions/{session_id}/records/page"
-    )
+    page = super_admin.get(f"/api/admin/discord-debug-captures/sessions/{session_id}/records/page")
     assert page.status_code == 200, page.text
     assert page.json()["total"] == 1
     summary = page.json()["items"][0]
@@ -506,14 +510,10 @@ def test_capture_api_authorization_scope_dedupe_no_store_and_payload_free_audit(
     assert detail.headers["cache-control"] == "no-store"
     assert detail.json()["payload"]["text"] == RAW_TEXT
 
-    cleared = super_admin.delete(
-        f"/api/admin/discord-debug-captures/sessions/{session_id}/records"
-    )
+    cleared = super_admin.delete(f"/api/admin/discord-debug-captures/sessions/{session_id}/records")
     assert cleared.status_code == 200, cleared.text
     assert cleared.json()["deleted_count"] == 1
-    stopped = super_admin.post(
-        f"/api/admin/discord-debug-captures/sessions/{session_id}/stop"
-    )
+    stopped = super_admin.post(f"/api/admin/discord-debug-captures/sessions/{session_id}/stop")
     assert stopped.status_code == 200, stopped.text
     assert stopped.json()["status"] == "stopped"
     current_after_stop = super_admin.get(
@@ -649,15 +649,13 @@ def test_message_runtime_failures_mark_capture_outcome(tmp_path: Path) -> None:
     )
     assert provider_error.status_code == 502, provider_error.text
 
-    page = client.get(
-        f"/api/admin/discord-debug-captures/sessions/{session_id}/records/page"
-    )
+    page = client.get(f"/api/admin/discord-debug-captures/sessions/{session_id}/records/page")
     assert page.status_code == 200, page.text
     outcomes = {item["source_message_id"]: item["outcome"] for item in page.json()["items"]}
     assert outcomes == {"conflict": "conflict", "provider-error": "provider_error"}
 
 
-def test_non_durable_social_turn_runtime_ingress_is_captured_once(tmp_path: Path) -> None:
+def test_durable_social_turn_runtime_ingress_is_captured_once(tmp_path: Path) -> None:
     app = create_app(app_settings(tmp_path / "discord-debug-social.db"))
     client = TestClient(app)
     login(client, ADMIN_EMAIL)
@@ -687,17 +685,36 @@ def test_non_durable_social_turn_runtime_ingress_is_captured_once(tmp_path: Path
         "continuation_budget": 1,
         "max_depth": 1,
     }
-    for _ in range(2):
+    from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
+
+    with app.state.database.session() as db_session:
+        role = db_session.get(CharacterDeploymentRecord, deployment_id)
+        owner_id = role.owner_id
+    app.state.durable_runtime_repository.claim_social_operation(
+        operation_id="debug-social-".ljust(64, "0"),
+        owner_id=owner_id,
+        connection_id=connection_id,
+        guild_id=request["payload"]["guild_id"],
+        channel_id=request["payload"]["channel_id"],
+        thread_id=request["payload"].get("thread_id", ""),
+        source_message_id="social-message",
+        initial_deployment_ids=[deployment_id],
+        available_deployment_ids=[deployment_id],
+        continuation_budget=1,
+        max_depth=1,
+    )
+    request["operation_id"] = "debug-social-".ljust(64, "0")
+    for expected_status in (200, 409):
         response = client.post(
             "/api/connectors/discord/social-turns/step",
             headers=connector_headers(),
             json=request,
         )
-        assert response.status_code == 200, response.text
+        assert response.status_code == expected_status, response.text
 
-    page = client.get(
-        f"/api/admin/discord-debug-captures/sessions/{session_id}/records/page"
-    )
+    assert app.state.social_turn_graph_runner.await_count == 1
+
+    page = client.get(f"/api/admin/discord-debug-captures/sessions/{session_id}/records/page")
     assert page.status_code == 200, page.text
     assert page.json()["total"] == 1
     assert page.json()["items"][0]["source_message_id"] == "social-message"

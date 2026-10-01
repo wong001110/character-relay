@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hmac
 import json
-from contextlib import suppress
+from contextlib import AbstractContextManager, suppress
 from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
@@ -65,6 +65,7 @@ from echo_masque.discord_debug_capture import (
     DiscordDebugCaptureRecord,
     DiscordDebugCaptureStore,
 )
+from echo_masque.model_attempt_budget import ModelAttemptBudget
 from echo_masque.orchestration import (
     CharacterTurnGraphRunner,
     SocialTurnGraphRunner,
@@ -82,6 +83,7 @@ from echo_masque.persistence.deployment_repository import decode_ids
 from echo_masque.persistence.expression_models import DiscordExpressionSemanticRecord
 from echo_masque.persistence.expression_repository import expression_key
 from echo_masque.room_context import bind_requester
+from echo_masque.room_routing import RoomScope
 from echo_masque.room_sources import SourceUnavailable
 
 router = APIRouter(prefix="/api/connectors/discord", tags=["connectors"])
@@ -109,6 +111,22 @@ def _authorize_connector(
             detail="Invalid connector credential.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+def _model_budget(
+    request: Request, payload: DiscordInboundMessage, operation_id: str
+) -> AbstractContextManager[None]:
+    return ModelAttemptBudget(request.app.state.database).scope(
+        RoomScope(
+            owner_id="runtime",
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+        ),
+        requester_id=payload.runtime_requester_id or payload.author_id,
+        operation_id=operation_id,
+    )
 
 
 def deployment_repository(request: Request) -> DeploymentRepository:
@@ -374,9 +392,7 @@ def sync_server_catalog(
                 else None
             )
             emojis = (
-                [item.model_dump() for item in server.emojis]
-                if server.emojis is not None
-                else None
+                [item.model_dump() for item in server.emojis] if server.emojis is not None else None
             )
             if stickers is not None:
                 interaction_repository(request).sync_sticker_catalog(
@@ -747,6 +763,28 @@ def claim_social_turn_operation(
         platform="discord",
         connection_id=payload.connection_id,
     )
+    records = [
+        record
+        for record in records
+        if deployments.deployment_matches_discord_destination(
+            record.id,
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+            category_id="",
+        )
+        is not None
+    ]
+    allowed = {record.id for record in records}
+    if (
+        len(set(payload.initial_deployment_ids)) > 3
+        or not set(payload.initial_deployment_ids) <= allowed
+        or not set(payload.available_deployment_ids) <= allowed
+    ):
+        raise HTTPException(
+            status_code=409, detail="room_participants_unavailable_or_over_capacity"
+        )
     first = next(
         (item for item in records if item.id == payload.initial_deployment_ids[0]),
         None,
@@ -936,6 +974,7 @@ def acknowledge_character_turn_delivery(
             step_id=payload.step_id,
             claim_nonce=payload.claim_nonce,
             sent_message_ids=payload.sent_message_ids,
+            applied=payload.applied,
         )
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -979,34 +1018,24 @@ async def process_social_turn_step(
             detail="Social Turn LangGraph orchestration is not enabled.",
         )
     if not payload.operation_id:
-        capture = _capture_discord_ingress(request, payload.payload)
-        try:
-            view = await runner(payload)
-            _mark_discord_capture_outcome(request, capture, "succeeded")
-            return view
-        except ConnectorRuntimeError as exc:
-            _mark_discord_capture_outcome(request, capture, "conflict")
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except ValueError as exc:
-            _mark_discord_capture_outcome(request, capture, "conflict")
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except Exception:
-            _mark_discord_capture_outcome(request, capture, "provider_error")
-            raise
+        raise HTTPException(
+            status_code=409, detail="A durable room operation must be claimed first."
+        )
 
     repository = durable_runtime_repository(request)
     operation = repository.get_operation(payload.operation_id)
-    if operation is None or operation.connection_id != payload.payload.connection_id:
-        raise HTTPException(
-            status_code=409, detail="Durable Social Turn operation was not claimed."
-        )
-    if operation.status == "completed":
-        raise HTTPException(status_code=409, detail="Durable Social Turn operation is completed.")
-    if operation.status == "uncertain":
-        raise HTTPException(
-            status_code=409,
-            detail="Durable Social Turn operation requires delivery reconciliation.",
-        )
+    if operation is None or (
+        operation.connection_id,
+        operation.guild_id,
+        operation.channel_id,
+        operation.thread_id,
+    ) != (
+        payload.payload.connection_id,
+        payload.payload.guild_id,
+        payload.payload.channel_id,
+        payload.payload.thread_id,
+    ):
+        raise HTTPException(status_code=409, detail="Durable room operation scope mismatch.")
 
     checkpoint = DiscordSocialTurnCursor.model_validate_json(operation.cursor_json)
     if not checkpoint.pending_turns:
@@ -1046,6 +1075,8 @@ async def process_social_turn_step(
     run_request = payload.model_copy(
         update={
             "cursor": checkpoint,
+            "initial_deployment_ids": json.loads(operation.initial_deployment_ids_json),
+            "available_deployment_ids": json.loads(operation.available_deployment_ids_json),
             "runtime_step_id": step.step_id,
         }
     )
@@ -1056,12 +1087,11 @@ async def process_social_turn_step(
         runtime_step_id=step.step_id,
     )
     try:
-        view = await runner(run_request)
+        with _model_budget(request, run_request.payload, operation.operation_id):
+            view = await runner(run_request)
     except Exception as exc:
         capture_outcome: DiscordDebugCaptureOutcome = (
-            "conflict"
-            if isinstance(exc, (ConnectorRuntimeError, ValueError))
-            else "provider_error"
+            "conflict" if isinstance(exc, (ConnectorRuntimeError, ValueError)) else "provider_error"
         )
         _mark_discord_capture_outcome(
             request,
@@ -1177,18 +1207,15 @@ async def process_discord_message(
     )
     try:
         runner = character_turn_graph_runner(request)
-        if runner is not None:
-            view = await runner(runtime_payload)
-        else:
-            view = await connector_runtime(request).respond(runtime_payload)
+        with _model_budget(request, runtime_payload, operation.operation_id):
+            if runner is not None:
+                view = await runner(runtime_payload)
+            else:
+                view = await connector_runtime(request).respond(runtime_payload)
         delivery_required = not (
             view.action == "silent"
             or (view.smart_output is not None and view.smart_output.action == "ignore")
-            or (
-                view.smart_output is None
-                and not view.text
-                and view.expression.action == "none"
-            )
+            or (view.smart_output is None and not view.text and view.expression.action == "none")
         )
         durable_view = view.model_copy(
             update={

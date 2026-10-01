@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 
 from echo_masque.api.routes.connectors import _authorize_connector, durable_runtime_repository
-from echo_masque.persistence.runtime_durability_models import RuntimeOperationRecord
+from echo_masque.api.social_turn_schemas import DiscordSocialTurnCursor
+from echo_masque.persistence.runtime_durability_models import (
+    RuntimeOperationRecord,
+    RuntimeStepRecord,
+)
 
 router = APIRouter()
 
@@ -50,7 +54,11 @@ def cancel_social_turn_operation(
     repository = durable_runtime_repository(request)
     now = datetime.now(UTC)
     with repository.database.session() as session:
-        record = session.get(RuntimeOperationRecord, payload.operation_id)
+        record = session.scalar(
+            select(RuntimeOperationRecord)
+            .where(RuntimeOperationRecord.operation_id == payload.operation_id)
+            .with_for_update()
+        )
         if record is None:
             return DiscordSocialTurnCancelView(
                 canceled=False,
@@ -86,31 +94,32 @@ def cancel_social_turn_operation(
                 detail="Social Turn operation cannot be superseded across an unresolved delivery.",
             )
 
-        try:
-            cursor = json.loads(record.cursor_json or "{}")
-        except json.JSONDecodeError:
-            cursor = {}
-        if not isinstance(cursor, dict):
-            cursor = {}
-        cursor["pending_turns"] = []
-        cursor["superseded_by_message_id"] = payload.superseding_message_id
-        cursor["superseded_reason"] = payload.reason
-        record.cursor_json = json.dumps(
-            cursor,
-            ensure_ascii=False,
-            separators=(",", ":"),
+        cursor = DiscordSocialTurnCursor.model_validate_json(record.cursor_json)
+        # A new room message changes optional scheduling, not ownership of another human's work.
+        if cursor.pending_turns and cursor.pending_turns[0].origin == "selected":
+            return DiscordSocialTurnCancelView(
+                canceled=False, status=record.status, reason="direct_request_preserved"
+            )
+        running = session.scalar(
+            select(RuntimeStepRecord.step_id).where(
+                RuntimeStepRecord.operation_id == record.operation_id,
+                RuntimeStepRecord.status.in_(["generating", "refreshing", "delivery_claimed"]),
+            )
         )
-        record.sources_json = "[]"
-        record.status = "completed"
-        record.last_error = f"superseded:{payload.reason}"[:1000]
-        record.updated_at = now
-        record.completed_at = now
+        if running is not None:
+            raise HTTPException(status_code=409, detail="running_work_requires_draft_preflight")
+        cursor.pending_turns = [p for p in cursor.pending_turns if p.origin == "selected"]
+        repository._advance_operation(
+            session, record, cursor_json=cursor.model_dump_json(), now=now
+        )
+        record.last_error = "optional_continuation_yielded_to_human"
         session.commit()
+        resulting_status = record.status
 
     return DiscordSocialTurnCancelView(
         canceled=True,
-        status="completed",
-        reason=payload.reason,
+        status=resulting_status,
+        reason="optional_continuation_yielded_to_human",
     )
 
 
