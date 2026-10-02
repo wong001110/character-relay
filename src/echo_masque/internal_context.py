@@ -208,17 +208,18 @@ class InternalContextService:
             query=payload.query,
             result_limit=payload.limit,
         )
-        prompt_hits = knowledge.prompt_hits()
+        prompt_hits = {item.ref: item for item in knowledge.prompt_hits()}
         results = [
             {
-                "ref": prompt_hit.ref,
-                "title": hit.document_title,
+                "ref": f"evidence:{hit.evidence_unit_id}",
+                "title": hit.document_title[:200],
                 "source_version_id": hit.source_version_id,
                 "authority": hit.authority_profile,
                 "channels": list(hit.channels),
-                "content": prompt_hit.text,
+                "content": prompt_hits[f"evidence:{hit.evidence_unit_id}"].text,
             }
-            for hit, prompt_hit in zip(knowledge.hits, prompt_hits, strict=True)
+            for hit in knowledge.hits
+            if f"evidence:{hit.evidence_unit_id}" in prompt_hits
         ]
         if self._authorized_scope(context) is None:
             return self._unavailable()

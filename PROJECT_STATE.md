@@ -40,7 +40,7 @@ R0-R6 are this initiative's checkpoints, not old P0-P6 completion claims.
 | R2 | IMPLEMENTED / OFFLINE VERIFIED: Room source/selection records, origin-scoped SDK ancestry/history, canonical requester binding, ordered permission observations, continuous edits/deletes, separate bounded work/publication queues, atomic delivered-response source links. Recovered R2 full suite: 1,433 passed, 7 skipped; see R3 review for current source/claim checks. |
 | R3 | RUNTIME SAFETY IMPLEMENTED: delivery-bound re-entry, attempt/room/member limits, server-owned preflight and one tool-free refresh, atomic delivery claim. Existing Free Pool caller remains qualification-gated; user-owned real-model validation is DEFERRED. Old-selector/composition retirement remains to be completed with R4/R5. |
 | R4 | IMPLEMENTED / OFFLINE VERIFIED: explicit scoped notes, source-linked raw-history/media recall, retrieval-only index contracts and intent-first sparse expressions. Old composition/API/configuration is explicitly pending R5 removal. |
-| R5 | IN_PROGRESS: pending effects extracted from semantic runtime; Portal/observation and retired-consumer cleanup still pending. |
+| R5 | BACKEND RETIREMENT VERIFIED: independent pending effects, scoped lifecycle, old selection/cognitive/Discovery/Roast composition and ORM consumers removed. Connector/Portal consumers and observations remain R5-C work. |
 | R6 | NOT STARTED: complete integration/deletion audit, isolated card/reset rehearsal and release preparation. |
 
 ## Evidence and limitations
@@ -124,3 +124,13 @@ Local Python 3.13.5: `pytest tests/test_pending_actions.py tests/test_tool_conti
  tests/test_room_context.py`: **34 passed**. Whole-source mypy: **426 files passed**. Changed Python
 Ruff passes. These are self-reviewed focused results, not R5 completion or full integration CI.
 Next: remove the old selection/cognitive composition and its UI/configuration consumers, then R6.
+
+## R5-B checkpoint (2026-10-02)
+
+Backend composition/API/storage retirement implemented; source details and exact test-disposition
+map: [R5-B review](docs/reviews/room-director-r5b-2026-10-02.md). Full core backend regression:
+**1,373 passed, 7 skipped**, followed by focused final knowledge-bridge cleanup checks. Whole-source
+mypy and Ruff pass. This is self-review and not a production deployment, live-model acceptance,
+or complete R5. Next: remove Connector/Portal consumers and implement daily notes/observations; R6
+reset/card/fence and integrated checks remain. Source checkpoint and recovery snapshot are separate
+from the earlier unpublished work, which was not restored or claimed complete.

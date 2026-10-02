@@ -88,9 +88,7 @@ def test_roleplay_prompt_suppresses_duplicate_live_context_and_trigger() -> None
     assert manifest["trigger_already_in_recent"] is True
     assert manifest["live_context_suppressed"] is True
     assert manifest["duplicate_suppressed_count"] == 2
-    assert manifest["expression_candidate_count"] == 1
-    assert manifest["expression_intent_count"] == 1
-    assert manifest["expression_description_fallback_count"] == 0
+    assert manifest["expression_resolution_mode"] == "intent_then_sparse"
     serialized = json.dumps(manifest)
     assert "Private trigger text" not in serialized
     assert "A very long private description" not in serialized

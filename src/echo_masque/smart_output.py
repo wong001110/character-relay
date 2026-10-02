@@ -189,8 +189,6 @@ class SmartOutputContext:
                 continue
             if participant.ref == f"deployment:{payload.deployment_id}":
                 continue
-            if payload.interaction_session_id and participant.kind == "character":
-                continue
             seen_refs.add(participant.ref)
             participants.append(participant)
         for index, participant in enumerate(participants[:12], start=1):

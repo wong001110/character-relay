@@ -17,10 +17,6 @@ from echo_masque.api.connector_schemas import (
     DiscordConnectorReplyView,
     DiscordIdentityMode,
     DiscordInboundMessage,
-    DiscordInteractionClaimRequest,
-    DiscordInteractionClaimView,
-    DiscordInteractionRunComplete,
-    DiscordInteractionSessionConnectorView,
     DiscordMessageRouteLookup,
     DiscordMessageRouteRegistration,
     DiscordMessageRouteView,
@@ -34,12 +30,8 @@ from echo_masque.api.connector_schemas import (
     DiscordWebhookStatusReport,
 )
 from echo_masque.api.expression_schemas import (
-    ExpressionCandidate,
     ExpressionContent,
-    ExpressionNodeReport,
     ExpressionResolveRequest,
-    ExpressionRetrievalView,
-    ExpressionRetrieveRequest,
 )
 from echo_masque.api.runtime_durability_schemas import (
     DiscordCharacterDeliveryAckRequest,
@@ -75,7 +67,6 @@ from echo_masque.persistence import (
     DiscordIdentityRepository,
     DurableRuntimeRepository,
     ExpressionRepository,
-    InteractionRepository,
     Repository,
 )
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
@@ -135,10 +126,6 @@ def deployment_repository(request: Request) -> DeploymentRepository:
 
 def identity_repository(request: Request) -> DiscordIdentityRepository:
     return cast(DiscordIdentityRepository, request.app.state.discord_identity_repository)
-
-
-def interaction_repository(request: Request) -> InteractionRepository:
-    return cast(InteractionRepository, request.app.state.interaction_repository)
 
 
 def expression_repository(request: Request) -> ExpressionRepository:
@@ -394,12 +381,6 @@ def sync_server_catalog(
             emojis = (
                 [item.model_dump() for item in server.emojis] if server.emojis is not None else None
             )
-            if stickers is not None:
-                interaction_repository(request).sync_sticker_catalog(
-                    connection_id=payload.connection_id,
-                    guild_id=server.guild_id,
-                    stickers=stickers,
-                )
             if emojis is not None or stickers is not None:
                 expression_repository(request).sync_server_resources(
                     connection_id=payload.connection_id,
@@ -609,14 +590,26 @@ def resolve_discord_sticker(
 ) -> DiscordStickerContent:
     _authorize_connector(request, authorization)
     try:
-        record = interaction_repository(request).resolve_sticker(**payload.model_dump())
+        record = expression_repository(request).resolve_resource(
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            resource_type="sticker",
+            resource_id=payload.sticker_id,
+            name=payload.name,
+            asset_url=payload.asset_url,
+            animated=payload.format_type in {"apng", "gif"},
+            available=True,
+            description=payload.description,
+            tags=payload.tags,
+            format_type=payload.format_type,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Discord connection not found.") from exc
     return DiscordStickerContent(
-        sticker_id=record.sticker_id,
+        sticker_id=record.resource_id,
         name=record.name,
         description=record.description,
-        tags=interaction_repository(request).sticker_tags(record),
+        tags=expression_repository(request).tags(record),
         format_type=record.format_type,
         asset_url=record.asset_url,
         semantic_intent=record.semantic_intent,
@@ -664,88 +657,6 @@ def resolve_discord_expression(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Discord connection not found.") from exc
     return expression_content(request, record)
-
-
-@router.post("/expressions/retrieve", response_model=ExpressionRetrievalView)
-def retrieve_discord_expressions(
-    payload: ExpressionRetrieveRequest,
-    request: Request,
-    authorization: Annotated[str | None, Header()] = None,
-) -> ExpressionRetrievalView:
-    _authorize_connector(request, authorization)
-    try:
-        run, candidates = expression_repository(request).retrieve(**payload.model_dump())
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Expression workflow scope not found.") from exc
-    return ExpressionRetrievalView(
-        run_id=run.id,
-        attempt=run.attempt_count,
-        candidates=[ExpressionCandidate.model_validate(item) for item in candidates],
-    )
-
-
-@router.post(
-    "/expressions/runs/{run_id}/nodes",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def record_expression_node(
-    run_id: str,
-    payload: ExpressionNodeReport,
-    request: Request,
-    authorization: Annotated[str | None, Header()] = None,
-) -> None:
-    _authorize_connector(request, authorization)
-    try:
-        expression_repository(request).record_node(run_id=run_id, **payload.model_dump())
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Expression run not found.") from exc
-
-
-@router.post("/interaction-sessions/claim", response_model=DiscordInteractionClaimView)
-def claim_interaction_session(
-    payload: DiscordInteractionClaimRequest,
-    request: Request,
-    authorization: Annotated[str | None, Header()] = None,
-) -> DiscordInteractionClaimView:
-    _authorize_connector(request, authorization)
-    interaction, run, claimed = interaction_repository(request).claim_session(
-        **payload.model_dump()
-    )
-    if interaction is None or run is None:
-        return DiscordInteractionClaimView()
-    return DiscordInteractionClaimView(
-        claimed=claimed,
-        run_id=run.id,
-        session=DiscordInteractionSessionConnectorView(
-            id=interaction.id,
-            participant_deployment_ids=interaction_repository(request).participant_ids(interaction),
-            rounds_per_trigger=interaction.rounds_per_trigger,
-            intensity=cast(
-                Literal["light", "playful", "sharp"],
-                interaction.intensity,
-            ),
-            target_user_id=interaction.target_user_id,
-            target_display_name=interaction.target_display_name,
-        ),
-    )
-
-
-@router.post(
-    "/interaction-sessions/runs/{run_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def complete_interaction_run(
-    run_id: str,
-    payload: DiscordInteractionRunComplete,
-    request: Request,
-    authorization: Annotated[str | None, Header()] = None,
-) -> None:
-    _authorize_connector(request, authorization)
-    if not interaction_repository(request).complete_run(
-        run_id=run_id,
-        **payload.model_dump(),
-    ):
-        raise HTTPException(status_code=404, detail="Interaction run not found.")
 
 
 @router.post(

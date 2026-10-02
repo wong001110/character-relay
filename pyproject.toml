@@ -15,7 +15,6 @@ dependencies = [
   "cryptography>=45,<51",
   "defusedxml>=0.7,<1.0",
   "fastapi>=0.115,<1.0",
-  "fastembed>=0.8,<0.9",
   "httpcore>=1,<2",
   "httpx>=0.28,<1.0",
   "langgraph>=1.2.9,<2.0",
@@ -91,37 +90,17 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 "scripts/build_room_routing_corpus.py" = ["RUF001"]
 "scripts/live_demo_seed.py" = ["E501", "F401", "RUF001"]
 "scripts/live_demo_seed_runner.py" = ["E501"]
-"src/echo_masque/api/deployment_discovery_schemas.py" = ["RUF022"]
 "src/echo_masque/api/routes/__init__.py" = ["E501", "I001"]
 "src/echo_masque/api/routes/accounts.py" = ["E501"]
-"src/echo_masque/api/routes/character_relationships.py" = ["E501"]
-"src/echo_masque/api/routes/conversation_intelligence.py" = ["E501"]
-"src/echo_masque/api/routes/deployment_discovery.py" = ["I001"]
-"src/echo_masque/api/routes/smart_participation_vnext.py" = ["E501"]
 "src/echo_masque/api/routes/workspace.py" = ["E501"]
-"src/echo_masque/bilibili_discovery.py" = ["E501"]
 "src/echo_masque/browser_runtime.py" = ["E501", "I001", "SIM105"]
-"src/echo_masque/character_relationships.py" = ["E501"]
 "src/echo_masque/condition_watch_runtime.py" = ["I001"]
-"src/echo_masque/conversation_intelligence_observation.py" = ["E501", "F401"]
-"src/echo_masque/conversation_reply_planner.py" = ["E501"]
-"src/echo_masque/conversation_segmentation.py" = ["E501", "RUF001"]
-"src/echo_masque/discovery_share.py" = ["E501", "I001", "SIM102", "SIM105"]
-"src/echo_masque/discovery_social_association.py" = ["I001"]
-"src/echo_masque/episodic_sql_rag.py" = ["E501"]
 "src/echo_masque/interaction_grounding.py" = ["E501", "RUF001"]
 "src/echo_masque/judges/rules.py" = ["RUF001"]
 "src/echo_masque/judges/semantic.py" = ["E501", "RUF001"]
-"src/echo_masque/layered_conversation_consolidation.py" = ["F401"]
 "src/echo_masque/network_safety.py" = ["I001"]
 "src/echo_masque/openrouter_image_scout.py" = ["B904"]
-"src/echo_masque/persistence/character_learned_state_event_models.py" = ["E501"]
-"src/echo_masque/persistence/conversation_segment_models.py" = ["E501"]
-"src/echo_masque/persistence/conversation_segment_repository.py" = ["E501"]
 "src/echo_masque/persistence/database.py" = ["E501", "I001"]
-"src/echo_masque/persistence/discovery_share_repository.py" = ["E501"]
-"src/echo_masque/persistence/episodic_sql_rag_models.py" = ["E501"]
-"src/echo_masque/persistence/knowledge_repository.py" = ["I001"]
 "src/echo_masque/persistence/utility_gateway_models.py" = ["E501"]
 "src/echo_masque/persistence/workspace_repository.py" = ["E501"]
 "src/echo_masque/prompt_budget.py" = ["E501"]
@@ -162,10 +141,6 @@ packages = ["echo_masque"]
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = "echo_masque.api"
-disable_error_code = ["attr-defined"]
-
-[[tool.mypy.overrides]]
 module = ["echo_masque.memory_layers", "echo_masque.internal_context"]
 disable_error_code = ["assignment", "arg-type", "attr-defined", "redundant-cast"]
 
@@ -197,27 +172,11 @@ module = "echo_masque.utility_media_pool_observer"
 disable_error_code = ["assignment", "var-annotated"]
 
 [[tool.mypy.overrides]]
-module = "echo_masque.character_relationships"
-disable_error_code = ["no-any-return"]
-
-[[tool.mypy.overrides]]
-module = "echo_masque.persistence.conversation_segment_repository"
-disable_error_code = ["attr-defined", "arg-type"]
-
-[[tool.mypy.overrides]]
 module = "echo_masque.providers.openai_multimodal"
 disable_error_code = ["arg-type"]
 
 [[tool.mypy.overrides]]
 module = "echo_masque.utility_gateway_live"
-disable_error_code = ["no-untyped-def"]
-
-[[tool.mypy.overrides]]
-module = "echo_masque.api.routes.character_relationships"
-disable_error_code = ["no-untyped-def"]
-
-[[tool.mypy.overrides]]
-module = "echo_masque.api.routes.smart_participation_vnext"
 disable_error_code = ["no-untyped-def"]
 
 [[tool.mypy.overrides]]

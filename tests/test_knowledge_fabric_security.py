@@ -4,7 +4,6 @@ import pytest
 from pydantic import ValidationError
 
 from echo_masque.api.knowledge_fabric_schemas import KnowledgeSourceCreate
-from echo_masque.context_resolver_v3 import ContextResolverV3
 from echo_masque.knowledge_fabric_context import KnowledgeContext
 from echo_masque.knowledge_fabric_query import KnowledgeQueryHit, KnowledgeQueryResult
 
@@ -131,8 +130,17 @@ def test_context_budget_drops_an_oversized_evidence_wrapper_instead_of_truncatin
         ),
         hits=(hit,),
     ).prompt_hits()[0]
-    compact = " ".join(prompt_hit.text.split())
-
-    assert ContextResolverV3._bounded_hits((prompt_hit,), len(compact) - 1) == ()
-    bounded = ContextResolverV3._bounded_hits((prompt_hit,), len(compact))
+    assert len(prompt_hit.text) <= 2600
+    context = KnowledgeContext(
+        result=KnowledgeQueryResult(
+            mode="overview",
+            accessible_corpus_count=1,
+            freshness_status="not_requested",
+            hits=(hit,),
+        ),
+        hits=(hit,),
+    )
+    assert context.prompt_hits(max_chars_per_hit=100) == ()
+    bounded = context.prompt_hits(max_chars_per_hit=1200)
     assert bounded[0].text.endswith("END UNTRUSTED EVIDENCE JSON")
+    assert len(bounded[0].text) <= 1200

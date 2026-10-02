@@ -34,7 +34,6 @@ from echo_masque.persistence import MatrixRepository, Repository, TargetAccessRe
 from echo_masque.persistence.models import CharacterCardRecord
 from echo_masque.providers import ProviderError
 from echo_masque.security_controls import QuotaExceeded
-from echo_masque.semantic_participation import CharacterParticipationSemanticService
 from echo_masque.targets import HttpTargetConfig, PromptModelConfig
 
 router = APIRouter(prefix="/api/characters", tags=["characters"])
@@ -61,22 +60,6 @@ def credential_source(request: Request) -> Literal["vault", "memory"]:
 
 def target_access(request: Request) -> TargetAccessRepository:
     return cast(TargetAccessRepository, request.app.state.target_access_repository)
-
-
-def semantic_participation_service(request: Request) -> CharacterParticipationSemanticService:
-    return cast(
-        CharacterParticipationSemanticService,
-        request.app.state.semantic_participation_service,
-    )
-
-
-def _refresh_semantic_profile(request: Request, owner_id: str, card_id: str) -> None:
-    """Generate or refresh the cached Character Card vector without blocking card persistence."""
-
-    semantic_participation_service(request).refresh_character(
-        owner_id=owner_id,
-        character_card_id=card_id,
-    )
 
 
 def _enforce_create_quota(request: Request, owner_id: str) -> None:
@@ -207,9 +190,9 @@ async def suggest_character_card(
 ) -> CharacterSuggestionResult:
     try:
         quota_service(request).consume_authoring_generation(user.id)
-        return await CharacterAssistantService(
-            request.app.state.authoring_runtime_service
-        ).suggest(payload)
+        return await CharacterAssistantService(request.app.state.authoring_runtime_service).suggest(
+            payload
+        )
     except QuotaExceeded as exc:
         raise quota_http_exception(exc) from exc
     except CharacterAssistantUnavailable as exc:
@@ -247,7 +230,6 @@ def create_character(
         payload=payload,
     )
     matrix_repository(request).capture_prompt_version(user.id, card.id)
-    _refresh_semantic_profile(request, user.id, card.id)
     return card
 
 
@@ -291,7 +273,6 @@ def create_prompt_character(
         repo.delete_target(target.id)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     matrix_repository(request).capture_prompt_version(user.id, card.id, label="Initial")
-    _refresh_semantic_profile(request, user.id, card.id)
     return card
 
 
@@ -325,11 +306,14 @@ def update_character(
             character_profile=current.character_profile,
         )
         prompt_changed = config.model_dump(mode="json") != current.model_dump(mode="json")
-        if repo.update_target(
-            target.id,
-            name=payload.display_name,
-            config=config.model_dump(mode="json"),
-        ) is None:
+        if (
+            repo.update_target(
+                target.id,
+                name=payload.display_name,
+                config=config.model_dump(mode="json"),
+            )
+            is None
+        ):
             raise HTTPException(status_code=404, detail="Target binding not found.")
     updated = _update_card(
         repo,
@@ -339,7 +323,6 @@ def update_character(
     )
     if prompt_changed:
         matrix_repository(request).capture_prompt_version(user.id, card_id)
-    _refresh_semantic_profile(request, user.id, card_id)
     return updated
 
 

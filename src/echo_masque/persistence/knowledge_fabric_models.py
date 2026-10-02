@@ -797,45 +797,6 @@ class KnowledgeCanonicalVisualReferenceRecord(Base):
     )
 
 
-class KnowledgeRuntimeEntityResolutionRecord(Base):
-    """Evidence-backed, revisable link from a scoped runtime EntityV3 to a corpus entity."""
-
-    __tablename__ = "knowledge_runtime_entity_resolutions"
-    __table_args__ = (
-        Index(
-            "ix_knowledge_runtime_entity_resolution_runtime_status",
-            "runtime_entity_id",
-            "status",
-            "created_at",
-        ),
-        Index(
-            "ix_knowledge_runtime_entity_resolution_canonical",
-            "canonical_entity_id",
-            "status",
-        ),
-    )
-
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    corpus_id: Mapped[str] = mapped_column(
-        ForeignKey("knowledge_corpora.id"), index=True, nullable=False
-    )
-    # No FK: Intelligence lifecycle deletes scoped EntityV3 rows independently.
-    runtime_entity_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
-    canonical_entity_id: Mapped[str] = mapped_column(
-        ForeignKey("knowledge_canonical_entities.id"), index=True, nullable=False
-    )
-    status: Mapped[str] = mapped_column(String(24), default="active", nullable=False)
-    confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    authority_profile: Mapped[str] = mapped_column(String(80), default="standard", nullable=False)
-    supersedes_resolution_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
-    producer: Mapped[str] = mapped_column(String(120), default="", nullable=False)
-    source_model: Mapped[str] = mapped_column(String(240), default="", nullable=False)
-    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, onupdate=utcnow
-    )
 
 
 class KnowledgeExtractedAssertionRecord(Base):
@@ -1142,7 +1103,6 @@ __all__ = [
     "KnowledgeOverlayPolicyRecord",
     "KnowledgeProjectionDependencyRecord",
     "KnowledgeProjectionRecord",
-    "KnowledgeRuntimeEntityResolutionRecord",
     "KnowledgeServerAdministratorRecord",
     "KnowledgeServerScopeRecord",
     "KnowledgeSourceRecord",

@@ -724,8 +724,6 @@ class DiscordConnectorRuntime:
         deployment: CharacterDeploymentRecord,
         payload: DiscordInboundMessage,
     ) -> bool:
-        if payload.interaction_session_id:
-            return True
         mode = deployment.participation_mode
         if mode == "mention_only":
             return payload.mentioned_bot
@@ -970,11 +968,6 @@ class DiscordConnectorRuntime:
             "footer": "Return Smart Output now.",
         }
         text = "\n".join(value for value in sections.values() if value)
-        expression_candidates = tuple(
-            item
-            for item in payload.expression_candidates[:6]
-            if item.resource_type in {"emoji", "sticker"}
-        )
         manifest: dict[str, object] = {
             "version": 1,
             "total_chars": len(text),
@@ -987,13 +980,6 @@ class DiscordConnectorRuntime:
             "focused_segment_applied": focused_segment_applied,
             "focused_message_count": len(focused_ids),
             "focused_trigger_excluded": focused_segment_applied and not include_trigger,
-            "expression_candidate_count": len(expression_candidates),
-            "expression_intent_count": sum(
-                bool(item.semantic_intent.strip()) for item in expression_candidates
-            ),
-            "expression_description_fallback_count": sum(
-                not item.semantic_intent.strip() and bool(item.semantic_description.strip())
-                for item in expression_candidates
-            ),
+            "expression_resolution_mode": "intent_then_sparse",
         }
         return RoleplayPrompt(text=text, manifest=manifest)
