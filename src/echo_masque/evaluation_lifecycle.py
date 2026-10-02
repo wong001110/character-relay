@@ -22,6 +22,7 @@ from echo_masque.persistence import (
 from echo_masque.persistence.chat_lifecycle_repository import ChatLifecycleRepository
 from echo_masque.persistence.knowledge_fabric_repository import KnowledgeFabricRepository
 from echo_masque.persistence.turn_job_repository import TurnJobRepository
+from echo_masque.persistence.web_room_repository import WebRoomRepository
 
 
 class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleService):
@@ -44,6 +45,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         conversation_media_repository: ConversationMediaReferenceRepository | None = None,
         generated_media_repository: GeneratedMediaArtifactRepository | None = None,
         turn_job_repository: TurnJobRepository | None = None,
+        web_room_repository: WebRoomRepository | None = None,
     ) -> None:
         super().__init__(
             database,
@@ -77,6 +79,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         )
         self.chat_repository = ChatLifecycleRepository(database)
         self.turn_job_repository = turn_job_repository or TurnJobRepository(database)
+        self.web_room_repository = web_room_repository or WebRoomRepository(database)
 
     def delete_account(
         self,
@@ -97,6 +100,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         conversation_media_count = self.conversation_media_repository.delete_owner(user_id)
         generated_media_count = self.generated_media_repository.delete_owner(user_id)
         turn_job_count = self.turn_job_repository.delete_owner(user_id)
+        web_room_counts = self.web_room_repository.delete_owner(user_id)
         deployment_counts = self.deployment_repository.delete_owner(user_id)
         deleted = super().delete_account(
             user_id,
@@ -111,6 +115,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             **knowledge_fabric_counts,
             **identity_counts,
             "discord_turn_jobs": turn_job_count,
+            **web_room_counts,
             "scheduled_reminders": reminder_count,
             "condition_watches": watch_count,
             "deployment_tool_profiles": deployment_tool_count,
