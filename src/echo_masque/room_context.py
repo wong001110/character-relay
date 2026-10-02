@@ -180,7 +180,7 @@ class RoomContextService:
                     author_display_name=source.message.author_display_name,
                     author_deployment_id=source.message.author_deployment_id,
                     is_bot=source.message.author_is_bot,
-                    text=source.message.text,
+                    text=source.message.model_text(),
                     reply_to_message_id=(
                         source.message.reply_to_message_id or source.message.response_to_message_id
                     ),
@@ -192,7 +192,7 @@ class RoomContextService:
             updates: dict[str, object] = {"recent_messages": messages}
             if payload.runtime_selection_origin == "direct":
                 # Quoted or caller-supplied prose never replaces the actual requesting source.
-                updates["text"] = target.message.text
+                updates["text"] = target.message.model_text()
             payload = payload.model_copy(update=updates)
             timezone = self.server_runtime.resolve_timezone(
                 owner_id=scope.owner_id, connection_id=scope.connection_id, guild_id=scope.guild_id
@@ -224,7 +224,7 @@ class RoomContextService:
                     )
                 )
             bundle = RoomContextBundle(
-                query=target.message.text,
+                query=target.message.model_text(),
                 focus=focus,
                 notes=note_lines,
                 temporal_context=(
