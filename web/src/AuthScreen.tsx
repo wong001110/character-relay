@@ -118,7 +118,7 @@ export function AuthScreen({ config, onAuthenticated }: Props) {
             <FormField label={t.password} required><Input name="password" type="password" required minLength={mode === "register" ? 12 : 1} autoComplete={mode === "login" ? "current-password" : "new-password"} /></FormField>
             {mode === "register" && config.invitation_required && <FormField label={t.invitation} hint={t.invitationHint} required><Input name="invitation_code" required autoComplete="off" /></FormField>}
             {error && <Toast tone="danger" title={language === "zh-CN" ? "无法进入研究室" : "Could not enter the studio"}>{error}</Toast>}
-            <Button className="auth-v3-submit" variant="primary" size="lg" disabled={working}>
+            <Button className="auth-v3-submit" variant="primary" size="lg" type="submit" disabled={working}>
               {working ? <><Spinner size="sm" label={t.working} /> {t.working}</> : mode === "login" ? t.submitLogin : t.submitRegister}
             </Button>
           </form>
