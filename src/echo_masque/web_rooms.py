@@ -99,21 +99,65 @@ class MembershipInput(BaseModel):
     can_post: bool = True
 
 
+class WebExpressionView(BaseModel):
+    resource_key: str
+    resource_type: Literal["emoji", "sticker"]
+    resource_id: str
+    name: str
+    animated: bool = False
+    asset_url: str = ""
+    format_type: str = ""
+    description: str = ""
+
+
+class WebReactionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    profile_id: str = Field(min_length=1, max_length=64)
+    emoji_key: str = Field(min_length=1, max_length=240)
+    emoji_name: str = Field(default="", max_length=160)
+
+
 class WebSend(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     profile_id: str = Field(min_length=1, max_length=64)
     client_message_id: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
-    text: str = Field(min_length=1, max_length=1800)
+    text: str = Field(default="", max_length=1800)
     reply_to_message_id: str = Field(default="", max_length=200)
+    sticker_resource_key: str = Field(default="", max_length=240)
 
     @field_validator("text")
     @classmethod
-    def nonempty(cls, value: str) -> str:
+    def bounded_text(cls, value: str) -> str:
         if len(value.encode("utf-16-le")) // 2 > 1800:
             raise ValueError("message_too_long")
-        if not value.strip():
-            raise ValueError("empty_message")
         return value
+
+    @field_validator("sticker_resource_key")
+    @classmethod
+    def sticker_key(cls, value: str) -> str:
+        value = value.strip()
+        if value and not value.startswith("sticker:"):
+            raise ValueError("invalid_sticker_resource")
+        return value
+
+    @field_validator("reply_to_message_id")
+    @classmethod
+    def normalize_reply(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("profile_id")
+    @classmethod
+    def normalize_profile(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("client_message_id")
+    @classmethod
+    def normalize_client_id(cls, value: str) -> str:
+        return value.strip()
+
+    def model_post_init(self, __context: object) -> None:
+        if not self.text.strip() and not self.sticker_resource_key:
+            raise ValueError("empty_message")
 
 
 class WebDeliveryView(BaseModel):
@@ -129,6 +173,7 @@ class WebDeliveryView(BaseModel):
     reason: str
     created_at: datetime
     routing_status: str
+    sticker_resource_key: str = ""
 
 
 class WebRoomDelivery(WebDeliveryView):
@@ -141,6 +186,9 @@ class WebRoomDelivery(WebDeliveryView):
     thread_id: str
     webhook_id: str
     actor_id: str
+    sticker_name: str = ""
+    sticker_asset_url: str = ""
+    sticker_format_type: str = ""
 
 
 class RoomLocationRecord(Protocol):
