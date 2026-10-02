@@ -6,7 +6,7 @@ export interface WebMember { user_id: string; display_name: string; can_post: bo
 export interface WebExpression { resource_key: string; resource_type: "emoji" | "sticker"; resource_id: string; name: string; animated: boolean; asset_url: string; format_type: string; description: string }
 export interface WebAttachment { attachment_id: string; url: string; proxy_url: string; filename: string; description: string; content_type: string; size_bytes: number | null; width: number | null; height: number | null }
 export interface WebMention { kind: "user" | "role" | "channel"; target_id: string; label: string }
-export interface WebEmbed { embed_type: string; url: string; title: string; description: string; provider_name: string; author_name: string; image_url: string; thumbnail_url: string }
+export interface WebEmbed { embed_type: string; url: string; title: string; description: string; provider_name: string; author_name: string; image_url: string; image_proxy_url: string; thumbnail_url: string; thumbnail_proxy_url: string }
 export interface WebPollAnswer { answer_id: number; text: string; emoji_name: string; emoji_id: string; vote_count: number }
 export interface WebPoll { question: string; answers: WebPollAnswer[]; allow_multiselect: boolean; expires_at: string | null; results_finalized: boolean }
 export interface WebReaction { key: string; resource_id: string; name: string; animated: boolean; asset_url: string; discord_count: number; web_count: number; count: number; mine: boolean; mine_profile_ids: string[] }
