@@ -8,7 +8,7 @@ import json
 import time
 from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Annotated, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -171,38 +171,42 @@ def _snapshot(repo: WebRoomRepository, room_id: str, user_id: str) -> dict[str, 
                 ),
             }
 
-        reactions: dict[str, dict[str, object]] = {}
-        for reaction in message.reactions:
-            reactions[reaction.key] = {
-                "key": reaction.key,
-                "resource_id": reaction.resource_id,
-                "name": reaction.name,
-                "animated": reaction.animated,
-                "asset_url": reaction.asset_url,
-                "discord_count": reaction.count,
+        reactions: dict[str, dict[str, Any]] = {}
+        for source_reaction in message.reactions:
+            reactions[source_reaction.key] = {
+                "key": source_reaction.key,
+                "resource_id": source_reaction.resource_id,
+                "name": source_reaction.name,
+                "animated": source_reaction.animated,
+                "asset_url": source_reaction.asset_url,
+                "discord_count": source_reaction.count,
                 "web_count": 0,
                 "mine": False,
+                "mine_profile_ids": [],
             }
-        for reaction in web_reactions.get(message.message_id, []):
-            key = str(reaction["key"])
+        for web_reaction in web_reactions.get(message.message_id, []):
+            key = str(web_reaction["key"])
             current = reactions.setdefault(
                 key,
                 {
                     "key": key,
-                    "resource_id": reaction["resource_id"],
-                    "name": reaction["name"],
-                    "animated": reaction["animated"],
-                    "asset_url": reaction["asset_url"],
+                    "resource_id": web_reaction["resource_id"],
+                    "name": web_reaction["name"],
+                    "animated": web_reaction["animated"],
+                    "asset_url": web_reaction["asset_url"],
                     "discord_count": 0,
                     "web_count": 0,
                     "mine": False,
                     "mine_profile_ids": [],
                 },
             )
-            current["web_count"] = int(reaction["web_count"])
-            current["mine"] = bool(reaction["mine"])
-        for reaction in reactions.values():
-            reaction["count"] = int(reaction["discord_count"]) + int(reaction["web_count"])
+            current["web_count"] = int(web_reaction["web_count"])
+            current["mine"] = bool(web_reaction["mine"])
+            current["mine_profile_ids"] = web_reaction.get("mine_profile_ids", [])
+        for reaction_view in reactions.values():
+            reaction_view["count"] = int(reaction_view["discord_count"]) + int(
+                reaction_view["web_count"]
+            )
 
         messages.append(
             {
