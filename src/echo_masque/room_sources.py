@@ -56,7 +56,9 @@ class SourceEmbed(BaseModel):
     provider_name: str = Field(default="", max_length=200)
     author_name: str = Field(default="", max_length=200)
     image_url: str = Field(default="", max_length=3000)
+    image_proxy_url: str = Field(default="", max_length=3000)
     thumbnail_url: str = Field(default="", max_length=3000)
+    thumbnail_proxy_url: str = Field(default="", max_length=3000)
 
 
 class SourcePollAnswer(BaseModel):
