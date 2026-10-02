@@ -447,10 +447,16 @@ class WebRoomRepository:
                     "asset_url": row.asset_url,
                     "web_count": 0,
                     "mine": False,
+                    "mine_profile_ids": [],
                 },
             )
             item["web_count"] = int(item["web_count"]) + 1
             item["mine"] = bool(item["mine"]) or row.user_id == user_id
+            if row.user_id == user_id:
+                profile_ids = item["mine_profile_ids"]
+                assert isinstance(profile_ids, list)
+                if row.profile_id not in profile_ids:
+                    profile_ids.append(row.profile_id)
         return {message_id: list(values.values()) for message_id, values in grouped.items()}
 
     def save_profile(
