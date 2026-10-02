@@ -76,6 +76,7 @@ const intents = [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildMessagePolls,
     GatewayIntentBits.GuildExpressions
 ];
 if (config.messageContentIntent)
@@ -2422,6 +2423,8 @@ client.on(Events.MessageReactionAdd, reaction => { void observeReactionMessage(r
 client.on(Events.MessageReactionRemove, reaction => { void observeReactionMessage(reaction.message); });
 client.on(Events.MessageReactionRemoveAll, message => { void observeReactionMessage(message); });
 client.on(Events.MessageReactionRemoveEmoji, reaction => { void observeReactionMessage(reaction.message); });
+client.on(Events.MessagePollVoteAdd, answer => { void observeReactionMessage(answer.poll.message); });
+client.on(Events.MessagePollVoteRemove, answer => { void observeReactionMessage(answer.poll.message); });
 client.on(Events.MessageDelete, observeDeletedMessage);
 client.on(Events.MessageBulkDelete, messages => {
     for (const message of messages.values())
@@ -2494,6 +2497,8 @@ async function shutdown(signal: string): Promise<void> {
     client.removeAllListeners(Events.MessageReactionRemove);
     client.removeAllListeners(Events.MessageReactionRemoveAll);
     client.removeAllListeners(Events.MessageReactionRemoveEmoji);
+    client.removeAllListeners(Events.MessagePollVoteAdd);
+    client.removeAllListeners(Events.MessagePollVoteRemove);
     client.removeAllListeners(Events.MessageBulkDelete);
     relay.stopTurnJobs();
     await turnIngress.shutdown(true);
