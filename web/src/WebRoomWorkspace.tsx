@@ -38,7 +38,7 @@ export function WebRoomWorkspace({demoMode = false}: {demoMode?: boolean}) {
   const [catalog, setCatalog] = useState<DiscordServerCatalog[]>([]);
   const [publishServer, setPublishServer] = useState(""); const [channelId, setChannelId] = useState("");
   const [threadId, setThreadId] = useState(""); const [roomName, setRoomName] = useState("");
-  const end = useRef<HTMLDivElement>(null); const nearBottom = useRef(true);
+  const end = useRef<HTMLDivElement>(null); const nearBottom = useRef(true);\n  const activeRoomId = useRef("");
   const room = rooms.find(item => item.id === roomId);
   const profile = profiles.find(item => item.id === profileId);
   const report = (reason: unknown) => setError(reason instanceof Error ? reason.message : "request_failed");
@@ -51,23 +51,43 @@ export function WebRoomWorkspace({demoMode = false}: {demoMode?: boolean}) {
     if (!active) return; setRooms(r); setProfiles(p); setProfileId(p[0]?.id ?? "");
   }).catch(reason => { if (active) report(reason); }); return () => {active = false;}; }, []);
   useEffect(() => {
-    setSnapshot(empty); setReply(""); setMembers([]); setConnection("disconnected");
+    const nextRoomId = room?.id ?? "";
+    const roomChanged = activeRoomId.current !== nextRoomId;
+    if (roomChanged) {
+      activeRoomId.current = nextRoomId;
+      setSnapshot(empty);
+      setReply("");
+      setMembers([]);
+    }
+    setConnection(room?.enabled ? "connecting" : "disconnected");
     if (!room?.enabled) return;
     let closed = false;
     const stream = new EventSource(webRoomApi.eventsUrl(room.id));
-    setConnection("connecting");
     stream.addEventListener("snapshot", event => {
       if (closed) return;
       try {
         const next: WebSnapshot = JSON.parse((event as MessageEvent<string>).data);
         if (next.room_id !== room.id || !Array.isArray(next.messages) || !Array.isArray(next.outbox)) throw new Error("invalid_room_snapshot");
+        // Same-room refresh/reconnect keeps the current list mounted until the new
+        // authoritative snapshot arrives. Stable message keys let React update in place.
         setSnapshot(next); setConnection("connected");
-      } catch { setError("invalid_room_snapshot"); setSnapshot(empty); stream.close(); setConnection("unavailable"); }
+      } catch {
+        setError("invalid_room_snapshot");
+        setSnapshot(empty);
+        stream.close();
+        setConnection("unavailable");
+      }
     });
     stream.addEventListener("revoked", () => {
-      if (closed) return; setSnapshot(empty); setReply(""); setConnection("unavailable"); stream.close();
+      if (closed) return;
+      setSnapshot(empty);
+      setReply("");
+      setConnection("unavailable");
+      stream.close();
     });
-    stream.onerror = () => { if (!closed) { setSnapshot(empty); setConnection("reconnecting"); } };
+    // EventSource reconnects itself. Keep the last authorized snapshot visible while
+    // transport is recovering instead of flashing an empty conversation.
+    stream.onerror = () => { if (!closed) setConnection("reconnecting"); };
     return () => {closed = true; stream.close();};
   }, [room?.id, room?.enabled, streamVersion]);
   useEffect(() => {
