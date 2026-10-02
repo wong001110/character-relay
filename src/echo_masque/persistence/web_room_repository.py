@@ -6,6 +6,7 @@ import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from threading import RLock
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import delete, func, select, update
@@ -368,13 +369,6 @@ class WebRoomRepository:
             profile = session.get(WebProfileRecord, payload.profile_id)
             if profile is None or profile.owner_id != user_id:
                 raise WebRoomError("profile_unavailable", 404)
-            sticker_resource = None
-            if payload.sticker_resource_key:
-                sticker_resource = _expression(
-                    session, room, payload.sticker_resource_key, resource_type="sticker"
-                )
-                if sticker_resource is None:
-                    raise WebRoomError("sticker_unavailable", 422)
             emoji_id = ""
             animated = False
             asset_url = ""
@@ -434,7 +428,7 @@ class WebRoomRepository:
                 )
                 .order_by(WebReactionRecord.message_id, WebReactionRecord.emoji_key)
             ).all()
-        grouped: dict[str, dict[str, dict[str, object]]] = {}
+        grouped: dict[str, dict[str, dict[str, Any]]] = {}
         for row in rows:
             by_key = grouped.setdefault(row.message_id, {})
             item = by_key.setdefault(
@@ -516,6 +510,13 @@ class WebRoomRepository:
             profile = session.get(WebProfileRecord, payload.profile_id)
             if profile is None or profile.owner_id != user_id:
                 raise WebRoomError("profile_unavailable", 404)
+            if payload.sticker_resource_key and _expression(
+                session,
+                room,
+                payload.sticker_resource_key,
+                resource_type="sticker",
+            ) is None:
+                raise WebRoomError("sticker_unavailable", 422)
             if payload.reply_to_message_id:
                 target = self.sources.get(room_scope(room), payload.reply_to_message_id)
                 if target is None or target.message.deleted or not target.message.content_available:
@@ -604,14 +605,17 @@ class WebRoomRepository:
                 ):
                     result = session.execute(delete(model).where(model.room_id.in_(owned_room_ids)))
                     counts[key] = int(getattr(result, "rowcount", 0) or 0)
-                result = session.execute(delete(WebRoomRecord).where(WebRoomRecord.id.in_(owned_room_ids)))
+                result = session.execute(
+                    delete(WebRoomRecord).where(WebRoomRecord.id.in_(owned_room_ids))
+                )
                 counts["web_rooms"] = int(getattr(result, "rowcount", 0) or 0)
-            for key, model, column in (
+            user_deletions: tuple[tuple[str, Any, Any], ...] = (
                 ("web_reactions_by_user", WebReactionRecord, WebReactionRecord.user_id),
                 ("web_outbox_by_user", WebOutboxRecord, WebOutboxRecord.owner_id),
                 ("web_room_memberships", WebRoomMemberRecord, WebRoomMemberRecord.user_id),
                 ("web_profiles", WebProfileRecord, WebProfileRecord.owner_id),
-            ):
+            )
+            for key, model, column in user_deletions:
                 result = session.execute(delete(model).where(column == owner_id))
                 counts[key] = counts.get(key, 0) + int(getattr(result, "rowcount", 0) or 0)
             session.commit()
