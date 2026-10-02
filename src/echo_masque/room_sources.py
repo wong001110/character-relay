@@ -16,6 +16,39 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from echo_masque.room_routing import RoomMessage, RoomScope
 
 
+class SourceAttachment(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    attachment_id: str = Field(min_length=1, max_length=200)
+    url: str = Field(min_length=1, max_length=3000)
+    proxy_url: str = Field(default="", max_length=3000)
+    filename: str = Field(default="attachment", max_length=255)
+    description: str = Field(default="", max_length=1024)
+    content_type: str = Field(default="", max_length=160)
+    size_bytes: int | None = Field(default=None, ge=0)
+    width: int | None = Field(default=None, ge=0)
+    height: int | None = Field(default=None, ge=0)
+
+
+class SourceExpression(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    resource_id: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=160)
+    animated: bool = False
+    asset_url: str = Field(default="", max_length=3000)
+    format_type: str = Field(default="", max_length=40)
+    description: str = Field(default="", max_length=1000)
+
+
+class SourceReaction(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    key: str = Field(min_length=1, max_length=240)
+    resource_id: str = Field(default="", max_length=200)
+    name: str = Field(min_length=1, max_length=160)
+    animated: bool = False
+    asset_url: str = Field(default="", max_length=3000)
+    count: int = Field(default=0, ge=0)
+
+
 class SourceMessage(BaseModel):
     """One normalized platform observation, including tombstones and unreadable input."""
 
