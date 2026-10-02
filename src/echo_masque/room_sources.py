@@ -75,6 +75,11 @@ class SourceMessage(BaseModel):
     content_available: bool = True
     has_unseen_media: bool = False
     media_fingerprint: str = Field(default="", max_length=64)
+    attachments: tuple[SourceAttachment, ...] = Field(default=(), max_length=10)
+    custom_emojis: tuple[SourceExpression, ...] = Field(default=(), max_length=20)
+    stickers: tuple[SourceExpression, ...] = Field(default=(), max_length=3)
+    reactions: tuple[SourceReaction, ...] = Field(default=(), max_length=40)
+    pinned: bool = False
 
     @model_validator(mode="after")
     def validate_observation(self) -> SourceMessage:
@@ -86,6 +91,8 @@ class SourceMessage(BaseModel):
             raise ValueError("Only a verified bot message has a deployment identity.")
         if self.deleted and self.text:
             raise ValueError("A tombstone must not retain message content.")
+        if self.deleted and (self.attachments or self.custom_emojis or self.stickers or self.reactions):
+            raise ValueError("A tombstone must not retain presentation content.")
         if not self.content_available and self.text:
             raise ValueError("Unavailable content must not be serialized as readable evidence.")
         for timestamp in (self.created_at, self.edited_at):
