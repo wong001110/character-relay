@@ -14,7 +14,15 @@ from echo_masque.persistence import Database
 from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.room_context import RoomContextService, bind_requester
 from echo_masque.room_routing import RoomScope, SpeakerChoice
-from echo_masque.room_sources import SourceMessage, SourceReaction, SourceUnavailable, scope_key
+from echo_masque.room_sources import (
+    SourceMention,
+    SourceMessage,
+    SourcePoll,
+    SourcePollAnswer,
+    SourceReaction,
+    SourceUnavailable,
+    scope_key,
+)
 
 NOW = datetime(2026, 10, 1, tzinfo=UTC)
 SCOPE = RoomScope(owner_id="owner", connection_id="connection", guild_id="guild", channel_id="room")
@@ -101,13 +109,54 @@ def test_presentation_reactions_do_not_advance_agent_source_revision(
     assert stored.message.pinned is True
 
 
-def test_custom_emoji_ids_stay_out_of_agent_model_text() -> None:
-    source = message(text="hello <:wave:123456789> <a:dance:987654321>")
-    assert source.text == "hello <:wave:123456789> <a:dance:987654321>"
-    assert source.model_text() == "hello :wave: :dance:"
+def test_custom_emoji_and_mention_ids_stay_out_of_agent_model_text() -> None:
+    source = message(
+        text="hello <:wave:123456789> <a:dance:987654321> <@111> <#222>",
+        mentions=(
+            SourceMention(kind="user", target_id="111", label="Bob"),
+            SourceMention(kind="channel", target_id="222", label="general"),
+        ),
+    )
+    assert "<:wave:123456789>" in source.text
+    assert source.model_text() == "hello :wave: :dance: @Bob #general"
     routed = source.routing_message(SCOPE, 1)
-    assert routed.text == "hello :wave: :dance:"
+    assert routed.text == "hello :wave: :dance: @Bob #general"
     assert "123456789" not in routed.text
+    assert "<@111>" not in routed.text
+
+
+def test_poll_vote_counts_update_presentation_without_agent_revision(
+    rooms: RoomRepository,
+) -> None:
+    first = message(
+        text="",
+        poll=SourcePoll(
+            question="Tea?",
+            answers=(
+                SourcePollAnswer(answer_id=1, text="Yes", vote_count=1),
+                SourcePollAnswer(answer_id=2, text="No", vote_count=0),
+            ),
+        ),
+    )
+    assert rooms.observe(SCOPE, [first]) == 1
+    updated = first.model_copy(
+        update={
+            "poll": SourcePoll(
+                question="Tea?",
+                answers=(
+                    SourcePollAnswer(answer_id=1, text="Yes", vote_count=4),
+                    SourcePollAnswer(answer_id=2, text="No", vote_count=2),
+                ),
+            )
+        }
+    )
+    assert rooms.observe(SCOPE, [updated]) == 1
+    stored = rooms.get(SCOPE, "m1")
+    assert stored is not None
+    assert stored.revision == 1
+    assert stored.message.poll is not None
+    assert stored.message.poll.answers[0].vote_count == 4
+    assert stored.message.model_text() == "[Poll] Tea? Options: Yes; No"
 
 
 
