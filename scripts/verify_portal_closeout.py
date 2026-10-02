@@ -385,9 +385,7 @@ def install_api_fixtures(
                     "previous_belief_ids": [BELIEF_ID],
                 },
             )
-        elif path == "/api/web-chat/rooms":
-            fulfill(route, [])
-        elif path == "/api/web-chat/profiles":
+        elif path in {"/api/web-chat/rooms", "/api/web-chat/profiles"}:
             fulfill(route, [])
         else:
             unmatched_requests.append(f"{method} {path}")
