@@ -28,28 +28,44 @@ function emojiImage(id: string, animated: boolean): string {
 }
 function messageText(message: WebMessage): ReactNode[] {
   if (!message.text) return [];
-  const byId = new Map(message.custom_emojis.map(item => [item.resource_id, item]));
-  const expression = /<(a?):([A-Za-z0-9_]+):(\d+)>/gu;
+  const emojiById = new Map(message.custom_emojis.map(item => [item.resource_id, item]));
+  const mentionByKey = new Map(
+    message.mentions.map(item => [`${item.kind}:${item.target_id}`, item])
+  );
+  const token = /<(a?):([A-Za-z0-9_]+):(\d+)>|<@!?(\d+)>|<@&(\d+)>|<#(\d+)>/gu;
   const output: ReactNode[] = [];
   let cursor = 0;
-  for (const match of message.text.matchAll(expression)) {
+  for (const match of message.text.matchAll(token)) {
     const index = match.index ?? 0;
     if (index > cursor) output.push(message.text.slice(cursor, index));
-    const id = match[3];
-    const known = byId.get(id);
-    const name = known?.name || match[2];
-    const animated = known?.animated ?? match[1] === "a";
-    output.push(
-      <img
-        key={`emoji:${index}:${id}`}
-        className="web-room-inline-emoji"
-        src={known?.asset_url || emojiImage(id, animated)}
-        alt={`:${name}:`}
-        title={`:${name}:`}
-        loading="lazy"
-        referrerPolicy="no-referrer"
-      />
-    );
+    if (match[3]) {
+      const id = match[3];
+      const known = emojiById.get(id);
+      const name = known?.name || match[2];
+      const animated = known?.animated ?? match[1] === "a";
+      output.push(
+        <img
+          key={`emoji:${index}:${id}`}
+          className="web-room-inline-emoji"
+          src={known?.asset_url || emojiImage(id, animated)}
+          alt={`:${name}:`}
+          title={`:${name}:`}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+        />
+      );
+    } else {
+      const kind = match[4] ? "user" : match[5] ? "role" : "channel";
+      const id = match[4] || match[5] || match[6];
+      const known = mentionByKey.get(`${kind}:${id}`);
+      const prefix = kind === "channel" ? "#" : "@";
+      const fallback = kind === "channel" ? "channel" : kind;
+      output.push(
+        <span key={`mention:${index}:${id}`} className="web-room-mention">
+          {prefix}{known?.label || fallback}
+        </span>
+      );
+    }
     cursor = index + match[0].length;
   }
   if (cursor < message.text.length) output.push(message.text.slice(cursor));
@@ -79,7 +95,7 @@ export function WebRoomMessage({
 }) {
   const reply = message.reply_preview;
   const customEmoji = expressions.filter(item => item.resource_type === "emoji" && item.asset_url);
-  const hasBody = Boolean(message.text || message.attachments.length || message.stickers.length);
+  const hasBody = Boolean(message.text || message.attachments.length || message.stickers.length || message.embeds.length || message.poll);
 
   return (
     <article className="web-room-message" id={`web-room-message-${message.id}`} data-message-id={message.id}>
@@ -165,6 +181,40 @@ export function WebRoomMessage({
                   );
                 })}
               </div>
+            )}
+
+            {message.embeds.length > 0 && (
+              <div className="web-room-embeds">
+                {message.embeds.map((embed, index) => {
+                  const preview = embed.image_proxy_url || embed.thumbnail_proxy_url || embed.image_url || embed.thumbnail_url;
+                  const card = (
+                    <div className="web-room-embed-card">
+                      {(embed.provider_name || embed.author_name) && <small>{embed.provider_name || embed.author_name}</small>}
+                      {embed.title && <strong>{embed.title}</strong>}
+                      {embed.description && <p>{embed.description}</p>}
+                      {preview && <img src={preview} alt="" loading="lazy" referrerPolicy="no-referrer" />}
+                    </div>
+                  );
+                  return embed.url ? (
+                    <a className="web-room-embed-link" href={embed.url} target="_blank" rel="noreferrer" key={`embed:${index}`}>{card}</a>
+                  ) : <div key={`embed:${index}`}>{card}</div>;
+                })}
+              </div>
+            )}
+
+            {message.poll && (
+              <section className="web-room-poll" aria-label={tx("Discord poll", "Discord 投票")}>
+                <header><strong>📊 {message.poll.question}</strong><small>{message.poll.allow_multiselect ? tx("Multiple choice", "可多选") : tx("Single choice", "单选")}</small></header>
+                <ol>
+                  {message.poll.answers.map(answer => (
+                    <li key={answer.answer_id}>
+                      <span>{answer.emoji_name ? `${answer.emoji_name} ` : ""}{answer.text || tx("Option", "选项")}</span>
+                      <strong>{answer.vote_count}</strong>
+                    </li>
+                  ))}
+                </ol>
+                <small>{message.poll.results_finalized ? tx("Poll ended", "投票已结束") : tx("Vote in Discord", "请在 Discord 投票")}</small>
+              </section>
             )}
           </>
         )}
