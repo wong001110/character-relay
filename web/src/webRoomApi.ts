@@ -7,6 +7,10 @@ export interface WebMessage { id: string; author_id: string; display_name: strin
 export interface WebOutbox { id: string; client_message_id: string; profile_id: string; display_name: string; avatar_url: string; text: string; reply_to_message_id: string; status: "pending" | "claimed" | "delivered" | "failed" | "uncertain" | "cancelled"; discord_message_id: string; reason: string; created_at: string; routing_status: string }
 export interface WebSnapshot { room_id: string; messages: WebMessage[]; outbox: WebOutbox[]; history_limit: number }
 export interface WebSend { client_message_id: string; profile_id: string; text: string; reply_to_message_id: string }
+export function snapshotForRoomTransition(current: WebSnapshot, roomId: string): WebSnapshot {
+  if (current.room_id === roomId) return current;
+  return {room_id: "", messages: [], outbox: [], history_limit: current.history_limit || 64};
+}
 const path = (id: string) => `/api/web-chat/rooms/${encodeURIComponent(id)}`;
 export const webRoomApi = {
   rooms: () => roomRequest<WebRoom[]>("/api/web-chat/rooms"),
