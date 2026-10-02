@@ -16,16 +16,14 @@ jobs:
           fetch-depth: 1
       - name: Verify and publish source-only Git objects
         env:
-          # Expiring source-only archive intentionally destined for this public repository.
-          # No continuity database, environment credentials or private captures are included.
-          SOURCE_URL: 'https://sdmntprnznorth.oaiusercontent.com/files/00000000-af90-820b-ace0-0d189fba418f/raw?se=2026-10-02T14%3A40%3A48Z&sp=r&sv=2026-02-06&sr=b&scid=65d0333d-4b41-5ed9-899c-561dd522b1d5&skoid=d5627e4c-566b-4761-a954-54993b0ed17b&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-02T00%3A45%3A22Z&ske=2026-10-03T00%3A45%3A22Z&sks=b&skv=2026-02-06&sig=HgZV%2B8QztgE5N2sitF%2BARzYxXLxHcywns9Nh8gYq1zM%3D'
+          # Source-only archive deliberately destined for this public repository; no private state.
+          SOURCE_URL: 'https://sdmntprnznorth.oaiusercontent.com/files/00000000-e6d0-820b-9cdb-a82fd12ce5ef/raw?se=2026-10-02T14%3A45%3A50Z&sp=r&sv=2026-02-06&sr=b&scid=2856e4a1-6654-5c27-b3fb-a026b21137e5&skoid=d5627e4c-566b-4761-a954-54993b0ed17b&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-02T00%3A27%3A39Z&ske=2026-10-03T00%3A27%3A39Z&sks=b&skv=2026-02-06&sig=md7OWEhv1SdTONkOOa%2BJOvN0o2TZYS/Ax8uZitwjhrA%3D'
         run: |
           echo "::add-mask::$SOURCE_URL"
           curl --fail --silent --show-error --max-time 60 "$SOURCE_URL" -o /tmp/source.zip
           echo '3c81b3f7cb66cba6cffbe71fc2c8bd1d92485b0047b5c3885562f76e8959bfd3  /tmp/source.zip' | sha256sum -c -
           python - <<'PY'
           import json, subprocess, zipfile
-          from pathlib import Path
           def git(*args, data=None):
               return subprocess.check_output(['git', *args], input=data).decode().strip()
           expected = ['43faee6957734cff62712522fec6d6c9ba347846', '3336dd998c12d037f95a7096d3f6236e1990f286']
@@ -37,10 +35,11 @@ jobs:
                   patch = z.read(sha + '.patch')
                   git('apply', '--check', '--index', '-', data=patch)
                   git('apply', '--index', '-', data=patch)
+                  tree = git('write-tree')
                   raw = z.read(sha + '.commit')
                   assert git('hash-object', '-t', 'commit', '-w', '--stdin', data=raw) == sha
                   assert git('show', '-s', '--format=%P', sha) == parent
-                  assert git('write-tree') == git('show', '-s', '--format=%T', sha)
+                  assert tree == git('show', '-s', '--format=%T', sha)
                   git('reset', '--hard', sha)
                   parent = sha
           assert git('write-tree') == 'f76622cc48c2cf8d883b59903bc0d5d4a4f99501'
