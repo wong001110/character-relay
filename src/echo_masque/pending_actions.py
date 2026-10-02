@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
-from echo_masque.persistence.conversation_runtime_repository import (
-    ConversationRuntimeRepository,
-    PendingActionV3View,
+from echo_masque.persistence.pending_action_repository import (
+    PendingActionRepository,
+    PendingActionView,
 )
 
 ContinuationSource = Literal[
     "explicit_reply",
-    "same_thread",
+    "same_native_thread",
     "cancelled",
     "none",
 ]
@@ -59,7 +60,7 @@ _CANCEL_CUES = (
 
 @dataclass(frozen=True, slots=True)
 class PendingActionContinuation:
-    action: PendingActionV3View | None
+    action: PendingActionView | None
     source: ContinuationSource
     confidence: float
     reason: str
@@ -82,7 +83,7 @@ class PendingActionService:
 
     def __init__(
         self,
-        repository: ConversationRuntimeRepository,
+        repository: PendingActionRepository,
     ) -> None:
         self.repository = repository
 
@@ -95,8 +96,6 @@ class PendingActionService:
         channel_id: str,
         discord_thread_id: str,
         source_message_id: str,
-        source_segment_id: str,
-        conversation_thread_id: str,
         requested_by_user_id: str,
         target_character_card_id: str,
         deployment_id: str,
@@ -105,7 +104,7 @@ class PendingActionService:
         state: str = "pending",
         expires_at: datetime | None = None,
         now: datetime | None = None,
-    ) -> PendingActionV3View:
+    ) -> PendingActionView:
         # Connector delivery may be retried.  Keep one unresolved action for the
         # exact source task instead of creating competing continuation candidates.
         existing = self.repository.active_pending_actions(
@@ -117,7 +116,6 @@ class PendingActionService:
             deployment_id=deployment_id,
             channel_id=channel_id,
             discord_thread_id=discord_thread_id,
-            match_discord_thread_id=True,
             now=now,
             limit=20,
         )
@@ -131,8 +129,6 @@ class PendingActionService:
             channel_id=channel_id,
             discord_thread_id=discord_thread_id,
             source_message_id=source_message_id,
-            source_segment_id=source_segment_id,
-            conversation_thread_id=conversation_thread_id,
             requested_by_user_id=requested_by_user_id,
             target_character_card_id=target_character_card_id,
             deployment_id=deployment_id,
@@ -141,7 +137,7 @@ class PendingActionService:
             state=state,
             expires_at=expires_at,
             now=now,
-            idempotency_key="|".join(
+            idempotency_key=json.dumps(
                 (
                     owner_id,
                     connection_id,
@@ -184,12 +180,9 @@ class PendingActionService:
         channel_id: str = "",
         discord_thread_id: str = "",
         reply_to_message_id: str = "",
-        current_segment_id: str = "",
-        conversation_thread_id: str = "",
         assigned_tool_ids: tuple[str, ...] = (),
         now: datetime | None = None,
     ) -> PendingActionContinuation:
-        del current_segment_id
         current = (now or datetime.now(UTC)).astimezone(UTC)
         candidates = self.repository.active_pending_actions(
             owner_id=owner_id,
@@ -200,7 +193,6 @@ class PendingActionService:
             deployment_id=deployment_id,
             channel_id=channel_id,
             discord_thread_id=discord_thread_id,
-            match_discord_thread_id=True,
             now=current,
             limit=20,
         )
@@ -267,8 +259,7 @@ class PendingActionService:
             same_thread = tuple(
                 item
                 for item in resumable
-                if conversation_thread_id
-                and item.conversation_thread_id == conversation_thread_id
+                if discord_thread_id and item.discord_thread_id == discord_thread_id
             )
             if len(same_thread) == 1:
                 action = same_thread[0]
@@ -283,7 +274,7 @@ class PendingActionService:
                         updated,
                         "cancelled",
                         1.0,
-                        "same_thread_cancel",
+                        "native_thread_cancel",
                         (action.tool_id,),
                     )
                 if not self._has_continue_cue(current_message):
@@ -296,9 +287,9 @@ class PendingActionService:
                     )
                 return PendingActionContinuation(
                     action,
-                    "same_thread",
+                    "same_native_thread",
                     1.0,
-                    "unique_same_thread_pending_action",
+                    "unique_native_thread_pending_action",
                 )
             return PendingActionContinuation(
                 None,

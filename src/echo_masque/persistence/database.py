@@ -71,6 +71,7 @@ from echo_masque.persistence.episodic_sql_rag_models import (
     ConversationEpisodeEntityRecord,
 )
 from echo_masque.persistence.models import Base, StorageMetadataRecord
+from echo_masque.persistence.pending_action_models import PendingActionRecord
 from echo_masque.persistence.note_models import CharacterNoteRecord, NoteCreationReceiptRecord
 from echo_masque.persistence.intelligence_v3_migration_models import (
     IntelligenceV3HardCutoverMigrationRecord,
@@ -304,6 +305,7 @@ class Database:
         # Explicitly touch authority/runtime model classes so schema creation is deterministic.
         _ = (
             CharacterNoteRecord,
+            PendingActionRecord,
             NoteCreationReceiptRecord,
             RoomRouteRecord,
             ModelAttemptBucketRecord,

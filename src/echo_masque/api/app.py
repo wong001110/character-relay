@@ -122,7 +122,7 @@ from echo_masque.orchestration import (
     ConditionWatchGraphRunner,
     SocialTurnGraphRunner,
 )
-from echo_masque.pending_actions_v3 import PendingActionService
+from echo_masque.pending_actions import PendingActionService
 from echo_masque.persistence import (
     AuthoringRepository,
     AuthRepository,
@@ -185,6 +185,7 @@ from echo_masque.persistence.knowledge_fabric_visual_reference_repository import
     KnowledgeFabricVisualReferenceRepository,
 )
 from echo_masque.persistence.note_repository import CharacterNoteRepository
+from echo_masque.persistence.pending_action_repository import PendingActionRepository
 from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.persistence.turn_job_repository import TurnJobRepository
@@ -513,7 +514,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     conversation_runtime_maintenance = ConversationRuntimeMaintenanceService(
         conversation_runtime_coordinator, conversation_runtime_repository
     )
-    pending_action_service = PendingActionService(conversation_runtime_repository)
+    pending_action_service = PendingActionService(PendingActionRepository(database))
     context_resolver_v3 = ContextResolverV3(
         structure=conversation_structure_repository,
         runtime=conversation_runtime_repository,

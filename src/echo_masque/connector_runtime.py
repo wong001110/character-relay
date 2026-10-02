@@ -21,7 +21,7 @@ from echo_masque.credentials import CredentialStore
 from echo_masque.discord_event_safety import safe_runtime_error_classification
 from echo_masque.domain import TargetResponse
 from echo_masque.expression_intent import ExpressionIntentResolver
-from echo_masque.pending_actions_v3 import PendingActionContinuation, PendingActionService
+from echo_masque.pending_actions import PendingActionContinuation, PendingActionService
 from echo_masque.persistence import (
     DeploymentRepository,
     DeploymentToolRepository,
@@ -297,8 +297,6 @@ class DiscordConnectorRuntime:
         resolved = prepared.resolved
         payload = resolved.payload
         deployment = resolved.deployment
-        bundle = prepared.context_bundle
-        conversation_thread_id = bundle.native_context_id if bundle is not None else ""
         continuation = service.resolve_continuation(
             owner_id=deployment.owner_id,
             connection_id=payload.connection_id,
@@ -312,13 +310,12 @@ class DiscordConnectorRuntime:
             channel_id=payload.channel_id,
             discord_thread_id=payload.thread_id,
             reply_to_message_id=payload.reply_to_message_id,
-            conversation_thread_id=conversation_thread_id,
             assigned_tool_ids=prepared.enabled_tools,
         )
         self._suppress_pending_side_effect_tools(prepared, continuation.suppressed_tool_ids)
         if continuation.action is not None and continuation.source in {
             "explicit_reply",
-            "same_thread",
+            "same_native_thread",
         }:
             catalog = {item.id: item for item in self.tool_registry.catalog()}
             item = catalog.get(continuation.tool_id)
@@ -367,8 +364,6 @@ class DiscordConnectorRuntime:
             channel_id=payload.channel_id,
             discord_thread_id=payload.thread_id,
             source_message_id=payload.message_id,
-            source_segment_id="",
-            conversation_thread_id=conversation_thread_id,
             requested_by_user_id=payload.runtime_requester_id
             if payload.runtime_request_id
             else payload.author_id,
@@ -410,7 +405,7 @@ class DiscordConnectorRuntime:
         suppressed = getattr(prepared, "suppressed_side_effect_tool_ids", ())
         if (
             continuation is not None
-            and continuation.source in {"explicit_reply", "same_thread"}
+            and continuation.source in {"explicit_reply", "same_native_thread"}
             and continuation.tool_id
             and continuation.tool_id not in suppressed
         ):
@@ -599,7 +594,7 @@ class DiscordConnectorRuntime:
         if (
             continuation is None
             or service is None
-            or continuation.source not in {"explicit_reply", "same_thread"}
+            or continuation.source not in {"explicit_reply", "same_native_thread"}
             or not continuation.action_id
         ):
             return

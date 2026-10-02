@@ -1,6 +1,6 @@
 # Project state
 
-Updated: **2026-10-01**. This is the only current progress and takeover record.
+Updated: **2026-10-02**. This is the only current progress and takeover record.
 
 ## Current scope and authority
 
@@ -40,7 +40,7 @@ R0-R6 are this initiative's checkpoints, not old P0-P6 completion claims.
 | R2 | IMPLEMENTED / OFFLINE VERIFIED: Room source/selection records, origin-scoped SDK ancestry/history, canonical requester binding, ordered permission observations, continuous edits/deletes, separate bounded work/publication queues, atomic delivered-response source links. Recovered R2 full suite: 1,433 passed, 7 skipped; see R3 review for current source/claim checks. |
 | R3 | RUNTIME SAFETY IMPLEMENTED: delivery-bound re-entry, attempt/room/member limits, server-owned preflight and one tool-free refresh, atomic delivery claim. Existing Free Pool caller remains qualification-gated; user-owned real-model validation is DEFERRED. Old-selector/composition retirement remains to be completed with R4/R5. |
 | R4 | IMPLEMENTED / OFFLINE VERIFIED: explicit scoped notes, source-linked raw-history/media recall, retrieval-only index contracts and intent-first sparse expressions. Old composition/API/configuration is explicitly pending R5 removal. |
-| R5 | NOT STARTED: Portal/observation and retired-consumer cleanup. |
+| R5 | IN_PROGRESS: pending effects extracted from semantic runtime; Portal/observation and retired-consumer cleanup still pending. |
 | R6 | NOT STARTED: complete integration/deletion audit, isolated card/reset rehearsal and release preparation. |
 
 ## Evidence and limitations
@@ -110,3 +110,17 @@ Whole Python: **1,514 passed, 7 skipped**; Ruff and mypy (**424 files**) passed.
 **162 tests**, typecheck and build passed. Eight targeted manual mutants were killed after two
 initial surviving test gaps were strengthened and rerun. These are self-reviewed offline results;
 no live model, PostgreSQL, browser, full retirement or cost/quality superiority is claimed.
+
+
+## R5-A checkpoint (2026-10-02)
+
+Reconstructed from the exact R4 tree; earlier unpublished R5 work was unavailable. Pending
+side effects now use `PendingActionRepository`/`pending_actions` with real room/requester/source
+identity and no semantic Thread/Segment fields. Production composition uses this store. Native
+Thread continuation, atomic claims, suppression of uncertain tools, terminal idempotence and
+expiry-at-claim are tested; no old-task migration or live data reset has occurred.
+
+Local Python 3.13.5: `pytest tests/test_pending_actions.py tests/test_tool_continuation_review.py
+ tests/test_room_context.py`: **34 passed**. Whole-source mypy: **426 files passed**. Changed Python
+Ruff passes. These are self-reviewed focused results, not R5 completion or full integration CI.
+Next: remove the old selection/cognitive composition and its UI/configuration consumers, then R6.
