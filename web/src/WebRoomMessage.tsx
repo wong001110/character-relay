@@ -17,6 +17,12 @@ function sizeLabel(value: number | null): string {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
+function messageTime(value: string | null): string {
+  const date = value ? new Date(value) : null;
+  return date && Number.isFinite(date.getTime())
+    ? date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})
+    : "";
+}
 function emojiImage(id: string, animated: boolean): string {
   return `https://cdn.discordapp.com/emojis/${id}.${animated ? "gif" : "png"}`;
 }
@@ -86,7 +92,7 @@ export function WebRoomMessage({
         <header>
           <strong>{message.display_name || tx("Deleted source", "已删除来源")}</strong>
           {message.pinned && <span className="web-room-message-badge" title={tx("Pinned", "已置顶")}>📌</span>}
-          <small>{message.actor_type.replaceAll("_", " ")}{message.edited_at ? tx(" · edited", " · 已编辑") : ""}</small>
+          <small>{message.actor_type.replaceAll("_", " ")} · {messageTime(message.created_at)}{message.edited_at ? tx(" · edited", " · 已编辑") : ""}</small>
         </header>
 
         {reply && (
