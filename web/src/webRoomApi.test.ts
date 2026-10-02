@@ -16,7 +16,7 @@ describe("web room client contracts", () => {
   expect(unmatchedOutbox(snapshot).map(item => item.id)).toEqual(["two"]);
  });
  it("preserves the current room while reconnecting but clears on a real room change", () => {
-  const current = {room_id:"room-a",history_limit:64,messages:[{id:"m1"}],outbox:[]} as WebSnapshot;
+  const current = {room_id:"room-a",history_limit:64,messages:[{id:"m1"}],outbox:[]} as unknown as WebSnapshot;
   expect(snapshotForRoomTransition(current, "room-a")).toBe(current);
   expect(snapshotForRoomTransition(current, "room-b")).toEqual({
    room_id:"",history_limit:64,messages:[],outbox:[]
