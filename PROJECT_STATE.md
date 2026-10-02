@@ -15,7 +15,7 @@ Updated: **2026-10-02**. This is the only current progress and takeover record.
 | Merge / production deploy | User authorized squash merge of the completed refactor plus Web Room Participant to main on 2026-10-02; not yet performed. No manual production purge. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
 | Character cards | Prefer portable authored content; old schema must not block the refactor |
-| Full refactor | **INCOMPLETE**; source-focused production routing is wired; continuation/freshness and retirement are still in progress |
+| Full refactor | **OFFLINE CODE CLOSEOUT COMPLETE**; Web Room MVP included. Live Discord and Free Token Pool quality testing is user-owned after merge. |
 
 ## Baseline correction
 
@@ -40,8 +40,8 @@ R0-R6 are this initiative's checkpoints, not old P0-P6 completion claims.
 | R2 | IMPLEMENTED / OFFLINE VERIFIED: Room source/selection records, origin-scoped SDK ancestry/history, canonical requester binding, ordered permission observations, continuous edits/deletes, separate bounded work/publication queues, atomic delivered-response source links. Recovered R2 full suite: 1,433 passed, 7 skipped; see R3 review for current source/claim checks. |
 | R3 | RUNTIME SAFETY IMPLEMENTED: delivery-bound re-entry, attempt/room/member limits, server-owned preflight and one tool-free refresh, atomic delivery claim. Existing Free Pool caller remains qualification-gated; user-owned real-model validation is DEFERRED. Old-selector/composition retirement remains to be completed with R4/R5. |
 | R4 | IMPLEMENTED / OFFLINE VERIFIED: explicit scoped notes, source-linked raw-history/media recall, retrieval-only index contracts and intent-first sparse expressions. Old composition/API/configuration is explicitly pending R5 removal. |
-| R5 | BACKEND RETIREMENT VERIFIED: independent pending effects, scoped lifecycle, old selection/cognitive/Discovery/Roast composition and ORM consumers removed. Connector/Portal consumers and observations remain R5-C work. |
-| R6 | NOT STARTED: complete integration/deletion audit, isolated card/reset rehearsal and release preparation. |
+| R5 | COMPLETE / OFFLINE VERIFIED: backend, Connector and Portal legacy consumers retired; scoped notes/recall, sparse expressions, pending effects and Web Room transport are on the supported path. |
+| R6 | OFFLINE CLOSEOUT VERIFIED: fresh schema excludes retired chat tables, lifecycle isolation is covered, portable character authoring remains independent of retired chat state, Docker browser Rooms smoke and exact-head integration gates passed. No live purge was performed. |
 
 ## Evidence and limitations
 
@@ -72,12 +72,7 @@ describes the actual entry points and missing live adapter.
 
 ## Next concrete action
 
-Continue R5: remove replaced runtime, configuration, API and Portal consumers; extract only
-required pending-action/effect state and complete requester-bound controls. Then perform the
-R6 integration/reset/card rehearsal.
-Live Discord/model quality tests are explicitly user-owned and deferred, not an implementation
-blocker or a claimed pass. Keep ambient unqualified by default; provide the evaluated-member setup
-for later testing. Squash merge is authorized after verification; live data deletion is not performed by development.
+User-owned real testing after merge: publish an explicitly permitted Discord room, grant a website account, choose/create a Web participant profile, verify Discord ↔ Web create/edit/delete and reply behavior, then exercise Free Token Pool Director qualification with real conversations. Record any observed defect as a new bounded follow-up. No production data purge is required for this merge.
 
 ## R3 implementation checkpoint (2026-10-01)
 
@@ -170,3 +165,12 @@ Remaining in-scope: correlated observation UI, new-table lifecycle/closeout audi
 reset/epoch/card rehearsal, complete integrated checks, browser validation and exact-head CI.
 Web transport fault tests use a simulated Discord boundary, not a live-send result. User-owned
 Free Token Pool / real Discord evaluation remains separate. No merge, live purge or manual deploy.
+
+
+## R6 offline closeout (2026-10-02)
+
+Source head `3adda1760f2cff6949cf134ce0f9916511ce5706` passed GitHub CI run **37028507484**: Python 3.12 and 3.13 each **1,394 passed, 7 skipped**; Web, Discord Connector, PostgreSQL foundation and Docker production-image/browser jobs passed. Exact-head Railway Smoke **37028506680** and Public Demo Status Check **37028507390** also passed. The Docker browser journey now opens the current Rooms workspace rather than retired Intelligence/Belief surfaces.
+
+The fresh-schema retirement contract verifies that retired selection/cognitive/workflow tables are not recreated, while account-scoped room evidence, explicit character notes and pending effects retain isolation. Web Room remains deliberately bounded to authenticated session + explicit membership, owned display profile, text/reply, bounded SSE history and durable webhook delivery/echo reconciliation. Real Discord sends and Free Token Pool model quality remain deferred to the user's post-merge testing and are not claimed by these offline gates.
+
+No manual Railway deployment, production reset, live credential export or data deletion was performed during development. The production cutover policy may discard old chat-state data later; portable authored Character content is not coupled to those retired tables.
