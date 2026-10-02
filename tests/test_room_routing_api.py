@@ -327,3 +327,22 @@ def test_preflight_rejects_client_draft_or_cross_room_operation(setup: tuple) ->
     assert (
         client.post("/api/connectors/discord/rooms/drafts/preflight", json=data).status_code == 401
     )
+
+
+def test_room_buffer_policy_is_authenticated_without_old_profile_endpoint(setup: tuple) -> None:
+    _app, client, connection, _ = setup
+    path = f"/api/connectors/discord/rooms/runtime?connection_id={connection['id']}"
+    assert client.get(path).status_code == 401
+    response = client.get(path, headers=HEADERS)
+    assert response.status_code == 200
+    assert set(response.json()) == {
+        "enabled",
+        "quiet_window_ms",
+        "max_wait_ms",
+        "max_messages",
+        "max_characters",
+    }
+    assert (
+        client.get("/api/smart-participation/connector-profiles", headers=HEADERS).status_code
+        == 404
+    )

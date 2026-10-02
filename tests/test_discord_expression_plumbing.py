@@ -15,26 +15,20 @@ def test_expression_limit_is_per_character_reply_not_per_trigger() -> None:
     assert "expression_max_per_character_reply: 1" in INDEX
 
 
-def test_bot_follow_up_executes_output_without_eager_expression_retrieval() -> None:
-    section = between(
-        "async function continueBotTagConversation(",
-        "async function processInteractionSession(",
-    )
-    assert "await prepareExpression(" not in section
-    assert "resolveExpressionSourceMessage(" in section
-    assert 'expression_run_id: preparedExpression.retrieval?.run_id ?? ""' in section
-    assert "expression_candidates: preparedExpression.retrieval?.candidates ?? []" in section
-    assert 'node_name: "model_select"' in section
+def test_one_durable_group_path_without_eager_expression_retrieval() -> None:
+    section = between("async function processMessage(", "async function resumePendingSocialTurns(")
+    assert "relay.processSocialTurnStep(" in section
+    assert "await executeSmartOutput(" in section
     assert "await executeCharacterOutput(" in section
+    assert "retrieveExpressions(" not in INDEX
+    assert "prepareExpression(" not in INDEX
+    assert "expression_candidates:" not in INDEX
+    assert "expression_run_id:" not in INDEX
 
 
-def test_interaction_participants_do_not_eagerly_retrieve_expressions() -> None:
-    section = between(
-        "async function processInteractionSession(",
-        "async function processMessage(",
-    )
-    assert "await prepareExpression(" not in section
-    assert 'expression_run_id: preparedExpression.retrieval?.run_id ?? ""' in section
-    assert "expression_candidates: preparedExpression.retrieval?.candidates ?? []" in section
-    assert 'node_name: "model_select"' in section
-    assert "await executeCharacterOutput(" in section
+def test_retired_activity_and_selector_consumers_are_absent() -> None:
+    assert "continueBotTagConversation(" not in INDEX
+    assert "processInteractionSession(" not in INDEX
+    assert "claimInteraction(" not in INDEX
+    assert "legacyQueue" not in INDEX
+    assert "normalDelivery" not in INDEX

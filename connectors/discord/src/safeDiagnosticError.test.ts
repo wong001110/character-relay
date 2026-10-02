@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe,expect,it } from "vitest";
 
 import {
-  formatSafeDiagnosticError,
-  safeDiagnosticError
+formatSafeDiagnosticError,
+safeDiagnosticError
 } from "./safeDiagnosticError.js";
 
 describe("safeDiagnosticError", () => {

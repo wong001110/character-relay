@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import {
-  resolveExplicitAudiencePreflight,
-  semanticScoringRequired
+resolveExplicitAudiencePreflight,
+semanticScoringRequired
 } from "./audiencePreflight.js";
 import type { AudienceResolution } from "./routing.js";
 import type { DiscordDeployment } from "./types.js";

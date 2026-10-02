@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe,expect,it } from "vitest";
 
 import { ContextBuffer } from "./contextBuffer.js";
 import type { DiscordContextMessage } from "./types.js";

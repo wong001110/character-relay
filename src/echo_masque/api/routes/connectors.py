@@ -345,7 +345,7 @@ def list_connector_deployments(
                 webhook_status=webhook_status,
                 webhook_id=binding.webhook_id if binding is not None else None,
                 webhook_token=webhook_token,
-                orchestration_mode=cast(Settings, request.app.state.settings).langgraph_mode,
+                orchestration_mode="social_turn",
             )
         )
     return views

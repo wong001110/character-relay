@@ -57,16 +57,16 @@ def request_payload() -> dict[str, object]:
     }
 
 
-def test_social_runner_only_wires_at_social_turn_mode(tmp_path: Path) -> None:
+def test_social_runner_is_the_single_supported_group_path(tmp_path: Path) -> None:
     for mode in ("off", "condition_watch", "character_turn"):
         app = create_app(settings(tmp_path / f"{mode}.db", mode=mode))
-        assert app.state.social_turn_graph_runner is None
+        assert isinstance(app.state.social_turn_graph_runner, SocialTurnGraphRunner)
 
     social_app = create_app(settings(tmp_path / "social.db", mode="social_turn"))
     assert isinstance(social_app.state.social_turn_graph_runner, SocialTurnGraphRunner)
 
 
-def test_social_endpoint_rejects_when_rollout_is_not_enabled(tmp_path: Path) -> None:
+def test_social_endpoint_still_requires_durable_admission(tmp_path: Path) -> None:
     app = create_app(settings(tmp_path / "character.db", mode="character_turn"))
     client = TestClient(app)
     response = client.post(
@@ -75,7 +75,7 @@ def test_social_endpoint_rejects_when_rollout_is_not_enabled(tmp_path: Path) -> 
         json=request_payload(),
     )
     assert response.status_code == 409
-    assert "not enabled" in response.json()["detail"]
+    assert "durable room operation" in response.json()["detail"]
 
 
 def test_social_endpoint_dispatches_to_runner(tmp_path: Path) -> None:

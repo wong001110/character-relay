@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import Field
+from sqlalchemy import select
 
+from echo_masque.admin_runtime import ConversationBurstRuntimeProfile
 from echo_masque.api.room_schemas import (
     DraftPreflightRequest,
     RoomChoiceView,
@@ -27,6 +29,8 @@ from echo_masque.persistence.deployment_models import (
 )
 from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.persistence.runtime_durability_models import RuntimeStepRecord
+from echo_masque.persistence.web_room_models import WebRoomRecord
+from echo_masque.persistence.web_room_repository import WebRoomRepository
 from echo_masque.room_director import build_director_input
 from echo_masque.room_routing import (
     ContextAction,
@@ -87,10 +91,51 @@ def _observe(
     owners = {owner_id, *(record.owner_id for record in records)}
     identities = request.app.state.discord_identity_repository
     observations = []
+    web = WebRoomRepository(request.app.state.database)
+    with request.app.state.database.session() as session:
+        webhooks = set(
+            session.scalars(
+                select(WebRoomRecord.webhook_id).where(
+                    WebRoomRecord.connection_id == payload.connection_id,
+                    WebRoomRecord.guild_id == payload.guild_id,
+                    WebRoomRecord.channel_id == payload.channel_id,
+                    WebRoomRecord.webhook_id != "",
+                )
+            )
+        )
     for item in payload.messages:
         # Every original message destination is checked, never relabeled to this request.
         if not item.in_scope(scope):
             raise HTTPException(status_code=403, detail="source_scope_mismatch")
+        if item.author_external_id:
+            raise HTTPException(status_code=403, detail="source_external_identity_runtime_owned")
+        web_receipt = web.delivered(
+            payload.connection_id,
+            payload.guild_id,
+            payload.channel_id,
+            payload.thread_id,
+            item.message_id,
+        )
+        if item.webhook_id in webhooks and web_receipt is None and not item.deleted:
+            # Gateway can arrive before Execute Webhook's response. Wait for the durable receipt;
+            # never first save it under a webhook principal and later rewrite its identity.
+            continue
+        if web_receipt is not None:
+            if not item.deleted and (
+                not item.author_is_bot or item.webhook_id != web_receipt.webhook_id
+            ):
+                raise HTTPException(status_code=403, detail="source_webhook_receipt_mismatch")
+            authored = json.loads(web_receipt.payload_json)
+            item = item.model_copy(
+                update={
+                    "author_id": f"web:{web_receipt.profile_id}",
+                    "author_is_bot": True,
+                    "author_external_id": web_receipt.profile_id,
+                    "author_display_name": authored["display_name"],
+                    "author_avatar_url": authored["avatar_url"],
+                    "reply_to_message_id": authored["reply_to_message_id"],
+                }
+            )
         route = (
             identities.resolve_message_route(
                 connection_id=payload.connection_id, message_id=item.message_id
@@ -143,7 +188,18 @@ def observe_room_events(
     _authorize_connector(request, authorization)
     records = _deployments(request, payload)
     if not records:
-        raise HTTPException(status_code=403, detail="room_not_deployed")
+        with request.app.state.database.session() as session:
+            published = session.scalar(
+                select(WebRoomRecord.id).where(
+                    WebRoomRecord.connection_id == payload.connection_id,
+                    WebRoomRecord.guild_id == payload.guild_id,
+                    WebRoomRecord.channel_id == payload.channel_id,
+                    WebRoomRecord.thread_id == payload.thread_id,
+                    WebRoomRecord.enabled.is_(True),
+                )
+            )
+        if published is None:
+            raise HTTPException(status_code=403, detail="room_not_deployed")
     try:
         _, revision = _observe(request, payload, records)
     except (SourceUnavailable, ValueError) as exc:
@@ -485,3 +541,21 @@ def explicit_note_action(
         raise HTTPException(
             status_code=409 if isinstance(exc, NoteConflict) else 403, detail=str(exc)
         ) from exc
+
+
+@router.get("/runtime", response_model=ConversationBurstRuntimeProfile)
+def room_buffer_policy(
+    connection_id: str,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> ConversationBurstRuntimeProfile:
+    """Buffer sizing only: no local profile scoring or second participation authority."""
+    _authorize_connector(request, authorization)
+    with request.app.state.database.session() as session:
+        connection = session.get(PlatformConnectionRecord, connection_id)
+        if connection is None or connection.platform != "discord":
+            raise HTTPException(status_code=404, detail="connection_unavailable")
+    return cast(
+        ConversationBurstRuntimeProfile,
+        request.app.state.runtime_service.config().conversation_burst,
+    )

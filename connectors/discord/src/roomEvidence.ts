@@ -1,6 +1,6 @@
 /** Raw Discord evidence. No semantic segmentation, model calls, or cross-room ancestry. */
+import { ChannelType,PermissionFlagsBits,type Message } from "discord.js";
 import { createHash } from "node:crypto";
-import { ChannelType, PermissionFlagsBits, type Message } from "discord.js";
 import type { DiscordContextMessage } from "./types.js";
 
 export interface RoomLocation {
@@ -16,6 +16,8 @@ export interface RoomSource {
   thread_id: string;
   author_id: string;
   author_display_name: string;
+  author_avatar_url?: string;
+  webhook_id?: string;
   author_is_bot: boolean;
   author_deployment_id: string;
   text: string;
@@ -87,6 +89,8 @@ export function rawRoomSource(message: Message<true>, contentIntent: boolean): R
     thread_id: location.thread_id,
     author_id: message.author.id,
     author_display_name: message.member?.displayName ?? message.author.globalName ?? message.author.username,
+    author_avatar_url: message.author.displayAvatarURL?.() ?? "",
+    webhook_id: message.webhookId ?? "",
     author_is_bot: message.author.bot,
     // Backend verifies canonical message-route identity; don't promote a webhook display name.
     author_deployment_id: "",

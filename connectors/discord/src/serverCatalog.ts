@@ -2,10 +2,10 @@ import { ChannelType } from "discord.js";
 
 import { safeDiagnosticError } from "./safeDiagnosticError.js";
 import type {
-  DiscordCatalogEmoji,
-  DiscordCatalogServer,
-  DiscordCatalogSticker,
-  DiscordServerCatalogSync
+DiscordCatalogEmoji,
+DiscordCatalogServer,
+DiscordCatalogSticker,
+DiscordServerCatalogSync
 } from "./types.js";
 
 type CatalogChannel = Readonly<{

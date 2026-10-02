@@ -3,6 +3,7 @@ export const portalRoutes = {
   characters: "/characters",
   characterNew: "/characters/new",
   deployments: "/deployments",
+  rooms: "/rooms",
   toolbox: "/toolbox",
   settings: "/settings",
   componentLibrary: "/dev/ui"
@@ -59,6 +60,7 @@ export type WorkspaceRouteSection =
   | "dashboard"
   | "characters"
   | "deployments"
+  | "rooms"
   | "toolbox"
   | "settings";
 
@@ -66,6 +68,7 @@ const workspaceRoutes: Record<WorkspaceRouteSection, string> = {
   dashboard: portalRoutes.dashboard,
   characters: portalRoutes.characters,
   deployments: portalRoutes.deployments,
+  rooms: portalRoutes.rooms,
   toolbox: portalRoutes.toolbox,
   settings: portalRoutes.settings
 };

@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 
 import type {
-  DiscordSocialPendingTurn,
-  DiscordSocialTurnCursor
+DiscordSocialPendingTurn,
+DiscordSocialTurnCursor
 } from "./types.js";
 
 export type DurableOperationStatus =

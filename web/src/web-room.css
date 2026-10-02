@@ -1,0 +1,40 @@
+.web-room-page { padding:clamp(.75rem,2vw,1.75rem); min-width:0; }
+.web-room-heading,.web-room-conversation>header,.web-room-message header,.web-room-composer footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.6rem; }
+.web-room-heading h1 { margin-bottom:.25rem; }
+.web-room-layout { display:grid; grid-template-columns:minmax(14rem,19rem) minmax(0,1fr); gap:1.25rem; margin-top:1rem; }
+.web-room-sidebar { display:flex; flex-direction:column; gap:1rem; min-width:0; }
+.web-room-page label { display:grid; gap:.4rem; font-weight:600; }
+.web-room-page input:not([type=checkbox]),.web-room-page select,.web-room-page textarea { width:100%; min-width:0; padding:.6rem; border:1px solid currentColor; border-radius:.4rem; background:var(--paper,#fffdf7); color:inherit; font:inherit; }
+.web-room-page details { border:1px solid #887f7444; border-radius:.6rem; padding:.85rem; }
+.web-room-page summary { cursor:pointer; font-weight:600; }
+.web-room-page form,.web-room-page details[open] { display:grid; gap:.75rem; }
+.web-room-page details[open] form { margin-top:.75rem; }
+.web-room-profile { display:flex; align-items:center; gap:.6rem; }
+.web-room-profile small { display:block; }
+.web-room-avatar { width:2.5rem; height:2.5rem; flex-shrink:0; border-radius:.6rem; object-fit:cover; display:grid; place-items:center; background:#887f7420; font-weight:700; }
+.web-room-conversation { min-width:0; border:1px solid #887f7455; border-radius:.75rem; overflow:hidden; background:var(--paper,#fffdf7); }
+.web-room-conversation>header { padding:.75rem 1rem; border-bottom:1px solid #887f7433; }
+.web-room-conversation h2 { margin:0; font-size:1.25rem; }
+.web-room-history-note { padding:0 1rem; font-size:.8rem; opacity:.75; }
+.web-room-connection { border:1px solid currentColor; border-radius:2rem; padding:.3rem .65rem; font-size:.78rem; }
+.web-room-connection.is-connected { color:#286048; }
+.web-room-messages { height:clamp(20rem,55vh,42rem); overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; padding:.7rem 1rem; }
+.web-room-message { display:flex; gap:.75rem; padding:.75rem 0; border-bottom:1px solid #887f7422; }
+.web-room-message>div { flex:1; min-width:0; }
+.web-room-message header { justify-content:start; }
+.web-room-message small { opacity:.8; overflow-wrap:anywhere; }
+.web-room-message p { margin:.35rem 0; line-height:1.6; }
+.web-room-reply { font-size:.8rem; border:1px solid #887f7455; padding:.2rem .5rem; border-radius:.3rem; background:transparent; color:inherit; }
+.web-room-pending { border-left:3px solid #a78142; padding-left:.5rem; }
+.web-room-empty { padding:2rem .5rem; opacity:.75; }
+.web-room-composer { padding:1rem; border-top:1px solid #887f7444; }
+.web-room-reply-preview { display:flex; gap:1rem; align-items:center; justify-content:space-between; }
+.web-room-management { margin-top:1rem; }
+.web-room-management ul { padding-left:1.25rem; }
+.web-room-management li { padding:.5rem 0; overflow-wrap:anywhere; }
+.web-room-page button:focus-visible,.web-room-page summary:focus-visible,.web-room-page select:focus-visible,.web-room-page input:focus-visible,.web-room-page textarea:focus-visible { outline:3px solid #6078a6; outline-offset:3px; }
+.web-room-page button:disabled { opacity:.5; cursor:not-allowed; }
+.portal-theme-dark .web-room-page { --paper:#29272f; }
+.portal-theme-dark .web-room-connection.is-connected { color:#93d7b4; }
+@media(max-width:850px) { .web-room-layout { grid-template-columns:1fr; } .web-room-sidebar { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } .web-room-sidebar>details,.web-room-sidebar>p { grid-column:1/-1; } }
+@media(prefers-reduced-motion:reduce) { .web-room-page * { scroll-behavior:auto; } }

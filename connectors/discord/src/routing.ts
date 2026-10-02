@@ -1,7 +1,4 @@
 import { groupAddressAliases } from "./audienceAliases.js";
-import {
-  consumeSmartSelection
-} from "./smartParticipation.js";
 import type { DiscordDeployment } from "./types.js";
 
 export type DeploymentIndex = Map<string, DiscordDeployment[]>;
@@ -501,8 +498,7 @@ export interface TriggerState {
 
 export function shouldSubmitMessage(
   deployment: DiscordDeployment,
-  trigger: TriggerState,
-  smartParticipationEnabled: boolean
+  trigger: TriggerState
 ): boolean {
   if (!trigger.hasReadableText && !trigger.mentionedBot && !trigger.repliedToBot) {
     return false;
@@ -514,14 +510,9 @@ export function shouldSubmitMessage(
       return trigger.repliedToBot;
     case "mention_and_reply":
       return trigger.mentionedBot || trigger.repliedToBot;
-    case "smart": {
-      const selected = consumeSmartSelection(deployment.deployment_id);
-      return (
-        trigger.mentionedBot ||
-        trigger.repliedToBot ||
-        (smartParticipationEnabled && trigger.hasReadableText && selected)
-      );
-    }
+    case "smart":
+      // Ambient selection belongs exclusively to Room Routing; this helper covers direct triggers.
+      return trigger.mentionedBot || trigger.repliedToBot;
   }
 }
 

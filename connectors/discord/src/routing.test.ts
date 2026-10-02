@@ -1,21 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe,expect,it } from "vitest";
 
 import {
-  buildDeploymentIndex,
-  deploymentsFor,
-  destinationKey,
-  findDeployment,
-  normalizeBotTagReply,
-  resolveAudience,
-  resolveBotTagAudience,
-  shouldSubmitMessage,
-  splitDiscordMessage
+buildDeploymentIndex,
+deploymentsFor,
+destinationKey,
+findDeployment,
+normalizeBotTagReply,
+resolveAudience,
+resolveBotTagAudience,
+shouldSubmitMessage,
+splitDiscordMessage
 } from "./routing.js";
-import {
-  markExplicitSmartSelections,
-  markV3SmartParticipationSelections,
-  resetSmartParticipationState
-} from "./smartParticipation.js";
 import type { DiscordDeployment } from "./types.js";
 
 function deployment(
@@ -406,46 +401,28 @@ it("applies explicit trigger modes", () => {
     expect(
       shouldSubmitMessage(
         deployment("mention_only"),
-        { mentionedBot: true, repliedToBot: false, hasReadableText: true },
-        false
+        { mentionedBot: true, repliedToBot: false, hasReadableText: true }
       )
     ).toBe(true);
     expect(
       shouldSubmitMessage(
         deployment("reply_only"),
-        { mentionedBot: true, repliedToBot: false, hasReadableText: true },
-        false
+        { mentionedBot: true, repliedToBot: false, hasReadableText: true }
       )
     ).toBe(false);
     expect(
       shouldSubmitMessage(
         deployment("mention_and_reply"),
-        { mentionedBot: false, repliedToBot: true, hasReadableText: true },
-        false
+        { mentionedBot: false, repliedToBot: true, hasReadableText: true }
       )
     ).toBe(true);
   });
 
-  it("keeps smart participation opt-in", () => {
+  it("never invents ambient admission locally", () => {
     const smart = deployment("smart");
-    const ordinaryMessage = {
-      mentionedBot: false,
-      repliedToBot: false,
-      hasReadableText: true
-    };
-    expect(shouldSubmitMessage(smart, ordinaryMessage, false)).toBe(false);
-    expect(shouldSubmitMessage(smart, ordinaryMessage, true)).toBe(false);
-    markV3SmartParticipationSelections([smart]);
-    expect(shouldSubmitMessage(smart, ordinaryMessage, true)).toBe(true);
-    markExplicitSmartSelections([smart]);
-    expect(
-      shouldSubmitMessage(
-        smart,
-        { mentionedBot: true, repliedToBot: false, hasReadableText: true },
-        true
-      )
-    ).toBe(true);
-    resetSmartParticipationState();
+    expect(shouldSubmitMessage(smart, {mentionedBot:false,repliedToBot:false,hasReadableText:true})).toBe(false);
+    expect(shouldSubmitMessage(smart, {mentionedBot:true,repliedToBot:false,hasReadableText:true})).toBe(true);
+    expect(shouldSubmitMessage(smart, {mentionedBot:false,repliedToBot:true,hasReadableText:true})).toBe(true);
   });
 
   it("splits long Discord messages without losing content", () => {

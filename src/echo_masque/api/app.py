@@ -48,6 +48,8 @@ from echo_masque.api.routes.discord_debug_captures import (
     router as discord_debug_captures_router,
 )
 from echo_masque.api.routes.room_routing import router as room_routing_router
+from echo_masque.api.routes.web_chat import connector_router as web_chat_connector_router
+from echo_masque.api.routes.web_chat import router as web_chat_router
 from echo_masque.api.runtime_thread_limiter import limit_request_threads
 from echo_masque.audit_middleware import SensitiveAuditMiddleware
 from echo_masque.auth import AuthService
@@ -168,6 +170,7 @@ from echo_masque.persistence.pending_action_repository import PendingActionRepos
 from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.persistence.turn_job_repository import TurnJobRepository
+from echo_masque.persistence.web_room_repository import WebRoomRepository
 from echo_masque.prompt_inspector import CharacterPromptInspector
 from echo_masque.provider_credentials import KeyGroupProviderCredentialResolver
 from echo_masque.providers import OpenAICompatibleProvider
@@ -185,6 +188,7 @@ from echo_masque.template_sharing import EvaluationTemplateService
 from echo_masque.turn_jobs import TurnJobManager
 from echo_masque.utility_gateway_live import ExistingProviderUtilityCaller
 from echo_masque.utility_gateway_router import UtilityGatewayRouter
+from echo_masque.web_rooms import WebRoomError
 
 logger = logging.getLogger(__name__)
 
@@ -479,21 +483,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             object_storage=knowledge_object_storage,
         ),
     )
-    character_turn_graph_runner = (
-        CharacterTurnGraphRunner(
-            discord_connector_runtime,
-            trace_sink=buffered_runtime_trace,
-        )
-        if resolved.langgraph_allows("character_turn")
-        else None
+    character_turn_graph_runner = CharacterTurnGraphRunner(
+        discord_connector_runtime,
+        trace_sink=buffered_runtime_trace,
     )
-    social_turn_graph_runner = (
-        SocialTurnGraphRunner(
-            character_turn_graph_runner,
-            trace_sink=buffered_runtime_trace,
-        )
-        if (character_turn_graph_runner is not None and resolved.langgraph_allows("social_turn"))
-        else None
+    social_turn_graph_runner = SocialTurnGraphRunner(
+        character_turn_graph_runner,
+        trace_sink=buffered_runtime_trace,
     )
     public_demo_result = PublicDemoService(
         settings=resolved,
@@ -727,6 +723,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.account_lifecycle_service = account_lifecycle_service
     app.state.credential_store = credential_store
     app.state.runtime_service = runtime_service
+    app.state.web_room_repository = WebRoomRepository(database)
+    app.state.web_room_streams = {}
     app.state.trial_service = trial_service
     app.state.matrix_service = matrix_service
     app.include_router(health_router)
@@ -754,6 +752,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(knowledge_fabric_router)
     app.include_router(connectors_router)
     app.include_router(room_routing_router)
+    app.include_router(web_chat_router)
+    app.include_router(web_chat_connector_router)
+
+    @app.exception_handler(WebRoomError)
+    async def web_room_error(request: Request, exc: WebRoomError) -> JSONResponse:
+        return JSONResponse(status_code=exc.status, content={"detail": str(exc)})
+
     app.include_router(prompt_inspector_router)
     app.include_router(targets_router)
     app.include_router(trials_router)

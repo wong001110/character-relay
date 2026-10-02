@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import type {
-  DiscordTurnJobView,
-  DiscordTurnProgressEvent
+DiscordTurnJobView,
+DiscordTurnProgressEvent
 } from "./types.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 1_000;

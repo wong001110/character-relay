@@ -26,6 +26,9 @@ class SourceMessage(BaseModel):
     thread_id: str = Field(default="", max_length=200)
     author_id: str = Field(default="", max_length=200)
     author_display_name: str = Field(default="", max_length=160)
+    author_avatar_url: str = Field(default="", max_length=1000)
+    author_external_id: str = Field(default="", max_length=64)
+    webhook_id: str = Field(default="", max_length=200)
     author_is_bot: bool = False
     author_deployment_id: str = Field(default="", max_length=200)
     text: str = Field(default="", max_length=10000)
@@ -44,6 +47,8 @@ class SourceMessage(BaseModel):
     def validate_observation(self) -> SourceMessage:
         if not self.deleted and not self.author_id:
             raise ValueError("A readable observation needs a stable author identity.")
+        if self.author_external_id and (not self.author_is_bot or self.author_deployment_id):
+            raise ValueError("External participant identity cannot be a human or character.")
         if self.author_deployment_id and not self.author_is_bot:
             raise ValueError("Only a verified bot message has a deployment identity.")
         if self.deleted and self.text:
@@ -60,6 +65,7 @@ class SourceMessage(BaseModel):
         payload = [
             self.author_id,
             self.author_is_bot,
+            self.author_external_id,
             self.author_deployment_id,
             self.text,
             self.reply_to_message_id,
@@ -85,7 +91,9 @@ class SourceMessage(BaseModel):
             scope=scope,
             author_id=self.author_id,
             author_kind=(
-                "character"
+                "external_agent"
+                if self.author_external_id
+                else "character"
                 if self.author_deployment_id
                 else "other_bot"
                 if self.author_is_bot

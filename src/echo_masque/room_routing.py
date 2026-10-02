@@ -34,7 +34,7 @@ class RoomMessage(FrozenModel):
     id: Identifier
     scope: RoomScope
     author_id: Identifier
-    author_kind: Literal["human", "character", "other_bot"] = "human"
+    author_kind: Literal["human", "character", "other_bot", "external_agent"] = "human"
     author_deployment_id: Identifier | None = None
     text: str = Field(default="", max_length=4000)
     version: int = Field(default=1, ge=1)
@@ -189,4 +189,6 @@ def route_rules(snapshot: RoutingSnapshot) -> RuleResult:
         return RuleResult(kind="silence", reason="no_eligible_roles")
     if snapshot.capacity_remaining == 0:
         return RuleResult(kind="blocked", reason="capacity")
+    if trigger.author_kind == "external_agent":
+        return RuleResult(kind="silence", reason="external_participant_not_addressed")
     return RuleResult(kind="director", reason="ambiguous_room_turn")

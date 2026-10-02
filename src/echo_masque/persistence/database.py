@@ -75,6 +75,8 @@ from echo_masque.persistence.room_models import (
     RoomRouteRecord,
 )
 
+from echo_masque.persistence import web_room_models as _web_room_models  # noqa: F401
+
 _SQLITE_INITIALIZE_LOCKS: dict[str, Lock] = {}
 _SQLITE_INITIALIZE_LOCKS_GUARD = Lock()
 

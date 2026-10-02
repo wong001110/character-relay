@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { RoomPublicationLock, RoomWorkQueue } from "./roomWorkQueue.js";
+import { describe,expect,it } from "vitest";
+import { RoomPublicationLock,RoomWorkQueue } from "./roomWorkQueue.js";
 
 const tick = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 function deferred(): { promise: Promise<void>; release: () => void } {

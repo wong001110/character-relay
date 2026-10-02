@@ -1,8 +1,10 @@
 /** Current SDK evidence + the server's persisted draft. No local model, tools, or cursor authority. */
 import type { Message } from "discord.js";
-import { checkRoomAccess, collectEvidence, rawRoomSource, roomLocation, type RoomEvidence,
-  type RoomSource } from "./roomEvidence.js";
-import type { DiscordReply, DiscordSocialTurnCursor } from "./types.js";
+import {
+checkRoomAccess,collectEvidence,rawRoomSource,roomLocation,type RoomEvidence,
+type RoomSource
+} from "./roomEvidence.js";
+import type { DiscordReply,DiscordSocialTurnCursor } from "./types.js";
 
 export interface DraftPreflightRequest extends RoomEvidence {
   operation_id: string;

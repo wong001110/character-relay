@@ -1,11 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import {
-  TurnIngressCoordinator,
-  buildConversationBurstId,
-  buildConversationBurstText,
-  decideTurnCollection,
-  summarizeConversationBurst
+TurnIngressCoordinator,
+buildConversationBurstId,
+buildConversationBurstText,
+decideTurnCollection,
+summarizeConversationBurst
 } from "./turnIngress.js";
 
 interface SampleTurn {
@@ -263,7 +263,7 @@ describe("TurnIngressCoordinator", () => {
 describe("Turn collection policy", () => {
   const base = {
     collectorEnabled: true,
-    smartParticipationEnabled: true,
+    ambientParticipationEnabled: true,
     recovery: false,
     mentionedBot: false,
     hasReplyReference: false,
@@ -332,7 +332,7 @@ describe("Turn collection policy", () => {
 
 const basePolicy = {
   collectorEnabled: true,
-  smartParticipationEnabled: true,
+  ambientParticipationEnabled: true,
   recovery: false,
   mentionedBot: false,
   hasReplyReference: false,

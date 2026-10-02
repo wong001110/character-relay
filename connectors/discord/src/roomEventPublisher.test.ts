@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe,expect,it } from "vitest";
 import { RoomEventPublisher } from "./roomEventPublisher.js";
-import type { RoomEvidence, RoomSource } from "./roomEvidence.js";
+import type { RoomEvidence,RoomSource } from "./roomEvidence.js";
 const location = { guild_id: "guild", channel_id: "room", thread_id: "", category_id: "" };
 const access = async () => ({ readable: true, checkedAt: new Date().toISOString() });
 const source = (id: string, changes: Partial<RoomSource> = {}): RoomSource => ({

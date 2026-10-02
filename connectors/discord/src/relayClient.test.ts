@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import { RelayClient } from "./relayClient.js";
 import type { DiscordInboundMessage } from "./types.js";
@@ -25,17 +25,6 @@ const payload: Omit<DiscordInboundMessage, "connection_id"> = {
   available_characters: [],
   mentionable_participants: [],
   recent_messages: [],
-  interaction_session_id: "",
-  interaction_type: "",
-  interaction_intensity: "",
-  interaction_round: 0,
-  interaction_total_rounds: 0,
-  interaction_position: 0,
-  interaction_participant_count: 0,
-  interaction_target_user_id: "",
-  interaction_target_display_name: "",
-  expression_run_id: "",
-  expression_candidates: []
 };
 
 afterEach(() => {

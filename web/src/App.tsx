@@ -14,6 +14,7 @@ import {
 import { AuthScreen } from "./AuthScreen";
 import { CharacterCreator } from "./CharacterCreator";
 import { CharacterShelf } from "./CharacterShelf";
+import { WebRoomWorkspace } from "./WebRoomWorkspace";
 import { DeploymentCenter } from "./DeploymentCenter";
 import { deploymentApi, type CharacterDeployment } from "./deploymentApi";
 import { useI18n } from "./i18n";
@@ -462,6 +463,10 @@ export default function App() {
       />,
       "deployments"
     );
+  }
+
+  if (section === "rooms") {
+    return withShell(<WebRoomWorkspace demoMode={publicDemo} />, "rooms");
   }
 
   if (section === "toolbox") {

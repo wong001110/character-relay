@@ -1,9 +1,3 @@
-import {
-  configureSmartParticipation,
-  parseSmartParticipationProfiles,
-  type SmartParticipationProfiles
-} from "./smartParticipation.js";
-
 export interface ConnectorConfig {
   discordBotToken: string;
   relayApiUrl: string;
@@ -14,20 +8,16 @@ export interface ConnectorConfig {
   heartbeatSeconds: number;
   maxContextMessages: number;
   messageContentIntent: boolean;
-  smartParticipationEnabled: boolean;
-  smartParticipationProfiles: SmartParticipationProfiles;
-  smartParticipationChannelCooldownSeconds: number;
-  smartParticipationWindowSeconds: number;
-  smartParticipationMaxRepliesPerWindow: number;
-  smartParticipationTurnCollectorEnabled: boolean;
-  smartParticipationTurnCollectorQuietMs: number;
-  smartParticipationTurnCollectorMaxWaitMs: number;
-  smartParticipationTurnCollectorMaxMessages: number;
-  smartParticipationTurnCollectorMaxCharacters: number;
+  ambientParticipationEnabled: boolean;
+  roomBufferEnabled: boolean;
+  roomBufferQuietMs: number;
+  roomBufferMaxWaitMs: number;
+  roomBufferMaxMessages: number;
+  roomBufferMaxCharacters: number;
   groupAddressAliases: string[];
-  botTagConversationsEnabled: boolean;
-  botTagMaxDepth: number;
-  botTagMaxResponses: number;
+  botContinuationEnabled: boolean;
+  botContinuationMaxDepth: number;
+  botContinuationMaxResponses: number;
   turnJobMaxWaitMs: number;
   turnJobRecoveryMaxConcurrent: number;
   turnIngressMaxPending: number;
@@ -44,8 +34,8 @@ function required(name: string): string {
 function integer(name: string, fallback: number, minimum: number): number {
   const raw = process.env[name]?.trim();
   if (!raw) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed < minimum) {
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < minimum) {
     throw new Error(`${name} must be an integer greater than or equal to ${minimum}.`);
   }
   return parsed;
@@ -96,61 +86,43 @@ export function loadConfig(): ConnectorConfig {
     heartbeatSeconds: integer("HEARTBEAT_SECONDS", 30, 10),
     maxContextMessages: integer("MAX_CONTEXT_MESSAGES", 20, 1),
     messageContentIntent: boolean("DISCORD_MESSAGE_CONTENT_INTENT", false),
-    smartParticipationEnabled: boolean("DISCORD_SMART_PARTICIPATION_ENABLED", false),
-    smartParticipationProfiles: parseSmartParticipationProfiles(
-      process.env.DISCORD_SMART_PARTICIPATION_PROFILES_JSON
-    ),
-    smartParticipationChannelCooldownSeconds: integer(
-      "DISCORD_SMART_PARTICIPATION_CHANNEL_COOLDOWN_SECONDS",
-      45,
-      0
-    ),
-    smartParticipationWindowSeconds: integer(
-      "DISCORD_SMART_PARTICIPATION_WINDOW_SECONDS",
-      600,
-      1
-    ),
-    smartParticipationMaxRepliesPerWindow: integer(
-      "DISCORD_SMART_PARTICIPATION_MAX_REPLIES_PER_WINDOW",
-      3,
-      1
-    ),
-    smartParticipationTurnCollectorEnabled: boolean(
-      "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_ENABLED",
+    ambientParticipationEnabled: boolean("DISCORD_AMBIENT_PARTICIPATION_ENABLED", false),
+    roomBufferEnabled: boolean(
+      "DISCORD_ROOM_BUFFER_ENABLED",
       true
     ),
-    smartParticipationTurnCollectorQuietMs: boundedInteger(
-      "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_QUIET_MS",
+    roomBufferQuietMs: boundedInteger(
+      "DISCORD_ROOM_BUFFER_QUIET_MS",
       3_000,
       100,
       10_000
     ),
-    smartParticipationTurnCollectorMaxWaitMs: boundedInteger(
-      "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_MAX_WAIT_MS",
+    roomBufferMaxWaitMs: boundedInteger(
+      "DISCORD_ROOM_BUFFER_MAX_WAIT_MS",
       10_000,
       500,
       30_000
     ),
-    smartParticipationTurnCollectorMaxMessages: boundedInteger(
-      "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_MAX_MESSAGES",
+    roomBufferMaxMessages: boundedInteger(
+      "DISCORD_ROOM_BUFFER_MAX_MESSAGES",
       5,
       1,
       20
     ),
-    smartParticipationTurnCollectorMaxCharacters: boundedInteger(
-      "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_MAX_CHARACTERS",
+    roomBufferMaxCharacters: boundedInteger(
+      "DISCORD_ROOM_BUFFER_MAX_CHARACTERS",
       1_500,
       100,
       10_000
     ),
     groupAddressAliases: stringList("DISCORD_GROUP_ADDRESS_ALIASES"),
-    botTagConversationsEnabled: boolean(
-      "DISCORD_BOT_TAG_CONVERSATIONS_ENABLED",
+    botContinuationEnabled: boolean(
+      "DISCORD_BOT_CONTINUATION_ENABLED",
       true
     ),
-    botTagMaxDepth: boundedInteger("DISCORD_BOT_TAG_MAX_DEPTH", 4, 1, 12),
-    botTagMaxResponses: boundedInteger(
-      "DISCORD_BOT_TAG_MAX_RESPONSES",
+    botContinuationMaxDepth: boundedInteger("DISCORD_BOT_CONTINUATION_MAX_DEPTH", 4, 1, 12),
+    botContinuationMaxResponses: boundedInteger(
+      "DISCORD_BOT_CONTINUATION_MAX_RESPONSES",
       8,
       1,
       30
@@ -187,19 +159,12 @@ export function loadConfig(): ConnectorConfig {
     )
   };
   if (
-    config.smartParticipationTurnCollectorMaxWaitMs <
-    config.smartParticipationTurnCollectorQuietMs
+    config.roomBufferMaxWaitMs <
+    config.roomBufferQuietMs
   ) {
     throw new Error(
-      "DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_MAX_WAIT_MS must be greater than or equal to DISCORD_SMART_PARTICIPATION_TURN_COLLECTOR_QUIET_MS."
+      "DISCORD_ROOM_BUFFER_MAX_WAIT_MS must be greater than or equal to DISCORD_ROOM_BUFFER_QUIET_MS."
     );
   }
-  configureSmartParticipation({
-    enabled: config.smartParticipationEnabled,
-    profiles: config.smartParticipationProfiles,
-    channelCooldownSeconds: config.smartParticipationChannelCooldownSeconds,
-    windowSeconds: config.smartParticipationWindowSeconds,
-    maxRepliesPerWindow: config.smartParticipationMaxRepliesPerWindow
-  });
   return config;
 }

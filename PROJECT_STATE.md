@@ -147,3 +147,26 @@ Frontend typecheck, **60 tests**, and production build pass. The build retains a
 no browser or full-refactor pass is claimed yet. Deleted tests described only retired features;
 new note transport tests preserve scope, expected-version and safe failure behavior.
 Connector retirement, correlated observations, R6 and Web Room remain in progress.
+
+## R5-C Connector + Web Room checkpoint (2026-10-02)
+
+Connector now has one durable group-chat path, with no local semantic scoring, old profile API,
+Roast/session calls, eager expression candidate pipeline or backup bot-tag loop. Existing grants,
+draft preflight, receipts, recovery and bounded attempts remain. Web Room adds existing-session
+SSE/REST, explicit publication + server/room membership, versioned owned profiles, a durable
+at-most-once webhook outbox and receipt-bound external actor attribution. Browser identity never
+becomes a Discord human or a Character/tool grant. A dedicated bot-owned webhook handles Web
+participants; Discord echoes reconcile by the persisted message ID. Native Thread replies use
+source links and persisted ancestry, not an invented webhook Reply feature.
+
+Checks on this source batch: 43 focused Python integration cases passed (including 20 new Web
+cases); 149 Connector tests passed; 64 Portal tests passed; Python typing (343 files), both TS
+checks and Ruff passed. Portal production build passed with an existing bundle-size warning.
+These are self-reviewed offline results. Local Playwright navigation was blocked by the host's
+browser policy (`ERR_BLOCKED_BY_ADMINISTRATOR`); no policy was bypassed and no browser pass is
+claimed. A real API-backed browser test is still required in isolated CI. Live Discord is not used.
+
+Remaining in-scope: correlated observation UI, new-table lifecycle/closeout audit, R6 controlled
+reset/epoch/card rehearsal, complete integrated checks, browser validation and exact-head CI.
+Web transport fault tests use a simulated Discord boundary, not a live-send result. User-owned
+Free Token Pool / real Discord evaluation remains separate. No merge, live purge or manual deploy.

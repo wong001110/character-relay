@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { collectEvidence, sourceContext, type RoomLocation, type RoomSource } from "./roomEvidence.js";
+import { describe,expect,it,vi } from "vitest";
+import { collectEvidence,sourceContext,type RoomLocation,type RoomSource } from "./roomEvidence.js";
 
 const room: RoomLocation = { guild_id: "g", channel_id: "c", thread_id: "", category_id: "" };
 function source(id: string, updates: Partial<RoomSource> = {}): RoomSource {

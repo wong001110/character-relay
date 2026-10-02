@@ -1,5 +1,5 @@
 /** Coalesce raw Gateway observations independently of model/tool work. No unbounded retries. */
-import type { RoomEvidence, RoomLocation, RoomSource } from "./roomEvidence.js";
+import type { RoomEvidence,RoomLocation,RoomSource } from "./roomEvidence.js";
 
 type Access = { readable: boolean; checkedAt: string };
 type Pending = {
