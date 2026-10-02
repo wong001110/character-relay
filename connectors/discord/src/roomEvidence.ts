@@ -1,6 +1,7 @@
 /** Raw Discord evidence. No semantic segmentation, model calls, or cross-room ancestry. */
 import { ChannelType,PermissionFlagsBits,type Message } from "discord.js";
 import { createHash } from "node:crypto";
+import { parseCustomEmojiTokens } from "./expressionFlow.js";
 import type { DiscordContextMessage } from "./types.js";
 
 export interface RoomLocation {
@@ -10,6 +11,33 @@ export interface RoomLocation {
   category_id: string;
 }
 
+export interface RoomAttachment {
+  attachment_id: string;
+  url: string;
+  proxy_url: string;
+  filename: string;
+  description: string;
+  content_type: string;
+  size_bytes: number | null;
+  width: number | null;
+  height: number | null;
+}
+export interface RoomExpression {
+  resource_id: string;
+  name: string;
+  animated: boolean;
+  asset_url: string;
+  format_type: string;
+  description: string;
+}
+export interface RoomReaction {
+  key: string;
+  resource_id: string;
+  name: string;
+  animated: boolean;
+  asset_url: string;
+  count: number;
+}
 export interface RoomSource {
   message_id: string;
   channel_id: string;
@@ -28,6 +56,11 @@ export interface RoomSource {
   content_available: boolean;
   has_unseen_media: boolean;
   media_fingerprint?: string;
+  attachments: RoomAttachment[];
+  custom_emojis: RoomExpression[];
+  stickers: RoomExpression[];
+  reactions: RoomReaction[];
+  pinned: boolean;
 }
 
 export interface RoomEvidence extends RoomLocation {
@@ -83,6 +116,46 @@ export function rawRoomSource(message: Message<true>, contentIntent: boolean): R
     message.author.id === message.client.user.id ||
     message.mentions.users.has(message.client.user.id) ||
     Boolean(message.attachments.size || message.stickers.size || message.embeds.length);
+  const customEmojis = parseCustomEmojiTokens(message.content).slice(0, 20).map(emoji => ({
+    resource_id: emoji.resource_id,
+    name: emoji.name,
+    animated: emoji.animated,
+    asset_url: `https://cdn.discordapp.com/emojis/${emoji.resource_id}.${emoji.animated ? "gif" : "png"}`,
+    format_type: emoji.animated ? "gif" : "png",
+    description: ""
+  }));
+  const attachments = [...message.attachments.values()].slice(0, 10).map(item => ({
+    attachment_id: item.id,
+    url: item.url,
+    proxy_url: item.proxyURL,
+    filename: item.name || "attachment",
+    description: item.description ?? "",
+    content_type: item.contentType ?? "",
+    size_bytes: item.size ?? null,
+    width: item.width ?? null,
+    height: item.height ?? null
+  }));
+  const stickers = [...message.stickers.values()].slice(0, 3).map(item => ({
+    resource_id: item.id,
+    name: item.name || "Sticker",
+    animated: false,
+    asset_url: item.url,
+    format_type: String(item.format),
+    description: item.description ?? ""
+  }));
+  const reactions = [...message.reactions.cache.values()].slice(0, 40).map(reaction => {
+    const id = reaction.emoji.id ?? "";
+    const name = reaction.emoji.name ?? "reaction";
+    const animated = Boolean(reaction.emoji.animated);
+    return {
+      key: id ? `emoji:${id}` : `unicode:${name}`,
+      resource_id: id,
+      name,
+      animated,
+      asset_url: id ? `https://cdn.discordapp.com/emojis/${id}.${animated ? "gif" : "png"}` : "",
+      count: reaction.count
+    };
+  });
   return {
     message_id: message.id,
     channel_id: location.channel_id,
@@ -107,7 +180,12 @@ export function rawRoomSource(message: Message<true>, contentIntent: boolean): R
       stickers: [...message.stickers.keys()],
       embeds: message.embeds.map(e => [e.title, e.description, e.fields,
         e.image?.url?.split("?")[0], e.thumbnail?.url?.split("?")[0]])
-    })).digest("hex")
+    })).digest("hex"),
+    attachments,
+    custom_emojis: customEmojis,
+    stickers,
+    reactions,
+    pinned: message.pinned
   };
 }
 
