@@ -40,7 +40,7 @@ R0-R6 are this initiative's checkpoints, not old P0-P6 completion claims.
 | R2 | IMPLEMENTED / OFFLINE VERIFIED: Room source/selection records, origin-scoped SDK ancestry/history, canonical requester binding, ordered permission observations, continuous edits/deletes, separate bounded work/publication queues, atomic delivered-response source links. Recovered R2 full suite: 1,433 passed, 7 skipped; see R3 review for current source/claim checks. |
 | R3 | RUNTIME SAFETY IMPLEMENTED: delivery-bound re-entry, attempt/room/member limits, server-owned preflight and one tool-free refresh, atomic delivery claim. Existing Free Pool caller remains qualification-gated; user-owned real-model validation is DEFERRED. Old-selector/composition retirement remains to be completed with R4/R5. |
 | R4 | IMPLEMENTED / OFFLINE VERIFIED: explicit scoped notes, source-linked raw-history/media recall, retrieval-only index contracts and intent-first sparse expressions. Old composition/API/configuration is explicitly pending R5 removal. |
-| R5 | BACKEND RETIREMENT VERIFIED: independent pending effects, scoped lifecycle, old selection/cognitive/Discovery/Roast composition and ORM consumers removed. Connector/Portal consumers and observations remain R5-C work. |
+| R5 | BACKEND RETIREMENT VERIFIED: independent pending effects, scoped lifecycle, old selection/cognitive/Discovery/Roast composition and ORM consumers removed. Connector consumers/configuration now retired; Portal notes/observations remain R5-D work. |
 | R6 | NOT STARTED: complete integration/deletion audit, isolated card/reset rehearsal and release preparation. |
 
 ## Evidence and limitations
@@ -134,3 +134,10 @@ mypy and Ruff pass. This is self-review and not a production deployment, live-mo
 or complete R5. Next: remove Connector/Portal consumers and implement daily notes/observations; R6
 reset/card/fence and integrated checks remain. Source checkpoint and recovery snapshot are separate
 from the earlier unpublished work, which was not restored or claimed complete.
+
+## R5-C checkpoint (2026-10-02)
+
+Connector old scoring/profile/interaction/expression-workflow callers removed, with actual runtime
+configuration and delivered-source validation retained. [R5-C review](docs/reviews/room-director-r5c-2026-10-02.md)
+records 152 Connector tests, 29 focused backend tests, type/build/static checks and five killed
+bounded manual mutants. Self-review only. Next: Portal real notes/observations, then R6.

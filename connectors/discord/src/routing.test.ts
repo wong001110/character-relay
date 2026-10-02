@@ -11,11 +11,6 @@ import {
   shouldSubmitMessage,
   splitDiscordMessage
 } from "./routing.js";
-import {
-  markExplicitSmartSelections,
-  markV3SmartParticipationSelections,
-  resetSmartParticipationState
-} from "./smartParticipation.js";
 import type { DiscordDeployment } from "./types.js";
 
 function deployment(
@@ -404,48 +399,14 @@ it("does not treat untagged character names as bot conversation triggers", () =>
 
 it("applies explicit trigger modes", () => {
     expect(
-      shouldSubmitMessage(
-        deployment("mention_only"),
-        { mentionedBot: true, repliedToBot: false, hasReadableText: true },
-        false
-      )
+      shouldSubmitMessage(deployment("mention_only"), { mentionedBot: true, repliedToBot: false, hasReadableText: true })
     ).toBe(true);
     expect(
-      shouldSubmitMessage(
-        deployment("reply_only"),
-        { mentionedBot: true, repliedToBot: false, hasReadableText: true },
-        false
-      )
+      shouldSubmitMessage(deployment("reply_only"), { mentionedBot: true, repliedToBot: false, hasReadableText: true })
     ).toBe(false);
     expect(
-      shouldSubmitMessage(
-        deployment("mention_and_reply"),
-        { mentionedBot: false, repliedToBot: true, hasReadableText: true },
-        false
-      )
+      shouldSubmitMessage(deployment("mention_and_reply"), { mentionedBot: false, repliedToBot: true, hasReadableText: true })
     ).toBe(true);
-  });
-
-  it("keeps smart participation opt-in", () => {
-    const smart = deployment("smart");
-    const ordinaryMessage = {
-      mentionedBot: false,
-      repliedToBot: false,
-      hasReadableText: true
-    };
-    expect(shouldSubmitMessage(smart, ordinaryMessage, false)).toBe(false);
-    expect(shouldSubmitMessage(smart, ordinaryMessage, true)).toBe(false);
-    markV3SmartParticipationSelections([smart]);
-    expect(shouldSubmitMessage(smart, ordinaryMessage, true)).toBe(true);
-    markExplicitSmartSelections([smart]);
-    expect(
-      shouldSubmitMessage(
-        smart,
-        { mentionedBot: true, repliedToBot: false, hasReadableText: true },
-        true
-      )
-    ).toBe(true);
-    resetSmartParticipationState();
   });
 
   it("splits long Discord messages without losing content", () => {
@@ -466,4 +427,12 @@ describe("explicit participation boundaries", () => {
     expect(resolveAudience([ann, ning], "@Ann help", ning.deployment_id).deployments).toEqual([ann]);
     expect(resolveAudience([ann, ning], "An example?", ning.deployment_id).deployments).toEqual([ning]);
   });
+});
+
+// No Connector-local score/cache can authorize ordinary chat.
+it("keeps ambient routing exclusively at the server without losing direct replies", () => {
+ const role=deployment("smart");
+ expect(shouldSubmitMessage(role,{mentionedBot:false,repliedToBot:false,hasReadableText:true})).toBe(false);
+ expect(shouldSubmitMessage(role,{mentionedBot:true,repliedToBot:false,hasReadableText:false})).toBe(true);
+ expect(shouldSubmitMessage(role,{mentionedBot:false,repliedToBot:true,hasReadableText:true})).toBe(true);
 });

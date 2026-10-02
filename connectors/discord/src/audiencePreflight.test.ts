@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   resolveExplicitAudiencePreflight,
-  semanticScoringRequired
+  directorSelectionRequired
 } from "./audiencePreflight.js";
 import type { AudienceResolution } from "./routing.js";
 import type { DiscordDeployment } from "./types.js";
@@ -55,7 +55,7 @@ describe("explicit audience preflight", () => {
     expect(result?.reason).toBe("selected_alias");
     expect(result?.deployments).toEqual([ann]);
     expect(result?.text).toBe("what do you think?");
-    expect(semanticScoringRequired([ann, ning], result)).toBe(false);
+    expect(directorSelectionRequired([ann, ning], result)).toBe(false);
   });
 
   it("resolves reply and group routes without invoking proactive participation", () => {
@@ -73,7 +73,7 @@ describe("explicit audience preflight", () => {
     const group = resolveExplicitAudiencePreflight([ann, ning], "everyone, hello");
     expect(group?.reason).toBe("selected_all");
     expect(group?.deployments).toEqual([ann, ning]);
-    expect(semanticScoringRequired([ann, ning], group)).toBe(false);
+    expect(directorSelectionRequired([ann, ning], group)).toBe(false);
   });
 
   it("returns null for ordinary group chat so Smart Participation may continue", () => {
@@ -85,7 +85,7 @@ describe("explicit audience preflight", () => {
     );
 
     expect(result).toBeNull();
-    expect(semanticScoringRequired([ann, ning], result)).toBe(true);
+    expect(directorSelectionRequired([ann, ning], result)).toBe(true);
   });
 
   it("preserves original smart deployment objects after preflight cloning", () => {
@@ -158,7 +158,7 @@ describe("explicit audience preflight", () => {
     const smart = deployment("Ann");
     const mentionOnly = { ...deployment("Ning"), participation_mode: "mention_only" as const };
 
-    expect(semanticScoringRequired([smart, mentionOnly], null)).toBe(true);
-    expect(semanticScoringRequired([mentionOnly], null)).toBe(false);
+    expect(directorSelectionRequired([smart, mentionOnly], null)).toBe(true);
+    expect(directorSelectionRequired([mentionOnly], null)).toBe(false);
   });
 });

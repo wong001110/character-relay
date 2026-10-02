@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   buildMentionableParticipants,
   compileSmartMessage,
-  reserveUniqueCharacterTurn,
   smartOutputResourceCandidate
 } from "./smartOutput.js";
 import type {
@@ -155,15 +154,6 @@ describe("Smart Output V1 compiler", () => {
     const participants = buildMentionableParticipants([ann, ...roles, ning, ambiguous], history, ann);
     expect(participants.some((item) => item.ref === "deployment:ning")).toBe(false);
     expect(participants.some((item) => item.ref === "deployment:ning-second")).toBe(false);
-  });
-
-  it("reserves every character at most once across one shared bot chain", () => {
-    const seen = new Set(["ann"]);
-    expect(reserveUniqueCharacterTurn(seen, "ning")).toBe(true);
-    expect(reserveUniqueCharacterTurn(seen, "zhi")).toBe(true);
-    expect(reserveUniqueCharacterTurn(seen, "ning")).toBe(false);
-    expect(reserveUniqueCharacterTurn(seen, "zhi")).toBe(false);
-    expect([...seen].sort()).toEqual(["ann", "ning", "zhi"]);
   });
 
   it("compiles ordered text, custom Emoji, human mention, and character mention", () => {

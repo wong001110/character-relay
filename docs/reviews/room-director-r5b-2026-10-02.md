@@ -52,10 +52,10 @@ Negative isolation and source integrity tests are retained or ported to the supp
 | Planner/semantic selection and targets | `test_room_routing.py`, `test_room_routing_api.py`, `test_room_director_pool.py`, `test_room_routing_replay.py` |
 | Semantic context/summary-to-evidence | `test_room_context.py`, `test_explicit_notes.py`, `test_room_delivery_sources.py` |
 | Belief/relation extraction and numerical decay | `test_explicit_notes.py`, `test_chat_retirement.py`; numerical/automatic behavior intentionally no longer supported |
-| Discovery/sleep/autonomous activity | removed; explicit scheduling retained in `test_scheduled_reminder_service.py` (historical name; see current exact path below) and related route/job tests |
+| Discovery/sleep/autonomous activity | removed; explicit scheduling retained in `test_scheduled_reminders.py` and related route/job tests |
 | Knowledge privacy/injection/graph interpretation | `test_fabric_retrieval_review.py`, `test_knowledge_fabric_security.py`, `test_knowledge_fabric_phase4.py` |
 | Eager expression workflow and sticker fallback | `test_expression_retrieval.py`, `test_interaction_sessions_and_stickers.py`, `test_room_context.py` |
-| Lifecycle and storage boundaries | `test_database_foundation.py`, `test_chat_retirement.py`, `test_knowledge_fabric_hard_cutover.py`, `test_phase13_account_delete.py` |
+| Lifecycle and storage boundaries | `test_database_foundation.py`, `test_chat_retirement.py`, `test_knowledge_fabric_hard_cutover.py`, `test_phase15_account_lifecycle.py` |
 | Reentry/uncertain effects/fresh drafts | `test_pending_actions.py`, `test_tool_continuation_review.py`, `test_draft_freshness.py`, `test_runtime_durability.py` |
 
 The following exact files contained the intentionally retired behavior (individual function names

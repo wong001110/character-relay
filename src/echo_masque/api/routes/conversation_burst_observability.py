@@ -48,7 +48,6 @@ class ConversationBurstConnectorView(BaseModel):
     burst_count: int = 0
     collected_messages: int = 0
     collapsed_messages: int = 0
-    interaction_bypasses: int = 0
     bypass_reasons: dict[str, int] = {}
     last_burst_at: datetime | None = None
     last_burst_id: str = ""
@@ -164,7 +163,6 @@ def _connector_view(record: PlatformConnectionRecord) -> ConversationBurstConnec
         burst_count=_int(meta.get("turn_collector_bursts")),
         collected_messages=_int(meta.get("turn_collector_collected_messages")),
         collapsed_messages=_int(meta.get("turn_collector_collapsed_messages")),
-        interaction_bypasses=_int(meta.get("turn_collector_interaction_bypasses")),
         bypass_reasons=_reason_counts(meta.get("turn_collector_bypass_reasons")),
         last_burst_at=_datetime(meta.get("turn_collector_last_burst_at")),
         last_burst_id=_text(meta.get("turn_collector_last_burst_id")),
@@ -208,7 +206,7 @@ def conversation_burst_snapshot(
             session.scalars(
                 select(DiscordConnectorEventRecord)
                 .where(
-                    DiscordConnectorEventRecord.event_type == "smart_participation_burst_flushed",
+                    DiscordConnectorEventRecord.event_type == "room_buffer_flushed",
                     DiscordConnectorEventRecord.occurred_at >= since,
                 )
                 .order_by(DiscordConnectorEventRecord.occurred_at.desc())

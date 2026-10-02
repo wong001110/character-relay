@@ -1,13 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  expressionCandidate,
-  expressionQuery,
-  fallbackExpressionCandidate,
-  parseCustomEmojiTokens,
-  renderCustomEmoji,
-  stripCustomEmojiTokens
-} from "./expressionFlow.js";
+import { parseCustomEmojiTokens, renderCustomEmoji, stripCustomEmojiTokens } from "./expressionFlow.js";
 import type {
   DiscordExpressionCandidate,
   DiscordExpressionDecision
@@ -43,76 +36,23 @@ function candidate(
   };
 }
 
-describe("Discord expression helpers", () => {
-  it("parses static and animated custom Emoji without duplicates", () => {
-    const parsed = parseCustomEmojiTokens(
-      "hello <:peek:123456789012345678> <a:dance:223456789012345678> <:peek:123456789012345678>"
-    );
-
-    expect(parsed).toEqual([
-      {
-        resource_key: "emoji:123456789012345678",
-        resource_id: "123456789012345678",
-        name: "peek",
-        animated: false,
-        token: "<:peek:123456789012345678>"
-      },
-      {
-        resource_key: "emoji:223456789012345678",
-        resource_id: "223456789012345678",
-        name: "dance",
-        animated: true,
-        token: "<a:dance:223456789012345678>"
-      }
-    ]);
+describe("Discord expression rendering, without a candidate selection workflow", () => {
+  it("parses static and animated tokens without duplicate resources", () => {
+    expect(parseCustomEmojiTokens("hello <:peek:123456789012345678> <a:dance:223456789012345678> <:peek:123456789012345678>"))
+      .toEqual([
+        { resource_key: "emoji:123456789012345678", resource_id: "123456789012345678", name: "peek", animated: false, token: "<:peek:123456789012345678>" },
+        { resource_key: "emoji:223456789012345678", resource_id: "223456789012345678", name: "dance", animated: true, token: "<a:dance:223456789012345678>" }
+      ]);
   });
-
-  it("strips only custom Emoji tokens from readable text", () => {
-    expect(
-      stripCustomEmojiTokens("hello <:peek:123456789012345678> world ✨")
-    ).toBe("hello world ✨");
+  it("strips only custom tokens and preserves ordinary Unicode", () => {
+    expect(stripCustomEmojiTokens("hello <:peek:123456789012345678> world ✨")).toBe("hello world ✨");
   });
-
-  it("renders custom Emoji and resolves exact candidates", () => {
-    const animated = candidate("emoji:223456789012345678", {
-      name: "dance",
-      animated: true
-    });
-    expect(renderCustomEmoji(animated)).toBe("<a:dance:223456789012345678>");
-    expect(expressionCandidate([animated], animated.resource_key)).toEqual(animated);
-    expect(expressionCandidate([animated], "emoji:missing")).toBeNull();
+  it("renders the resolved emoji, never inventing a fallback sticker", () => {
+    expect(renderCustomEmoji(candidate("emoji:223456789012345678", { name: "dance", animated: true })))
+      .toBe("<a:dance:223456789012345678>");
+    expect(renderCustomEmoji(candidate("sticker:123"))).toBe("");
   });
-
-  it("chooses a fallback matching the requested action", () => {
-    const inlineOnly = candidate("emoji:1", { allowed_actions: ["inline"] });
-    const reaction = candidate("emoji:2", { allowed_actions: ["reaction"] });
-    const decision: DiscordExpressionDecision = {
-      action: "reaction",
-      resource_key: inlineOnly.resource_key,
-      reason: "react briefly"
-    };
-
-    expect(
-      fallbackExpressionCandidate(
-        [inlineOnly, reaction],
-        decision,
-        new Set([inlineOnly.resource_key])
-      )
-    ).toEqual(reaction);
-  });
-
-  it("builds a bounded retrieval query", () => {
-    const query = expressionQuery({
-      text: "latest message",
-      stickerMeanings: ["playful disbelief"],
-      emojiMeanings: ["curious peek"],
-      recentText: ["one", "two", "three", "four", "five", "x".repeat(5000)]
-    });
-
-    expect(query).toContain("latest message");
-    expect(query).toContain("curious peek");
-    expect(query.length).toBeLessThanOrEqual(4000);
-    expect(query).not.toContain("one");
-    expect(query).not.toContain("two");
+  it("does not reinterpret ordinary prose or incomplete tokens", () => {
+    expect(parseCustomEmojiTokens("dance:123 <wrong> <:x:123> <:a_b:no-id>")).toEqual([]);
   });
 });

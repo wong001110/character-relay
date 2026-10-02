@@ -10,7 +10,7 @@ import {
 export type TurnCollectionReason =
   | "collect"
   | "collector_disabled"
-  | "smart_participation_disabled"
+  | "ambient_participation_disabled"
   | "recovery"
   | "bot_mention"
   | "reply_reference"
@@ -18,11 +18,11 @@ export type TurnCollectionReason =
   | "rich_content"
   | "url_content"
   | "empty_text"
-  | "no_smart_candidates";
+  | "no_ambient_candidates";
 
 export interface TurnCollectionPolicyInput {
   collectorEnabled: boolean;
-  smartParticipationEnabled: boolean;
+  ambientParticipationEnabled: boolean;
   recovery: boolean;
   mentionedBot: boolean;
   hasReplyReference: boolean;
@@ -34,7 +34,7 @@ export interface TurnCollectionPolicyInput {
   visibleImageAttachmentCount: number;
   embedCount: number;
   hasUrl: boolean;
-  smartCandidateCount: number;
+  ambientCandidateCount: number;
 }
 
 export interface TurnCollectionDecision {
@@ -65,7 +65,6 @@ export interface TurnIngressSubmission<T> {
   characters: number;
   receivedAt?: number;
   collect: boolean;
-  prepareCollection?: () => Promise<boolean>;
   execute: (burst: ConversationBurst<T> | null) => Promise<void>;
   onRejected?: (reason: TurnIngressRejectReason) => void;
 }
@@ -91,8 +90,8 @@ export function decideTurnCollection(
   input: TurnCollectionPolicyInput
 ): TurnCollectionDecision {
   if (!input.collectorEnabled) return { collect: false, reason: "collector_disabled" };
-  if (!input.smartParticipationEnabled) {
-    return { collect: false, reason: "smart_participation_disabled" };
+  if (!input.ambientParticipationEnabled) {
+    return { collect: false, reason: "ambient_participation_disabled" };
   }
   if (input.recovery) return { collect: false, reason: "recovery" };
   if (input.mentionedBot) return { collect: false, reason: "bot_mention" };
@@ -113,8 +112,8 @@ export function decideTurnCollection(
   if (!input.hasReadableText && !imageOnlyAttachments) {
     return { collect: false, reason: "empty_text" };
   }
-  if (input.smartCandidateCount <= 0) {
-    return { collect: false, reason: "no_smart_candidates" };
+  if (input.ambientCandidateCount <= 0) {
+    return { collect: false, reason: "no_ambient_candidates" };
   }
   return { collect: true, reason: "collect" };
 }
@@ -258,24 +257,6 @@ export class TurnIngressCoordinator<T> {
         return;
       }
       if (!submission.collect) {
-        await this.collector.flush(scopeKey, "explicit_flush");
-        if (!this.enqueueRuntime(scopeKey, () => executeIfFresh(null))) {
-          submission.onRejected?.("busy");
-          this.onRejected?.(scopeKey, "busy");
-        }
-        return;
-      }
-
-      let collect = true;
-      if (submission.prepareCollection) {
-        try {
-          collect = await submission.prepareCollection();
-        } catch (error) {
-          collect = false;
-          this.onError?.(error, scopeKey);
-        }
-      }
-      if (!collect) {
         await this.collector.flush(scopeKey, "explicit_flush");
         if (!this.enqueueRuntime(scopeKey, () => executeIfFresh(null))) {
           submission.onRejected?.("busy");

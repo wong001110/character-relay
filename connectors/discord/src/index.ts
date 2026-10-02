@@ -1,7 +1,7 @@
 import { preflightDiscordDraft, type DraftPreflightResult } from "./draftPreflight.js";
 import { RoomEventPublisher } from "./roomEventPublisher.js";
 import { RoomPublicationLock, RoomWorkQueue } from "./roomWorkQueue.js";
-import { discordEvidence, rawRoomSource, roomLocation, sourceContext, checkRoomAccess, type RoomRoutingResult } from "./roomEvidence.js";
+import { discordEvidence, rawRoomSource, roomLocation, sourceContext, checkRoomAccess, fetchDeliveredSource, type RoomRoutingResult } from "./roomEvidence.js";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 
@@ -26,14 +26,7 @@ import {
   type DiscordSocialOperationClaimRequest
 } from "./durableRuntime.js";
 import { detectBotMention, stripBotMentionTokens } from "./mentionDetection.js";
-import {
-  expressionCandidate,
-  expressionQuery,
-  fallbackExpressionCandidate,
-  parseCustomEmojiTokens,
-  renderCustomEmoji,
-  stripCustomEmojiTokens
-} from "./expressionFlow.js";
+import { parseCustomEmojiTokens, renderCustomEmoji, stripCustomEmojiTokens } from "./expressionFlow.js";
 import { DiscordEventReporter } from "./eventReporter.js";
 import {
   formatSafeDiagnosticError,
@@ -43,10 +36,7 @@ import {
   collectDiscordServerCatalog,
   refreshCatalogThenDeployments
 } from "./serverCatalog.js";
-import {
-  RelayClient,
-  type DiscordPlannerMediaResult
-} from "./relayClient.js";
+import { RelayClient } from "./relayClient.js";
 import {
   TurnJobTerminalError
 } from "./turnJobs.js";
@@ -63,34 +53,8 @@ import {
   splitDiscordMessage,
   type DeploymentIndex
 } from "./routing.js";
-import {
-  markExplicitSmartSelections,
-  preflightSmartParticipationRuntime
-} from "./smartParticipation.js";
-import {
-  buildMentionableParticipants,
-  compileSmartMessage,
-  reserveUniqueCharacterTurn,
-  smartOutputResourceCandidate
-} from "./smartOutput.js";
-import type {
-  DiscordActionParticipant,
-  DiscordContextMessage,
-  DiscordContextTrace,
-  DiscordDeployment,
-  DiscordExpressionCandidate,
-  DiscordExpressionContent,
-  DiscordExpressionDecision,
-  DiscordExpressionRetrieval,
-  DiscordInteractionClaim,
-  DiscordReply,
-  DiscordSmartOutput,
-  DiscordSocialPendingTurn,
-  DiscordSocialTurnCursor,
-  DiscordSocialTurnStepReply,
-  DiscordTurnJobDescriptor,
-  DiscordStickerContent
-} from "./types.js";
+import { buildMentionableParticipants, compileSmartMessage, smartOutputResourceCandidate } from "./smartOutput.js";
+import type { DiscordActionParticipant, DiscordContextMessage, DiscordContextTrace, DiscordDeployment, DiscordExpressionCandidate, DiscordExpressionContent, DiscordExpressionDecision, DiscordReply, DiscordSmartOutput, DiscordSocialPendingTurn, DiscordSocialTurnCursor, DiscordSocialTurnStepReply, DiscordTurnJobDescriptor, DiscordStickerContent } from "./types.js";
 import type { ConversationBurst } from "./turnCollector.js";
 import {
   TurnIngressCoordinator,
@@ -217,18 +181,17 @@ let turnCollectorBypassMessageCount = 0;
 let turnCollectorBurstCount = 0;
 let turnCollectorCollectedMessageCount = 0;
 let turnCollectorCollapsedMessageCount = 0;
-let turnCollectorInteractionBypassCount = 0;
 let turnCollectorLastBurstAt: string | null = null;
 let turnCollectorLastBurstId: string | null = null;
 let turnCollectorLastFlushReason: string | null = null;
 const turnCollectorBypassReasons: Record<string, number> = {};
 const turnIngress = new TurnIngressCoordinator<CollectedDiscordTurn>(
   {
-    enabled: config.smartParticipationTurnCollectorEnabled,
-    quietWindowMs: config.smartParticipationTurnCollectorQuietMs,
-    maxWaitMs: config.smartParticipationTurnCollectorMaxWaitMs,
-    maxMessages: config.smartParticipationTurnCollectorMaxMessages,
-    maxCharacters: config.smartParticipationTurnCollectorMaxCharacters
+    enabled: config.roomBufferEnabled,
+    quietWindowMs: config.roomBufferQuietMs,
+    maxWaitMs: config.roomBufferMaxWaitMs,
+    maxMessages: config.roomBufferMaxMessages,
+    maxCharacters: config.roomBufferMaxCharacters
   },
   enqueue,
   (error, scopeKey) => {
@@ -420,24 +383,16 @@ async function prepareWebhookIdentity(
 }
 
 async function refreshDeployments(): Promise<void> {
-  const [next, runtimeConfig] = await Promise.all([
+  const [next, runtime] = await Promise.all([
     relay.listDeployments(),
-    relay.getSmartParticipationRuntime().catch((error) => {
-      log("Unable to refresh dynamic Turn Collector config; keeping the last effective value.", {
-        ...safeDiagnosticError(error)
-      });
+    relay.getRoomRuntime().catch((error: unknown) => {
+      log("Room buffer config refresh failed; retaining last known bounded configuration.", safeDiagnosticError(error));
       return null;
     })
   ]);
-  if (runtimeConfig) {
-    turnIngress.reconfigure({
-      enabled: runtimeConfig.enabled,
-      quietWindowMs: runtimeConfig.quiet_window_ms,
-      maxWaitMs: runtimeConfig.max_wait_ms,
-      maxMessages: runtimeConfig.max_messages,
-      maxCharacters: runtimeConfig.max_characters
-    });
-  }
+  if (runtime) turnIngress.reconfigure({ enabled: runtime.enabled,
+    quietWindowMs: runtime.quiet_window_ms, maxWaitMs: runtime.max_wait_ms,
+    maxMessages: runtime.max_messages, maxCharacters: runtime.max_characters });
   const botUserId = client.user?.id;
   if (botUserId) {
     // Exact-channel webhooks are prepared sequentially. Server-wide profiles are
@@ -507,7 +462,6 @@ async function sendHeartbeat(
     turn_collector_bursts: turnCollectorBurstCount,
     turn_collector_collected_messages: turnCollectorCollectedMessageCount,
     turn_collector_collapsed_messages: turnCollectorCollapsedMessageCount,
-    turn_collector_interaction_bypasses: turnCollectorInteractionBypassCount,
     turn_collector_bypass_reasons: { ...turnCollectorBypassReasons },
     turn_collector_last_burst_at: turnCollectorLastBurstAt ?? "",
     turn_collector_last_burst_id: turnCollectorLastBurstId ?? "",
@@ -906,11 +860,6 @@ function resolveDeploymentLocation(
   };
 }
 
-interface PreparedExpression {
-  retrieval: DiscordExpressionRetrieval | null;
-  query: string;
-}
-
 interface ExpressionExecutionResult {
   sentMessageIds: string[];
   outgoingText: string;
@@ -920,35 +869,13 @@ interface ExpressionExecutionResult {
   fallback: string;
 }
 
-async function reportExpressionNode(
-  runId: string,
-  payload: Parameters<RelayClient["reportExpressionNode"]>[1]
-): Promise<void> {
-  await relay.reportExpressionNode(runId, payload).catch((error: unknown) => {
-    log("Unable to persist Expression workflow node.", {
-      runId,
-      nodeName: payload.node_name,
-      ...safeDiagnosticError(error)
-    });
+async function resolveDeliveredSourceMessage(
+  trigger: Message<true>, messageId: string
+): Promise<Message<true> | null> {
+  return fetchDeliveredSource(trigger, messageId, async (id) => {
+    const fetched = await trigger.channel.messages.fetch(id);
+    return fetched.inGuild() ? fetched : null;
   });
-}
-
-async function resolveExpressionSourceMessage(
-  fallback: Message<true>,
-  messageId: string
-): Promise<Message<true>> {
-  if (!messageId || messageId === fallback.id) return fallback;
-  try {
-    const fetched = await fallback.channel.messages.fetch(messageId);
-    return fetched.inGuild() ? fetched : fallback;
-  } catch (error) {
-    log("Unable to fetch the character message used as an Expression source.", {
-      messageId,
-      fallbackMessageId: fallback.id,
-      ...safeDiagnosticError(error)
-    });
-    return fallback;
-  }
 }
 
 async function resolveSmartOutputTargetMessage(
@@ -981,217 +908,10 @@ async function validateExpressionResource(
   }
 }
 
-async function executeCharacterOutput(
-  source: Message<true>,
-  deployment: DiscordDeployment,
-  visibleText: string,
-  decision: DiscordExpressionDecision,
-  prepared: PreparedExpression,
-  botUserId: string
-): Promise<ExpressionExecutionResult> {
-  const retrieval = prepared.retrieval;
-  if (!retrieval || decision.action === "none") {
-    const sentMessageIds = visibleText
-      ? await sendCharacterReply(source, deployment, visibleText, botUserId)
-      : [];
-    return {
-      sentMessageIds,
-      outgoingText: visibleText,
-      action: "none",
-      resourceKey: "",
-      applied: false,
-      fallback: "none"
-    };
-  }
-
-  let candidates = retrieval.candidates;
-  let candidate = expressionCandidate(candidates, decision.resource_key);
-  const excluded = new Set<string>();
-  if (candidate && !(await validateExpressionResource(source, candidate))) {
-    excluded.add(candidate.resource_key);
-    await reportExpressionNode(retrieval.run_id, {
-      node_name: "validate_resource",
-      status: "failed",
-      input_summary: { resource_key: candidate.resource_key },
-      output_summary: { available: false },
-      error: "The selected Discord expression resource is no longer available."
-    });
-    try {
-      const retried = await relay.retrieveExpressions({
-        guild_id: source.guildId,
-        channel_id: deployment.channel_id,
-        source_message_id: source.id,
-        deployment_id: deployment.deployment_id,
-        query: prepared.query,
-        allowed_actions: ["inline", "reaction", "sticker"],
-        excluded_resource_keys: [...excluded],
-        top_k: 6,
-        run_id: retrieval.run_id
-      });
-      candidates = retried.candidates;
-      candidate = fallbackExpressionCandidate(candidates, decision, excluded);
-    } catch (error) {
-      candidate = null;
-      log("Expression re-retrieval failed.", {
-        runId: retrieval.run_id,
-        ...safeDiagnosticError(error)
-      });
-    }
-  }
-
-  if (!candidate) {
-    const sentMessageIds = visibleText
-      ? await sendCharacterReply(source, deployment, visibleText, botUserId)
-      : [];
-    await reportExpressionNode(retrieval.run_id, {
-      node_name: "execute_delivery",
-      status: "skipped",
-      input_summary: { requested_action: decision.action },
-      output_summary: { fallback: "text_only" },
-      error: "",
-      selected_action: "none",
-      selected_resource_key: "",
-      final_status: "skipped"
-    });
-    return {
-      sentMessageIds,
-      outgoingText: visibleText,
-      action: "none",
-      resourceKey: "",
-      applied: false,
-      fallback: "text_only"
-    };
-  }
-
-  await reportExpressionNode(retrieval.run_id, {
-    node_name: "validate_resource",
-    status: "completed",
-    input_summary: { resource_key: candidate.resource_key },
-    output_summary: { available: true, allowed_actions: candidate.allowed_actions },
-    error: "",
-    selected_action: decision.action,
-    selected_resource_key: candidate.resource_key
-  });
-
-  let sentMessageIds: string[] = [];
-  let outgoingText = visibleText;
-  let fallback = "none";
-  try {
-    if (decision.action === "inline" && candidate.resource_type === "emoji") {
-      outgoingText = [visibleText, renderCustomEmoji(candidate)].filter(Boolean).join(" ");
-      sentMessageIds = await sendCharacterReply(source, deployment, outgoingText, botUserId);
-    } else if (decision.action === "reaction" && candidate.resource_type === "emoji") {
-      let reacted = false;
-      try {
-        await source.react(`${candidate.name}:${candidate.resource_id}`);
-        reacted = true;
-      } catch (error) {
-        // A transport failure may have applied the reaction. Do not publish a second action.
-        throw deliveryFailure(error);
-      }
-      if (reacted && visibleText) {
-        sentMessageIds = await sendCharacterReply(source, deployment, visibleText, botUserId);
-      }
-    } else if (decision.action === "sticker" && candidate.resource_type === "sticker") {
-      let webhookAssetError: unknown = null;
-      const normalizedFormat = candidate.format_type.toLowerCase();
-      const webhookRenderable = !["3", "lottie"].includes(normalizedFormat);
-      if (
-        deployment.identity_mode === "webhook" &&
-        candidate.asset_url &&
-        webhookRenderable
-      ) {
-        try {
-          const extension = ["4", "gif"].includes(normalizedFormat) ? "gif" : "png";
-          sentMessageIds = await webhookManager.sendAsset(
-            deployment,
-            visibleText,
-            candidate.asset_url,
-            `${candidate.name || "expression"}.${extension}`,
-            botUserId
-          );
-          fallback = "webhook_attachment";
-        } catch (error) {
-          if (!canFallbackDelivery(error)) throw error;
-          webhookAssetError = error;
-          fallback = "webhook_attachment_to_native_sticker";
-          log("Webhook Sticker-like attachment failed; trying native Bot Sticker.", {
-            deploymentId: deployment.deployment_id,
-            resourceKey: candidate.resource_key,
-            ...safeDiagnosticError(error)
-          });
-        }
-      }
-      if (!sentMessageIds.length) {
-        try {
-          const sent = await source.reply({
-            ...(visibleText ? { content: visibleText } : {}),
-            stickers: [candidate.resource_id],
-            allowedMentions: { parse: [], repliedUser: false }
-          });
-          sentMessageIds = [sent.id];
-          if (!fallback || fallback === "none") fallback = "native_bot_sticker";
-        } catch (nativeStickerError) {
-          if (!canFallbackDelivery(nativeStickerError)) throw deliveryFailure(nativeStickerError);
-          fallback = "sticker_to_text";
-          if (!visibleText) {
-            throw webhookAssetError ?? nativeStickerError;
-          }
-          sentMessageIds = await sendCharacterReply(source, deployment, visibleText, botUserId);
-        }
-      }
-    } else {
-      fallback = "invalid_action_to_text";
-      sentMessageIds = visibleText
-        ? await sendCharacterReply(source, deployment, visibleText, botUserId)
-        : [];
-    }
-  } catch (error) {
-    await reportExpressionNode(retrieval.run_id, {
-      node_name: "execute_delivery",
-      status: "failed",
-      input_summary: {
-        action: decision.action,
-        resource_key: candidate.resource_key
-      },
-      output_summary: { fallback },
-      error: formatSafeDiagnosticError(error),
-      selected_action: decision.action,
-      selected_resource_key: candidate.resource_key,
-      final_status: "failed"
-    });
-    throw error;
-  }
-
-  const expressionApplied = ![
-    "invalid_action_to_text",
-    "sticker_to_text"
-  ].includes(fallback);
-  await reportExpressionNode(retrieval.run_id, {
-    node_name: "execute_delivery",
-    status: "completed",
-    input_summary: {
-      action: decision.action,
-      resource_key: candidate.resource_key
-    },
-    output_summary: {
-      sent_message_ids: sentMessageIds,
-      fallback,
-      expression_applied: expressionApplied
-    },
-    error: "",
-    selected_action: decision.action,
-    selected_resource_key: candidate.resource_key,
-    final_status: "completed"
-  });
-  return {
-    sentMessageIds,
-    outgoingText,
-    action: decision.action,
-    resourceKey: candidate.resource_key,
-    applied: expressionApplied,
-    fallback
-  };
+async function executeCharacterOutput(source: Message<true>, deployment: DiscordDeployment, visibleText: string, botUserId: string): Promise<ExpressionExecutionResult> {
+  // Plain-text compatibility is transport only; no second expression selector or retry graph.
+  const sentMessageIds = visibleText ? await sendCharacterReply(source, deployment, visibleText, botUserId) : [];
+  return { sentMessageIds, outgoingText: visibleText, action: "none", resourceKey: "", applied: false, fallback: "" };
 }
 
 interface SmartOutputExecutionResult extends ExpressionExecutionResult {
@@ -1219,7 +939,6 @@ async function executeSmartOutput(
   source: Message<true>,
   deployment: DiscordDeployment,
   output: DiscordSmartOutput,
-  prepared: PreparedExpression,
   botUserId: string,
   candidates: DiscordDeployment[],
   mentionableParticipants: DiscordActionParticipant[]
@@ -1370,472 +1089,6 @@ async function executeSmartOutput(
     smartAction: "sticker",
     mentionedDeploymentIds: []
   };
-}
-
-interface BotConversationBudget {
-  remainingResponses: number;
-}
-
-interface BotConversationTurn {
-  deployment: DiscordDeployment;
-  text: string;
-  sentMessageIds: string[];
-}
-
-async function continueBotTagConversation(
-  sourceMessage: Message<true>,
-  sourceDeployment: DiscordDeployment,
-  sourceText: string,
-  sourceMessageIds: string[],
-  candidates: DiscordDeployment[],
-  location: ReturnType<typeof channelLocation>,
-  key: string,
-  botUserId: string,
-  depth: number,
-  budget: BotConversationBudget,
-  participantsSeen: Set<string>
-): Promise<void> {
-  if (
-    !config.botTagConversationsEnabled ||
-    depth >= config.botTagMaxDepth ||
-    budget.remainingResponses <= 0
-  ) {
-    return;
-  }
-
-  const audience = resolveBotTagAudience(
-    candidates,
-    sourceText,
-    sourceDeployment.deployment_id,
-    config.groupAddressAliases
-  );
-  if (!audience.deployments.length) return;
-
-  const eligible = audience.deployments.filter(
-    (deployment) =>
-      !participantsSeen.has(deployment.deployment_id) &&
-      shouldSubmitMessage(
-        deployment,
-        {
-          mentionedBot: true,
-          repliedToBot: false,
-          hasReadableText: Boolean(audience.text || sourceText)
-        },
-        config.smartParticipationEnabled
-      )
-  );
-  if (!eligible.length) return;
-
-  const sourceDisplayName = deploymentDisplayName(sourceDeployment);
-  const sourceDiscordMessageId = sourceMessageIds[0] ?? sourceMessage.id;
-  const nextTurns: BotConversationTurn[] = [];
-
-  for (const [responseIndex, baseDeployment] of eligible.entries()) {
-    if (budget.remainingResponses <= 0) break;
-    if (!reserveUniqueCharacterTurn(participantsSeen, baseDeployment.deployment_id)) {
-      continue;
-    }
-    budget.remainingResponses -= 1;
-    const deployment = resolveDeploymentLocation(baseDeployment, location);
-    const expressionSource = await resolveExpressionSourceMessage(
-      sourceMessage,
-      sourceDiscordMessageId
-    );
-    const recentMessages = context.get(key);
-    const mentionableParticipants = buildMentionableParticipants(
-      candidates,
-      recentMessages,
-      deployment
-    );
-    const preparedExpression: PreparedExpression = { retrieval: null, query: "" };
-    await sourceMessage.channel.sendTyping();
-    let reply: DiscordReply;
-    try {
-      reply = await relay.processMessage({
-      deployment_id: deployment.deployment_id,
-      message_id: sourceDiscordMessageId,
-      guild_id: sourceMessage.guildId,
-      guild_name: sourceMessage.guild.name,
-      channel_id: location.channelId,
-      channel_name: location.channelName,
-      category_id: location.categoryId,
-      thread_id: location.threadId,
-      thread_name: location.threadName,
-      author_id: `character:${sourceDeployment.character_card_id}`,
-      author_display_name: sourceDisplayName,
-      text:
-        audience.text ||
-        `${sourceDisplayName} tagged this character without additional readable text.`,
-      mentioned_bot: true,
-      replied_to_bot: false,
-      smart_candidate: false,
-      author_is_bot: true,
-      emojis: [],
-      stickers: [],
-      interaction_session_id: "",
-      interaction_type: "",
-      interaction_intensity: "",
-      interaction_round: 0,
-      interaction_total_rounds: 0,
-      interaction_position: 0,
-      interaction_participant_count: 0,
-      interaction_target_user_id: "",
-      interaction_target_display_name: "",
-      expression_run_id: preparedExpression.retrieval?.run_id ?? "",
-      expression_candidates: preparedExpression.retrieval?.candidates ?? [],
-      available_characters: candidates
-        .filter((item) => item.deployment_id !== deployment.deployment_id)
-        .map(deploymentAddressAlias),
-      mentionable_participants: mentionableParticipants,
-      recent_messages: recentMessages
-    }, {
-      onProgress: (text) =>
-        deliverCharacterTurnProgress(
-          sourceMessage,
-          deployment,
-          text,
-          botUserId,
-          key
-        ),
-      onProgressDeliveryError: (error) => {
-        log("Character turn progress delivery is uncertain; waiting for the final reply.", {
-          deploymentId: deployment.deployment_id,
-          sourceMessageId: sourceDiscordMessageId,
-          ...safeDiagnosticError(error)
-        });
-      }
-    });
-    } catch (error) {
-      if (error instanceof TurnJobTerminalError) {
-        if (!(await claimTerminalTurnFailure(error))) continue;
-        await deliverCharacterTurnFailure(sourceMessage, deployment, botUserId, key);
-        continue;
-      }
-      throw error;
-    }
-    if (preparedExpression.retrieval) {
-      await reportExpressionNode(preparedExpression.retrieval.run_id, {
-        node_name: "model_select",
-        status: "completed",
-        input_summary: {
-          candidate_count: preparedExpression.retrieval.candidates.length
-        },
-        output_summary: {
-          action: reply.expression.action,
-          resource_key: reply.expression.resource_key ?? "",
-          reason: reply.expression.reason
-        },
-        error: "",
-        selected_action: reply.expression.action,
-        selected_resource_key: reply.expression.resource_key ?? ""
-      });
-    }
-    if (
-      reply.action === "silent" ||
-      reply.smart_output?.action === "ignore" ||
-      (!reply.smart_output && !reply.text && reply.expression.action === "none")
-    ) {
-      continue;
-    }
-    const durableDelivery = await claimCharacterTurnDelivery(reply, expressionSource);
-    if (durableDelivery === "already_delivered" || durableDelivery === "suppressed") continue;
-    let execution: ExpressionExecutionResult | SmartOutputExecutionResult;
-    try {
-      execution = reply.smart_output
-        ? await executeSmartOutput(
-          expressionSource,
-          deployment,
-          reply.smart_output,
-          preparedExpression,
-          botUserId,
-          candidates,
-          mentionableParticipants
-          )
-        : await executeCharacterOutput(
-          expressionSource,
-          deployment,
-          reply.text
-            ? normalizeBotTagReply(
-                candidates,
-                reply.text,
-                deployment.deployment_id,
-                config.groupAddressAliases
-              ).displayText.trim()
-            : "",
-          reply.expression,
-          preparedExpression,
-            botUserId
-          );
-      await acknowledgeCharacterTurnDelivery(durableDelivery, execution.sentMessageIds, execution.applied);
-    } catch (error) {
-      await markCharacterTurnDeliveryUncertain(durableDelivery, error);
-      throw error;
-    }
-    const sentMessageIds = execution.sentMessageIds;
-    const outgoingText = execution.outgoingText;
-    if (!outgoingText && !sentMessageIds.length && !execution.applied) continue;
-    await rememberSentMessages(deployment, sentMessageIds, sourceMessage.guildId);
-    context.push(key, {
-      message_id: sentMessageIds[0] ?? `relay-bot-tag-${Date.now()}`,
-      author_id: `character:${deployment.character_card_id}`,
-      author_deployment_id: deployment.deployment_id,
-      author_display_name: deploymentDisplayName(deployment),
-      text: outgoingText,
-      emojis: [],
-      stickers: [],
-      created_at: new Date().toISOString(),
-      is_bot: true
-    });
-    if (outgoingText) {
-      nextTurns.push({ deployment, text: outgoingText, sentMessageIds });
-    }
-    log("Character tag reply sent to Discord.", {
-      deploymentId: deployment.deployment_id,
-      characterId: deployment.character_card_id,
-      sourceDeploymentId: sourceDeployment.deployment_id,
-      tagDepth: depth + 1,
-      responseIndex: responseIndex + 1,
-      responseCount: eligible.length,
-      remainingResponseBudget: budget.remainingResponses,
-      guildId: sourceMessage.guildId,
-      channelId: location.channelId,
-      threadId: location.threadId || null,
-      sourceMessageId: sourceDiscordMessageId,
-      sentMessageIds,
-      latencyMs: reply.latency_ms ?? null
-    });
-  }
-
-  for (const turn of nextTurns) {
-    await continueBotTagConversation(
-      sourceMessage,
-      turn.deployment,
-      turn.text,
-      turn.sentMessageIds,
-      candidates,
-      location,
-      key,
-      botUserId,
-      depth + 1,
-      budget,
-      participantsSeen
-    );
-  }
-}
-
-async function processInteractionSession(
-  sourceMessage: Message<true>,
-  claim: DiscordInteractionClaim,
-  candidates: DiscordDeployment[],
-  location: ReturnType<typeof channelLocation>,
-  key: string,
-  botUserId: string,
-  authorDisplayName: string,
-  originalText: string,
-  emojis: DiscordExpressionContent[],
-  stickers: DiscordStickerContent[]
-): Promise<boolean> {
-  const session = claim.session;
-  const runId = claim.run_id;
-  if (!claim.claimed || !session || !runId) return false;
-
-  const ordered = session.participant_deployment_ids.map((deploymentId) =>
-    candidates.find((item) => item.deployment_id === deploymentId)
-  );
-  if (ordered.some((item) => !item)) {
-    await relay.completeInteractionRun(runId, {
-      status: "failed",
-      reply_count: 0,
-      stop_reason: "One or more Session participants are not active in this channel."
-    });
-    log("Interaction Session could not resolve all participants.", {
-      sessionId: session.id,
-      runId,
-      participantDeploymentIds: session.participant_deployment_ids
-    });
-    return true;
-  }
-
-  let replyCount = 0;
-  try {
-    for (let round = 1; round <= session.rounds_per_trigger; round += 1) {
-      for (const [participantIndex, baseDeployment] of ordered.entries()) {
-        if (!baseDeployment) continue;
-        const deployment = resolveDeploymentLocation(baseDeployment, location);
-        const recentMessages = context.get(key);
-        const mentionableParticipants = buildMentionableParticipants(
-          candidates,
-          recentMessages,
-          deployment
-        ).filter((participant) => participant.kind === "human");
-        const preparedExpression: PreparedExpression = { retrieval: null, query: "" };
-        await sourceMessage.channel.sendTyping();
-        let reply: DiscordReply;
-        try {
-          reply = await relay.processMessage({
-          deployment_id: deployment.deployment_id,
-          message_id: sourceMessage.id,
-          guild_id: sourceMessage.guildId,
-          guild_name: sourceMessage.guild.name,
-          channel_id: location.channelId,
-          channel_name: location.channelName,
-          category_id: location.categoryId,
-          thread_id: location.threadId,
-          thread_name: location.threadName,
-          author_id: sourceMessage.author.id,
-          author_display_name: authorDisplayName,
-          text:
-            originalText ||
-            "The target member sent interpreted Discord expression content without text.",
-          mentioned_bot: false,
-          replied_to_bot: false,
-          smart_candidate: false,
-          author_is_bot: false,
-          emojis,
-          stickers,
-          available_characters: [],
-          mentionable_participants: mentionableParticipants,
-          recent_messages: recentMessages,
-          interaction_session_id: session.id,
-          interaction_type: "roast",
-          interaction_intensity: session.intensity,
-          interaction_round: round,
-          interaction_total_rounds: session.rounds_per_trigger,
-          interaction_position: participantIndex + 1,
-          interaction_participant_count: ordered.length,
-          interaction_target_user_id: session.target_user_id,
-          interaction_target_display_name:
-            session.target_display_name || authorDisplayName,
-          expression_run_id: preparedExpression.retrieval?.run_id ?? "",
-          expression_candidates: preparedExpression.retrieval?.candidates ?? []
-        }, {
-          onProgress: (text) =>
-            deliverCharacterTurnProgress(
-              sourceMessage,
-              deployment,
-              text,
-              botUserId,
-              key
-            ),
-          onProgressDeliveryError: (error) => {
-            log("Character turn progress delivery is uncertain; waiting for the final reply.", {
-              deploymentId: deployment.deployment_id,
-              sourceMessageId: sourceMessage.id,
-              ...safeDiagnosticError(error)
-            });
-          }
-        });
-        } catch (error) {
-          if (error instanceof TurnJobTerminalError) {
-            if (await claimTerminalTurnFailure(error)) {
-              await deliverCharacterTurnFailure(sourceMessage, deployment, botUserId, key);
-            }
-          }
-          throw error;
-        }
-        if (preparedExpression.retrieval) {
-          await reportExpressionNode(preparedExpression.retrieval.run_id, {
-            node_name: "model_select",
-            status: "completed",
-            input_summary: {
-              candidate_count: preparedExpression.retrieval.candidates.length
-            },
-            output_summary: {
-              action: reply.expression.action,
-              resource_key: reply.expression.resource_key ?? "",
-              reason: reply.expression.reason
-            },
-            error: "",
-            selected_action: reply.expression.action,
-            selected_resource_key: reply.expression.resource_key ?? ""
-          });
-        }
-        if (
-          reply.action === "silent" ||
-          reply.smart_output?.action === "ignore" ||
-          (!reply.smart_output && !reply.text && reply.expression.action === "none")
-        ) {
-          continue;
-        }
-        const durableDelivery = await claimCharacterTurnDelivery(reply, sourceMessage);
-        if (durableDelivery === "already_delivered" || durableDelivery === "suppressed") continue;
-        let execution: ExpressionExecutionResult | SmartOutputExecutionResult;
-        try {
-          execution = reply.smart_output
-            ? await executeSmartOutput(
-              sourceMessage,
-              deployment,
-              reply.smart_output,
-              preparedExpression,
-              botUserId,
-              candidates,
-              mentionableParticipants
-              )
-            : await executeCharacterOutput(
-              sourceMessage,
-              deployment,
-              reply.text
-                ? normalizeBotTagReply(
-                    candidates,
-                    reply.text,
-                    deployment.deployment_id,
-                    config.groupAddressAliases
-                  ).audience.text.trim() || reply.text.trim()
-                : "",
-              reply.expression,
-              preparedExpression,
-                botUserId
-              );
-          await acknowledgeCharacterTurnDelivery(durableDelivery, execution.sentMessageIds, execution.applied);
-        } catch (error) {
-          await markCharacterTurnDeliveryUncertain(durableDelivery, error);
-          throw error;
-        }
-        const sentMessageIds = execution.sentMessageIds;
-        const outgoingText = execution.outgoingText;
-        if (!outgoingText && !sentMessageIds.length && !execution.applied) continue;
-        await rememberSentMessages(deployment, sentMessageIds, sourceMessage.guildId);
-        context.push(key, {
-          message_id: sentMessageIds[0] ?? `relay-interaction-${Date.now()}`,
-          author_id: `character:${deployment.character_card_id}`,
-      author_deployment_id: deployment.deployment_id,
-          author_display_name: deploymentDisplayName(deployment),
-          text: outgoingText,
-          emojis: [],
-          stickers: [],
-          created_at: new Date().toISOString(),
-          is_bot: true
-        });
-        replyCount += 1;
-        log("Interaction Session character reply sent to Discord.", {
-          sessionId: session.id,
-          runId,
-          deploymentId: deployment.deployment_id,
-          round,
-          participantPosition: participantIndex + 1,
-          replyCount,
-          sourceMessageId: sourceMessage.id,
-          sentMessageIds,
-          latencyMs: reply.latency_ms ?? null
-        });
-      }
-    }
-    await relay.completeInteractionRun(runId, {
-      status: "completed",
-      reply_count: replyCount,
-      stop_reason: replyCount ? "rounds_completed" : "no_character_replies"
-    });
-  } catch (error) {
-    await relay
-      .completeInteractionRun(runId, {
-        status: "failed",
-        reply_count: replyCount,
-        stop_reason: formatSafeDiagnosticError(error)
-      })
-      .catch(() => undefined);
-    throw error;
-  }
-  return true;
 }
 
 type CharacterDeliveryClaim = {
@@ -2141,7 +1394,6 @@ async function processMessage(
   };
   const executeQueued = async (
     burst: ConversationBurst<CollectedDiscordTurn> | null,
-    interactionClaimOverride: DiscordInteractionClaim | null
   ): Promise<void> => {
     const burstTelemetry = burst
       ? summarizeConversationBurst(
@@ -2158,7 +1410,7 @@ async function processMessage(
       turnCollectorLastFlushReason = burstTelemetry.flushReason;
       reportDiscordEvent({
         level: "info",
-        eventType: "smart_participation_burst_flushed",
+        eventType: "room_buffer_flushed",
         message: "Turn Collector flushed a bounded Conversation Burst for Smart Participation.",
         guildId: guildMessage.guildId,
         guildName: guildMessage.guild.name,
@@ -2290,45 +1542,6 @@ async function processMessage(
         })
       : [];
 
-    let interactionClaim: DiscordInteractionClaim = interactionClaimOverride ?? {
-      claimed: false,
-      run_id: null,
-      session: null
-    };
-    if (!interactionClaimOverride) {
-      try {
-        interactionClaim = await relay.claimInteraction({
-          guild_id: guildMessage.guildId,
-          channel_id: location.channelId,
-          target_user_id: guildMessage.author.id,
-          source_message_id: guildMessage.id
-        });
-      } catch (error) {
-        log("Unable to check Interaction Sessions; continuing normal routing.", {
-          guildId: guildMessage.guildId,
-          channelId: location.channelId,
-          sourceMessageId: guildMessage.id,
-          ...safeDiagnosticError(error)
-        });
-      }
-    }
-    if (
-      await processInteractionSession(
-        guildMessage,
-        interactionClaim,
-        candidates,
-        location,
-        key,
-        botUser.id,
-        authorDisplayName,
-        originalText,
-        emojis,
-        stickers
-      )
-    ) {
-      return;
-    }
-
     const replyTarget = await resolveReplyTarget(
       guildMessage,
       candidates,
@@ -2372,7 +1585,7 @@ async function processMessage(
         // A Reply is resolved from the canonical raw parent by Runtime, not forged as a mention.
         explicit_deployment_ids: audience.reason === "selected_reply" ? [] :
           audience.deployments.map(item => item.deployment_id),
-        ambient_requested: config.smartParticipationEnabled
+        ambient_requested: config.ambientParticipationEnabled
       });
     } catch (error) {
       reportDiscordEvent({
@@ -2412,7 +1625,7 @@ async function processMessage(
     }
     audience = { ...audience, deployments: selected,
       reason: roomRouting.outcome === "decision" ? (selected.length > 1
-        ? "selected_smart_multiple" : "selected_smart") : audience.reason };
+        ? "selected_director_multiple" : "selected_director") : audience.reason };
     if (!audience.deployments.length) {
       if (mentionedBot || replyTarget.characterMessage) {
         reportDiscordEvent({
@@ -2476,19 +1689,12 @@ async function processMessage(
     const addressedToMultiple = audience.deployments.length > 1;
     const socialTurnEnabled =
       eligibleDeployments[0]?.orchestration_mode === "social_turn";
-    const botConversationBudget: BotConversationBudget = {
-      remainingResponses: config.botTagMaxResponses
-    };
     const socialInitialDeploymentIds = eligibleDeployments.map(
       (item) => item.deployment_id
     );
     const socialContinuationDeploymentIds = candidates
       .filter((item) =>
-        shouldSubmitMessage(
-          item,
-          { mentionedBot: true, repliedToBot: false, hasReadableText: true },
-          config.smartParticipationEnabled
-        )
+        shouldSubmitMessage(item, { mentionedBot: true, repliedToBot: false, hasReadableText: true })
       )
       .map((item) => item.deployment_id);
     const socialAvailableDeploymentIds = [
@@ -2534,8 +1740,8 @@ async function processMessage(
         source_message_id: guildMessage.id,
         initial_deployment_ids: socialInitialDeploymentIds,
         available_deployment_ids: socialAvailableDeploymentIds,
-        continuation_budget: config.botTagMaxResponses,
-        max_depth: config.botTagMaxDepth
+        continuation_budget: config.botContinuationEnabled ? config.conversationMaxResponses : 0,
+        max_depth: config.conversationMaxDepth
       };
       const claimed = await relay.claimSocialTurnOperation(socialClaimRequest);
       applyDurableOperation(claimed);
@@ -2561,11 +1767,11 @@ async function processMessage(
       }
       if (claimed.status === "completed") return;
     }
-    const legacyQueue = [...eligibleDeployments];
+    const selectedQueue = [...eligibleDeployments];
     let processedResponses = 0;
     while (
       (socialTurnEnabled && socialNextTurn) ||
-      (!socialTurnEnabled && legacyQueue.length)
+      (!socialTurnEnabled && selectedQueue.length)
     ) {
       const supersedingTurn = supersedingHumanTurn();
       if (supersedingTurn && socialTurnEnabled && socialNextTurn?.origin !== "selected") {
@@ -2613,7 +1819,7 @@ async function processMessage(
           details: {
             completed_character_responses: processedResponses,
             superseding_message_id: supersedingTurn.messageId,
-            remaining_legacy_turns: legacyQueue.length,
+            remaining_legacy_turns: selectedQueue.length,
             durable_operation_id: durableOperationId || null
           }
         });
@@ -2622,7 +1828,7 @@ async function processMessage(
       const pendingTurn: DiscordSocialPendingTurn = socialTurnEnabled
         ? (socialNextTurn as DiscordSocialPendingTurn)
         : {
-            deployment_id: legacyQueue.shift()?.deployment_id ?? "",
+            deployment_id: selectedQueue.shift()?.deployment_id ?? "",
             origin: "selected",
             depth: 0,
             source_deployment_id: ""
@@ -2673,11 +1879,21 @@ async function processMessage(
       const sourceDiscordMessageId =
         socialSource?.sentMessageIds[0] ?? guildMessage.id;
       const expressionSource = socialSource
-        ? await resolveExpressionSourceMessage(
+        ? await resolveDeliveredSourceMessage(
             guildMessage,
             sourceDiscordMessageId
           )
         : guildMessage;
+      if (!expressionSource) {
+        // Stop optional continuation rather than retargeting a missing delivered source.
+        if (durableOperationId && pendingTurn.origin !== "selected") {
+          await relay.cancelSocialTurnOperation({ operation_id: durableOperationId,
+            guild_id: guildMessage.guildId, channel_id: location.channelId,
+            thread_id: location.threadId, superseding_message_id: guildMessage.id,
+            reason: "continuation_source_unavailable" });
+        }
+        break;
+      }
       const continuationAudience =
         socialSource && sourceDeployment
           ? resolveBotTagAudience(
@@ -2690,14 +1906,14 @@ async function processMessage(
       const sourceDisplayName = sourceDeployment
         ? deploymentDisplayName(sourceDeployment)
         : authorDisplayName;
-      const smartParticipationAudience =
-        audience.reason === "selected_smart" ||
-        audience.reason === "selected_smart_multiple";
+      const directorAudience =
+        audience.reason === "selected_director" ||
+        audience.reason === "selected_director_multiple";
       const turnText = socialSource
         ? continuationAudience?.text ||
           socialSource.text ||
           `${sourceDisplayName} tagged this character without additional readable text.`
-        : (smartParticipationAudience
+        : (directorAudience
             ? originalText
             : addressedToMultiple
               ? originalText
@@ -2711,7 +1927,6 @@ async function processMessage(
         recentMessages,
         deployment
       );
-      const preparedExpression: PreparedExpression = { retrieval: null, query: "" };
       await expressionSource.channel.sendTyping();
       const inboundPayload = {
         deployment_id: deployment.deployment_id,
@@ -2738,27 +1953,15 @@ async function processMessage(
         smart_candidate: socialSource
           ? false
           : deployment.participation_mode === "smart" &&
-            config.smartParticipationEnabled,
+            config.ambientParticipationEnabled,
         author_is_bot: Boolean(sourceDeployment),
         emojis: socialSource ? [] : emojis,
         stickers: socialSource ? [] : stickers,
-        media_descriptors: [],
         burst_media_message_ids: socialSource ? [] : burstMediaMessageIds,
         conversation_burst_id: socialSource ? "" : participationBurstId,
         burst_source_message_ids: socialSource
           ? []
           : participationBurstMessages.map((item) => item.message_id),
-        interaction_session_id: "",
-        interaction_type: "",
-        interaction_intensity: "",
-        interaction_round: 0,
-        interaction_total_rounds: 0,
-        interaction_position: 0,
-        interaction_participant_count: 0,
-        interaction_target_user_id: "",
-        interaction_target_display_name: "",
-        expression_run_id: preparedExpression.retrieval?.run_id ?? "",
-        expression_candidates: preparedExpression.retrieval?.candidates ?? [],
         available_characters: candidates
           .filter((item) => item.deployment_id !== deployment.deployment_id)
           .map(deploymentAddressAlias),
@@ -2775,8 +1978,8 @@ async function processMessage(
                   payload: inboundPayload,
                   initial_deployment_ids: socialInitialDeploymentIds,
                   available_deployment_ids: socialAvailableDeploymentIds,
-                  continuation_budget: config.botTagMaxResponses,
-                  max_depth: config.botTagMaxDepth,
+                  continuation_budget: config.botContinuationEnabled ? config.conversationMaxResponses : 0,
+                  max_depth: config.conversationMaxDepth,
                   cursor: socialCursor,
                   operation_id: durableOperationId
                 },
@@ -2852,40 +2055,11 @@ async function processMessage(
         source: guildMessage,
         deployment
       });
-      if (preparedExpression.retrieval) {
-        await reportExpressionNode(preparedExpression.retrieval.run_id, {
-          node_name: "model_select",
-          status: "completed",
-          input_summary: {
-            candidate_count: preparedExpression.retrieval.candidates.length
-          },
-          output_summary: {
-            action: reply.expression.action,
-            resource_key: reply.expression.resource_key ?? "",
-            reason: reply.expression.reason
-          },
-          error: "",
-          selected_action: reply.expression.action,
-          selected_resource_key: reply.expression.resource_key ?? ""
-        });
-      }
       if (
         reply.action === "silent" ||
         reply.smart_output?.action === "ignore" ||
         (!reply.smart_output && !reply.text && reply.expression.action === "none")
       ) {
-        if (preparedExpression.retrieval) {
-          await reportExpressionNode(preparedExpression.retrieval.run_id, {
-            node_name: "execute_delivery",
-            status: "skipped",
-            input_summary: { action: "none" },
-            output_summary: { reason: reply.reason },
-            error: "",
-            selected_action: "none",
-            selected_resource_key: "",
-            final_status: "skipped"
-          });
-        }
         reportDiscordEvent({
           level: "info",
           eventType: "runtime_silent",
@@ -2952,30 +2126,15 @@ async function processMessage(
           if (normalDelivery === "already_delivered" || normalDelivery === "suppressed") continue;
         }
         execution = reply.smart_output
-          ? await executeSmartOutput(
-              guildMessage,
-              deployment,
-              reply.smart_output,
-              preparedExpression,
-              botUser.id,
-              candidates,
-              mentionableParticipants
-            )
-          : await executeCharacterOutput(
-              guildMessage,
-              deployment,
-              reply.text
+          ? await executeSmartOutput(guildMessage, deployment, reply.smart_output, botUser.id, candidates, mentionableParticipants)
+          : await executeCharacterOutput(guildMessage, deployment, reply.text
                 ? normalizeBotTagReply(
                     candidates,
                     reply.text,
                     deployment.deployment_id,
                     config.groupAddressAliases
                   ).displayText.trim()
-                : "",
-              reply.expression,
-              preparedExpression,
-              botUser.id
-            );
+                : "", botUser.id);
         if (
           deliveryClaimed &&
           socialStep?.step_id &&
@@ -3066,7 +2225,6 @@ async function processMessage(
         deploymentId: deployment.deployment_id,
         characterName: deploymentDisplayName(deployment),
         details: {
-          expression_run_id: preparedExpression.retrieval?.run_id ?? null,
           action: execution.action,
           resource_key: execution.resourceKey || null,
           fallback: execution.fallback
@@ -3133,21 +2291,7 @@ async function processMessage(
             socialNextTurn = socialCursor.pending_turns[0] ?? null;
           }
         }
-      } else {
-        await continueBotTagConversation(
-          guildMessage,
-          deployment,
-          outgoingText,
-          sentMessageIds,
-          candidates,
-          location,
-          key,
-          botUser.id,
-          0,
-          botConversationBudget,
-          new Set([deployment.deployment_id])
-        );
-      }
+      } else {}
     }
   };
 
@@ -3158,13 +2302,13 @@ async function processMessage(
     config.groupAddressAliases
   );
   const customEmojiCount = parseCustomEmojiTokens(guildMessage.content).length;
-  const smartCandidateCount = candidates.filter(
+  const ambientCandidateCount = candidates.filter(
     (item) => item.participation_mode === "smart"
   ).length;
   const visibleImageCount = visibleImageAttachmentCount(guildMessage);
   const collectionDecision = decideTurnCollection({
     collectorEnabled: turnIngress.enabled,
-    smartParticipationEnabled: config.smartParticipationEnabled,
+    ambientParticipationEnabled: config.ambientParticipationEnabled,
     recovery: Boolean(options?.recovery),
     mentionedBot,
     hasReplyReference: Boolean(guildMessage.reference?.messageId),
@@ -3176,19 +2320,18 @@ async function processMessage(
     visibleImageAttachmentCount: visibleImageCount,
     embedCount: guildMessage.embeds.length,
     hasUrl: /https?:\/\//iu.test(guildMessage.content),
-    smartCandidateCount
+    ambientCandidateCount
   });
-  let preclaimedInteraction: DiscordInteractionClaim | null = null;
 
   if (collectionDecision.collect) {
     turnCollectorCandidateMessageCount += 1;
-    log("Smart Participation message entered the Turn Collector.", {
+    log("Ambient room message entered the room buffer.", {
       guildId: guildMessage.guildId,
       channelId: location.channelId,
       threadId: location.threadId || null,
       sourceMessageId: guildMessage.id,
       pendingBurstScopes: turnIngress.pendingBurstScopeCount,
-      quietWindowMs: config.smartParticipationTurnCollectorQuietMs
+      quietWindowMs: config.roomBufferQuietMs
     });
   } else {
     turnCollectorBypassMessageCount += 1;
@@ -3202,35 +2345,8 @@ async function processMessage(
     characters: originalText.length,
     receivedAt: guildMessage.createdTimestamp,
     collect: collectionDecision.collect,
-    ...(collectionDecision.collect
-      ? { prepareCollection: async () => {
-          try {
-            const claim = await relay.claimInteraction({
-              guild_id: guildMessage.guildId,
-              channel_id: location.channelId,
-              target_user_id: guildMessage.author.id,
-              source_message_id: guildMessage.id
-            });
-            if (claim.claimed) {
-              turnCollectorInteractionBypassCount += 1;
-              preclaimedInteraction = claim;
-              return false;
-            }
-            return true;
-          } catch (error) {
-            turnCollectorInteractionBypassCount += 1;
-            log("Unable to preflight Interaction Sessions; bypassing Turn Collector.", {
-              guildId: guildMessage.guildId,
-              channelId: location.channelId,
-              sourceMessageId: guildMessage.id,
-              ...safeDiagnosticError(error)
-            });
-            return false;
-          }
-        } }
-      : {}),
     execute: async (burst) => {
-      await executeQueued(burst, preclaimedInteraction);
+      await executeQueued(burst);
     },
     onRejected: (reason) => {
       if (collectionDecision.collect || (!mentionedBot && !explicitAudience)) return;
@@ -3330,7 +2446,6 @@ async function resumeRecoverableMessageTurn(
     recentMessages,
     deployment
   );
-  const preparedExpression: PreparedExpression = { retrieval: null, query: "" };
   let reply: DiscordReply;
   try {
     reply = await relay.resumeMessageTurnJob(job.job_id, {
@@ -3381,30 +2496,15 @@ async function resumeRecoverableMessageTurn(
   let execution: ExpressionExecutionResult | SmartOutputExecutionResult;
   try {
     execution = reply.smart_output
-      ? await executeSmartOutput(
-          source,
-          deployment,
-          reply.smart_output,
-          preparedExpression,
-          botUser.id,
-          candidates,
-          mentionableParticipants
-        )
-      : await executeCharacterOutput(
-          source,
-          deployment,
-          reply.text
+      ? await executeSmartOutput(source, deployment, reply.smart_output, botUser.id, candidates, mentionableParticipants)
+      : await executeCharacterOutput(source, deployment, reply.text
             ? normalizeBotTagReply(
                 candidates,
                 reply.text,
                 deployment.deployment_id,
                 config.groupAddressAliases
               ).displayText.trim()
-            : "",
-          reply.expression,
-          preparedExpression,
-          botUser.id
-        );
+            : "", botUser.id);
     await acknowledgeCharacterTurnDelivery(durableDelivery, execution.sentMessageIds, execution.applied);
   } catch (error) {
     await markCharacterTurnDeliveryUncertain(durableDelivery, error);
@@ -3532,45 +2632,40 @@ const healthServer = createServer((request, response) => {
         (item) => item.webhook_status === "error"
       ).length,
       message_content_intent: config.messageContentIntent,
-      smart_participation_enabled: config.smartParticipationEnabled,
-      smart_participation_v3_resolver_enabled: config.smartParticipationEnabled,
-      smart_participation_turn_collector_enabled: turnIngress.enabled,
-      smart_participation_turn_collector_quiet_ms: turnIngress.currentConfig.quietWindowMs,
-      smart_participation_turn_collector_max_wait_ms: turnIngress.currentConfig.maxWaitMs,
-      smart_participation_turn_collector_max_messages: turnIngress.currentConfig.maxMessages,
-      smart_participation_turn_collector_max_characters:
+      ambient_participation_requested: config.ambientParticipationEnabled,
+      room_buffer_enabled: turnIngress.enabled,
+      room_buffer_quiet_ms: turnIngress.currentConfig.quietWindowMs,
+      room_buffer_max_wait_ms: turnIngress.currentConfig.maxWaitMs,
+      room_buffer_max_messages: turnIngress.currentConfig.maxMessages,
+      room_buffer_max_characters:
         turnIngress.currentConfig.maxCharacters,
-      smart_participation_turn_collector_pending_scopes:
+      room_buffer_pending_scopes:
         turnIngress.pendingBurstScopeCount,
-      smart_participation_ingress_pending_scopes:
+      room_ingress_pending_scopes:
         turnIngress.pendingPreflightScopeCount,
-      smart_participation_turn_collector_candidate_messages:
+      room_buffer_candidate_messages:
         turnCollectorCandidateMessageCount,
-      smart_participation_turn_collector_bypass_messages:
+      room_buffer_bypass_messages:
         turnCollectorBypassMessageCount,
-      smart_participation_turn_collector_bypass_reasons:
+      room_buffer_bypass_reasons:
         turnCollectorBypassReasons,
-      smart_participation_turn_collector_interaction_bypasses:
-        turnCollectorInteractionBypassCount,
-      smart_participation_turn_collector_bursts: turnCollectorBurstCount,
-      smart_participation_turn_collector_collected_messages:
+      room_buffer_bursts: turnCollectorBurstCount,
+      room_buffer_collected_messages:
         turnCollectorCollectedMessageCount,
-      smart_participation_turn_collector_collapsed_messages:
+      room_buffer_collapsed_messages:
         turnCollectorCollapsedMessageCount,
-      smart_participation_turn_collector_last_burst_at: turnCollectorLastBurstAt,
-      smart_participation_turn_collector_last_burst_id: turnCollectorLastBurstId,
-      smart_participation_turn_collector_last_flush_reason:
+      room_buffer_last_burst_at: turnCollectorLastBurstAt,
+      room_buffer_last_burst_id: turnCollectorLastBurstId,
+      room_buffer_last_flush_reason:
         turnCollectorLastFlushReason,
-      bot_tag_conversations_enabled: config.botTagConversationsEnabled,
-      bot_tag_max_depth: config.botTagMaxDepth,
-      bot_tag_max_responses: config.botTagMaxResponses,
+      bot_continuation_enabled: config.botContinuationEnabled,
+      conversation_max_depth: config.conversationMaxDepth,
+      conversation_max_responses: config.conversationMaxResponses,
       custom_group_address_aliases: config.groupAddressAliases.length,
-      interaction_sessions_enabled: true,
       sticker_understanding_enabled: true,
-      expression_retrieval_enabled: true,
-      expression_retrieval_backend: "hybrid_sparse_v1",
+      intent_expression_resolution_enabled: true,
+      expression_resolution_backend: "intent_sparse_v1",
       smart_output_v1_enabled: true,
-      expression_max_candidates: 6,
       expression_max_per_character_reply: 1,
       last_catalog_sync_at: lastCatalogSyncAt,
       last_deployment_sync_at: lastDeploymentSyncAt,

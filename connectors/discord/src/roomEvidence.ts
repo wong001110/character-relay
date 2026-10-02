@@ -220,3 +220,24 @@ export async function discordEvidence(source: Message<true>, contentIntent: bool
     }
   });
 }
+
+/** System-level coalescing only. This policy has no speaker-selection authority. */
+export interface RoomBufferRuntime {
+  enabled: boolean;
+  quiet_window_ms: number;
+  max_wait_ms: number;
+  max_messages: number;
+  max_characters: number;
+}
+
+/** A missing or cross-room delivered message must not silently fall back to the trigger. */
+export async function fetchDeliveredSource<T extends { id: string; channelId: string }>(
+  trigger: T, messageId: string, fetchSameRoom: (id: string) => Promise<T | null>
+): Promise<T | null> {
+  if (!messageId) return null;
+  if (messageId === trigger.id) return trigger;
+  try {
+    const found = await fetchSameRoom(messageId);
+    return found?.id === messageId && found.channelId === trigger.channelId ? found : null;
+  } catch { return null; }
+}

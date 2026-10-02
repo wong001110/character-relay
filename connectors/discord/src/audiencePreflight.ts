@@ -8,16 +8,16 @@ const EXPLICIT_REASONS = new Set<AudienceResolution["reason"]>([
   "selected_all"
 ]);
 
-function withoutSmartParticipation(deployment: DiscordDeployment): DiscordDeployment {
+function explicitOnlyDeployment(deployment: DiscordDeployment): DiscordDeployment {
   if (deployment.participation_mode !== "smart") return deployment;
   return { ...deployment, participation_mode: "mention_only" };
 }
 
 /**
- * Resolve only platform/author-explicit audience signals before E5 or Utility work.
+ * Resolve only platform/author-explicit audience signals before Room Director work.
  *
  * The normal routing parser remains authoritative. Smart candidates are cloned as mention-only
- * solely for this side-effect-free preflight, which prevents proactive Smart Participation from
+ * solely for this side-effect-free preflight, which prevents ambient selection from
  * running while preserving the exact same reply/name/group parsing rules.
  */
 export function resolveExplicitAudiencePreflight(
@@ -29,7 +29,7 @@ export function resolveExplicitAudiencePreflight(
   if (!candidates.length) return null;
   const byId = new Map(candidates.map((item) => [item.deployment_id, item]));
   const preflight = resolveAudience(
-    candidates.map(withoutSmartParticipation),
+    candidates.map(explicitOnlyDeployment),
     text,
     replyDeploymentId,
     groupAliases
@@ -45,7 +45,7 @@ export function resolveExplicitAudiencePreflight(
   };
 }
 
-export function semanticScoringRequired(
+export function directorSelectionRequired(
   candidates: DiscordDeployment[],
   explicitAudience: AudienceResolution | null
 ): boolean {

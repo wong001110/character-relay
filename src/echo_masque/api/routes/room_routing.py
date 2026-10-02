@@ -6,9 +6,10 @@ import hashlib
 import json
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import Field
 
+from echo_masque.admin_runtime import ConversationBurstRuntimeProfile
 from echo_masque.api.room_schemas import (
     DraftPreflightRequest,
     RoomChoiceView,
@@ -132,6 +133,24 @@ def _observe(
         if payload.readable:
             revision = repository.observe(owner_scope, observations)
     return scope, revision
+
+
+@router.get("/runtime", response_model=ConversationBurstRuntimeProfile)
+def room_buffer_runtime(
+    request: Request,
+    connection_id: str = Query(min_length=1, max_length=64),
+    authorization: Annotated[str | None, Header()] = None,
+) -> ConversationBurstRuntimeProfile:
+    """Reuse the existing system buffer policy; no character scores or model calls."""
+    _authorize_connector(request, authorization)
+    with request.app.state.database.session() as session:
+        connection = session.get(PlatformConnectionRecord, connection_id)
+        if connection is None or connection.platform != "discord":
+            raise HTTPException(status_code=404, detail="connection_unavailable")
+    value: ConversationBurstRuntimeProfile = (
+        request.app.state.runtime_service.config().conversation_burst
+    )
+    return value
 
 
 @router.post("/events")

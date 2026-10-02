@@ -112,14 +112,19 @@ def cancel_social_turn_operation(
         repository._advance_operation(
             session, record, cursor_json=cursor.model_dump_json(), now=now
         )
-        record.last_error = "optional_continuation_yielded_to_human"
+        result_reason = (
+            "continuation_source_unavailable"
+            if payload.reason == "continuation_source_unavailable"
+            else "optional_continuation_yielded_to_human"
+        )
+        record.last_error = result_reason
         session.commit()
         resulting_status = record.status
 
     return DiscordSocialTurnCancelView(
         canceled=True,
         status=resulting_status,
-        reason="optional_continuation_yielded_to_human",
+        reason=result_reason,
     )
 
 

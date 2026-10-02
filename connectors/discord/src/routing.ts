@@ -1,7 +1,4 @@
 import { groupAddressAliases } from "./audienceAliases.js";
-import {
-  consumeSmartSelection
-} from "./smartParticipation.js";
 import type { DiscordDeployment } from "./types.js";
 
 export type DeploymentIndex = Map<string, DiscordDeployment[]>;
@@ -77,9 +74,9 @@ export type AudienceReason =
   | "selected_all"
   | "selected_single"
   | "selected_coordinated"
-  | "selected_smart"
-  | "selected_smart_multiple"
-  | "selected_smart_follow_up"
+  | "selected_director"
+  | "selected_director_multiple"
+  | "selected_director_follow_up"
   | "ambiguous"
   | "not_found";
 
@@ -499,29 +496,14 @@ export interface TriggerState {
   hasReadableText: boolean;
 }
 
-export function shouldSubmitMessage(
-  deployment: DiscordDeployment,
-  trigger: TriggerState,
-  smartParticipationEnabled: boolean
-): boolean {
-  if (!trigger.hasReadableText && !trigger.mentionedBot && !trigger.repliedToBot) {
-    return false;
-  }
+/** Direct eligibility only. Ambient admission is exclusively owned by the Room Routing API. */
+export function shouldSubmitMessage(deployment: DiscordDeployment, trigger: TriggerState): boolean {
+  if (!trigger.hasReadableText && !trigger.mentionedBot && !trigger.repliedToBot) return false;
   switch (deployment.participation_mode) {
-    case "mention_only":
-      return trigger.mentionedBot;
-    case "reply_only":
-      return trigger.repliedToBot;
+    case "mention_only": return trigger.mentionedBot;
+    case "reply_only": return trigger.repliedToBot;
     case "mention_and_reply":
-      return trigger.mentionedBot || trigger.repliedToBot;
-    case "smart": {
-      const selected = consumeSmartSelection(deployment.deployment_id);
-      return (
-        trigger.mentionedBot ||
-        trigger.repliedToBot ||
-        (smartParticipationEnabled && trigger.hasReadableText && selected)
-      );
-    }
+    case "smart": return trigger.mentionedBot || trigger.repliedToBot;
   }
 }
 

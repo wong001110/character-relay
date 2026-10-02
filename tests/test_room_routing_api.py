@@ -327,3 +327,17 @@ def test_preflight_rejects_client_draft_or_cross_room_operation(setup: tuple) ->
     assert (
         client.post("/api/connectors/discord/rooms/drafts/preflight", json=data).status_code == 401
     )
+
+
+def test_room_buffer_runtime_is_scoped_config_without_old_profile_reads(setup: tuple) -> None:
+    app, client, connection, _ = setup
+    app.state.room_director = SimpleNamespace()
+    url = "/api/connectors/discord/rooms/runtime"
+    assert client.get(url, params={"connection_id": connection["id"]}).status_code == 401
+    assert client.get(url, params={"connection_id": "missing"}, headers=HEADERS).status_code == 404
+    response = client.get(url, params={"connection_id": connection["id"]}, headers=HEADERS)
+    assert response.status_code == 200
+    assert response.json() == app.state.runtime_service.config().conversation_burst.model_dump()
+    assert not any(
+        "smart-participation" in route.path for route in app.routes if hasattr(route, "path")
+    )

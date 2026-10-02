@@ -55,3 +55,16 @@ describe("room evidence boundaries", () => {
     expect(result.edited_at).toBe("2026-10-01T00:00:03Z");
   });
 });
+
+
+describe("delivered-source identity", () => {
+  it("does not fall back when the delivered source was deleted or denied", async () => {
+    const { fetchDeliveredSource } = await import("./roomEvidence.js");
+    const trigger={id:"human",channelId:"room"};
+    expect(await fetchDeliveredSource(trigger,"bot",async()=>null)).toBeNull();
+    expect(await fetchDeliveredSource(trigger,"bot",async()=>{throw new Error("403")})).toBeNull();
+    expect(await fetchDeliveredSource(trigger,"bot",async()=>({id:"bot",channelId:"private"}))).toBeNull();
+    expect(await fetchDeliveredSource(trigger,"bot",async()=>({id:"another",channelId:"room"}))).toBeNull();
+    expect(await fetchDeliveredSource(trigger,"bot",async()=>({id:"bot",channelId:"room"}))).toEqual({id:"bot",channelId:"room"});
+  });
+});

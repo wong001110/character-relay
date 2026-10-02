@@ -186,7 +186,6 @@ class DiscordConnectorHeartbeat(BaseModel):
     turn_collector_bursts: int = Field(default=0, ge=0)
     turn_collector_collected_messages: int = Field(default=0, ge=0)
     turn_collector_collapsed_messages: int = Field(default=0, ge=0)
-    turn_collector_interaction_bypasses: int = Field(default=0, ge=0)
     turn_collector_bypass_reasons: dict[str, int] = Field(default_factory=dict, max_length=40)
     turn_collector_last_burst_at: str = Field(default="", max_length=64)
     turn_collector_last_burst_id: str = Field(default="", max_length=80)

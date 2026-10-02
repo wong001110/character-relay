@@ -554,7 +554,6 @@ def connector_heartbeat(
         turn_collector_bursts=payload.turn_collector_bursts,
         turn_collector_collected_messages=payload.turn_collector_collected_messages,
         turn_collector_collapsed_messages=payload.turn_collector_collapsed_messages,
-        turn_collector_interaction_bypasses=payload.turn_collector_interaction_bypasses,
         turn_collector_bypass_reasons=payload.turn_collector_bypass_reasons,
         turn_collector_last_burst_at=payload.turn_collector_last_burst_at,
         turn_collector_last_burst_id=payload.turn_collector_last_burst_id,

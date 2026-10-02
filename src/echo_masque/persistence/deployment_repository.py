@@ -172,7 +172,6 @@ class DeploymentRepository:
         turn_collector_bursts: int = 0,
         turn_collector_collected_messages: int = 0,
         turn_collector_collapsed_messages: int = 0,
-        turn_collector_interaction_bypasses: int = 0,
         turn_collector_bypass_reasons: dict[str, int] | None = None,
         turn_collector_last_burst_at: str = "",
         turn_collector_last_burst_id: str = "",
@@ -220,7 +219,6 @@ class DeploymentRepository:
             metadata["turn_collector_bursts"] = turn_collector_bursts
             metadata["turn_collector_collected_messages"] = turn_collector_collected_messages
             metadata["turn_collector_collapsed_messages"] = turn_collector_collapsed_messages
-            metadata["turn_collector_interaction_bypasses"] = turn_collector_interaction_bypasses
             metadata["turn_collector_bypass_reasons"] = turn_collector_bypass_reasons or {}
             metadata["turn_collector_last_burst_at"] = turn_collector_last_burst_at
             metadata["turn_collector_last_burst_id"] = turn_collector_last_burst_id

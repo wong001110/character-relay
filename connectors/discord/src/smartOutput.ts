@@ -82,15 +82,6 @@ export function buildMentionableParticipants(
   return [...participants.values()].slice(0, 12);
 }
 
-export function reserveUniqueCharacterTurn(
-  participantsSeen: Set<string>,
-  deploymentId: string
-): boolean {
-  if (participantsSeen.has(deploymentId)) return false;
-  participantsSeen.add(deploymentId);
-  return true;
-}
-
 function failed(error: string): CompiledSmartMessage {
   return {
     ok: false,

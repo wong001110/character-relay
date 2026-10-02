@@ -94,37 +94,6 @@ describe("TurnIngressCoordinator", () => {
     await coordinator.shutdown(false);
   });
 
-  it("bypasses collection when the interaction preflight claims the turn", async () => {
-    const runtimeTasks: Array<() => Promise<void>> = [];
-    let prepareCalls = 0;
-    let receivedBurst: unknown = "unset";
-    const coordinator = new TurnIngressCoordinator<SampleTurn>(
-      { quietWindowMs: 5_000, maxWaitMs: 10_000, maxMessages: 5, maxCharacters: 100 },
-      (_scope, task) => { runtimeTasks.push(task); return true; }
-    );
-
-    coordinator.submit("channel", {
-      id: "1",
-      value: sample("1", "roast trigger"),
-      characters: 13,
-      collect: true,
-      prepareCollection: async () => {
-        prepareCalls += 1;
-        return false;
-      },
-      execute: async (burst) => {
-        receivedBurst = burst;
-      }
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(prepareCalls).toBe(1);
-    expect(runtimeTasks).toHaveLength(1);
-    await runtimeTasks[0]?.();
-    expect(receivedBurst).toBeNull();
-    await coordinator.shutdown(false);
-  });
-
   it("drains already accepted preflight work before shutdown", async () => {
     const runtimeTasks: Array<() => Promise<void>> = [];
     let release: (() => void) | undefined;
@@ -136,58 +105,16 @@ describe("TurnIngressCoordinator", () => {
       (_scope, task) => { runtimeTasks.push(task); return true; }
     );
 
-    coordinator.submit("channel", {
-      id: "1",
-      value: sample("1", "ordinary"),
-      characters: 8,
-      collect: true,
-      prepareCollection: async () => {
-        await gate;
-        return true;
-      },
-      execute: async () => undefined
-    });
+    coordinator.submit("channel", {id: "1",
+value: sample("1", "ordinary"),
+characters: 8,
+collect: true,
+execute: async () => undefined});
 
     const shuttingDown = coordinator.shutdown(true);
     release?.();
     await shuttingDown;
     expect(runtimeTasks).toHaveLength(1);
-  });
-
-  it("bounds preflight admission and expires stale work before Runtime", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
-    let release: (() => void) | undefined;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    const runtimeTasks: Array<() => Promise<void>> = [];
-    const rejected: string[] = [];
-    const coordinator = new TurnIngressCoordinator<SampleTurn>(
-      { enabled: false },
-      (_scope, task) => { runtimeTasks.push(task); return true; },
-      undefined,
-      { maxPending: 2, maxPendingPerScope: 2, maxPreflightAgeMs: 50 },
-      (_scope, reason) => { rejected.push(reason); }
-    );
-    expect(coordinator.submit("channel", {
-      id: "first", value: sample("first", "one"), characters: 3, collect: true,
-      prepareCollection: async () => { await gate; return true; }, execute: async () => undefined
-    })).toBe(true);
-    expect(coordinator.submit("channel", {
-      id: "second", value: sample("second", "two"), characters: 3, collect: false,
-      execute: async () => undefined
-    })).toBe(true);
-    expect(coordinator.submit("channel", {
-      id: "third", value: sample("third", "three"), characters: 5, collect: false,
-      execute: async () => undefined
-    })).toBe(false);
-    await vi.advanceTimersByTimeAsync(51);
-    release?.();
-    await vi.runAllTimersAsync();
-    expect(rejected).toEqual(["busy", "expired"]);
-    // The first accepted item may already have reached Runtime; the stale queued
-    // item did not add another task.
-    expect(runtimeTasks).toHaveLength(1);
-    await coordinator.shutdown(false);
   });
 
   it("rechecks expiry immediately before a delayed Runtime task executes", async () => {
@@ -263,7 +190,7 @@ describe("TurnIngressCoordinator", () => {
 describe("Turn collection policy", () => {
   const base = {
     collectorEnabled: true,
-    smartParticipationEnabled: true,
+    ambientParticipationEnabled: true,
     recovery: false,
     mentionedBot: false,
     hasReplyReference: false,
@@ -275,7 +202,7 @@ describe("Turn collection policy", () => {
     visibleImageAttachmentCount: 0,
     embedCount: 0,
     hasUrl: false,
-    smartCandidateCount: 2
+    ambientCandidateCount: 2
   };
 
   it("collects only ordinary unresolved Smart Participation text", () => {
@@ -286,8 +213,8 @@ describe("Turn collection policy", () => {
     expect(decideTurnCollection({ ...base, attachmentCount: 1 }).reason).toBe("rich_content");
     expect(decideTurnCollection({ ...base, hasUrl: true }).reason).toBe("url_content");
     expect(decideTurnCollection({ ...base, recovery: true }).reason).toBe("recovery");
-    expect(decideTurnCollection({ ...base, smartCandidateCount: 0 }).reason).toBe(
-      "no_smart_candidates"
+    expect(decideTurnCollection({ ...base, ambientCandidateCount: 0 }).reason).toBe(
+      "no_ambient_candidates"
     );
   });
 
@@ -332,7 +259,7 @@ describe("Turn collection policy", () => {
 
 const basePolicy = {
   collectorEnabled: true,
-  smartParticipationEnabled: true,
+  ambientParticipationEnabled: true,
   recovery: false,
   mentionedBot: false,
   hasReplyReference: false,
@@ -344,7 +271,7 @@ const basePolicy = {
   visibleImageAttachmentCount: 0,
   embedCount: 0,
   hasUrl: false,
-  smartCandidateCount: 2
+  ambientCandidateCount: 2
 };
 
 describe("visible-image Turn Collection policy", () => {
@@ -368,4 +295,19 @@ describe("visible-image Turn Collection policy", () => {
       })
     ).toEqual({ collect: false, reason: "rich_content" });
   });
+});
+
+describe("bounded admission after removing optional preflight hooks", () => {
+ it("rejects overflow and does not execute work that expires in the runtime queue",async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+  const tasks:Array<()=>Promise<void>>=[]; const rejected:string[]=[]; const executed:string[]=[];
+  const coordinator=new TurnIngressCoordinator<SampleTurn>({enabled:false},(_s,fn)=>{tasks.push(fn);return true;},undefined,
+    {maxPending:2,maxPendingPerScope:2,maxPreflightAgeMs:50},(_s,reason)=>rejected.push(reason));
+  const submit=(id:string)=>coordinator.submit("room",{id,value:sample(id,id),characters:1,collect:false,execute:async()=>{executed.push(id)}});
+  expect(submit("1")).toBe(true); expect(submit("2")).toBe(true); expect(submit("3")).toBe(false);
+  await vi.advanceTimersByTimeAsync(0); expect(tasks).toHaveLength(2);
+  await vi.advanceTimersByTimeAsync(51); for(const task of tasks) await task();
+  expect(executed).toEqual([]); expect(rejected).toEqual(["busy","expired","expired"]);
+  await coordinator.shutdown(false); vi.useRealTimers();
+ });
 });
