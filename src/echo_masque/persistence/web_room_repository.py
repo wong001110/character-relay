@@ -368,6 +368,13 @@ class WebRoomRepository:
             profile = session.get(WebProfileRecord, payload.profile_id)
             if profile is None or profile.owner_id != user_id:
                 raise WebRoomError("profile_unavailable", 404)
+            sticker_resource = None
+            if payload.sticker_resource_key:
+                sticker_resource = _expression(
+                    session, room, payload.sticker_resource_key, resource_type="sticker"
+                )
+                if sticker_resource is None:
+                    raise WebRoomError("sticker_unavailable", 422)
             emoji_id = ""
             animated = False
             asset_url = ""
@@ -548,6 +555,7 @@ class WebRoomRepository:
                         "avatar_url": profile.avatar_url,
                         "text": payload.text,
                         "reply_to_message_id": payload.reply_to_message_id,
+                        "sticker_resource_key": payload.sticker_resource_key,
                     },
                     ensure_ascii=False,
                 ),
@@ -632,11 +640,20 @@ class WebRoomRepository:
                 if _aware(row.created_at) < now - timedelta(minutes=5):
                     row.status, row.reason = "failed", "queue_expired"
                     continue
+                view = delivery_view(row)
+                sticker = None
+                if view.sticker_resource_key:
+                    sticker = _expression(
+                        session, room, view.sticker_resource_key, resource_type="sticker"
+                    )
+                    if sticker is None:
+                        row.status, row.reason = "failed", "sticker_unavailable"
+                        continue
                 row.status, row.claim_nonce, row.claimed_at = "claimed", nonce, now
                 row.webhook_id = room.webhook_id
                 session.commit()
                 return WebRoomDelivery(
-                    **delivery_view(row).model_dump(),
+                    **view.model_dump(),
                     room_id=room.id,
                     claim_nonce=nonce,
                     guild_id=room.guild_id,
@@ -644,6 +661,9 @@ class WebRoomRepository:
                     thread_id=room.thread_id,
                     webhook_id=room.webhook_id,
                     actor_id=f"web:{row.profile_id}",
+                    sticker_name=sticker.name if sticker is not None else "",
+                    sticker_asset_url=sticker.asset_url if sticker is not None else "",
+                    sticker_format_type=sticker.format_type if sticker is not None else "",
                 )
             session.commit()
             return None
@@ -653,7 +673,13 @@ class WebRoomRepository:
             row = session.get(WebOutboxRecord, record_id)
             room = session.get(WebRoomRecord, row.room_id) if row else None
             if row and room:
-                target_id = json.loads(row.payload_json)["reply_to_message_id"]
+                payload = json.loads(row.payload_json)
+                target_id = payload["reply_to_message_id"]
+                sticker_key = payload.get("sticker_resource_key", "")
+                if sticker_key and _expression(
+                    session, room, sticker_key, resource_type="sticker"
+                ) is None:
+                    return False
                 if target_id:
                     target = self.sources.get(room_scope(room), target_id)
                     if (
