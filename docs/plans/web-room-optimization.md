@@ -75,3 +75,13 @@ The optimization pass also covers the following room UX requirements before any 
 The current Portal server-catalog response exposes channels only. Connector resource sync already stores
 emoji/sticker metadata in the Expression catalog, so the picker should reuse that authoritative catalog
 rather than adding a second Discord scan.
+
+
+6. **Message reactions**
+   - subscribe to Discord guild message reaction events and re-fetch the exact message/reaction state rather than trusting unordered deltas;
+   - expose bounded reaction chips on Web Room messages (emoji/custom emoji + count);
+   - reaction presentation state must not enter Room Director prompts or invalidate Character drafts by itself;
+   - Web Room provides a per-message reaction picker using Unicode emoji and the current guild's validated custom emoji catalog;
+   - Web-origin reactions are stored with the authenticated Web profile so multiple Dots can react independently in Web Room;
+   - do **not** silently claim that a Web profile owns a native Discord reaction. Discord reactions are authored by Discord users/bots, and a webhook identity cannot add a reaction;
+   - if a native Discord mirror is later enabled, the Connector bot may add at most one aggregate reaction per emoji, clearly represented as bot-side mirroring rather than individual Dots identity.
