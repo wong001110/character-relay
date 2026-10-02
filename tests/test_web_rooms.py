@@ -542,6 +542,30 @@ def test_snapshot_preserves_media_reactions_and_reply_preview(web):
                         "format_type": "png",
                     }
                 ],
+                mentions=[
+                    {"kind": "user", "target_id": "human-2", "label": "Bob"},
+                    {"kind": "channel", "target_id": "channel-2", "label": "memes"},
+                ],
+                embeds=[
+                    {
+                        "embed_type": "rich",
+                        "url": "https://example.com/post",
+                        "title": "Preview",
+                        "description": "Preview description",
+                        "provider_name": "Example",
+                        "image_url": "https://example.com/image.png",
+                        "image_proxy_url": "https://media.discordapp.net/external/image.png",
+                    }
+                ],
+                poll={
+                    "question": "Tea?",
+                    "answers": [
+                        {"answer_id": 1, "text": "Yes", "vote_count": 3},
+                        {"answer_id": 2, "text": "No", "vote_count": 1},
+                    ],
+                    "allow_multiselect": False,
+                    "results_finalized": False,
+                },
                 reactions=[
                     {"key": "unicode:😂", "name": "😂", "count": 2},
                 ],
@@ -560,6 +584,10 @@ def test_snapshot_preserves_media_reactions_and_reply_preview(web):
     assert parent["attachments"][0]["filename"] == "image.png"
     assert parent["custom_emojis"][0]["name"] == "wave"
     assert parent["stickers"][0]["name"] == "smile"
+    assert parent["mentions"][0]["label"] == "Bob"
+    assert parent["embeds"][0]["image_proxy_url"].startswith("https://media.discordapp.net/")
+    assert parent["poll"]["question"] == "Tea?"
+    assert parent["poll"]["answers"][0]["vote_count"] == 3
     assert parent["reactions"][0]["discord_count"] == 2
     assert parent["pinned"] is True
     assert child["reply_preview"] == {
