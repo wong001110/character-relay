@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from hashlib import sha256
 from os import environ
@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
+from echo_masque.embedding_space import EmbeddingSpace
 from echo_masque.knowledge_fabric_ingestion import (
     KnowledgeFabricIngestionService,
     SourceSnapshotIngestionRequest,
@@ -79,6 +80,12 @@ class _SpyIndexes:
         self.requested_corpus_sets.append(corpus_ids)
         return self.delegate.search_sparse(**kwargs)  # type: ignore[arg-type]
 
+    def dense_index_status(self, **kwargs: object) -> str:
+        corpus_ids = kwargs["authorized_corpus_ids"]
+        assert isinstance(corpus_ids, frozenset)
+        self.requested_corpus_sets.append(corpus_ids)
+        return self.delegate.dense_index_status(**kwargs)  # type: ignore[arg-type]
+
     def search_dense(self, **kwargs: object) -> list[KnowledgeIndexCandidate]:
         corpus_ids = kwargs["authorized_corpus_ids"]
         assert isinstance(corpus_ids, frozenset)
@@ -94,7 +101,9 @@ class _SpyIndexes:
 
 @dataclass(frozen=True)
 class _Embedder:
-    model_name: str = "test-model"
+    space: EmbeddingSpace = field(
+        default_factory=lambda: EmbeddingSpace("test-provider", "test-model", 2, "1")
+    )
 
     def embed_query(self, text: str) -> list[float]:
         del text
@@ -230,7 +239,7 @@ def _seed(tmp_path: Path) -> tuple[
         entry = indexes.upsert_retrieval_entry(evidence_id)
         indexes.upsert_embedding(
             retrieval_entry_id=entry.id,
-            embedding_model="test-model",
+            space=_Embedder().space,
             vector=[1.0, 0.0],
         )
     return (
@@ -419,7 +428,7 @@ def test_index_lifecycle_deletes_derived_entries_before_user_corpus_evidence(
     entry = indexes.upsert_retrieval_entry(evidence_id)
     embedding = indexes.upsert_embedding(
         retrieval_entry_id=entry.id,
-        embedding_model="test-model",
+        space=_Embedder().space,
         vector=[1.0, 0.0],
     )
 
@@ -542,7 +551,7 @@ def test_postgresql_fts_and_dense_channels_when_explicit_test_database_is_availa
     entry = indexes.upsert_retrieval_entry(evidence_id)
     indexes.upsert_embedding(
         retrieval_entry_id=entry.id,
-        embedding_model="test-model",
+        space=_Embedder().space,
         vector=[1.0, 0.0],
     )
 

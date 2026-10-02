@@ -7,11 +7,14 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from sqlalchemy import and_, delete, or_, select
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from echo_masque.pagination import decode_time_cursor, encode_time_cursor
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.expression_models import ExpressionUsageRecord
+from echo_masque.persistence.room_models import RoomDeliverySourceRecord
 from echo_masque.persistence.runtime_durability_models import (
     RuntimeOperationRecord,
     RuntimeSideEffectRecord,
@@ -19,6 +22,8 @@ from echo_masque.persistence.runtime_durability_models import (
     RuntimeTraceEventRecord,
     RuntimeTraceRunRecord,
 )
+from echo_masque.room_routing import RoomScope
+from echo_masque.room_sources import delivery_key, scope_key
 from echo_masque.runtime_trace import RuntimeTraceEvent
 
 OperationStatus = Literal["active", "awaiting_delivery", "completed", "uncertain", "failed"]
@@ -215,6 +220,7 @@ class DurableRuntimeRepository:
         step_id: str,
         claim_nonce: str,
         sent_message_ids: list[str],
+        applied: bool = False,
     ) -> RuntimeOperationRecord:
         """Acknowledge a normal turn from its persisted server-side step metadata."""
 
@@ -231,7 +237,7 @@ class DurableRuntimeRepository:
             cursor_json=cursor_json,
             sent_message_ids=sent_message_ids,
             outgoing_text="",
-            applied=False,
+            applied=applied,
             deployment_id=deployment_id,
         )
 
@@ -256,7 +262,7 @@ class DurableRuntimeRepository:
                 for item in unique
             ],
             "completed_deployment_ids": [],
-            "continuation_budget_remaining": continuation_budget,
+            "continuation_budget_remaining": min(5, max(0, continuation_budget)),
             "max_depth": max_depth,
             "step_index": 0,
         }
@@ -364,11 +370,15 @@ class DurableRuntimeRepository:
         step_id = self.social_step_id(operation_id, step_index, deployment_id)
         now = datetime.now(UTC)
         with self.database.session() as session:
-            operation = session.get(RuntimeOperationRecord, operation_id)
+            operation = session.scalar(
+                select(RuntimeOperationRecord)
+                .where(RuntimeOperationRecord.operation_id == operation_id)
+                .with_for_update()
+            )
             if operation is None:
                 raise ValueError("Durable Social Turn operation has not been claimed.")
-            if operation.status == "completed":
-                raise ValueError("Durable Social Turn operation is already completed.")
+            if operation.status in {"completed", "failed"}:
+                raise ValueError("Durable Social Turn operation is already completed or failed.")
             if operation.status == "uncertain":
                 raise RuntimeError(
                     "Durable Social Turn operation requires delivery reconciliation."
@@ -376,6 +386,7 @@ class DurableRuntimeRepository:
 
             step = session.get(RuntimeStepRecord, step_id)
             if step is None:
+                self._reserve_generation_attempt(session, operation)
                 step = RuntimeStepRecord(
                     step_id=step_id,
                     operation_id=operation_id,
@@ -397,11 +408,12 @@ class DurableRuntimeRepository:
                 )
             if step.status in {"generated", "delivery_claimed", "silent"} and step.response_json:
                 return "replay", step
-            if step.status == "generating":
+            if step.status in {"generating", "refreshing"}:
                 return "in_progress", step
             if step.status == "uncertain":
                 return "uncertain", step
             if step.status == "failed":
+                self._reserve_generation_attempt(session, operation)
                 step.status = "generating"
                 step.last_error = ""
                 step.updated_at = now
@@ -411,6 +423,20 @@ class DurableRuntimeRepository:
             if step.status == "delivered" and step.response_json:
                 return "replay", step
             raise ValueError("Durable Social Turn step cannot be executed from its current state.")
+
+    def _reserve_generation_attempt(
+        self, session: Session, operation: RuntimeOperationRecord
+    ) -> None:
+        cursor = self._object(operation.cursor_json)
+        used = int(str(cursor.get("attempts_used", 0)))
+        if used >= 12:
+            operation.status = "failed"
+            operation.last_error = "interaction_generation_attempt_budget_exhausted"
+            operation.updated_at = datetime.now(UTC)
+            session.commit()
+            raise ValueError(operation.last_error)
+        cursor["attempts_used"] = used + 1
+        operation.cursor_json = self._json(cursor)
 
     def fail_social_step(self, step_id: str, error: str) -> None:
         with self.database.session() as session:
@@ -471,12 +497,30 @@ class DurableRuntimeRepository:
             if operation is None:
                 raise KeyError("Durable Social Turn operation not found.")
             if step.status == "generated":
-                step.status = "delivery_claimed"
-                step.delivery_claim_nonce = claim_nonce
-                step.updated_at = now
-                session.commit()
+                self._validate_publication(session, operation, step, now)
+                # SQLite ignores FOR UPDATE; this conditional write is the shared
+                # cross-process admission point on both SQLite and PostgreSQL. An
+                # overlapping preflight or claim cannot replace the snapshot we checked.
+                claimed = session.scalar(
+                    update(RuntimeStepRecord)
+                    .where(
+                        RuntimeStepRecord.step_id == step.step_id,
+                        RuntimeStepRecord.status == "generated",
+                        RuntimeStepRecord.response_json == step.response_json,
+                    )
+                    .values(
+                        status="delivery_claimed", delivery_claim_nonce=claim_nonce, updated_at=now
+                    )
+                    .returning(RuntimeStepRecord.step_id)
+                    .execution_options(synchronize_session=False)
+                )
+                if claimed is not None:
+                    session.commit()
+                    session.refresh(step)
+                    return "granted", step
+                session.rollback()
                 session.refresh(step)
-                return "granted", step
+                session.refresh(operation)
             if step.status == "delivery_claimed":
                 if step.delivery_claim_nonce == claim_nonce:
                     return "granted", step
@@ -494,6 +538,66 @@ class DurableRuntimeRepository:
                 return "uncertain", step
             raise ValueError("Durable delivery cannot be claimed from the current step state.")
 
+    def _validate_publication(
+        self,
+        session: Session,
+        operation: RuntimeOperationRecord,
+        step: RuntimeStepRecord,
+        now: datetime,
+    ) -> None:
+        from echo_masque.character_turn_context_types import CharacterContextTraceView
+        from echo_masque.draft_freshness import assess_draft
+        from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
+        from echo_masque.persistence.deployment_repository import DeploymentRepository
+        from echo_masque.persistence.room_repository import RoomRepository
+
+        raw = self._object(step.response_json)
+        reply = raw.get("reply", raw)
+        context = reply.get("context_trace") if isinstance(reply, dict) else None
+        # Non-Discord transport test records have no source trace. Every real room turn
+        # is required by the generation API to carry this source binding.
+        if not isinstance(context, dict) or not context.get("source_target_message_id"):
+            return
+        trace = CharacterContextTraceView.model_validate(context)
+        checked = trace.publication_checked_at
+        if checked is None:
+            raise ValueError("draft_preflight_required")
+        checked = checked if checked.tzinfo is not None else checked.replace(tzinfo=UTC)
+        if not timedelta(seconds=0) <= now - checked <= timedelta(seconds=15):
+            raise ValueError("draft_preflight_expired")
+        deployment = session.get(CharacterDeploymentRecord, step.deployment_id)
+        if deployment is None or deployment.status != "active":
+            raise ValueError("draft_deployment_revoked")
+        if (
+            DeploymentRepository(self.database).deployment_matches_discord_destination(
+                step.deployment_id,
+                connection_id=operation.connection_id,
+                guild_id=operation.guild_id,
+                channel_id=operation.channel_id,
+                thread_id=operation.thread_id,
+                category_id=trace.source_category_id,
+            )
+            is None
+        ):
+            raise ValueError("draft_deployment_scope_revoked")
+        scope = RoomScope(
+            owner_id=deployment.owner_id,
+            connection_id=operation.connection_id,
+            guild_id=operation.guild_id,
+            channel_id=operation.channel_id,
+            thread_id=operation.thread_id,
+        )
+        rooms = RoomRepository(self.database)
+        focus = rooms.focus(scope, trace.source_target_message_id)
+        for mid in trace.source_revisions:
+            source = rooms.get(scope, mid)
+            if source is not None and (
+                source.message.deleted or not source.message.content_available
+            ):
+                raise ValueError("draft_source_removed")
+        if assess_draft(trace, focus, writable=True).action != "keep":
+            raise ValueError("draft_preflight_required")
+
     def acknowledge_delivery(
         self,
         *,
@@ -508,7 +612,11 @@ class DurableRuntimeRepository:
     ) -> RuntimeOperationRecord:
         now = datetime.now(UTC)
         with self.database.session() as session:
-            step = session.get(RuntimeStepRecord, step_id)
+            step = session.scalar(
+                select(RuntimeStepRecord)
+                .where(RuntimeStepRecord.step_id == step_id)
+                .with_for_update()
+            )
             operation = session.get(RuntimeOperationRecord, operation_id)
             if step is None or operation is None or step.operation_id != operation_id:
                 raise KeyError("Durable delivery operation was not found.")
@@ -517,18 +625,91 @@ class DurableRuntimeRepository:
             if step.status != "delivery_claimed" or step.delivery_claim_nonce != claim_nonce:
                 raise ValueError("Durable delivery acknowledgement does not own the active claim.")
 
-            step.status = "delivered"
+            if step.deployment_id != deployment_id or self._object(cursor_json) != self._object(
+                step.cursor_json
+            ):
+                raise ValueError(
+                    "Delivery acknowledgement cannot replace the persisted generation cursor."
+                )
+            visible = bool(sent_message_ids or applied)
+            if not visible:
+                # Proposed next turns are not evidence: nothing was published. Retain only
+                # independently selected direct requests, with the actual previous receipts.
+                previous = self._object(operation.cursor_json)
+                projected = self._object(cursor_json)
+                projected["completed_deployment_ids"] = previous.get("completed_deployment_ids", [])
+                pending = projected.get("pending_turns", [])
+                projected["pending_turns"] = (
+                    [
+                        item
+                        for item in pending
+                        if isinstance(item, dict) and item.get("origin") == "selected"
+                    ]
+                    if isinstance(pending, list)
+                    else []
+                )
+                cursor_json = self._json(projected)
+                step.cursor_json = cursor_json
+            elif not sent_message_ids:
+                # A successful reaction consumes a visible turn but cannot be a source
+                # message for a subsequent bot reply.
+                projected = self._object(cursor_json)
+                pending = projected.get("pending_turns", [])
+                projected["pending_turns"] = (
+                    [
+                        item
+                        for item in pending
+                        if isinstance(item, dict)
+                        and item.get("source_deployment_id") != deployment_id
+                    ]
+                    if isinstance(pending, list)
+                    else []
+                )
+                cursor_json = self._json(projected)
+                step.cursor_json = cursor_json
+            self._record_room_delivery(session, operation, step, sent_message_ids, complete=True)
+            if applied:
+                response = self._object(step.response_json)
+                reply = response.get("reply", response)
+                smart_output = reply.get("smart_output") if isinstance(reply, dict) else None
+                resource = (
+                    smart_output.get("expression_resource")
+                    if isinstance(smart_output, dict)
+                    else None
+                )
+                key = resource.get("resource_key") if isinstance(resource, dict) else None
+                if isinstance(key, str) and 0 < len(key) <= 240:
+                    scope = RoomScope(
+                        owner_id=operation.owner_id,
+                        connection_id=operation.connection_id,
+                        guild_id=operation.guild_id,
+                        channel_id=operation.channel_id,
+                        thread_id=operation.thread_id,
+                    )
+                    session.add(
+                        ExpressionUsageRecord(
+                            step_id=step.step_id,
+                            owner_id=operation.owner_id,
+                            scope_id=scope_key(scope),
+                            deployment_id=deployment_id,
+                            resource_key=key,
+                        )
+                    )
+
+            step.status = "delivered" if visible else "silent"
+            step.last_error = "" if visible else "not_delivered"
             step.sent_message_ids_json = self._json(sent_message_ids)
             step.outgoing_text = outgoing_text
             step.applied = applied
             step.delivered_at = now
             step.updated_at = now
-            self._record_source(
-                operation,
-                deployment_id=deployment_id,
-                text=outgoing_text,
-                sent_message_ids=sent_message_ids,
-            )
+            if sent_message_ids:
+                self._record_source(
+                    operation,
+                    deployment_id=deployment_id,
+                    text=outgoing_text,
+                    sent_message_ids=sent_message_ids,
+                )
             self._advance_operation(session, operation, cursor_json=cursor_json, now=now)
             step.response_json = "{}"
             self._scrub_side_effect_payloads(session, step_id)
@@ -560,7 +741,8 @@ class DurableRuntimeRepository:
             if step is None or operation is None:
                 return
             if operation.status == "completed" or step.status not in {
-                "delivery_claimed", "uncertain"
+                "delivery_claimed",
+                "uncertain",
             }:
                 return
             if not claim_nonce or step.delivery_claim_nonce != claim_nonce:
@@ -569,8 +751,12 @@ class DurableRuntimeRepository:
             # Repeated uncertainty reports cannot erase receipts or create source dialogue.
             previous = self._list(step.sent_message_ids_json)
             receipts = dict.fromkeys(
-                item for item in [*previous, *(sent_message_ids or [])]
+                item
+                for item in [*previous, *(sent_message_ids or [])]
                 if isinstance(item, str) and 0 < len(item) <= 200
+            )
+            self._record_room_delivery(
+                session, operation, step, list(receipts)[:20], complete=False
             )
             step.sent_message_ids_json = self._json(list(receipts)[:20])
             step.status = "uncertain"
@@ -581,6 +767,67 @@ class DurableRuntimeRepository:
             step.updated_at = now
             operation.updated_at = now
             session.commit()
+
+    def _record_room_delivery(
+        self,
+        session: Session,
+        operation: RuntimeOperationRecord,
+        step: RuntimeStepRecord,
+        message_ids: list[str],
+        *,
+        complete: bool,
+    ) -> None:
+        """Persist source links atomically with receipts, before generated text is scrubbed.
+
+        The target comes only from the persisted runtime context trace. Neither the
+        model output nor Connector acknowledgement may choose a different target.
+        Confirmed partial chunks are evidence, not completed dialogue/continuation.
+        """
+        response = self._object(step.response_json)
+        reply = response.get("reply")
+        if not isinstance(reply, dict):
+            reply = response
+        trace = reply.get("context_trace")
+        if not isinstance(trace, dict):
+            return  # A historical receipt without source evidence stays unlinked.
+        target = trace.get("source_target_message_id")
+        if not isinstance(target, str) or not 0 < len(target) <= 200:
+            return
+        scope = RoomScope(
+            owner_id=operation.owner_id,
+            connection_id=operation.connection_id,
+            guild_id=operation.guild_id,
+            channel_id=operation.channel_id,
+            thread_id=operation.thread_id,
+        )
+        if len(message_ids) > 20 or any(
+            not isinstance(mid, str) or not 0 < len(mid) <= 200 for mid in message_ids
+        ):
+            raise ValueError("invalid_delivery_receipt")
+        for message_id in dict.fromkeys(message_ids):
+            key = delivery_key(scope, message_id)
+            existing = session.get(RoomDeliverySourceRecord, key)
+            if existing is not None:
+                if existing.step_id != step.step_id or existing.target_message_id != target:
+                    raise ValueError("delivery_receipt_conflict")
+                existing.complete = existing.complete or complete
+                continue
+            session.add(
+                RoomDeliverySourceRecord(
+                    id=key,
+                    owner_id=operation.owner_id,
+                    connection_id=operation.connection_id,
+                    guild_id=operation.guild_id,
+                    channel_id=operation.channel_id,
+                    thread_id=operation.thread_id,
+                    message_id=message_id,
+                    target_message_id=target,
+                    deployment_id=step.deployment_id,
+                    operation_id=operation.operation_id,
+                    step_id=step.step_id,
+                    complete=complete,
+                )
+            )
 
     def _advance_operation(
         self,
@@ -706,6 +953,22 @@ class DurableRuntimeRepository:
                     step.status = "failed"
                     step.last_error = "process_restarted_during_generation"
                 step.updated_at = now
+                recovered["generation"] += 1
+
+            # A refresh has no tools, but its unpublished text may have become stale.
+            # Do not restore it as sendable, and do not rerun the original tool loop.
+            for step in session.scalars(
+                select(RuntimeStepRecord).where(RuntimeStepRecord.status == "refreshing")
+            ):
+                step.status = "failed"
+                step.response_json = "{}"
+                step.last_error = "process_restarted_during_draft_preflight"
+                step.updated_at = now
+                operation = session.get(RuntimeOperationRecord, step.operation_id)
+                if operation is not None and operation.status != "completed":
+                    operation.status = "failed"
+                    operation.last_error = step.last_error
+                    operation.updated_at = now
                 recovered["generation"] += 1
 
             claimed_deliveries = list(

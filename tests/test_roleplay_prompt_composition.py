@@ -78,7 +78,7 @@ def test_roleplay_prompt_suppresses_duplicate_live_context_and_trigger() -> None
     assert "LIVE CONTEXT" not in result.text
     assert "BELIEFS\nKeep the useful V3 evidence." in result.text
     assert result.text.count("Private trigger text.") == 1
-    assert "Latest triggering message: trigger (already included" in result.text
+    assert "Primary reply target: trigger (explicitly marked" in result.text
     assert "A very long private description" not in result.text
     assert "intent: friendly_greeting" in result.text
     assert "source: manual" not in result.text
@@ -88,9 +88,7 @@ def test_roleplay_prompt_suppresses_duplicate_live_context_and_trigger() -> None
     assert manifest["trigger_already_in_recent"] is True
     assert manifest["live_context_suppressed"] is True
     assert manifest["duplicate_suppressed_count"] == 2
-    assert manifest["expression_candidate_count"] == 1
-    assert manifest["expression_intent_count"] == 1
-    assert manifest["expression_description_fallback_count"] == 0
+    assert manifest["expression_resolution_mode"] == "intent_then_sparse"
     serialized = json.dumps(manifest)
     assert "Private trigger text" not in serialized
     assert "A very long private description" not in serialized
@@ -193,7 +191,7 @@ def test_roleplay_prompt_excludes_an_unselected_smart_trigger() -> None:
     assert result.manifest["recent_message_count"] == 1
 
 
-def test_roleplay_prompt_falls_back_to_the_trigger_for_explicit_addressing() -> None:
+def test_roleplay_prompt_never_retargets_a_selected_source_for_explicit_addressing() -> None:
     payload = _payload(include_trigger=True).model_copy(
         update={
             "recent_messages": [
@@ -219,8 +217,8 @@ def test_roleplay_prompt_falls_back_to_the_trigger_for_explicit_addressing() -> 
         focused_message_ids=("segment-message",),
     )
 
-    assert "Recent conversation:" in result.text
+    assert "Focused conversation:" in result.text
     assert "Selected discussion." in result.text
-    assert "Private trigger text." in result.text
-    assert result.manifest["focused_segment_applied"] is False
-    assert result.manifest["focused_trigger_excluded"] is False
+    assert "Private trigger text." not in result.text
+    assert result.manifest["focused_segment_applied"] is True
+    assert result.manifest["focused_trigger_excluded"] is True

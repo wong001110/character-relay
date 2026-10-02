@@ -1,10 +1,10 @@
 import { ChannelType } from "discord.js";
-import { describe, expect, it, vi } from "vitest";
+import { describe,expect,it,vi } from "vitest";
 
 import {
-  collectDiscordServerCatalog,
-  refreshCatalogThenDeployments,
-  type DiscordCatalogGuild
+collectDiscordServerCatalog,
+refreshCatalogThenDeployments,
+type DiscordCatalogGuild
 } from "./serverCatalog.js";
 
 function guild(

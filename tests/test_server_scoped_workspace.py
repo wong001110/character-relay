@@ -150,45 +150,9 @@ def seed_server(
     return connection, profile, deployments
 
 
-def test_server_scoped_templates_apply_and_deployments_filter(tmp_path: Path) -> None:
+def test_server_scoped_deployments_filter_without_interaction_templates(tmp_path: Path) -> None:
     client = TestClient(create_app(settings(tmp_path / "server-workspace.db")))
-    connection, profile, deployments = seed_server(client)
-    template = client.post(
-        "/api/interaction-templates",
-        json={
-            "server_profile_id": profile["id"],
-            "name": "Ann and Ning roast",
-            "participant_character_card_ids": [
-                deployments[0]["character_card_id"],
-                deployments[1]["character_card_id"],
-            ],
-            "rounds_per_trigger": 2,
-            "maximum_triggers": 3,
-            "cooldown_seconds": 30,
-            "duration_seconds": 600,
-            "intensity": "playful",
-        },
-    )
-    assert template.status_code == 201, template.text
-    assert template.json()["maximum_replies_per_trigger"] == 4
-
-    applied = client.post(
-        f"/api/interaction-templates/{template.json()['id']}/apply",
-        json={
-            "channel_id": "channel-1",
-            "target_user_id": "user-1",
-            "target_display_name": "Target",
-            "status": "active",
-        },
-    )
-    assert applied.status_code == 201, applied.text
-    assert applied.json()["participant_deployment_ids"] == [
-        deployments[0]["id"],
-        deployments[1]["id"],
-    ]
-    assert applied.json()["guild_id"] == "guild-1"
-    assert applied.json()["channel_name"] == "general"
-
+    _connection, profile, _deployments = seed_server(client)
     filtered = client.get(
         "/api/deployments/page",
         params={"server_profile_id": profile["id"], "page": 1, "page_size": 20},
@@ -197,19 +161,12 @@ def test_server_scoped_templates_apply_and_deployments_filter(tmp_path: Path) ->
     assert filtered.json()["total"] == 2
     assert filtered.json()["active"] == 2
 
-    sessions = client.get(
-        "/api/interaction-sessions",
-        params={"connection_id": connection["id"], "guild_id": "guild-1"},
-    )
-    assert sessions.status_code == 200
-    assert len(sessions.json()) == 1
-
 
 def test_guild_sticker_catalog_populates_dictionary_without_message(tmp_path: Path) -> None:
     client = TestClient(create_app(settings(tmp_path / "sticker-catalog.db")))
     connection, _, _ = seed_server(client)
     stickers = client.get(
-        "/api/discord/sticker-dictionary",
+        "/api/discord/expression-dictionary",
         params={"connection_id": connection["id"], "guild_id": "guild-1"},
     )
     assert stickers.status_code == 200, stickers.text
@@ -218,47 +175,18 @@ def test_guild_sticker_catalog_populates_dictionary_without_message(tmp_path: Pa
     assert stickers.json()[0]["semantic_source"] == "discord_metadata"
 
 
-def test_server_profile_deletion_cleans_templates_and_sessions(tmp_path: Path) -> None:
+def test_server_profile_deletion_cleans_exact_expression_scope(tmp_path: Path) -> None:
     client = TestClient(create_app(settings(tmp_path / "server-cleanup.db")))
     _, profile, deployments = seed_server(client)
-    template = client.post(
-        "/api/interaction-templates",
-        json={
-            "server_profile_id": profile["id"],
-            "name": "Disposable template",
-            "participant_character_card_ids": [
-                deployments[0]["character_card_id"],
-                deployments[1]["character_card_id"],
-            ],
-            "rounds_per_trigger": 1,
-            "maximum_triggers": 1,
-            "cooldown_seconds": 0,
-            "duration_seconds": 600,
-            "intensity": "light",
-        },
-    )
-    assert template.status_code == 201, template.text
-    applied = client.post(
-        f"/api/interaction-templates/{template.json()['id']}/apply",
-        json={
-            "channel_id": "channel-1",
-            "target_user_id": "user-1",
-            "target_display_name": "Target",
-            "status": "paused",
-        },
-    )
-    assert applied.status_code == 201, applied.text
     for deployment in deployments:
         deleted = client.delete(f"/api/deployments/{deployment['id']}")
         assert deleted.status_code == 204, deleted.text
     deleted_profile = client.delete(f"/api/discord/server-profiles/{profile['id']}")
     assert deleted_profile.status_code == 204, deleted_profile.text
-    templates = client.get(
-        "/api/interaction-templates",
-        params={"server_profile_id": profile["id"]},
+    assert (
+        client.get(
+            "/api/discord/expression-dictionary",
+            params={"connection_id": profile["connection_id"], "guild_id": "guild-1"},
+        ).json()
+        == []
     )
-    assert templates.status_code == 200
-    assert templates.json() == []
-    sessions = client.get("/api/interaction-sessions")
-    assert sessions.status_code == 200
-    assert sessions.json() == []

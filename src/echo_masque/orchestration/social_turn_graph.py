@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, TypedDict, cast
 from uuid import uuid4
@@ -122,7 +123,7 @@ def _initialize_cursor(request: DiscordSocialTurnStepRequest) -> DiscordSocialTu
     return DiscordSocialTurnCursor(
         pending_turns=pending,
         completed_deployment_ids=[],
-        continuation_budget_remaining=request.continuation_budget,
+        continuation_budget_remaining=min(request.continuation_budget, 5),
         max_depth=request.max_depth,
         step_index=0,
     )
@@ -155,8 +156,14 @@ def _admit_participant(
         raise ValueError("The supplied Character payload does not match the Social Turn cursor.")
     if payload.connection_id == "":
         raise ValueError("Social Turn payload requires a connector connection.")
-    if current.deployment_id in cursor.completed_deployment_ids:
-        raise ValueError("A completed Character cannot re-enter the same Social Turn.")
+    counts = Counter(cursor.completed_deployment_ids)
+    if (
+        cursor.attempts_used >= 12
+        or len(cursor.completed_deployment_ids) >= 6
+        or counts[current.deployment_id] >= 2
+        or (current.deployment_id not in counts and len(counts) >= 3)
+    ):
+        raise ValueError("The interaction's attempt or speaking budget is exhausted.")
     update: SocialTurnGraphState = {
         "status": "running",
         "participation_status": "completed",
@@ -262,9 +269,19 @@ def _expand_and_advance(
         raise RuntimeError("Social Turn graph lost its continuation context.")
 
     rest = list(cursor.pending_turns[1:])
-    completed = list(dict.fromkeys([*cursor.completed_deployment_ids, current.deployment_id]))
-    known = set(completed)
-    known.update(item.deployment_id for item in rest)
+    smart = result.reply.smart_output
+    visible = result.reply.action != "silent" and (
+        smart.action != "ignore"
+        if smart is not None
+        else bool(result.reply.text or result.reply.expression.action != "none")
+    )
+    completed = [*cursor.completed_deployment_ids]
+    if visible:
+        completed.append(current.deployment_id)
+    counts = Counter(completed)
+    known = {item.deployment_id for item in rest}
+    distinct = set(completed) | known
+    cursor.attempts_used += 1
     available = set(_unique_ids(context.request.available_deployment_ids))
     next_depth = current.depth + 1
     inserted: list[DiscordSocialPendingTurn] = []
@@ -279,11 +296,18 @@ def _expand_and_advance(
         if not (invite_allowed and candidate == invite):
             proposals.append((candidate, "mention"))
 
-    if next_depth <= cursor.max_depth:
+    if visible and next_depth <= cursor.max_depth and cursor.attempts_used < 12:
         for candidate, origin in proposals:
             if cursor.continuation_budget_remaining <= 0:
                 break
-            if candidate not in available or candidate in known:
+            if (
+                candidate not in available
+                or candidate in known
+                or candidate == current.deployment_id
+                or counts[candidate] >= 2
+                or (candidate not in distinct and len(distinct) >= 3)
+                or len(completed) + len(rest) + len(inserted) >= 6
+            ):
                 continue
             inserted.append(
                 _candidate_turn(
@@ -295,9 +319,13 @@ def _expand_and_advance(
             )
             continuation_ids.append(candidate)
             known.add(candidate)
+            distinct.add(candidate)
             cursor.continuation_budget_remaining -= 1
 
-    cursor.pending_turns = [*inserted, *rest]
+    # Explicit pending human requests retain priority over optional bot invitations.
+    cursor.pending_turns = [*rest, *inserted]
+    if len(completed) >= 6 or cursor.attempts_used >= 12:
+        cursor.pending_turns = []
     cursor.completed_deployment_ids = completed
     cursor.step_index += 1
     context.next_turn = cursor.pending_turns[0] if cursor.pending_turns else None
@@ -400,9 +428,7 @@ class SocialTurnGraphRunner:
             next_turn=context.next_turn,
             done=result.get("done", False),
             stop_reason=result.get("stop_reason", ""),
-            invite_candidate_deployment_id=(
-                character_result.invite_candidate_deployment_id
-            ),
+            invite_candidate_deployment_id=(character_result.invite_candidate_deployment_id),
             mentioned_character_deployment_ids=list(
                 character_result.mentioned_character_deployment_ids
             ),

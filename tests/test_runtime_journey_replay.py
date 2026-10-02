@@ -1,5 +1,6 @@
 """Synthetic API-to-delivery replay harness for representative Discord Runtime turns."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -36,6 +37,31 @@ def test_normal_discord_journey_uses_context_and_durable_delivery_claims(tmp_pat
     assert reply["action"] == "reply"
     assert reply["delivery_required"] is True
     assert reply["operation_id"] and reply["step_id"]
+    preflight = client.post(
+        "/api/connectors/discord/rooms/drafts/preflight",
+        headers=connector_headers(),
+        json={
+            "connection_id": connection["id"],
+            "guild_id": first["guild_id"],
+            "channel_id": first["channel_id"],
+            "thread_id": first["thread_id"],
+            "operation_id": reply["operation_id"],
+            "step_id": reply["step_id"],
+            "readable": True,
+            "writable": True,
+            "permission_checked_at": datetime.now(UTC).isoformat(),
+            "messages": [
+                {
+                    "message_id": first["message_id"],
+                    "channel_id": first["channel_id"],
+                    "author_id": first["author_id"],
+                    "text": first["text"],
+                }
+            ],
+        },
+    )
+    assert preflight.status_code == 200, preflight.text
+    assert preflight.json()["disposition"] == "keep"
     claim = client.post(
         "/api/connectors/discord/messages/delivery/claim",
         headers=connector_headers(),

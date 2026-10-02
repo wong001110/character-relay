@@ -385,6 +385,8 @@ def install_api_fixtures(
                     "previous_belief_ids": [BELIEF_ID],
                 },
             )
+        elif path in {"/api/web-chat/rooms", "/api/web-chat/profiles"}:
+            fulfill(route, [])
         else:
             unmatched_requests.append(f"{method} {path}")
             fulfill(route, {"detail": f"No local fixture for {method} {path}"}, status=404)
@@ -454,53 +456,12 @@ def run(base_url: str) -> None:
         ).click()
         connection_drawer.wait_for(state="hidden")
 
-        page.get_by_role("button", name="Intelligence", exact=True).click()
-        page.get_by_role("button", name="Conversation", exact=True).click()
-        page.get_by_role("button", name="Entities", exact=False).click()
-        page.get_by_role("button", name="Review candidates", exact=True).click()
-        page.get_by_text("Verified candidate", exact=True).wait_for()
-        page.get_by_role("button", name="Accept with evidence", exact=True).click()
-        page.get_by_text("No candidates are awaiting review.", exact=True).wait_for()
-        require_write(
-            writes,
-            f"/api/deployments/{DEPLOYMENT_ID}/knowledge-gaps/{GAP_ID}/candidates/"
-            f"{CANDIDATE_ID}/review",
-            {
-                "action": "accept",
-                "validated_evidence_ref": "discovery_item:item-1",
-                "resolved_fields": ["birthplace"],
-                "confidence": 0.7,
-            },
-        )
-
-        candidate_drawer = page.get_by_role(
-            "dialog", name="Review Knowledge Gap candidates", exact=True
-        )
-        candidate_drawer.get_by_role(
-            "button", name="Review Knowledge Gap candidates", exact=True
-        ).click()
-        candidate_drawer.wait_for(state="hidden")
-        page.get_by_role("button", name="Beliefs", exact=False).click()
-        page.get_by_role("button", name="Manage belief", exact=True).click()
-        belief_drawer = page.get_by_role("dialog", name="Manage belief", exact=True)
-        belief_drawer.get_by_text("lives_in", exact=True).wait_for()
-        correction_form = belief_drawer.get_by_role("form", name="Correct belief", exact=True)
-        correction_form.get_by_role("textbox", name="New value", exact=True).fill("Corrected place")
-        correction_form.get_by_role("textbox", name="Reason", exact=True).fill(
-            "Confirmed in the source"
-        )
-        correction_form.get_by_role("button", name="Save correction", exact=True).click()
-        belief_drawer.get_by_text("Corrected place", exact=True).wait_for()
-        require_write(
-            writes,
-            f"/api/deployments/{DEPLOYMENT_ID}/beliefs/{BELIEF_ID}/correct",
-            {
-                "value_text": "Corrected place",
-                "domain": "general",
-                "reason": "Confirmed in the source",
-                "confidence": 0.8,
-            },
-        )
+        page.get_by_role("button", name="Rooms", exact=True).click()
+        page.get_by_role("heading", name="Rooms", exact=True).wait_for()
+        page.get_by_role("heading", name="Choose a room", exact=True).wait_for()
+        page.get_by_text(
+            "Discord and website participants, in the same conversation.", exact=True
+        ).wait_for()
 
         diagnostics = {
             "unmocked_api_requests": unmatched_requests,

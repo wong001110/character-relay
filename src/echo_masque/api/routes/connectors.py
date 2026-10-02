@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hmac
 import json
-from contextlib import suppress
+from contextlib import AbstractContextManager, suppress
 from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
@@ -17,10 +17,6 @@ from echo_masque.api.connector_schemas import (
     DiscordConnectorReplyView,
     DiscordIdentityMode,
     DiscordInboundMessage,
-    DiscordInteractionClaimRequest,
-    DiscordInteractionClaimView,
-    DiscordInteractionRunComplete,
-    DiscordInteractionSessionConnectorView,
     DiscordMessageRouteLookup,
     DiscordMessageRouteRegistration,
     DiscordMessageRouteView,
@@ -34,12 +30,8 @@ from echo_masque.api.connector_schemas import (
     DiscordWebhookStatusReport,
 )
 from echo_masque.api.expression_schemas import (
-    ExpressionCandidate,
     ExpressionContent,
-    ExpressionNodeReport,
     ExpressionResolveRequest,
-    ExpressionRetrievalView,
-    ExpressionRetrieveRequest,
 )
 from echo_masque.api.runtime_durability_schemas import (
     DiscordCharacterDeliveryAckRequest,
@@ -65,6 +57,7 @@ from echo_masque.discord_debug_capture import (
     DiscordDebugCaptureRecord,
     DiscordDebugCaptureStore,
 )
+from echo_masque.model_attempt_budget import ModelAttemptBudget
 from echo_masque.orchestration import (
     CharacterTurnGraphRunner,
     SocialTurnGraphRunner,
@@ -74,13 +67,15 @@ from echo_masque.persistence import (
     DiscordIdentityRepository,
     DurableRuntimeRepository,
     ExpressionRepository,
-    InteractionRepository,
     Repository,
 )
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
 from echo_masque.persistence.deployment_repository import decode_ids
 from echo_masque.persistence.expression_models import DiscordExpressionSemanticRecord
 from echo_masque.persistence.expression_repository import expression_key
+from echo_masque.room_context import bind_requester
+from echo_masque.room_routing import RoomScope
+from echo_masque.room_sources import SourceUnavailable
 
 router = APIRouter(prefix="/api/connectors/discord", tags=["connectors"])
 _WEBHOOK_SCOPE = "discord_webhook"
@@ -109,16 +104,28 @@ def _authorize_connector(
         )
 
 
+def _model_budget(
+    request: Request, payload: DiscordInboundMessage, operation_id: str
+) -> AbstractContextManager[None]:
+    return ModelAttemptBudget(request.app.state.database).scope(
+        RoomScope(
+            owner_id="runtime",
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+        ),
+        requester_id=payload.runtime_requester_id or payload.author_id,
+        operation_id=operation_id,
+    )
+
+
 def deployment_repository(request: Request) -> DeploymentRepository:
     return cast(DeploymentRepository, request.app.state.deployment_repository)
 
 
 def identity_repository(request: Request) -> DiscordIdentityRepository:
     return cast(DiscordIdentityRepository, request.app.state.discord_identity_repository)
-
-
-def interaction_repository(request: Request) -> InteractionRepository:
-    return cast(InteractionRepository, request.app.state.interaction_repository)
 
 
 def expression_repository(request: Request) -> ExpressionRepository:
@@ -338,7 +345,7 @@ def list_connector_deployments(
                 webhook_status=webhook_status,
                 webhook_id=binding.webhook_id if binding is not None else None,
                 webhook_token=webhook_token,
-                orchestration_mode=cast(Settings, request.app.state.settings).langgraph_mode,
+                orchestration_mode="social_turn",
             )
         )
     return views
@@ -372,16 +379,8 @@ def sync_server_catalog(
                 else None
             )
             emojis = (
-                [item.model_dump() for item in server.emojis]
-                if server.emojis is not None
-                else None
+                [item.model_dump() for item in server.emojis] if server.emojis is not None else None
             )
-            if stickers is not None:
-                interaction_repository(request).sync_sticker_catalog(
-                    connection_id=payload.connection_id,
-                    guild_id=server.guild_id,
-                    stickers=stickers,
-                )
             if emojis is not None or stickers is not None:
                 expression_repository(request).sync_server_resources(
                     connection_id=payload.connection_id,
@@ -591,14 +590,26 @@ def resolve_discord_sticker(
 ) -> DiscordStickerContent:
     _authorize_connector(request, authorization)
     try:
-        record = interaction_repository(request).resolve_sticker(**payload.model_dump())
+        record = expression_repository(request).resolve_resource(
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            resource_type="sticker",
+            resource_id=payload.sticker_id,
+            name=payload.name,
+            asset_url=payload.asset_url,
+            animated=payload.format_type in {"apng", "gif"},
+            available=True,
+            description=payload.description,
+            tags=payload.tags,
+            format_type=payload.format_type,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Discord connection not found.") from exc
     return DiscordStickerContent(
-        sticker_id=record.sticker_id,
+        sticker_id=record.resource_id,
         name=record.name,
         description=record.description,
-        tags=interaction_repository(request).sticker_tags(record),
+        tags=expression_repository(request).tags(record),
         format_type=record.format_type,
         asset_url=record.asset_url,
         semantic_intent=record.semantic_intent,
@@ -648,88 +659,6 @@ def resolve_discord_expression(
     return expression_content(request, record)
 
 
-@router.post("/expressions/retrieve", response_model=ExpressionRetrievalView)
-def retrieve_discord_expressions(
-    payload: ExpressionRetrieveRequest,
-    request: Request,
-    authorization: Annotated[str | None, Header()] = None,
-) -> ExpressionRetrievalView:
-    _authorize_connector(request, authorization)
-    try:
-        run, candidates = expression_repository(request).retrieve(**payload.model_dump())
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Expression workflow scope not found.") from exc
-    return ExpressionRetrievalView(
-        run_id=run.id,
-        attempt=run.attempt_count,
-        candidates=[ExpressionCandidate.model_validate(item) for item in candidates],
-    )
-
-
-@router.post(
-    "/expressions/runs/{run_id}/nodes",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def record_expression_node(
-    run_id: str,
-    payload: ExpressionNodeReport,
-    request: Request,
-    authorization: Annotated[str | None, Header()] = None,
-) -> None:
-    _authorize_connector(request, authorization)
-    try:
-        expression_repository(request).record_node(run_id=run_id, **payload.model_dump())
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Expression run not found.") from exc
-
-
-@router.post("/interaction-sessions/claim", response_model=DiscordInteractionClaimView)
-def claim_interaction_session(
-    payload: DiscordInteractionClaimRequest,
-    request: Request,
-    authorization: Annotated[str | None, Header()] = None,
-) -> DiscordInteractionClaimView:
-    _authorize_connector(request, authorization)
-    interaction, run, claimed = interaction_repository(request).claim_session(
-        **payload.model_dump()
-    )
-    if interaction is None or run is None:
-        return DiscordInteractionClaimView()
-    return DiscordInteractionClaimView(
-        claimed=claimed,
-        run_id=run.id,
-        session=DiscordInteractionSessionConnectorView(
-            id=interaction.id,
-            participant_deployment_ids=interaction_repository(request).participant_ids(interaction),
-            rounds_per_trigger=interaction.rounds_per_trigger,
-            intensity=cast(
-                Literal["light", "playful", "sharp"],
-                interaction.intensity,
-            ),
-            target_user_id=interaction.target_user_id,
-            target_display_name=interaction.target_display_name,
-        ),
-    )
-
-
-@router.post(
-    "/interaction-sessions/runs/{run_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def complete_interaction_run(
-    run_id: str,
-    payload: DiscordInteractionRunComplete,
-    request: Request,
-    authorization: Annotated[str | None, Header()] = None,
-) -> None:
-    _authorize_connector(request, authorization)
-    if not interaction_repository(request).complete_run(
-        run_id=run_id,
-        **payload.model_dump(),
-    ):
-        raise HTTPException(status_code=404, detail="Interaction run not found.")
-
-
 @router.post(
     "/social-turns/operations/claim",
     response_model=DiscordSocialOperationView,
@@ -745,6 +674,28 @@ def claim_social_turn_operation(
         platform="discord",
         connection_id=payload.connection_id,
     )
+    records = [
+        record
+        for record in records
+        if deployments.deployment_matches_discord_destination(
+            record.id,
+            connection_id=payload.connection_id,
+            guild_id=payload.guild_id,
+            channel_id=payload.channel_id,
+            thread_id=payload.thread_id,
+            category_id="",
+        )
+        is not None
+    ]
+    allowed = {record.id for record in records}
+    if (
+        len(set(payload.initial_deployment_ids)) > 3
+        or not set(payload.initial_deployment_ids) <= allowed
+        or not set(payload.available_deployment_ids) <= allowed
+    ):
+        raise HTTPException(
+            status_code=409, detail="room_participants_unavailable_or_over_capacity"
+        )
     first = next(
         (item for item in records if item.id == payload.initial_deployment_ids[0]),
         None,
@@ -934,6 +885,7 @@ def acknowledge_character_turn_delivery(
             step_id=payload.step_id,
             claim_nonce=payload.claim_nonce,
             sent_message_ids=payload.sent_message_ids,
+            applied=payload.applied,
         )
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -977,34 +929,24 @@ async def process_social_turn_step(
             detail="Social Turn LangGraph orchestration is not enabled.",
         )
     if not payload.operation_id:
-        capture = _capture_discord_ingress(request, payload.payload)
-        try:
-            view = await runner(payload)
-            _mark_discord_capture_outcome(request, capture, "succeeded")
-            return view
-        except ConnectorRuntimeError as exc:
-            _mark_discord_capture_outcome(request, capture, "conflict")
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except ValueError as exc:
-            _mark_discord_capture_outcome(request, capture, "conflict")
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except Exception:
-            _mark_discord_capture_outcome(request, capture, "provider_error")
-            raise
+        raise HTTPException(
+            status_code=409, detail="A durable room operation must be claimed first."
+        )
 
     repository = durable_runtime_repository(request)
     operation = repository.get_operation(payload.operation_id)
-    if operation is None or operation.connection_id != payload.payload.connection_id:
-        raise HTTPException(
-            status_code=409, detail="Durable Social Turn operation was not claimed."
-        )
-    if operation.status == "completed":
-        raise HTTPException(status_code=409, detail="Durable Social Turn operation is completed.")
-    if operation.status == "uncertain":
-        raise HTTPException(
-            status_code=409,
-            detail="Durable Social Turn operation requires delivery reconciliation.",
-        )
+    if operation is None or (
+        operation.connection_id,
+        operation.guild_id,
+        operation.channel_id,
+        operation.thread_id,
+    ) != (
+        payload.payload.connection_id,
+        payload.payload.guild_id,
+        payload.payload.channel_id,
+        payload.payload.thread_id,
+    ):
+        raise HTTPException(status_code=409, detail="Durable room operation scope mismatch.")
 
     checkpoint = DiscordSocialTurnCursor.model_validate_json(operation.cursor_json)
     if not checkpoint.pending_turns:
@@ -1044,6 +986,8 @@ async def process_social_turn_step(
     run_request = payload.model_copy(
         update={
             "cursor": checkpoint,
+            "initial_deployment_ids": json.loads(operation.initial_deployment_ids_json),
+            "available_deployment_ids": json.loads(operation.available_deployment_ids_json),
             "runtime_step_id": step.step_id,
         }
     )
@@ -1054,12 +998,11 @@ async def process_social_turn_step(
         runtime_step_id=step.step_id,
     )
     try:
-        view = await runner(run_request)
+        with _model_budget(request, run_request.payload, operation.operation_id):
+            view = await runner(run_request)
     except Exception as exc:
         capture_outcome: DiscordDebugCaptureOutcome = (
-            "conflict"
-            if isinstance(exc, (ConnectorRuntimeError, ValueError))
-            else "provider_error"
+            "conflict" if isinstance(exc, (ConnectorRuntimeError, ValueError)) else "provider_error"
         )
         _mark_discord_capture_outcome(
             request,
@@ -1110,6 +1053,10 @@ async def process_discord_message(
             reason="no_active_deployment",
             deployment_id=payload.deployment_id,
         )
+    try:
+        payload = bind_requester(payload, deployment, request.app.state.room_repository)
+    except SourceUnavailable as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     repository = durable_runtime_repository(request)
     try:
         operation = repository.claim_character_operation(
@@ -1118,7 +1065,7 @@ async def process_discord_message(
             guild_id=payload.guild_id,
             channel_id=payload.channel_id,
             thread_id=payload.thread_id,
-            source_message_id=payload.message_id,
+            source_message_id=payload.runtime_request_id,
             deployment_id=deployment.id,
         )
         if operation.status == "completed":
@@ -1169,29 +1116,17 @@ async def process_discord_message(
         runtime_operation_id=operation.operation_id,
         runtime_step_id=step.step_id,
     )
-    # This projection is independent of whether the current Character is admitted to reply.
-    # A known explicit reply is interaction evidence; admission and semantic interpretation are not.
-    try:
-        from echo_masque.social_event_runtime import ExplicitReplySocialEventProjector
-
-        ExplicitReplySocialEventProjector(request.app.state.database).observe(payload)
-    except Exception:
-        # Social observation must not turn a valid Character turn into an unavailable reply.
-        pass
     try:
         runner = character_turn_graph_runner(request)
-        if runner is not None:
-            view = await runner(runtime_payload)
-        else:
-            view = await connector_runtime(request).respond(runtime_payload)
+        with _model_budget(request, runtime_payload, operation.operation_id):
+            if runner is not None:
+                view = await runner(runtime_payload)
+            else:
+                view = await connector_runtime(request).respond(runtime_payload)
         delivery_required = not (
             view.action == "silent"
             or (view.smart_output is not None and view.smart_output.action == "ignore")
-            or (
-                view.smart_output is None
-                and not view.text
-                and view.expression.action == "none"
-            )
+            or (view.smart_output is None and not view.text and view.expression.action == "none")
         )
         durable_view = view.model_copy(
             update={

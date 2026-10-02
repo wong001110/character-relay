@@ -543,21 +543,28 @@ def test_uncertain_delivery_preserves_partial_receipts_without_advancing(tmp_pat
     database, runtime = repository(tmp_path / "partial-receipts.db")
     operation = claim_operation(runtime)
     _, step = runtime.prepare_social_step(
-        operation_id=operation.operation_id, step_index=0,
-        deployment_id="ann", request_hash="partial-request",
+        operation_id=operation.operation_id,
+        step_index=0,
+        deployment_id="ann",
+        request_hash="partial-request",
     )
     runtime.complete_social_step_generation(
-        step_id=step.step_id, response_json='{"reply":"not all sent"}',
-        cursor_json=cursor_after_ann(), delivery_required=True,
+        step_id=step.step_id,
+        response_json='{"reply":"not all sent"}',
+        cursor_json=cursor_after_ann(),
+        delivery_required=True,
     )
     runtime.claim_delivery(
-        operation_id=operation.operation_id, step_id=step.step_id,
+        operation_id=operation.operation_id,
+        step_id=step.step_id,
         claim_nonce="claim-nonce-0001",
     )
     for ids in (["sent-1"], [], ["sent-1", "sent-2"]):
         runtime.mark_delivery_uncertain(
-            operation_id=operation.operation_id, step_id=step.step_id,
-            claim_nonce="claim-nonce-0001", error="partial_or_uncertain",
+            operation_id=operation.operation_id,
+            step_id=step.step_id,
+            claim_nonce="claim-nonce-0001",
+            error="partial_or_uncertain",
             sent_message_ids=ids,
         )
         with database.session() as session:
@@ -575,7 +582,8 @@ def test_uncertain_delivery_preserves_partial_receipts_without_advancing(tmp_pat
     assert current is not None and current.status == "uncertain"
     assert current.sources_json == "[]"
     status, _ = runtime.claim_delivery(
-        operation_id=operation.operation_id, step_id=step.step_id,
+        operation_id=operation.operation_id,
+        step_id=step.step_id,
         claim_nonce="claim-nonce-0001",
     )
     assert status == "uncertain"
@@ -583,29 +591,36 @@ def test_uncertain_delivery_preserves_partial_receipts_without_advancing(tmp_pat
 
 @pytest.mark.parametrize("invalid", ["other_operation", "wrong_nonce", "no_claim"])
 def test_uncertainty_report_cannot_mutate_an_unowned_delivery(
-    tmp_path: Path, invalid: str,
+    tmp_path: Path,
+    invalid: str,
 ) -> None:
     database, runtime = repository(tmp_path / f"invalid-{invalid}.db")
     operation = claim_operation(runtime)
     other = claim_operation(runtime, operation_id="other".ljust(64, "0"))
     _, step = runtime.prepare_social_step(
-        operation_id=operation.operation_id, step_index=0,
-        deployment_id="ann", request_hash="guard-request",
+        operation_id=operation.operation_id,
+        step_index=0,
+        deployment_id="ann",
+        request_hash="guard-request",
     )
     runtime.complete_social_step_generation(
-        step_id=step.step_id, response_json='{}',
-        cursor_json=cursor_after_ann(), delivery_required=True,
+        step_id=step.step_id,
+        response_json="{}",
+        cursor_json=cursor_after_ann(),
+        delivery_required=True,
     )
     if invalid != "no_claim":
         runtime.claim_delivery(
-            operation_id=operation.operation_id, step_id=step.step_id,
+            operation_id=operation.operation_id,
+            step_id=step.step_id,
             claim_nonce="claim-nonce-0001",
         )
     runtime.mark_delivery_uncertain(
         operation_id=other.operation_id if invalid == "other_operation" else operation.operation_id,
         step_id=step.step_id,
         claim_nonce="wrong-nonce-0001" if invalid == "wrong_nonce" else "claim-nonce-0001",
-        error="must_not_apply", sent_message_ids=["injected-receipt"],
+        error="must_not_apply",
+        sent_message_ids=["injected-receipt"],
     )
     with database.session() as session:
         stored = session.get(RuntimeStepRecord, step.step_id)
@@ -616,3 +631,40 @@ def test_uncertainty_report_cannot_mutate_an_unowned_delivery(
     assert current is not None and current.status == "awaiting_delivery"
     current_other = runtime.get_operation(other.operation_id)
     assert current_other is not None and current_other.status == "active"
+
+
+def test_concurrent_delivery_claims_never_grant_two_nonces(tmp_path: Path, monkeypatch) -> None:
+    _db, runtime = repository(tmp_path / "concurrent-delivery.db")
+    op = claim_operation(runtime)
+    _, step = runtime.prepare_social_step(
+        operation_id=op.operation_id, step_index=0, deployment_id="ann", request_hash="request"
+    )
+    runtime.complete_social_step_generation(
+        step_id=step.step_id,
+        response_json='{"text":"draft"}',
+        cursor_json=cursor_after_ann(),
+        delivery_required=True,
+    )
+
+    from threading import Barrier
+
+    barrier = Barrier(4)
+    validate = runtime._validate_publication
+
+    def concurrent_validation(*args):
+        validate(*args)
+        barrier.wait(timeout=10)
+
+    monkeypatch.setattr(runtime, "_validate_publication", concurrent_validation)
+
+    def claim(n: int) -> str:
+        result, _ = runtime.claim_delivery(
+            operation_id=op.operation_id, step_id=step.step_id, claim_nonce=f"nonce-{n}"
+        )
+        return result
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(claim, range(4)))
+    assert results.count("granted") == 1
+    assert results.count("uncertain") == 3
+    assert runtime.get_operation(op.operation_id).status == "uncertain"

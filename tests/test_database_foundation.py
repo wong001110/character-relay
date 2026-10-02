@@ -14,10 +14,6 @@ from echo_masque.persistence.database import Database, normalize_postgresql_driv
 from echo_masque.persistence.deployment_models import (
     CharacterDeploymentRecord,
 )
-from echo_masque.persistence.deployment_presence_models import DeploymentPresenceRecord
-from echo_masque.persistence.intelligence_v3_migration_models import (
-    IntelligenceV3HardCutoverMigrationRecord,
-)
 from echo_masque.persistence.knowledge_fabric_repository import KnowledgeFabricRepository
 from echo_masque.persistence.models import TargetRecord
 from echo_masque.persistence.schema_migration_models import (
@@ -92,9 +88,12 @@ def test_standard_postgresql_url_uses_installed_psycopg3_driver() -> None:
     assert normalize_postgresql_driver_url(
         "postgresql+psycopg://user:password@example.test:5432/character_relay"
     ).startswith("postgresql+psycopg://")
-    assert normalize_postgresql_driver_url(
-        "postgres://user:password@example.test:5432/character_relay"
-    ) == "postgresql+psycopg://user:password@example.test:5432/character_relay"
+    assert (
+        normalize_postgresql_driver_url(
+            "postgres://user:password@example.test:5432/character_relay"
+        )
+        == "postgresql+psycopg://user:password@example.test:5432/character_relay"
+    )
     assert normalize_postgresql_driver_url("sqlite:///local.db") == "sqlite:///local.db"
 
     database = Database(standard_url)
@@ -132,9 +131,7 @@ def test_migration_accepts_standard_postgresql_target_url(
         lambda *_: source_path,
     )
     monkeypatch.setattr(sqlite_to_postgres_migration, "_source_fingerprint", lambda _: "sha")
-    monkeypatch.setattr(
-        sqlite_to_postgres_migration, "_prepare_target_migration", lambda *_: {}
-    )
+    monkeypatch.setattr(sqlite_to_postgres_migration, "_prepare_target_migration", lambda *_: {})
 
     result = migrate_sqlite_to_postgres(
         f"sqlite:///{source_path}",
@@ -142,9 +139,7 @@ def test_migration_accepts_standard_postgresql_target_url(
     )
 
     assert result["status"] == "already_completed"
-    assert target_urls == [
-        "postgresql+psycopg://user:password@example.test:5432/character_relay"
-    ]
+    assert target_urls == ["postgresql+psycopg://user:password@example.test:5432/character_relay"]
 
 
 def test_sqlite_foundation_revision_is_idempotent(tmp_path: Path) -> None:
@@ -233,38 +228,19 @@ def test_sqlite_snapshot_includes_committed_wal_content_and_has_unique_backups(
     assert _source_fingerprint(changed) != _source_fingerprint(first)
 
 
-def test_sqlite_source_rejects_unfinished_intelligence_cutover_and_legacy_data(
-    tmp_path: Path,
-) -> None:
+def test_sqlite_source_requires_explicit_reset_before_copying_retired_chat(tmp_path: Path) -> None:
     database = Database(f"sqlite:///{tmp_path / 'legacy-source.db'}")
     database.initialize()
-
-    with database.session() as session:
-        record = session.get(
-            IntelligenceV3HardCutoverMigrationRecord,
-            "intelligence-v3-hard-cutover-v1",
-        )
-        assert record is not None
-        record.status = "failed"
-        session.commit()
-    with pytest.raises(SQLiteToPostgresMigrationError, match="hard-cutover is not completed"):
-        _assert_source_schema_is_current(database)
-
-    with database.session() as session:
-        record = session.get(
-            IntelligenceV3HardCutoverMigrationRecord,
-            "intelligence-v3-hard-cutover-v1",
-        )
-        assert record is not None
-        record.status = "completed"
-        session.commit()
     with database.engine.begin() as connection:
         connection.exec_driver_sql("CREATE TABLE character_core_memories (id TEXT PRIMARY KEY)")
         connection.exec_driver_sql("INSERT INTO character_core_memories (id) VALUES ('legacy-1')")
-    with pytest.raises(
-        SQLiteToPostgresMigrationError,
-        match="unmigrated legacy Intelligence tables",
-    ):
+    # Ordinary startup neither destroys old conversation data nor makes it active again.
+    database.initialize()
+    with database.engine.connect() as connection:
+        assert (
+            connection.exec_driver_sql("SELECT COUNT(*) FROM character_core_memories").scalar() == 1
+        )
+    with pytest.raises(SQLiteToPostgresMigrationError, match="explicit offline chat reset"):
         _assert_source_schema_is_current(database)
 
 
@@ -318,9 +294,12 @@ def test_postgresql_foundation_when_explicit_test_database_is_available() -> Non
     database.initialize()
 
     with database.engine.connect() as connection:
-        assert connection.execute(
-            text("SELECT extname FROM pg_extension WHERE extname = 'vector'")
-        ).scalar_one() == "vector"
+        assert (
+            connection.execute(
+                text("SELECT extname FROM pg_extension WHERE extname = 'vector'")
+            ).scalar_one()
+            == "vector"
+        )
         inspector = inspect(connection)
         table_names = set(inspector.get_table_names())
         corpus_indexes = {index["name"] for index in inspector.get_indexes("knowledge_corpora")}
@@ -352,7 +331,6 @@ def test_postgresql_foundation_when_explicit_test_database_is_available() -> Non
         "knowledge_evidence_retrieval_entries",
         "knowledge_evidence_embeddings",
         "knowledge_canonical_entities",
-        "knowledge_runtime_entity_resolutions",
         "knowledge_extracted_assertions",
         "knowledge_world_events",
         "knowledge_world_event_participants",
@@ -378,11 +356,14 @@ def test_postgresql_foundation_when_explicit_test_database_is_available() -> Non
         default_authority_profile="standard",
         status="active",
     )
-    assert fabric.set_server_global_grant(
-        server_scope_id=scope.id,
-        corpus_id=corpus.id,
-        enabled=True,
-    ) is not None
+    assert (
+        fabric.set_server_global_grant(
+            server_scope_id=scope.id,
+            corpus_id=corpus.id,
+            enabled=True,
+        )
+        is not None
+    )
     database.initialize()
     with database.session() as session:
         assert session.get(DatabaseSchemaMigrationRecord, KNOWLEDGE_FABRIC_SCOPE_REVISION)
@@ -393,7 +374,6 @@ def test_postgresql_foundation_when_explicit_test_database_is_available() -> Non
 
     with database.session() as session:
         session.add(_deployment("deployment-a", channel_id="channel-a"))
-        session.add(DeploymentPresenceRecord(deployment_id="deployment-a", owner_id="owner-1"))
         session.commit()
 
         session.add(_deployment("deployment-b", channel_id="channel-b"))
@@ -405,7 +385,7 @@ def test_postgresql_foundation_when_explicit_test_database_is_available() -> Non
         assert deployment is not None
         session.delete(deployment)
         session.commit()
-        assert session.get(DeploymentPresenceRecord, "deployment-a") is None
+        assert session.get(CharacterDeploymentRecord, "deployment-a") is None
 
 
 def test_postgresql_concurrent_schema_bootstrap_is_serialized() -> None:
@@ -452,11 +432,14 @@ def test_sqlite_to_postgres_migration_when_explicit_test_database_is_available(
         default_authority_profile="standard",
         status="active",
     )
-    assert fabric.set_server_global_grant(
-        server_scope_id=scope.id,
-        corpus_id=corpus.id,
-        enabled=True,
-    ) is not None
+    assert (
+        fabric.set_server_global_grant(
+            server_scope_id=scope.id,
+            corpus_id=corpus.id,
+            enabled=True,
+        )
+        is not None
+    )
     with source.session() as session:
         session.add(TargetRecord(id="target-1", name="Migrated target", target_kind="stable"))
         session.commit()
@@ -477,10 +460,13 @@ def test_sqlite_to_postgres_migration_when_explicit_test_database_is_available(
     migrated_fabric = KnowledgeFabricRepository(migrated)
     assert migrated_fabric.get_server_scope(scope.id) is not None
     assert migrated_fabric.get_corpus(corpus.id) is not None
-    assert migrated_fabric.get_server_global_grant(
-        server_scope_id=scope.id,
-        corpus_id=corpus.id,
-    ) is not None
+    assert (
+        migrated_fabric.get_server_global_grant(
+            server_scope_id=scope.id,
+            corpus_id=corpus.id,
+        )
+        is not None
+    )
 
     second = migrate_sqlite_to_postgres(
         source_url,

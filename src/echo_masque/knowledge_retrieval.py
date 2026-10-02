@@ -6,7 +6,7 @@ import math
 from collections import Counter
 from dataclasses import dataclass
 
-from echo_masque.expression_retrieval import normalize_text, semantic_tokens
+from echo_masque.sparse_retrieval import normalize_text, semantic_tokens
 
 
 @dataclass(frozen=True, slots=True)

@@ -6,27 +6,21 @@ import json
 from typing import cast
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from echo_masque.expression_retrieval import (
     ExpressionCandidate,
     ExpressionResource,
-    rank_expression_resources,
-    semantic_tokens,
 )
 from echo_masque.persistence.database import Database
 from echo_masque.persistence.deployment_models import (
-    CharacterDeploymentRecord,
     DiscordServerProfileRecord,
     PlatformConnectionRecord,
 )
 from echo_masque.persistence.expression_models import (
-    DiscordExpressionNodeRecord,
-    DiscordExpressionRunRecord,
     DiscordExpressionSemanticRecord,
 )
-from echo_masque.persistence.interaction_models import DiscordStickerSemanticRecord
 from echo_masque.persistence.models import utcnow
 
 
@@ -78,7 +72,7 @@ def _metadata_semantics(
 
 
 class ExpressionRepository:
-    """Store expression dictionaries and durable decision workflow state."""
+    """Store one guild expression catalog; retrieval occurs only after Character intent."""
 
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -102,18 +96,6 @@ class ExpressionRepository:
     @staticmethod
     def allowed_actions(record: DiscordExpressionSemanticRecord) -> list[str]:
         return _decode(record.allowed_actions_json) or _default_actions(record.resource_type)
-
-    @staticmethod
-    def run_state(record: DiscordExpressionRunRecord) -> dict[str, object]:
-        return _object(record.state_json)
-
-    @staticmethod
-    def node_input(record: DiscordExpressionNodeRecord) -> dict[str, object]:
-        return _object(record.input_summary_json)
-
-    @staticmethod
-    def node_output(record: DiscordExpressionNodeRecord) -> dict[str, object]:
-        return _object(record.output_summary_json)
 
     def _connection(self, session: Session, connection_id: str) -> PlatformConnectionRecord:
         connection = session.get(PlatformConnectionRecord, connection_id)
@@ -158,21 +140,6 @@ class ExpressionRepository:
                 name=name,
                 allowed_actions_json=_encode(_default_actions(resource_type)),
             )
-            if resource_type == "sticker":
-                legacy = session.scalar(
-                    select(DiscordStickerSemanticRecord).where(
-                        DiscordStickerSemanticRecord.owner_id == owner_id,
-                        DiscordStickerSemanticRecord.connection_id == connection_id,
-                        DiscordStickerSemanticRecord.guild_id == guild_id,
-                        DiscordStickerSemanticRecord.sticker_id == resource_id,
-                    )
-                )
-                if legacy is not None and legacy.semantic_description:
-                    record.semantic_intent = legacy.semantic_intent
-                    record.semantic_emotion = legacy.semantic_emotion
-                    record.semantic_description = legacy.semantic_description
-                    record.semantic_source = legacy.semantic_source
-                    record.semantic_confidence = legacy.semantic_confidence
             session.add(record)
         record.name = name
         record.description = description
@@ -220,9 +187,7 @@ class ExpressionRepository:
                     continue
                 for item in items:
                     raw_resource_id = (
-                        item.get("emoji_id")
-                        if resource_type == "emoji"
-                        else item.get("sticker_id")
+                        item.get("emoji_id") if resource_type == "emoji" else item.get("sticker_id")
                     )
                     resource_id = str(raw_resource_id or "").strip()
                     name = str(item.get("name") or resource_type.title()).strip()
@@ -443,9 +408,21 @@ class ExpressionRepository:
         animated: bool = False,
         available: bool = True,
         asset_url: str = "",
+        description: str | None = None,
+        tags: list[str] | None = None,
+        format_type: str | None = None,
     ) -> DiscordExpressionSemanticRecord:
         with self.database.session() as session:
             connection = self._connection(session, connection_id)
+            existing = session.scalar(
+                select(DiscordExpressionSemanticRecord).where(
+                    DiscordExpressionSemanticRecord.owner_id == connection.owner_id,
+                    DiscordExpressionSemanticRecord.connection_id == connection_id,
+                    DiscordExpressionSemanticRecord.guild_id == guild_id,
+                    DiscordExpressionSemanticRecord.resource_type == resource_type,
+                    DiscordExpressionSemanticRecord.resource_id == resource_id,
+                )
+            )
             record = self._upsert_catalog_resource(
                 session,
                 owner_id=connection.owner_id,
@@ -454,10 +431,12 @@ class ExpressionRepository:
                 resource_type=resource_type,
                 resource_id=resource_id,
                 name=name,
-                description="",
-                tags=[],
-                format_type=resource_type,
-                asset_url=asset_url,
+                description=description
+                if description is not None
+                else (existing.description if existing else ""),
+                tags=tags if tags is not None else (self.tags(existing) if existing else []),
+                format_type=format_type or (existing.format_type if existing else resource_type),
+                asset_url=asset_url or (existing.asset_url if existing else ""),
                 animated=animated,
                 available=available,
             )
@@ -512,321 +491,40 @@ class ExpressionRepository:
             "signals": candidate.signals,
         }
 
-    def _append_node(
-        self,
-        session: Session,
-        *,
-        run: DiscordExpressionRunRecord,
-        node_name: str,
-        status: str,
-        attempt: int,
-        input_summary: dict[str, object],
-        output_summary: dict[str, object],
-        error: str = "",
-    ) -> DiscordExpressionNodeRecord:
-        current = session.scalar(
-            select(func.max(DiscordExpressionNodeRecord.node_index)).where(
-                DiscordExpressionNodeRecord.run_id == run.id
-            )
-        )
-        node = DiscordExpressionNodeRecord(
-            id=str(uuid4()),
-            run_id=run.id,
-            node_name=node_name,
-            node_index=int(current or 0) + 1,
-            attempt=attempt,
-            status=status,
-            input_summary_json=json.dumps(input_summary),
-            output_summary_json=json.dumps(output_summary),
-            error=error[:2000],
-            completed_at=utcnow() if status in {"completed", "failed", "skipped"} else None,
-        )
-        session.add(node)
-        run.current_node = node_name
-        run.updated_at = utcnow()
-        return node
-
-    def retrieve(
-        self,
-        *,
-        connection_id: str,
-        guild_id: str,
-        channel_id: str,
-        source_message_id: str,
-        deployment_id: str,
-        query: str,
-        allowed_actions: list[str],
-        excluded_resource_keys: list[str],
-        top_k: int,
-        run_id: str | None = None,
-    ) -> tuple[DiscordExpressionRunRecord, list[dict[str, object]]]:
-        with self.database.session() as session:
-            connection = self._connection(session, connection_id)
-            deployment = session.get(CharacterDeploymentRecord, deployment_id)
-            if (
-                deployment is None
-                or deployment.connection_id != connection_id
-                or deployment.owner_id != connection.owner_id
-            ):
-                raise KeyError("deployment")
-            if run_id:
-                run = session.get(DiscordExpressionRunRecord, run_id)
-                if run is None or run.connection_id != connection_id:
-                    raise KeyError("run")
-                run.attempt_count += 1
-            else:
-                run = session.scalar(
-                    select(DiscordExpressionRunRecord).where(
-                        DiscordExpressionRunRecord.connection_id == connection_id,
-                        DiscordExpressionRunRecord.source_message_id == source_message_id,
-                        DiscordExpressionRunRecord.deployment_id == deployment_id,
-                    )
-                )
-                if run is None:
-                    run = DiscordExpressionRunRecord(
-                        id=str(uuid4()),
-                        owner_id=connection.owner_id,
-                        connection_id=connection_id,
-                        guild_id=guild_id,
-                        channel_id=channel_id,
-                        source_message_id=source_message_id,
-                        deployment_id=deployment_id,
-                        character_card_id=deployment.character_card_id,
-                    )
-                    session.add(run)
-                    session.flush()
-            resources = list(
-                session.scalars(
-                    select(DiscordExpressionSemanticRecord).where(
-                        DiscordExpressionSemanticRecord.owner_id == connection.owner_id,
-                        DiscordExpressionSemanticRecord.connection_id == connection_id,
-                        DiscordExpressionSemanticRecord.guild_id == guild_id,
-                    )
-                )
-            )
-            recent_keys = set(
-                session.scalars(
-                    select(DiscordExpressionRunRecord.selected_resource_key)
-                    .where(
-                        DiscordExpressionRunRecord.owner_id == connection.owner_id,
-                        DiscordExpressionRunRecord.deployment_id == deployment_id,
-                        DiscordExpressionRunRecord.selected_resource_key != "",
-                        DiscordExpressionRunRecord.id != run.id,
-                    )
-                    .order_by(DiscordExpressionRunRecord.updated_at.desc())
-                    .limit(5)
-                )
-            )
-            query_tokens = semantic_tokens(query)
-            self._append_node(
-                session,
-                run=run,
-                node_name="filter_resources",
-                status="completed",
-                attempt=run.attempt_count,
-                input_summary={
-                    "query_length": len(query),
-                    "query_token_count": len(query_tokens),
-                    "allowed_actions": allowed_actions,
-                    "excluded_resource_keys": excluded_resource_keys,
-                },
-                output_summary={
-                    "server_resource_count": len(resources),
-                    "recent_resource_keys": sorted(recent_keys),
-                },
-            )
-            ranked = rank_expression_resources(
-                [self._resource(item) for item in resources],
-                query=query,
-                allowed_actions=set(allowed_actions),
-                recent_resource_keys=recent_keys,
-                excluded_resource_keys=set(excluded_resource_keys),
-                top_k=top_k,
-            )
-            candidates = [self.candidate_dict(item) for item in ranked]
-            self._append_node(
-                session,
-                run=run,
-                node_name="rank_candidates",
-                status="completed",
-                attempt=run.attempt_count,
-                input_summary={
-                    "retrieval_backend": "hybrid_sparse_v1",
-                    "top_k": top_k,
-                },
-                output_summary={
-                    "candidate_count": len(candidates),
-                    "candidate_keys": [str(item["resource_key"]) for item in candidates],
-                    "candidate_scores": [item["score"] for item in candidates],
-                },
-            )
-            state = self.run_state(run)
-            state.update(
-                {
-                    "version": 1,
-                    "retrieval_backend": "hybrid_sparse_v1",
-                    "query_summary": {
-                        "length": len(query),
-                        "token_count": len(query_tokens),
-                    },
-                    "allowed_actions": allowed_actions,
-                    "excluded_resource_keys": excluded_resource_keys,
-                    "candidates": candidates,
-                }
-            )
-            run.state_json = json.dumps(state)
-            run.status = "running"
-            session.commit()
-            session.refresh(run)
-            return run, candidates
-
-    def record_node(
-        self,
-        *,
-        connection_id: str,
-        run_id: str,
-        node_name: str,
-        status: str,
-        input_summary: dict[str, object],
-        output_summary: dict[str, object],
-        error: str,
-        selected_action: str | None = None,
-        selected_resource_key: str | None = None,
-        final_status: str | None = None,
-    ) -> DiscordExpressionRunRecord:
-        with self.database.session() as session:
-            run = session.get(DiscordExpressionRunRecord, run_id)
-            if run is None or run.connection_id != connection_id:
-                raise KeyError("run")
-            self._append_node(
-                session,
-                run=run,
-                node_name=node_name,
-                status=status,
-                attempt=run.attempt_count,
-                input_summary=input_summary,
-                output_summary=output_summary,
-                error=error,
-            )
-            state = self.run_state(run)
-            state["last_node"] = {
-                "name": node_name,
-                "status": status,
-                "output": output_summary,
-                "error": error[:2000],
-            }
-            if selected_action is not None:
-                run.selected_action = selected_action
-                state["selected_action"] = selected_action
-            if selected_resource_key is not None:
-                run.selected_resource_key = selected_resource_key
-                state["selected_resource_key"] = selected_resource_key
-            if error:
-                run.last_error = error[:2000]
-            if final_status is not None:
-                run.status = final_status
-                if final_status in {"completed", "failed", "skipped"}:
-                    run.completed_at = utcnow()
-            run.state_json = json.dumps(state)
-            session.commit()
-            session.refresh(run)
-            return run
-
-    def list_runs(
-        self,
-        owner_id: str,
-        *,
-        connection_id: str | None = None,
-        guild_id: str | None = None,
-        limit: int = 50,
-    ) -> list[DiscordExpressionRunRecord]:
-        with self.database.session() as session:
-            conditions = [DiscordExpressionRunRecord.owner_id == owner_id]
-            if connection_id:
-                conditions.append(DiscordExpressionRunRecord.connection_id == connection_id)
-            if guild_id:
-                conditions.append(DiscordExpressionRunRecord.guild_id == guild_id)
-            return list(
-                session.scalars(
-                    select(DiscordExpressionRunRecord)
-                    .where(*conditions)
-                    .order_by(DiscordExpressionRunRecord.updated_at.desc())
-                    .limit(max(1, min(limit, 200)))
-                )
-            )
-
-    def get_run(
-        self,
-        run_id: str,
-        owner_id: str,
-    ) -> DiscordExpressionRunRecord | None:
-        with self.database.session() as session:
-            run = session.get(DiscordExpressionRunRecord, run_id)
-            if run is None or run.owner_id != owner_id:
-                return None
-            return run
-
-    def list_nodes(self, run_id: str, owner_id: str) -> list[DiscordExpressionNodeRecord]:
-        with self.database.session() as session:
-            run = session.get(DiscordExpressionRunRecord, run_id)
-            if run is None or run.owner_id != owner_id:
-                return []
-            return list(
-                session.scalars(
-                    select(DiscordExpressionNodeRecord)
-                    .where(DiscordExpressionNodeRecord.run_id == run_id)
-                    .order_by(DiscordExpressionNodeRecord.node_index)
-                )
-            )
-
     def delete_owner(self, owner_id: str) -> dict[str, int]:
         with self.database.session() as session:
-            run_ids = list(
-                session.scalars(
-                    select(DiscordExpressionRunRecord.id).where(
-                        DiscordExpressionRunRecord.owner_id == owner_id
-                    )
-                )
-            )
-            nodes = 0
-            if run_ids:
-                result = session.execute(
-                    delete(DiscordExpressionNodeRecord).where(
-                        DiscordExpressionNodeRecord.run_id.in_(run_ids)
-                    )
-                )
-                nodes = int(getattr(result, "rowcount", 0) or 0)
-            runs = session.execute(
-                delete(DiscordExpressionRunRecord).where(
-                    DiscordExpressionRunRecord.owner_id == owner_id
-                )
-            )
-            resources = session.execute(
+            result = session.execute(
                 delete(DiscordExpressionSemanticRecord).where(
                     DiscordExpressionSemanticRecord.owner_id == owner_id
                 )
             )
             session.commit()
-        return {
-            "discord_expression_nodes": nodes,
-            "discord_expression_runs": int(getattr(runs, "rowcount", 0) or 0),
-            "discord_expression_semantics": int(getattr(resources, "rowcount", 0) or 0),
-        }
+            return {
+                "discord_expression_semantics": max(0, int(getattr(result, "rowcount", 0) or 0))
+            }
+
+    def delete_scope(
+        self, *, owner_id: str, connection_id: str, guild_id: str | None = None
+    ) -> int:
+        conditions = [
+            DiscordExpressionSemanticRecord.owner_id == owner_id,
+            DiscordExpressionSemanticRecord.connection_id == connection_id,
+        ]
+        if guild_id is not None:
+            conditions.append(DiscordExpressionSemanticRecord.guild_id == guild_id)
+        with self.database.session() as session:
+            result = session.execute(delete(DiscordExpressionSemanticRecord).where(*conditions))
+            session.commit()
+            return max(0, int(getattr(result, "rowcount", 0) or 0))
 
     def claim_owner(self, source_owner_id: str, target_owner_id: str) -> dict[str, int]:
         with self.database.session() as session:
-            resources = session.execute(
+            result = session.execute(
                 update(DiscordExpressionSemanticRecord)
                 .where(DiscordExpressionSemanticRecord.owner_id == source_owner_id)
                 .values(owner_id=target_owner_id)
             )
-            runs = session.execute(
-                update(DiscordExpressionRunRecord)
-                .where(DiscordExpressionRunRecord.owner_id == source_owner_id)
-                .values(owner_id=target_owner_id)
-            )
             session.commit()
-        return {
-            "discord_expression_semantics": int(getattr(resources, "rowcount", 0) or 0),
-            "discord_expression_runs": int(getattr(runs, "rowcount", 0) or 0),
-        }
+            return {
+                "discord_expression_semantics": max(0, int(getattr(result, "rowcount", 0) or 0))
+            }

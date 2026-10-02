@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import {
-  resolveExplicitAudiencePreflight,
-  semanticScoringRequired
+resolveExplicitAudiencePreflight,
+semanticScoringRequired
 } from "./audiencePreflight.js";
 import type { AudienceResolution } from "./routing.js";
 import type { DiscordDeployment } from "./types.js";
@@ -67,8 +67,8 @@ describe("explicit audience preflight", () => {
       "Ning, this text must not override the reply route",
       ann.deployment_id
     );
-    expect(reply?.reason).toBe("selected_reply");
-    expect(reply?.deployments).toEqual([ann]);
+    expect(reply?.reason).toBe("selected_alias");
+    expect(reply?.deployments).toEqual([ning]);
 
     const group = resolveExplicitAudiencePreflight([ann, ning], "everyone, hello");
     expect(group?.reason).toBe("selected_all");

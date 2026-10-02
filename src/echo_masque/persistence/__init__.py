@@ -32,12 +32,6 @@ from echo_masque.persistence.deployment_models import (
     DiscordServerProfileRecord,
     PlatformConnectionRecord,
 )
-from echo_masque.persistence.deployment_presence_models import DeploymentPresenceRecord
-from echo_masque.persistence.deployment_presence_repository import (
-    DeploymentPresenceRepository,
-    DeploymentPresenceState,
-    DeploymentPresenceView,
-)
 from echo_masque.persistence.deployment_repository import DeploymentConflict, DeploymentRepository
 from echo_masque.persistence.deployment_tool_repository import DeploymentToolRepository
 from echo_masque.persistence.discord_identity_models import (
@@ -52,27 +46,12 @@ from echo_masque.persistence.evaluation_models import (
     JudgePredictionRecord,
 )
 from echo_masque.persistence.evaluation_repository import EvaluationRepository
-from echo_masque.persistence.expression_hybrid_repository import HybridExpressionRepository
-from echo_masque.persistence.expression_hybrid_repository import (
-    HybridExpressionRepository as ExpressionRepository,
-)
 from echo_masque.persistence.expression_models import (
-    DiscordExpressionNodeRecord,
-    DiscordExpressionRunRecord,
     DiscordExpressionSemanticRecord,
 )
+from echo_masque.persistence.expression_repository import ExpressionRepository
 from echo_masque.persistence.generated_media_models import GeneratedMediaArtifactRecord
 from echo_masque.persistence.generated_media_repository import GeneratedMediaArtifactRepository
-from echo_masque.persistence.interaction_models import (
-    DiscordInteractionRunRecord,
-    DiscordInteractionSessionRecord,
-    DiscordInteractionTemplateRecord,
-    DiscordStickerSemanticRecord,
-)
-from echo_masque.persistence.interaction_repository import (
-    InteractionConflict,
-    InteractionRepository,
-)
 from echo_masque.persistence.key_group_models import (
     CharacterKeyGroupAssignmentRecord,
     ProviderKeyGroupRecord,
@@ -121,14 +100,6 @@ from echo_masque.persistence.runtime_durability_models import (
 from echo_masque.persistence.runtime_durability_repository import DurableRuntimeRepository
 from echo_masque.persistence.scheduled_reminder_models import ScheduledReminderRecord
 from echo_masque.persistence.scheduled_reminder_repository import ScheduledReminderRepository
-from echo_masque.persistence.semantic_vector_models import SemanticVectorRecord
-from echo_masque.persistence.semantic_vector_repository import SemanticVectorRepository
-from echo_masque.persistence.smart_participation_models import (
-    CharacterSemanticProfileRecord,
-    SmartParticipationFeedbackRecord,
-    SmartParticipationProfileRecord,
-)
-from echo_masque.persistence.smart_participation_repository import SmartParticipationRepository
 from echo_masque.persistence.storage import (
     StorageStatus,
     UnsafeProductionStorageError,
@@ -163,7 +134,6 @@ __all__ = [
     "CanonicalSectionInput",
     "CharacterDeploymentRecord",
     "CharacterKeyGroupAssignmentRecord",
-    "CharacterSemanticProfileRecord",
     "ConditionWatchRecord",
     "ConditionWatchRepository",
     "ConversationMediaReferenceRecord",
@@ -172,35 +142,22 @@ __all__ = [
     "DeploymentConflict",
     "DeploymentMessageAliasRecord",
     "DeploymentMessageIdentityRecord",
-    "DeploymentPresenceRecord",
-    "DeploymentPresenceRepository",
-    "DeploymentPresenceState",
-    "DeploymentPresenceView",
     "DeploymentRepository",
     "DeploymentToolProfileRecord",
     "DeploymentToolRepository",
     "DiscordConnectorEventRecord",
     "DiscordDeploymentScopeRecord",
-    "DiscordExpressionNodeRecord",
-    "DiscordExpressionRunRecord",
     "DiscordExpressionSemanticRecord",
     "DiscordIdentityRepository",
-    "DiscordInteractionRunRecord",
-    "DiscordInteractionSessionRecord",
-    "DiscordInteractionTemplateRecord",
     "DiscordMessageRouteRecord",
     "DiscordServerCatalogRecord",
     "DiscordServerProfileRecord",
-    "DiscordStickerSemanticRecord",
     "DiscordWebhookBindingRecord",
     "DurableRuntimeRepository",
     "EvaluationRepository",
     "ExpressionRepository",
     "GeneratedMediaArtifactRecord",
     "GeneratedMediaArtifactRepository",
-    "HybridExpressionRepository",
-    "InteractionConflict",
-    "InteractionRepository",
     "JudgeEvaluationRecord",
     "JudgePredictionRecord",
     "KeyGroupCapability",
@@ -232,11 +189,6 @@ __all__ = [
     "RuntimeTraceRunRecord",
     "ScheduledReminderRecord",
     "ScheduledReminderRepository",
-    "SemanticVectorRecord",
-    "SemanticVectorRepository",
-    "SmartParticipationFeedbackRecord",
-    "SmartParticipationProfileRecord",
-    "SmartParticipationRepository",
     "StorageStatus",
     "TargetAccessRepository",
     "TrialRequestMetadata",

@@ -15,13 +15,6 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from echo_masque.persistence.database import Database, normalize_postgresql_driver_url
-from echo_masque.persistence.intelligence_v3_migration import (
-    _LEGACY_TABLES_TO_DROP,
-    _MIGRATION_LEDGER_ID,
-)
-from echo_masque.persistence.intelligence_v3_migration_models import (
-    IntelligenceV3HardCutoverMigrationRecord,
-)
 from echo_masque.persistence.knowledge_fabric_hard_cutover import (
     KNOWLEDGE_FABRIC_HARD_CUTOVER_ID,
     LEGACY_KNOWLEDGE_TABLES_TO_DROP,
@@ -31,6 +24,7 @@ from echo_masque.persistence.knowledge_fabric_hard_cutover_models import (
 )
 from echo_masque.persistence.models import Base
 from echo_masque.persistence.schema_migration_models import DatabaseDataMigrationRecord
+from echo_masque.retired_chat_tables import RETIRED_CHAT_TABLES
 
 SQLITE_TO_POSTGRES_MIGRATION_ID = "sqlite-to-postgresql-v1"
 _MIGRATION_TABLES = {"database_schema_migrations", "database_data_migrations"}
@@ -119,9 +113,10 @@ def _backup_sqlite_source(source_path: Path, backup_directory: Path | None) -> P
     destination = destination_directory / (
         f"{source_path.name}.postgresql-{timestamp}-{uuid4().hex[:12]}.bak"
     )
-    with sqlite3.connect(source_path) as source_connection, sqlite3.connect(
-        destination
-    ) as destination_connection:
+    with (
+        sqlite3.connect(source_path) as source_connection,
+        sqlite3.connect(destination) as destination_connection,
+    ):
         source_connection.backup(destination_connection)
     return destination
 
@@ -159,23 +154,13 @@ def _assert_source_schema_is_current(database: Database) -> None:
             "then retry the PostgreSQL copy. Missing: " + details
         )
 
-    _assert_source_intelligence_cutover_is_complete(database, existing_tables)
-    _assert_source_knowledge_fabric_cutover_is_complete(database, existing_tables)
-    _assert_source_legacy_tables_are_empty(database, existing_tables)
-
-
-def _assert_source_intelligence_cutover_is_complete(
-    database: Database, existing_tables: set[str]
-) -> None:
-    if "intelligence_v3_hard_cutover_migrations" not in existing_tables:
-        return
-    with database.session() as session:
-        record = session.get(IntelligenceV3HardCutoverMigrationRecord, _MIGRATION_LEDGER_ID)
-    if record is None or record.status != "completed":
+    retired = existing_tables.intersection(RETIRED_CHAT_TABLES)
+    if retired:
         raise SQLiteToPostgresMigrationError(
-            "The SQLite source Intelligence v3 hard-cutover is not completed. "
-            "Repair or finish it on a verified source copy before PostgreSQL migration."
+            "Retired conversational state requires an explicit offline chat reset on a copy "
+            "before storage migration: " + ", ".join(sorted(retired)[:12])
         )
+    _assert_source_knowledge_fabric_cutover_is_complete(database, existing_tables)
 
 
 def _assert_source_knowledge_fabric_cutover_is_complete(
@@ -201,33 +186,11 @@ def _assert_source_knowledge_fabric_cutover_is_complete(
         )
     raise SQLiteToPostgresMigrationError(
         "The SQLite source still contains retired Knowledge Base or Server Wiki tables after "
-        "its completed Knowledge Fabric hard cutover: "
-        + ", ".join(sorted(legacy_tables))
+        "its completed Knowledge Fabric hard cutover: " + ", ".join(sorted(legacy_tables))
     )
 
 
-def _assert_source_legacy_tables_are_empty(database: Database, existing_tables: set[str]) -> None:
-    legacy_tables = sorted(set(_LEGACY_TABLES_TO_DROP).intersection(existing_tables))
-    if not legacy_tables:
-        return
-    with database.engine.connect() as connection:
-        populated = [
-            table_name
-            for table_name in legacy_tables
-            if connection.exec_driver_sql(
-                f'SELECT EXISTS(SELECT 1 FROM "{table_name}" LIMIT 1)'
-            ).scalar()
-        ]
-    if populated:
-        raise SQLiteToPostgresMigrationError(
-            "The SQLite source still contains unmigrated legacy Intelligence tables: "
-            + ", ".join(populated)
-        )
-
-
-def _prepare_target_migration(
-    database: Database, source_fingerprint: str
-) -> dict[str, int] | None:
+def _prepare_target_migration(database: Database, source_fingerprint: str) -> dict[str, int] | None:
     """Take one target lock, reject a dirty target, and claim this copy operation."""
 
     with database.engine.begin() as connection:

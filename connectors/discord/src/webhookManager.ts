@@ -1,4 +1,4 @@
-import { DiscordDeliveryError, readDeliveryReceipt, sendChunks } from "./delivery.js";
+import { DiscordDeliveryError,readDeliveryReceipt,sendChunks } from "./delivery.js";
 import type { RelayClient } from "./relayClient.js";
 import { formatSafeDiagnosticError } from "./safeDiagnosticError.js";
 import type { DiscordDeployment } from "./types.js";

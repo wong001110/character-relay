@@ -66,15 +66,6 @@ class Settings(BaseSettings):
     turn_job_retention_hours: int = Field(default=24, ge=1, le=168)
 
     langgraph_mode: LangGraphMode = "off"
-    semantic_embedding_enabled: bool = False
-    semantic_embedding_model: str = "intfloat/multilingual-e5-small"
-    semantic_embedding_model_file: str = "onnx/model_O4.onnx"
-    semantic_embedding_dimension: int = 384
-    semantic_embedding_cache_dir: str = "./.cache/character-relay/embeddings"
-    knowledge_semantic_retrieval_enabled: bool = True
-    media_semantic_recall_enabled: bool = True
-    expression_semantic_retrieval_enabled: bool = True
-    semantic_participation_enabled: bool = False
 
     # Cloudflare R2 is the production default.  The service talks only through the
     # private S3-compatible API so an explicitly configured AWS S3 deployment can
@@ -89,38 +80,6 @@ class Settings(BaseSettings):
     knowledge_object_storage_secret_access_key: SecretStr | None = None
     knowledge_object_storage_prefix: str = "knowledge-fabric"
     knowledge_object_storage_filesystem_path: str | None = None
-
-    # Public Character Discovery source configuration. YouTube works without a credential via
-    # metadata-only yt-dlp search; an optional Data API key upgrades acquisition to the official
-    # API. Bilibili remains experimental but is available by default without environment setup.
-    youtube_data_api_key: SecretStr | None = None
-    youtube_discovery_search_cache_seconds: int = Field(default=4 * 60 * 60, ge=300, le=86400)
-    youtube_discovery_popular_cache_seconds: int = Field(default=60 * 60, ge=300, le=86400)
-    youtube_discovery_max_search_queries_per_session: int = Field(default=2, ge=0, le=5)
-    bilibili_discovery_experimental_enabled: bool = True
-    bilibili_discovery_search_cache_seconds: int = Field(default=4 * 60 * 60, ge=300, le=86400)
-    bilibili_discovery_max_search_queries_per_session: int = Field(default=1, ge=0, le=3)
-    bilibili_discovery_max_results_per_query: int = Field(default=6, ge=1, le=12)
-
-    # Complete Discovery Runtime remains independently kill-switchable. Media inspection reuses
-    # the existing Key Group + MediaAnalysis runtime; AUTO has an additional hard global switch.
-    discovery_complete_runtime_enabled: bool = True
-    discovery_media_inspection_enabled: bool = True
-    discovery_auto_share_global_enabled: bool = False
-
-    # Deployment Activity Runtime. Stable hashing chooses whether a bounded daily leisure session
-    # occurs, its platform/time/duration, and persisted sessions survive process restarts.
-    discovery_activity_poll_seconds: int = Field(default=60, ge=10, le=1800)
-    discovery_activity_session_probability_percent: int = Field(default=70, ge=0, le=100)
-    discovery_activity_window_start_minute: int = Field(default=10 * 60, ge=0, le=1439)
-    discovery_activity_window_end_minute: int = Field(default=23 * 60, ge=1, le=1440)
-    discovery_activity_duration_min_minutes: int = Field(default=12, ge=5, le=120)
-    discovery_activity_duration_max_minutes: int = Field(default=30, ge=5, le=180)
-    discovery_activity_latest_start_delay_minutes: int = Field(default=90, ge=5, le=240)
-    discovery_activity_candidate_budget: int = Field(default=12, ge=3, le=30)
-    discovery_activity_open_budget: int = Field(default=3, ge=0, le=10)
-    discovery_activity_watch_budget: int = Field(default=1, ge=0, le=5)
-    discovery_activity_exploration_percent: int = Field(default=20, ge=0, le=100)
 
     browser_tools_enabled: bool = True
     browser_page_idle_seconds: int = 180
@@ -230,16 +189,6 @@ class Settings(BaseSettings):
         """Return whether the cumulative rollout mode includes a workflow."""
 
         return _LANGGRAPH_MODE_RANK[self.langgraph_mode] >= _LANGGRAPH_MODE_RANK[workflow]
-
-    @property
-    def semantic_embedding_runtime_enabled(self) -> bool:
-        """Enable shared embeddings lazily in production and through explicit feature flags."""
-
-        return (
-            self.environment == "production"
-            or self.semantic_embedding_enabled
-            or self.semantic_participation_enabled
-        )
 
 
 @lru_cache

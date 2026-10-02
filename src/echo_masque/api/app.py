@@ -27,8 +27,8 @@ from echo_masque.api.routes import (
     deployments_router,
     discord_identities_router,
     evaluations_router,
+    expression_catalog_router,
     health_router,
-    interactions_router,
     knowledge_fabric_router,
     matrices_router,
     prompt_inspector_router,
@@ -36,7 +36,6 @@ from echo_masque.api.routes import (
     reports_router,
     runtime_traces_router,
     scheduled_reminders_router,
-    smart_participation_router,
     targets_router,
     templates_router,
     tools_router,
@@ -44,9 +43,13 @@ from echo_masque.api.routes import (
     trials_router,
     workspace_router,
 )
+from echo_masque.api.routes.character_notes import router as character_notes_router
 from echo_masque.api.routes.discord_debug_captures import (
     router as discord_debug_captures_router,
 )
+from echo_masque.api.routes.room_routing import router as room_routing_router
+from echo_masque.api.routes.web_chat import connector_router as web_chat_connector_router
+from echo_masque.api.routes.web_chat import router as web_chat_router
 from echo_masque.api.runtime_thread_limiter import limit_request_threads
 from echo_masque.audit_middleware import SensitiveAuditMiddleware
 from echo_masque.auth import AuthService
@@ -54,30 +57,19 @@ from echo_masque.authoring_archive import AuthoringArchiveService
 from echo_masque.authoring_generation import AuthoringGenerationService
 from echo_masque.authoring_runtime import AuthoringRuntimeService
 from echo_masque.browser_runtime import BrowserCapabilityManager, BrowserRuntimeSettings
-from echo_masque.character_turn_context_v3 import CharacterTurnContextV3Service
 from echo_masque.condition_watch_runtime import (
     ConditionWatchEvaluatorRuntime,
     ConditionWatchReminderNotifier,
 )
 from echo_masque.condition_watch_service import ConditionWatchService
 from echo_masque.config import Settings, get_settings
-from echo_masque.context_resolver_v3 import ContextResolverV3
 from echo_masque.conversation_media import ConversationMediaReferenceService
-from echo_masque.conversation_runtime_maintenance import ConversationRuntimeMaintenanceService
-from echo_masque.conversation_structure_resolver import ConversationStructureResolver
 from echo_masque.coverage_analytics import CoverageAnalyticsService
 from echo_masque.credentials import CredentialVault
-from echo_masque.current_turn_belief_v3 import CurrentTurnBeliefRevisionService
-from echo_masque.deployment_activity import DeploymentBrowsingActivityService
-from echo_masque.deployment_activity_scheduler import DeploymentActivityScheduler
-from echo_masque.deployment_discovery_service import DeploymentDiscoveryPreviewService
 from echo_masque.discord_debug_capture import InMemoryDiscordDebugCaptureStore
 from echo_masque.discord_inventory import DiscordInventoryService
-from echo_masque.entity_grounding_v3 import EntityGroundingService
 from echo_masque.evaluation_lifecycle import EvaluationAwareAccountLifecycleService
-from echo_masque.evidence_graph_v3 import EvidenceGraphService
 from echo_masque.image_creation_runtime import ImageCreationRuntimeService
-from echo_masque.intelligence_v3_projection import ProjectionConversationRuntimeCoordinator
 from echo_masque.internal_context import InternalContextService
 from echo_masque.judge_evaluation import JudgeEvaluationService
 from echo_masque.knowledge_fabric_atom_sync import KnowledgeFabricAtomSyncService
@@ -110,17 +102,16 @@ from echo_masque.knowledge_fabric_website_collection_sync import (
     KnowledgeFabricWebsiteCollectionSyncService,
 )
 from echo_masque.knowledge_fabric_website_sync import KnowledgeFabricWebsiteSyncService
-from echo_masque.knowledge_gap_discovery_v3 import KnowledgeGapDiscoveryService
 from echo_masque.knowledge_object_storage import object_storage_from_settings
-from echo_masque.live_media_enhanced import EnhancedLiveMediaContextService
 from echo_masque.live_media_scoped import KeyGroupScopedLiveMediaContextService
+from echo_masque.media_connector_runtime import MediaAwareDiscordConnectorRuntime
 from echo_masque.media_tools import MediaToolRegistry
 from echo_masque.orchestration import (
     CharacterTurnGraphRunner,
     ConditionWatchGraphRunner,
     SocialTurnGraphRunner,
 )
-from echo_masque.pending_actions_v3 import PendingActionService
+from echo_masque.pending_actions import PendingActionService
 from echo_masque.persistence import (
     AuthoringRepository,
     AuthRepository,
@@ -135,7 +126,6 @@ from echo_masque.persistence import (
     EvaluationRepository,
     ExpressionRepository,
     GeneratedMediaArtifactRepository,
-    InteractionRepository,
     KeyGroupRepository,
     KnowledgeFabricIndexRepository,
     KnowledgeFabricRepository,
@@ -144,17 +134,10 @@ from echo_masque.persistence import (
     ProviderTraceRepository,
     Repository,
     ScheduledReminderRepository,
-    SmartParticipationRepository,
     TargetAccessRepository,
     WorkspaceRepository,
     inspect_storage,
 )
-from echo_masque.persistence.belief_repository import BeliefRepository
-from echo_masque.persistence.conversation_runtime_repository import ConversationRuntimeRepository
-from echo_masque.persistence.conversation_structure_repository import (
-    ConversationStructureRepository,
-)
-from echo_masque.persistence.entity_evidence_repository import EntityEvidenceRepository
 from echo_masque.persistence.knowledge_fabric_content_repository import (
     KnowledgeFabricContentRepository,
 )
@@ -182,9 +165,12 @@ from echo_masque.persistence.knowledge_fabric_site_collection_repository import 
 from echo_masque.persistence.knowledge_fabric_visual_reference_repository import (
     KnowledgeFabricVisualReferenceRepository,
 )
+from echo_masque.persistence.note_repository import CharacterNoteRepository
+from echo_masque.persistence.pending_action_repository import PendingActionRepository
+from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.persistence.server_runtime_repository import ServerRuntimeRepository
 from echo_masque.persistence.turn_job_repository import TurnJobRepository
-from echo_masque.planner_media import PlannerMediaDescriptorService
+from echo_masque.persistence.web_room_repository import WebRoomRepository
 from echo_masque.prompt_inspector import CharacterPromptInspector
 from echo_masque.provider_credentials import KeyGroupProviderCredentialResolver
 from echo_masque.providers import OpenAICompatibleProvider
@@ -192,19 +178,17 @@ from echo_masque.providers.trace import configure_provider_trace_sink
 from echo_masque.public_demo import PublicDemoService
 from echo_masque.public_demo_middleware import PublicDemoReadOnlyMiddleware
 from echo_masque.public_demo_quota import PublicDemoQuotaService
-from echo_masque.recall_media_connector_runtime import RecallAwareMediaDiscordConnectorRuntime
+from echo_masque.room_context import RoomContextService
+from echo_masque.room_director_pool import RoomDirectorPool
 from echo_masque.runtime_maintenance import RuntimeMaintenance
 from echo_masque.runtime_trace_buffer import BufferedRuntimeTraceSink
 from echo_masque.scheduled_reminder_service import ScheduledReminderDeliveryService
-from echo_masque.semantic_participation import CharacterParticipationSemanticService
 from echo_masque.services import MatrixService, RuntimeService, TrialService
-from echo_masque.smart_participation_generation import SmartParticipationGenerationService
-from echo_masque.social_intelligence_v3 import SocialIntelligenceV3Service
 from echo_masque.template_sharing import EvaluationTemplateService
 from echo_masque.turn_jobs import TurnJobManager
 from echo_masque.utility_gateway_live import ExistingProviderUtilityCaller
 from echo_masque.utility_gateway_router import UtilityGatewayRouter
-from echo_masque.utility_media_provider import UtilityMediaUnderstandingProvider
+from echo_masque.web_rooms import WebRoomError
 
 logger = logging.getLogger(__name__)
 
@@ -257,14 +241,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             navigation_timeout_ms=resolved.browser_navigation_timeout_ms,
         )
     )
-    interaction_repository = InteractionRepository(database)
     expression_repository = ExpressionRepository(database)
-    smart_participation_repository = SmartParticipationRepository(database)
-    semantic_participation_service = CharacterParticipationSemanticService(
-        repository,
-        smart_participation_repository,
-        resolved,
-    )
     knowledge_object_storage = object_storage_from_settings(resolved)
     knowledge_fabric_repository = KnowledgeFabricRepository(
         database,
@@ -356,9 +333,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     # Intelligence Core v3 runtime authorities.
-    belief_repository = BeliefRepository(database)
-    conversation_structure_repository = ConversationStructureRepository(database)
-    conversation_runtime_repository = ConversationRuntimeRepository(database)
 
     if bootstrap_admin is not None:
         centralized = DiscordInventoryService(database).centralize(bootstrap_admin.id)
@@ -412,11 +386,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         conversation_media_repository=conversation_media_repository,
         artifact_repository=generated_media_repository,
     )
+    room_repository = RoomRepository(database)
+    character_note_repository = CharacterNoteRepository(database)
     internal_context_service = InternalContextService(
-        belief_repository=belief_repository,
-        structure_repository=conversation_structure_repository,
-        runtime_repository=conversation_runtime_repository,
-        settings=resolved,
+        notes=character_note_repository,
+        rooms=room_repository,
+        deployments=deployment_repository,
         knowledge_context=knowledge_context_builder,
     )
     tool_registry = MediaToolRegistry(
@@ -438,11 +413,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         credential_resolver=media_credential_resolver,
         discord_bot_token=resolved.discord_tool_bot_token,
     )
-    deployment_activity_service = DeploymentBrowsingActivityService(database, resolved)
-    deployment_activity_scheduler = DeploymentActivityScheduler(
-        deployment_activity_service,
-        poll_seconds=resolved.discovery_activity_poll_seconds,
-    )
     scheduled_reminder_delivery = ScheduledReminderDeliveryService(
         scheduled_reminder_repository,
         deployment_repository,
@@ -452,7 +422,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         poll_seconds=resolved.scheduler_poll_seconds,
         retry_seconds=resolved.scheduler_retry_seconds,
         max_attempts=resolved.scheduler_max_attempts,
-        activity_scheduler=deployment_activity_scheduler,
     )
     condition_watch_evaluator = ConditionWatchEvaluatorRuntime(
         repository,
@@ -490,60 +459,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         runtime_service,
         caller=ExistingProviderUtilityCaller(),
     )
-    conversation_structure_resolver = ConversationStructureResolver(
-        conversation_structure_repository,
-        resolved,
-        planner_utility_gateway,
-    )
-    entity_evidence_repository = EntityEvidenceRepository(database)
-    knowledge_gap_discovery_service = KnowledgeGapDiscoveryService(
-        entities=entity_evidence_repository,
-        discovery=DeploymentDiscoveryPreviewService(database, resolved),
-    )
-    conversation_runtime_coordinator = ProjectionConversationRuntimeCoordinator(
-        conversation_structure_repository,
-        conversation_runtime_repository,
-        graph=EvidenceGraphService(entity_evidence_repository),
-    )
-    conversation_runtime_maintenance = ConversationRuntimeMaintenanceService(
-        conversation_runtime_coordinator, conversation_runtime_repository
-    )
-    pending_action_service = PendingActionService(conversation_runtime_repository)
-    context_resolver_v3 = ContextResolverV3(
-        structure=conversation_structure_repository,
-        runtime=conversation_runtime_repository,
-        entities=entity_evidence_repository,
-        beliefs=belief_repository,
-        social=SocialIntelligenceV3Service(database),
-        identities=discord_identity_repository,
-    )
-    character_turn_context_v3_service = CharacterTurnContextV3Service(
-        structure=conversation_structure_repository,
-        structure_resolver=conversation_structure_resolver,
-        runtime_coordinator=conversation_runtime_coordinator,
-        context_resolver=context_resolver_v3,
-        knowledge_context=knowledge_context_builder,
-        corrections=CurrentTurnBeliefRevisionService(
-            repository=belief_repository,
-            gateway=planner_utility_gateway,
-        ),
-        entity_grounding=EntityGroundingService(entity_evidence_repository),
-        knowledge_gap_discovery=knowledge_gap_discovery_service,
-    )
+    pending_action_service = PendingActionService(PendingActionRepository(database))
     knowledge_fabric_visual_reference_repository = KnowledgeFabricVisualReferenceRepository(
         database
     )
-    discord_connector_runtime = RecallAwareMediaDiscordConnectorRuntime(
+    room_context_service = RoomContextService(room_repository, notes=character_note_repository)
+    discord_connector_runtime = MediaAwareDiscordConnectorRuntime(
         repository,
         deployment_repository,
         credential_store,
         provider_factory=lambda base_url, api_key: OpenAICompatibleProvider(
             base_url=base_url, api_key=api_key, settings=resolved
         ),
-        context_service_v3=character_turn_context_v3_service,
+        context_service=room_context_service,
         deployment_tool_repository=deployment_tool_repository,
         tool_registry=tool_registry,
-        turn_director_gateway=planner_utility_gateway,
         pending_action_service=pending_action_service,
         live_media_service=live_media_service,
         conversation_media_service=conversation_media_service,
@@ -553,21 +483,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             object_storage=knowledge_object_storage,
         ),
     )
-    character_turn_graph_runner = (
-        CharacterTurnGraphRunner(
-            discord_connector_runtime,
-            trace_sink=buffered_runtime_trace,
-        )
-        if resolved.langgraph_allows("character_turn")
-        else None
+    character_turn_graph_runner = CharacterTurnGraphRunner(
+        discord_connector_runtime,
+        trace_sink=buffered_runtime_trace,
     )
-    social_turn_graph_runner = (
-        SocialTurnGraphRunner(
-            character_turn_graph_runner,
-            trace_sink=buffered_runtime_trace,
-        )
-        if (character_turn_graph_runner is not None and resolved.langgraph_allows("social_turn"))
-        else None
+    social_turn_graph_runner = SocialTurnGraphRunner(
+        character_turn_graph_runner,
+        trace_sink=buffered_runtime_trace,
     )
     public_demo_result = PublicDemoService(
         settings=resolved,
@@ -595,9 +517,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         evaluation_repository,
         deployment_repository,
         discord_identity_repository,
-        interaction_repository,
         expression_repository,
-        smart_participation_repository,
         knowledge_fabric_repository,
         deployment_tool_repository,
         scheduled_reminder_repository,
@@ -608,13 +528,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     repository.seed_demo_targets()
     repository.remove_demo_character_cards()
-    planner_media_service = PlannerMediaDescriptorService(
-        media=EnhancedLiveMediaContextService.from_service(
-            live_media_service,
-            browser_runtime=browser_runtime,
-        ),
-        utility_provider=UtilityMediaUnderstandingProvider(planner_utility_gateway),
-    )
     authoring_runtime_service = AuthoringRuntimeService(
         database,
         auth_repository,
@@ -626,10 +539,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         workspace_repository,
         authoring_repository,
         auth_repository,
-        authoring_runtime_service,
-    )
-    smart_participation_generation_service = SmartParticipationGenerationService(
-        repository,
         authoring_runtime_service,
     )
     judge_evaluation_service = JudgeEvaluationService(
@@ -662,11 +571,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await buffered_runtime_trace.start()
             cleanup.push_async_callback(runtime_maintenance.stop)
             await runtime_maintenance.start()
-            cleanup.push_async_callback(conversation_runtime_maintenance.stop)
-            await conversation_runtime_maintenance.start()
             cleanup.push_async_callback(browser_runtime.stop)
             await browser_runtime.start()
-            cleanup.push_async_callback(character_turn_context_v3_service.shutdown)
             cleanup.push_async_callback(scheduled_reminder_delivery.stop)
             await scheduled_reminder_delivery.start()
             cleanup.push_async_callback(condition_watch_service.stop)
@@ -752,16 +658,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.browser_runtime = browser_runtime
     app.state.scheduled_reminder_repository = scheduled_reminder_repository
     app.state.scheduled_reminder_delivery = scheduled_reminder_delivery
-    app.state.deployment_activity_service = deployment_activity_service
-    app.state.deployment_activity_scheduler = deployment_activity_scheduler
     app.state.condition_watch_repository = condition_watch_repository
     app.state.condition_watch_graph_runner = condition_watch_graph_runner
     app.state.condition_watch_service = condition_watch_service
     app.state.discord_identity_repository = discord_identity_repository
-    app.state.interaction_repository = interaction_repository
     app.state.expression_repository = expression_repository
-    app.state.smart_participation_repository = smart_participation_repository
-    app.state.semantic_participation_service = semantic_participation_service
     app.state.knowledge_fabric_repository = knowledge_fabric_repository
     app.state.knowledge_fabric_index_repository = knowledge_fabric_index_repository
     app.state.knowledge_fabric_invalidation_repository = knowledge_fabric_invalidation_repository
@@ -785,30 +686,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.knowledge_fabric_visual_reference_repository = (
         knowledge_fabric_visual_reference_repository
     )
-    app.state.entity_evidence_repository = entity_evidence_repository
-    app.state.knowledge_gap_discovery_service = knowledge_gap_discovery_service
-    app.state.context_resolver_v3 = context_resolver_v3
-    app.state.conversation_structure_resolver_v3 = conversation_structure_resolver
-    app.state.conversation_runtime_coordinator_v3 = conversation_runtime_coordinator
-    app.state.character_turn_context_v3_service = character_turn_context_v3_service
     app.state.utility_gateway_router_v3 = planner_utility_gateway
     app.state.provider_trace_repository = provider_trace_repository
     app.state.durable_runtime_repository = durable_runtime_repository
     app.state.buffered_runtime_trace = buffered_runtime_trace
     app.state.runtime_maintenance = runtime_maintenance
-    app.state.conversation_runtime_maintenance = conversation_runtime_maintenance
     app.state.key_group_repository = key_group_repository
     app.state.media_analysis_repository = media_analysis_repository
     app.state.conversation_media_repository = conversation_media_repository
     app.state.generated_media_repository = generated_media_repository
     app.state.image_creation_service = image_creation_service
     app.state.live_media_service = live_media_service
-    app.state.belief_repository = belief_repository
-    app.state.conversation_structure_repository = conversation_structure_repository
-    app.state.conversation_runtime_repository = conversation_runtime_repository
     app.state.pending_action_service = pending_action_service
+    app.state.room_director = RoomDirectorPool(planner_utility_gateway)
+    app.state.room_repository = room_repository
+    app.state.room_context_service = room_context_service
     app.state.internal_context_service = internal_context_service
-    app.state.planner_media_service = planner_media_service
+    app.state.character_note_repository = character_note_repository
     app.state.discord_connector_runtime = discord_connector_runtime
     app.state.character_turn_graph_runner = character_turn_graph_runner
     app.state.social_turn_graph_runner = social_turn_graph_runner
@@ -818,7 +712,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.evaluation_template_service = evaluation_template_service
     app.state.authoring_runtime_service = authoring_runtime_service
     app.state.authoring_generation_service = authoring_generation_service
-    app.state.smart_participation_generation_service = smart_participation_generation_service
     app.state.calibration_repository = calibration_repository
     app.state.evaluation_repository = evaluation_repository
     app.state.coverage_analytics_service = coverage_analytics_service
@@ -830,6 +723,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.account_lifecycle_service = account_lifecycle_service
     app.state.credential_store = credential_store
     app.state.runtime_service = runtime_service
+    app.state.web_room_repository = WebRoomRepository(database)
+    app.state.web_room_streams = {}
     app.state.trial_service = trial_service
     app.state.matrix_service = matrix_service
     app.include_router(health_router)
@@ -848,14 +743,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(coverage_router)
     app.include_router(templates_router)
     app.include_router(characters_router)
+    app.include_router(character_notes_router)
     app.include_router(deployments_router)
     app.include_router(tools_router)
     app.include_router(scheduled_reminders_router)
     app.include_router(discord_identities_router)
-    app.include_router(interactions_router)
-    app.include_router(smart_participation_router)
+    app.include_router(expression_catalog_router)
     app.include_router(knowledge_fabric_router)
     app.include_router(connectors_router)
+    app.include_router(room_routing_router)
+    app.include_router(web_chat_router)
+    app.include_router(web_chat_connector_router)
+
+    @app.exception_handler(WebRoomError)
+    async def web_room_error(request: Request, exc: WebRoomError) -> JSONResponse:
+        return JSONResponse(status_code=exc.status, content={"detail": str(exc)})
+
     app.include_router(prompt_inspector_router)
     app.include_router(targets_router)
     app.include_router(trials_router)

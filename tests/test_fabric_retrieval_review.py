@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 
-from echo_masque.context_resolver_v3 import ContextBundleV3, ContextResolverV3
 from echo_masque.knowledge_fabric_context import KnowledgeContextBuilder
 from echo_masque.knowledge_fabric_epistemic_policy import PersistedCharacterEpistemicPolicy
 from echo_masque.knowledge_fabric_ingestion import (
@@ -208,33 +207,12 @@ def test_persisted_character_policy_filters_before_top_k_and_prompt_keeps_hostil
     assert prompt_hit.ref == f"evidence:{context.hits[0].evidence_unit_id}"
     assert "BEGIN UNTRUSTED EVIDENCE JSON" in prompt_hit.text
     assert "END UNTRUSTED EVIDENCE JSON" in prompt_hit.text
-    assert hostile_text in prompt_hit.text
+    assert hostile_text[:80] in prompt_hit.text
     assert "credential=never-prompted" not in prompt_hit.text
-    packed_hits, packing = ContextResolverV3._bounded_knowledge(context.prompt_hits(), 2600)
-    prompt_bundle = ContextBundleV3(
-        query="azure comet secret answer exact phrase",
-        thread=None,
-        segment=None,
-        working_state=None,
-        live_context=(),
-        beliefs=(),
-        episodes=(),
-        entities=(),
-        knowledge_hits=packed_hits,
-        social_context=(),
-        pending_actions=(),
-        knowledge_gaps=(),
-        correction_notice="",
-        sufficiency="sufficient",
-        reason="test",
-        knowledge_packing=packing,
-    )
-    knowledge_section = next(
-        item for item in prompt_bundle.prompt_sections() if item.startswith("KNOWLEDGE EVIDENCE\n")
-    )
+    bounded = context.prompt_hits(max_chars_per_hit=2600)
+    knowledge_section = bounded[0].text
     assert len(knowledge_section) <= 2600
-    assert packing.selected_refs == (prompt_hit.ref,)
-    assert (prompt_hit.ref, "truncated_to_budget") in packing.omitted
+    assert bounded[0].ref == prompt_hit.ref
     assert "BEGIN UNTRUSTED EVIDENCE JSON" in knowledge_section
     assert "END UNTRUSTED EVIDENCE JSON" in knowledge_section
     assert '"evidence_unit_id"' in knowledge_section

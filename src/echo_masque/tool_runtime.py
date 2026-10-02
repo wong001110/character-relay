@@ -96,6 +96,7 @@ class ToolExecutionContext:
     thread_id: str = ""
     message_id: str = ""
     trigger_text: str = ""
+    request_origin: str = "direct"
     initiator_is_bot: bool = False
     initiator_user_id: str = ""
     operation_id: str = ""
@@ -947,6 +948,10 @@ class ToolRegistry:
                 status="rejected",
                 error="tool_provider_not_configured",
                 started=started,
+            )
+        if registered.catalog.side_effect and context.request_origin != "direct":
+            return self._error_result(
+                tool_id=tool_id, status="rejected", error="explicit_request_required", started=started,
             )
         if registered.catalog.side_effect and not allow_side_effect:
             return self._error_result(

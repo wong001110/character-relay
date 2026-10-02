@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import unicodedata
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -13,14 +13,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from echo_masque.knowledge_fabric_interpretation_policy import (
-    RESOLUTION_ACTIVE,
-    RESOLUTION_REJECTED,
-    RESOLUTION_SUPERSEDED,
     interpretation_status_is_valid,
-    may_replace_active_resolution,
 )
 from echo_masque.persistence.database import Database
-from echo_masque.persistence.entity_evidence_models import EntityV3Record
 from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeCanonicalEntityRecord,
     KnowledgeCorpusRecord,
@@ -28,7 +23,6 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeEvidenceUnitRecord,
     KnowledgeExtractedAssertionRecord,
     KnowledgeInterpretationEvidenceRecord,
-    KnowledgeRuntimeEntityResolutionRecord,
     KnowledgeSourceRecord,
     KnowledgeSourceVersionRecord,
     KnowledgeWorldEventParticipantRecord,
@@ -111,131 +105,6 @@ class KnowledgeFabricInterpretationRepository:
                         KnowledgeCanonicalEntityRecord.canonical_name,
                         KnowledgeCanonicalEntityRecord.id,
                     )
-                )
-            )
-
-    def resolve_runtime_entity(
-        self,
-        *,
-        owner_id: str,
-        connection_id: str,
-        guild_id: str,
-        runtime_entity_id: str,
-        canonical_entity_id: str,
-        evidence_unit_ids: Sequence[str],
-        confidence: float,
-        authority_profile: str,
-        producer: str,
-        source_model: str = "",
-        now: datetime | None = None,
-    ) -> KnowledgeRuntimeEntityResolutionRecord:
-        current = now or datetime.now(UTC)
-        with self.database.session() as session:
-            self._require_runtime_entity(
-                session,
-                owner_id=owner_id,
-                connection_id=connection_id,
-                guild_id=guild_id,
-                runtime_entity_id=runtime_entity_id,
-            )
-            canonical = self._require_canonical_entity(session, canonical_entity_id)
-            self._require_evidence_units(session, canonical.corpus_id, evidence_unit_ids)
-            active = session.scalar(
-                select(KnowledgeRuntimeEntityResolutionRecord)
-                .where(
-                    KnowledgeRuntimeEntityResolutionRecord.runtime_entity_id == runtime_entity_id,
-                    KnowledgeRuntimeEntityResolutionRecord.status == RESOLUTION_ACTIVE,
-                )
-                .order_by(KnowledgeRuntimeEntityResolutionRecord.created_at.desc())
-            )
-            if active is not None and active.canonical_entity_id == canonical_entity_id:
-                return active
-            previous = active or session.scalar(
-                select(KnowledgeRuntimeEntityResolutionRecord)
-                .where(
-                    KnowledgeRuntimeEntityResolutionRecord.runtime_entity_id == runtime_entity_id
-                )
-                .order_by(KnowledgeRuntimeEntityResolutionRecord.created_at.desc())
-            )
-            supersedes = ""
-            if active is not None:
-                if not may_replace_active_resolution(
-                    existing_canonical_id=active.canonical_entity_id,
-                    next_canonical_id=canonical_entity_id,
-                ):
-                    raise ValueError("Knowledge runtime resolution cannot be replaced in place.")
-                active.status = RESOLUTION_SUPERSEDED
-                active.valid_to = current
-                supersedes = active.id
-            elif previous is not None and previous.canonical_entity_id != canonical_entity_id:
-                supersedes = previous.id
-            record = KnowledgeRuntimeEntityResolutionRecord(
-                id=str(uuid4()),
-                corpus_id=canonical.corpus_id,
-                runtime_entity_id=runtime_entity_id,
-                canonical_entity_id=canonical_entity_id,
-                status=RESOLUTION_ACTIVE,
-                confidence=confidence,
-                authority_profile=authority_profile,
-                supersedes_resolution_id=supersedes,
-                producer=producer,
-                source_model=source_model,
-                valid_from=current,
-            )
-            session.add(record)
-            self._attach_evidence(
-                session,
-                corpus_id=canonical.corpus_id,
-                interpretation_type="runtime_entity_resolution",
-                interpretation_id=record.id,
-                evidence_unit_ids=evidence_unit_ids,
-            )
-            session.commit()
-            session.refresh(record)
-            return record
-
-    def reject_runtime_entity_resolution(
-        self,
-        *,
-        owner_id: str,
-        connection_id: str,
-        guild_id: str,
-        resolution_id: str,
-        now: datetime | None = None,
-    ) -> KnowledgeRuntimeEntityResolutionRecord:
-        current = now or datetime.now(UTC)
-        with self.database.session() as session:
-            record = session.get(KnowledgeRuntimeEntityResolutionRecord, resolution_id)
-            if record is None:
-                raise KeyError("Knowledge runtime resolution not found.")
-            self._require_runtime_entity(
-                session,
-                owner_id=owner_id,
-                connection_id=connection_id,
-                guild_id=guild_id,
-                runtime_entity_id=record.runtime_entity_id,
-            )
-            if record.status != RESOLUTION_ACTIVE:
-                raise ValueError("Only active Knowledge runtime resolutions may be rejected.")
-            record.status = RESOLUTION_REJECTED
-            record.valid_to = current
-            session.commit()
-            session.refresh(record)
-            return record
-
-    def list_runtime_entity_resolutions(
-        self,
-        runtime_entity_id: str,
-    ) -> list[KnowledgeRuntimeEntityResolutionRecord]:
-        with self.database.session() as session:
-            return list(
-                session.scalars(
-                    select(KnowledgeRuntimeEntityResolutionRecord)
-                    .where(
-                        KnowledgeRuntimeEntityResolutionRecord.runtime_entity_id
-                        == runtime_entity_id
-                    )
-                    .order_by(KnowledgeRuntimeEntityResolutionRecord.created_at)
                 )
             )
 
@@ -499,34 +368,15 @@ class KnowledgeFabricInterpretationRepository:
         counts["knowledge_fabric_world_events"] = self._delete_corpus_rows(
             session, KnowledgeWorldEventRecord, corpus_ids
         )
-        counts["knowledge_fabric_runtime_entity_resolutions"] = self._delete_corpus_rows(
-            session, KnowledgeRuntimeEntityResolutionRecord, corpus_ids
-        )
         counts["knowledge_fabric_canonical_entities"] = self._delete_corpus_rows(
             session, KnowledgeCanonicalEntityRecord, corpus_ids
         )
         return counts
 
     @staticmethod
-    def delete_runtime_entity_resolutions(
-        session: Session,
-        runtime_entity_ids: Sequence[str],
-    ) -> int:
-        if not runtime_entity_ids:
-            return 0
-        return KnowledgeFabricInterpretationRepository._rowcount(
-            session.execute(
-                delete(KnowledgeRuntimeEntityResolutionRecord).where(
-                    KnowledgeRuntimeEntityResolutionRecord.runtime_entity_id.in_(runtime_entity_ids)
-                )
-            )
-        )
-
-    @staticmethod
     def empty_interpretation_counts() -> dict[str, int]:
         return {
             "knowledge_fabric_canonical_entities": 0,
-            "knowledge_fabric_runtime_entity_resolutions": 0,
             "knowledge_fabric_extracted_assertions": 0,
             "knowledge_fabric_world_events": 0,
             "knowledge_fabric_world_event_participants": 0,
@@ -580,25 +430,6 @@ class KnowledgeFabricInterpretationRepository:
         record = cls._require_canonical_entity(session, canonical_entity_id)
         if record.corpus_id != corpus_id:
             raise ValueError("Knowledge canonical entity is outside the corpus.")
-        return record
-
-    @staticmethod
-    def _require_runtime_entity(
-        session: Session,
-        *,
-        owner_id: str,
-        connection_id: str,
-        guild_id: str,
-        runtime_entity_id: str,
-    ) -> EntityV3Record:
-        record = session.get(EntityV3Record, runtime_entity_id)
-        if (
-            record is None
-            or record.owner_id != owner_id
-            or record.connection_id != connection_id
-            or record.guild_id != guild_id
-        ):
-            raise KeyError("Runtime Entity not found in this server scope.")
         return record
 
     @staticmethod

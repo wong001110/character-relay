@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from echo_masque.persistence.models import Base, utcnow
@@ -55,63 +55,11 @@ class DiscordExpressionSemanticRecord(Base):
     )
 
 
-class DiscordExpressionRunRecord(Base):
-    """Durable state for one character expression decision workflow."""
-
-    __tablename__ = "discord_expression_runs"
-    __table_args__ = (
-        UniqueConstraint(
-            "connection_id",
-            "source_message_id",
-            "deployment_id",
-            name="uq_discord_expression_run_trigger",
-        ),
-    )
-
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+class ExpressionUsageRecord(Base):
+    __tablename__ = "expression_usage"
+    step_id: Mapped[str] = mapped_column(String(200), primary_key=True)
     owner_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
-    connection_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
-    guild_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
-    channel_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
-    source_message_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     deployment_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
-    character_card_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
-    status: Mapped[str] = mapped_column(String(24), default="running", nullable=False)
-    current_node: Mapped[str] = mapped_column(
-        String(80), default="filter_resources", nullable=False
-    )
-    attempt_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    selected_action: Mapped[str] = mapped_column(String(24), default="none", nullable=False)
-    selected_resource_key: Mapped[str] = mapped_column(String(240), default="", nullable=False)
-    state_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
-    last_error: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, onupdate=utcnow
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-
-class DiscordExpressionNodeRecord(Base):
-    """One persisted node transition within an expression workflow run."""
-
-    __tablename__ = "discord_expression_nodes"
-    __table_args__ = (
-        UniqueConstraint(
-            "run_id",
-            "node_index",
-            name="uq_discord_expression_node_index",
-        ),
-    )
-
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    run_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
-    node_name: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
-    node_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    attempt: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    status: Mapped[str] = mapped_column(String(24), nullable=False)
-    input_summary_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
-    output_summary_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
-    error: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resource_key: Mapped[str] = mapped_column(String(240), nullable=False)
+    used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

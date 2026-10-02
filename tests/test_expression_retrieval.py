@@ -155,9 +155,11 @@ def test_hybrid_retrieval_filters_unavailable_and_penalizes_repetition() -> None
     assert peek.signals["recent_penalty"] > 0
 
 
-def test_expression_dictionary_retrieval_and_nodes_are_owner_scoped(tmp_path: Path) -> None:
+def test_catalogue_survives_retirement_of_eager_retrieval_and_workflow_nodes(
+    tmp_path: Path,
+) -> None:
     client = TestClient(create_app(settings(tmp_path / "expressions.db")))
-    connection, deployment = seed(client)
+    connection, _deployment = seed(client)
     catalog = client.put(
         "/api/connectors/discord/server-catalog",
         headers=connector_headers(),
@@ -248,72 +250,25 @@ def test_expression_dictionary_retrieval_and_nodes_are_owner_scoped(tmp_path: Pa
     assert manual.status_code == 200, manual.text
     assert manual.json()["semantic_source"] == "manual"
 
-    retrieval = client.post(
-        "/api/connectors/discord/expressions/retrieve",
+    # Candidate-list and expression workflow endpoints are physically retired.
+    assert client.post(
+        "/api/connectors/discord/expressions/retrieve", headers=connector_headers(), json={}
+    ).status_code in (404, 405)
+    assert client.get("/api/discord/expression-runs").status_code == 404
+    resolved = client.post(
+        "/api/connectors/discord/expressions/resolve",
         headers=connector_headers(),
         json={
             "connection_id": connection["id"],
             "guild_id": "guild-expression",
-            "channel_id": "channel-expression",
-            "source_message_id": "message-expression",
-            "deployment_id": deployment["id"],
-            "query": "我有一点好奇,想偷偷看看接下来会发生什么",
-            "allowed_actions": ["inline", "reaction", "sticker"],
-            "excluded_resource_keys": [],
-            "top_k": 6,
+            "resource_type": "emoji",
+            "resource_id": "emoji-peek",
+            "name": "ann_peek",
         },
     )
-    assert retrieval.status_code == 200, retrieval.text
-    body = retrieval.json()
-    assert body["retrieval_backend"] == "hybrid_sparse_v1"
-    assert body["candidates"][0]["resource_key"] == "emoji:emoji-peek"
-
-    selected = client.post(
-        f"/api/connectors/discord/expressions/runs/{body['run_id']}/nodes",
-        headers=connector_headers(),
-        json={
-            "connection_id": connection["id"],
-            "node_name": "model_select",
-            "status": "completed",
-            "input_summary": {"candidate_count": len(body["candidates"])},
-            "output_summary": {
-                "action": "reaction",
-                "resource_key": "emoji:emoji-peek",
-            },
-            "error": "",
-            "selected_action": "reaction",
-            "selected_resource_key": "emoji:emoji-peek",
-        },
-    )
-    assert selected.status_code == 204, selected.text
-    completed = client.post(
-        f"/api/connectors/discord/expressions/runs/{body['run_id']}/nodes",
-        headers=connector_headers(),
-        json={
-            "connection_id": connection["id"],
-            "node_name": "execute_delivery",
-            "status": "completed",
-            "input_summary": {"action": "reaction"},
-            "output_summary": {"expression_applied": True},
-            "error": "",
-            "selected_action": "reaction",
-            "selected_resource_key": "emoji:emoji-peek",
-            "final_status": "completed",
-        },
-    )
-    assert completed.status_code == 204, completed.text
-
-    detail = client.get(f"/api/discord/expression-runs/{body['run_id']}")
-    assert detail.status_code == 200, detail.text
-    assert detail.json()["status"] == "completed"
-    assert [node["node_name"] for node in detail.json()["nodes"]] == [
-        "filter_resources",
-        "rank_candidates",
-        "model_select",
-        "execute_delivery",
-    ]
-    assert "query" not in detail.json()["state"]
-    assert detail.json()["state"]["query_summary"]["length"] > 0
+    assert resolved.status_code == 200
+    assert resolved.json()["semantic_source"] == "manual"
+    assert resolved.json()["semantic_intent"] == "curious_peek"
 
 
 def test_exact_custom_emoji_resolution_uses_dictionary_semantics(tmp_path: Path) -> None:

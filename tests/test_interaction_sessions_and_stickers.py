@@ -102,74 +102,6 @@ def seed(client: TestClient) -> tuple[dict[str, object], list[dict[str, object]]
     return connection, deployments
 
 
-def test_roast_session_claim_is_bounded_and_idempotent(tmp_path: Path) -> None:
-    client = TestClient(create_app(settings(tmp_path / "interaction.db")))
-    connection, deployments = seed(client)
-    created = client.post(
-        "/api/interaction-sessions",
-        json={
-            "connection_id": connection["id"],
-            "guild_id": "guild-1",
-            "guild_name": "Guild",
-            "channel_id": "channel-1",
-            "channel_name": "general",
-            "category_id": "",
-            "target_user_id": "user-1",
-            "target_display_name": "Target",
-            "participant_deployment_ids": [deployments[0]["id"], deployments[1]["id"]],
-            "rounds_per_trigger": 2,
-            "maximum_triggers": 1,
-            "cooldown_seconds": 0,
-            "duration_seconds": 600,
-            "intensity": "playful",
-            "status": "active",
-        },
-    )
-    assert created.status_code == 201, created.text
-    assert created.json()["maximum_replies_per_trigger"] == 4
-
-    claim_payload = {
-        "connection_id": connection["id"],
-        "guild_id": "guild-1",
-        "channel_id": "channel-1",
-        "target_user_id": "user-1",
-        "source_message_id": "message-1",
-    }
-    first = client.post(
-        "/api/connectors/discord/interaction-sessions/claim",
-        json=claim_payload,
-        headers=headers(),
-    )
-    assert first.status_code == 200, first.text
-    assert first.json()["claimed"] is True
-    assert first.json()["session"]["participant_deployment_ids"] == [
-        deployments[0]["id"],
-        deployments[1]["id"],
-    ]
-
-    duplicate = client.post(
-        "/api/connectors/discord/interaction-sessions/claim",
-        json=claim_payload,
-        headers=headers(),
-    )
-    assert duplicate.status_code == 200
-    assert duplicate.json()["claimed"] is False
-
-    completed = client.post(
-        f"/api/connectors/discord/interaction-sessions/runs/{first.json()['run_id']}",
-        json={
-            "connection_id": connection["id"],
-            "status": "completed",
-            "reply_count": 4,
-            "stop_reason": "rounds_completed",
-        },
-        headers=headers(),
-    )
-    assert completed.status_code == 204
-    listed = client.get("/api/interaction-sessions")
-    assert listed.json()[0]["status"] == "completed"
-
-
 def test_sticker_metadata_is_observed_and_manual_semantics_win(tmp_path: Path) -> None:
     client = TestClient(create_app(settings(tmp_path / "stickers.db")))
     connection, _ = seed(client)
@@ -193,9 +125,12 @@ def test_sticker_metadata_is_observed_and_manual_semantics_win(tmp_path: Path) -
     assert "doubt" in observed.json()["semantic_description"]
 
     manual = client.put(
-        "/api/discord/sticker-dictionary",
+        "/api/discord/expression-dictionary",
         json={
-            **observation,
+            **{key: value for key, value in observation.items() if key != "sticker_id"},
+            "resource_type": "sticker",
+            "resource_id": "sticker-1",
+            "allowed_actions": ["sticker"],
             "semantic_intent": "playful_disbelief",
             "semantic_emotion": "amused",
             "semantic_description": "The user is playfully saying they do not believe the claim.",
@@ -214,7 +149,7 @@ def test_sticker_metadata_is_observed_and_manual_semantics_win(tmp_path: Path) -
     assert resolved_again.json()["semantic_source"] == "manual"
 
 
-def test_social_prompt_explains_stickers_and_bounded_roast() -> None:
+def test_social_prompt_explains_stickers_without_legacy_roast_instructions() -> None:
     sticker = {
         "sticker_id": "sticker-1",
         "name": "side_eye_cat",
@@ -247,22 +182,12 @@ def test_social_prompt_explains_stickers_and_bounded_roast() -> None:
                 stickers=[sticker],
             )
         ],
-        interaction_session_id="session-1",
-        interaction_type="roast",
-        interaction_intensity="playful",
-        interaction_round=1,
-        interaction_total_rounds=2,
-        interaction_position=1,
-        interaction_participant_count=2,
-        interaction_target_user_id="user-1",
-        interaction_target_display_name="Target",
     )
     prompt = DiscordConnectorRuntime._social_prompt(character_name="Ann", payload=payload)
     assert "intent: playful_disbelief" in prompt
     assert "playfully expressing disbelief" not in prompt
-    assert "Portal-configured Roast Interaction Session" in prompt
-    assert "Never target identity traits" in prompt
-    assert "speaker 1 of 2" in prompt
+    assert "Portal-configured Roast Interaction Session" not in prompt
+    assert "speaker 1 of 2" not in prompt
 
 
 def test_social_prompt_keeps_prior_sticker_only_messages() -> None:

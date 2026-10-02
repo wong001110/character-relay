@@ -54,10 +54,10 @@ _SMART_OUTPUT_FORMAT_REPAIR_GUIDANCE = "\n".join(
     (
         "Formatting repair only. Preserve the intended action and visible wording; do not add "
         "reasoning, facts, or a new answer.",
-        "Each message content item must be exactly one object: {\"text\":\"...\"}, "
-        "{\"emoji\":\"eN\"}, or {\"mention\":\"pN\"}.",
-        "Never place an Emoji or Mention JSON object inside a text string. Split text around "
-        "inline Emoji.",
+        'Each content item is {"text":"..."} or {"mention":"pN"}. Expression is optional: '
+        '{"kind":"emoji|sticker","intent":"...","emotion":"..."}. Never invent resource IDs.',
+        "Never place a Mention JSON object inside a text string. Direct react/sticker needs "
+        "fallback_text. Return one [[CR_OUTPUT {...}]] line.",
     )
 )
 
@@ -153,7 +153,7 @@ class PromptModelTarget:
         prefix = message[:marker]
         if "Return Smart Output now." not in prefix:
             return message
-        rejected = message[marker:].strip()
+        rejected = message[marker:].splitlines()[0].strip()[:100]
         return f"{rejected}\n{_SMART_OUTPUT_FORMAT_REPAIR_GUIDANCE}"
 
     async def send(self, message: str) -> TargetResponse:

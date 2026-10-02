@@ -20,9 +20,9 @@ from echo_masque.connector_runtime import (
     PreparedCharacterTurn,
 )
 from echo_masque.credentials import CredentialStore
-from echo_masque.pending_actions_v3 import PendingActionService
-from echo_masque.persistence.conversation_runtime_repository import ConversationRuntimeRepository
+from echo_masque.pending_actions import PendingActionService
 from echo_masque.persistence.database import Database
+from echo_masque.persistence.pending_action_repository import PendingActionRepository
 from echo_masque.providers import (
     ChatToolCall,
     ChatToolDefinition,
@@ -147,6 +147,7 @@ def _prepared(
     *,
     conversation_thread_id: str = "",
 ) -> PreparedCharacterTurn:
+    payload.thread_id = conversation_thread_id
     deployment = SimpleNamespace(id="deployment-1", owner_id="owner-1", platform="discord")
     card = SimpleNamespace(id="card-1", display_name="Ann", subtitle="Companion")
     resolved = SimpleNamespace(
@@ -161,8 +162,7 @@ def _prepared(
         turn_context=None,
         context_bundle=(
             SimpleNamespace(
-                thread=SimpleNamespace(id=conversation_thread_id),
-                segment=None,
+                native_context_id=conversation_thread_id,
             )
             if conversation_thread_id
             else None
@@ -202,7 +202,7 @@ def _target(provider: object) -> PromptModelTarget:
 def _service() -> PendingActionService:
     database = Database("sqlite://")
     database.initialize()
-    return PendingActionService(ConversationRuntimeRepository(database))
+    return PendingActionService(PendingActionRepository(database))
 
 
 def test_app_runtime_retries_unique_pending_tool_without_current_tool_keyword(
@@ -240,6 +240,8 @@ def test_app_runtime_retries_unique_pending_tool_without_current_tool_keyword(
         requested_by_user_id="member-1",
         target_character_card_id="card-1",
         deployment_id="deployment-1",
+        channel_id="channel-1",
+        discord_thread_id="thread-1",
     )
     assert len(actions) == 1
     assert actions[0].state == "blocked_unavailable"
@@ -342,6 +344,8 @@ def test_app_runtime_cancellation_suppresses_an_explicit_tool_request_this_turn(
         requested_by_user_id="member-1",
         target_character_card_id="card-1",
         deployment_id="deployment-1",
+        channel_id="channel-1",
+        discord_thread_id="thread-1",
     )
     assert len(actions) == 1
 

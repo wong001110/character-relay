@@ -10,6 +10,7 @@ export type PortalSection =
   | "dashboard"
   | "characters"
   | "deployments"
+  | "rooms"
   | "toolbox"
   | "settings";
 
@@ -32,6 +33,7 @@ const navItems: Array<{
   { id: "dashboard", icon: "home", en: "Dashboard", zh: "首页" },
   { id: "characters", icon: "characters", en: "Characters", zh: "角色" },
   { id: "deployments", icon: "deployment", en: "Deployments", zh: "部署" },
+  { id: "rooms", icon: "deployment", en: "Rooms", zh: "聊天室" },
   { id: "toolbox", icon: "toolbox", en: "Toolbox", zh: "工具箱" },
   { id: "settings", icon: "settings", en: "Settings", zh: "设置" }
 ];

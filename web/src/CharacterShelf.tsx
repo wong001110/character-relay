@@ -18,7 +18,6 @@ import {
 } from "./components/ui";
 import type { CharacterDeployment } from "./deploymentApi";
 import { useI18n } from "./i18n";
-import { SemanticProfilePanel } from "./SemanticProfilePanel";
 
 interface Props {
   cards: CharacterCard[];
@@ -128,7 +127,6 @@ export function CharacterShelf({
   const [page, setPage] = useState(1);
   const [localFileSection, setLocalFileSection] = useState<FileSection>("profile");
   const fileSection = selectedFileSection ?? localFileSection;
-  const [semanticCard, setSemanticCard] = useState<CharacterCard | null>(null);
   const [portraitVersions, setPortraitVersions] = useState<Record<string, number>>({});
   const [portraitWorking, setPortraitWorking] = useState<string | null>(null);
   const [portraitMessage, setPortraitMessage] = useState<string | null>(null);
@@ -376,7 +374,6 @@ export function CharacterShelf({
               <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled={portraitWorking === card.id} onChange={(event) => { const file = event.currentTarget.files?.[0] ?? null; void uploadPortrait(card, file); event.currentTarget.value = ""; }} />
             </label>
             <Button variant="ghost" size="sm" disabled={portraitWorking === card.id} onClick={() => void removePortrait(card)}>{zh ? "移除图片" : "Remove image"}</Button>
-            <Button variant="ghost" size="sm" onClick={() => setSemanticCard(card)}>Semantic Profile</Button>
           </div>
         </section>}
       </section>
@@ -405,7 +402,6 @@ export function CharacterShelf({
           <span><i className={selectedTarget ? "is-ready" : ""} />Runtime {selectedTarget ? (zh ? "可用" : "ready") : (zh ? "不可用" : "unavailable")}</span>
           <span><i className={credentialStatus?.configured ? "is-ready" : ""} />Credential {credentialStatus ? (credentialStatus.configured ? (zh ? "已配置" : "configured") : (zh ? "缺失" : "missing")) : (zh ? "检查中" : "checking")}</span>
         </footer>
-        {semanticCard && <SemanticProfilePanel card={semanticCard} zh={zh} demoMode={demoMode} onClose={() => setSemanticCard(null)} />}
       </main>
     );
   }

@@ -1,46 +1,13 @@
 from pydantic import SecretStr
 
-from echo_masque.config import Settings, get_settings
 from echo_masque.conversation_media import (
     ConversationMediaMemory,
     ConversationMediaReferenceService,
 )
 from echo_masque.live_media import LiveMediaContext
 from echo_masque.prompt_budget import select_tool_ids_for_turn
-from echo_masque.semantic_participation import SemanticEmbeddingUnavailable
 from echo_masque.targets.prompt_model import PromptModelTarget
 from echo_masque.tool_runtime import ToolExecutionContext, ToolRegistry
-
-
-class WeatherEncoder:
-    model_name = "fake-weather"
-    dimension = 2
-
-    def embed_query(self, text: str) -> list[float]:
-        del text
-        return [1.0, 0.0]
-
-    def embed_passage(self, text: str) -> list[float]:
-        if "weather" in text.casefold() or "forecast" in text.casefold():
-            return [1.0, 0.0]
-        return [0.0, 1.0]
-
-
-class UnavailableEncoder:
-    model_name = "fake-unavailable"
-    dimension = 2
-
-    def embed_query(self, text: str) -> list[float]:
-        del text
-        raise SemanticEmbeddingUnavailable("offline")
-
-    def embed_passage(self, text: str) -> list[float]:
-        del text
-        raise SemanticEmbeddingUnavailable("offline")
-
-
-def _semantic_settings() -> Settings:
-    return get_settings().model_copy(update={"environment": "production"})
 
 
 def _tool_context(text: str) -> ToolExecutionContext:
@@ -57,7 +24,7 @@ def _tool_context(text: str) -> ToolExecutionContext:
     )
 
 
-def test_dense_tool_selection_exposes_only_relevant_read_tools() -> None:
+def test_sparse_tool_selection_exposes_only_relevant_read_tools() -> None:
     registry = ToolRegistry()
     assigned = (
         "utility.calculator",
@@ -70,14 +37,12 @@ def test_dense_tool_selection_exposes_only_relevant_read_tools() -> None:
         registry,
         assigned,
         _tool_context("明天吉隆坡会不会下雨？"),
-        settings=_semantic_settings(),
-        encoder=WeatherEncoder(),
     )
     assert selected == ("weather.get",)
     assert set(selected).issubset(set(assigned))
 
 
-def test_side_effect_tool_requires_explicit_intent_even_when_dense_matches() -> None:
+def test_side_effect_tool_requires_explicit_intent_without_semantic_scoring() -> None:
     registry = ToolRegistry(discord_bot_token=SecretStr("test-bot-token"))
     assigned = ("weather.get", "discord.create_poll")
 
@@ -85,8 +50,6 @@ def test_side_effect_tool_requires_explicit_intent_even_when_dense_matches() -> 
         registry,
         assigned,
         _tool_context("大家觉得周五还是周六比较好？"),
-        settings=_semantic_settings(),
-        encoder=WeatherEncoder(),
     )
     assert "discord.create_poll" not in unrelated
 
@@ -94,22 +57,18 @@ def test_side_effect_tool_requires_explicit_intent_even_when_dense_matches() -> 
         registry,
         assigned,
         _tool_context("开个投票看看周五还是周六。"),
-        settings=_semantic_settings(),
-        encoder=WeatherEncoder(),
     )
     assert "discord.create_poll" in explicit
     assert set(explicit).issubset(set(assigned))
 
 
-def test_tool_embedding_failure_preserves_assigned_capabilities() -> None:
+def test_tool_sparse_no_match_preserves_assigned_available_reads() -> None:
     registry = ToolRegistry()
     assigned = ("utility.calculator", "weather.get", "random.roll")
     selected = select_tool_ids_for_turn(
         registry,
         assigned,
-        _tool_context("weather tomorrow"),
-        settings=_semantic_settings(),
-        encoder=UnavailableEncoder(),
+        _tool_context("qzxvnhfg"),
     )
     assert selected == assigned
 
@@ -149,3 +108,18 @@ def test_format_repair_does_not_repeat_the_full_turn_prompt() -> None:
     assert compact.startswith("Your previous Smart Output was rejected")
     assert "Recent conversation" not in compact
     assert len(compact) < 500
+
+
+def test_missing_trigger_keeps_assigned_reads_without_enabling_effects() -> None:
+    from echo_masque.tool_runtime import default_tool_registry
+
+    registry = default_tool_registry()
+    selected = select_tool_ids_for_turn(
+        registry,
+        ("utility.calculator", "discord.create_poll"),
+        ToolExecutionContext(
+            owner_id="owner", deployment_id="role", character_card_id="card", platform="discord"
+        ),
+    )
+    assert "utility.calculator" in selected
+    assert "discord.create_poll" not in selected

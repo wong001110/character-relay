@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe,expect,it } from "vitest";
 
-import { detectBotMention, stripBotMentionTokens } from "./mentionDetection.js";
+import { detectBotMention,stripBotMentionTokens } from "./mentionDetection.js";
 
 const BOT_ID = "1533872701884596334";
 

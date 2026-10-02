@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 
 import {
-  TurnCollector,
-  type ConversationBurst,
-  type TurnCollectorConfig,
-  type TurnCollectorFlushReason
+TurnCollector,
+type ConversationBurst,
+type TurnCollectorConfig,
+type TurnCollectorFlushReason
 } from "./turnCollector.js";
 
 export type TurnCollectionReason =
@@ -22,7 +22,7 @@ export type TurnCollectionReason =
 
 export interface TurnCollectionPolicyInput {
   collectorEnabled: boolean;
-  smartParticipationEnabled: boolean;
+  ambientParticipationEnabled: boolean;
   recovery: boolean;
   mentionedBot: boolean;
   hasReplyReference: boolean;
@@ -91,7 +91,7 @@ export function decideTurnCollection(
   input: TurnCollectionPolicyInput
 ): TurnCollectionDecision {
   if (!input.collectorEnabled) return { collect: false, reason: "collector_disabled" };
-  if (!input.smartParticipationEnabled) {
+  if (!input.ambientParticipationEnabled) {
     return { collect: false, reason: "smart_participation_disabled" };
   }
   if (input.recovery) return { collect: false, reason: "recovery" };

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { describe, it } from "vitest";
+import { describe,it } from "vitest";
 
 import { ContextBuffer } from "./contextBuffer.js";
-import { buildMentionableParticipants } from "./smartOutput.js";
-import type { DiscordContextMessage, DiscordDeployment } from "./types.js";
 import type { RelayClient } from "./relayClient.js";
+import { buildMentionableParticipants } from "./smartOutput.js";
+import type { DiscordContextMessage,DiscordDeployment } from "./types.js";
 import { DiscordWebhookManager } from "./webhookManager.js";
 
 function role(id: string): DiscordDeployment {
@@ -96,7 +96,7 @@ describe("group-chat transport regressions (A04, A16, A17)", () => {
 
 // These helpers are the same ones wired into webhook and native delivery, not a test-only policy.
 import {
-  DiscordDeliveryError, canFallbackDelivery, deliverWithFallback, sendChunks
+DiscordDeliveryError,canFallbackDelivery,deliverWithFallback,sendChunks
 } from "./delivery.js";
 
 describe("bounded source and fallback behavior", () => {

@@ -2,8 +2,9 @@
 
 Policy: [AGENTS.md](../../AGENTS.md). Current work: [PROJECT_STATE.md](../../PROJECT_STATE.md).
 Ownership: [architecture.md](../architecture.md). This page contains setup/check commands, not a
-second phase plan. The accepted group-chat design is pending implementation; do not alter runtime
-code in the planning-only PR.
+second phase plan. Execution is now authorized for the accepted group-chat refactor. The current
+checkpoint remains offline; see [routing replay](room-routing-replay.md) and PROJECT_STATE.md before
+changing production behavior.
 
 ## Local setup
 

@@ -38,6 +38,7 @@ from echo_masque.persistence.models import (
     TurnRecord,
     UserRecord,
 )
+from echo_masque.persistence.note_models import CharacterNoteRecord, NoteCreationReceiptRecord
 from echo_masque.persistence.security_models import RateLimitBucketRecord
 from echo_masque.persistence.server_access_models import DiscordServerAccessRecord
 from echo_masque.public_demo import PUBLIC_DEMO_USER_ID
@@ -546,6 +547,10 @@ class AccountLifecycleService:
                 )
             )
 
+            for model in (CharacterNoteRecord, NoteCreationReceiptRecord):
+                deleted[model.__tablename__] = self._rowcount(session.execute(
+                    delete(model).where(model.owner_id == owner_id)
+                ))
             card_records = list(
                 session.scalars(
                     select(CharacterCardRecord).where(

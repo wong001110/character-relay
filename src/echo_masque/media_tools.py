@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hashlib
@@ -118,10 +119,11 @@ class MediaToolRegistry(ServerAwareToolRegistry):
 
         internal_descriptions = {
             "memory.search": (
-                "Search this Character's scoped durable memories relevant to a question."
+                "Search this Character's explicit scoped notes relevant to a question."
             ),
             "conversation.search": (
-                "Search compact past Episode projections in the current Discord location."
+                "Search permitted original messages in this exact Discord room, "
+                "with author and Reply provenance."
             ),
             "knowledge.search": (
                 "Search Character-admitted Knowledge Fabric evidence in this current server only."
@@ -399,7 +401,9 @@ class MediaToolRegistry(ServerAwareToolRegistry):
         if tool_id in INTERNAL_CONTEXT_TOOL_IDS:
             if self.internal_context_service is None:
                 raise ValueError("Internal Context Runtime is unavailable.")
-            return self.internal_context_service.execute(tool_id, arguments, context)
+            return await asyncio.to_thread(
+                self.internal_context_service.execute, tool_id, arguments, context
+            )
         if tool_id != "image.generate":
             return await super()._execute_tool(tool_id, arguments, context)
         self._require_discord(context)

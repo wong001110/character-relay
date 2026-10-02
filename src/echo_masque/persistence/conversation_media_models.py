@@ -49,6 +49,7 @@ class ConversationMediaReferenceRecord(Base):
     kind: Mapped[str] = mapped_column(String(30), nullable=False)
     label: Mapped[str] = mapped_column(String(300), default="", nullable=False)
     context_json: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    source_fingerprint: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     source_uri: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

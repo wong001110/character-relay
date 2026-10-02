@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import cast
 
+from test_explicit_notes import note_environment
+
 from echo_masque.internal_context import INTERNAL_CONTEXT_TOOL_IDS, InternalContextService
 from echo_masque.knowledge_fabric_context import KnowledgeContextBuilder
 from echo_masque.knowledge_fabric_epistemic_policy import DenyAllCharacterEpistemicPolicy
@@ -13,12 +15,6 @@ from echo_masque.knowledge_fabric_query import (
     KnowledgeQueryRequest,
     KnowledgeQueryResult,
 )
-from echo_masque.persistence.belief_repository import BeliefRepository
-from echo_masque.persistence.conversation_runtime_repository import ConversationRuntimeRepository
-from echo_masque.persistence.conversation_structure_repository import (
-    ConversationStructureRepository,
-)
-from echo_masque.persistence.database import Database
 from echo_masque.persistence.knowledge_fabric_repository import KnowledgeFabricRepository
 from echo_masque.tool_runtime import ToolExecutionContext
 
@@ -61,12 +57,13 @@ class _AllowEvidence:
 
 def _context() -> ToolExecutionContext:
     return ToolExecutionContext(
-        owner_id="owner-1",
-        deployment_id="deployment-1",
-        character_card_id="card-1",
+        owner_id="owner",
+        deployment_id="deployment",
+        character_card_id="card",
         platform="discord",
-        connection_id="connection-1",
-        guild_id="guild-1",
+        connection_id="connection",
+        guild_id="guild",
+        channel_id="room",
     )
 
 
@@ -78,24 +75,18 @@ def _service(
     create_scope: bool = True,
 ) -> tuple[InternalContextService, _RecordingQueryEngine, KnowledgeFabricRepository]:
     tmp_path.mkdir(parents=True, exist_ok=True)
-    database = Database(f"sqlite:///{tmp_path / 'internal-knowledge-search.db'}")
-    database.initialize()
+    database, _, _, service = note_environment(tmp_path / "internal-knowledge-search.db")
     fabric = KnowledgeFabricRepository(database)
     if create_scope:
         fabric.ensure_server_scope(
             platform="discord",
-            connection_id="connection-1",
-            workspace_id="guild-1",
+            connection_id="connection",
+            workspace_id="guild",
         )
-    service = InternalContextService(
-        belief_repository=BeliefRepository(database),
-        structure_repository=ConversationStructureRepository(database),
-        runtime_repository=ConversationRuntimeRepository(database),
-        knowledge_context=KnowledgeContextBuilder(
-            fabric_repository=fabric,
-            query_engine=cast(KnowledgeQueryEngine, query_engine),
-            epistemic_policy=cast(DenyAllCharacterEpistemicPolicy, epistemic_policy),
-        ),
+    service.knowledge_context = KnowledgeContextBuilder(
+        fabric_repository=fabric,
+        query_engine=cast(KnowledgeQueryEngine, query_engine),
+        epistemic_policy=cast(DenyAllCharacterEpistemicPolicy, epistemic_policy),
     )
     return service, cast(_RecordingQueryEngine, query_engine), fabric
 

@@ -3,23 +3,16 @@ export const portalRoutes = {
   characters: "/characters",
   characterNew: "/characters/new",
   deployments: "/deployments",
+  rooms: "/rooms",
   toolbox: "/toolbox",
   settings: "/settings",
   componentLibrary: "/dev/ui"
 } as const;
 
-export type DeploymentNotebookTab = "characters" | "knowledge" | "interactions" | "intelligence";
-export type IntelligenceWorkspaceTab =
-  | "presence"
-  | "social"
-  | "participation"
-  | "conversation"
-  | "discovery";
-
+export type DeploymentNotebookTab = "characters" | "knowledge" | "notes" | "operations";
 export interface DeploymentRouteState {
   serverProfileId: string | null;
   notebookTab: DeploymentNotebookTab;
-  intelligenceTab: IntelligenceWorkspaceTab | null;
 }
 
 export type CharacterFileSection =
@@ -59,16 +52,15 @@ function deploymentPath(serverProfileId: string): string {
 
 export const deploymentRoutes = {
   index: portalRoutes.deployments,
-  notebook: (serverProfileId: string, tab: Exclude<DeploymentNotebookTab, "intelligence"> = "characters"): string =>
-    `${deploymentPath(serverProfileId)}/${tab}`,
-  intelligence: (serverProfileId: string, tab: IntelligenceWorkspaceTab = "presence"): string =>
-    `${deploymentPath(serverProfileId)}/intelligence/${tab}`
+  notebook: (serverProfileId: string, tab: DeploymentNotebookTab = "characters"): string =>
+    `${deploymentPath(serverProfileId)}/${tab}`
 } as const;
 
 export type WorkspaceRouteSection =
   | "dashboard"
   | "characters"
   | "deployments"
+  | "rooms"
   | "toolbox"
   | "settings";
 
@@ -76,6 +68,7 @@ const workspaceRoutes: Record<WorkspaceRouteSection, string> = {
   dashboard: portalRoutes.dashboard,
   characters: portalRoutes.characters,
   deployments: portalRoutes.deployments,
+  rooms: portalRoutes.rooms,
   toolbox: portalRoutes.toolbox,
   settings: portalRoutes.settings
 };
@@ -142,7 +135,7 @@ export function characterRouteForPath(pathname: string): CharacterRouteState | n
 export function deploymentRouteForPath(pathname: string): DeploymentRouteState | null {
   const normalized = pathname.replace(/\/+$/, "") || "/";
   if (normalized === portalRoutes.deployments) {
-    return { serverProfileId: null, notebookTab: "characters", intelligenceTab: null };
+    return { serverProfileId: null, notebookTab: "characters" };
   }
   if (!normalized.startsWith(`${portalRoutes.deployments}/`)) return null;
 
@@ -150,27 +143,12 @@ export function deploymentRouteForPath(pathname: string): DeploymentRouteState |
   const serverProfileId = parts.length > 0 ? decodePathSegment(parts[0]) : null;
   if (!serverProfileId) return null;
   if (parts.length === 1) {
-    return { serverProfileId, notebookTab: "characters", intelligenceTab: null };
+    return { serverProfileId, notebookTab: "characters" };
   }
-  if (parts.length === 2 && ["characters", "knowledge", "interactions"].includes(parts[1])) {
+  if (parts.length === 2 && ["characters", "knowledge", "notes", "operations"].includes(parts[1])) {
     return {
       serverProfileId,
-      notebookTab: parts[1] as Exclude<DeploymentNotebookTab, "intelligence">,
-      intelligenceTab: null
-    };
-  }
-  if (parts.length === 2 && parts[1] === "intelligence") {
-    return { serverProfileId, notebookTab: "intelligence", intelligenceTab: "presence" };
-  }
-  if (
-    parts.length === 3 &&
-    parts[1] === "intelligence" &&
-    ["presence", "social", "participation", "conversation", "discovery"].includes(parts[2])
-  ) {
-    return {
-      serverProfileId,
-      notebookTab: "intelligence",
-      intelligenceTab: parts[2] as IntelligenceWorkspaceTab
+      notebookTab: parts[1] as DeploymentNotebookTab
     };
   }
   return null;

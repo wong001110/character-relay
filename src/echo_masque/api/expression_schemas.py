@@ -5,17 +5,34 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ExpressionResourceType = Literal["emoji", "sticker"]
 ExpressionAction = Literal["none", "inline", "reaction", "sticker"]
 ExpressionNodeStatus = Literal["running", "completed", "failed", "skipped"]
 ExpressionRunStatus = Literal["running", "completed", "failed", "skipped"]
-ExpressionRetrievalBackend = Literal["hybrid_sparse_v1", "hybrid_dense_sparse_v2"]
+ExpressionRetrievalBackend = Literal["hybrid_sparse_v1"]
 
 
 def default_expression_actions() -> list[Literal["inline", "reaction", "sticker"]]:
     return ["inline", "reaction", "sticker"]
+
+
+class ExpressionIntent(BaseModel):
+    """Model describes meaning; only the runtime can resolve an actual guild resource."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["emoji", "sticker"]
+    intent: str = Field(min_length=1, max_length=80)
+    emotion: str = Field(default="", max_length=80)
+
+    @field_validator("intent", "emotion")
+    @classmethod
+    def trim_meaning(cls, value: str, info: object) -> str:
+        value = value.strip()
+        if getattr(info, "field_name", "") == "intent" and not value:
+            raise ValueError("expression intent must be nonblank")
+        return value
 
 
 class DiscordCatalogEmoji(BaseModel):
@@ -93,85 +110,6 @@ class ExpressionContent(BaseModel):
 class ExpressionCandidate(ExpressionContent):
     score: float
     signals: dict[str, float] = Field(default_factory=dict)
-
-
-class ExpressionRetrieveRequest(BaseModel):
-    connection_id: str = Field(min_length=1, max_length=64)
-    guild_id: str = Field(min_length=1, max_length=200)
-    channel_id: str = Field(min_length=1, max_length=200)
-    source_message_id: str = Field(min_length=1, max_length=200)
-    deployment_id: str = Field(min_length=1, max_length=64)
-    query: str = Field(default="", max_length=4000)
-    allowed_actions: list[Literal["inline", "reaction", "sticker"]] = Field(
-        default_factory=default_expression_actions,
-        min_length=1,
-        max_length=3,
-    )
-    excluded_resource_keys: list[str] = Field(default_factory=list, max_length=20)
-    top_k: int = Field(default=6, ge=1, le=10)
-    run_id: str | None = Field(default=None, max_length=64)
-
-
-class ExpressionRetrievalView(BaseModel):
-    run_id: str
-    attempt: int
-    retrieval_backend: ExpressionRetrievalBackend = "hybrid_sparse_v1"
-    candidates: list[ExpressionCandidate]
-
-    @model_validator(mode="after")
-    def infer_retrieval_backend(self) -> ExpressionRetrievalView:
-        if any("dense" in item.signals for item in self.candidates):
-            self.retrieval_backend = "hybrid_dense_sparse_v2"
-        return self
-
-
-class ExpressionNodeReport(BaseModel):
-    connection_id: str = Field(min_length=1, max_length=64)
-    node_name: str = Field(min_length=1, max_length=80)
-    status: ExpressionNodeStatus
-    input_summary: dict[str, object] = Field(default_factory=dict, max_length=40)
-    output_summary: dict[str, object] = Field(default_factory=dict, max_length=40)
-    error: str = Field(default="", max_length=2000)
-    selected_action: ExpressionAction | None = None
-    selected_resource_key: str | None = Field(default=None, max_length=240)
-    final_status: ExpressionRunStatus | None = None
-
-
-class ExpressionNodeView(BaseModel):
-    id: str
-    node_name: str
-    node_index: int
-    attempt: int
-    status: ExpressionNodeStatus
-    input_summary: dict[str, object]
-    output_summary: dict[str, object]
-    error: str
-    started_at: datetime
-    completed_at: datetime | None
-
-
-class ExpressionRunView(BaseModel):
-    id: str
-    connection_id: str
-    guild_id: str
-    channel_id: str
-    source_message_id: str
-    deployment_id: str
-    character_card_id: str
-    status: ExpressionRunStatus
-    current_node: str
-    attempt_count: int
-    selected_action: ExpressionAction
-    selected_resource_key: str
-    state: dict[str, object]
-    last_error: str
-    created_at: datetime
-    updated_at: datetime
-    completed_at: datetime | None
-
-
-class ExpressionRunDetail(ExpressionRunView):
-    nodes: list[ExpressionNodeView]
 
 
 class ExpressionDecision(BaseModel):

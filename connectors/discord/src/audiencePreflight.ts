@@ -1,4 +1,4 @@
-import { resolveAudience, type AudienceResolution } from "./routing.js";
+import { resolveAudience,type AudienceResolution } from "./routing.js";
 import type { DiscordDeployment } from "./types.js";
 
 const EXPLICIT_REASONS = new Set<AudienceResolution["reason"]>([

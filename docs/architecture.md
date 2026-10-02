@@ -1,120 +1,122 @@
 # Architecture and codebase ownership
 
-**Current source map + accepted target boundaries; incremental implementation on PR #207.**
-The merged runtime baseline is recorded in [PROJECT_STATE.md](../PROJECT_STATE.md).
-The [group-chat plan](plans/discord-group-chat-core.md) is the accepted target for the next change.
-Source and tests prove current behavior; the plan supersedes conflicting old target designs.
+**Actual source map + accepted lightweight Room Director target.**
+Baseline/progress: [PROJECT_STATE.md](../PROJECT_STATE.md). Accepted outcomes and tests:
+[group-chat core plan](plans/discord-group-chat-core.md). Target below is not a completion claim.
 
-## Existing physical layout (P2a adds the focused delivery policy module)
+## Existing layout and retained infrastructure
+
+`src/echo_masque/` is the Python domain/runtime (historical package name is intentional), with
+FastAPI in `api/`, existing graphs in `orchestration/`, SQLAlchemy/PostgreSQL in `persistence/`,
+provider adapters in `providers/`. `connectors/discord/src/` owns Gateway and transport.
+`web/src/` is the React/Vite Portal. `tests/`, `scripts/` and `.github/workflows/` own product
+verification/operator commands. No new service topology, supervisor platform or coding-agent
+runtime is part of the refactor. Agent Continuity execution state stays outside the checkout.
+
+## Actual baseline ownership and intended disposition
+
+| Boundary | Existing paths | Disposition |
+| --- | --- | --- |
+| Ingress/source buffer | Connector `index.ts`, `contextBuffer.ts`, `routing.ts`, `turnIngress.ts`; Python `api/connector_schemas.py` | KEEP safety; simplify around source-focused direct routing |
+| Delivery | Connector `delivery.ts`, `webhookManager.ts`, `smartOutput.ts`, `durableRuntime.ts`; Python Discord identity/durability repositories | KEEP confirmed/partial/uncertain receipts and no-whole-answer-retry protection |
+| Selection | `participation_planner_v3.py`, `semantic_participation.py`, `api/routes/smart_participation_vnext.py`, social-turn graph | REPLACE with rules + one Room Director; no semantic scoring or old fallback |
+| Conversation organization | `conversation_structure_resolver.py`, `conversation_runtime.py`, old Segment/Thread repositories | REPLACE permanent semantic graph dependency with raw source/reply/version structure; preserve native Discord Threads |
+| Character turn | `character_turn_context_v3.py`, `context_resolver_v3.py`, `orchestration/character_turn_graph.py`, `turn_director.py` | SIMPLIFY focused context; remove inner Director reply/recall planning; Character owns content/tools/recall |
+| Utility gateway | `utility_gateway_router.py`, `utility_gateway_contracts.py`, existing provider/quota/credential code | KEEP infrastructure; dedicated Room Director proposal, no second provider pool |
+| Durable recall | `internal_context.py`, belief/conversation repositories and Knowledge Fabric tools | REPLACE ordinary Belief/Segment coupling; explicit scoped notes and searchable source history; optional knowledge retrieval |
+| Relationships | `social_intelligence_v3.py`, `social_event_runtime.py`, relation records/routes | DELETE numeric/event/decay simulation; small directional notes with actor/scope/version checks |
+| Expressions | `expression_retrieval.py`, catalog/Connector expression adapters | SIMPLIFY intent-first sparse metadata resolution; no per-turn dense or vision |
+| Tools/media/jobs | `tool_runtime.py`, `media_tools.py`, `mcp_gateway.py`, `pending_actions_v3.py`, `turn_jobs.py`, `turn_progress.py` | KEEP authorization and bounded durable effects; decouple slow work from ingress |
+| Observation | provider traces, runtime trace buffer, Discord captures, eventReporter and debug routes | SIMPLIFY metadata-first correlated outcomes, attempts/costs and controlled raw capture |
+| Portal | `web/src/DeploymentCenter.tsx`, feature panels/APIs and Python routes | SIMPLIFY daily controls; DELETE Roast and retired settings/consumers, not merely tabs |
+
+These are inspected navigation boundaries, not an exhaustive dependency graph. Verify consumers
+and tests before removing modules. Shared FastEmbed consumers include retrieval paths outside
+participation; remove the dependency only after every supported consumer has a replacement.
+
+## Target decision and trust boundaries
 
 ```text
-AGENTS.md                     one AI-Native Development policy
-PROJECT_STATE.md              one current status / takeover record
-src/echo_masque/              Python domain/runtime; historical package name remains intentional
-  api/                       FastAPI schemas, composition and routes
-  orchestration/             existing Character / Social Turn orchestration
-  persistence/               existing SQLAlchemy records, repositories and migrations
-  providers/                 provider adapters and traces
-  targets/                   model and evaluation target adapters
-connectors/discord/src/       Discord Gateway, routing, context and delivery
-web/src/                     React/Vite Portal, feature APIs and UI
-  components/                shared UI components
-tests/                       Python behavior and integration tests
-scripts/                     existing development/operator scripts
-.github/workflows/           existing verification/deployment workflows
-docs/
-  plans/                     accepted bounded change plans (only state-linked work is active)
-  architecture.md            ownership and migration boundaries
-  developer/                 setup and validation commands
-  contracts/                 specialized product/security constraints
-  user/                      product usage
-  operator/                  deployment and incident procedures
-  history/                   reference index, never current execution authority
+Discord -> room buffer/provenance -> runtime eligibility/direct routing
+  ambiguous -> Room Director (existing Free Token Pool; stateless; public summaries only)
+  clear request ----------------------------------------------+
+  NONE ends attempt                                           |
+  speaker + source proposal -> runtime scope/budget validation -+
+  -> focused context + selected card + relevant small notes
+  -> Character (answer/ignore; optional retrieval/tools/expression intent)
+  -> sparse expression resolver + freshness/current grants -> safe delivery
 ```
 
-No placeholder source packages, new agent runtime or alternative persistence layer is introduced.
-The `echo_masque` namespace is a compatibility/package boundary, not an obsolete coding method;
-renaming it is not a prerequisite for this work.
+The Room Director chooses participation only. It cannot grant tools, read private character memory,
+choose provider permissions, or deliver. Runtime enforces visibility before prompts and before effects.
+Its strict null/none decision is distinct from timeout/malformed/unavailable/invalid-selection states.
+The old inner Turn Director is not retained behind the new outer Director. Character may decline
+without making runtime iterate over other roles. No permanent semantic Thread is needed for replies.
 
-## Responsibility boundaries
+`target_message_id` anchors focus, not the entire context. Context may include permitted raw Reply
+ancestors and a bounded room window. Native Discord Threads, authors, requests and credential scopes
+remain distinct. New/private sources cannot be inferred from summaries or selected by model fiat.
+No full private character cards are sent to the Director; public selection summaries are separate.
 
-Discord owns platform ingestion, source-message metadata, acknowledgements, notifications and
-transport. Python owns authorization, durable jobs, model/tool budgets and product state. The
-model chooses relevant contributions or silence from visible evidence; it does not grant access.
-The Portal operates existing APIs and cannot enforce authority on behalf of the backend.
+## State ownership
 
-| Work area | Existing entry points | Verification surface |
-| --- | --- | --- |
-| Ingress, context, Reply identity | `connectors/discord/src/index.ts`, `contextBuffer.ts`, `routing.ts`, `turnIngress.ts`; `src/echo_masque/api/connector_schemas.py` | Connector Vitest; schema/Discord route tests |
-| Delivery and webhook source links | `connectors/discord/src/webhookManager.ts`, `smartOutput.ts`, `durableRuntime.ts`; `src/echo_masque/persistence/discord_identity_repository.py` | Partial-send, retry, duplicate-event and identity tests |
-| Role turns and prompt assembly | `src/echo_masque/connector_runtime.py`, `character_turn_context_v3.py`, `smart_output.py`, `orchestration/character_turn_graph.py` | `tests/test_character_turn_context_v3.py`, `test_smart_output.py`, `test_interaction_grounding.py` |
-| Multi-role selection/continuation | `src/echo_masque/participation_planner_v3.py`, `api/routes/smart_participation_vnext.py`, `orchestration/social_turn_graph.py`; Connector routing/Smart Output | `tests/test_participation_planner_v3.py`, `test_smart_participation_v3_route.py`; Connector tests |
-| Scoped notes and recall | `src/echo_masque/internal_context.py`, `context_resolver_v3.py`, `current_turn_belief_v3.py`, `persistence/belief_repository.py`, `persistence/conversation_runtime_repository.py` | `tests/test_memory_recall_review.py`, scoped note/lifecycle tests |
-| Relationship retirement/replacement | `src/echo_masque/social_intelligence_v3.py`, `social_event_runtime.py`, relationship persistence and routes | `tests/test_social_event_runtime_v3.py`; new accepted note-update cases |
-| Tool execution, media and jobs | `src/echo_masque/tool_runtime.py`, `media_tools.py`, `mcp_gateway.py`, `pending_actions_v3.py`, `turn_jobs.py`, `turn_progress.py`, `targets/prompt_model.py` | Existing tool/MCP/media/job tests plus cancellation and authority cases |
-| Identity, storage and egress | `src/echo_masque/auth.py`, `credentials.py`, `security_controls.py`, `network_safety.py`, `api/app.py`, `persistence/` | Account/Demo/credential, PostgreSQL, egress and applicable mutation scopes |
-| Observation | `src/echo_masque/providers/trace.py`, `runtime_trace_buffer.py`, `discord_debug_capture.py`, trace/debug API routes; `connectors/discord/src/eventReporter.ts` | Trace redaction, authorization, retention and dropped-event tests |
-| Portal and offline evaluation | `web/src/DeploymentCenter.tsx`, feature panels/APIs, `src/echo_masque/api/routes/`, evaluation/authoring services | Co-located Vitest, affected Python tests and real browser journeys |
+Runtime source messages/versions, jobs, effect/delivery receipts, explicit notes, retrieval indexes
+and diagnostics are different records. Drafts are not shared history. Notes and indexes inherit
+source scope. Raw/history chunks are searchable on demand, not automatically injected per character.
+Relationships influence tone only. Retrieval filters authorization before sparse/dense scoring;
+query-time misses must not synchronously backfill a history embedding backlog. Embedding spaces
+are namespaced by provider/model/dimension/version. Expression lookup uses semantic metadata.
 
-Paths in one table cell after a directory-qualified path share that area's root unless explicitly
-qualified otherwise. Verify file existence and call sites in the checkout; this is navigation,
-not an exhaustive dependency graph or test execution receipt.
+The user permits old application-data reset; retain no compatibility graph or dual store solely
+for migration. Prefer exporting portable authored card content without grants/secrets. Reconcile
+pending/uncertain effects before a separately approved live cutover; new evidence/receipts remain
+required. Accounts, credentials and infrastructure configuration are not incidental reset targets.
+PostgreSQL + pgvector remains production storage; SQLite remains development/test or approved input.
 
-## Target organization (proposed unless recorded below)
+## Verification and retirement
 
-Organize by stable responsibilities rather than phase numbers, agent roles or additional versions.
-Preserve the three deployable surfaces; do not split them into new services just to rename folders.
+Preserve authentication, owner/room/role/requester scoping, Public Demo read-only, egress/DNS checks,
+MCP/tool grants, media evidence and delivery idempotency. Retire call sites, composition, producers,
+API/UI/settings/env/docs and old behavior-only tests, retaining negative invariants and new coverage.
+Benchmark adapters are offline evaluation only and must never be imported as production fallback.
+Temporary adapters need a removal gate; no indefinite V3/V4 engines or hidden old defaults.
 
-| Boundary | Target responsibility | Safe migration rule |
-| --- | --- | --- |
-| Conversation core | visible message/provenance selection, bounded participation, draft freshness and final action | Reuse one turn pipeline; choose supported graph/sequential entry based on existing consumers, not a mandatory LangGraph migration |
-| Notes / relationships | explicit durable notes, bounded relationship text, scoped history reads | One authoritative store per record; migrate consumers before retiring simulation writers |
-| Tools / jobs / delivery | runtime grants, budgets, execution, cancellation, outbox/delivery receipts | Separate execution state from delivery state; preserve idempotency and uncertain outcomes |
-| Platform adapter | Discord normalization, permission-aware source fetching, edits/deletes, rendering and transport | Thin `index.ts`; extract coherent ingress/context/delivery modules behind existing interfaces |
-| Observation | correlated interaction metadata, usage, outcome reasons and controlled raw capture | Not a second task store; failed diagnostic writes do not change delivery truth |
-| Portal / evaluation | focused daily operations, optional advanced research, offline quality checks | Feature-local components and tests; remove Roast consumers rather than hiding only the tab |
+R1 compares current Planner, rules only and rules + Director, with exact model/source identity,
+label provenance, whole-conversation splits, uncertainty and failure-vs-NONE accounting. Production
+ambient activation requires actual model evidence, not a mock. Direct/source improvements may
+proceed independently. Mutation/fault and affected Python/Connector/Portal/PostgreSQL checks prove
+changed boundaries. Browser evidence applies to real changed journeys, not builds alone.
 
-Concrete directories may be `conversation/`, `notes/`, `tools/`, `observability/` inside the current
-Python package and feature-oriented subdirectories in Connector/Portal, but these are examples,
-not mandated empty packages. The implementation agent chooses names after inspecting dependencies.
-Record actual moves here. Prefer bounded extraction over a repository-wide import rewrite.
+## Already implemented at the baseline
 
-For each move: characterize behavior, move source and relevant tests, update imports/composition,
-remove old call sites/flags/routes/exports, then run the changed surface's checks. Avoid permanent
-V3/V4 parallel engines, forwarding runtime modules or a fallback that revives a retired behavior.
-Temporary migration adapters require a named removal checkpoint in PROJECT_STATE.md. Historical
-user data and immutable evaluation/source evidence may remain without an active runtime consumer.
+`delivery.ts` centralizes confirmed-receipt accumulation and unsent/partial/uncertain decisions.
+`webhookManager.ts` and native split delivery reuse it. Durable uncertainty does not advance dialogue.
+`ContextBuffer` owns bounded deep snapshots and edit/delete invalidation. These foundation/P2a
+protections exist; the full refactor and lost P3-P6 work do not. Record subsequent implementation
+facts in PROJECT_STATE.md and update this map only when ownership actually changes.
 
-## Invariants across the reorganization
 
-- Runtime owns identity, effective room/Thread permissions, scoped credentials, tool grants,
-  side effects, resource budgets, job lifecycles and delivery decisions.
-- Public Demo remains server-enforced read-only. Imported cards and notes cannot grant tools.
-- Preserve raw source provenance and deletion/retention contracts; generated drafts are not facts.
-- Stored execution progress, evidence, long-term notes and diagnostic events are distinct records.
-- PostgreSQL + pgvector is the existing production storage contract; SQLite is for development,
-  tests or approved migration inputs. This plan does not change production topology.
-- Retired Topic authority, Topic-scoped memory and Topic-driven Wiki are not reintroduced.
-- Media routing hints do not prove perception. A model must not claim to inspect unavailable media.
-- Approved datasets and completed evaluation snapshots keep their approval/immutability boundaries.
-- No credentials or raw private transcripts in source, ordinary logs, exports or planning records.
+## R1 offline routing boundary (not production-wired)
 
-## Documentation organization and retired entry points
+`room_routing.py` owns normalized source/rule contracts; `room_director.py` owns bounded public
+input, strict proposal parsing and an injected one-call seam. Neither authorizes tools or sends.
+`room_routing_replay.py` owns fixture/recording validation and failure-aware metrics. The three
+`scripts/*room_routing*` / `scripts/replay_legacy_planner.py` commands are offline evaluation,
+not application fallback. Tests and the reproducible synthetic corpus live under `tests/`.
 
-Current authority is deliberately small: AGENTS.md (policy), PROJECT_STATE.md (status), this map
-(ownership), and the active plan (accepted outcomes/acceptance). Developer/operator/user references
-remain separate because they serve different tasks, not parallel development workflows.
+No existing route/graph/Connector consumer imports this path yet. Production integration must
+supply authenticated context-action actors, normalized platform mention IDs, current permissions,
+aggregate budgets and delivered source links. The provider callback does not itself implement a
+Free Token Pool qualification/deadline policy. Do not infer those capabilities from its type seam.
 
-The former agent map, handoff, workflow and active-branch-plan files contain **links only**. Their
-old policy, stale branch status and execution instructions have been removed. Existing historical
-links remain navigable, but cannot start another workflow. Old content remains in Git history.
-No OpenWiki generation/bootstrap or fixed Main/Sub topology is part of the current practice.
+## Implemented R4 boundaries
 
-## Implemented boundary extraction: P2a
-
-`connectors/discord/src/delivery.ts` now owns confirmed-receipt accumulation and the
-unsent/partial/uncertain fallback decision. Both `webhookManager.ts` and native split delivery in
-`index.ts` use it; there is no second active send policy. The existing durability repository stores
-partial receipts and keeps the entire operation uncertain without treating the draft as dialogue.
-`ContextBuffer` owns bounded snapshots and edit/delete invalidation; this is not a memory database.
-The remaining target moves and runtime retirements are pending in PROJECT_STATE.md.
+`notes.py` and `persistence/note_repository.py` own explicit scoped notes, versioned edits and
+source-linked invalidation; `api/routes/character_notes.py` is the authenticated operator
+surface. `internal_context.py` uses these notes, raw room message search and existing scoped
+Knowledge Fabric reads. It no longer depends on Belief/Episode state for ordinary recall.
+`conversation_media.py` uses explicit current Reply/source fingerprints rather than a graph.
+`expression_intent.py` is the lazy post-generation sparse resolver; `smart_output.py` keeps
+model intent separate from runtime-resolved resources. `embedding_space.py` binds optional
+prepared knowledge vectors to their full space identity; no runtime backfill is introduced.
+The remaining old composition is not an accepted fallback and is scheduled for R5 deletion.

@@ -28,7 +28,6 @@ from echo_masque.persistence import (
     DeploymentRepository,
     DeploymentToolRepository,
     ExpressionRepository,
-    InteractionRepository,
     Repository,
 )
 from echo_masque.persistence.deployment_models import CharacterDeploymentRecord
@@ -46,10 +45,6 @@ def deployment_tool_repository(request: Request) -> DeploymentToolRepository:
 
 def character_repository(request: Request) -> Repository:
     return cast(Repository, request.app.state.repository)
-
-
-def interaction_repository(request: Request) -> InteractionRepository:
-    return cast(InteractionRepository, request.app.state.interaction_repository)
 
 
 def expression_repository(request: Request) -> ExpressionRepository:
@@ -187,15 +182,9 @@ def delete_connection(
     connection = deployments.get_connection(connection_id, user.id)
     if connection is None:
         raise HTTPException(status_code=404, detail="Platform connection not found.")
-    profile_ids = [
-        item.id
-        for item in deployments.list_server_profiles(user.id)
-        if item.connection_id == connection_id
-    ]
-    interaction_repository(request).delete_connection_scope(
+    expression_repository(request).delete_scope(
         owner_id=user.id,
         connection_id=connection_id,
-        server_profile_ids=profile_ids,
     )
     deployment_tool_repository(request).delete_connection(connection_id, user.id)
     if not deployments.delete_connection(connection_id, user.id):
@@ -342,9 +331,8 @@ def delete_discord_server_profile(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not deleted:
         raise HTTPException(status_code=404, detail="Discord server profile not found.")
-    interaction_repository(request).delete_server_scope(
+    expression_repository(request).delete_scope(
         owner_id=user.id,
-        server_profile_id=profile.id,
         connection_id=profile.connection_id,
         guild_id=profile.guild_id,
     )
@@ -381,9 +369,7 @@ def list_discord_logs(
     if resolved_connection_id is not None:
         connection = repo.get_connection(resolved_connection_id, user.id)
         if connection is None:
-            shared = {
-                item.id: item for item in repo.list_shared_connections_for_profiles(user.id)
-            }
+            shared = {item.id: item for item in repo.list_shared_connections_for_profiles(user.id)}
             connection = shared.get(resolved_connection_id)
         if connection is not None:
             event_owner_id = connection.owner_id

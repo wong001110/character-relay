@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe,expect,it,vi } from "vitest";
 
 import {
-  DiscordEventReporter,
-  type DiscordConnectorEventInput
+DiscordEventReporter,
+type DiscordConnectorEventInput
 } from "./eventReporter.js";
 import type { DiscordConnectorEvent } from "./types.js";
 

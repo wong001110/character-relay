@@ -17,20 +17,15 @@ from echo_masque.persistence import (
     EvaluationRepository,
     ExpressionRepository,
     GeneratedMediaArtifactRepository,
-    InteractionRepository,
     ScheduledReminderRepository,
-    SmartParticipationRepository,
 )
-from echo_masque.persistence.episodic_sql_rag_repository import EpisodicSqlRagRepository
-from echo_masque.persistence.intelligence_v3_lifecycle_repository import (
-    IntelligenceV3LifecycleRepository,
-)
+from echo_masque.persistence.chat_lifecycle_repository import ChatLifecycleRepository
 from echo_masque.persistence.knowledge_fabric_repository import KnowledgeFabricRepository
 from echo_masque.persistence.turn_job_repository import TurnJobRepository
 
 
 class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleService):
-    """Own non-core account cleanup, including the unified Intelligence Core v3 boundary."""
+    """Own non-core account cleanup, including explicit room evidence and notes."""
 
     def __init__(
         self,
@@ -41,16 +36,13 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         evaluation_repository: EvaluationRepository,
         deployment_repository: DeploymentRepository | None = None,
         discord_identity_repository: DiscordIdentityRepository | None = None,
-        interaction_repository: InteractionRepository | None = None,
         expression_repository: ExpressionRepository | None = None,
-        smart_participation_repository: SmartParticipationRepository | None = None,
         knowledge_fabric_repository: KnowledgeFabricRepository | None = None,
         deployment_tool_repository: DeploymentToolRepository | None = None,
         scheduled_reminder_repository: ScheduledReminderRepository | None = None,
         condition_watch_repository: ConditionWatchRepository | None = None,
         conversation_media_repository: ConversationMediaReferenceRepository | None = None,
         generated_media_repository: GeneratedMediaArtifactRepository | None = None,
-        intelligence_v3_repository: IntelligenceV3LifecycleRepository | None = None,
         turn_job_repository: TurnJobRepository | None = None,
     ) -> None:
         super().__init__(
@@ -61,23 +53,19 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         )
         self.evaluation_repository = evaluation_repository
         self.deployment_repository = deployment_repository or DeploymentRepository(database)
-        self.deployment_tool_repository = (
-            deployment_tool_repository or DeploymentToolRepository(database)
+        self.deployment_tool_repository = deployment_tool_repository or DeploymentToolRepository(
+            database
         )
         self.scheduled_reminder_repository = (
             scheduled_reminder_repository or ScheduledReminderRepository(database)
         )
-        self.condition_watch_repository = (
-            condition_watch_repository or ConditionWatchRepository(database)
+        self.condition_watch_repository = condition_watch_repository or ConditionWatchRepository(
+            database
         )
         self.discord_identity_repository = discord_identity_repository or DiscordIdentityRepository(
             database
         )
-        self.interaction_repository = interaction_repository or InteractionRepository(database)
         self.expression_repository = expression_repository or ExpressionRepository(database)
-        self.smart_participation_repository = (
-            smart_participation_repository or SmartParticipationRepository(database)
-        )
         self.knowledge_fabric_repository = knowledge_fabric_repository or KnowledgeFabricRepository(
             database
         )
@@ -87,12 +75,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         self.generated_media_repository = (
             generated_media_repository or GeneratedMediaArtifactRepository(database)
         )
-        # Episodic SQL remains a derived retrieval index. It is not an authority store, but its
-        # rows still need account ownership cleanup while the index exists.
-        self.episodic_sql_rag_repository = EpisodicSqlRagRepository(database)
-        self.intelligence_v3_repository = intelligence_v3_repository or (
-            IntelligenceV3LifecycleRepository(database)
-        )
+        self.chat_repository = ChatLifecycleRepository(database)
         self.turn_job_repository = turn_job_repository or TurnJobRepository(database)
 
     def delete_account(
@@ -103,10 +86,9 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         actor_user_id: str | None = None,
     ) -> dict[str, int]:
         self.validate_account_deletion(user_id)
+        chat_counts = self.chat_repository.delete_owner(user_id)
         evaluation_counts = self.evaluation_repository.delete_owner(user_id)
-        interaction_counts = self.interaction_repository.delete_owner(user_id)
         expression_counts = self.expression_repository.delete_owner(user_id)
-        smart_counts = self.smart_participation_repository.delete_owner(user_id)
         knowledge_fabric_counts = self.knowledge_fabric_repository.delete_owner(user_id)
         identity_counts = self.discord_identity_repository.delete_owner(user_id)
         reminder_count = self.scheduled_reminder_repository.delete_owner(user_id)
@@ -114,8 +96,6 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         deployment_tool_count = self.deployment_tool_repository.delete_owner(user_id)
         conversation_media_count = self.conversation_media_repository.delete_owner(user_id)
         generated_media_count = self.generated_media_repository.delete_owner(user_id)
-        episodic_sql_counts = self.episodic_sql_rag_repository.delete_owner(user_id)
-        intelligence_v3_counts = self.intelligence_v3_repository.delete_owner(user_id)
         turn_job_count = self.turn_job_repository.delete_owner(user_id)
         deployment_counts = self.deployment_repository.delete_owner(user_id)
         deleted = super().delete_account(
@@ -126,13 +106,10 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         return {
             **deleted,
             **evaluation_counts,
-            **interaction_counts,
+            **chat_counts,
             **expression_counts,
-            **smart_counts,
             **knowledge_fabric_counts,
             **identity_counts,
-            **episodic_sql_counts,
-            **intelligence_v3_counts,
             "discord_turn_jobs": turn_job_count,
             "scheduled_reminders": reminder_count,
             "condition_watches": watch_count,
@@ -143,6 +120,9 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
         }
 
     def claim_local_workspace(self, *, actor_user_id: str) -> dict[str, int]:
+        # Sealed room/effect scopes cannot be reassigned by a legacy authoring claim.
+        self.chat_repository.assert_claimable("local-user")
+        chat_counts = self.chat_repository.claim_authored_notes("local-user", actor_user_id)
         base_counts: dict[str, int] = {}
         base_error: LifecycleConflict | None = None
         try:
@@ -174,15 +154,7 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "local-user",
             actor_user_id,
         )
-        interaction_counts = self.interaction_repository.claim_owner(
-            "local-user",
-            actor_user_id,
-        )
         expression_counts = self.expression_repository.claim_owner(
-            "local-user",
-            actor_user_id,
-        )
-        smart_counts = self.smart_participation_repository.claim_owner(
             "local-user",
             actor_user_id,
         )
@@ -198,30 +170,19 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
             "local-user",
             actor_user_id,
         )
-        episodic_sql_counts = self.episodic_sql_rag_repository.claim_owner(
-            "local-user",
-            actor_user_id,
-        )
-        intelligence_v3_counts = self.intelligence_v3_repository.claim_owner(
-            "local-user",
-            actor_user_id,
-        )
         combined = {
             **base_counts,
             **evaluation_counts,
+            **chat_counts,
             **deployment_counts,
             "deployment_tool_profiles": deployment_tool_count,
             "scheduled_reminders": reminder_count,
             "condition_watches": watch_count,
             "conversation_media_references": conversation_media_count,
             "generated_media_artifacts": generated_media_count,
-            **episodic_sql_counts,
             **identity_counts,
-            **interaction_counts,
             **expression_counts,
-            **smart_counts,
             **knowledge_fabric_counts,
-            **intelligence_v3_counts,
         }
         if sum(combined.values()) == 0:
             if base_error is not None:
@@ -259,13 +220,5 @@ class EvaluationAwareAccountLifecycleService(CalibrationAwareAccountLifecycleSer
                 resource_type="workspace",
                 resource_id=actor_user_id,
                 metadata=cast(dict[str, object], knowledge_fabric_counts),
-            )
-        if sum(intelligence_v3_counts.values()) > 0:
-            self.auth_repository.audit(
-                actor_user_id=actor_user_id,
-                action="workspace.intelligence_v3_local_claimed",
-                resource_type="workspace",
-                resource_id=actor_user_id,
-                metadata=cast(dict[str, object], intelligence_v3_counts),
             )
         return combined

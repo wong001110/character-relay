@@ -1,0 +1,6 @@
+.room-notes-panel,.room-expression-catalog { display:grid; gap:1rem; min-width:0; padding:1rem; }
+.room-controls { display:flex; align-items:end; flex-wrap:wrap; gap:.75rem; margin-block:.75rem; }
+.room-controls > .cr-field { flex:1; min-width:12rem; }
+.room-note-list,.room-expression-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr)); gap:1rem; }
+.room-preserve-text { white-space:pre-wrap; overflow-wrap:anywhere; }
+.room-notes-panel form,.room-expression-catalog form { display:grid; gap:.75rem; }

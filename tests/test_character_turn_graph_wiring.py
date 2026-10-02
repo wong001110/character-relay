@@ -24,10 +24,10 @@ def settings(path: Path, *, langgraph_mode: LangGraphMode) -> Settings:
     )
 
 
-def test_character_turn_runner_stays_off_before_phase3_mode(tmp_path: Path) -> None:
+def test_character_turn_runner_is_not_disabled_by_historical_rollout_mode(tmp_path: Path) -> None:
     for mode in ("off", "condition_watch"):
         app = create_app(settings(tmp_path / f"{mode}.db", langgraph_mode=mode))
-        assert app.state.character_turn_graph_runner is None
+        assert isinstance(app.state.character_turn_graph_runner, CharacterTurnGraphRunner)
 
 
 def test_character_turn_and_later_modes_wire_runner(tmp_path: Path) -> None:

@@ -13,67 +13,11 @@ from sqlalchemy import Connection, Engine, create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import ConnectionPoolEntry, NullPool, StaticPool
 
-from echo_masque.persistence.belief_models import (
-    BeliefEvidenceDependencyRecord,
-    BeliefRevisionEventRecord,
-    BeliefV3Record,
-)
-from echo_masque.persistence.character_learned_state_event_models import (
-    CharacterLearnedStateEventRecord,
-)
-from echo_masque.persistence.character_learned_state_models import CharacterLearnedStateRecord
-from echo_masque.persistence.character_relationship_models import (
-    CharacterPersonImpressionRecord,
-    CharacterRelationshipPriorRecord,
-    DeploymentRelationshipEventRecord,
-    DeploymentRelationshipStateRecord,
-)
-from echo_masque.persistence.conversation_runtime_models import (
-    ConversationEpisodeV3Record,
-    PendingActionV3Record,
-    ThreadWorkingStateRecord,
-)
-from echo_masque.persistence.conversation_structure_models import (
-    ConversationSegmentV3Record,
-    ConversationThreadRecord,
-    MessageRelationRecord,
-    ThreadMembershipRecord,
-)
-from echo_masque.persistence.deployment_activity_models import (
-    DeploymentActivitySessionItemRecord,
-    DeploymentActivitySessionRecord,
-)
-from echo_masque.persistence.deployment_presence_models import DeploymentPresenceRecord
-from echo_masque.persistence.deployment_presence_notice_models import DeploymentPresenceNoticeRecord
-from echo_masque.persistence.deployment_presence_rhythm_models import DeploymentPresenceRhythmRecord
-from echo_masque.persistence.discovery_models import (
-    DeploymentDiscoveryDecisionRecord,
-    DeploymentDiscoveryExposureRecord,
-    DeploymentDiscoveryProfileRecord,
-    DiscoveryItemRecord,
-    DiscoverySourceQueryCacheRecord,
-)
-from echo_masque.persistence.discovery_share_models import (
-    DeploymentDiscoverySharePolicyRecord,
-    DeploymentDiscoveryShareRecord,
-)
 from echo_masque.persistence.discord_identity_models import DiscordGuildActorIdentityRecord
 from echo_masque.persistence.turn_job_models import TurnJobProgressRecord, TurnJobRecord
-from echo_masque.persistence.entity_evidence_models import (
-    EntityV3Record,
-    EvidenceEdgeV3Record,
-    KnowledgeGapRecord,
-    KnowledgeGapCandidateRecord,
-)
-from echo_masque.persistence.episodic_sql_rag_models import (
-    CharacterEpisodeAccessRecord,
-    ConversationEntityRecord,
-    ConversationEpisodeEntityRecord,
-)
 from echo_masque.persistence.models import Base, StorageMetadataRecord
-from echo_masque.persistence.intelligence_v3_migration_models import (
-    IntelligenceV3HardCutoverMigrationRecord,
-)
+from echo_masque.persistence.pending_action_models import PendingActionRecord
+from echo_masque.persistence.note_models import CharacterNoteRecord, NoteCreationReceiptRecord
 from echo_masque.persistence.knowledge_fabric_hard_cutover_models import (
     KnowledgeFabricHardCutoverMigrationRecord,
 )
@@ -94,10 +38,10 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeEvidenceUnitRecord,
     KnowledgeExternalHostRateRecord,
     KnowledgeExternalSourceCollectionStateRecord,
-            KnowledgeExternalSourcePageStateRecord,
-            KnowledgeExternalSourceScheduleRecord,
-            KnowledgeExternalSourceSyncRunRecord,
-            KnowledgeExternalSourceSyncStateRecord,
+    KnowledgeExternalSourcePageStateRecord,
+    KnowledgeExternalSourceScheduleRecord,
+    KnowledgeExternalSourceSyncRunRecord,
+    KnowledgeExternalSourceSyncStateRecord,
     KnowledgeExtractedAssertionRecord,
     KnowledgeIngestionCheckpointRecord,
     KnowledgeIngestionJobRecord,
@@ -107,7 +51,6 @@ from echo_masque.persistence.knowledge_fabric_models import (
     KnowledgeOverlayPolicyRecord,
     KnowledgeProjectionDependencyRecord,
     KnowledgeProjectionRecord,
-    KnowledgeRuntimeEntityResolutionRecord,
     KnowledgeServerAdministratorRecord,
     KnowledgeServerScopeRecord,
     KnowledgeSourceRecord,
@@ -123,15 +66,16 @@ from echo_masque.persistence.schema_migration_models import (
     DatabaseDataMigrationRecord,
     DatabaseSchemaMigrationRecord,
 )
-from echo_masque.persistence.smart_participation_state_models import (
-    SmartParticipationDeploymentStateRecord,
-    SmartParticipationScopeStateRecord,
-)
-from echo_masque.persistence.social_intelligence_models import (
-    ImpressionV3Record,
-    SocialEventV3Record,
-)
 from echo_masque.persistence.utility_gateway_models import UtilityProviderQuotaRecord
+from echo_masque.persistence.room_models import (
+    RoomStateRecord,
+    ModelAttemptBucketRecord,
+    RoomSourceRecord,
+    RoomSelectionRecord,
+    RoomRouteRecord,
+)
+
+from echo_masque.persistence import web_room_models as _web_room_models  # noqa: F401
 
 _SQLITE_INITIALIZE_LOCKS: dict[str, Lock] = {}
 _SQLITE_INITIALIZE_LOCKS_GUARD = Lock()
@@ -188,22 +132,6 @@ BEGIN
 END;
 """
 
-_SQLITE_DEPLOYMENT_PRESENCE_DELETE_TRIGGER = """
-CREATE TRIGGER cr_delete_deployment_presence
-AFTER DELETE ON character_deployments
-BEGIN
-    DELETE FROM deployment_presence WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_presence_notices WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_presence_rhythms WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_activity_session_items WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_activity_sessions WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_discovery_profiles WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_discovery_exposures WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_discovery_decisions WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_discovery_share_policies WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_discovery_shares WHERE deployment_id = OLD.id;
-END;
-"""
 
 _POSTGRES_DEPLOYMENT_SERVER_UNIQUE_INDEX = """
 CREATE UNIQUE INDEX IF NOT EXISTS uq_character_deployment_discord_server
@@ -211,38 +139,13 @@ ON character_deployments (owner_id, connection_id, workspace_id, character_card_
 WHERE platform = 'discord' AND workspace_id <> ''
 """
 
-_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_FUNCTION = """
-CREATE OR REPLACE FUNCTION cr_delete_deployment_runtime() RETURNS trigger AS $$
-BEGIN
-    DELETE FROM deployment_presence WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_presence_notices WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_presence_rhythms WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_activity_session_items WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_activity_sessions WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_discovery_profiles WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_discovery_exposures WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_discovery_decisions WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_discovery_share_policies WHERE deployment_id = OLD.id;
-    DELETE FROM deployment_discovery_shares WHERE deployment_id = OLD.id;
-    RETURN OLD;
-END;
-$$ LANGUAGE plpgsql
-"""
 
 _POSTGRES_DEPLOYMENT_PRESENCE_DELETE_TRIGGER_DROP = """
 DROP TRIGGER IF EXISTS cr_delete_deployment_runtime ON character_deployments
 """
 
-_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_TRIGGER_CREATE = """
-CREATE TRIGGER cr_delete_deployment_runtime
-AFTER DELETE ON character_deployments
-FOR EACH ROW EXECUTE FUNCTION cr_delete_deployment_runtime()
-"""
 
-
-def _enable_sqlite_foreign_keys(
-    dbapi_connection: SQLiteConnection, _: ConnectionPoolEntry
-) -> None:
+def _enable_sqlite_foreign_keys(dbapi_connection: SQLiteConnection, _: ConnectionPoolEntry) -> None:
     """Enable SQLite foreign-key checks for every newly opened DB-API connection."""
 
     cursor = dbapi_connection.cursor()
@@ -297,50 +200,18 @@ class Database:
     ) -> None:
         # Explicitly touch authority/runtime model classes so schema creation is deterministic.
         _ = (
-            ConversationThreadRecord,
-            ConversationSegmentV3Record,
-            ThreadMembershipRecord,
-            MessageRelationRecord,
-            ConversationEpisodeV3Record,
-            ThreadWorkingStateRecord,
-            PendingActionV3Record,
-            EntityV3Record,
-            EvidenceEdgeV3Record,
-            KnowledgeGapRecord,
-            KnowledgeGapCandidateRecord,
-            BeliefV3Record,
-            BeliefEvidenceDependencyRecord,
-            BeliefRevisionEventRecord,
-            SocialEventV3Record,
-            ImpressionV3Record,
-            CharacterRelationshipPriorRecord,
-            DeploymentRelationshipStateRecord,
-            DeploymentRelationshipEventRecord,
-            CharacterPersonImpressionRecord,
-            CharacterLearnedStateRecord,
-            CharacterLearnedStateEventRecord,
-            SmartParticipationScopeStateRecord,
-            SmartParticipationDeploymentStateRecord,
+            CharacterNoteRecord,
+            PendingActionRecord,
+            NoteCreationReceiptRecord,
+            RoomRouteRecord,
+            ModelAttemptBucketRecord,
+            RoomStateRecord,
+            RoomSourceRecord,
+            RoomSelectionRecord,
             UtilityProviderQuotaRecord,
-            ConversationEntityRecord,
-            ConversationEpisodeEntityRecord,
-            CharacterEpisodeAccessRecord,
             DiscordGuildActorIdentityRecord,
             TurnJobRecord,
             TurnJobProgressRecord,
-            DeploymentPresenceRecord,
-            DeploymentPresenceNoticeRecord,
-            DeploymentPresenceRhythmRecord,
-            DeploymentActivitySessionRecord,
-            DeploymentActivitySessionItemRecord,
-            DiscoveryItemRecord,
-            DiscoverySourceQueryCacheRecord,
-            DeploymentDiscoveryProfileRecord,
-            DeploymentDiscoveryExposureRecord,
-            DeploymentDiscoveryDecisionRecord,
-            DeploymentDiscoverySharePolicyRecord,
-            DeploymentDiscoveryShareRecord,
-            IntelligenceV3HardCutoverMigrationRecord,
             KnowledgeFabricHardCutoverMigrationRecord,
             OperationalDataMigrationRecord,
             DatabaseSchemaMigrationRecord,
@@ -373,8 +244,7 @@ class Database:
             KnowledgeEvidenceEmbeddingRecord,
             KnowledgeCanonicalEntityRecord,
             KnowledgeCanonicalVisualReferenceRecord,
-            KnowledgeRuntimeEntityResolutionRecord,
-            KnowledgeExtractedAssertionRecord,
+                    KnowledgeExtractedAssertionRecord,
             KnowledgeWorldEventRecord,
             KnowledgeWorldEventParticipantRecord,
             KnowledgeEvidenceGraphRelationRecord,
@@ -420,6 +290,7 @@ class Database:
         KnowledgeFabricExternalSyncMigration(self).run()
         KnowledgeFabricExternalScheduleMigration(self).run()
         self._ensure_turn_job_author_scope()
+        self._ensure_media_source_fingerprint()
 
         if not allow_incomplete_data_migration:
             self._assert_no_incomplete_data_migration()
@@ -427,18 +298,10 @@ class Database:
         if not run_legacy_migrations:
             self._ensure_sqlite_deployment_runtime_invariants()
             self._ensure_postgresql_deployment_runtime_invariants()
-            self._ensure_sqlite_message_relation_author_snapshots()
             return
 
-        # Existing installations may still contain old Topic/Memory/Episode tables.  The raw
-        # hard-cutover migration preserves useful durable evidence into v3 stores, deliberately
-        # discards Topic/SemanticThread identity, then removes the old tables.  Because it uses
-        # reflection, legacy ORM models do not need to stay registered.
-        from echo_masque.persistence.intelligence_v3_migration import (
-            IntelligenceV3HardCutoverMigration,
-        )
-
-        IntelligenceV3HardCutoverMigration(self).run()
+        # Retired conversational tables are not reconstructed or purged on startup.
+        # The explicit offline chat reset owns data retirement and replay fencing.
 
         # The explicit product cutover retires the old pasted Knowledge Base and derived
         # Server Wiki stores.  It must run only on normal application startup, never while
@@ -456,7 +319,23 @@ class Database:
         DiscordEventPrivacyMigration(self).run()
         self._ensure_sqlite_deployment_runtime_invariants()
         self._ensure_postgresql_deployment_runtime_invariants()
-        self._ensure_sqlite_message_relation_author_snapshots()
+
+    def _ensure_media_source_fingerprint(self) -> None:
+        """Old media perceptions are not silently attributed to a current source revision."""
+        from sqlalchemy import inspect
+
+        with self.engine.begin() as connection:
+            columns = {
+                item["name"]
+                for item in inspect(connection).get_columns("conversation_media_references")
+            }
+            if "source_fingerprint" not in columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE conversation_media_references ADD COLUMN source_fingerprint "
+                        "VARCHAR(64) NOT NULL DEFAULT ''"
+                    )
+                )
 
     def _ensure_turn_job_author_scope(self) -> None:
         """Add cancellation actor identity without guessing authors for historical jobs."""
@@ -468,10 +347,12 @@ class Database:
                 return
             columns = {column["name"] for column in inspector.get_columns("discord_turn_jobs")}
             if "source_author_id" not in columns:
-                connection.execute(text(
-                    "ALTER TABLE discord_turn_jobs ADD COLUMN source_author_id "
-                    "VARCHAR(200) NOT NULL DEFAULT ''"
-                ))
+                connection.execute(
+                    text(
+                        "ALTER TABLE discord_turn_jobs ADD COLUMN source_author_id "
+                        "VARCHAR(200) NOT NULL DEFAULT ''"
+                    )
+                )
 
     @contextmanager
     def _initialize_lock(self) -> Iterator[None]:
@@ -554,7 +435,6 @@ class Database:
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_SERVER_INSERT_TRIGGER)
             connection.exec_driver_sql(_SQLITE_DEPLOYMENT_SERVER_UPDATE_TRIGGER)
             connection.exec_driver_sql("DROP TRIGGER IF EXISTS cr_delete_deployment_presence")
-            connection.exec_driver_sql(_SQLITE_DEPLOYMENT_PRESENCE_DELETE_TRIGGER)
 
     def _ensure_postgresql_deployment_runtime_invariants(self) -> None:
         """Port the deployed SQLite identity and cleanup guarantees to PostgreSQL."""
@@ -576,31 +456,7 @@ class Database:
                     "repair them explicitly before enabling the server-wide unique constraint."
                 )
             connection.exec_driver_sql(_POSTGRES_DEPLOYMENT_SERVER_UNIQUE_INDEX)
-            connection.exec_driver_sql(_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_FUNCTION)
             connection.exec_driver_sql(_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_TRIGGER_DROP)
-            connection.exec_driver_sql(_POSTGRES_DEPLOYMENT_PRESENCE_DELETE_TRIGGER_CREATE)
-
-    def _ensure_sqlite_message_relation_author_snapshots(self) -> None:
-        """Add non-content author snapshots to pre-existing Conversation v3 relation tables."""
-
-        if self.engine.dialect.name != "sqlite":
-            return
-        required = {
-            "source_author_id": "VARCHAR(200) NOT NULL DEFAULT ''",
-            "source_author_display_name": "VARCHAR(200) NOT NULL DEFAULT ''",
-            "target_author_id": "VARCHAR(200) NOT NULL DEFAULT ''",
-            "target_author_display_name": "VARCHAR(200) NOT NULL DEFAULT ''",
-        }
-        with self.engine.begin() as connection:
-            columns = {
-                str(row[1])
-                for row in connection.exec_driver_sql("PRAGMA table_info(message_relations_v3)").all()
-            }
-            for name, definition in required.items():
-                if columns and name not in columns:
-                    connection.exec_driver_sql(
-                        f"ALTER TABLE message_relations_v3 ADD COLUMN {name} {definition}"
-                    )
 
     def inspect_deployment_server_duplicates(self) -> tuple[DeploymentServerDuplicate, ...]:
         with self.engine.connect() as connection:

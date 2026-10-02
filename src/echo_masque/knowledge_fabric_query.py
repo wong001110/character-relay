@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
+from echo_masque.embedding_space import EmbeddingSpace
 from echo_masque.knowledge_fabric_query_policy import (
     candidate_may_enter_ranking,
     freshness_status_for_mode,
@@ -23,7 +24,7 @@ from echo_masque.persistence.knowledge_fabric_repository import KnowledgeFabricR
 class KnowledgeQueryEmbedder(Protocol):
     """Optional dependency for a pre-built dense index; it never sees unauthorized rows."""
 
-    model_name: str
+    space: EmbeddingSpace
 
     def embed_query(self, text: str) -> list[float]: ...
 
@@ -63,6 +64,7 @@ class KnowledgeQueryResult:
     accessible_corpus_count: int
     freshness_status: str
     hits: tuple[KnowledgeQueryHit, ...]
+    dense_index_status: str = "not_configured"
 
 
 class KnowledgeQueryEngine:
@@ -98,7 +100,7 @@ class KnowledgeQueryEngine:
                 hits=(),
             )
 
-        channels = self._retrieve_channels(
+        channels, dense_status = self._retrieve_channels(
             request,
             authorized_corpus_ids=authorized_corpus_ids,
         )
@@ -119,7 +121,19 @@ class KnowledgeQueryEngine:
                 by_entry.setdefault(item.retrieval_entry_id, item)
                 channel_names.setdefault(item.retrieval_entry_id, []).append(channel)
 
-        fused_ids = stable_reciprocal_rank_fusion(tuple(rankings))[: request.result_limit]
+        # A grant revoked while retrieval was running cannot enter Character context.
+        current_corpora = (
+            frozenset(
+                item.corpus.id
+                for item in self.fabric_repository.list_effective_corpora(request.server_scope_id)
+            )
+            & authorized_corpus_ids
+        )
+        fused_ids = tuple(
+            entry_id
+            for entry_id in stable_reciprocal_rank_fusion(tuple(rankings))
+            if by_entry[entry_id].corpus_id in current_corpora
+        )[: request.result_limit]
         hits = tuple(
             KnowledgeQueryHit(
                 evidence_unit_id=by_entry[entry_id].evidence_unit_id,
@@ -138,6 +152,7 @@ class KnowledgeQueryEngine:
             accessible_corpus_count=len(authorized_corpus_ids),
             freshness_status=freshness_status,
             hits=hits,
+            dense_index_status=dense_status,
         )
 
     def _retrieve_channels(
@@ -145,28 +160,41 @@ class KnowledgeQueryEngine:
         request: KnowledgeQueryRequest,
         *,
         authorized_corpus_ids: frozenset[str],
-    ) -> tuple[tuple[str, Sequence[KnowledgeIndexCandidate]], ...]:
+    ) -> tuple[tuple[tuple[str, Sequence[KnowledgeIndexCandidate]], ...], str]:
         sparse = self.index_repository.search_sparse(
             authorized_corpus_ids=authorized_corpus_ids,
             query=request.query,
             candidate_limit=request.candidate_limit,
         )
         if request.mode in {"exact", "code"}:
-            return (("sparse", sparse),)
+            return (("sparse", sparse),), "not_requested"
 
         channels: list[tuple[str, Sequence[KnowledgeIndexCandidate]]] = [("sparse", sparse)]
+        dense_status = "not_configured"
         if self.embedder is not None:
-            channels.append(
-                (
-                    "dense",
-                    self.index_repository.search_dense(
-                        authorized_corpus_ids=authorized_corpus_ids,
-                        embedding_model=self.embedder.model_name,
-                        query_vector=self.embedder.embed_query(request.query),
-                        candidate_limit=request.candidate_limit,
-                    ),
-                )
+            dense_status = self.index_repository.dense_index_status(
+                authorized_corpus_ids=authorized_corpus_ids, space=self.embedder.space
             )
+            # Sparse first. Never create passage vectors inside a query or download a model.
+            if len(sparse) >= request.result_limit:
+                dense_status = "not_requested_sparse_sufficient"
+            elif dense_status in {"ready", "partial"}:
+                try:
+                    query_vector = self.embedder.embed_query(request.query)
+                    channels.append(
+                        (
+                            "dense",
+                            self.index_repository.search_dense(
+                                authorized_corpus_ids=authorized_corpus_ids,
+                                space=self.embedder.space,
+                                query_vector=query_vector,
+                                candidate_limit=request.candidate_limit,
+                            ),
+                        )
+                    )
+                except (ValueError, RuntimeError):
+                    # No text/exception body in diagnostics; retain permitted sparse results.
+                    dense_status = "unavailable"
         if request.mode in {"overview", "relational", "current"}:
             channels.append(
                 (
@@ -179,7 +207,7 @@ class KnowledgeQueryEngine:
                     ),
                 )
             )
-        return tuple(channels)
+        return tuple(channels), dense_status
 
     @staticmethod
     def _require_request(request: KnowledgeQueryRequest) -> None:
@@ -189,8 +217,10 @@ class KnowledgeQueryEngine:
             raise ValueError("Knowledge query is required.")
         if not query_mode_is_valid(request.mode):
             raise ValueError("Unknown Knowledge query mode.")
-        if request.candidate_limit <= 0 or request.result_limit <= 0:
-            raise ValueError("Knowledge query limits must be positive.")
+        if not 1 <= request.candidate_limit <= 64 or not 1 <= request.result_limit <= 64:
+            raise ValueError("Knowledge query limits must be within 1..64.")
+        if len(request.query) > 800:
+            raise ValueError("Knowledge query must be bounded.")
 
 
 __all__ = [

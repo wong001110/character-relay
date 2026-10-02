@@ -7,11 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from echo_masque.api.expression_schemas import (
     DiscordCatalogEmoji,
-    ExpressionCandidate,
     ExpressionContent,
     ExpressionDecision,
 )
-from echo_masque.api.smart_participation_v3_schemas import SmartParticipationMediaDescriptor
 from echo_masque.character_turn_context_types import CharacterContextTraceView
 from echo_masque.config import LangGraphMode
 from echo_masque.smart_output import (
@@ -247,36 +245,6 @@ class DiscordStickerObservation(BaseModel):
     asset_url: str = Field(default="", max_length=2000)
 
 
-class DiscordInteractionSessionConnectorView(BaseModel):
-    id: str
-    participant_deployment_ids: list[str] = Field(min_length=2, max_length=2)
-    rounds_per_trigger: int = Field(ge=1, le=3)
-    intensity: Literal["light", "playful", "sharp"]
-    target_user_id: str
-    target_display_name: str
-
-
-class DiscordInteractionClaimRequest(BaseModel):
-    connection_id: str = Field(min_length=1, max_length=64)
-    guild_id: str = Field(min_length=1, max_length=200)
-    channel_id: str = Field(min_length=1, max_length=200)
-    target_user_id: str = Field(min_length=1, max_length=200)
-    source_message_id: str = Field(min_length=1, max_length=200)
-
-
-class DiscordInteractionClaimView(BaseModel):
-    claimed: bool = False
-    run_id: str | None = None
-    session: DiscordInteractionSessionConnectorView | None = None
-
-
-class DiscordInteractionRunComplete(BaseModel):
-    connection_id: str = Field(min_length=1, max_length=64)
-    status: Literal["completed", "failed"]
-    reply_count: int = Field(default=0, ge=0, le=30)
-    stop_reason: str = Field(default="", max_length=2000)
-
-
 class DiscordAttachmentContent(BaseModel):
     """Attachment metadata supplied by the Discord Connector without raw bytes."""
 
@@ -305,6 +273,9 @@ class DiscordContextMessage(BaseModel):
     reply_to_message_id: str = Field(default="", max_length=200)
     edited_at: datetime | None = None
     author_deployment_id: str = Field(default="", max_length=64)
+    channel_id: str = Field(default="", max_length=200)
+    thread_id: str = Field(default="", max_length=200)
+    content_available: bool = True
     message_id: str = Field(min_length=1, max_length=200)
     author_id: str = Field(min_length=1, max_length=200)
     author_display_name: str = Field(min_length=1, max_length=160)
@@ -316,6 +287,15 @@ class DiscordContextMessage(BaseModel):
 
 
 class DiscordInboundMessage(BaseModel):
+    source_selection_id: str = Field(default="", max_length=64)
+    source_created_at: datetime | None = None
+    source_edited_at: datetime | None = None
+    # Replaced by backend binding, never copied into authority from client hints.
+    runtime_request_id: str = Field(default="", max_length=200)
+    runtime_requester_id: str = Field(default="", max_length=200)
+    runtime_requester_is_bot: bool = True
+    runtime_target_message_id: str = Field(default="", max_length=200)
+    runtime_selection_origin: str = Field(default="", max_length=24)
     connection_id: str = Field(min_length=1, max_length=64)
     deployment_id: str = Field(min_length=1, max_length=64)
     message_id: str = Field(min_length=1, max_length=200)
@@ -341,9 +321,6 @@ class DiscordInboundMessage(BaseModel):
     embeds: list[DiscordEmbedContent] = Field(default_factory=list, max_length=10)
     # Planner descriptors are opaque routing/provenance evidence. They never establish
     # Character perception; Runtime media understanding remains the authority for that.
-    media_descriptors: list[SmartParticipationMediaDescriptor] = Field(
-        default_factory=list, max_length=6
-    )
     burst_media_message_ids: list[str] = Field(default_factory=list, max_length=3)
     conversation_burst_id: str = Field(default="", max_length=80)
     burst_source_message_ids: list[str] = Field(default_factory=list, max_length=20)
@@ -352,17 +329,6 @@ class DiscordInboundMessage(BaseModel):
         default_factory=list, max_length=20
     )
     recent_messages: list[DiscordContextMessage] = Field(default_factory=list, max_length=30)
-    interaction_session_id: str = Field(default="", max_length=64)
-    interaction_type: str = Field(default="", max_length=32)
-    interaction_intensity: str = Field(default="", max_length=24)
-    interaction_round: int = Field(default=0, ge=0, le=10)
-    interaction_total_rounds: int = Field(default=0, ge=0, le=10)
-    interaction_position: int = Field(default=0, ge=0, le=10)
-    interaction_participant_count: int = Field(default=0, ge=0, le=10)
-    interaction_target_user_id: str = Field(default="", max_length=200)
-    interaction_target_display_name: str = Field(default="", max_length=160)
-    expression_run_id: str = Field(default="", max_length=64)
-    expression_candidates: list[ExpressionCandidate] = Field(default_factory=list, max_length=10)
     runtime_operation_id: str = Field(default="", max_length=64)
     runtime_step_id: str = Field(default="", max_length=64)
 

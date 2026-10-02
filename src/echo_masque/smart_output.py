@@ -10,7 +10,11 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from echo_masque.api.expression_schemas import ExpressionCandidate, ExpressionDecision
+from echo_masque.api.expression_schemas import (
+    ExpressionCandidate,
+    ExpressionDecision,
+    ExpressionIntent,
+)
 from echo_masque.character_invite_runtime import (
     CharacterInviteParticipant,
     CharacterInviteTurnState,
@@ -25,27 +29,6 @@ _OUTPUT_PATTERN = re.compile(r"^\s*\[\[CR_OUTPUT\s+(\{.*\})\s*\]\]\s*$", re.DOTA
 _SHORT_MESSAGE_MAX_TEXT = 280
 
 
-def _expression_aliases(
-    candidates: list[ExpressionCandidate],
-) -> dict[str, ExpressionCandidate]:
-    """Build stable prompt-local aliases without exposing Discord resource IDs."""
-
-    aliases: dict[str, ExpressionCandidate] = {}
-    emoji_index = 0
-    sticker_index = 0
-    for candidate in candidates[:6]:
-        if candidate.resource_type == "emoji":
-            emoji_index += 1
-            alias = f"e{emoji_index}"
-        elif candidate.resource_type == "sticker":
-            sticker_index += 1
-            alias = f"s{sticker_index}"
-        else:
-            continue
-        aliases[alias] = candidate
-    return aliases
-
-
 def _payload_requires_visible_action(payload: DiscordInboundMessage) -> bool:
     """Return whether the conversation directly expects this Character to answer.
 
@@ -54,6 +37,8 @@ def _payload_requires_visible_action(payload: DiscordInboundMessage) -> bool:
     active interaction session still require a visible response.
     """
 
+    if payload.runtime_selection_origin:
+        return payload.runtime_selection_origin in {"direct", "context_action"}
     return bool(
         getattr(payload, "interaction_session_id", "")
         or getattr(payload, "mentioned_bot", False)
@@ -80,7 +65,7 @@ class SmartTextPart(BaseModel):
 class SmartEmojiPart(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    emoji: str = Field(min_length=1, max_length=32)
+    emoji: str = Field(min_length=1, max_length=240)
 
 
 class SmartMentionPart(BaseModel):
@@ -96,35 +81,44 @@ SmartMessagePart = Annotated[
 
 
 class SmartOutputProposal(BaseModel):
-    """Compact model-authored proposal. References are prompt-local aliases."""
+    """Model proposes content and optional expression meaning, never resource IDs."""
 
     model_config = ConfigDict(extra="forbid")
-
     action: Literal["ignore", "message", "short_message", "react", "sticker"]
-    content: list[SmartMessagePart] = Field(default_factory=list, max_length=24)
+    content: list[SmartTextPart | SmartMentionPart] = Field(default_factory=list, max_length=24)
     reply_to: str | None = Field(default=None, max_length=32)
     target: str | None = Field(default=None, max_length=32)
-    emoji: str | None = Field(default=None, max_length=32)
-    sticker: str | None = Field(default=None, max_length=32)
+    expression: ExpressionIntent | None = None
+    fallback_text: str = Field(default="", max_length=280)
 
     @model_validator(mode="after")
     def validate_action_shape(self) -> SmartOutputProposal:
         if self.action == "ignore":
-            if self.content or any((self.reply_to, self.target, self.emoji, self.sticker)):
+            if self.content or any(
+                (self.reply_to, self.target, self.expression, self.fallback_text)
+            ):
                 raise ValueError("ignore must not include action payload")
-            return self
-        if self.action in {"message", "short_message"}:
-            if not self.content:
-                raise ValueError(f"{self.action} requires content")
-            if any((self.target, self.emoji, self.sticker)):
-                raise ValueError(f"{self.action} contains unsupported action fields")
-            return self
-        if self.action == "react":
-            if self.content or self.reply_to or self.sticker or not self.target or not self.emoji:
-                raise ValueError("react requires target and emoji only")
-            return self
-        if self.content or self.target or self.emoji or not self.sticker:
-            raise ValueError("sticker requires sticker and optional reply_to only")
+        elif self.action in {"message", "short_message"}:
+            if not self.content or self.target or self.fallback_text:
+                raise ValueError("message requires content and optional reply/expression")
+            if self.expression is not None and self.expression.kind != "emoji":
+                raise ValueError("message supports an optional inline emoji intent")
+        elif self.action == "react":
+            if (
+                self.content
+                or self.reply_to
+                or not self.target
+                or self.expression is None
+                or self.expression.kind != "emoji"
+            ):
+                raise ValueError("react requires target and emoji intent")
+        elif (
+            self.content
+            or self.target
+            or self.expression is None
+            or self.expression.kind != "sticker"
+        ):
+            raise ValueError("sticker requires sticker intent and optional reply")
         return self
 
 
@@ -144,6 +138,13 @@ class DiscordSmartOutputView(BaseModel):
     target_message_id: str | None = None
     emoji_resource_key: str | None = None
     sticker_resource_key: str | None = None
+    # Proposals are resolved after generation; resources are runtime-authored only.
+    expression_intent: ExpressionIntent | None = None
+    expression_resource: ExpressionCandidate | None = None
+    expression_resolution: Literal["not_requested", "resolved", "no_match", "scope_unavailable"] = (
+        "not_requested"
+    )
+    fallback_text: str = Field(default="", max_length=280)
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,8 +172,9 @@ class SmartOutputContext:
         for item in messages[-10:]:
             if item.message_id:
                 unique[item.message_id] = item
-        message_alias_to_id: dict[str, str] = {"trigger": payload.message_id}
-        older_ids = [item_id for item_id in unique if item_id != payload.message_id]
+        primary_id = payload.runtime_target_message_id or payload.message_id
+        message_alias_to_id: dict[str, str] = {"trigger": primary_id}
+        older_ids = [item_id for item_id in unique if item_id != primary_id]
         for index, message_id in enumerate(older_ids[-8:], start=1):
             message_alias_to_id[f"m{index}"] = message_id
         message_id_to_alias = {value: key for key, value in message_alias_to_id.items()}
@@ -186,8 +188,6 @@ class SmartOutputContext:
             if participant.ref in seen_refs:
                 continue
             if participant.ref == f"deployment:{payload.deployment_id}":
-                continue
-            if payload.interaction_session_id and participant.kind == "character":
                 continue
             seen_refs.add(participant.ref)
             participants.append(participant)
@@ -233,139 +233,44 @@ class SmartOutputContext:
     def message_alias(self, message_id: str) -> str:
         return self.message_id_to_alias.get(message_id, "context")
 
-    def _available_actions(self, candidates: list[ExpressionCandidate]) -> tuple[str, ...]:
-        actions = ["message", "short_message"]
-        aliases = _expression_aliases(candidates)
-        if any(
-            item.resource_type == "emoji" and "reaction" in item.allowed_actions
-            for item in aliases.values()
-        ):
-            actions.append("react")
-        if any(
-            item.resource_type == "sticker" and "sticker" in item.allowed_actions
-            for item in aliases.values()
-        ):
-            actions.append("sticker")
-        if not self.participation_required:
-            actions.insert(0, "ignore")
-        return tuple(actions)
-
-    def prompt_guidance(self, candidates: list[ExpressionCandidate]) -> tuple[str, ...]:
-        actions = self._available_actions(candidates)
-        lines: list[str] = [
-            "Choose exactly one natural Discord social action for this character.",
-            (
-                "The action is a proposal only; Character Relay validates every "
-                "reference before execution."
-            ),
-            "Available actions: " + ", ".join(actions) + ".",
+    def prompt_guidance(self) -> tuple[str, ...]:
+        # No catalogue is fetched or included before the Character asks for an expression.
+        lines = [
+            "Choose one natural Discord social action; runtime validates every reference.",
+            "Return exactly one [[CR_OUTPUT {...}]] line, without explanations or reasoning.",
+            "Use message for a reply and short_message for <=280 characters. Content parts are "
+            "text or a supplied participant mention alias. Never invent aliases or resource IDs.",
+            "An expression is optional. Omit it when words alone suffice. Otherwise describe "
+            "a short intent and emotion; runtime may find no appropriate resource and omit it.",
+            "For message an optional expression.kind=emoji adds one inline emoji. Use react "
+            "with a target message alias and emoji intent, or sticker with a sticker intent.",
+            "For react/sticker provide fallback_text when a direct human request needs an answer "
+            "even if no suitable resource exists. Do not fetch a catalogue yourself.",
+            "Never mention yourself. Mentions invite discussion, not permission to use tools.",
+            '[[CR_OUTPUT {"action":"message","content":[{"text":"我懂你的意思。"}]}]]',
+            '[[CR_OUTPUT {"action":"short_message","content":[{"text":"同意。"}]}]]',
+            '[[CR_OUTPUT {"action":"message","reply_to":"trigger",'
+            '"content":[{"text":"有點離譜。"}],'
+            '"expression":{"kind":"emoji","intent":"tease","emotion":"amused"}}]]',
+            '[[CR_OUTPUT {"action":"react","target":"trigger","expression":{"kind":"emoji",'
+            '"intent":"agree","emotion":"pleased"},"fallback_text":"同意。"}]]',
+            '[[CR_OUTPUT {"action":"sticker","expression":{"kind":"sticker","intent":"thanks",'
+            '"emotion":"grateful"},"fallback_text":"謝謝。"}]]',
+            "Message references available this turn: " + ", ".join(self.message_alias_to_id),
         ]
         if self.participation_required:
-            lines.extend(
-                (
-                    "The visible conversation directly expects this character to respond.",
-                    "Produce one visible social action. Silence/ignore is not an available action.",
-                )
-            )
-        elif self.proactive_candidate:
-            lines.extend(
-                (
-                    "Runtime nominated this character as a possible proactive participant, "
-                    "not an obligated speaker.",
-                    (
-                        "Use ignore when the visible conversation is unclear, already adequately "
-                        "answered, off-topic for you, or you have no useful social contribution."
-                    ),
-                )
-            )
+            lines.append("This is a direct request. Answer or clarify; do not ignore it.")
         else:
-            lines.append("Use ignore when this character would naturally stay silent.")
-        lines.extend(
-            (
-                "Use message for a normal chat message.",
-                (
-                    "Use short_message for a brief visible chat reaction; its text content is "
-                    f"limited to {_SHORT_MESSAGE_MAX_TEXT} characters."
-                ),
-                "Unicode Emoji may appear directly inside a text value.",
-                (
-                    "A message content array is ordered. Each item must contain exactly "
-                    "one of: text, emoji, mention."
-                ),
-                (
-                    "A custom Server Emoji in message content must use an Emoji alias "
-                    "listed below and may appear anywhere in the content array."
-                ),
-                (
-                    "Use react for a lightweight Emoji reaction attached to one supplied "
-                    "message reference."
-                ),
-                (
-                    "Use sticker when a listed Server Sticker is the whole social action "
-                    "for this turn."
-                ),
-                (
-                    "For message, short_message, and sticker, omit reply_to to send directly to "
-                    "the channel; set reply_to to a supplied message reference only when an "
-                    "explicit Discord reply is socially useful."
-                ),
-                (
-                    "Never invent message references, participant aliases, Emoji aliases, "
-                    "or Sticker aliases."
-                ),
-                "Never mention yourself. Your own participant alias is intentionally not supplied.",
-                (
-                    "Do not emit reasoning, confidence, explanations, prose outside the "
-                    "control line, or legacy CR_EXPRESSION controls."
-                ),
-                "Return exactly one line in the form [[CR_OUTPUT {...}]].",
-                "Examples (copy the shape, not unavailable sample aliases):",
-                (
-                    '[[CR_OUTPUT {"action":"message","content":'
-                    '[{"text":"我懂你的意思。"}]}]]'
-                ),
-                '[[CR_OUTPUT {"action":"short_message","content":[{"text":"嗯。"}]}]]',
-                (
-                    '[[CR_OUTPUT {"action":"message","reply_to":"trigger","content":'
-                    '[{"text":"補充一點: "},{"emoji":"e1"},'
-                    '{"text":" "},{"mention":"p1"}]}]]'
-                ),
-                '[[CR_OUTPUT {"action":"react","target":"trigger","emoji":"e1"}]]',
-                '[[CR_OUTPUT {"action":"sticker","sticker":"s1"}]]',
+            lines.append(
+                'No useful contribution is a valid success: [[CR_OUTPUT {"action":"ignore"}]]. '
+                "A proactive nomination is not an obligation to speak."
             )
-        )
-        if not self.participation_required:
-            lines.append('[[CR_OUTPUT {"action":"ignore"}]]')
-        lines.append(
-            "Message references available this turn: " + ", ".join(self.message_alias_to_id.keys())
-        )
-        if self.participant_alias_descriptions:
-            lines.extend(("Mentionable participants:", *self.participant_alias_descriptions))
-        else:
-            lines.append("Mentionable participants: none.")
-
-        expression_aliases = _expression_aliases(candidates)
-        if expression_aliases:
-            lines.append("Retrieved Server expression aliases:")
-            for alias, item in expression_aliases.items():
-                meaning = (
-                    item.semantic_intent
-                    or item.semantic_emotion
-                    or item.semantic_description
-                    or item.name
-                )
-                lines.append(
-                    f"- {alias}; type={item.resource_type}; name={item.name}; "
-                    f"actions={','.join(item.allowed_actions)}; intent={meaning}"
-                )
-        else:
-            lines.append("Retrieved Server expression aliases: none.")
+        lines.extend(("Mentionable participants:", *self.participant_alias_descriptions))
         return tuple(lines)
 
     def parse_and_resolve(
         self,
         raw: str,
-        candidates: list[ExpressionCandidate],
     ) -> tuple[DiscordSmartOutputView | None, str]:
         marker = _OUTPUT_PATTERN.fullmatch(raw)
         value: object
@@ -392,14 +297,12 @@ class SmartOutputContext:
             proposal = SmartOutputProposal.model_validate(value)
         except ValueError:
             return None, "invalid_smart_output_control"
-        return self.resolve(proposal, candidates)
+        return self.resolve(proposal)
 
     def resolve(
         self,
         proposal: SmartOutputProposal,
-        candidates: list[ExpressionCandidate],
     ) -> tuple[DiscordSmartOutputView | None, str]:
-        by_alias = _expression_aliases(candidates)
 
         def message_id(alias: str | None) -> str | None:
             if alias is None:
@@ -416,66 +319,23 @@ class SmartOutputContext:
                 return None, "admitted_turn_requires_visible_action"
             return DiscordSmartOutputView(action="ignore"), "ok"
 
-        if proposal.action == "react":
-            candidate = by_alias.get(proposal.emoji or "")
-            if (
-                candidate is None
-                or candidate.resource_type != "emoji"
-                or not candidate.available
-                or not candidate.enabled
-                or "reaction" not in candidate.allowed_actions
-            ):
-                return None, "reaction_resource_not_allowed"
-            return (
-                DiscordSmartOutputView(
-                    action="react",
-                    target_message_id=message_id(proposal.target),
-                    emoji_resource_key=candidate.resource_key,
-                ),
-                "ok",
-            )
-
-        if proposal.action == "sticker":
-            candidate = by_alias.get(proposal.sticker or "")
-            if (
-                candidate is None
-                or candidate.resource_type != "sticker"
-                or not candidate.available
-                or not candidate.enabled
-                or "sticker" not in candidate.allowed_actions
-            ):
-                return None, "sticker_resource_not_allowed"
-            return (
-                DiscordSmartOutputView(
-                    action="sticker",
-                    reply_to_message_id=message_id(proposal.reply_to),
-                    sticker_resource_key=candidate.resource_key,
-                ),
-                "ok",
-            )
+        if proposal.action in {"react", "sticker"}:
+            if self.participation_required and not proposal.fallback_text.strip():
+                return None, "direct_expression_requires_text_fallback"
+            return DiscordSmartOutputView(
+                action="react" if proposal.action == "react" else "sticker",
+                expression_intent=proposal.expression,
+                fallback_text=proposal.fallback_text,
+                target_message_id=message_id(proposal.target),
+                reply_to_message_id=message_id(proposal.reply_to),
+            ), "ok"
 
         resolved_parts: list[SmartMessagePart] = []
-        custom_emoji_count = 0
         text_length = 0
         for part in proposal.content:
             if isinstance(part, SmartTextPart):
                 text_length += len(part.text)
                 resolved_parts.append(part)
-                continue
-            if isinstance(part, SmartEmojiPart):
-                candidate = by_alias.get(part.emoji)
-                if (
-                    candidate is None
-                    or candidate.resource_type != "emoji"
-                    or not candidate.available
-                    or not candidate.enabled
-                    or "inline" not in candidate.allowed_actions
-                ):
-                    return None, "inline_emoji_resource_not_allowed"
-                custom_emoji_count += 1
-                if custom_emoji_count > 1:
-                    return None, "too_many_custom_emojis"
-                resolved_parts.append(SmartEmojiPart(emoji=candidate.resource_key))
                 continue
             participant_ref = self.participant_alias_to_ref.get(part.mention)
             if participant_ref is None:
@@ -492,6 +352,7 @@ class SmartOutputContext:
             action="message",
             message_style="short" if proposal.action == "short_message" else "normal",
             content=resolved_parts,
+            expression_intent=proposal.expression,
             reply_to_message_id=message_id(proposal.reply_to),
         )
         return self._materialize_character_invite(output), "ok"
