@@ -59,6 +59,24 @@ class SourceEmbed(BaseModel):
     thumbnail_url: str = Field(default="", max_length=3000)
 
 
+class SourcePollAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    answer_id: int = Field(ge=0, le=100)
+    text: str = Field(default="", max_length=300)
+    emoji_name: str = Field(default="", max_length=160)
+    emoji_id: str = Field(default="", max_length=200)
+    vote_count: int = Field(default=0, ge=0)
+
+
+class SourcePoll(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    question: str = Field(min_length=1, max_length=300)
+    answers: tuple[SourcePollAnswer, ...] = Field(default=(), max_length=10)
+    allow_multiselect: bool = False
+    expires_at: datetime | None = None
+    results_finalized: bool = False
+
+
 class SourceReaction(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     key: str = Field(min_length=1, max_length=240)
@@ -100,6 +118,7 @@ class SourceMessage(BaseModel):
     stickers: tuple[SourceExpression, ...] = Field(default=(), max_length=3)
     mentions: tuple[SourceMention, ...] = Field(default=(), max_length=50)
     embeds: tuple[SourceEmbed, ...] = Field(default=(), max_length=10)
+    poll: SourcePoll | None = None
     reactions: tuple[SourceReaction, ...] = Field(default=(), max_length=40)
     pinned: bool = False
 
@@ -119,6 +138,7 @@ class SourceMessage(BaseModel):
             or self.stickers
             or self.mentions
             or self.embeds
+            or self.poll is not None
             or self.reactions
         ):
             raise ValueError("A tombstone must not retain presentation content.")
@@ -162,6 +182,13 @@ class SourceMessage(BaseModel):
             self.content_available,
             self.has_unseen_media,
             self.media_fingerprint,
+            {
+                "poll": self.poll.question,
+                "answers": [answer.text for answer in self.poll.answers],
+                "allow_multiselect": self.poll.allow_multiselect,
+            }
+            if self.poll is not None
+            else None,
         ]
         return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
 
