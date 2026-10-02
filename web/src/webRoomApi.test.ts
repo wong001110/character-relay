@@ -12,7 +12,7 @@ describe("web room client contracts", () => {
   expect(fetcher.mock.calls[0][1].body).not.toContain("webhook");
  });
  it("keeps unconfirmed sends but removes the receipt when its echo is present", () => {
-  const snapshot = {room_id:"r",history_limit:64,messages:[{id:"discord1"}],outbox:[{id:"one",discord_message_id:"discord1",status:"delivered"},{id:"two",discord_message_id:"",status:"uncertain"}]} as WebSnapshot;
+  const snapshot = {room_id:"r",history_limit:64,messages:[{id:"discord1"}],outbox:[{id:"one",discord_message_id:"discord1",status:"delivered"},{id:"two",discord_message_id:"",status:"uncertain"}]} as unknown as WebSnapshot;
   expect(unmatchedOutbox(snapshot).map(item => item.id)).toEqual(["two"]);
  });
  it("preserves the current room while reconnecting but clears on a real room change", () => {
