@@ -18,8 +18,8 @@ from echo_masque.persistence.deployment_models import (
     DiscordServerCatalogRecord,
     PlatformConnectionRecord,
 )
-from echo_masque.persistence.models import UserRecord
 from echo_masque.persistence.expression_models import DiscordExpressionSemanticRecord
+from echo_masque.persistence.models import UserRecord
 from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.persistence.server_access_models import DiscordServerAccessRecord
 from echo_masque.persistence.web_room_models import (
