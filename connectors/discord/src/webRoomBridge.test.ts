@@ -39,6 +39,24 @@ describe("web participant one-shot send", () => {
    expect(webMessageText({...claim,thread_id:"thread1",reply_to_message_id:"target1"})).toBe("↪ https://discord.com/channels/guild1/thread1/target1\nHello @everyone");
    expect(() => webMessageText({...claim, text:"x".repeat(2001)})).toThrow();
  });
+ it("supports a validated sticker-only webhook effect without inventing text", async () => {
+   const {transport, effects} = fixture();
+   const stickerClaim = {
+     ...claim,
+     text:"",
+     sticker_resource_key:"sticker:1",
+     sticker_name:"Smile",
+     sticker_asset_url:"https://cdn.discordapp.com/stickers/1.png",
+     sticker_format_type:"png"
+   };
+   expect(webMessageText(stickerClaim)).toBe("");
+   await deliverWebMessage(stickerClaim, transport, effects);
+   expect(effects.send).toHaveBeenCalledWith("", stickerClaim);
+   expect(transport.acknowledgeWebMessage).toHaveBeenCalledWith(
+     stickerClaim,
+     expect.objectContaining({status:"delivered"})
+   );
+ });
  it("distinguishes explicit HTTP rejection from an unknown 5xx effect", () => {
    expect(webSendFailure({status:429}).status).toBe("failed"); expect(webSendFailure({status:503}).status).toBe("uncertain");
  });
