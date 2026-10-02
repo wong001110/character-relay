@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from threading import RLock
 from uuid import uuid4
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -589,6 +589,33 @@ class WebRoomRepository:
                     .limit(32)
                 )
             ]
+
+    def delete_owner(self, owner_id: str) -> dict[str, int]:
+        with self.lock, self.database.session() as session:
+            owned_room_ids = list(
+                session.scalars(select(WebRoomRecord.id).where(WebRoomRecord.owner_id == owner_id))
+            )
+            counts: dict[str, int] = {}
+            if owned_room_ids:
+                for key, model in (
+                    ("web_room_reactions", WebReactionRecord),
+                    ("web_room_outbox", WebOutboxRecord),
+                    ("web_room_members", WebRoomMemberRecord),
+                ):
+                    result = session.execute(delete(model).where(model.room_id.in_(owned_room_ids)))
+                    counts[key] = int(getattr(result, "rowcount", 0) or 0)
+                result = session.execute(delete(WebRoomRecord).where(WebRoomRecord.id.in_(owned_room_ids)))
+                counts["web_rooms"] = int(getattr(result, "rowcount", 0) or 0)
+            for key, model, column in (
+                ("web_reactions_by_user", WebReactionRecord, WebReactionRecord.user_id),
+                ("web_outbox_by_user", WebOutboxRecord, WebOutboxRecord.owner_id),
+                ("web_room_memberships", WebRoomMemberRecord, WebRoomMemberRecord.user_id),
+                ("web_profiles", WebProfileRecord, WebProfileRecord.owner_id),
+            ):
+                result = session.execute(delete(model).where(column == owner_id))
+                counts[key] = counts.get(key, 0) + int(getattr(result, "rowcount", 0) or 0)
+            session.commit()
+            return counts
 
     def connector_rooms(self, connection_id: str) -> list[WebRoomRecord]:
         with self.database.session() as session:
