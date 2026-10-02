@@ -1,0 +1,33 @@
+name: Temporary room closeout source inputs
+on:
+  push:
+    branches: [chore/room-closeout-inputs-20261002]
+    paths: [.github/workflows/room-closeout-inputs.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 7c076c9f5dafef67940c5a5d94083b18bc58998b
+          fetch-depth: 32
+          persist-credentials: false
+      - name: Export public source with Git identity
+        run: |
+          git branch recovery-source HEAD
+          git bundle create /tmp/character-relay-closeout.bundle recovery-source
+          git rev-parse HEAD > /tmp/commit.txt
+          git rev-parse HEAD^{tree} > /tmp/tree.txt
+          sha256sum /tmp/character-relay-closeout.bundle > /tmp/bundle.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: character-relay-closeout-source
+          path: |
+            /tmp/character-relay-closeout.bundle
+            /tmp/commit.txt
+            /tmp/tree.txt
+            /tmp/bundle.sha256
+          retention-days: 3
