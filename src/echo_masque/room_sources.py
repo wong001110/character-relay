@@ -40,6 +40,25 @@ class SourceExpression(BaseModel):
     description: str = Field(default="", max_length=1000)
 
 
+class SourceMention(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    kind: str = Field(pattern="^(user|role|channel)$")
+    target_id: str = Field(min_length=1, max_length=200)
+    label: str = Field(min_length=1, max_length=160)
+
+
+class SourceEmbed(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    embed_type: str = Field(default="", max_length=80)
+    url: str = Field(default="", max_length=3000)
+    title: str = Field(default="", max_length=500)
+    description: str = Field(default="", max_length=2000)
+    provider_name: str = Field(default="", max_length=200)
+    author_name: str = Field(default="", max_length=200)
+    image_url: str = Field(default="", max_length=3000)
+    thumbnail_url: str = Field(default="", max_length=3000)
+
+
 class SourceReaction(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     key: str = Field(min_length=1, max_length=240)
@@ -79,6 +98,8 @@ class SourceMessage(BaseModel):
     attachments: tuple[SourceAttachment, ...] = Field(default=(), max_length=10)
     custom_emojis: tuple[SourceExpression, ...] = Field(default=(), max_length=20)
     stickers: tuple[SourceExpression, ...] = Field(default=(), max_length=3)
+    mentions: tuple[SourceMention, ...] = Field(default=(), max_length=50)
+    embeds: tuple[SourceEmbed, ...] = Field(default=(), max_length=10)
     reactions: tuple[SourceReaction, ...] = Field(default=(), max_length=40)
     pinned: bool = False
 
@@ -93,7 +114,12 @@ class SourceMessage(BaseModel):
         if self.deleted and self.text:
             raise ValueError("A tombstone must not retain message content.")
         if self.deleted and (
-            self.attachments or self.custom_emojis or self.stickers or self.reactions
+            self.attachments
+            or self.custom_emojis
+            or self.stickers
+            or self.mentions
+            or self.embeds
+            or self.reactions
         ):
             raise ValueError("A tombstone must not retain presentation content.")
         if not self.content_available and self.text:
@@ -105,7 +131,22 @@ class SourceMessage(BaseModel):
 
     def model_text(self) -> str:
         """Readable chat prose for models; UI-only Discord IDs stay out of prompts."""
-        return re.sub(r"<a?:([A-Za-z0-9_]+):\d+>", r":\1:", self.text)
+        value = re.sub(r"<a?:([A-Za-z0-9_]+):\d+>", r":\1:", self.text)
+        for mention in self.mentions:
+            token = (
+                f"<#{mention.target_id}>"
+                if mention.kind == "channel"
+                else f"<@&{mention.target_id}>"
+                if mention.kind == "role"
+                else f"<@{mention.target_id}>"
+            )
+            value = value.replace(token, ("#" if mention.kind == "channel" else "@") + mention.label)
+            if mention.kind == "user":
+                value = value.replace(f"<@!{mention.target_id}>", f"@{mention.label}")
+        value = re.sub(r"<@!?\d+>", "@user", value)
+        value = re.sub(r"<@&\d+>", "@role", value)
+        value = re.sub(r"<#\d+>", "#channel", value)
+        return value
 
     def draft_fingerprint(self) -> str:
         """Content/identity changes matter; display-name or timestamp enrichment does not."""
