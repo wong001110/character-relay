@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { deploymentApi, type DiscordServerCatalog } from "./deploymentApi";
 import { useI18n } from "./i18n";
-import { unmatchedOutbox, webRoomApi, type WebMember, type WebProfile, type WebRoom, type WebSend, type WebSnapshot } from "./webRoomApi";
+import { snapshotForRoomTransition, unmatchedOutbox, webRoomApi, type WebMember, type WebProfile, type WebRoom, type WebSend, type WebSnapshot } from "./webRoomApi";
 import "./web-room.css";
 
 const empty: WebSnapshot = {room_id: "", messages: [], outbox: [], history_limit: 64};
@@ -52,10 +52,8 @@ export function WebRoomWorkspace({demoMode = false}: {demoMode?: boolean}) {
   }).catch(reason => { if (active) report(reason); }); return () => {active = false;}; }, []);
   useEffect(() => {
     const nextRoomId = room?.id ?? "";
-    const roomChanged = activeRoomId.current !== nextRoomId;
-    if (roomChanged) {
-      activeRoomId.current = nextRoomId;
-      setSnapshot(empty);
+    setSnapshot(current => snapshotForRoomTransition(current, nextRoomId));
+    if (snapshot.room_id !== nextRoomId) {
       setReply("");
       setMembers([]);
     }
