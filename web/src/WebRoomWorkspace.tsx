@@ -52,11 +52,13 @@ export function WebRoomWorkspace({demoMode = false}: {demoMode?: boolean}) {
   }).catch(reason => { if (active) report(reason); }); return () => {active = false;}; }, []);
   useEffect(() => {
     const nextRoomId = room?.id ?? "";
-    setSnapshot(current => snapshotForRoomTransition(current, nextRoomId));
-    if (snapshot.room_id !== nextRoomId) {
+    const roomChanged = activeRoomId.current !== nextRoomId;
+    if (roomChanged) {
+      activeRoomId.current = nextRoomId;
       setReply("");
       setMembers([]);
     }
+    setSnapshot(current => snapshotForRoomTransition(current, nextRoomId));
     setConnection(room?.enabled ? "connecting" : "disconnected");
     if (!room?.enabled) return;
     let closed = false;
