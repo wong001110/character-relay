@@ -12,7 +12,7 @@ Updated: **2026-10-02**. This is the only current progress and takeover record.
 | Development branch | `refactor/lightweight-room-director` |
 | Direction receipt | `94be0361ef5c4c77bdbf180146beb6f49a5dc6d2`; documentation only, before implementation |
 | R1 source receipt | `f3933d01f43cfe40d42369db0e927d0151f1480f`; final fixture/docs/dependency guard are in its follow-up commit |
-| Merge / production deploy | Not authorized by this assignment; not performed |
+| Merge / production deploy | User authorized squash merge of the completed refactor plus Web Room Participant to main on 2026-10-02; not yet performed. No manual production purge. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
 | Character cards | Prefer portable authored content; old schema must not block the refactor |
 | Full refactor | **INCOMPLETE**; source-focused production routing is wired; continuation/freshness and retirement are still in progress |
@@ -77,7 +77,7 @@ required pending-action/effect state and complete requester-bound controls. Then
 R6 integration/reset/card rehearsal.
 Live Discord/model quality tests are explicitly user-owned and deferred, not an implementation
 blocker or a claimed pass. Keep ambient unqualified by default; provide the evaluated-member setup
-for later testing. No merge, deployment or live data deletion is authorized.
+for later testing. Squash merge is authorized after verification; live data deletion is not performed by development.
 
 ## R3 implementation checkpoint (2026-10-01)
 
@@ -134,3 +134,16 @@ mypy and Ruff pass. This is self-review and not a production deployment, live-mo
 or complete R5. Next: remove Connector/Portal consumers and implement daily notes/observations; R6
 reset/card/fence and integrated checks remain. Source checkpoint and recovery snapshot are separate
 from the earlier unpublished work, which was not restored or claimed complete.
+
+## R5-C Portal checkpoint (2026-10-02)
+
+Reconciled actual remote R5-B `7c076c9f5dafef67940c5a5d94083b18bc58998b` rather than
+rebuilding already published work. Retired the old Portal simulation/semantic participation,
+Discovery and Roast consumers. Existing authenticated note CRUD now has a scope-explicit UI;
+expression metadata uses the supported catalog API; Free Pool settings move to Administration
+with the existing credential modal and explicit Room Director qualification import.
+
+Frontend typecheck, **60 tests**, and production build pass. The build retains a size warning;
+no browser or full-refactor pass is claimed yet. Deleted tests described only retired features;
+new note transport tests preserve scope, expected-version and safe failure behavior.
+Connector retirement, correlated observations, R6 and Web Room remain in progress.

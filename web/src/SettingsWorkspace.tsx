@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import type { AuthUser } from "./api";
+import { RoomRuntimeSettings } from "./RoomRuntimeSettings";
 import { AccountSettingsPanel } from "./AccountSettingsPanel";
 import { AdministrationSettingsPanel } from "./AdministrationSettingsPanel";
 import { Button, FunctionalIcon, StickyLabel, StickyNote } from "./components/ui";
@@ -149,6 +150,7 @@ export function SettingsWorkspace({
                 </Button>
               </div>
               <AdministrationSettingsPanel user={user} />
+              <RoomRuntimeSettings zh={zh} />
             </>
           )}
         </div>

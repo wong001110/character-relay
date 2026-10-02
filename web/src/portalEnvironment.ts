@@ -8,9 +8,3 @@ export const portalDataMode = parsePortalDataMode(import.meta.env.VITE_PORTAL_DA
 
 export const isMockPortal = portalDataMode === "mock";
 
-export function shouldRenderSystemIntelligenceDock(
-  showComponentLibrary: boolean,
-  mockPortal = isMockPortal
-): boolean {
-  return !mockPortal && !showComponentLibrary;
-}

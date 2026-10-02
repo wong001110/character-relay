@@ -22,16 +22,14 @@ import {
   type DeploymentIdentityMode,
   type DeploymentMessageIdentity
 } from "./discordIdentityApi";
-import { ConversationIntelligenceInspector } from "./ConversationIntelligenceInspector";
+import { CharacterNotesPanel } from "./CharacterNotesPanel";
 import { CharacterPortrait } from "./CharacterPortrait";
 import { DiscordEventLogPanel } from "./DiscordEventLogPanel";
 import { DiscordServerProfilesPanel } from "./DiscordServerProfilesPanel";
 import { PaperDrawer, PaperModal } from "./NotebookUI";
 import { Pagination } from "./Pagination";
 import { useI18n } from "./i18n";
-import { InteractionSessionsPanel } from "./InteractionSessionsPanel";
 import { KnowledgeFabricPanel } from "./KnowledgeFabricPanel";
-import { SmartParticipationStudio } from "./SmartParticipationStudio";
 import { serverRuntimeApi } from "./serverRuntimeApi";
 import {
   deploymentRouteForPath,
@@ -68,7 +66,7 @@ function participationLabel(mode: ParticipationMode, zh: boolean): string {
     mention_only: { en: "Mention only", zh: "仅被提及时" },
     reply_only: { en: "Reply only", zh: "仅回复消息时" },
     mention_and_reply: { en: "Mention + reply", zh: "提及或回复时" },
-    smart: { en: "Smart participation", zh: "智能参与" }
+    smart: { en: "Room Director", zh: "Room Director" }
   };
   return zh ? labels[mode].zh : labels[mode].en;
 }
@@ -88,8 +86,8 @@ function participationHelp(mode: ParticipationMode, zh: boolean): string {
       zh: "明确提及或直接回复时回应。"
     },
     smart: {
-      en: "Let Smart Participation decide from the current conversation context.",
-      zh: "由 Smart Participation 根据当前对话语境决定是否参与。"
+      en: "A qualified Room Director may select an optional contribution; silence is valid.",
+      zh: "由合格 Room Director 决定可选发言；保持沉默也是正常结果。"
     }
   };
   return zh ? help[mode].zh : help[mode].en;
@@ -287,27 +285,12 @@ export function DeploymentCenter({
       navigate(deploymentRoutes.index);
       return;
     }
-    const target =
-      serverNotebookTab === "intelligence"
-        ? deploymentRoutes.intelligence(
-            serverProfileId,
-            deploymentRoute?.intelligenceTab ?? "presence"
-          )
-        : deploymentRoutes.notebook(serverProfileId, serverNotebookTab);
-    navigate(target);
+    navigate(deploymentRoutes.notebook(serverProfileId, serverNotebookTab));
   }
 
-  function openServerNotebook(
-    tab: ServerNotebookTab,
-    intelligenceTab = deploymentRoute?.intelligenceTab ?? "presence"
-  ) {
+  function openServerNotebook(tab: ServerNotebookTab) {
     setServerNotebookTab(tab);
-    if (!selectedServerProfileId) return;
-    navigate(
-      tab === "intelligence"
-        ? deploymentRoutes.intelligence(selectedServerProfileId, intelligenceTab)
-        : deploymentRoutes.notebook(selectedServerProfileId, tab)
-    );
+    if (selectedServerProfileId) navigate(deploymentRoutes.notebook(selectedServerProfileId, tab));
   }
 
   async function load(page = deploymentPage) {
@@ -855,23 +838,23 @@ export function DeploymentCenter({
           </button>
           <button
             type="button"
-            className={serverNotebookTab === "interactions" ? "is-active" : ""}
-            aria-current={serverNotebookTab === "interactions" ? "page" : undefined}
-            onClick={() => openServerNotebook("interactions")}
+            className={serverNotebookTab === "notes" ? "is-active" : ""}
+            aria-current={serverNotebookTab === "notes" ? "page" : undefined}
+            onClick={() => openServerNotebook("notes")}
             disabled={!selectedWorkspaceProfile}
           >
             <span aria-hidden="true">⌁</span>
-            <strong>{zh ? "角色互动" : "Interactions"}</strong>
+            <strong>{zh ? "明确笔记" : "Notes"}</strong>
           </button>
           <button
             type="button"
-            className={serverNotebookTab === "intelligence" ? "is-active" : ""}
-            aria-current={serverNotebookTab === "intelligence" ? "page" : undefined}
-            onClick={() => openServerNotebook("intelligence")}
+            className={serverNotebookTab === "operations" ? "is-active" : ""}
+            aria-current={serverNotebookTab === "operations" ? "page" : undefined}
+            onClick={() => openServerNotebook("operations")}
             disabled={!selectedWorkspaceProfile}
           >
             <span aria-hidden="true">◉</span>
-            <strong>{zh ? "对话智能" : "Intelligence"}</strong>
+            <strong>{zh ? "运行记录" : "Operations"}</strong>
           </button>
           <small className="server-notebook-hint">
             {zh ? "每次只展开一页，减少纵向堆叠。" : "One server page at a time."}
@@ -1432,15 +1415,10 @@ export function DeploymentCenter({
                           </section>
                         )}
 
-                        {discordIdentityEnabled && draftParticipationMode === "smart" && (
-                          <div className="deployment-form-wide deployment-smart-participation">
-                            <SmartParticipationStudio
-                              cards={cards}
-                              zh={zh}
-                              fixedCharacterId={draftCharacterId}
-                              embedded
-                            />
-                          </div>
+                        {draftParticipationMode === "smart" && (
+                          <p className="deployment-form-wide">
+                            {zh ? "明确提及与回复直接路由；模糊群聊仅由已配置的合格 Room Director 决定。未配置时不主动插话。" : "Mentions and replies route directly. Ambient chat requires a configured, qualified Room Director; otherwise it stays silent."}
+                          </p>
                         )}
 
                         <label>
@@ -1878,30 +1856,18 @@ export function DeploymentCenter({
             />
           )}
 
-          {serverNotebookTab === "interactions" && selectedWorkspaceProfile && (
-            <InteractionSessionsPanel
-              demoMode={demoMode}
-              zh={zh}
-              serverProfile={selectedWorkspaceProfile}
-              serverCatalog={selectedWorkspaceCatalog}
-            />
+          {serverNotebookTab === "notes" && selectedWorkspaceProfile && (
+            <CharacterNotesPanel cards={cards} profile={selectedWorkspaceProfile} catalog={selectedWorkspaceCatalog} demoMode={demoMode} zh={zh} />
           )}
 
-          {serverNotebookTab === "intelligence" && selectedWorkspaceProfile && (
-            <ConversationIntelligenceInspector
-              cards={cards}
-              profile={selectedWorkspaceProfile}
-              catalog={selectedWorkspaceCatalog}
-              zh={zh}
-              activeTab={deploymentRoute?.intelligenceTab ?? "presence"}
-              onTabChange={(tab) => openServerNotebook("intelligence", tab)}
-            />
+          {serverNotebookTab === "operations" && selectedWorkspaceProfile && (
+            <DiscordEventLogPanel profiles={[selectedWorkspaceProfile]} selectedServerProfileId={selectedWorkspaceProfile.id} lockedServerProfileId={selectedWorkspaceProfile.id} embedded zh={zh} />
           )}
 
           {serverNotebookTab !== "characters" && !selectedWorkspaceProfile && (
             <section className="server-notebook-empty paper-sheet">
               <strong>{zh ? "先选择一个 Discord Server" : "Choose a Discord Server first"}</strong>
-              <p>{zh ? "Knowledge、Interaction 与 Intelligence 都属于当前 Server。" : "Knowledge, Interactions, and Intelligence are scoped to the selected Server."}</p>
+              <p>{zh ? "Knowledge、Notes 与 Operations 都属于当前 Server。" : "Knowledge, Notes, and Operations are scoped to the selected Server."}</p>
             </section>
           )}
         </div>

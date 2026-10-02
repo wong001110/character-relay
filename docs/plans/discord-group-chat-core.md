@@ -298,3 +298,9 @@ Production wiring, regression/fault/mutation evidence, removed consumers/config/
 architecture are required. Isolated classes/mocks/green synthetic tests alone are not completion.
 Report actual source commit, local/CI/live checks, self vs independent review, limitations and
 release state separately. All current progress belongs in PROJECT_STATE.md, not a second roadmap.
+
+## Authorized extension (2026-10-02)
+
+[Web Room Participant](web-room-participant.md) is accepted alongside this work. The user
+authorized combined squash merge to main after implementation and verification. Live tests
+remain user-owned; no failed code/integration gate is waived by that deferral.

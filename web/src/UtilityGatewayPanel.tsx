@@ -13,6 +13,7 @@ export type UtilityProviderId =
   | "custom";
 
 export type UtilityCapability =
+  | "room_director"
   | "semantic_judge"
   | "memory_intelligence"
   | "tool_continuation"
@@ -109,6 +110,7 @@ const providers: Array<{
 ];
 
 const capabilityLabels: Record<UtilityCapability, string> = {
+  room_director: "Room Director",
   semantic_judge: "Semantic Judge",
   memory_intelligence: "Memory",
   tool_continuation: "Tool Continuation",
@@ -118,6 +120,7 @@ const capabilityLabels: Record<UtilityCapability, string> = {
 };
 
 const capabilityIcons: Record<UtilityCapability, string> = {
+  room_director: "◇",
   semantic_judge: "⚖",
   memory_intelligence: "✦",
   tool_continuation: "⌁",

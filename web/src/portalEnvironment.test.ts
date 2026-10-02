@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { parsePortalDataMode, shouldRenderSystemIntelligenceDock } from "./portalEnvironment";
+import { parsePortalDataMode } from "./portalEnvironment";
 import {
   characterRouteForPath,
   characterRoutes,
@@ -23,28 +23,6 @@ describe("Portal route and data-mode foundation", () => {
     expect(parsePortalDataMode("mock")).toBe("mock");
   });
 
-  it("keeps the System Intelligence dock out of the Component Library and mock mode", () => {
-    expect(shouldRenderSystemIntelligenceDock(true, false)).toBe(false);
-    expect(shouldRenderSystemIntelligenceDock(false, true)).toBe(false);
-    expect(shouldRenderSystemIntelligenceDock(false, false)).toBe(true);
-  });
-
-  it("derives the import-time mock flag and default dock behavior from the environment", async () => {
-    vi.stubEnv("VITE_PORTAL_DATA_MODE", "mock");
-    vi.resetModules();
-    const mockEnvironment = await import("./portalEnvironment");
-
-    expect(mockEnvironment.isMockPortal).toBe(true);
-    expect(mockEnvironment.shouldRenderSystemIntelligenceDock(false)).toBe(false);
-
-    vi.stubEnv("VITE_PORTAL_DATA_MODE", "live");
-    vi.resetModules();
-    const liveEnvironment = await import("./portalEnvironment");
-
-    expect(liveEnvironment.isMockPortal).toBe(false);
-    expect(liveEnvironment.shouldRenderSystemIntelligenceDock(false)).toBe(true);
-  });
-
   it("normalizes only the trailing slash for direct route matching", () => {
     expect(matchesPortalRoute("/dev/ui", portalRoutes.componentLibrary)).toBe(true);
     expect(matchesPortalRoute("/dev/ui/", portalRoutes.componentLibrary)).toBe(true);
@@ -56,7 +34,7 @@ describe("Portal route and data-mode foundation", () => {
     expect(workspaceSectionForPath("/characters/")).toBe("characters");
     expect(workspaceSectionForPath("/dev/ui")).toBeNull();
     expect(workspaceSectionForPath("/characters/card-1/test")).toBe("characters");
-    expect(workspaceSectionForPath("/deployments/server-1/intelligence/conversation")).toBe("deployments");
+    expect(workspaceSectionForPath("/deployments/server-1/operations")).toBe("deployments");
   });
 
   it("keeps Character identity and work surface in the URL", () => {
@@ -83,19 +61,18 @@ describe("Portal route and data-mode foundation", () => {
   it("keeps the selected Server Notebook page in the URL", () => {
     expect(deploymentRouteForPath("/deployments")).toEqual({
       serverProfileId: null,
-      notebookTab: "characters",
-      intelligenceTab: null
+      notebookTab: "characters"
     });
     expect(deploymentRouteForPath(deploymentRoutes.notebook("server one", "knowledge"))).toEqual({
       serverProfileId: "server one",
-      notebookTab: "knowledge",
-      intelligenceTab: null
+      notebookTab: "knowledge"
     });
-    expect(deploymentRouteForPath(deploymentRoutes.intelligence("server-1", "conversation"))).toEqual({
+    expect(deploymentRouteForPath(deploymentRoutes.notebook("server-1", "operations"))).toEqual({
       serverProfileId: "server-1",
-      notebookTab: "intelligence",
-      intelligenceTab: "conversation"
+      notebookTab: "operations"
     });
     expect(deploymentRouteForPath("/deployments/server-1/not-a-page")).toBeNull();
+    expect(deploymentRouteForPath("/deployments/server-1/intelligence/conversation")).toBeNull();
+    expect(deploymentRouteForPath("/deployments/server-1/interactions")).toBeNull();
   });
 });
