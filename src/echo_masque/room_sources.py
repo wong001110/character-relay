@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -100,6 +101,10 @@ class SourceMessage(BaseModel):
                 raise ValueError("Source timestamps must include their original timezone.")
         return self
 
+    def model_text(self) -> str:
+        """Readable chat prose for models; UI-only Discord IDs stay out of prompts."""
+        return re.sub(r"<a?:([A-Za-z0-9_]+):\d+>", r":\1:", self.text)
+
     def draft_fingerprint(self) -> str:
         """Content/identity changes matter; display-name or timestamp enrichment does not."""
         payload = [
@@ -140,7 +145,7 @@ class SourceMessage(BaseModel):
                 else "human"
             ),
             author_deployment_id=self.author_deployment_id or None,
-            text=self.text[:4000],
+            text=self.model_text()[:4000],
             version=revision,
             reply_to_message_id=self.reply_to_message_id or None,
             response_to_message_id=self.response_to_message_id or None,
