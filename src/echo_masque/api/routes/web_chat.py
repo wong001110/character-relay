@@ -196,6 +196,7 @@ def _snapshot(repo: WebRoomRepository, room_id: str, user_id: str) -> dict[str, 
                     "discord_count": 0,
                     "web_count": 0,
                     "mine": False,
+                    "mine_profile_ids": [],
                 },
             )
             current["web_count"] = int(reaction["web_count"])
