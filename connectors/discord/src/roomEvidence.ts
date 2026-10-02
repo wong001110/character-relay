@@ -56,11 +56,11 @@ export interface RoomSource {
   content_available: boolean;
   has_unseen_media: boolean;
   media_fingerprint?: string;
-  attachments: RoomAttachment[];
-  custom_emojis: RoomExpression[];
-  stickers: RoomExpression[];
-  reactions: RoomReaction[];
-  pinned: boolean;
+  attachments?: RoomAttachment[];
+  custom_emojis?: RoomExpression[];
+  stickers?: RoomExpression[];
+  reactions?: RoomReaction[];
+  pinned?: boolean;
 }
 
 export interface RoomEvidence extends RoomLocation {
