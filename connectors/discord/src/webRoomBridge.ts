@@ -10,7 +10,7 @@ export interface WebRoom {
 export interface WebClaim {
   id: string; room_id: string; claim_nonce: string; profile_id: string; actor_id: string;
   display_name: string; avatar_url: string; text: string; reply_to_message_id: string;
-  sticker_resource_key: string; sticker_name: string; sticker_asset_url: string; sticker_format_type: string;
+  sticker_resource_key?: string; sticker_name?: string; sticker_asset_url?: string; sticker_format_type?: string;
   guild_id: string; channel_id: string; thread_id: string; webhook_id: string;
   discord_message_id: string; created_at: string;
 }
@@ -80,10 +80,10 @@ export async function deliverWebMessage(claim: WebClaim, transport: WebBridgeTra
 
 async function stickerAttachment(claim: WebClaim): Promise<{attachment: Buffer; name: string} | null> {
   if (!claim.sticker_resource_key) return null;
-  if (!claim.sticker_asset_url || ["3", "lottie"].includes(claim.sticker_format_type.toLowerCase())) {
+  if (!claim.sticker_asset_url || ["3", "lottie"].includes((claim.sticker_format_type ?? "").toLowerCase())) {
     throw Object.assign(new Error("web_sticker_not_renderable"), {status: 422});
   }
-  const url = new URL(claim.sticker_asset_url);
+  const url = new URL(claim.sticker_asset_url ?? "");
   if (url.protocol !== "https:" || !["cdn.discordapp.com", "media.discordapp.net"].includes(url.hostname)) {
     throw Object.assign(new Error("web_sticker_asset_untrusted"), {status: 422});
   }
@@ -93,7 +93,7 @@ async function stickerAttachment(claim: WebClaim): Promise<{attachment: Buffer; 
   if (declared > 8 * 1024 * 1024) throw Object.assign(new Error("web_sticker_too_large"), {status: 422});
   const bytes = Buffer.from(await response.arrayBuffer());
   if (!bytes.length || bytes.length > 8 * 1024 * 1024) throw Object.assign(new Error("web_sticker_too_large"), {status: 422});
-  const format = claim.sticker_format_type.toLowerCase();
+  const format = (claim.sticker_format_type ?? "").toLowerCase();
   const extension = format.includes("gif") || format === "2" ? "gif" : "png";
   return {attachment: bytes, name: `${claim.sticker_name || "sticker"}.${extension}`};
 }
