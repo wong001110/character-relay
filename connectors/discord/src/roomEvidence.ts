@@ -43,7 +43,9 @@ export interface RoomEmbed {
   provider_name: string;
   author_name: string;
   image_url: string;
+  image_proxy_url: string;
   thumbnail_url: string;
+  thumbnail_proxy_url: string;
 }
 export interface RoomPollAnswer {
   answer_id: number;
@@ -197,7 +199,9 @@ export function rawRoomSource(message: Message<true>, contentIntent: boolean): R
     provider_name: embed.provider?.name ?? "",
     author_name: embed.author?.name ?? "",
     image_url: embed.image?.url ?? "",
-    thumbnail_url: embed.thumbnail?.url ?? ""
+    image_proxy_url: embed.image?.proxyURL ?? "",
+    thumbnail_url: embed.thumbnail?.url ?? "",
+    thumbnail_proxy_url: embed.thumbnail?.proxyURL ?? ""
   }));
   const poll: RoomPoll | null = message.poll?.question.text ? {
     question: message.poll.question.text,
