@@ -92,7 +92,9 @@ class SourceMessage(BaseModel):
             raise ValueError("Only a verified bot message has a deployment identity.")
         if self.deleted and self.text:
             raise ValueError("A tombstone must not retain message content.")
-        if self.deleted and (self.attachments or self.custom_emojis or self.stickers or self.reactions):
+        if self.deleted and (
+            self.attachments or self.custom_emojis or self.stickers or self.reactions
+        ):
             raise ValueError("A tombstone must not retain presentation content.")
         if not self.content_available and self.text:
             raise ValueError("Unavailable content must not be serialized as readable evidence.")
