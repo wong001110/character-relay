@@ -18,11 +18,13 @@ from echo_masque.persistence.deployment_models import (
     PlatformConnectionRecord,
 )
 from echo_masque.persistence.models import UserRecord
+from echo_masque.persistence.expression_models import DiscordExpressionSemanticRecord
 from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.persistence.server_access_models import DiscordServerAccessRecord
 from echo_masque.persistence.web_room_models import (
     WebOutboxRecord,
     WebProfileRecord,
+    WebReactionRecord,
     WebRoomMemberRecord,
     WebRoomRecord,
 )
@@ -30,6 +32,8 @@ from echo_masque.web_rooms import (
     ProfileInput,
     ProfileView,
     WebDeliveryView,
+    WebExpressionView,
+    WebReactionInput,
     WebRoomDelivery,
     WebRoomError,
     WebRoomInput,
@@ -76,6 +80,31 @@ def delivery_view(record: WebOutboxRecord) -> WebDeliveryView:
             "created_at": _aware(record.created_at),
             "routing_status": record.routing_status,
         }
+    )
+
+
+def _expression(
+    session: Session,
+    room: WebRoomRecord,
+    resource_key: str,
+    *,
+    resource_type: str | None = None,
+) -> DiscordExpressionSemanticRecord | None:
+    kind, separator, resource_id = resource_key.partition(":")
+    if not separator or kind not in {"emoji", "sticker"} or not resource_id:
+        return None
+    if resource_type is not None and kind != resource_type:
+        return None
+    return session.scalar(
+        select(DiscordExpressionSemanticRecord).where(
+            DiscordExpressionSemanticRecord.owner_id == room.owner_id,
+            DiscordExpressionSemanticRecord.connection_id == room.connection_id,
+            DiscordExpressionSemanticRecord.guild_id == room.guild_id,
+            DiscordExpressionSemanticRecord.resource_type == kind,
+            DiscordExpressionSemanticRecord.resource_id == resource_id,
+            DiscordExpressionSemanticRecord.available.is_(True),
+            DiscordExpressionSemanticRecord.enabled.is_(True),
+        )
     )
 
 
