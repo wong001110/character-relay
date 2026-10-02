@@ -14,7 +14,7 @@ from echo_masque.persistence import Database
 from echo_masque.persistence.room_repository import RoomRepository
 from echo_masque.room_context import RoomContextService, bind_requester
 from echo_masque.room_routing import RoomScope, SpeakerChoice
-from echo_masque.room_sources import SourceMessage, SourceUnavailable, scope_key
+from echo_masque.room_sources import SourceMessage, SourceReaction, SourceUnavailable, scope_key
 
 NOW = datetime(2026, 10, 1, tzinfo=UTC)
 SCOPE = RoomScope(owner_id="owner", connection_id="connection", guild_id="guild", channel_id="room")
@@ -78,6 +78,37 @@ def test_sources_are_exact_room_and_author_scoped(rooms: RoomRepository) -> None
     with pytest.raises(ValueError, match="source_author"):
         rooms.observe(SCOPE, [message(author_id="bob")])
     assert rooms.get(SCOPE, "m1").message.author_id == "alice"
+
+
+
+def test_presentation_reactions_do_not_advance_agent_source_revision(
+    rooms: RoomRepository,
+) -> None:
+    original = message()
+    assert rooms.observe(SCOPE, [original]) == 1
+    enriched = message(
+        reactions=(
+            SourceReaction(key="unicode:😂", name="😂", count=3),
+        ),
+        pinned=True,
+    )
+    assert rooms.observe(SCOPE, [enriched]) == 1
+    stored = rooms.get(SCOPE, "m1")
+    assert stored is not None
+    assert stored.revision == 1
+    assert stored.room_revision == 1
+    assert stored.message.reactions[0].count == 3
+    assert stored.message.pinned is True
+
+
+def test_custom_emoji_ids_stay_out_of_agent_model_text() -> None:
+    source = message(text="hello <:wave:123456789> <a:dance:987654321>")
+    assert source.text == "hello <:wave:123456789> <a:dance:987654321>"
+    assert source.model_text() == "hello :wave: :dance:"
+    routed = source.routing_message(SCOPE, 1)
+    assert routed.text == "hello :wave: :dance:"
+    assert "123456789" not in routed.text
+
 
 
 def test_scope_identity_is_not_colon_concatenation() -> None:
