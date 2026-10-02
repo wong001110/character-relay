@@ -37,3 +37,41 @@ Web Room and Character perception are deliberately separate:
 Discord attachment URLs are transport references, not a permanent media archive. Long-lived recall
 must continue to depend on source identity and the existing media/perception cache rather than treating
 a stale CDN URL as durable truth.
+
+
+## Dots follow-up acceptance
+
+The optimization pass also covers the following room UX requirements before any merge:
+
+1. **Expressions, images, and attachments**
+   - render Discord custom emoji instead of raw `<:name:id>` / `<a:name:id>` tokens;
+   - render stickers as message content, with a clear attachment fallback when a resource cannot render;
+   - retain bounded Discord attachment metadata for Web Room display, including image preview metadata;
+   - never append attachment/CDN URLs to ordinary LLM conversation prose.
+
+2. **Reply context**
+   - show reply author + bounded original-text summary instead of a raw message ID;
+   - clicking a resolvable reply preview scrolls to the referenced message;
+   - missing/deleted/out-of-window reply targets are explicitly labelled unavailable.
+
+3. **Send and connection state**
+   - distinguish local submitting, website accepted/pending, Discord claimed/sending, delivered, failed and uncertain;
+   - same-room refresh/reconnect preserves the visible transcript;
+   - only real room change, revocation, or invalid authority clears the transcript.
+
+4. **Unread/new-message behavior**
+   - never force-scroll a reader who has moved away from the bottom;
+   - count newly arrived message IDs while reading history;
+   - expose a "new messages" jump control that returns to the latest message and clears the local unread count.
+
+5. **Channel expression picker**
+   - Web participants can browse the current Discord server's available custom emoji and stickers;
+   - the picker is room/guild scoped and returns only server resources already synchronized by the Connector;
+   - emoji selection inserts a validated Discord custom-emoji token;
+   - sticker selection submits a stable resource key, never an arbitrary browser-supplied asset URL;
+   - backend revalidates the resource against the room owner/connection/guild catalog before Connector delivery;
+   - Webhook sticker delivery uses the existing safe attachment rendering path when native webhook stickers are unavailable.
+
+The current Portal server-catalog response exposes channels only. Connector resource sync already stores
+emoji/sticker metadata in the Expression catalog, so the picker should reuse that authoritative catalog
+rather than adding a second Discord scan.
