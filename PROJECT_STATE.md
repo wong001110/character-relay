@@ -1,21 +1,20 @@
 # Project state
 
-Updated: **2026-10-02**. This is the only current progress and takeover record.
+Updated: **2026-10-03**. This is the only current progress and takeover record.
 
 ## Current scope and authority
 
 | Item | State |
 | --- | --- |
-| Repository / baseline | `wong001110/character-relay` / `2812d79b314b25aa31fe0632dcbdd7da205b0bf0` (merged PR #207) |
-| Active direction | [Lightweight Room Director refactor](docs/plans/discord-group-chat-core.md) |
-| Current instruction | Finish the accepted refactor in Execution mode; user will perform live testing afterward. External Agent Continuity stays outside the checkout. |
-| Development branch | `refactor/lightweight-room-director` |
-| Direction receipt | `94be0361ef5c4c77bdbf180146beb6f49a5dc6d2`; documentation only, before implementation |
-| R1 source receipt | `f3933d01f43cfe40d42369db0e927d0151f1480f`; final fixture/docs/dependency guard are in its follow-up commit |
-| Merge / production deploy | User authorized squash merge of the completed refactor plus Web Room Participant to main on 2026-10-02; not yet performed. No manual production purge. |
+| Repository / baseline | `wong001110/character-relay` / main `468dd81660913d35b69d35b13024e329a70e4a1a` (through merged PR #213) |
+| Active direction | [Web Room live follow-up](docs/plans/web-room-followup-2026-10-03.md) on top of the completed Lightweight Room Director refactor |
+| Current instruction | Execution mode for bounded defects found during live Web Room use plus the explicitly requested Web → Discord image-attachment extension. The user will continue reporting real-use findings. |
+| Development branch | `fix/web-room-followup-20261003`; Draft PR #214 |
+| Follow-up code receipts | `29c9e4139f1c1642a43502b537dd0de5fdd7ce5a` (send/delivery/reply/reaction fixes) and `301b2c5e77f2b83bfea40cc8cef31a74c98b8105` (image attachments) |
+| Merge / production deploy | **Not authorized for this follow-up yet.** Keep PR #214 draft/open until the user closes the observation pass. No manual deploy or production data change. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
 | Character cards | Prefer portable authored content; old schema must not block the refactor |
-| Full refactor | **OFFLINE CODE CLOSEOUT COMPLETE**; Web Room MVP included. Live Discord and Free Token Pool quality testing is user-owned after merge. |
+| Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#213. Live follow-up remains in progress. |
 
 ## Baseline correction
 
@@ -70,9 +69,42 @@ describes the actual entry points and missing live adapter.
 - Final-head GitHub CI/PR conclusions belong to their exact remote receipts; local checks and the
   artifact workflow do not imply a green full CI. No merge/deploy/data deletion has occurred.
 
+## Web Room live follow-up checkpoint (2026-10-03)
+
+Draft PR #214 contains the current bounded follow-up. Application-code head
+`301b2c5e77f2b83bfea40cc8cef31a74c98b8105` is verified but not merged or manually deployed.
+
+- Delivered-card lifecycle: a delivered receipt is retired once its Discord echo is durably present
+  in Room source storage; it no longer reappears merely because that echo leaves the 64-message UI
+  history window.
+- Send reliability: a successful POST receipt is surfaced immediately and releases the composer;
+  the browser no longer waits for SSE convergence before another send. The request has a bounded
+  timeout and keeps the same client message ID for explicit safe retry after an unknown result.
+- Reply presentation: Web → Discord reply fallback uses bounded referenced-author/source text
+  instead of injecting a bare Discord message URL. Structured `reply_to_message_id` remains the
+  Agent-facing evidence.
+- Discord reactions: add/remove reaction events force-fetch the exact Discord message before
+  publishing presentation state, avoiding stale Message-cache counts.
+- Web → Discord image attachments: PNG/JPEG/WebP/GIF, maximum four images per message and 8 MiB per
+  image. Actual bytes are validated server-side, stored short-term in the existing private generated
+  media store, and downloadable only by the Connector holding the exact outbox claim. Temporary
+  artifact URLs/base64 are not inserted into Agent prose.
+
+Exact application-code evidence for `301b2c5e77f2b83bfea40cc8cef31a74c98b8105`:
+- GitHub CI run **37101994857**: Web, Discord Connector, Docker production image,
+  PostgreSQL foundation, Python 3.12 and Python 3.13 all passed.
+- Python 3.12 and 3.13: **1,409 passed, 7 skipped** each; Ruff and whole-source mypy passed.
+- Railway Smoke **37101994916** passed.
+- Public Demo Status Check **37101994961** passed.
+- This is offline/self-reviewed evidence; no live Discord attachment send on this branch and no
+  production deployment are claimed.
+
 ## Next concrete action
 
-User-owned real testing after merge: publish an explicitly permitted Discord room, grant a website account, choose/create a Web participant profile, verify Discord ↔ Web create/edit/delete and reply behavior, then exercise Free Token Pool Director qualification with real conversations. Record any observed defect as a new bounded follow-up. No production data purge is required for this merge.
+Continue user-owned live observation on the currently deployed main behavior and add reproducible
+findings to the follow-up plan. When the user decides the pass is complete, review PR #214 as one
+batch, decide whether a live branch/deployment check is needed, and only then request merge/deploy
+authorization. Free Token Pool Director quality evaluation remains a separate user-owned live check.
 
 ## R3 implementation checkpoint (2026-10-01)
 
