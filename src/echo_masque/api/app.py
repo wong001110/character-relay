@@ -800,6 +800,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             include_in_schema=False,
         )
         @app.get("/deployments/{server_profile_id}/intelligence/discovery", include_in_schema=False)
+        @app.get("/rooms", include_in_schema=False)
+        @app.get("/rooms/", include_in_schema=False)
         @app.get("/toolbox", include_in_schema=False)
         @app.get("/toolbox/", include_in_schema=False)
         @app.get("/settings", include_in_schema=False)
