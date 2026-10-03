@@ -200,7 +200,8 @@ def _snapshot(repo: WebRoomRepository, room_id: str, user_id: str) -> dict[str, 
                     "mine_profile_ids": [],
                 },
             )
-            current["web_count"] = int(web_reaction["web_count"])
+            raw_web_count = web_reaction.get("web_count", 0)
+            current["web_count"] = raw_web_count if isinstance(raw_web_count, int) else 0
             current["mine"] = bool(web_reaction["mine"])
             current["mine_profile_ids"] = web_reaction.get("mine_profile_ids", [])
         for reaction_view in reactions.values():
