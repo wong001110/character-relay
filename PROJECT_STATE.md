@@ -6,15 +6,15 @@ Updated: **2026-10-04**. This is the only current progress and takeover record.
 
 | Item | State |
 | --- | --- |
-| Repository / baseline | `wong001110/character-relay` / main `8e459af1d39060b4e7008d780bcb392e977592eb` (through merged PR #218) |
+| Repository / baseline | `wong001110/character-relay` / main `3223130996afacc78590aa43c26141ec7d78c753` (through merged PR #221) |
 | Active direction | [Portal UI follow-up](docs/plans/portal-ui-followup-2026-10-04.md) after live review of Characters, Toolbox/Lab, Deployments and Knowledge Fabric |
-| Current instruction | Execution mode for the accepted Portal UI follow-up. Implement the bounded fixes, verify them, then squash merge this branch to main. No manual production deployment was requested. |
-| Development branch | `fix/portal-ui-followup-20261004`; PR #221 |
-| Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; PR #219 MYT fix remains separate/open |
-| Merge / production deploy | PR #214, #215, #217 and #218 are squash-merged. This Portal UI branch is explicitly authorized for squash merge after checks. PR #219 remains separate and unmerged. No manual production deploy or production data change is authorized. |
+| Current instruction | Portal UI follow-up is implemented, verified and squash-merged. Continue live observation; PR #219 MYT timestamp consistency remains a separate open change. No manual production deployment was requested. |
+| Development branch | None for the completed Portal UI batch; PR #219 remains separate/open |
+| Follow-up code receipts | PR #214 squash `b44ced4b67dc7713dae895a5c75a534213c7f49e`; PR #215 squash `4ab31aae04c6ddb11d6817eaf0f699cdb54a54c6`; PR #217 squash `f243918043ae711d86ff27f38fce5bbaa556b98a`; PR #218 squash `8e459af1d39060b4e7008d780bcb392e977592eb`; PR #221 squash `3223130996afacc78590aa43c26141ec7d78c753`; PR #219 MYT fix remains separate/open |
+| Merge / production deploy | PR #214, #215, #217, #218 and #221 are squash-merged. PR #219 remains separate and unmerged. No manual production deploy or production data change occurred in this batch. |
 | Old application data | May be discarded at a controlled future cutover; no compatibility requirement for its own sake |
 | Character cards | Prefer portable authored content; old schema must not block the refactor |
-| Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#218. Portal UI follow-up is active; PR #219 is a separate Web Room timestamp fix. |
+| Full refactor | **MERGED / OFFLINE CLOSEOUT COMPLETE** via PR #209, followed by Web Room parity/hotfix PRs #211-#218 and Portal UI follow-up PR #221. PR #219 is a separate Web Room timestamp fix. |
 
 ## Baseline correction
 
@@ -202,9 +202,10 @@ performed. PR #219 (MYT timestamp consistency) remains separate/open and is not 
 
 ## Next concrete action
 
-This docs-only PROJECT_STATE update is the final PR #221 head. Re-run the required exact-head CI /
-Railway Smoke / Public Demo gates; if they pass, squash merge #221 to main as already authorized.
-No manual production deployment.
+PR #221 was squash-merged to main as `3223130996afacc78590aa43c26141ec7d78c753` after final-head
+GitHub CI **37139621329**, Railway Smoke **37139621316**, and Public Demo Status Check **37139621330**
+all passed. Continue user-owned live UI observation. PR #219 remains separate/open; no manual
+production deployment was performed.
 
 ## R3 implementation checkpoint (2026-10-01)
 
