@@ -162,7 +162,8 @@ class SourceMessage(BaseModel):
                 if mention.kind == "role"
                 else f"<@{mention.target_id}>"
             )
-            value = value.replace(token, ("#" if mention.kind == "channel" else "@") + mention.label)
+            prefix = "#" if mention.kind == "channel" else "@"
+            value = value.replace(token, prefix + mention.label)
             if mention.kind == "user":
                 value = value.replace(f"<@!{mention.target_id}>", f"@{mention.label}")
         value = re.sub(r"<@!?\d+>", "@user", value)
